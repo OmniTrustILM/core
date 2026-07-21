@@ -27,9 +27,12 @@ import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.EntityInstanceReference;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
+import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.EntityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
+import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.service.callback.AttributeCallbackScopeResolver;
@@ -65,6 +68,8 @@ public class CallbackServiceImpl implements CallbackExternalService {
     private AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;
     private EntityInstanceReferenceRepository entityInstanceReferenceRepository;
     private RaProfileRepository raProfileRepository;
+    private TokenInstanceReferenceRepository tokenInstanceReferenceRepository;
+    private ConnectorInterfaceRepository connectorInterfaceRepository;
     private CryptographicKeyExternalService cryptographicKeyService;
     private TokenProfileInternalService tokenProfileService;
     private AttributeEngine attributeEngine;
@@ -134,6 +139,16 @@ public class CallbackServiceImpl implements CallbackExternalService {
     }
 
     @Autowired
+    public void setTokenInstanceReferenceRepository(TokenInstanceReferenceRepository tokenInstanceReferenceRepository) {
+        this.tokenInstanceReferenceRepository = tokenInstanceReferenceRepository;
+    }
+
+    @Autowired
+    public void setConnectorInterfaceRepository(ConnectorInterfaceRepository connectorInterfaceRepository) {
+        this.connectorInterfaceRepository = connectorInterfaceRepository;
+    }
+
+    @Autowired
     public void setCryptographicKeyExternalService(CryptographicKeyExternalService cryptographicKeyService) {
         this.cryptographicKeyService = cryptographicKeyService;
     }
@@ -164,14 +179,16 @@ public class CallbackServiceImpl implements CallbackExternalService {
     }
 
     private Object getCallbackObject(RequestAttributeCallback callback, List<BaseAttribute> definitions, ConnectorDetailDto connector) throws NotFoundException, ConnectorException, AttributeException {
-        // Connector-level entrypoints carry no form/resource context, so no scope coordinates and no
-        // connectorInterface to stamp. The form-context NG paths (resourceCallback) stamp connectorInterface per
-        // resource. NG callbacks are a form-driven flow (resourceCallback), not the bare connector-level path.
+        // Connector-scoped entrypoints carry no parent scope object, so no scope coordinates and no pre-resolved
+        // connectorInterface. This is the route parent-less forms (the connector/authority instance create-edit
+        // form) use for NG callbacks: the interface is stamped in dispatchNg from the request's interfaceUuid, and
+        // the scope chain is empty. Resource-scoped forms (resourceCallback) instead pass the interface pre-resolved
+        // from the scoped object. Legacy callbacks ignore both.
         return getCallbackObject(callback, definitions, connector, null, null, null, null);
     }
 
     private Object getCallbackObject(RequestAttributeCallback callback, List<BaseAttribute> definitions, ConnectorDetailDto connector,
-                                     Resource scopeResource, UUID scopeResourceUuid, ConnectorInterface connectorInterface,
+                                     Resource scopeResource, UUID scopeParentUuid, ConnectorInterface connectorInterface,
                                      String interfaceVersion) throws NotFoundException, ConnectorException, AttributeException {
         UUID connectorUuid = UUID.fromString(connector.getUuid());
         BaseAttribute attribute = getBaseAttribute(callback, definitions, connectorUuid);
@@ -193,7 +210,7 @@ public class CallbackServiceImpl implements CallbackExternalService {
         // declaration is validated at ingest instead. Both-set is rejected at ingest, so the
         // callbackContext == null conjunct here is defensive. Legacy callbacks fall through unchanged.
         if (isNgCallback(attribute, attributeCallback)) {
-            return dispatchNg(connector, attribute, callback, scopeResource, scopeResourceUuid, connectorInterface, interfaceVersion);
+            return dispatchNg(connector, attribute, attributeCallback, callback, scopeResource, scopeParentUuid, connectorInterface, interfaceVersion);
         }
 
         AttributeDefinitionUtils.validateCallback(attributeCallback, callback, attributeResource != null);
@@ -312,18 +329,37 @@ public class CallbackServiceImpl implements CallbackExternalService {
      * supplied with the callback (the dependsOn-named attributes), expanded per the calling user via the same
      * {@link AttributeReferenceExpander} used for the scope chain.
      */
-    private Object dispatchNg(ConnectorDetailDto connector, BaseAttribute attribute,
-                              RequestAttributeCallback callback, Resource scopeResource, UUID scopeResourceUuid,
+    private Object dispatchNg(ConnectorDetailDto connector, BaseAttribute attribute, AttributeCallback attributeCallback,
+                              RequestAttributeCallback callback, Resource scopeResource, UUID scopeParentUuid,
                               ConnectorInterface connectorInterface, String interfaceVersion)
             throws NotFoundException, ConnectorException, AttributeException {
+        UUID connectorUuid = UUID.fromString(connector.getUuid());
+        List<RequestAttribute> currentAttributes = callback.getAttributes();
+
+        // Defence-in-depth behind the FE trigger rule: a dependsOn callback only fires once its named siblings are
+        // populated, so every dependsOn name must be present in currentAttributes. This checks presence by name (a
+        // value cleared to empty still counts as present); reject before touching the connector.
+        assertDependsOnNamesPresent(attributeCallback.getDependsOn(), currentAttributes);
+
+        // Stamp the envelope interface. Precedence: a route that pre-resolved it from the scoped object
+        // (RA_PROFILE/CERTIFICATE, from the authority's ConnectorInterfaceEntity) wins, and a request-supplied
+        // interfaceUuid is ignored there — those forms derive their interface from the object, so the FE does not
+        // send one. Only when nothing is pre-resolved (the connector route, and the arms with no
+        // ConnectorInterfaceEntity) is the request's interfaceUuid consulted. Resolving here (not the entrypoint)
+        // keeps the lookup on the NG branch only.
+        if (connectorInterface == null) {
+            ConnectorInterfaceEntity iface = resolveRequestInterface(callback, connectorUuid);
+            connectorInterface = iface.getInterfaceCode();
+            interfaceVersion = iface.getVersion();
+        }
+
         // The scope chain is resolved HERE (not in resourceCallback) so legacy callbacks never pay its per-object
         // DETAIL authorization. One accumulator spans the scope chain + currentAttributes expansion so the
         // dispatcher can reject a connector echoing any server-expanded secret back toward the FE.
         Set<String> expandedSecrets = new HashSet<>();
         List<ScopedAttributes> contextAttributes = scopeResource == null
                 ? List.of()
-                : scopeResolver.resolveScopeChain(scopeResource, scopeResourceUuid, expandedSecrets);
-        List<RequestAttribute> currentAttributes = callback.getAttributes();
+                : scopeResolver.resolveScopeChain(scopeResource, scopeParentUuid, expandedSecrets);
         if (currentAttributes != null && !currentAttributes.isEmpty()) {
             attributeReferenceExpander.expandForCaller(currentAttributes, expandedSecrets);
         }
@@ -333,9 +369,54 @@ public class CallbackServiceImpl implements CallbackExternalService {
         return response.getContent() != null ? response.getContent() : response.getAttributes();
     }
 
+    /**
+     * Resolve the connector-interface row a callback carries on the request. When the dispatch ladder has not
+     * pre-resolved the interface from a scoped object — the connector-scoped route, and the token-instance /
+     * cryptographic-key / location arms that carry no {@link ConnectorInterfaceEntity} — an NG callback must supply
+     * {@code interfaceUuid}. The row disambiguates parallel NG interface versions on one connector and supplies the
+     * interface/version Core stamps on the envelope. It must belong to the route connector — otherwise a caller
+     * could stamp another connector's interface onto the dispatch.
+     */
+    private ConnectorInterfaceEntity resolveRequestInterface(RequestAttributeCallback callback, UUID connectorUuid) {
+        UUID interfaceUuid = callback.getInterfaceUuid();
+        if (interfaceUuid == null) {
+            throw new ValidationException(ValidationError.create(
+                    "NG attribute callback requires interfaceUuid identifying the form's connector interface"));
+        }
+        // Collapse "no such row" and "row owned by another connector" into one message: distinct messages would let
+        // a caller with connector access probe which interface UUIDs exist globally.
+        ConnectorInterfaceEntity iface = connectorInterfaceRepository.findById(interfaceUuid).orElse(null);
+        if (iface == null || !connectorUuid.equals(iface.getConnectorUuid())) {
+            throw new ValidationException(ValidationError.create(
+                    "Connector interface " + interfaceUuid + " is not valid for connector " + connectorUuid));
+        }
+        return iface;
+    }
+
+    private static void assertDependsOnNamesPresent(List<String> dependsOn, List<RequestAttribute> currentAttributes) {
+        if (dependsOn == null || dependsOn.isEmpty()) {
+            return;
+        }
+        Set<String> present = new HashSet<>();
+        if (currentAttributes != null) {
+            for (RequestAttribute current : currentAttributes) {
+                // Client-supplied list: a null element (or null name) must not NPE into a 500. Skip it so the
+                // dependsOn name it was meant to satisfy stays unsatisfied — fail closed via the missing-name check.
+                if (current != null && current.getName() != null) {
+                    present.add(current.getName());
+                }
+            }
+        }
+        List<String> missing = dependsOn.stream().filter(name -> !present.contains(name)).toList();
+        if (!missing.isEmpty()) {
+            throw new ValidationException(ValidationError.create(
+                    "NG attribute callback is missing current values for dependsOn attributes: " + missing));
+        }
+    }
+
     @Override
     @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.LIST)
-    public Object resourceCallback(Resource resource, String resourceUuid, RequestAttributeCallback callback) throws ConnectorException, ValidationException, NotFoundException, AttributeException {
+    public Object resourceCallback(Resource resource, String parentObjectUuid, RequestAttributeCallback callback) throws ConnectorException, ValidationException, NotFoundException, AttributeException {
         List<BaseAttribute> definitions = null;
         Connector connector = null;
         ConnectorInterface connectorInterface = null;
@@ -343,11 +424,11 @@ public class CallbackServiceImpl implements CallbackExternalService {
         switch (resource) {
             case RA_PROFILE:
                 AuthorityInstanceReference authorityInstance = authorityInstanceReferenceRepository.findByUuid(
-                                UUID.fromString(resourceUuid))
+                                UUID.fromString(parentObjectUuid))
                         .orElseThrow(
                                 () -> new NotFoundException(
                                         AuthorityInstanceReference.class,
-                                        resourceUuid
+                                        parentObjectUuid
                                 )
                         );
                 connector = authorityInstance.getConnector();
@@ -369,11 +450,11 @@ public class CallbackServiceImpl implements CallbackExternalService {
                 // Issuance scope (NG-only): the FE issuance form sends (CERTIFICATE, raProfile). Resolve the
                 // connector via the raProfile -> authority chain, consistent with the scope walker
                 // (walkCertificateIssuance). Inert until the FE issuance form is wired; the scope chain is resolved by the NG path below.
-                RaProfile issuanceRaProfile = raProfileRepository.findByUuid(UUID.fromString(resourceUuid))
-                        .orElseThrow(() -> new NotFoundException(RaProfile.class, resourceUuid));
+                RaProfile issuanceRaProfile = raProfileRepository.findByUuid(UUID.fromString(parentObjectUuid))
+                        .orElseThrow(() -> new NotFoundException(RaProfile.class, parentObjectUuid));
                 AuthorityInstanceReference issuanceAuthority = issuanceRaProfile.getAuthorityInstanceReference();
                 if (issuanceAuthority == null) {
-                    throw new NotFoundException(AuthorityInstanceReference.class, resourceUuid);
+                    throw new NotFoundException(AuthorityInstanceReference.class, parentObjectUuid);
                 }
                 connector = issuanceAuthority.getConnector();
                 connectorInterface = interfaceCodeOf(issuanceAuthority);
@@ -381,46 +462,47 @@ public class CallbackServiceImpl implements CallbackExternalService {
                 break;
 
             case TOKEN_PROFILE:
-                // TOKEN_PROFILE is sent by the FE today but had no switch arm (it threw "not supported"). Route
-                // it via the token-profile -> token-instance FK like CRYPTOGRAPHIC_KEY; the NG scope chain (when
-                // the definition declares dependsOn) is resolved below.
-                connector = tokenProfileService.getTokenProfileEntity(SecuredUUID.fromString(resourceUuid))
-                        .getTokenInstanceReference().getConnector();
-                // No stored interface version for this route — only authorities carry a ConnectorInterfaceEntity, so
-                // unlike RA_PROFILE/CERTIFICATE there is no version to pair with a connectorInterface. Leave both unset
-                // (the connector-scoped envelope shape) rather than stamp a half-pair the dispatcher rejects; the FE
-                // wiring supplies the interface context when this NG route goes live.
+                // The token-profile create form's parent scope is the token INSTANCE (a token profile is created
+                // under an instance), so the FE sends the token-instance UUID as the parent — matching the scope
+                // table (TOKEN_PROFILE -> [{tokenInstance}]). Load the instance directly; loading a TokenProfile by
+                // this UUID would 404.
+                TokenInstanceReference tokenInstance = tokenInstanceReferenceRepository.findByUuid(UUID.fromString(parentObjectUuid))
+                        .orElseThrow(() -> new NotFoundException(TokenInstanceReference.class, parentObjectUuid));
+                connector = tokenInstance.getConnector();
+                // Token connectors carry no ConnectorInterfaceEntity, so this arm pre-resolves no interface: a legacy
+                // callback stamps none, and an NG definition dispatched here must carry interfaceUuid on the request
+                // (like the connector route) or the dispatch is rejected for a missing interface.
                 break;
 
             case CRYPTOGRAPHIC_KEY:
                 connector =
                         tokenProfileService.getTokenProfileEntity(
                                 SecuredUUID.fromString(
-                                        resourceUuid
+                                        parentObjectUuid
                                 )
                         ).getTokenInstanceReference().getConnector();
-                // See TOKEN_PROFILE: no stored interface version for this route, so leave the envelope's interface
-                // context unset (both-null) rather than stamp a half-pair the dispatcher rejects.
+                // See TOKEN_PROFILE: token connectors carry no ConnectorInterfaceEntity, so this arm pre-resolves no
+                // interface; an NG definition here must carry interfaceUuid on the request.
                 definitions = cryptographicKeyService.listCreateKeyAttributes(
                         null,
                         SecuredParentUUID.fromString(
-                                resourceUuid
+                                parentObjectUuid
                         ),
                         KeyRequestType.KEY_PAIR
                 );
                 break;
 
             case LOCATION:
-                EntityInstanceReference entityInstance = entityInstanceReferenceRepository.findByUuid(UUID.fromString(resourceUuid))
+                EntityInstanceReference entityInstance = entityInstanceReferenceRepository.findByUuid(UUID.fromString(parentObjectUuid))
                         .orElseThrow(
                                 () -> new NotFoundException(
                                         EntityInstanceReference.class,
-                                        resourceUuid
+                                        parentObjectUuid
                                 )
                         );
                 connector = entityInstance.getConnector();
-                // See TOKEN_PROFILE: no stored interface version for this route, so leave the envelope's interface
-                // context unset (both-null) rather than stamp a half-pair the dispatcher rejects.
+                // See TOKEN_PROFILE: entity connectors carry no ConnectorInterfaceEntity, so this arm pre-resolves no
+                // interface; an NG definition here must carry interfaceUuid on the request.
                 ApiClientConnectorInfo locationConnectorDto = connectorInternalService.getConnectorForApiClient(connector.getUuid());
                 definitions = connectorApiFactory.getEntityInstanceApiClient(locationConnectorDto).listLocationAttributes(locationConnectorDto, entityInstance.getEntityInstanceUuid());
                 break;
@@ -436,7 +518,7 @@ public class CallbackServiceImpl implements CallbackExternalService {
         LoggingHelper.putLogResourceInfo(Resource.CONNECTOR, true, connector.getUuid().toString(), connector.getName());
         // The scope chain is resolved lazily inside the NG branch (dispatchNg) so legacy callbacks never pay its
         // per-object DETAIL authorization; pass the scope coordinates rather than a pre-resolved chain.
-        return getCallbackObject(callback, definitions, connector.mapToDetailDto(), resource, UUID.fromString(resourceUuid), connectorInterface, interfaceVersion);
+        return getCallbackObject(callback, definitions, connector.mapToDetailDto(), resource, UUID.fromString(parentObjectUuid), connectorInterface, interfaceVersion);
     }
 
     /**

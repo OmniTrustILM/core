@@ -13,6 +13,7 @@ import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.EntityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
+import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
@@ -44,6 +45,7 @@ class AttributeCallbackScopeResolverTest {
     private AuthorityInstanceReferenceRepository authorityRepo;
     private RaProfileRepository raProfileRepo;
     private TokenProfileRepository tokenProfileRepo;
+    private TokenInstanceReferenceRepository tokenInstanceRepo;
     private EntityInstanceReferenceRepository entityRepo;
     private AttributeCallbackScopeResolver resolver;
 
@@ -55,9 +57,10 @@ class AttributeCallbackScopeResolverTest {
         authorityRepo = mock(AuthorityInstanceReferenceRepository.class);
         raProfileRepo = mock(RaProfileRepository.class);
         tokenProfileRepo = mock(TokenProfileRepository.class);
+        tokenInstanceRepo = mock(TokenInstanceReferenceRepository.class);
         entityRepo = mock(EntityInstanceReferenceRepository.class);
         resolver = new AttributeCallbackScopeResolver(attributeEngine, expander, authorizationEnforcer,
-                authorityRepo, raProfileRepo, tokenProfileRepo, entityRepo);
+                authorityRepo, raProfileRepo, tokenProfileRepo, tokenInstanceRepo, entityRepo);
     }
 
     private Connector connectorWithUuid() {
@@ -90,6 +93,22 @@ class AttributeCallbackScopeResolverTest {
 
         verify(authorizationEnforcer).enforce(eq(Resource.AUTHORITY), eq(ResourceAction.DETAIL), any(SecuredUUID.class));
         verify(authorizationEnforcer).enforce(eq(Resource.RA_PROFILE), eq(ResourceAction.DETAIL), any(SecuredUUID.class));
+    }
+
+    @Test
+    void tokenProfileAuthorizesTokenInstance() throws Exception {
+        // The token-profile create form is scoped by its parent token INSTANCE, so the parent UUID identifies the
+        // instance; the chain is [{tokenInstance}] and only TOKEN:DETAIL is enforced. The walker reads the
+        // connectorUuid column (not the lazy connector association), so stub that to mirror production.
+        UUID tokenInstanceUuid = UUID.randomUUID();
+        TokenInstanceReference tokenInstance = mock(TokenInstanceReference.class);
+        when(tokenInstance.getUuid()).thenReturn(tokenInstanceUuid);
+        when(tokenInstance.getConnectorUuid()).thenReturn(UUID.randomUUID());
+        when(tokenInstanceRepo.findByUuid(tokenInstanceUuid)).thenReturn(Optional.of(tokenInstance));
+
+        resolver.resolveScopeChain(Resource.TOKEN_PROFILE, tokenInstanceUuid, new HashSet<>());
+
+        verify(authorizationEnforcer).enforce(eq(Resource.TOKEN), eq(ResourceAction.DETAIL), any(SecuredUUID.class));
     }
 
     @Test
