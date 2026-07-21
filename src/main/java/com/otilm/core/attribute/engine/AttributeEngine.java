@@ -63,6 +63,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.DateTimeException;
 import java.util.*;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
@@ -309,7 +310,8 @@ public class AttributeEngine {
         for (ObjectAttributeDefinitionContent objectDefinitionContent : objectDefinitionContents) {
 
             MetadataAttribute definition = (MetadataAttribute) objectDefinitionContent.definition();
-            AttributeContent contentItem = decryptedContentItem(objectDefinitionContent.contentItem(), definition.getVersion(), definition.getContentType(), objectDefinitionContent.encryptedContent());
+            AttributeContent contentItem = decryptedContentItem(objectDefinitionContent.contentItem(), definition.getVersion(), definition.getContentType(), objectDefinitionContent.encryptedContent(),
+                    "metadata attribute " + definition.getName() + " for " + contentInfo.objectType() + " " + contentInfo.objectUuid());
             if (contentItem.getData() == null) {
                 continue;
             }
@@ -337,7 +339,8 @@ public class AttributeEngine {
         Map<UUID, String> connectorMapping = new HashMap<>();
         Map<UUID, Map<Resource, Map<UUID, ResponseMetadata>>> mapping = new HashMap<>();
         for (ObjectAttributeContentDetail objectMetadataContent : objectMetadataContents) {
-            AttributeContent contentItem = decryptedContentItem(objectMetadataContent.contentItem(), objectMetadataContent.version(), objectMetadataContent.contentType(), objectMetadataContent.encryptedContent());
+            AttributeContent contentItem = decryptedContentItem(objectMetadataContent.contentItem(), objectMetadataContent.version(), objectMetadataContent.contentType(), objectMetadataContent.encryptedContent(),
+                    "metadata attribute " + objectMetadataContent.name() + " for " + contentInfo.objectType() + " " + contentInfo.objectUuid());
             // check in case data is null because of malformed data
             if (contentItem.getData() == null) {
                 continue;
@@ -722,18 +725,19 @@ public class AttributeEngine {
 
     /**
      * Returns the content item as stored, or the decrypted item when the definition's protection
-     * level put ciphertext alongside the stored placeholder. A ciphertext that cannot be decrypted
-     * (corrupt value, wrong encryption key) degrades to the stored placeholder — whose {@code data}
-     * is null, so callers treat it as malformed — instead of failing the whole read.
+     * level put ciphertext alongside the stored placeholder. A ciphertext that cannot be decoded,
+     * decrypted or parsed (corrupt value, wrong encryption key) degrades to the stored placeholder —
+     * whose {@code data} is null, so callers treat it as malformed — instead of failing the whole
+     * read. Only those failure types are degraded; unexpected runtime errors propagate.
      */
-    private static AttributeContent decryptedContentItem(AttributeContent contentItem, int version, AttributeContentType contentType, String encryptedContent) {
+    private static AttributeContent decryptedContentItem(AttributeContent contentItem, int version, AttributeContentType contentType, String encryptedContent, String context) {
         if (encryptedContent == null) {
             return contentItem;
         }
         try {
             return AttributeVersionHelper.decryptContent(contentItem, version, contentType, encryptedContent);
-        } catch (RuntimeException e) {
-            logger.warn("Failed to decrypt attribute content item with reference {}: {}", contentItem.getReference(), e.getMessage());
+        } catch (IllegalArgumentException | IllegalStateException | DateTimeException e) {
+            logger.warn("Failed to decrypt content item with reference {} of {}; returning placeholder without data", contentItem.getReference(), context, e);
             return contentItem;
         }
     }
@@ -810,7 +814,8 @@ public class AttributeEngine {
         Map<String, DataAttribute> mapping = new HashMap<>();
         for (ObjectAttributeDefinitionContent objectDefinitionContent : objectDefinitionContents) {
             String uuid = objectDefinitionContent.uuid().toString();
-            AttributeContent contentItem = decryptedContentItem(objectDefinitionContent.contentItem(), objectDefinitionContent.definition().getVersion(), ((DataAttribute) objectDefinitionContent.definition()).getContentType(), objectDefinitionContent.encryptedContent());
+            AttributeContent contentItem = decryptedContentItem(objectDefinitionContent.contentItem(), objectDefinitionContent.definition().getVersion(), ((DataAttribute) objectDefinitionContent.definition()).getContentType(), objectDefinitionContent.encryptedContent(),
+                    "attribute " + objectDefinitionContent.definition().getName() + " for " + objectType + " " + objectUuid);
             // skip malformed items, including undecryptable ciphertext degraded to the placeholder
             if (contentItem.getData() == null) {
                 continue;
@@ -1651,10 +1656,15 @@ public class AttributeEngine {
             AttributeContent attributeContentItem = attributeContentItems.get(i);
             AttributeContentItem contentItemEntity = null;
             String encryptedData = null;
-            // If attribute is encrypted, set data to null before searching for existing content item, since json for encrypted attribute content will always be the same
             if (attributeDefinition.getProtectionLevel() == ProtectionLevel.ENCRYPTED) {
-                encryptedData = encryptAttributeContent(attributeDefinition, attributeContentItem);
-                attributeContentItem = AttributeVersionHelper.createEncryptedContent(attributeContentItem.getReference(), attributeDefinition.getContentType(), attributeDefinition.getVersion());
+                // Encrypted content cannot be deduplicated by its stored json (the placeholder is
+                // identical for every item and the ciphertext is salted) — dedup by decrypting the
+                // items already mapped to this object tuple and comparing plaintext.
+                contentItemEntity = findMappedEncryptedContentItem(attributeDefinition, attributeContentItem, objectAttributeContentInfo);
+                if (contentItemEntity == null) {
+                    encryptedData = encryptAttributeContent(attributeDefinition, attributeContentItem);
+                    attributeContentItem = AttributeVersionHelper.createEncryptedContent(attributeContentItem.getReference(), attributeDefinition.getContentType(), attributeDefinition.getVersion());
+                }
             } else {
                 // For non-encrypted attributes, try to find existing content item, since json will be different for different content
                 contentItemEntity = attributeContentItemRepository.findByJsonAndAttributeDefinitionUuid(attributeContentItem, attributeDefinition.getUuid());
@@ -1694,6 +1704,28 @@ public class AttributeEngine {
             objectContentItem.setAttributeContentItem(contentItemEntity);
             attributeContent2ObjectRepository.save(objectContentItem);
         }
+    }
+
+    /**
+     * Locates an already-mapped content item of the definition whose decrypted value equals the
+     * incoming plaintext item. Scoped to the target object tuple so the number of decryptions per
+     * write stays bounded by the object's own content, not by every object sharing the definition.
+     */
+    private AttributeContentItem findMappedEncryptedContentItem(AttributeDefinition attributeDefinition, AttributeContent attributeContentItem, ObjectAttributeContentInfo info) {
+        List<AttributeContentItem> mappedItems = attributeContent2ObjectRepository.findMappedContentItems(
+                attributeDefinition.getUuid(), info.connectorUuid(), info.objectType(), info.objectUuid(),
+                info.objectVersion(), info.sourceObjectType(), info.sourceObjectUuid(), info.purpose());
+        for (AttributeContentItem mappedItem : mappedItems) {
+            if (mappedItem.getEncryptedData() == null) {
+                continue;
+            }
+            AttributeContent decrypted = decryptedContentItem(mappedItem.getJson(), attributeDefinition.getVersion(), attributeDefinition.getContentType(), mappedItem.getEncryptedData(),
+                    "attribute " + attributeDefinition.getName() + " for " + info.objectType() + " " + info.objectUuid());
+            if (attributeContentEquals(decrypted, attributeContentItem)) {
+                return mappedItem;
+            }
+        }
+        return null;
     }
 
     public static String encryptAttributeContent(AttributeDefinition attributeDefinition, AttributeContent attributeContentItem) throws AttributeException {
