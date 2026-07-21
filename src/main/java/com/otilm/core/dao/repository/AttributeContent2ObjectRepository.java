@@ -175,7 +175,7 @@ public interface AttributeContent2ObjectRepository extends SecurityFilterReposit
 
     @Query("""
             SELECT new com.otilm.core.attribute.engine.records.ObjectAttributeContentDetail(
-                ad.attributeUuid, ad.name, ad.label, ad.type, ad.contentType, aci.json, aco.connectorUuid, c.name, aco.sourceObjectType, aco.sourceObjectUuid, aco.sourceObjectName, ad.version)
+                ad.attributeUuid, ad.name, ad.label, ad.type, ad.contentType, aci.json, aco.connectorUuid, c.name, aco.sourceObjectType, aco.sourceObjectUuid, aco.sourceObjectName, ad.version, aci.encryptedData)
                 FROM AttributeContent2Object aco
                 LEFT JOIN Connector c ON c.uuid = aco.connectorUuid
                 JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid
@@ -198,7 +198,7 @@ public interface AttributeContent2ObjectRepository extends SecurityFilterReposit
 
     @Query("""
             SELECT new com.otilm.core.attribute.engine.records.ObjectAttributeDefinitionContent(
-                ad.attributeUuid, ad.definition, aci.json)
+                ad.attributeUuid, ad.definition, aci.json, aci.encryptedData)
                 FROM AttributeContent2Object aco
                 JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid
                 JOIN AttributeDefinition ad ON ad.uuid = aci.attributeDefinitionUuid

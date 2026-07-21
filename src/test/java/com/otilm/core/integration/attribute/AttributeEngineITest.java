@@ -1092,6 +1092,111 @@ class AttributeEngineITest extends BaseSpringBootTest {
     }
 
     @Test
+    void updateMetadataAttribute_encryptedProtectionLevelStoresContentEncryptedAtRest() throws AttributeException {
+        MetadataAttributeV3 metadataAttribute = new MetadataAttributeV3();
+        metadataAttribute.setUuid(UUID.randomUUID().toString());
+        metadataAttribute.setName("encryptedMeta");
+        metadataAttribute.setType(AttributeType.META);
+        metadataAttribute.setContentType(AttributeContentType.STRING);
+        MetadataAttributeProperties props = new MetadataAttributeProperties();
+        props.setLabel("Encrypted Meta");
+        props.setVisible(true);
+        props.setProtectionLevel(ProtectionLevel.ENCRYPTED);
+        metadataAttribute.setProperties(props);
+        metadataAttribute.setContent(List.of(new StringAttributeContentV3("sensitive-meta-value")));
+
+        ObjectAttributeContentInfo contentInfo = ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(connectorAuthority.getUuid()).build();
+        attributeEngine.updateMetadataAttribute(metadataAttribute, contentInfo);
+
+        AttributeDefinition definition = attributeDefinitionRepository.findByConnectorUuidAndAttributeUuid(connectorAuthority.getUuid(), UUID.fromString(metadataAttribute.getUuid())).orElseThrow();
+        Assertions.assertEquals(ProtectionLevel.ENCRYPTED, definition.getProtectionLevel(), "declared metadata protection level must be persisted on the definition");
+
+        AttributeContentItem contentItem = attributeContentItemRepository.findByAttributeDefinitionUuid(definition.getUuid()).getFirst();
+        Assertions.assertNotNull(contentItem.getEncryptedData(), "metadata content declared ENCRYPTED must be encrypted at rest");
+        Assertions.assertNull(contentItem.getJson().getData(), "stored json must be the encrypted-content placeholder, not plaintext");
+
+        MetadataAttribute readAttribute = attributeEngine.getMetadataAttributesDefinitionContent(contentInfo).stream()
+                .filter(a -> a.getName().equals(metadataAttribute.getName())).findFirst().orElseThrow();
+        List<AttributeContent> readContent = readAttribute.getContent();
+        Assertions.assertEquals("sensitive-meta-value", readContent.getFirst().getData(), "definition content read must return the decrypted value");
+
+        var mappedItem = attributeEngine.getMappedMetadataContent(contentInfo).stream()
+                .flatMap(dto -> dto.getItems().stream())
+                .filter(item -> item.getName().equals(metadataAttribute.getName())).findFirst().orElseThrow();
+        Assertions.assertEquals("sensitive-meta-value", mappedItem.getContent().getFirst().getData(), "mapped metadata read must return the decrypted value");
+    }
+
+    @Test
+    void updateMetadataAttributeDefinition_encryptsExistingContentOnProtectionLevelUpgrade() throws AttributeException {
+        // given: metadata registered without protection — plaintext content at rest (the legacy state)
+        MetadataAttributeV3 metadataAttribute = new MetadataAttributeV3();
+        metadataAttribute.setUuid(UUID.randomUUID().toString());
+        metadataAttribute.setName("upgradedMeta");
+        metadataAttribute.setType(AttributeType.META);
+        metadataAttribute.setContentType(AttributeContentType.STRING);
+        MetadataAttributeProperties props = new MetadataAttributeProperties();
+        props.setLabel("Upgraded Meta");
+        props.setVisible(true);
+        // an explicitly null declared level must be treated as NONE
+        props.setProtectionLevel(null);
+        metadataAttribute.setProperties(props);
+        metadataAttribute.setContent(List.of(new StringAttributeContentV3("previously-plaintext")));
+
+        ObjectAttributeContentInfo contentInfo = ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(connectorAuthority.getUuid()).build();
+        attributeEngine.updateMetadataAttribute(metadataAttribute, contentInfo);
+
+        AttributeDefinition definition = attributeDefinitionRepository.findByConnectorUuidAndAttributeUuid(connectorAuthority.getUuid(), UUID.fromString(metadataAttribute.getUuid())).orElseThrow();
+        AttributeContentItem plaintextItem = attributeContentItemRepository.findByAttributeDefinitionUuid(definition.getUuid()).getFirst();
+        Assertions.assertNull(plaintextItem.getEncryptedData());
+        Assertions.assertEquals("previously-plaintext", plaintextItem.getJson().getData());
+
+        // when: the connector re-registers the same metadata now declaring ENCRYPTED
+        props.setProtectionLevel(ProtectionLevel.ENCRYPTED);
+        attributeEngine.updateMetadataAttributeDefinition(metadataAttribute, connectorAuthority.getUuid());
+
+        // then: the definition carries the new level and already-stored plaintext is encrypted
+        definition = attributeDefinitionRepository.findByConnectorUuidAndAttributeUuid(connectorAuthority.getUuid(), UUID.fromString(metadataAttribute.getUuid())).orElseThrow();
+        Assertions.assertEquals(ProtectionLevel.ENCRYPTED, definition.getProtectionLevel());
+        AttributeContentItem healedItem = attributeContentItemRepository.findByAttributeDefinitionUuid(definition.getUuid()).getFirst();
+        Assertions.assertNotNull(healedItem.getEncryptedData(), "already-stored plaintext must be encrypted on protection-level upgrade");
+        Assertions.assertNull(healedItem.getJson().getData(), "plaintext json must be replaced by the encrypted-content placeholder");
+
+        // and: the value still reads back decrypted
+        MetadataAttribute readAttribute = attributeEngine.getMetadataAttributesDefinitionContent(contentInfo).stream()
+                .filter(a -> a.getName().equals(metadataAttribute.getName())).findFirst().orElseThrow();
+        List<AttributeContent> readContent = readAttribute.getContent();
+        Assertions.assertEquals("previously-plaintext", readContent.getFirst().getData());
+    }
+
+    @Test
+    void getDefinitionObjectAttributeContentDecryptsEncryptedContent() throws AttributeException, NotFoundException {
+        DataAttributeV3 secretAttribute = new DataAttributeV3();
+        secretAttribute.setUuid(UUID.randomUUID().toString());
+        secretAttribute.setName("encryptedDefinitionContent");
+        secretAttribute.setType(AttributeType.DATA);
+        secretAttribute.setContentType(AttributeContentType.STRING);
+        DataAttributeProperties properties = new DataAttributeProperties();
+        properties.setProtectionLevel(ProtectionLevel.ENCRYPTED);
+        properties.setLabel("Encrypted Definition Content");
+        secretAttribute.setProperties(properties);
+        attributeEngine.updateDataAttributeDefinitions(connectorAuthority.getUuid(), null, List.of(secretAttribute));
+
+        RequestAttributeV3 requestAttribute = new RequestAttributeV3();
+        requestAttribute.setUuid(UUID.fromString(secretAttribute.getUuid()));
+        requestAttribute.setName(secretAttribute.getName());
+        requestAttribute.setContentType(secretAttribute.getContentType());
+        requestAttribute.setContent(List.of(new StringAttributeContentV3("encrypted-at-rest")));
+        attributeEngine.updateObjectDataAttributesContent(
+                ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(connectorAuthority.getUuid()).build(),
+                List.of(requestAttribute));
+
+        DataAttribute readAttribute = attributeEngine.getDefinitionObjectAttributeContent(AttributeType.DATA, connectorAuthority.getUuid(), null, Resource.CERTIFICATE, certificate.getUuid()).stream()
+                .filter(a -> a.getName().equals(secretAttribute.getName())).findFirst().orElseThrow();
+        List<AttributeContent> readContent = readAttribute.getContent();
+        Assertions.assertEquals("encrypted-at-rest", readContent.getFirst().getData(), "definition object content read must return the decrypted value");
+    }
+
+    @Test
     void getRequestDataAttributesContentReturnsCorrectResponse() throws AttributeException {
         // Arrange
         DataAttributeV2 dataAttribute = new DataAttributeV2();

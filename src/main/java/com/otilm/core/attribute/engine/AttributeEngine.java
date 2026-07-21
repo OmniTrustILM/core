@@ -306,7 +306,12 @@ public class AttributeEngine {
 
         for (ObjectAttributeDefinitionContent objectDefinitionContent : objectDefinitionContents) {
 
-            if (objectDefinitionContent.contentItem().getData() == null) {
+            MetadataAttribute definition = (MetadataAttribute) objectDefinitionContent.definition();
+            AttributeContent contentItem = objectDefinitionContent.contentItem();
+            if (objectDefinitionContent.encryptedContent() != null) {
+                contentItem = AttributeVersionHelper.decryptContent(contentItem, definition.getVersion(), definition.getContentType(), objectDefinitionContent.encryptedContent());
+            }
+            if (contentItem.getData() == null) {
                 continue;
             }
 
@@ -314,15 +319,12 @@ public class AttributeEngine {
 
             MetadataAttribute attribute =
                     mapping.computeIfAbsent(uuid, k -> {
-                        MetadataAttribute def =
-                                (MetadataAttribute) objectDefinitionContent.definition();
-
-                        def.setContent(new ArrayList<>());
-                        return def;
+                        definition.setContent(new ArrayList<>());
+                        return definition;
                     });
 
             // Add content (requires raw cast because generics are invariant)
-            ((List) attribute.getContent()).add(objectDefinitionContent.contentItem());
+            ((List) attribute.getContent()).add(contentItem);
         }
 
         return mapping.values().stream().toList();
@@ -336,8 +338,12 @@ public class AttributeEngine {
         Map<UUID, String> connectorMapping = new HashMap<>();
         Map<UUID, Map<Resource, Map<UUID, ResponseMetadata>>> mapping = new HashMap<>();
         for (ObjectAttributeContentDetail objectMetadataContent : objectMetadataContents) {
+            AttributeContent contentItem = objectMetadataContent.contentItem();
+            if (objectMetadataContent.encryptedContent() != null) {
+                contentItem = AttributeVersionHelper.decryptContent(contentItem, objectMetadataContent.version(), objectMetadataContent.contentType(), objectMetadataContent.encryptedContent());
+            }
             // check in case data is null because of malformed data
-            if (objectMetadataContent.contentItem().getData() == null) {
+            if (contentItem.getData() == null) {
                 continue;
             }
 
@@ -364,7 +370,7 @@ public class AttributeEngine {
                 sourceAttributesContents.put(objectMetadataContent.uuid(), metadataResponseAttributeDto);
             }
 
-            AttributeVersionHelper.addResponseMetadataContent(objectMetadataContent.version(), metadataResponseAttributeDto, objectMetadataContent.contentItem());
+            AttributeVersionHelper.addResponseMetadataContent(objectMetadataContent.version(), metadataResponseAttributeDto, contentItem);
 
             if (objectMetadataContent.sourceObjectType() != null) {
                 metadataResponseAttributeDto.getSourceObjects().add(new NameAndUuidDto(objectMetadataContent.sourceObjectUuid().toString(), objectMetadataContent.sourceObjectName()));
@@ -655,6 +661,16 @@ public class AttributeEngine {
         return copy;
     }
 
+    /**
+     * Registers or updates a metadata attribute definition, persisting the declared
+     * {@code protectionLevel} (null is treated as {@code NONE}). When the declared level diverges
+     * from the persisted one, all stored content items of the definition are re-protected
+     * accordingly (encrypted on upgrade to {@code ENCRYPTED}, decrypted on downgrade). Definitions
+     * written before the protection level was persisted carry an unset level, so their first
+     * re-registration with a declared {@code ENCRYPTED} level encrypts any previously stored
+     * plaintext content — no separate migration exists, as Flyway migrations have no access to the
+     * content encryption key.
+     */
     public AttributeDefinition updateMetadataAttributeDefinition(MetadataAttribute metadataAttribute, UUID connectorUuid) throws AttributeException {
         var isGlobal = metadataAttribute.getProperties().isGlobal();
         if (connectorUuid == null && !isGlobal) {
@@ -670,6 +686,10 @@ public class AttributeEngine {
             attributeDefinition = attributeDefinitionRepository.findByTypeAndConnectorUuidAndAttributeUuidAndName(AttributeType.META, connectorUuid, UUID.fromString(metadataAttribute.getUuid()), metadataAttribute.getName()).orElse(null);
         }
         String label = metadataAttribute.getProperties().getLabel();
+        ProtectionLevel protectionLevel = metadataAttribute.getProperties().getProtectionLevel();
+        if (protectionLevel == null) {
+            protectionLevel = ProtectionLevel.NONE;
+        }
 
         // The definition must not carry content, but the caller's attribute object remains in use
         // after this call (e.g. it is serialized into the register->issue binding as replay meta) —
@@ -684,8 +704,12 @@ public class AttributeEngine {
                 throw new AttributeException(String.format("Metadata attribute content type changed to %s while stored attribute definition have content type %s", metadataAttribute.getContentType().getLabel(), attributeDefinition.getContentType().getLabel()), metadataAttribute.getUuid(), metadataAttribute.getName(), metadataAttribute.getType(), connectorUuid == null ? null : connectorUuid.toString());
             }
             // The same metadata definition gets (re-)sent for every repeated operation but rarely changes.
-            // Skip the write when nothing changed.
-            if (Objects.equals(attributeDefinition.getLabel(), label) && sameSerializedDefinition(attributeDefinition.getDefinition(), definitionCopy)) {
+            // Skip the write when nothing changed. The entity's protection level is compared explicitly:
+            // rows written before the level was persisted have it unset even though the serialized
+            // definition already declares it, and those must fall through to be reconciled below.
+            if (Objects.equals(attributeDefinition.getLabel(), label)
+                    && attributeDefinition.getProtectionLevel() == protectionLevel
+                    && sameSerializedDefinition(attributeDefinition.getDefinition(), definitionCopy)) {
                 return attributeDefinition;
             }
         } else {
@@ -699,6 +723,11 @@ public class AttributeEngine {
             attributeDefinition.setVersion(metadataAttribute.getVersion());
             attributeDefinition.setGlobal(isGlobal);
         }
+        // Re-protect stored content when the declared level diverges from the persisted one. This also
+        // heals definitions whose content was stored in plaintext before the metadata protection level
+        // was persisted at all: the unset->ENCRYPTED transition encrypts every existing content item.
+        encryptOrDecryptExistingContent(attributeDefinition, protectionLevel);
+        attributeDefinition.setProtectionLevel(protectionLevel);
         attributeDefinition.setLabel(label);
         attributeDefinition.setDefinition(definitionCopy);
         attributeDefinitionRepository.save(attributeDefinition);
@@ -760,6 +789,10 @@ public class AttributeEngine {
         Map<String, DataAttribute> mapping = new HashMap<>();
         for (ObjectAttributeDefinitionContent objectDefinitionContent : objectDefinitionContents) {
             String uuid = objectDefinitionContent.uuid().toString();
+            AttributeContent contentItem = objectDefinitionContent.contentItem();
+            if (objectDefinitionContent.encryptedContent() != null) {
+                contentItem = AttributeVersionHelper.decryptContent(contentItem, objectDefinitionContent.definition().getVersion(), ((DataAttribute) objectDefinitionContent.definition()).getContentType(), objectDefinitionContent.encryptedContent());
+            }
             if (objectDefinitionContent.definition().getVersion() == 2) {
                 DataAttributeV2 attribute;
                 if ((attribute = (DataAttributeV2) mapping.get(uuid)) == null) {
@@ -767,7 +800,7 @@ public class AttributeEngine {
                     attribute.setContent(new ArrayList<>());
                     mapping.put(uuid, attribute);
                 }
-                attribute.getContent().add((BaseAttributeContentV2<?>) objectDefinitionContent.contentItem());
+                attribute.getContent().add((BaseAttributeContentV2<?>) contentItem);
             }
             if (objectDefinitionContent.definition().getVersion() == 3) {
                 DataAttributeV3 attribute;
@@ -776,7 +809,7 @@ public class AttributeEngine {
                     attribute.setContent(new ArrayList<>());
                     mapping.put(uuid, attribute);
                 }
-                attribute.getContent().add((BaseAttributeContentV3<?>) objectDefinitionContent.contentItem());
+                attribute.getContent().add((BaseAttributeContentV3<?>) contentItem);
             }
         }
 

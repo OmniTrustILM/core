@@ -8,6 +8,7 @@ import java.util.UUID;
 public record ObjectAttributeDefinitionContent(
     UUID uuid,
     BaseAttribute definition,
-    AttributeContent contentItem
+    AttributeContent contentItem,
+    String encryptedContent
 )
 {}

@@ -19,6 +19,7 @@ public record ObjectAttributeContentDetail(
     Resource sourceObjectType,
     UUID sourceObjectUuid,
     String sourceObjectName,
-    int version
+    int version,
+    String encryptedContent
 )
 {}
