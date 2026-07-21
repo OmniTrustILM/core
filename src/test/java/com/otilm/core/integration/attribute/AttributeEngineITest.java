@@ -1622,11 +1622,13 @@ class AttributeEngineITest extends BaseSpringBootTest {
             Assertions.assertTrue(ex.getMessage().contains("fieldMapping is only valid for attributes with STRING or TEXT content type"), ex::getMessage);
         }
 
-        // ── isRequestOperation gating ─────────────────────────────────────────────
+        // ── fieldMapping validated regardless of operation ───────────────────────
 
         @Test
-        void testFieldMapping_nonRequestOperation_skipsValidation() {
-            // Invalid fieldMapping (no objectType) should NOT throw when operation is not a request operation
+        void testFieldMapping_nonRequestOperation_validatesFieldMapping() {
+            // A fieldMapping declares projection intent; a malformed one is an authoring error
+            // whatever operation the definition registers under (issuance definitions register
+            // with operation=null), so validation must not be gated on the operation
             DataAttributeV3 attr = fieldMappingAttribute("fm_non_req_op");
             FieldMapping fm = new FieldMapping();
             fm.setObjectType(null);
@@ -1634,9 +1636,9 @@ class AttributeEngineITest extends BaseSpringBootTest {
             attr.setFieldMapping(fm);
 
             UUID connectorUuid = connectorAuthority.getUuid();
-            // null operation → skips validateFieldMapping, so no exception
-            Assertions.assertDoesNotThrow(
+            AttributeException ex = Assertions.assertThrows(AttributeException.class,
                     () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, null, List.of(attr)));
+            Assertions.assertTrue(ex.getMessage().contains("fieldMapping.objectType is required"), ex::getMessage);
         }
 
         @Test
