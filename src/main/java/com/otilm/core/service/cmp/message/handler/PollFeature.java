@@ -105,7 +105,7 @@ public class PollFeature {
                             tid, serialNumber, certUUID, current);
                     return new PollResult.StillPending(current);
                 }
-                if (isTerminal(current)) {
+                if (isDivergentTerminal(current, expectedState)) {
                     log.warn("TID={}, SN={} | certificate uuid={} diverted to {} while waiting for {}",
                             tid, serialNumber, certUUID, current, expectedState);
                     return new PollResult.Diverted(current);
@@ -134,5 +134,27 @@ public class PollFeature {
                 || state == CertificateState.REVOKED
                 || state == CertificateState.FAILED
                 || state == CertificateState.REJECTED;
+    }
+
+    /**
+     * A terminal state that is not the expected one usually means the operation diverged
+     * (e.g. an operator cancel flipped an in-flight issue to FAILED). The one exception is
+     * {@code ISSUED} while waiting for {@code REVOKED}: {@code ISSUED} is the resting state a
+     * certificate occupies <em>before</em> a revocation transition lands, so observing it
+     * means "revocation not applied yet", not a divergence — treating it as one would reject
+     * a revocation poll on its first sample, before the async {@code ISSUED -> REVOKED}
+     * transition can land. Such a poll instead keeps waiting and, if the transition never
+     * lands within the budget, ends as a timeout — a rejection either way, but never a false
+     * "diverted to ISSUED".
+     *
+     * <p>The {@code current == expectedState} guard is unreachable from the poll loop (which
+     * returns {@code Reached} before calling this) but keeps the predicate correct on its
+     * own terms: the expected state is never divergent.</p>
+     */
+    private static boolean isDivergentTerminal(CertificateState current, CertificateState expectedState) {
+        if (!isTerminal(current) || current == expectedState) {
+            return false;
+        }
+        return !(expectedState == CertificateState.REVOKED && current == CertificateState.ISSUED);
     }
 }
