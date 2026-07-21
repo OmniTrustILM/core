@@ -8,9 +8,11 @@ import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.notification.RecipientType;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.core.dao.entity.notifications.NotificationInstanceReference;
 import com.otilm.core.dao.entity.notifications.NotificationProfile;
 import com.otilm.core.dao.entity.notifications.NotificationProfileVersion;
 import com.otilm.core.dao.entity.workflows.Execution;
+import com.otilm.core.dao.repository.notifications.NotificationInstanceReferenceRepository;
 import com.otilm.core.dao.repository.notifications.NotificationProfileRepository;
 import com.otilm.core.dao.repository.notifications.NotificationProfileVersionRepository;
 import com.otilm.core.dao.repository.workflows.ExecutionRepository;
@@ -48,6 +50,7 @@ public class NotificationProfileServiceImpl implements NotificationProfileExtern
     private NotificationProfileServiceImpl self;
     private NotificationProfileRepository notificationProfileRepository;
     private NotificationProfileVersionRepository notificationProfileVersionRepository;
+    private NotificationInstanceReferenceRepository notificationInstanceReferenceRepository;
 
     private ExecutionRepository executionRepository;
     private ResourceObjectAssociationService resourceObjectAssociationService;
@@ -66,6 +69,11 @@ public class NotificationProfileServiceImpl implements NotificationProfileExtern
     @Autowired
     public void setNotificationProfileVersionRepository(NotificationProfileVersionRepository notificationProfileVersionRepository) {
         this.notificationProfileVersionRepository = notificationProfileVersionRepository;
+    }
+
+    @Autowired
+    public void setNotificationInstanceReferenceRepository(NotificationInstanceReferenceRepository notificationInstanceReferenceRepository) {
+        this.notificationInstanceReferenceRepository = notificationInstanceReferenceRepository;
     }
 
     @Autowired
@@ -131,6 +139,7 @@ public class NotificationProfileServiceImpl implements NotificationProfileExtern
         if (notificationProfileRepository.findByName(requestDto.getName()).isPresent()) {
             throw new AlreadyExistException("Notification profile with name " + requestDto.getName() + " already exists.");
         }
+        validateNotificationInstanceExists(requestDto.getNotificationInstanceUuid());
 
         NotificationProfile notificationProfile = new NotificationProfile();
         notificationProfile.setName(requestDto.getName());
@@ -160,7 +169,10 @@ public class NotificationProfileServiceImpl implements NotificationProfileExtern
         // Resolve recipient info from the request before opening the write transaction: recipient lookup
         // can call the auth service over HTTP and must not hold a DB connection or the profile row lock.
         List<NameAndUuidDto> recipients = resolveRecipients(updateRequestDto.getRecipientType(), updateRequestDto.getRecipientUuids());
+        validateNotificationInstanceExists(updateRequestDto.getNotificationInstanceUuid());
 
+        // The transaction boundary comes from the self-proxied call; invoking persistEditedVersion directly
+        // on `this` would skip the @Transactional advice and reintroduce the version race.
         return self.persistEditedVersion(uuid, updateRequestDto, recipients);
     }
 
@@ -205,6 +217,17 @@ public class NotificationProfileServiceImpl implements NotificationProfileExtern
         }
 
         return notificationProfileVersion.mapToDetailDto(recipients);
+    }
+
+    /**
+     * Fails fast with a not-found error for a client-supplied notification instance reference that does not
+     * exist; without this check the insert would fail the foreign key and surface as a server error. The
+     * foreign key still guards the race with a concurrent instance deletion.
+     */
+    private void validateNotificationInstanceExists(UUID notificationInstanceUuid) throws NotFoundException {
+        if (notificationInstanceUuid != null && notificationInstanceReferenceRepository.findByUuid(notificationInstanceUuid).isEmpty()) {
+            throw new NotFoundException(NotificationInstanceReference.class, notificationInstanceUuid);
+        }
     }
 
     private static boolean isUniqueVersionViolation(DataIntegrityViolationException e) {

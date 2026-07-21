@@ -30,6 +30,7 @@ import com.otilm.core.dao.entity.notifications.NotificationProfileVersion;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.notifications.NotificationInstanceMappedAttributeRepository;
 import com.otilm.core.dao.repository.notifications.NotificationInstanceReferenceRepository;
+import com.otilm.core.dao.repository.notifications.NotificationProfileRepository;
 import com.otilm.core.dao.repository.notifications.NotificationProfileVersionRepository;
 import com.otilm.core.messaging.jms.listeners.NotificationListener;
 import com.otilm.core.messaging.model.NotificationMessage;
@@ -59,6 +60,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.IntStream;
 
 class NotificationProfileServiceITest extends BaseSpringBootTest {
 
@@ -84,6 +86,9 @@ class NotificationProfileServiceITest extends BaseSpringBootTest {
 
     @Autowired
     private NotificationInstanceMappedAttributeRepository notificationInstanceMappedAttributeRepository;
+
+    @Autowired
+    private NotificationProfileRepository notificationProfileRepository;
 
     @Autowired
     private NotificationProfileVersionRepository notificationProfileVersionRepository;
@@ -238,52 +243,73 @@ class NotificationProfileServiceITest extends BaseSpringBootTest {
 
     @Test
     void testConcurrentEditsAssignDistinctVersions() throws Exception {
-        SecuredUUID profileUuid = SecuredUUID.fromString(originalNotificationProfile.getUuid());
-
-        int editorCount = 2;
-        CyclicBarrier startBarrier = new CyclicBarrier(editorCount);
+        int editorCount = 4;
+        int rounds = 3;
+        List<Integer> expectedVersions = IntStream.rangeClosed(1, editorCount + 1).boxed().toList();
         ExecutorService executor = Executors.newFixedThreadPool(editorCount);
         try {
-            List<Future<NotificationProfileDetailDto>> edits = new ArrayList<>();
-            for (int i = 0; i < editorCount; i++) {
-                int repetitions = i + 1;
-                edits.add(executor.submit(() -> {
-                    SecurityContextHolder.getContext().setAuthentication(getAuthentication());
-                    NotificationProfileUpdateRequestDto updateRequest = new NotificationProfileUpdateRequestDto();
-                    updateRequest.setRecipientType(RecipientType.OWNER);
-                    updateRequest.setInternalNotification(true);
-                    updateRequest.setRepetitions(repetitions);
-                    startBarrier.await();
-                    return notificationProfileService.editNotificationProfile(profileUuid, updateRequest);
-                }));
-            }
-            for (Future<NotificationProfileDetailDto> edit : edits) {
-                edit.get(30, TimeUnit.SECONDS);
+            for (int round = 0; round < rounds; round++) {
+                NotificationProfileRequestDto createRequest = new NotificationProfileRequestDto();
+                createRequest.setName("ConcurrentEditProfile" + round);
+                createRequest.setRecipientType(RecipientType.OWNER);
+                createRequest.setInternalNotification(true);
+                SecuredUUID profileUuid = SecuredUUID.fromString(notificationProfileService.createNotificationProfile(createRequest).getUuid());
+
+                CyclicBarrier startBarrier = new CyclicBarrier(editorCount);
+                List<Future<NotificationProfileDetailDto>> edits = new ArrayList<>();
+                for (int i = 0; i < editorCount; i++) {
+                    int repetitions = i + 1;
+                    edits.add(executor.submit(() -> {
+                        SecurityContextHolder.getContext().setAuthentication(getAuthentication());
+                        NotificationProfileUpdateRequestDto updateRequest = new NotificationProfileUpdateRequestDto();
+                        updateRequest.setRecipientType(RecipientType.OWNER);
+                        updateRequest.setInternalNotification(true);
+                        updateRequest.setRepetitions(repetitions);
+                        startBarrier.await();
+                        return notificationProfileService.editNotificationProfile(profileUuid, updateRequest);
+                    }));
+                }
+                for (Future<NotificationProfileDetailDto> edit : edits) {
+                    edit.get(30, TimeUnit.SECONDS);
+                }
+
+                List<Integer> versions = notificationProfileVersionRepository.findAll().stream()
+                        .filter(version -> version.getNotificationProfileUuid().equals(profileUuid.getValue()))
+                        .map(NotificationProfileVersion::getVersion)
+                        .sorted()
+                        .toList();
+                Assertions.assertEquals(expectedVersions, versions,
+                        "Concurrent edits must serialize version assignment and never produce duplicate version numbers (round " + round + ")");
             }
         } finally {
             executor.shutdownNow();
         }
-
-        List<Integer> versions = notificationProfileVersionRepository.findAll().stream()
-                .filter(version -> version.getNotificationProfileUuid().equals(profileUuid.getValue()))
-                .map(NotificationProfileVersion::getVersion)
-                .sorted()
-                .toList();
-        Assertions.assertEquals(List.of(1, 2, 3), versions,
-                "Concurrent edits must serialize version assignment and never produce duplicate version numbers");
     }
 
     @Test
-    void testEditWithUnknownNotificationInstanceFailsWithIntegrityError() {
+    void testEditWithUnknownNotificationInstanceFailsWithNotFound() {
         NotificationProfileUpdateRequestDto requestDto = new NotificationProfileUpdateRequestDto();
         requestDto.setRecipientType(RecipientType.OWNER);
         requestDto.setInternalNotification(true);
         requestDto.setNotificationInstanceUuid(UUID.randomUUID());
         SecuredUUID profileUuid = SecuredUUID.fromString(originalNotificationProfile.getUuid());
 
-        // The foreign key violation must surface as-is, not be mislabeled as a concurrent modification
-        Assertions.assertThrows(DataIntegrityViolationException.class,
+        Assertions.assertThrows(NotFoundException.class,
                 () -> notificationProfileService.editNotificationProfile(profileUuid, requestDto));
+    }
+
+    @Test
+    void testCreateWithUnknownNotificationInstanceFailsWithNotFound() {
+        NotificationProfileRequestDto requestDto = new NotificationProfileRequestDto();
+        requestDto.setName("ProfileWithUnknownInstance");
+        requestDto.setRecipientType(RecipientType.OWNER);
+        requestDto.setInternalNotification(true);
+        requestDto.setNotificationInstanceUuid(UUID.randomUUID());
+
+        Assertions.assertThrows(NotFoundException.class,
+                () -> notificationProfileService.createNotificationProfile(requestDto));
+        Assertions.assertTrue(notificationProfileRepository.findByName(requestDto.getName()).isEmpty(),
+                "Failed create should not leave a partially created profile behind");
     }
 
     @Test
