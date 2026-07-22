@@ -953,9 +953,27 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     }
 
     @Test
+    void registerPersistsOtherNameSanOnPlaceholder() throws Exception {
+        // otherName rides the flat form as 'otherName:<oid>;UTF8:<value>' and must persist in the same
+        // 'oid=value' serialized form used for issued certificates (the shared formatOtherNameSan).
+        when(registeringAdapter().register(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
+        ClientCertificateRegistrationDto request = registrationRequest();
+        request.setSubjectAltName("otherName:1.3.6.1.4.1.311.20.2.3;UTF8:device-9@acme.test");
+
+        ClientCertificateDataResponseDto response = clientOperationService.registerCertificate(
+                authorityParent, securedRaProfile, request);
+
+        Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
+        Map<String, List<String>> sans = CertificateUtil.deserializeSans(cert.getSubjectAlternativeNames());
+        Assertions.assertEquals(List.of("1.3.6.1.4.1.311.20.2.3=device-9@acme.test"), sans.get("otherName"),
+                "the otherName SAN must persist on the placeholder in the oid=value serialized form");
+    }
+
+    @Test
     void platformLevelRegistrationPersistsSanOnPlaceholder() throws Exception {
         // Platform-level path (no connector-backed registration): the requested SAN must be stored on the
-        // placeholder, not silently dropped — before this fix the identity was reduced to the subject DN.
+        // placeholder, not silently dropped
         when(adapterFactory.forAuthority(Mockito.any())).thenReturn(mock(AuthorityProviderAdapter.class));
         ClientCertificateRegistrationDto request = registrationRequest();
         request.setSubjectAltName("DNS:device-1.example.com");

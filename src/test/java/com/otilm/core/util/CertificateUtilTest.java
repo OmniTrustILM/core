@@ -1,6 +1,9 @@
 package com.otilm.core.util;
 
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.connector.v3.certificate.GeneralNameEntry;
 import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.GeneralNameType;
 import com.otilm.api.model.core.certificate.QcType;
 import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.core.dao.entity.Certificate;
@@ -222,6 +225,35 @@ class CertificateUtilTest {
 
         assertEquals(CertificateState.ISSUED, cert.getState());
         assertNotNull(cert.getSerialNumber());
+    }
+
+    @Test
+    void applyRegistrationSan_persistsOtherNameAsOidEqualsValue() {
+        // The otherName serialized form must match the one written for issued certificates
+        // (getSanValueString) — both go through the shared formatOtherNameSan.
+        Certificate cert = new Certificate();
+        GeneralNameEntry otherName = new GeneralNameEntry();
+        otherName.setType(GeneralNameType.OTHER_NAME);
+        otherName.setOtherNameOid("1.2.3.4");
+        otherName.setValue("example othername");
+
+        CertificateUtil.applyRegistrationSan(cert, List.of(otherName));
+
+        Map<String, List<String>> sans = CertificateUtil.deserializeSans(cert.getSubjectAlternativeNames());
+        assertEquals(List.of("1.2.3.4=example othername"), sans.get("otherName"));
+    }
+
+    @Test
+    void applyRegistrationSan_rejectsEntryWithoutType() {
+        // A type-less entry cannot be bucketed; it must surface as a controlled ValidationException
+        // (not an NPE), and nothing may be persisted on the certificate.
+        Certificate cert = new Certificate();
+        GeneralNameEntry typeless = new GeneralNameEntry();
+        typeless.setValue("device-9");
+
+        assertThrows(ValidationException.class,
+                () -> CertificateUtil.applyRegistrationSan(cert, List.of(typeless)));
+        assertNull(cert.getSubjectAlternativeNames());
     }
 
 }
