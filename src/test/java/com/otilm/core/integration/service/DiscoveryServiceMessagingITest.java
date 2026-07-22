@@ -28,7 +28,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 
-@ActiveProfiles({"messaging-int-test"})
+@ActiveProfiles(value = {"messaging-int-test"}, inheritProfiles = false)
 class DiscoveryServiceMessagingITest extends BaseMessagingIntTest {
 
     private static final String DISCOVERY_NAME = "testDiscovery1";

@@ -26,7 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Spring's context cache key does NOT include {@link DynamicPropertySource} values.</p>
  */
 @SpringBootTest
-@ActiveProfiles(value = {"messaging-int-test"})
+@ActiveProfiles(value = {"messaging-int-test"}, inheritProfiles = false)
 @Testcontainers
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_CLASS)
 public abstract class BaseMessagingIntTest extends BaseSpringBootTest {

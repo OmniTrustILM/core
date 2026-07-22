@@ -23,6 +23,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.test.context.TestExecutionListeners;
+import org.springframework.test.context.TestExecutionListeners.MergeMode;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.sql.Connection;
@@ -32,6 +34,7 @@ import java.util.List;
 import java.util.UUID;
 
 @SpringBootTest
+@TestExecutionListeners(value = MockBeanResetListener.class, mergeMode = MergeMode.MERGE_WITH_DEFAULTS)
 public class BaseSpringBootTest {
 
     @MockitoBean
