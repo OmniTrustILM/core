@@ -112,7 +112,12 @@ public class Mobile3gppProfileContext extends CmpConfigurationContext {
             case PKIBody.TYPE_INIT_REP:
             case PKIBody.TYPE_CERT_REP:
             case PKIBody.TYPE_KEY_UPDATE_REP:
-                if (response.getExtraCerts() == null || response.getExtraCerts().length == 0) {
+                // The extraCerts requirement only applies to a response that actually carries
+                // an issued certificate. A pending response (RFC 4210 §5.3.22 PKIStatus
+                // 'waiting', emitted while issuance completes asynchronously) has no
+                // certifiedKeyPair and therefore no chain to advertise — exempt it.
+                if (carriesIssuedCertificate(response)
+                        && (response.getExtraCerts() == null || response.getExtraCerts().length == 0)) {
                     throw new CmpCrmfValidationException(tid, bodyType,
                             PKIFailureInfo.badDataFormat, "field 'extraCerts' is null or empty");
                 }
@@ -121,6 +126,20 @@ public class Mobile3gppProfileContext extends CmpConfigurationContext {
                 throw new CmpProcessingException(tid,
                         PKIFailureInfo.badDataFormat, "only CRMF-based message can be validated");
         }
+    }
+
+    /**
+     * A CRMF response carries an issued certificate when its first {@link CertResponse} has a
+     * {@link CertifiedKeyPair}. A pending ({@code waiting}) response has none, so the
+     * extraCerts chain requirement does not apply to it.
+     */
+    private static boolean carriesIssuedCertificate(PKIMessage response) {
+        if (!(response.getBody().getContent() instanceof CertRepMessage certRepMessage)) {
+            return false;
+        }
+        CertResponse[] responses = certRepMessage.getResponse();
+        return responses != null && responses.length > 0
+                && responses[0].getCertifiedKeyPair() != null;
     }
 
 }

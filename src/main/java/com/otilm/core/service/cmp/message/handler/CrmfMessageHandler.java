@@ -13,6 +13,7 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.cmp.CmpTransaction;
 import com.otilm.core.service.CertificateInternalService;
+import com.otilm.core.service.handler.CertificateValidationStatusPoller;
 import com.otilm.core.service.cmp.configurations.ConfigurationContext;
 import com.otilm.core.service.cmp.message.CmpTransactionService;
 import com.otilm.core.service.cmp.message.PkiMessageDumper;
@@ -44,18 +45,13 @@ import java.util.*;
  * @see CrmfKurMessageHandler
  */
 @Component
-@Transactional//(propagation = Propagation.REQUIRES_NEW)
+// noRollbackFor keeps Spring's default (no rollback on checked exceptions): CMP surfaces
+// CmpBaseException as a protocol error response, and this handler shares the caller's
+// transaction, so rolling back on it would mark that transaction rollback-only.
+@Transactional(noRollbackFor = CmpBaseException.class)
 public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
 
     private static final Logger LOG = LoggerFactory.getLogger(CrmfMessageHandler.class.getName());
-
-    /**
-     * RFC 4210 §5.3.22 {@code checkAfter} (seconds). Tells the CMP client how long to wait
-     * before retrying the {@code pollReq} when the authority provider connector accepted the
-     * operation asynchronously. 60 s balances "client doesn't hammer the server" against
-     * "operator doesn't wait too long for state to propagate".
-     */
-    private static final long POLL_REP_CHECK_AFTER_SECONDS = 60L;
 
     private static final List<Integer> ALLOWED_TYPES = List.of(
             PKIBody.TYPE_INIT_REQ,          // ir       [0]  CertReqMessages,       --Initialization Req
@@ -76,6 +72,13 @@ public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
     @Autowired
     public void setPollFeature(PollFeature pollFeature) {
         this.pollFeature = pollFeature;
+    }
+
+    private CertificateValidationStatusPoller validationStatusPoller;
+
+    @Autowired
+    public void setValidationStatusPoller(CertificateValidationStatusPoller validationStatusPoller) {
+        this.validationStatusPoller = validationStatusPoller;
     }
 
     private CmpTransactionService cmpTransactionService;
@@ -266,9 +269,12 @@ public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
     }
 
     /**
-     * Connector accepted the operation asynchronously (HTTP 202): persist the transaction
-     * so a subsequent {@code pollReq} can be correlated back to the in-flight cert, then
-     * emit a CMP {@code pollRep} so the client knows to retry later (RFC 4210 §5.2.6).
+     * The certificate is still pending after the poll budget: persist the transaction so a
+     * subsequent {@code pollReq} can be correlated back to the in-flight cert, then answer
+     * the ir/cr/kur with an ip/cp/kup whose {@code PKIStatusInfo} is {@code waiting}. Per
+     * RFC 4210 §5.3.22 the polling exchange is initiated by exactly this response — the
+     * client then sends {@code pollReq} (handled by {@link PollReqMessageHandler}). A bare
+     * {@code pollRep} here would be out-of-state and conformant clients reject it.
      */
     private PKIMessage handleAsynchronousAcceptance(ASN1OctetString tid, PKIMessage request,
                                                     ConfigurationContext configuration, String msgBodyType,
@@ -281,20 +287,23 @@ public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
                 trxState,
                 request.getBody().getType()));
         try {
-            LOG.info("TID={} | CRMF {} accepted asynchronously (cert {}); returning pollRep",
+            LOG.info("TID={} | CRMF {} still pending after poll budget (cert {}); returning response with status 'waiting'",
                     tid, msgBodyType, requestedCert.getUuid());
+            CertResponse waitingResponse = new CertResponse(
+                    crmf.getCertReqId(),
+                    new PKIStatusInfo(PKIStatus.waiting));
             return new PkiMessageBuilder(configuration)
                     .addHeader(PkiMessageBuilder.buildBasicHeaderTemplate(request))
-                    .addBody(PkiMessageBuilder.createPollRepBody(
-                            crmf.getCertReqId(),
-                            POLL_REP_CHECK_AFTER_SECONDS,
-                            "Awaiting asynchronous completion"))
+                    .addBody(PkiMessageBuilder.createIpCpKupBody(
+                            request.getBody(),
+                            new CertResponse[]{waitingResponse},
+                            null))
                     .addExtraCerts(null)
                     .build();
         } catch (Exception e) {
-            LOG.error("TID={} | CRMF pollRep message cannot be built (type={})", tid, msgBodyType, e);
+            LOG.error("TID={} | CRMF waiting response cannot be built (type={})", tid, msgBodyType, e);
             throw new CmpCrmfValidationException(tid, request.getBody().getType(), PKIFailureInfo.systemFailure,
-                    "CRMF pollRep cannot be built, type=" + PkiMessageDumper.msgTypeAsString(request.getBody().getType()));
+                    "CRMF waiting response cannot be built, type=" + PkiMessageDumper.msgTypeAsString(request.getBody().getType()));
         }
     }
 
@@ -390,16 +399,28 @@ public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
         }
 
         // -- parse found CA certificate(s)
+        String leafCertificateUuid = leafCertificate.getUuid().toString();
         for (CertificateDetailDto certificate : caChain) {
-            // only certificate with valid status should be used
-            if (certificate.getValidationStatus() != CertificateValidationStatus.VALID
-                    && certificate.getValidationStatus() != CertificateValidationStatus.EXPIRING) {
+            // Only the freshly-issued leaf may legitimately be NOT_CHECKED: its async
+            // validation may not have landed yet, so wait briefly and tolerate NOT_CHECKED
+            // if it never resolves (the response must reflect issuance success, not the
+            // progress of an asynchronous validation). CA / issuer certs are long-lived and
+            // must already be VALID/EXPIRING — a NOT_CHECKED (or worse) CA cert is rejected
+            // as before, and never waited on.
+            boolean isLeaf = certificate.getUuid().equals(leafCertificateUuid);
+            CertificateValidationStatus validationStatus = isLeaf
+                    ? validationStatusPoller.resolveOrKeep(certificate)
+                    : certificate.getValidationStatus();
+            boolean acceptable = validationStatus == CertificateValidationStatus.VALID
+                    || validationStatus == CertificateValidationStatus.EXPIRING
+                    || (isLeaf && validationStatus == CertificateValidationStatus.NOT_CHECKED);
+            if (!acceptable) {
                 throw new CmpCrmfValidationException(tid, bodyType, PKIFailureInfo.systemFailure,
                         String.format("SN=%s | Certificate is not valid. UUID: %s, Fingerprint: %s, Status: %s",
                                 leafCertificateSerialNumber,
                                 certificate.getUuid(),
                                 certificate.getFingerprint(),
-                                certificate.getValidationStatus().getLabel()));
+                                validationStatus.getLabel()));
             }
             try {
                 certificateChain.add(CertificateUtil.parseCertificate(certificate.getCertificateContent()));

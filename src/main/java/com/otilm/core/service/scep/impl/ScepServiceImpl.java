@@ -40,6 +40,7 @@ import com.otilm.core.provider.key.PlatformPrivateKey;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.CryptographicKeyInternalService;
+import com.otilm.core.service.handler.CertificateValidationStatusPoller;
 import com.otilm.core.security.authz.ProtocolEndpoint;
 import com.otilm.core.service.scep.ScepExternalService;
 import com.otilm.core.service.scep.message.ScepRequest;
@@ -78,7 +79,9 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 
 @Service
-@Transactional
+// noRollbackFor keeps Spring's default (no rollback on checked exceptions): SCEP surfaces
+// these as protocol error responses rather than treating them as transaction failures.
+@Transactional(noRollbackFor = {ScepException.class, NotFoundException.class})
 public class ScepServiceImpl implements ScepExternalService {
 
     public static final String SCEP_URL_PREFIX = "/v1/protocols/scep";
@@ -111,6 +114,7 @@ public class ScepServiceImpl implements ScepExternalService {
     private ScepTransactionRepository scepTransactionRepository;
     private ClientOperationInternalService clientOperationService;
     private CertificateInternalService certificateService;
+    private CertificateValidationStatusPoller validationStatusPoller;
     private CryptographicKeyInternalService cryptographicKeyService;
     private ConnectorApiFactory connectorApiFactory;
     private AttributeEngine attributeEngine;
@@ -148,6 +152,11 @@ public class ScepServiceImpl implements ScepExternalService {
     @Autowired
     public void setCertificateService(CertificateInternalService certificateService) {
         this.certificateService = certificateService;
+    }
+
+    @Autowired
+    public void setValidationStatusPoller(CertificateValidationStatusPoller validationStatusPoller) {
+        this.validationStatusPoller = validationStatusPoller;
     }
 
     @Autowired
@@ -239,7 +248,7 @@ public class ScepServiceImpl implements ScepExternalService {
 
         setRecipient(scepCaCertificate.getCertificateContent().getContent());
         try {
-            this.caCertificateChain = loadCertificateChain(scepCaCertificate);
+            this.caCertificateChain = loadCertificateChain(scepCaCertificate, false);
         } catch (NotFoundException e) {
             throw new ScepException("Failed to load certificate chain of SCEP profile CA certificate");
         }
@@ -650,11 +659,14 @@ public class ScepServiceImpl implements ScepExternalService {
         return scepResponse;
     }
 
-    private List<X509Certificate> loadCertificateChain(Certificate leafCertificate) throws ScepException, NotFoundException {
+    private List<X509Certificate> loadCertificateChain(Certificate leafCertificate, boolean tolerateLeafNotChecked) throws ScepException, NotFoundException {
         ArrayList<X509Certificate> certificateChain = new ArrayList<>();
+        String leafUuid = leafCertificate.getUuid().toString();
         for (CertificateDetailDto certificate : certificateService.getCertificateChain(leafCertificate.getSecuredUuid(), true).getCertificates()) {
-            // only certificate with valid status should be used
-            checkCertificateValidity(certificate);
+            // Only the freshly-issued leaf may be transiently NOT_CHECKED; CA / issuer certs
+            // must already be validated (see checkCertificateValidity).
+            boolean isFreshlyIssuedLeaf = tolerateLeafNotChecked && certificate.getUuid().equals(leafUuid);
+            checkCertificateValidity(certificate, isFreshlyIssuedLeaf);
             try {
                 certificateChain.add(CertificateUtil.parseCertificate(certificate.getCertificateContent()));
             } catch (CertificateException e) {
@@ -670,7 +682,8 @@ public class ScepServiceImpl implements ScepExternalService {
     private List<X509Certificate> getIssuedCertificateChain(Certificate certificate) throws ScepException, NotFoundException {
         if (!this.scepProfile.isIncludeCaCertificateChain() && !this.scepProfile.isIncludeCaCertificate()) {
             try {
-                checkCertificateValidity(certificate.mapToDto());
+                // The freshly-issued end-entity certificate: tolerate a transient NOT_CHECKED.
+                checkCertificateValidity(certificate.mapToDto(), true);
 
                 return List.of(CertificateUtil.parseCertificate(certificate.getCertificateContent().getContent()));
             } catch (CertificateException e) {
@@ -681,7 +694,9 @@ public class ScepServiceImpl implements ScepExternalService {
         }
 
         logger.debug("Building the certificate chain for the response message");
-        var certificateChain = loadCertificateChain(certificate);
+        // certificate is the freshly-issued end-entity cert (leaf); tolerate its transient
+        // NOT_CHECKED but require the CA / issuer entries to be already validated.
+        var certificateChain = loadCertificateChain(certificate, true);
         if (this.scepProfile.isIncludeCaCertificateChain()) return certificateChain;
         else return certificateChain.subList(0, Math.min(2, certificateChain.size()));
     }
@@ -856,13 +871,26 @@ public class ScepServiceImpl implements ScepExternalService {
         }
     }
 
-    private void checkCertificateValidity(CertificateDetailDto certificate) throws ScepException {
-        if (certificate.getValidationStatus() != CertificateValidationStatus.VALID
-                && certificate.getValidationStatus() != CertificateValidationStatus.EXPIRING) {
+    /**
+     * @param tolerateNotChecked {@code true} only for the freshly-issued end-entity certificate,
+     *                           whose async validation may not have landed yet: it is briefly
+     *                           waited on and NOT_CHECKED tolerated if unresolved. CA / issuer
+     *                           certs pass {@code false} — they are long-lived and must already
+     *                           be VALID/EXPIRING, so a NOT_CHECKED CA cert is rejected as before
+     *                           and never waited on.
+     */
+    private void checkCertificateValidity(CertificateDetailDto certificate, boolean tolerateNotChecked) throws ScepException {
+        CertificateValidationStatus validationStatus = tolerateNotChecked
+                ? validationStatusPoller.resolveOrKeep(certificate)
+                : certificate.getValidationStatus();
+        boolean acceptable = validationStatus == CertificateValidationStatus.VALID
+                || validationStatus == CertificateValidationStatus.EXPIRING
+                || (tolerateNotChecked && validationStatus == CertificateValidationStatus.NOT_CHECKED);
+        if (!acceptable) {
             throw new ScepException(String.format("Certificate is not valid. UUID: %s, Fingerprint: %s, Status: %s",
                     certificate.getUuid(),
                     certificate.getFingerprint(),
-                    certificate.getValidationStatus().getLabel()),
+                    validationStatus.getLabel()),
                     FailInfo.BAD_REQUEST);
         }
     }
