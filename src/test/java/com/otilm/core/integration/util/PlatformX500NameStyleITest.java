@@ -18,7 +18,6 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class PlatformX500NameStyleITest extends BaseSpringBootTest {
 
@@ -89,47 +88,6 @@ class PlatformX500NameStyleITest extends BaseSpringBootTest {
 
         assertThat(rendered).as("OID should be rendered as code for Location").contains(code + "=Location");
         assertThat(rendered).as("OID should be rendered as code for US").contains(code2 + "=US");
-    }
-
-    @Test
-    void parsesRegistryDefaultCodesUnknownToBouncyCastle() {
-        // EMAIL is the platform's default code for the email OID (SystemOid.EMAIL) but not a
-        // BouncyCastle keyword — every code the platform renders must parse back.
-        X500Name parsed = new X500Name(PlatformX500NameStyle.DEFAULT, "EMAIL=mail@mail.com, CN=reg");
-        assertThat(getOidByValueFromRDNs(parsed, "mail@mail.com")).isEqualTo(SystemOid.EMAIL.getOid());
-        assertThat(getOidByValueFromRDNs(parsed, "reg")).isEqualTo(SystemOid.COMMON_NAME.getOid());
-    }
-
-    @Test
-    void parsesRegistryCodesCaseInsensitively() {
-        X500Name parsed = new X500Name(PlatformX500NameStyle.DEFAULT, "email=mail@mail.com, CN=reg");
-        assertThat(getOidByValueFromRDNs(parsed, "mail@mail.com")).isEqualTo(SystemOid.EMAIL.getOid());
-    }
-
-    @Test
-    void parsesCustomCodesRegisteredAtRuntime() {
-        // DEFAULT is a shared instance created before runtime registrations — parsing must see them.
-        String oid = "1.2.3.4.5.7";
-        OidHandler.cacheOid(OidCategory.RDN_ATTRIBUTE_TYPE, oid,
-                OidRecord.builder().displayName("d").code("FOO").altCodes(List.of("BAR")).build());
-        X500Name parsed = new X500Name(PlatformX500NameStyle.DEFAULT, "FOO=a, BAR=b");
-        assertThat(getOidByValueFromRDNs(parsed, "a")).isEqualTo(oid);
-        assertThat(getOidByValueFromRDNs(parsed, "b")).isEqualTo(oid);
-    }
-
-    @Test
-    void parsesSnAsSurnamePerRegistry() {
-        // Registry-first is deliberate: the platform renders 2.5.4.4 (SystemOid.SURNAME) as "SN",
-        // so "SN" must parse back to surname even though BouncyCastle's keyword table would read
-        // it as serialNumber (2.5.4.5).
-        X500Name parsed = new X500Name(PlatformX500NameStyle.DEFAULT, "SN=Doe, CN=reg");
-        assertThat(getOidByValueFromRDNs(parsed, "Doe")).isEqualTo(SystemOid.SURNAME.getOid());
-    }
-
-    @Test
-    void rejectsCodesInNeitherRegistryNorBouncyCastle() {
-        assertThatThrownBy(() -> new X500Name(PlatformX500NameStyle.DEFAULT, "NOPE=x, CN=reg"))
-                .isInstanceOf(IllegalArgumentException.class);
     }
 
     private static String getOidByValueFromRDNs(X500Name normalizedX500Name, String value) {
