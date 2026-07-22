@@ -1642,6 +1642,18 @@ class AttributeEngineITest extends BaseSpringBootTest {
         }
 
         @Test
+        void testFieldMapping_nonRequestOperation_acceptsValidMapping() {
+            // The register build registers issuance definitions with operation=null; a well-formed
+            // mapping must be accepted there, not merely rejected when malformed
+            DataAttributeV3 attr = fieldMappingAttribute("fm_non_req_op_valid");
+            attr.setFieldMapping(fieldMappingWith(rdnField("CN")));
+
+            UUID connectorUuid = connectorAuthority.getUuid();
+            Assertions.assertDoesNotThrow(
+                    () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, null, List.of(attr)));
+        }
+
+        @Test
         void testFieldMapping_signOperation_validatesFieldMapping() {
             DataAttributeV3 attr = fieldMappingAttribute("fm_sign_op");
             FieldMapping fm = new FieldMapping();
