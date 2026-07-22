@@ -624,23 +624,28 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * there is no wire to forward extensions to. Failing the registration would be disproportionate — the
      * extensions that reach the issued certificate arrive with the CSR at issuance — but dropping them
      * silently hid the reduction, so the drop is made operator-visible: a certificate event-history entry
-     * (logs are not an operator surface under SaaS) plus a warn log. Written inside the placeholder
-     * try-block, so a history-write failure fails the placeholder like any other local setup step.
+     * (logs are not an operator surface under SaaS) plus a warn log. Best-effort, mirroring
+     * {@link #deleteRegistrationAuthorizationBestEffort}: the note is advisory, so a history-write failure
+     * is swallowed (warn-logged) rather than allowed to fail a registration whose essential setup succeeded.
      */
     private void noteUnrecordedPlatformLevelExtensions(UUID certificateUuid, X509RequestContent registrationContent) {
         if (registrationContent == null || registrationContent.getExtensions() == null
                 || registrationContent.getExtensions().isEmpty()) {
             return;
         }
-        String oids = registrationContent.getExtensions().stream()
-                .map(RequestedExtension::getOid)
-                .collect(Collectors.joining(", "));
-        certificateEventHistoryService.addEventHistory(certificateUuid, CertificateEvent.REQUEST, CertificateEventStatus.SUCCESS,
-                ("Requested certificate extensions (%s) are not recorded on a platform-level pre-registration "
-                        + "(no connector-backed registration for this authority); supply them with the CSR at issuance")
-                        .formatted(oids), "");
-        logger.warn("Certificate {} pre-registered at the platform level; requested extensions ({}) are not recorded "
-                + "and must be supplied with the CSR at issuance", certificateUuid, oids);
+        try {
+            String oids = registrationContent.getExtensions().stream()
+                    .map(RequestedExtension::getOid)
+                    .collect(Collectors.joining(", "));
+            certificateEventHistoryService.addEventHistory(certificateUuid, CertificateEvent.REQUEST, CertificateEventStatus.SUCCESS,
+                    ("Requested certificate extensions (%s) are not recorded on a platform-level pre-registration "
+                            + "(no connector-backed registration for this authority); supply them with the CSR at issuance")
+                            .formatted(oids), "");
+            logger.warn("Certificate {} pre-registered at the platform level; requested extensions ({}) are not recorded "
+                    + "and must be supplied with the CSR at issuance", certificateUuid, oids);
+        } catch (Exception e) {
+            logger.warn("Failed to record unrecorded platform-level extensions for certificate {}: {}", certificateUuid, e.getMessage());
+        }
     }
 
     /**

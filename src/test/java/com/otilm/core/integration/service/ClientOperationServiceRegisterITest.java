@@ -10,6 +10,7 @@ import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.other.ResourceEvent;
@@ -71,6 +72,7 @@ import com.otilm.core.security.authn.client.AuthenticationInfo;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authn.client.UserManagementApiClient;
+import com.otilm.core.service.CertificateEventHistoryInternalService;
 import com.otilm.core.service.CertificateExternalService;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.ResourceObjectAssociationService;
@@ -165,6 +167,10 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     // post-acceptance divergence branch.
     @MockitoSpyBean
     private CertificateRegistrationWriter registrationWriter;
+    // Spied (not mocked) so state-transition history really persists; one test stubs the advisory
+    // unrecorded-extensions note to fail, asserting the best-effort contract.
+    @MockitoSpyBean
+    private CertificateEventHistoryInternalService certificateEventHistoryService;
     @MockitoBean
     private AuthorityProviderAdapterFactory adapterFactory;
 
@@ -993,6 +999,31 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
                         && event.getMessage().contains("not recorded on a platform-level pre-registration"));
         Assertions.assertTrue(noted,
                 "the dropped extensions must be recorded to the certificate event history with their OIDs");
+    }
+
+    @Test
+    void platformLevelRegistrationSurvivesAdvisoryNoteFailure() throws Exception {
+        // The unrecorded-extensions note is advisory (best-effort, mirroring
+        // deleteRegistrationAuthorizationBestEffort): a failure writing it must not fail a registration
+        // whose essential setup already succeeded. Only the note's event is stubbed to throw — the
+        // state-transition history keeps working, so the flow under test is otherwise the real one.
+        when(adapterFactory.forAuthority(Mockito.any())).thenReturn(mock(AuthorityProviderAdapter.class));
+        Mockito.doThrow(new RuntimeException("event-history write failed"))
+                .when(certificateEventHistoryService)
+                .addEventHistory(Mockito.any(UUID.class), Mockito.eq(CertificateEvent.REQUEST), Mockito.any(),
+                        Mockito.contains("not recorded on a platform-level pre-registration"), Mockito.anyString());
+        ClientCertificateRegistrationDto request = registrationRequest();
+        CertificateExtension extension = new CertificateExtension();
+        extension.setOid("1.3.6.1.5.5.7.1.1");
+        extension.setValueBase64(Base64.getEncoder().encodeToString(new byte[]{0x30, 0x00}));
+        request.setExtensions(List.of(extension));
+
+        ClientCertificateDataResponseDto response =
+                clientOperationService.registerCertificate(authorityParent, securedRaProfile, request);
+
+        Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
+        Assertions.assertEquals(CertificateState.REGISTERED, cert.getState(),
+                "a failure writing the advisory extensions note must not fail the registration");
     }
 
     @Test
