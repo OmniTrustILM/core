@@ -30,7 +30,9 @@ public class CertificateDetailDtoMapper {
         final CertificateDetailDto dto = new CertificateDetailDto();
         dto.setCommonName(CertificateUtil.formatCommonName(certificate.getCommonName()));
         dto.setIssuerCommonName(resolveIssuerCommonName(certificate));
-        dto.setSubjectAlternativeNames(CertificateUtil.deserializeSans(certificate.getSubjectAlternativeNames()));
+        if (certificate.getSubjectAlternativeNames() != null) {
+            dto.setSubjectAlternativeNames(CertificateUtil.deserializeSans(certificate.getSubjectAlternativeNames()));
+        }
         if (certificate.getCertificateContent() != null) {
             dto.setCertificateContent(certificate.getCertificateContent().getContent());
             dto.setIssuerDn(certificate.getIssuerDn());
