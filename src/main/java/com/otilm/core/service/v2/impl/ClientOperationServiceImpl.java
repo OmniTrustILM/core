@@ -11,7 +11,6 @@ import com.otilm.api.model.client.location.PushToLocationRequestDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.connector.v3.certificate.CertificateRequestContent;
-import com.otilm.api.model.connector.v3.certificate.RequestedExtension;
 import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
 import com.otilm.api.exception.ConnectorClientException;
 import com.otilm.api.exception.ConnectorCommunicationException;
@@ -115,7 +114,6 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.*;
 import java.util.function.BooleanSupplier;
-import java.util.stream.Collectors;
 
 @Service("clientOperationServiceImplV2")
 @Transactional
@@ -567,9 +565,10 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * challenge authorization are created and owned entirely by the platform, with no connector {@code /register}
      * call. The certificate reaches {@code REGISTERED} directly. The placeholder records the full registered
      * identity the platform can represent — subject DN and subject alternative names from the projected
-     * {@code registrationContent}; requested extensions have nowhere to be stored or forwarded on this path,
-     * so their drop is recorded to the certificate event history instead (see
-     * {@link #noteUnrecordedPlatformLevelExtensions}).</p>
+     * {@code registrationContent}. Requested extensions are not persisted on the row (it has no column for
+     * them and there is no wire to forward them to); the operator-visible record of what was requested is
+     * the certificate's request attributes, and the extensions that reach the issued certificate arrive
+     * with the CSR at issuance.</p>
      *
      * <p><b>Completion.</b> Runs later through the normal issue path; {@code issueCertificateAction} routes to the
      * register-bound path only for a {@code RegisterCapability} adapter that advertises the flag, so a platform-level
@@ -600,7 +599,6 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // marker as a connector-backed one — the discriminator both the issue routing and the approval-reject
             // restore key on, which makes a no-secret placeholder restorable.
             certificateRegistrationWriter.upsert(certificate.getUuid(), List.of());
-            noteUnrecordedPlatformLevelExtensions(certificate.getUuid(), registrationContent);
         } catch (RuntimeException | AttributeException | NotFoundException e) {
             // A challenge store/save, binding-write, or custom-attribute persistence failure must fail the
             // placeholder rather than orphan it in PENDING_REGISTRATION.
@@ -616,36 +614,6 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         response.setUuid(certificate.getUuid().toString());
         response.setCertificateData("");
         return response;
-    }
-
-    /**
-     * Records requested extensions that a platform-level pre-registration cannot carry. The certificate row
-     * records only the subject DN and subject alternative names, and with no connector {@code /register} call
-     * there is no wire to forward extensions to. Failing the registration would be disproportionate — the
-     * extensions that reach the issued certificate arrive with the CSR at issuance — but dropping them
-     * silently hid the reduction, so the drop is made operator-visible: a certificate event-history entry
-     * (logs are not an operator surface under SaaS) plus a warn log. Best-effort, mirroring
-     * {@link #deleteRegistrationAuthorizationBestEffort}: the note is advisory, so a history-write failure
-     * is swallowed (warn-logged) rather than allowed to fail a registration whose essential setup succeeded.
-     */
-    private void noteUnrecordedPlatformLevelExtensions(UUID certificateUuid, X509RequestContent registrationContent) {
-        if (registrationContent == null || registrationContent.getExtensions() == null
-                || registrationContent.getExtensions().isEmpty()) {
-            return;
-        }
-        try {
-            String oids = registrationContent.getExtensions().stream()
-                    .map(RequestedExtension::getOid)
-                    .collect(Collectors.joining(", "));
-            certificateEventHistoryService.addEventHistory(certificateUuid, CertificateEvent.REQUEST, CertificateEventStatus.SUCCESS,
-                    ("Requested certificate extensions (%s) are not recorded on a platform-level pre-registration "
-                            + "(no connector-backed registration for this authority); supply them with the CSR at issuance")
-                            .formatted(oids), "");
-            logger.warn("Certificate {} pre-registered at the platform level; requested extensions ({}) are not recorded "
-                    + "and must be supplied with the CSR at issuance", certificateUuid, oids);
-        } catch (Exception e) {
-            logger.warn("Failed to record unrecorded platform-level extensions for certificate {}: {}", certificateUuid, e.getMessage());
-        }
     }
 
     /**
