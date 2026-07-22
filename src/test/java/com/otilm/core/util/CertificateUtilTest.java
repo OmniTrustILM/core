@@ -256,4 +256,18 @@ class CertificateUtilTest {
         assertNull(cert.getSubjectAlternativeNames());
     }
 
+    @Test
+    void applyRegistrationSan_rejectsOtherNameWithoutOid() {
+        // An OID-less otherName would serialize a literal "null=value" SAN; reject it as a controlled
+        // ValidationException instead, and persist nothing on the certificate.
+        Certificate cert = new Certificate();
+        GeneralNameEntry otherName = new GeneralNameEntry();
+        otherName.setType(GeneralNameType.OTHER_NAME);
+        otherName.setValue("device-9");
+
+        assertThrows(ValidationException.class,
+                () -> CertificateUtil.applyRegistrationSan(cert, List.of(otherName)));
+        assertNull(cert.getSubjectAlternativeNames());
+    }
+
 }

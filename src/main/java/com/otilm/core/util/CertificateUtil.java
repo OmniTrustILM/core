@@ -617,11 +617,17 @@ public class CertificateUtil {
         }
         Map<String, List<String>> sans = buildEmptySans();
         for (GeneralNameEntry entry : subjectAltNames) {
-            // Projected entries carry a validated type; guard anyway so a malformed persisted mapping
-            // surfaces as a controlled rejection instead of an NPE inside the placeholder transaction.
+            // Projected entries carry a validated type and otherName OID; guard anyway so a malformed
+            // persisted mapping surfaces as a controlled rejection instead of an NPE or a literal
+            // "null=value" SAN inside the placeholder transaction.
             if (entry.getType() == null) {
                 throw new ValidationException(ValidationError.create(
                         "A projected subject alternative name entry carries no type; check the SAN field mappings of the issuance attributes"));
+            }
+            if (entry.getType() == GeneralNameType.OTHER_NAME
+                    && (entry.getOtherNameOid() == null || entry.getOtherNameOid().isBlank())) {
+                throw new ValidationException(ValidationError.create(
+                        "A projected otherName subject alternative name entry carries no OID; check the SAN field mappings of the issuance attributes"));
             }
             String value = entry.getType() == GeneralNameType.OTHER_NAME
                     ? formatOtherNameSan(entry.getOtherNameOid(), entry.getValue())
