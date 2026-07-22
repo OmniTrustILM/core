@@ -570,7 +570,7 @@ class AuthorityProviderV3AdapterTest {
 
         CertificateRegistrationRequestDtoV3 wire = registerAndCaptureWire(registrationRequest());
 
-        assertEquals("O=Acme, CN=device-7", wire.getSubjectDn());
+        assertEquals("O=Acme,CN=device-7", wire.getSubjectDn());
         assertEquals("DNS:device-7.acme.test", wire.getSubjectAltName());
     }
 
@@ -581,7 +581,7 @@ class AuthorityProviderV3AdapterTest {
         CertificateRegistrationRequestDtoV3 wire = registerAndCaptureWire(registrationRequest());
 
         assertNull(wire.getRequestContent());
-        assertEquals("O=Acme, CN=device-7", wire.getSubjectDn());
+        assertEquals("O=Acme,CN=device-7", wire.getSubjectDn());
         assertEquals("DNS:device-7.acme.test", wire.getSubjectAltName());
         assertEquals(1, wire.getExtensions().size());
         assertEquals("2.5.29.37", wire.getExtensions().get(0).getOid());
