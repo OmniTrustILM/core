@@ -7,6 +7,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 
 public class OidHandler {
@@ -26,10 +27,11 @@ public class OidHandler {
 
     /**
      * Case-insensitive RDN code/altCode → OID lookup. Rebuilt on every RDN cache mutation and
-     * published via volatile write, so readers on hot paths (DN parsing) never iterate a map
-     * another thread may be mutating.
+     * republished as an immutable snapshot, so readers on hot paths (DN parsing) never iterate
+     * a map another thread may be mutating.
      */
-    private static volatile Map<String, String> rdnCodeToOid = Collections.emptyMap();
+    private static final AtomicReference<Map<String, String>> rdnCodeToOid =
+            new AtomicReference<>(Collections.emptyMap());
 
     public static Map<String, OidRecord> getOidCache(OidCategory oidCategory) {
         return oidCache.get(oidCategory);
@@ -51,7 +53,7 @@ public class OidHandler {
 
     /** OID for an RDN code or alternative code, matched case-insensitively; {@code null} when unknown. */
     public static String getOidForRdnCode(String code) {
-        return code == null ? null : rdnCodeToOid.get(code);
+        return code == null ? null : rdnCodeToOid.get().get(code);
     }
 
     private static void refreshRdnCodeLookup(OidCategory category) {
@@ -60,7 +62,7 @@ public class OidHandler {
         }
         Map<String, String> lookup = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         lookup.putAll(getCodeToOidMap());
-        rdnCodeToOid = Collections.unmodifiableMap(lookup);
+        rdnCodeToOid.set(Collections.unmodifiableMap(lookup));
     }
 
     public static Map<String, String> getCodeToOidMap() {
