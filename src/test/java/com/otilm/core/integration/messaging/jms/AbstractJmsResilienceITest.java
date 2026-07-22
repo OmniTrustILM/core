@@ -28,7 +28,7 @@ import java.io.IOException;
 
 @Tag("chaos")
 @SpringBootTest
-@ActiveProfiles({"messaging-int-test"})
+@ActiveProfiles(value = {"messaging-int-test"}, inheritProfiles = false)
 @Testcontainers
 public abstract class AbstractJmsResilienceITest extends BaseSpringBootTest {
     protected static final Logger logger = LoggerFactory.getLogger(AbstractJmsResilienceITest.class);

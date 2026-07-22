@@ -41,6 +41,8 @@ class RegisterWireBuilderTest {
                 OidRecord.builder().displayName("Common Name").code("CN").build());
         OidHandler.cacheOid(OidCategory.RDN_ATTRIBUTE_TYPE, "2.5.4.10",
                 OidRecord.builder().displayName("Organization").code("O").build());
+        OidHandler.cacheOid(OidCategory.RDN_ATTRIBUTE_TYPE, "1.2.840.113549.1.9.1",
+                OidRecord.builder().displayName("Email").code("EMAIL").altCodes(List.of("E", "EMAILADDRESS")).build());
     }
 
     @AfterAll
@@ -263,8 +265,8 @@ class RegisterWireBuilderTest {
             // when
             CertificateRegistrationRequestDtoV3 dto = RegisterWireBuilder.buildRegistration(fullContent(), true);
 
-            // then — flat subjectDn stays the validation anchor (platform canonical display order)
-            assertThat(dto.getSubjectDn()).isEqualTo("O=Acme, CN=device-7");
+            // then — flat subjectDn stays the validation anchor (strict RFC 2253/4514 wire form)
+            assertThat(dto.getSubjectDn()).isEqualTo("O=Acme,CN=device-7");
             assertThat(dto.getSubjectAltName()).isEqualTo("DNS:device-7.acme.test");
         }
 
@@ -275,6 +277,31 @@ class RegisterWireBuilderTest {
 
             // then — extensions ride the structured wire only (no duplicate source)
             assertThat(dto.getExtensions()).isNull();
+        }
+
+        @Test
+        void wireSubjectDn_rendersNonStandardAttributesAsDottedOidHex() {
+            // given — EMAIL is a platform registry code, not an RFC 4514 registered keyword; strict
+            // connector parsers only accept registered keywords or dotted OIDs with hexstring values.
+            X509RequestContent content = RegisterWireBuilder.buildContent("CN=reg,EMAIL=mail@mail.com", null, null);
+
+            // when
+            CertificateRegistrationRequestDtoV3 dto = RegisterWireBuilder.buildRegistration(content, false);
+
+            // then — #160d… is the DER IA5String of "mail@mail.com"
+            assertThat(dto.getSubjectDn()).isEqualTo("1.2.840.113549.1.9.1=#160d6d61696c406d61696c2e636f6d,CN=reg");
+        }
+
+        @Test
+        void wireSubjectDn_escapesSpecialCharacters() {
+            // given — a value containing the RDN separator must be escaped on the wire
+            X509RequestContent content = RegisterWireBuilder.buildContent("CN=x,O=Org\\, s.r.o.", null, null);
+
+            // when
+            CertificateRegistrationRequestDtoV3 dto = RegisterWireBuilder.buildRegistration(content, false);
+
+            // then
+            assertThat(dto.getSubjectDn()).isEqualTo("O=Org\\, s.r.o.,CN=x");
         }
 
         @Test
@@ -292,7 +319,7 @@ class RegisterWireBuilderTest {
             CertificateRegistrationRequestDtoV3 dto = RegisterWireBuilder.buildRegistration(fullContent(), false);
 
             // then
-            assertThat(dto.getSubjectDn()).isEqualTo("O=Acme, CN=device-7");
+            assertThat(dto.getSubjectDn()).isEqualTo("O=Acme,CN=device-7");
             assertThat(dto.getSubjectAltName()).isEqualTo("DNS:device-7.acme.test");
             assertThat(dto.getExtensions()).hasSize(1);
             CertificateExtension flat = dto.getExtensions().get(0);

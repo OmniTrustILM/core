@@ -24,11 +24,11 @@ import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
-import com.otilm.core.messaging.jms.producers.NotificationProducer;
 import com.otilm.core.model.signing.SigningCertificate;
 import com.otilm.core.service.impl.CertificateServiceImpl;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.MetaDefinitions;
+import com.otilm.core.util.mockbeans.ProducerMocks;
 import com.otilm.api.model.core.oid.SystemOid;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -37,7 +37,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -58,6 +58,7 @@ import static org.mockito.Mockito.verify;
  * <p>
  * Must NOT be {@code @Transactional} — afterCommit eviction callbacks need an actual commit to fire.
  */
+@Import(ProducerMocks.class)
 class SigningCertificateCacheITest extends BaseSpringBootTest {
 
     @Autowired
@@ -79,9 +80,6 @@ class SigningCertificateCacheITest extends BaseSpringBootTest {
     private CryptographicKeyRepository cryptographicKeyRepository;
     @Autowired
     private CryptographicKeyItemRepository cryptographicKeyItemRepository;
-
-    @MockitoBean
-    private NotificationProducer notificationProducer;
 
     @Autowired
     private PlatformTransactionManager transactionManager;

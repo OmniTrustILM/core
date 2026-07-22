@@ -27,6 +27,7 @@ import com.otilm.core.service.cmp.message.handler.PollResult;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.MetaDefinitions;
+import com.otilm.core.util.mockbeans.PollMocks;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import org.bouncycastle.asn1.DEROctetString;
 import org.bouncycastle.asn1.cmp.CMPCertificate;
@@ -37,7 +38,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.transaction.TestTransaction;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -52,6 +53,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 
 @Transactional
+@Import(PollMocks.class)
 public class KurMessageHandlerITest extends BaseSpringBootTest {
 
     @Autowired private CertificateContentRepository certificateContentRepository;
@@ -72,7 +74,7 @@ public class KurMessageHandlerITest extends BaseSpringBootTest {
     @Autowired private Connector2FunctionGroupRepository connector2FunctionGroupRepository;
     @Autowired private CertificateValidationStatusPoller validationStatusPoller;
 
-    @MockitoBean
+    @Autowired
     private PollFeature pollFeature;
 
     private CrmfMessageHandler testedHandler;

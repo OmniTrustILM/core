@@ -164,3 +164,22 @@ Avoid:
 - "TODO: refactor later" without a specific target
 - Comments referring to PR numbers or review threads ("Fixed in PR #1234") — those rot fast
 - Comments restating method names or class purposes
+
+## The cost of a new test-context combination
+
+Every distinct combination of test mock-modules + profiles + property sources + `@SpringBootTest` args +
+nested `@TestConfiguration` + `@AutoConfigure*` slice annotations is a distinct Spring context — one context
+boot, ~15s of CI time. Reusing an existing combination is free; introducing a new one is a deliberate purchase.
+
+- Prefer composing an existing `@Import` set from `com/otilm/core/util/mockbeans/` over inventing a new one.
+- A mock a test only needs to *exist* belongs in a module (registered there as `@Bean @Primary`); a mock it
+  stubs/verifies can still use the module — `@Autowired` the handle (the `MockBeanResetListener` isolates it
+  per test).
+- `ContextSignatureGuardTest.BASELINE` is an exact snapshot of the current distinct-signature count, not a
+  ceiling — the guard asserts equality so slack can't accumulate silently. A genuinely new combination requires
+  raising it in the same PR (the reviewed record of the purchase — do not raise it casually); removing a
+  combination requires lowering it in lock-step. Run the `census()` test to read the current count.
+- `@MockitoSpyBean` stays local (it wraps a real bean and is verified); it does not go in a module.
+- Avoid per-class `@SpringBootTest(webEnvironment = ...)` / nested `@TestConfiguration` / `@AutoConfigure*`
+  unless the context genuinely must differ — each forks a new cached context, and the guard now counts them
+  as distinct signatures.
