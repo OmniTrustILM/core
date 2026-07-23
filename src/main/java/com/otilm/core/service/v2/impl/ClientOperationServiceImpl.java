@@ -116,7 +116,9 @@ import java.util.*;
 import java.util.function.BooleanSupplier;
 
 @Service("clientOperationServiceImplV2")
-@Transactional
+// Roll back on any exception, checked included, so a connector or attribute failure never commits partial state.
+// Write methods override this with their own NOT_SUPPORTED boundary; the methods governed here are reads.
+@Transactional(rollbackFor = Exception.class)
 public class ClientOperationServiceImpl implements ClientOperationExternalService, ClientOperationInternalService {
     private static final Logger logger = LoggerFactory.getLogger(ClientOperationServiceImpl.class);
 
@@ -336,6 +338,14 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
     @Override
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.ANY, parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
+    public List<BaseAttribute> listRegisterCertificateAttributes(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid) throws ConnectorException, NotFoundException {
+        RaProfile raProfile = raProfileRepository.findByUuidAndEnabledIsTrue(raProfileUuid.getValue())
+                .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
+        return extendedAttributeService.listRegisterCertificateAttributes(raProfile);
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.ANY, parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
     public void validateIssueCertificateAttributes(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid, List<RequestAttribute> attributes) throws ConnectorException, ValidationException, NotFoundException {
         RaProfile raProfile = raProfileRepository.findByUuidAndEnabledIsTrue(raProfileUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
@@ -451,6 +461,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         }
         rejectAmbiguousRegistrationIdentity(request);
         rejectPastRegistrationWindow(request);
+        rejectWindowWithoutChallenge(request);
         // Connector call below holds no transaction (NOT_SUPPORTED), so load the authority graph eagerly —
         // every association the adapter dereferences must be initialized before the session closes.
         RaProfile raProfile = raProfileRepository.findWithAuthorityByUuid(raProfileUuid.getValue())
@@ -500,6 +511,17 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // attribute-less in PENDING_REGISTRATION.
             if (createCustomAttributes && request.getCustomAttributes() != null && !request.getCustomAttributes().isEmpty()) {
                 attributeEngine.updateObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid(), request.getCustomAttributes());
+            }
+            persistRegistrationRequestValues(certificate, request);
+            // Validate the connector's register-operation attributes against the schema — always, so a required
+            // register attribute is enforced even when the client sends none — then persist the supplied ones on the
+            // certificate (register + connector), symmetric with issue/revoke, so they surface as registerAttributes.
+            extendedAttributeService.mergeAndValidateRegisterAttributes(raProfile, request.getAttributes());
+            if (request.getAttributes() != null && !request.getAttributes().isEmpty()) {
+                attributeEngine.updateObjectDataAttributesContent(
+                        ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid())
+                                .connector(authority.getConnectorUuid()).operation(AttributeOperation.CERTIFICATE_REGISTER).build(),
+                        request.getAttributes());
             }
             // Apply owner/groups before the connector call, alongside custom attributes: an invalid owner/group
             // UUID fails the placeholder here (pre-acceptance) rather than after a connector has already accepted.
@@ -593,6 +615,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             if (createCustomAttributes && request.getCustomAttributes() != null && !request.getCustomAttributes().isEmpty()) {
                 attributeEngine.updateObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid(), request.getCustomAttributes());
             }
+            persistRegistrationRequestValues(certificate, request);
             applyRegistrationAssociations(certificate, request);
             maybeCreateRegistrationAuthorization(certificate, request);
             // Write the register->issue binding (no connector meta) so a platform-level placeholder carries the same
@@ -694,6 +717,52 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     /**
+     * Persists the operator-supplied request-attribute values of a structured registration on the certificate,
+     * connectorless at operation=null — the key {@code getCertificate} reads into {@code registrationRequestAttributes}.
+     * The definitions were materialised by {@link #buildStructuredRegistrationContent} (operation=null), so this only
+     * writes content. A flat registration carries no csrAttributes and stores nothing.
+     */
+    private void persistRegistrationRequestValues(Certificate certificate, ClientCertificateRegistrationDto request)
+            throws AttributeException, NotFoundException {
+        if (!hasStructuredIdentity(request.getCsrAttributes())) {
+            return;
+        }
+        List<RequestAttribute> csrAttributes = request.getCsrAttributes().stream().filter(Objects::nonNull).toList();
+        attributeEngine.updateObjectDataAttributesContent(
+                ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).build(), csrAttributes);
+    }
+
+    /**
+     * Persists the operator-supplied completion request-attribute values on the certificate request, connectorless at
+     * operation=null (the slot direct issue uses; read back into {@code certificateRequest.attributes}). Called from
+     * {@code issueExistingCertificate} (NOT_SUPPORTED), so it runs outside the CSR-attach row lock: the resolve — which
+     * can reach the connector for a non-STATIC_ONLY profile — and each attribute-engine write execute in their own
+     * transaction, so an invalid attribute or an unreachable connector is skipped (WARN) without failing the completed
+     * certificate. Write-if-empty so a fingerprint-shared CSR's attributes are not clobbered.
+     */
+    private void persistCompletionRequestValues(RaProfile raProfile, UUID certificateRequestUuid, ClientCertificateIssueRequestDto request) {
+        if (certificateRequestUuid == null || request.getCsrAttributes() == null) {
+            return;
+        }
+        List<RequestAttribute> csrAttributes = request.getCsrAttributes().stream().filter(Objects::nonNull).toList();
+        if (csrAttributes.isEmpty()) {
+            return;
+        }
+        ObjectAttributeContentInfo info = ObjectAttributeContentInfo.builder(Resource.CERTIFICATE_REQUEST, certificateRequestUuid).build();
+        try {
+            var existing = attributeEngine.getObjectDataAttributesContent(info);
+            if (existing != null && !existing.isEmpty()) {
+                return;
+            }
+            attributeEngine.validateUpdateDataAttributes(null, null, issuanceDefinitionResolver.resolve(raProfile), csrAttributes);
+            attributeEngine.updateObjectDataAttributesContent(info, csrAttributes);
+        } catch (ValidationException | AttributeException | ConnectorException | NotFoundException e) {
+            logger.warn("Skipping completion request-attribute persistence for certificate request {}: {}",
+                    certificateRequestUuid, safeMessage(e, "completion attribute persistence failed"));
+        }
+    }
+
+    /**
      * Rejects a past issuance window at the registration boundary, before any placeholder is created — a past
      * {@code expiresAt} would produce an instantly-dead registration. Validated here (alongside
      * rejectAmbiguousRegistrationIdentity) rather than at row creation so the rejection leaves no orphaned
@@ -704,6 +773,20 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         OffsetDateTime expiresAt = request.getExpiresAt();
         if (secret != null && !secret.isBlank() && expiresAt != null && !expiresAt.isAfter(OffsetDateTime.now(ZoneOffset.UTC))) {
             throw new ValidationException("The registration issuance window (expiresAt) must be in the future.");
+        }
+    }
+
+    /**
+     * Rejects an issuance window supplied without a challenge. The window is enforced only within the challenge
+     * regime — it lives on the {@link CertificateRegistrationAuthorization}, which is created only when a secret is
+     * present — so a window without an {@code authorizationSecret} would be silently dropped. Reject it up front
+     * rather than accept a deadline that has no effect.
+     */
+    private static void rejectWindowWithoutChallenge(ClientCertificateRegistrationDto request) {
+        String secret = request.getAuthorizationSecret();
+        if ((secret == null || secret.isBlank()) && request.getExpiresAt() != null) {
+            throw new ValidationException(
+                    "A registration issuance window (expiresAt) requires an authorization secret; a registration without a challenge has no completion deadline.");
         }
     }
 
@@ -778,7 +861,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     /**
      * Challenge gate for completing a pre-registered certificate. Issue is the only challenge-verified completion
      * path; renew and rekey of a registered certificate are fail-closed instead (see
-     * rejectRenewOrRekeyOfActiveRegistration). A certificate with no authorization row is not self-service and
+     * rejectRenewOrRekeyOfLiveRegistration). A certificate with no authorization row is not self-service and
      * passes untouched. On an ACTIVE authorization it
      * enforces, under a per-row pessimistic lock, the issuance window then the operator challenge; LOCKED/EXPIRED
      * deny; CLOSED passes as unregistered. The failed-attempt increment and lockout are committed before the caller
@@ -853,18 +936,20 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     /**
-     * Fail-closed guard: a certificate with an ACTIVE registration authorization must not be renewed or rekeyed
+     * Fail-closed guard: a certificate whose registration authorization is not CLOSED must not be renewed or rekeyed
      * until those paths are challenge-gated (together with copying the authorization to the successor), so neither
-     * can silently exit the challenge regime. This also denies platform-automation renewals (locations, workflows,
-     * scheduled renew) of such certificates. Issue completion remains the challenge-verified path
-     * (verifyRegistrationChallenge).
+     * can silently exit the challenge regime. Keying on {@code != CLOSED} rather than {@code == ACTIVE} keeps the
+     * guard fail-closed if a retained authorization is ever left EXPIRED (e.g. a passed-window sweep) or LOCKED:
+     * only a deliberately CLOSED (retired) registration renews freely as unregistered. This also denies
+     * platform-automation renewals (locations, workflows, scheduled renew) of such certificates. Issue completion
+     * remains the challenge-verified path (verifyRegistrationChallenge).
      */
-    private void rejectRenewOrRekeyOfActiveRegistration(UUID certificateUuid) {
+    private void rejectRenewOrRekeyOfLiveRegistration(UUID certificateUuid) {
         registrationAuthorizationRepository.findByCertificateUuid(certificateUuid)
-                .filter(authorization -> authorization.getState() == RegistrationState.ACTIVE)
+                .filter(authorization -> authorization.getState() != RegistrationState.CLOSED)
                 .ifPresent(authorization -> {
                     throw new ValidationException(ValidationError.create(
-                            "This certificate has an active registration; renew and rekey of registered certificates are not supported yet."));
+                            "This certificate has a live registration; renew and rekey of registered certificates are not supported yet."));
                 });
     }
 
@@ -1496,11 +1581,16 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 request != null ? request.getAuthorizationSecret() : null);
 
         if (registered) {
+            UUID certificateRequestUuid;
             try {
-                certificateService.addCertificateRequestToExisting(certificate.getUuid(), request);
+                certificateRequestUuid = certificateService.addCertificateRequestToExisting(certificate.getUuid(), request);
             } catch (CertificateRequestException | NoSuchAlgorithmException e) {
                 throw new ValidationException(ValidationError.create("Invalid certificate signing request: " + e.getMessage()));
             }
+            // Persist the completion request-attribute values outside the CSR-attach transaction and its row lock
+            // (this method is NOT_SUPPORTED), so the resolve and the attribute-engine writes run in their own
+            // transactions and cannot mark the completed certificate's transaction rollback-only.
+            persistCompletionRequestValues(raProfile, certificateRequestUuid, request);
         }
 
         final ActionMessage actionMessage = new ActionMessage();
@@ -1549,7 +1639,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
         // Fail-closed: renew is not challenge-gated yet, so refuse to renew a certificate whose registration is
         // still ACTIVE rather than let a secretless renew silently exit the challenge regime.
-        rejectRenewOrRekeyOfActiveRegistration(oldCertificate.getUuid());
+        rejectRenewOrRekeyOfLiveRegistration(oldCertificate.getUuid());
 
         // CSR decision making
         CertificateRequest certificateRequest;
@@ -1717,7 +1807,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
         // Fail-closed: rekey is not challenge-gated yet (its verification and successor copy come later), so
         // refuse to rekey a certificate whose registration is still ACTIVE.
-        rejectRenewOrRekeyOfActiveRegistration(oldCertificate.getUuid());
+        rejectRenewOrRekeyOfLiveRegistration(oldCertificate.getUuid());
 
         // CSR decision making
         ClientCertificateRequestDto certificateRequestDto = new ClientCertificateRequestDto();
