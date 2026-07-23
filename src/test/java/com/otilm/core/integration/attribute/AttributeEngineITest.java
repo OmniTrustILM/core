@@ -190,12 +190,9 @@ class AttributeEngineITest extends BaseSpringBootTest {
     }
 
     private static void ensureOidCached(OidCategory category, String oid, OidRecord oidRecord) {
-        Map<String, OidRecord> cache = OidHandler.getOidCache(category);
-        if (cache == null) {
-            OidHandler.cacheOidCategory(category, new HashMap<>());
-            cache = OidHandler.getOidCache(category);
-        }
-        cache.put(oid, oidRecord);
+        // Route through cacheOid so the copy-on-write contract holds and the derived RDN code
+        // lookup is refreshed — mutating the map from getOidCache() directly bypasses both.
+        OidHandler.cacheOid(category, oid, oidRecord);
     }
 
     @Test
