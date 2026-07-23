@@ -33,8 +33,12 @@ import java.util.Map;
  */
 class RequestAttributeDefinitionValidationTest {
 
+    private static Map<String, OidRecord> savedRdnRegistry;
+
     @BeforeAll
     static void seedRdnRegistry() {
+        Map<String, OidRecord> existing = OidHandler.getOidCache(OidCategory.RDN_ATTRIBUTE_TYPE);
+        savedRdnRegistry = existing == null ? null : new HashMap<>(existing);
         Map<String, OidRecord> rdn = new HashMap<>();
         for (SystemOid systemOid : SystemOid.values()) {
             if (systemOid.getCategory() == OidCategory.RDN_ATTRIBUTE_TYPE) {
@@ -49,7 +53,8 @@ class RequestAttributeDefinitionValidationTest {
 
     @AfterAll
     static void clearRdnRegistry() {
-        OidHandler.cacheOidCategory(OidCategory.RDN_ATTRIBUTE_TYPE, new HashMap<>());
+        OidHandler.cacheOidCategory(OidCategory.RDN_ATTRIBUTE_TYPE,
+                savedRdnRegistry == null ? new HashMap<>() : savedRdnRegistry);
     }
 
     private static DataAttributeV3 validDefinition() {
