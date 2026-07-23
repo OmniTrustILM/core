@@ -13,6 +13,14 @@ import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
+import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
+import com.otilm.api.model.common.attribute.v3.mapping.FieldType;
+import com.otilm.api.model.common.attribute.v3.mapping.RdnMappedField;
+import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.raprofile.AttributeSetMergeMode;
+import com.otilm.core.service.CertificateExternalService;
+import com.otilm.core.service.writer.RaProfileCertificateRequestAttributeWriter;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
@@ -45,6 +53,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import java.util.List;
 import java.util.UUID;
 
+import static com.otilm.core.util.builders.MappedDataAttributeV3Builder.aMappedDataAttribute;
 import static com.otilm.core.util.builders.RequestAttributeV3Builder.aCustomAttribute;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -72,6 +81,12 @@ class ClientOperationServiceRegisterCustomAttributeITest extends BaseSpringBootT
     private ConnectorRepository connectorRepository;
     @Autowired
     private CertificateRepository certificateRepository;
+    @Autowired
+    private CertificateExternalService certificateExternalService;
+    @Autowired
+    private RaProfileCertificateRequestAttributeWriter requestAttributeWriter;
+    @Autowired
+    private com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     @MockitoBean
     private AuthorityProviderAdapterFactory adapterFactory;
@@ -201,5 +216,41 @@ class ClientOperationServiceRegisterCustomAttributeITest extends BaseSpringBootT
         List<Certificate> certs = certificateRepository.findAll();
         Assertions.assertTrue(certs.isEmpty(),
                 "an up-front custom-attribute validation failure must leave no placeholder certificate behind");
+    }
+
+    @Test
+    void registerPersistsRequestAttributeValuesVisibleOnTheCertificateDetail() throws Exception {
+        // Author an RA-profile request attribute mapping the CN RDN, so the real resolver returns it and the
+        // submitted value projects to the placeholder identity and is persisted as a registration request attribute.
+        DataAttributeV3 cnDef = aMappedDataAttribute().withName("commonName").mappingRdn("2.5.4.3").build();
+        // fieldType is the serialized type discriminator for MappedField; the builder leaves it unset, so set it
+        // here or the RA-profile set can't be deserialized back by the real resolver.
+        ((RdnMappedField) cnDef.getFieldMapping().getFields().getFirst()).setFieldType(FieldType.RDN);
+        UUID cnUuid = UUID.randomUUID();
+        cnDef.setUuid(cnUuid.toString());
+        requestAttributeWriter.saveStaticSet(raProfile,
+                objectMapper.writeValueAsString(List.of(cnDef)), AttributeSetMergeMode.STATIC_ONLY, null);
+
+        AuthorityProviderAdapter adapter = mock(AuthorityProviderAdapter.class,
+                Mockito.withSettings().extraInterfaces(RegisterCapability.class));
+        when(adapterFactory.forAuthority(Mockito.any())).thenReturn(adapter);
+        when(((RegisterCapability) adapter).register(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
+
+        ClientCertificateRegistrationDto request = new ClientCertificateRegistrationDto();
+        request.setCsrAttributes(List.of(new RequestAttributeV3(cnUuid, "commonName",
+                AttributeContentType.STRING, List.<BaseAttributeContentV3<?>>of(new StringAttributeContentV3("device-rt")))));
+
+        ClientCertificateDataResponseDto response = clientOperationService.registerCertificate(
+                authorityParent, securedRaProfile, request);
+
+        CertificateDetailDto detail = certificateExternalService.getCertificate(SecuredUUID.fromString(response.getUuid()));
+        List<ResponseAttribute> persisted = detail.getRegistrationRequestAttributes();
+        Assertions.assertEquals(1, persisted.size(), "the submitted request attribute must round-trip to the certificate detail");
+        ResponseAttributeV3 attr = (ResponseAttributeV3) persisted.getFirst();
+        Assertions.assertEquals("commonName", attr.getName());
+        Assertions.assertEquals("device-rt",
+                ((StringAttributeContentV3) attr.getContent().getFirst()).getData(),
+                "the submitted registration request-attribute value must be readable from the detail");
     }
 }
