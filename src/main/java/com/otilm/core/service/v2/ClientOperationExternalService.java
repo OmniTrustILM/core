@@ -73,6 +73,10 @@ public interface ClientOperationExternalService {
             SecuredParentUUID authorityUuid,
             SecuredUUID raProfileUuid) throws ConnectorException, NotFoundException;
 
+    List<BaseAttribute> listRegisterCertificateAttributes(
+            SecuredParentUUID authorityUuid,
+            SecuredUUID raProfileUuid) throws ConnectorException, NotFoundException;
+
     void validateRevokeCertificateAttributes(
             SecuredParentUUID authorityUuid,
             SecuredUUID raProfileUuid,

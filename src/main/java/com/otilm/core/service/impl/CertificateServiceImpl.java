@@ -76,6 +76,7 @@ import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
 import com.otilm.core.service.writer.CertificateValidationWriter;
+import com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.*;
@@ -223,6 +224,13 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
     @Autowired
     public void setRegistrationAuthorizationRepository(CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository) {
         this.registrationAuthorizationRepository = registrationAuthorizationRepository;
+    }
+
+    private CertificateRegistrationAuthorizationWriter registrationAuthorizationWriter;
+
+    @Autowired
+    public void setRegistrationAuthorizationWriter(CertificateRegistrationAuthorizationWriter registrationAuthorizationWriter) {
+        this.registrationAuthorizationWriter = registrationAuthorizationWriter;
     }
 
     @Autowired
@@ -491,7 +499,12 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
         if (certificate.getRaProfile() != null && certificate.getRaProfile().getAuthorityInstanceReference() != null && certificate.getRaProfile().getAuthorityInstanceReference().getConnectorUuid() != null) {
             dto.setIssueAttributes(attributeEngine.getObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(certificate.getRaProfile().getAuthorityInstanceReference().getConnectorUuid()).operation(AttributeOperation.CERTIFICATE_ISSUE).build()));
             dto.setRevokeAttributes(attributeEngine.getObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(certificate.getRaProfile().getAuthorityInstanceReference().getConnectorUuid()).operation(AttributeOperation.CERTIFICATE_REVOKE).build()));
+            dto.setRegisterAttributes(attributeEngine.getObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(certificate.getRaProfile().getAuthorityInstanceReference().getConnectorUuid()).operation(AttributeOperation.CERTIFICATE_REGISTER).build()));
         }
+        // Registration request-attribute values are persisted without a connector under the null operation slot by
+        // the register flow, and read here for every certificate so a registered placeholder that has no certificate
+        // request still exposes them.
+        dto.setRegistrationRequestAttributes(attributeEngine.getObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).build()));
         // TODO: originally showing only metadata from discovery resource, should it be like that?
         dto.setMetadata(attributeEngine.getMappedMetadataContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).build()));
         dto.setCustomAttributes(attributeEngine.getObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid()));
@@ -1159,8 +1172,9 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
     }
 
     @Override
-    @Transactional
-    public void addCertificateRequestToExisting(UUID certificateUuid, ClientCertificateIssueRequestDto issueRequest)
+    // Roll back the partial CSR attach when completion parsing or validation fails; Spring's default keeps writes on a checked exception.
+    @Transactional(rollbackFor = Exception.class)
+    public UUID addCertificateRequestToExisting(UUID certificateUuid, ClientCertificateIssueRequestDto issueRequest)
             throws CertificateRequestException, NoSuchAlgorithmException, NotFoundException {
         if (issueRequest == null || issueRequest.getRequest() == null || issueRequest.getRequest().isBlank()) {
             throw new CertificateRequestException("A certificate signing request is required to complete a registered certificate");
@@ -1236,6 +1250,9 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
             setCertificateRequestAltKey(certificateRequestEntity, request.getAltPublicKey());
         }
         certificateRepository.save(certificate);
+        // Completion request-attribute values are persisted by the caller (issueExistingCertificate) outside this
+        // locked transaction; return the request entity so it can key the write.
+        return certificateRequestEntity.getUuid();
     }
 
     @Override
@@ -1927,6 +1944,9 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
 
         stateMachine.transition(certificate, CertificateState.ISSUED, CertificateEvent.ISSUE,
                 "Issued using RA Profile " + certificate.getRaProfile().getName());
+        // A pre-registered certificate's issuance window governed only this initial issuance; clear it so the
+        // authorization retained for a later renew/rekey carries no stale deadline. No-op for non-registered certs.
+        registrationAuthorizationWriter.clearIssuanceWindow(uuid);
 
         for (CertificateRelation relation : certificate.getPredecessorRelations()) {
             relation.setRelationType(determineRelationType(certificate, relation.getPredecessorCertificate()));

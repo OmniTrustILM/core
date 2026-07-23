@@ -42,6 +42,8 @@ import com.otilm.api.model.core.v2.ClientCertificateRekeyRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.v2.OperationSupport;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.AttributeOperation;
+import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.certificate.request.IssuanceDefinitionResolver;
 import com.otilm.api.model.core.auth.UserDetailDto;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
@@ -51,6 +53,7 @@ import com.otilm.core.dao.entity.Group;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.CertificateRegistration;
 import com.otilm.core.dao.entity.CertificateRegistrationAuthorization;
+import com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter;
 import com.otilm.core.dao.entity.RegistrationState;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository;
@@ -150,6 +153,8 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     private CertificateRegistrationRepository registrationRepository;
     @Autowired
     private CertificateRegistrationAuthorizationRepository authorizationRepository;
+    @Autowired
+    private CertificateRegistrationAuthorizationWriter registrationAuthorizationWriter;
     @Autowired
     private SettingsCache settingsCache;
     @Autowired
@@ -889,6 +894,19 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
         Assertions.assertEquals("device-9", contentCaptor.getValue().getSubject().get(0).getValue());
         Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
         Assertions.assertEquals(CertificateState.REGISTERED, cert.getState());
+
+        // The submitted request-attribute values are persisted on the certificate itself, connectorless at
+        // operation=null (the key getCertificate reads into registrationRequestAttributes).
+        ArgumentCaptor<ObjectAttributeContentInfo> infoCaptor = ArgumentCaptor.forClass(ObjectAttributeContentInfo.class);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<RequestAttribute>> valuesCaptor = ArgumentCaptor.forClass(List.class);
+        verify(attributeEngine).updateObjectDataAttributesContent(infoCaptor.capture(), valuesCaptor.capture());
+        Assertions.assertEquals(Resource.CERTIFICATE, infoCaptor.getValue().objectType());
+        Assertions.assertEquals(cert.getUuid(), infoCaptor.getValue().objectUuid());
+        Assertions.assertNull(infoCaptor.getValue().operation(), "register request values are stored at operation=null");
+        Assertions.assertNull(infoCaptor.getValue().connectorUuid(), "register request values are stored connectorless");
+        Assertions.assertEquals(1, valuesCaptor.getValue().size());
+        Assertions.assertEquals(cnUuid, valuesCaptor.getValue().get(0).getUuid());
     }
 
     // ── registered identity (SAN / extensions) on the placeholder ────────────
@@ -1035,6 +1053,68 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
                 "must fail on the empty-projection check, not the upstream capability gate");
         Assertions.assertEquals(0, certificateRepository.count(),
                 "no placeholder should be persisted when structured identity projects empty");
+    }
+
+    @Test
+    void registerRejectsIssuanceWindowWithoutChallenge() {
+        // An issuance window is enforced only within the challenge regime (it lives on the authorization, created
+        // only with a secret), so a window without an authorizationSecret must be rejected up front rather than
+        // silently dropped — before any placeholder is created.
+        ClientCertificateRegistrationDto request = new ClientCertificateRegistrationDto();
+        request.setSubjectDn("CN=device-nowindow,O=Test");
+        request.setExpiresAt(OffsetDateTime.now().plusDays(1));
+
+        ValidationException ex = Assertions.assertThrows(ValidationException.class,
+                () -> clientOperationService.registerCertificate(authorityParent, securedRaProfile, request));
+        Assertions.assertTrue(ex.getMessage().contains("requires an authorization secret"),
+                "an issuance window without a challenge must be rejected");
+        Assertions.assertEquals(0, certificateRepository.count(),
+                "no placeholder should be created when the window-without-challenge combination is rejected");
+    }
+
+    @Test
+    void registerPersistsConnectorRegisterAttributesUnderTheRegisterOperation() throws Exception {
+        // A connector-backed registration carrying connector register attributes stores them on the certificate
+        // under the register operation (+ connector), so they surface as registerAttributes on the detail.
+        RegisterCapability adapter = registeringAdapter();
+        when(adapter.register(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
+        when(adapter.listRegisterAttributes(Mockito.any(), Mockito.any())).thenReturn(List.of());
+
+        RequestAttribute registerAttr = new RequestAttributeV3(UUID.randomUUID(), "registerParam",
+                AttributeContentType.STRING, List.<BaseAttributeContentV3<?>>of(new StringAttributeContentV3("v")));
+        ClientCertificateRegistrationDto request = new ClientCertificateRegistrationDto();
+        request.setSubjectDn("CN=device-conn-attrs,O=Acme");
+        request.setAttributes(List.of(registerAttr));
+
+        ClientCertificateDataResponseDto response = clientOperationService.registerCertificate(
+                authorityParent, securedRaProfile, request);
+
+        UUID certUuid = UUID.fromString(response.getUuid());
+        ArgumentCaptor<ObjectAttributeContentInfo> infoCaptor = ArgumentCaptor.forClass(ObjectAttributeContentInfo.class);
+        verify(attributeEngine).updateObjectDataAttributesContent(infoCaptor.capture(), Mockito.anyList());
+        ObjectAttributeContentInfo info = infoCaptor.getValue();
+        Assertions.assertEquals(Resource.CERTIFICATE, info.objectType());
+        Assertions.assertEquals(certUuid, info.objectUuid());
+        Assertions.assertEquals(AttributeOperation.CERTIFICATE_REGISTER, info.operation(),
+                "connector register attributes are stored under the register operation");
+        Assertions.assertNotNull(info.connectorUuid(), "connector register attributes are connector-scoped");
+    }
+
+    @Test
+    void clearIssuanceWindowNullsExpiryAndKeepsStateActive() {
+        // The window governs only the initial issuance; clearing it leaves the authorization ACTIVE and durable
+        // for a later renew/rekey, with no stale deadline a future sweep could flip to EXPIRED.
+        Certificate cert = seedIssuedCert();
+        activeAuthorizationFor(cert.getUuid());
+        Assertions.assertNotNull(authorizationRepository.findByCertificateUuid(cert.getUuid()).orElseThrow().getExpiresAt(),
+                "precondition: the authorization starts with an issuance window");
+
+        registrationAuthorizationWriter.clearIssuanceWindow(cert.getUuid());
+
+        CertificateRegistrationAuthorization after = authorizationRepository.findByCertificateUuid(cert.getUuid()).orElseThrow();
+        Assertions.assertNull(after.getExpiresAt(), "the issuance window must be cleared on completion");
+        Assertions.assertEquals(RegistrationState.ACTIVE, after.getState(), "the authorization stays ACTIVE for renew/rekey");
     }
 
     @Test
