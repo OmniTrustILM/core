@@ -40,25 +40,30 @@ public class OidHandler {
      */
     private static final Object WRITE_LOCK = new Object();
 
+    /** The published per-category map, or {@code null} when the category is not loaded. Immutable — see {@link #cacheOidCategory}. */
     public static Map<String, OidRecord> getOidCache(OidCategory oidCategory) {
         return oidCache.get(oidCategory);
     }
 
     public static void cacheOidCategory(OidCategory category, Map<String, OidRecord> oidRecordMap) {
         synchronized (WRITE_LOCK) {
-            oidCache.put(category, oidRecordMap);
+            // Publish an immutable defensive copy: per-category maps are iterated lock-free by
+            // readers (getCodeToOidMap, style snapshots), so a caller mutating the passed map
+            // after publish would desync oidCache from the derived rdnCodeToOid index. Copying
+            // here makes the copy-on-write contract structural rather than convention-only.
+            oidCache.put(category, Collections.unmodifiableMap(new HashMap<>(oidRecordMap)));
             refreshRdnCodeLookup(category);
         }
     }
 
     public static void cacheOid(OidCategory category, String oid, OidRecord oidRecord) {
         synchronized (WRITE_LOCK) {
-            // Copy-on-write: published per-category maps are iterated lock-free by readers
-            // (getCodeToOidMap, style snapshots), so never mutate one in place. getOrDefault
-            // keeps the first write to an as-yet-uncached category from throwing.
+            // Copy-on-write: build the next map fresh, then publish it immutable so readers never
+            // observe a map another thread might mutate. getOrDefault keeps the first write to an
+            // as-yet-uncached category from throwing.
             Map<String, OidRecord> next = new HashMap<>(oidCache.getOrDefault(category, Map.of()));
             next.put(oid, oidRecord);
-            oidCache.put(category, next);
+            oidCache.put(category, Collections.unmodifiableMap(next));
             refreshRdnCodeLookup(category);
         }
     }
@@ -124,7 +129,7 @@ public class OidHandler {
             }
             Map<String, OidRecord> next = new HashMap<>(current);
             next.remove(oid);
-            oidCache.put(category, next);
+            oidCache.put(category, Collections.unmodifiableMap(next));
             refreshRdnCodeLookup(category);
         }
     }

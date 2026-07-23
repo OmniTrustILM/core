@@ -44,6 +44,10 @@ class OidHandlerTest {
         for (OidCategory category : TOUCHED) {
             Map<String, OidRecord> original = saved.get(category);
             if (original == null) {
+                // Refresh the derived rdnCodeToOid index to empty before dropping the entry —
+                // evictCategory bypasses refreshRdnCodeLookup, so a bare remove would leave the
+                // index holding phantom codes from tests in this class. No-op for non-RDN categories.
+                OidHandler.cacheOidCategory(category, new HashMap<>());
                 evictCategory(category);
             } else {
                 OidHandler.cacheOidCategory(category, original);
