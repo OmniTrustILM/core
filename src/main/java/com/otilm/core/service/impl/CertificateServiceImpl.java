@@ -501,8 +501,9 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
             dto.setRevokeAttributes(attributeEngine.getObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(certificate.getRaProfile().getAuthorityInstanceReference().getConnectorUuid()).operation(AttributeOperation.CERTIFICATE_REVOKE).build()));
             dto.setRegisterAttributes(attributeEngine.getObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(certificate.getRaProfile().getAuthorityInstanceReference().getConnectorUuid()).operation(AttributeOperation.CERTIFICATE_REGISTER).build()));
         }
-        // Register request-attribute values are stored connectorless at operation=null (see registerCertificate);
-        // read unconditionally so a REGISTERED placeholder (which has no certificate request) still exposes them.
+        // Registration request-attribute values are persisted without a connector under the null operation slot by
+        // the register flow, and read here for every certificate so a registered placeholder that has no certificate
+        // request still exposes them.
         dto.setRegistrationRequestAttributes(attributeEngine.getObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).build()));
         // TODO: originally showing only metadata from discovery resource, should it be like that?
         dto.setMetadata(attributeEngine.getMappedMetadataContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).build()));
@@ -1171,7 +1172,8 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
     }
 
     @Override
-    @Transactional
+    // Roll back the partial CSR attach when completion parsing or validation fails; Spring's default keeps writes on a checked exception.
+    @Transactional(rollbackFor = Exception.class)
     public UUID addCertificateRequestToExisting(UUID certificateUuid, ClientCertificateIssueRequestDto issueRequest)
             throws CertificateRequestException, NoSuchAlgorithmException, NotFoundException {
         if (issueRequest == null || issueRequest.getRequest() == null || issueRequest.getRequest().isBlank()) {

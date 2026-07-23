@@ -116,7 +116,9 @@ import java.util.*;
 import java.util.function.BooleanSupplier;
 
 @Service("clientOperationServiceImplV2")
-@Transactional
+// Roll back on any exception, checked included, so a connector or attribute failure never commits partial state.
+// Write methods override this with their own NOT_SUPPORTED boundary; the methods governed here are reads.
+@Transactional(rollbackFor = Exception.class)
 public class ClientOperationServiceImpl implements ClientOperationExternalService, ClientOperationInternalService {
     private static final Logger logger = LoggerFactory.getLogger(ClientOperationServiceImpl.class);
 

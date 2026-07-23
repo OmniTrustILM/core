@@ -24,6 +24,8 @@ import java.util.List;
 @Service("extendedAcmeServiceImpl")
 public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
 
+    private static final String CONNECTOR_UNAVAILABLE_MESSAGE = "Connector of the Authority is not available / deleted";
+
     private ConnectorRepository connectorRepository;
 
     @Autowired
@@ -57,7 +59,7 @@ public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
         var authorityRef = raProfile.getAuthorityInstanceReference();
         var connector = authorityRef.getConnector();
         if (connector == null) {
-            throw new NotFoundException("Connector of the Authority is not available / deleted");
+            throw new NotFoundException(CONNECTOR_UNAVAILABLE_MESSAGE);
         }
         validateLegacyConnector(connector);
         return authorityProviderAdapterFactory.forAuthority(authorityRef).listIssueAttributes(authorityRef, raProfile);
@@ -68,7 +70,7 @@ public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
         var authorityRef = raProfile.getAuthorityInstanceReference();
         var connector = authorityRef.getConnector();
         if (connector == null) {
-            throw new NotFoundException("Connector of the Authority is not available / deleted");
+            throw new NotFoundException(CONNECTOR_UNAVAILABLE_MESSAGE);
         }
         validateLegacyConnector(connector);
 
@@ -79,7 +81,7 @@ public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
     @Override
     public void mergeAndValidateIssueAttributes(RaProfile raProfile, List<RequestAttribute> attributes) throws ConnectorException, AttributeException, NotFoundException {
         if (raProfile.getAuthorityInstanceReference().getConnector() == null) {
-            throw new ValidationException(ValidationError.create("Connector of the Authority is not available / deleted"));
+            throw new ValidationException(ValidationError.create(CONNECTOR_UNAVAILABLE_MESSAGE));
         }
         AuthorityProviderAdapter adapter = authorityProviderAdapterFactory.forAuthority(raProfile.getAuthorityInstanceReference());
 
@@ -101,7 +103,7 @@ public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
         var authorityRef = raProfile.getAuthorityInstanceReference();
         var connector = authorityRef.getConnector();
         if (connector == null) {
-            throw new NotFoundException("Connector of the Authority is not available / deleted");
+            throw new NotFoundException(CONNECTOR_UNAVAILABLE_MESSAGE);
         }
         validateLegacyConnector(connector);
         AuthorityProviderAdapter adapter = authorityProviderAdapterFactory.forAuthority(raProfile.getAuthorityInstanceReference());
@@ -113,7 +115,7 @@ public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
         var authorityRef = raProfile.getAuthorityInstanceReference();
         var connector = authorityRef.getConnector();
         if (connector == null) {
-            throw new NotFoundException("Connector of the Authority is not available / deleted");
+            throw new NotFoundException(CONNECTOR_UNAVAILABLE_MESSAGE);
         }
         // No legacy-connector check here (unlike issue/revoke): registration is a v3-only capability, so a legacy
         // or v2 authority simply routes to a non-RegisterCapability adapter and the guard below returns an empty
@@ -130,7 +132,7 @@ public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
     public void mergeAndValidateRegisterAttributes(RaProfile raProfile, List<RequestAttribute> attributes) throws ConnectorException, AttributeException, NotFoundException {
         var authorityRef = raProfile.getAuthorityInstanceReference();
         if (authorityRef.getConnector() == null) {
-            throw new ValidationException(ValidationError.create("Connector of the Authority is not available / deleted"));
+            throw new ValidationException(ValidationError.create(CONNECTOR_UNAVAILABLE_MESSAGE));
         }
         AuthorityProviderAdapter adapter = authorityProviderAdapterFactory.forAuthority(authorityRef);
         // Registration is v3-only; a non-register-capable authority carries no register attributes to validate.
@@ -151,7 +153,7 @@ public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
         var authorityRef = raProfile.getAuthorityInstanceReference();
         var connector = authorityRef.getConnector();
         if (connector == null) {
-            throw new NotFoundException("Connector of the Authority is not available / deleted");
+            throw new NotFoundException(CONNECTOR_UNAVAILABLE_MESSAGE);
         }
         validateLegacyConnector(connector);
         AuthorityProviderAdapter adapter = authorityProviderAdapterFactory.forAuthority(raProfile.getAuthorityInstanceReference());
@@ -161,7 +163,7 @@ public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
     @Override
     public void mergeAndValidateRevokeAttributes(RaProfile raProfile, List<RequestAttribute> attributes) throws ConnectorException, AttributeException, NotFoundException {
         if (raProfile.getAuthorityInstanceReference().getConnector() == null) {
-            throw new ValidationException(ValidationError.create("Connector of the Authority is not available / deleted"));
+            throw new ValidationException(ValidationError.create(CONNECTOR_UNAVAILABLE_MESSAGE));
         }
         AuthorityProviderAdapter adapter = authorityProviderAdapterFactory.forAuthority(raProfile.getAuthorityInstanceReference());
 
