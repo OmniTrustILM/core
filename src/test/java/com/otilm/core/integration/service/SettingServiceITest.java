@@ -1,6 +1,7 @@
 package com.otilm.core.integration.service;
 
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
@@ -10,6 +11,7 @@ import com.otilm.api.model.core.settings.*;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsUpdateDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsResponseDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsUpdateDto;
+import com.otilm.core.attribute.CsrAttributes;
 import com.otilm.core.dao.entity.Setting;
 import com.otilm.core.dao.entity.workflows.Trigger;
 import com.otilm.core.dao.repository.SettingRepository;
@@ -120,13 +122,7 @@ class SettingServiceITest extends BaseSpringBootTest {
         Assertions.assertNull(seeded.getCertificates().getRequestAttributes().getExternalCsrValidationStrict());
 
         // when: the operator edits the default set (one definition + strict flag)
-        DataAttributeV3 definition = new DataAttributeV3();
-        definition.setUuid("default-1");
-        definition.setName("commonName");
-        definition.setContentType(AttributeContentType.STRING);
-        DataAttributeProperties properties = new DataAttributeProperties();
-        properties.setLabel("Common Name");
-        definition.setProperties(properties);
+        DataAttributeV3 definition = CsrAttributes.commonNameAttribute();
 
         CertificateRequestAttributesSettingsUpdateDto requestAttributes = new CertificateRequestAttributesSettingsUpdateDto();
         requestAttributes.setRequestAttributes(List.of(definition));
@@ -143,6 +139,26 @@ class SettingServiceITest extends BaseSpringBootTest {
         Assertions.assertEquals("commonName", edited.getCertificates().getRequestAttributes().getRequestAttributes().get(0).getName());
         Assertions.assertEquals(Boolean.TRUE, edited.getCertificates().getRequestAttributes().getExternalCsrValidationStrict());
         Assertions.assertNotNull(edited.getCertificates().getValidation());
+    }
+
+    @Test
+    void platformRequestAttributesUpdateRejectsInvalidDefinition() {
+        // read-only without a default value: the definition can never be satisfied on a request form
+        DataAttributeV3 readOnlyNoDefault = CsrAttributes.commonNameAttribute();
+        readOnlyNoDefault.getProperties().setReadOnly(true);
+
+        CertificateRequestAttributesSettingsUpdateDto requestAttributes = new CertificateRequestAttributesSettingsUpdateDto();
+        requestAttributes.setRequestAttributes(List.of(readOnlyNoDefault));
+        CertificateSettingsUpdateDto certificateSettings = new CertificateSettingsUpdateDto();
+        certificateSettings.setRequestAttributes(requestAttributes);
+        PlatformSettingsUpdateDto update = new PlatformSettingsUpdateDto();
+        update.setCertificates(certificateSettings);
+
+        Assertions.assertThrows(ValidationException.class, () -> settingService.updatePlatformSettings(update));
+
+        // nothing was persisted: the read model still serves the seeded default set
+        PlatformSettingsDto after = settingService.getPlatformSettings();
+        Assertions.assertTrue(after.getCertificates().getRequestAttributes().getRequestAttributes().size() > 1);
     }
 
     @Test
