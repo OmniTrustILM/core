@@ -331,6 +331,17 @@ validation:
     read-timeout: 1000
     connect-timeout: 1000
 
+# Shared connector WebClient tuning (all HTTP calls to connectors and authorities)
+connector:
+  client:
+    # Fail fast when a connector does not respond; ~ authority per-call budget (30s) + margin
+    response-timeout: ${CONNECTOR_CLIENT_RESPONSE_TIMEOUT:35s}
+    connect-timeout: ${CONNECTOR_CLIENT_CONNECT_TIMEOUT:3s}
+    # Per remote host. Sized above the actions-listener concurrency (messaging.concurrency.actions)
+    max-connections: ${CONNECTOR_CLIENT_MAX_CONNECTIONS:20}
+    # Shed load fast under pool saturation instead of queueing behind the response timeout
+    pending-acquire-timeout: ${CONNECTOR_CLIENT_PENDING_ACQUIRE_TIMEOUT:10s}
+
 cbom:
   client:
     max-buffer-size: ${CBOM_CLIENT_MAX_BUFFER_SIZE:20971520}
