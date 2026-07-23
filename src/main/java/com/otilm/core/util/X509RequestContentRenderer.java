@@ -51,11 +51,12 @@ public final class X509RequestContentRenderer {
      * RDN types are resolved via the OID registry cache, then as dotted-decimal OIDs directly.
      */
     public static X500Principal toX500Principal(X509RequestContent x509) throws IOException {
-        Map<String, String> codeToOid = OidHandler.getCodeToOidMap();
+        // One registry snapshot for the whole subject, so all RDNs resolve against the same state.
+        Map<String, String> rdnCodeToOid = OidHandler.getRdnCodeToOidMap();
         X500NameBuilder builder = new X500NameBuilder();
         List<RdnEntry> subject = x509.getSubject() == null ? List.of() : x509.getSubject();
         for (RdnEntry rdn : subject) {
-            builder.addRDN(resolveOid(rdn.getType(), codeToOid), rdn.getValue());
+            builder.addRDN(resolveOid(rdn.getType(), rdnCodeToOid), rdn.getValue());
         }
         return new X500Principal(builder.build().getEncoded());
     }
@@ -200,15 +201,18 @@ public final class X509RequestContentRenderer {
         }
     }
 
-    private static ASN1ObjectIdentifier resolveOid(String type, Map<String, String> codeToOid) {
+    private static ASN1ObjectIdentifier resolveOid(String type, Map<String, String> rdnCodeToOid) {
         if (type == null || type.isBlank()) {
             throw new IllegalArgumentException("RDN type is required");
         }
         if (OidHandler.isOid(type)) {
             return new ASN1ObjectIdentifier(type);
         }
-        if (codeToOid != null && codeToOid.containsKey(type)) {
-            return new ASN1ObjectIdentifier(codeToOid.get(type));
+        // Case-insensitive registry lookup against the captured snapshot — the same rule the parse
+        // path uses (PlatformX500NameStyle.attrNameToOID), so any code that parses in renders back out.
+        String oid = rdnCodeToOid.get(type);
+        if (oid != null) {
+            return new ASN1ObjectIdentifier(oid);
         }
         throw new IllegalArgumentException("Unknown RDN type/code: " + type);
     }
