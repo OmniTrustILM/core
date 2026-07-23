@@ -181,23 +181,38 @@ public class CertificateHandler {
     @Transactional(propagation = Propagation.REQUIRES_NEW, isolation = Isolation.DEFAULT)
     public void uploadDiscoveredCertificateKey(PublicKey publicKey, List<UUID> certificateUuids) throws NoSuchAlgorithmException {
         UUID keyUuid = uploadKeyInternal(publicKey, certificateUuids, "certKey_");
-        certificateRepository.setKeyUuid(keyUuid, certificateUuids);
+        if (keyUuid != null) {
+            certificateRepository.setKeyUuid(keyUuid, certificateUuids);
+        }
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW, isolation = Isolation.DEFAULT)
     public void uploadDiscoveredCertificateAltKey(PublicKey publicKey, List<UUID> certificateUuids) throws NoSuchAlgorithmException {
         UUID keyUuid = uploadKeyInternal(publicKey, certificateUuids, "altCertKey_");
-        certificateRepository.setAltKeyUuidAndHybridCertificate(keyUuid, certificateUuids);
+        if (keyUuid != null) {
+            certificateRepository.setAltKeyUuidAndHybridCertificate(keyUuid, certificateUuids);
+        }
     }
 
     private UUID uploadKeyInternal(PublicKey publicKey, List<UUID> certificateUuids, String namePrefix) throws NoSuchAlgorithmException {
         String fingerprint = CertificateUtil.getThumbprint(Base64.getEncoder().encodeToString(publicKey.getEncoded()).getBytes(StandardCharsets.UTF_8));
         UUID keyUuid = cryptographicKeyService.findKeyByFingerprint(fingerprint);
-        Certificate firstCertificate = certificateRepository.findFirstByUuidIn(certificateUuids);
-        if (keyUuid == null) {
-            keyUuid = cryptographicKeyService.uploadCertificatePublicKey(namePrefix + firstCertificate.getCommonName(), publicKey, KeySizeUtil.getKeyLength(publicKey), fingerprint);
+        if (keyUuid != null) {
+            return keyUuid;
         }
-        return keyUuid;
+
+        // A key is uploaded only if none already exists for this fingerprint; the certificate is fetched
+        // solely to name the new key. A null result means none of certificateUuids resolves to a committed
+        // certificate row (the per-certificate transaction that queued this key rolled back before commit),
+        // so there is nothing to associate the key with. Skip the upload instead of dereferencing null.
+        Certificate firstCertificate = certificateRepository.findFirstByUuidIn(certificateUuids);
+        if (firstCertificate == null) {
+            logger.warn("No committed certificate found for key with fingerprint {} among UUIDs {}; skipping key upload. The certificate(s) were likely lost to a rolled-back transaction during discovery post-processing.", fingerprint, certificateUuids);
+            return null;
+        }
+
+        String keyName = namePrefix + Objects.requireNonNullElse(firstCertificate.getCommonName(), firstCertificate.getSerialNumber());
+        return cryptographicKeyService.uploadCertificatePublicKey(keyName, publicKey, KeySizeUtil.getKeyLength(publicKey), fingerprint);
     }
 
     @Transactional
