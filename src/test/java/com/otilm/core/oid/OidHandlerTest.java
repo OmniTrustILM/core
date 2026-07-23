@@ -104,12 +104,15 @@ class OidHandlerTest {
     }
 
     @Test
-    void removeCachedOid_onUncachedCategory_doesNotThrow() {
+    void removeCachedOid_onUncachedCategory_isNoOpAndLeavesCategoryNull() {
         evictCategory(OidCategory.EXTENDED_KEY_USAGE);
         assertThat(OidHandler.getOidCache(OidCategory.EXTENDED_KEY_USAGE)).isNull();
 
         assertThatCode(() -> OidHandler.removeCachedOid(OidCategory.EXTENDED_KEY_USAGE, "9.9.9"))
                 .doesNotThrowAnyException();
+
+        // Must not materialize an empty entry: callers read null as "category not loaded yet".
+        assertThat(OidHandler.getOidCache(OidCategory.EXTENDED_KEY_USAGE)).isNull();
     }
 
     /**

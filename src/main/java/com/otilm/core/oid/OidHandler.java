@@ -116,7 +116,13 @@ public class OidHandler {
 
     public static void removeCachedOid(OidCategory category, String oid) {
         synchronized (WRITE_LOCK) {
-            Map<String, OidRecord> next = new HashMap<>(oidCache.getOrDefault(category, Map.of()));
+            Map<String, OidRecord> current = oidCache.get(category);
+            // Removing from a never-loaded category is a no-op: don't materialize an empty entry,
+            // so getOidCache(category) stays null for callers that read null as "not loaded yet".
+            if (current == null) {
+                return;
+            }
+            Map<String, OidRecord> next = new HashMap<>(current);
             next.remove(oid);
             oidCache.put(category, next);
             refreshRdnCodeLookup(category);
