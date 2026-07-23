@@ -800,7 +800,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     /**
      * Challenge gate for completing a pre-registered certificate. Issue is the only challenge-verified completion
      * path; renew and rekey of a registered certificate are fail-closed instead (see
-     * rejectRenewOrRekeyOfActiveRegistration). A certificate with no authorization row is not self-service and
+     * rejectRenewOrRekeyOfLiveRegistration). A certificate with no authorization row is not self-service and
      * passes untouched. On an ACTIVE authorization it
      * enforces, under a per-row pessimistic lock, the issuance window then the operator challenge; LOCKED/EXPIRED
      * deny; CLOSED passes as unregistered. The failed-attempt increment and lockout are committed before the caller
@@ -875,18 +875,20 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     /**
-     * Fail-closed guard: a certificate with an ACTIVE registration authorization must not be renewed or rekeyed
+     * Fail-closed guard: a certificate whose registration authorization is not CLOSED must not be renewed or rekeyed
      * until those paths are challenge-gated (together with copying the authorization to the successor), so neither
-     * can silently exit the challenge regime. This also denies platform-automation renewals (locations, workflows,
-     * scheduled renew) of such certificates. Issue completion remains the challenge-verified path
-     * (verifyRegistrationChallenge).
+     * can silently exit the challenge regime. Keying on {@code != CLOSED} rather than {@code == ACTIVE} keeps the
+     * guard fail-closed if a retained authorization is ever left EXPIRED (e.g. a passed-window sweep) or LOCKED:
+     * only a deliberately CLOSED (retired) registration renews freely as unregistered. This also denies
+     * platform-automation renewals (locations, workflows, scheduled renew) of such certificates. Issue completion
+     * remains the challenge-verified path (verifyRegistrationChallenge).
      */
-    private void rejectRenewOrRekeyOfActiveRegistration(UUID certificateUuid) {
+    private void rejectRenewOrRekeyOfLiveRegistration(UUID certificateUuid) {
         registrationAuthorizationRepository.findByCertificateUuid(certificateUuid)
-                .filter(authorization -> authorization.getState() == RegistrationState.ACTIVE)
+                .filter(authorization -> authorization.getState() != RegistrationState.CLOSED)
                 .ifPresent(authorization -> {
                     throw new ValidationException(ValidationError.create(
-                            "This certificate has an active registration; renew and rekey of registered certificates are not supported yet."));
+                            "This certificate has a live registration; renew and rekey of registered certificates are not supported yet."));
                 });
     }
 
@@ -1571,7 +1573,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
         // Fail-closed: renew is not challenge-gated yet, so refuse to renew a certificate whose registration is
         // still ACTIVE rather than let a secretless renew silently exit the challenge regime.
-        rejectRenewOrRekeyOfActiveRegistration(oldCertificate.getUuid());
+        rejectRenewOrRekeyOfLiveRegistration(oldCertificate.getUuid());
 
         // CSR decision making
         CertificateRequest certificateRequest;
@@ -1739,7 +1741,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
         // Fail-closed: rekey is not challenge-gated yet (its verification and successor copy come later), so
         // refuse to rekey a certificate whose registration is still ACTIVE.
-        rejectRenewOrRekeyOfActiveRegistration(oldCertificate.getUuid());
+        rejectRenewOrRekeyOfLiveRegistration(oldCertificate.getUuid());
 
         // CSR decision making
         ClientCertificateRequestDto certificateRequestDto = new ClientCertificateRequestDto();
