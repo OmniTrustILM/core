@@ -2,10 +2,7 @@ package com.otilm.core.service.impl;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.otilm.api.exception.ConnectorException;
-import com.otilm.api.exception.NotFoundException;
-import com.otilm.api.exception.ValidationError;
-import com.otilm.api.exception.ValidationException;
+import com.otilm.api.exception.*;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.mapping.SourceParam;
@@ -131,6 +128,13 @@ public class RaProfileCertificateRequestAttributeServiceImpl implements RaProfil
     @Override
     public void updateConfiguration(RaProfile raProfile, RaProfileCertificateRequestAttributesUpdateDto request) {
         validateDefinitionShape(request.getRequestAttributes());
+        AttributeSetMergeMode effectiveMode = RequestAttributeSetResolver.effectiveMode(request.getMergeMode());
+        if (effectiveMode != AttributeSetMergeMode.STATIC_ONLY) {
+            throw new NotSupportedException(String.format("Merge mode %s is not supported. Use `Static Only` mode.", effectiveMode));
+        }
+        if (request.getValueSourceBindings() != null && !request.getValueSourceBindings().isEmpty()) {
+            throw new NotSupportedException("Value-source bindings are not supported in this version. Use the `Static Only` mode without bindings.");
+        }
         writer.saveStaticSet(
                 raProfile,
                 AttributeDefinitionUtils.serialize(request.getRequestAttributes()),

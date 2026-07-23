@@ -1,12 +1,12 @@
 package com.otilm.core.integration.service;
 
+import com.otilm.api.exception.NotSupportedException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.InfoAttributeV2;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
-import com.otilm.api.model.common.attribute.v3.mapping.SourceParam;
 import com.otilm.api.model.common.attribute.v3.mapping.ValueSourceType;
 import com.otilm.api.model.core.raprofile.AttributeSetMergeMode;
 import com.otilm.api.model.core.raprofile.RaProfileCertificateRequestAttributesDto;
@@ -282,16 +282,8 @@ class RaProfileCertificateRequestAttributeServiceITest extends BaseSpringBootTes
         RaProfile raProfile = newRaProfile();
         RaProfileCertificateRequestAttributesUpdateDto request = new RaProfileCertificateRequestAttributesUpdateDto();
         request.setRequestAttributes(List.of(def("u1", "server")));
-        request.setMergeMode(AttributeSetMergeMode.CONNECTOR_ONLY);
+        request.setMergeMode(AttributeSetMergeMode.STATIC_ONLY);
         request.setExternalCsrValidationStrict(Boolean.TRUE);
-        ValueSourceBindingDto bindingDto = new ValueSourceBindingDto();
-        bindingDto.setAttributeUuid("u1");
-        bindingDto.setValueSourceType(ValueSourceType.STATIC_LIST);
-        bindingDto.setCollectionRef("cmdb.servers");
-        SourceParam param = new SourceParam();
-        param.setAttributeName("datacenter");
-        bindingDto.setParams(List.of(param));
-        request.setValueSourceBindings(List.of(bindingDto));
 
         // when
         service.updateConfiguration(raProfile, request);
@@ -299,12 +291,41 @@ class RaProfileCertificateRequestAttributeServiceITest extends BaseSpringBootTes
 
         // then
         assertThat(stored.getRequestAttributes()).extracting(BaseAttribute::getName).containsExactly("server");
-        assertThat(stored.getMergeMode()).isEqualTo(AttributeSetMergeMode.CONNECTOR_ONLY);
+        assertThat(stored.getMergeMode()).isEqualTo(AttributeSetMergeMode.STATIC_ONLY);
         assertThat(stored.getExternalCsrValidationStrict()).isTrue();
-        assertThat(stored.getValueSourceBindings()).hasSize(1);
-        assertThat(stored.getValueSourceBindings().get(0).getValueSourceType()).isEqualTo(ValueSourceType.STATIC_LIST);
-        assertThat(stored.getValueSourceBindings().get(0).getCollectionRef()).isEqualTo("cmdb.servers");
-        assertThat(stored.getValueSourceBindings().get(0).getParams()).extracting(p -> p.getAttributeName()).containsExactly("datacenter");
+        assertThat(stored.getValueSourceBindings()).isEmpty();
+    }
+
+    @Test
+    void unsupportedMergeModeThrowsException() {
+        RaProfile raProfile = newRaProfile();
+        RaProfileCertificateRequestAttributesUpdateDto request = new RaProfileCertificateRequestAttributesUpdateDto();
+        request.setRequestAttributes(List.of(def("u1", "server")));
+        request.setMergeMode(AttributeSetMergeMode.CONNECTOR_ONLY);
+        assertThatThrownBy(() -> service.updateConfiguration(raProfile, request))
+                .isInstanceOf(NotSupportedException.class)
+                .hasMessageContaining("Merge mode CONNECTOR_ONLY is not supported");
+    }
+
+    @Test
+    void omittedMergeModeIsRejectedAsEffectiveMerge() {
+        RaProfile raProfile = newRaProfile();
+        RaProfileCertificateRequestAttributesUpdateDto request = new RaProfileCertificateRequestAttributesUpdateDto();
+        request.setRequestAttributes(List.of(def("u1", "server")));
+        assertThatThrownBy(() -> service.updateConfiguration(raProfile, request))
+                .isInstanceOf(NotSupportedException.class)
+                .hasMessageContaining("Merge mode MERGE is not supported");
+    }
+
+    @Test
+    void valueSourceBindingsIncludedThrowsException() {
+        RaProfile raProfile = newRaProfile();
+        RaProfileCertificateRequestAttributesUpdateDto request = new RaProfileCertificateRequestAttributesUpdateDto();
+        request.setMergeMode(AttributeSetMergeMode.STATIC_ONLY);
+        request.setValueSourceBindings(List.of(new ValueSourceBindingDto()));
+        assertThatThrownBy(() -> service.updateConfiguration(raProfile, request))
+                .isInstanceOf(NotSupportedException.class)
+                .hasMessageContaining("Value-source bindings are not supported in this version");
     }
 
     @Test

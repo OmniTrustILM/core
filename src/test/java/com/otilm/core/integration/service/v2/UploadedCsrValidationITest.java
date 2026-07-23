@@ -5,7 +5,6 @@ import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.raprofile.AttributeSetMergeMode;
-import com.otilm.api.model.core.raprofile.RaProfileCertificateRequestAttributesUpdateDto;
 import com.otilm.api.model.core.v2.ClientCertificateRequestDto;
 import com.otilm.core.attribute.CsrAttributes;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
@@ -15,8 +14,9 @@ import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
-import com.otilm.core.service.RaProfileCertificateRequestAttributeService;
 import com.otilm.core.service.v2.ClientOperationExternalService;
+import com.otilm.core.service.writer.RaProfileCertificateRequestAttributeWriter;
+import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
@@ -66,7 +66,7 @@ class UploadedCsrValidationITest extends BaseSpringBootTest {
     private ClientOperationExternalService clientOperationService;
 
     @Autowired
-    private RaProfileCertificateRequestAttributeService requestAttributeService;
+    private RaProfileCertificateRequestAttributeWriter requestAttributeWriter;
 
     @Autowired
     private RaProfileRepository raProfileRepository;
@@ -111,11 +111,7 @@ class UploadedCsrValidationITest extends BaseSpringBootTest {
 
         stubIssueAttributesAndSigning();
 
-        RaProfileCertificateRequestAttributesUpdateDto config = new RaProfileCertificateRequestAttributesUpdateDto();
-        config.setRequestAttributes(List.of(CsrAttributes.commonNameAttribute()));
-        config.setMergeMode(AttributeSetMergeMode.STATIC_ONLY);
-        config.setExternalCsrValidationStrict(Boolean.TRUE);
-        requestAttributeService.updateConfiguration(raProfile, config);
+        persistCommonNameConfig(AttributeSetMergeMode.STATIC_ONLY, Boolean.TRUE);
 
         csrMissingCommonName = pemEncodedCsrWithSubject("O=Acme,C=US");
     }
@@ -145,11 +141,7 @@ class UploadedCsrValidationITest extends BaseSpringBootTest {
     @Test
     void acceptsUploadedCsr_whenLenientProfileAndRequiredRdnMissing() throws Exception {
         // given — same CSR, RA profile reconfigured with externalCsrValidationStrict=false
-        RaProfileCertificateRequestAttributesUpdateDto lenientConfig = new RaProfileCertificateRequestAttributesUpdateDto();
-        lenientConfig.setRequestAttributes(List.of(CsrAttributes.commonNameAttribute()));
-        lenientConfig.setMergeMode(AttributeSetMergeMode.STATIC_ONLY);
-        lenientConfig.setExternalCsrValidationStrict(Boolean.FALSE);
-        requestAttributeService.updateConfiguration(raProfile, lenientConfig);
+        persistCommonNameConfig(AttributeSetMergeMode.STATIC_ONLY, Boolean.FALSE);
 
         ClientCertificateRequestDto request = uploadRequest(csrMissingCommonName);
 
@@ -174,12 +166,9 @@ class UploadedCsrValidationITest extends BaseSpringBootTest {
 
     @Test
     void rejectsUploadedCsr_whenStrictProfileAndAttributeSetCannotBeResolved() {
-        // given — a strict profile whose merge mode consults the authority connector, and that connector errors
-        RaProfileCertificateRequestAttributesUpdateDto config = new RaProfileCertificateRequestAttributesUpdateDto();
-        config.setRequestAttributes(List.of(CsrAttributes.commonNameAttribute()));
-        config.setMergeMode(AttributeSetMergeMode.MERGE);
-        config.setExternalCsrValidationStrict(Boolean.TRUE);
-        requestAttributeService.updateConfiguration(raProfile, config);
+        // given — a strict profile whose merge mode consults the authority connector, and that connector errors.
+        // MERGE is seeded via the writer: the update service rejects non-STATIC_ONLY modes
+        persistCommonNameConfig(AttributeSetMergeMode.MERGE, Boolean.TRUE);
 
         mockServer.stubFor(WireMock
                 .get(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue/attributes"))
@@ -198,6 +187,15 @@ class UploadedCsrValidationITest extends BaseSpringBootTest {
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────
+
+    /** Persists the profile's request-attribute config directly through the writer, bypassing the gated update service. */
+    private void persistCommonNameConfig(AttributeSetMergeMode mergeMode, Boolean externalCsrValidationStrict) {
+        requestAttributeWriter.saveStaticSet(
+                raProfile,
+                AttributeDefinitionUtils.serialize(List.of(CsrAttributes.commonNameAttribute())),
+                mergeMode,
+                externalCsrValidationStrict);
+    }
 
     private ClientCertificateRequestDto uploadRequest(String pemCsr) {
         ClientCertificateRequestDto request = new ClientCertificateRequestDto();
