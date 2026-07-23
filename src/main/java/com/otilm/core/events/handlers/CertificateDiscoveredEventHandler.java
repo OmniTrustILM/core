@@ -233,7 +233,7 @@ public class CertificateDiscoveredEventHandler extends EventHandler<Certificate>
             try {
                 certificateHandler.uploadDiscoveredCertificateKey(entry.getKey(), entry.getValue());
             } catch (Exception e) {
-                logger.error("Could not create public key for certificates with UUIDs {}: {}", entry.getValue(), e.getMessage());
+                logger.error("Could not create public key for certificates with UUIDs {}: {}", entry.getValue(), e.getMessage(), e);
             }
         }
 
@@ -241,7 +241,7 @@ public class CertificateDiscoveredEventHandler extends EventHandler<Certificate>
             try {
                 certificateHandler.uploadDiscoveredCertificateAltKey(entry.getKey(), entry.getValue());
             } catch (Exception e) {
-                logger.error("Could not create alternative public key for certificates with UUIDs {}: {}", entry.getValue(), e.getMessage());
+                logger.error("Could not create alternative public key for certificates with UUIDs {}: {}", entry.getValue(), e.getMessage(), e);
             }
         }
 

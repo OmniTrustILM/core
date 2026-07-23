@@ -49,7 +49,7 @@ class CertificateHandlerDiscoveredKeyUploadTest {
     }
 
     @Test
-    void uploadDiscoveredCertificateKey_whenNoCommittedCertificate_skipsUploadAndAssociation() throws NoSuchAlgorithmException {
+    void uploadDiscoveredCertificateKey_whenNoCommittedCertificate_skipsUploadAndAssociation() {
         List<UUID> uuids = List.of(UUID.randomUUID());
         when(cryptographicKeyService.findKeyByFingerprint(anyString())).thenReturn(null);
         when(certificateRepository.findFirstByUuidIn(uuids)).thenReturn(null);
@@ -62,7 +62,7 @@ class CertificateHandlerDiscoveredKeyUploadTest {
     }
 
     @Test
-    void uploadDiscoveredCertificateAltKey_whenNoCommittedCertificate_skipsUploadAndAssociation() throws NoSuchAlgorithmException {
+    void uploadDiscoveredCertificateAltKey_whenNoCommittedCertificate_skipsUploadAndAssociation() {
         List<UUID> uuids = List.of(UUID.randomUUID());
         when(cryptographicKeyService.findKeyByFingerprint(anyString())).thenReturn(null);
         when(certificateRepository.findFirstByUuidIn(uuids)).thenReturn(null);
