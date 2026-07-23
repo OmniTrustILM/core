@@ -6,6 +6,7 @@ import com.otilm.core.attribute.engine.records.ObjectAttributeContent;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentDetail;
 import com.otilm.core.attribute.engine.records.ObjectAttributeDefinitionContent;
 import com.otilm.core.dao.entity.AttributeContent2Object;
+import com.otilm.core.dao.entity.AttributeContentItem;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -173,9 +174,28 @@ public interface AttributeContent2ObjectRepository extends SecurityFilterReposit
             """)
     List<ObjectAttributeContent> getAllObjectDataAttributesContent(@Param("objectType") Resource objectType, @Param("objectUuid") UUID objectUuid);
 
+    /**
+     * Returns the content items of one attribute definition that are already mapped to the given
+     * object, regardless of the mapping's connector/version/source/purpose — callers that need the
+     * exact tuple still guard with {@link #findExistingContentMapping} before skipping an insert.
+     * Used to deduplicate encrypted content, whose salted ciphertext cannot be compared by value —
+     * the caller decrypts this (small, object-scoped) set and compares plaintext.
+     */
+    @Query("""
+            SELECT DISTINCT aci FROM AttributeContent2Object aco
+                JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid
+                WHERE aci.attributeDefinitionUuid = :definitionUuid
+                    AND aco.objectType = :objectType
+                    AND aco.objectUuid = :objectUuid
+            """)
+    List<AttributeContentItem> findMappedContentItems(
+            @Param("definitionUuid") UUID definitionUuid,
+            @Param("objectType") Resource objectType,
+            @Param("objectUuid") UUID objectUuid);
+
     @Query("""
             SELECT new com.otilm.core.attribute.engine.records.ObjectAttributeContentDetail(
-                ad.attributeUuid, ad.name, ad.label, ad.type, ad.contentType, aci.json, aco.connectorUuid, c.name, aco.sourceObjectType, aco.sourceObjectUuid, aco.sourceObjectName, ad.version)
+                ad.attributeUuid, ad.name, ad.label, ad.type, ad.contentType, aci.json, aco.connectorUuid, c.name, aco.sourceObjectType, aco.sourceObjectUuid, aco.sourceObjectName, ad.version, aci.encryptedData)
                 FROM AttributeContent2Object aco
                 LEFT JOIN Connector c ON c.uuid = aco.connectorUuid
                 JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid
@@ -198,7 +218,7 @@ public interface AttributeContent2ObjectRepository extends SecurityFilterReposit
 
     @Query("""
             SELECT new com.otilm.core.attribute.engine.records.ObjectAttributeDefinitionContent(
-                ad.attributeUuid, ad.definition, aci.json)
+                ad.attributeUuid, ad.definition, aci.json, aci.encryptedData)
                 FROM AttributeContent2Object aco
                 JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid
                 JOIN AttributeDefinition ad ON ad.uuid = aci.attributeDefinitionUuid
