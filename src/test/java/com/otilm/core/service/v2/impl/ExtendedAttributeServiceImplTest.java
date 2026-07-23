@@ -4,6 +4,7 @@ import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
@@ -13,8 +14,10 @@ import com.otilm.core.dao.entity.Connector2FunctionGroup;
 import com.otilm.core.dao.entity.FunctionGroup;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.repository.ConnectorRepository;
+import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
+import com.otilm.core.service.handler.authority.RegisterCapability;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -53,9 +56,16 @@ class ExtendedAttributeServiceImplTest {
     AuthorityProviderAdapter adapter;
     @Mock
     AttributeEngine attributeEngine;
+    @Mock
+    ConnectorCapabilityService capabilityService;
+    @Mock
+    RegisterAdapter registerAdapter;
 
     @InjectMocks
     ExtendedAttributeServiceImpl service;
+
+    /** A v3-style adapter that is both an authority provider and register-capable. */
+    private interface RegisterAdapter extends AuthorityProviderAdapter, RegisterCapability { }
 
     private Connector connector;
     private AuthorityInstanceReference authority;
@@ -212,5 +222,73 @@ class ExtendedAttributeServiceImplTest {
         order.verify(adapter).listRevokeAttributes(authority, raProfile);
         order.verify(attributeEngine).validateUpdateDataAttributes(
                 connector.getUuid(), AttributeOperation.CERTIFICATE_REVOKE, definitions, attrs);
+    }
+
+    // --- listRegisterCertificateAttributes ---
+
+    @Test
+    void listRegisterCertificateAttributes_returnsAttrsForRegisterCapableAuthority() throws Exception {
+        List<BaseAttribute> expected = List.of(mock(BaseAttribute.class));
+        when(adapterFactory.forAuthority(authority)).thenReturn(registerAdapter);
+        when(capabilityService.supports(authority, FeatureFlag.CERTIFICATE_REGISTRATION)).thenReturn(true);
+        when(registerAdapter.listRegisterAttributes(authority, raProfile)).thenReturn(expected);
+
+        assertSame(expected, service.listRegisterCertificateAttributes(raProfile));
+    }
+
+    @Test
+    void listRegisterCertificateAttributes_emptyWhenAuthorityNotRegisterCapable() throws Exception {
+        // adapter from setUp is a plain AuthorityProviderAdapter, not a RegisterCapability
+        assertTrue(service.listRegisterCertificateAttributes(raProfile).isEmpty());
+        verifyNoInteractions(attributeEngine);
+    }
+
+    @Test
+    void listRegisterCertificateAttributes_emptyWhenRegistrationFlagNotAdvertised() throws Exception {
+        when(adapterFactory.forAuthority(authority)).thenReturn(registerAdapter);
+        when(capabilityService.supports(authority, FeatureFlag.CERTIFICATE_REGISTRATION)).thenReturn(false);
+
+        assertTrue(service.listRegisterCertificateAttributes(raProfile).isEmpty());
+        verify(registerAdapter, never()).listRegisterAttributes(any(), any());
+    }
+
+    @Test
+    void listRegisterCertificateAttributes_throwsWhenConnectorMissing() {
+        authority.setConnector(null);
+
+        assertThrows(NotFoundException.class, () -> service.listRegisterCertificateAttributes(raProfile));
+        verifyNoInteractions(adapterFactory);
+    }
+
+    // --- mergeAndValidateRegisterAttributes ---
+
+    @Test
+    void mergeAndValidateRegisterAttributes_materializesRegisterSchemaAndValidates() throws Exception {
+        List<RequestAttribute> attrs = List.of(mock(RequestAttribute.class));
+        List<BaseAttribute> definitions = List.of(mock(BaseAttribute.class));
+        when(adapterFactory.forAuthority(authority)).thenReturn(registerAdapter);
+        when(capabilityService.supports(authority, FeatureFlag.CERTIFICATE_REGISTRATION)).thenReturn(true);
+        when(registerAdapter.listRegisterAttributes(authority, raProfile)).thenReturn(definitions);
+
+        service.mergeAndValidateRegisterAttributes(raProfile, attrs);
+
+        verify(attributeEngine).validateUpdateDataAttributes(
+                connector.getUuid(), AttributeOperation.CERTIFICATE_REGISTER, definitions, attrs);
+    }
+
+    @Test
+    void mergeAndValidateRegisterAttributes_noOpWhenNotRegisterCapable() throws Exception {
+        // adapter from setUp is a plain AuthorityProviderAdapter, not a RegisterCapability
+        service.mergeAndValidateRegisterAttributes(raProfile, List.of(mock(RequestAttribute.class)));
+
+        verifyNoInteractions(attributeEngine);
+    }
+
+    @Test
+    void mergeAndValidateRegisterAttributes_throwsWhenConnectorMissing() {
+        authority.setConnector(null);
+
+        assertThrows(ValidationException.class, () -> service.mergeAndValidateRegisterAttributes(raProfile, List.of()));
+        verifyNoInteractions(adapterFactory, attributeEngine);
     }
 }

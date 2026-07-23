@@ -38,6 +38,7 @@ import com.otilm.api.model.core.v2.ClientCertificateRekeyRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.v2.OperationSupport;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.certificate.request.IssuanceDefinitionResolver;
 import com.otilm.api.model.core.auth.UserDetailDto;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
@@ -880,6 +881,19 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
         Assertions.assertEquals("device-9", contentCaptor.getValue().getSubject().get(0).getValue());
         Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
         Assertions.assertEquals(CertificateState.REGISTERED, cert.getState());
+
+        // The submitted request-attribute values are persisted on the certificate itself, connectorless at
+        // operation=null (the key getCertificate reads into registrationRequestAttributes).
+        ArgumentCaptor<ObjectAttributeContentInfo> infoCaptor = ArgumentCaptor.forClass(ObjectAttributeContentInfo.class);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<RequestAttribute>> valuesCaptor = ArgumentCaptor.forClass(List.class);
+        verify(attributeEngine).updateObjectDataAttributesContent(infoCaptor.capture(), valuesCaptor.capture());
+        Assertions.assertEquals(Resource.CERTIFICATE, infoCaptor.getValue().objectType());
+        Assertions.assertEquals(cert.getUuid(), infoCaptor.getValue().objectUuid());
+        Assertions.assertNull(infoCaptor.getValue().operation(), "register request values are stored at operation=null");
+        Assertions.assertNull(infoCaptor.getValue().connectorUuid(), "register request values are stored connectorless");
+        Assertions.assertEquals(1, valuesCaptor.getValue().size());
+        Assertions.assertEquals(cnUuid, valuesCaptor.getValue().get(0).getUuid());
     }
 
     @Test
