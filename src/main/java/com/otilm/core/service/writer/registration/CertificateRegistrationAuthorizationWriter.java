@@ -34,4 +34,15 @@ public class CertificateRegistrationAuthorizationWriter {
     public void close(UUID certificateUuid) {
         authorizationRepository.updateStateByCertificateUuid(certificateUuid, RegistrationState.CLOSED);
     }
+
+    /**
+     * Clears the issuance window (expiresAt to null) once the pre-registration's initial issuance completes: the
+     * deadline governed only that first issuance, so an authorization retained for a later renew/rekey carries no
+     * stale deadline — a passed window must never flip a still-live authorization to EXPIRED. State is left
+     * unchanged. Idempotent (no-op when no row exists).
+     */
+    @Transactional
+    public void clearIssuanceWindow(UUID certificateUuid) {
+        authorizationRepository.clearIssuanceWindowByCertificateUuid(certificateUuid);
+    }
 }

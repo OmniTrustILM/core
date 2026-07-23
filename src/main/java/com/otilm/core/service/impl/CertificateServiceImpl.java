@@ -75,6 +75,7 @@ import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
 import com.otilm.core.service.writer.CertificateValidationWriter;
+import com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.*;
@@ -222,6 +223,13 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
     @Autowired
     public void setRegistrationAuthorizationRepository(CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository) {
         this.registrationAuthorizationRepository = registrationAuthorizationRepository;
+    }
+
+    private CertificateRegistrationAuthorizationWriter registrationAuthorizationWriter;
+
+    @Autowired
+    public void setRegistrationAuthorizationWriter(CertificateRegistrationAuthorizationWriter registrationAuthorizationWriter) {
+        this.registrationAuthorizationWriter = registrationAuthorizationWriter;
     }
 
     @Autowired
@@ -1945,6 +1953,9 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
 
         stateMachine.transition(certificate, CertificateState.ISSUED, CertificateEvent.ISSUE,
                 "Issued using RA Profile " + certificate.getRaProfile().getName());
+        // A pre-registered certificate's issuance window governed only this initial issuance; clear it so the
+        // authorization retained for a later renew/rekey carries no stale deadline. No-op for non-registered certs.
+        registrationAuthorizationWriter.clearIssuanceWindow(uuid);
 
         for (CertificateRelation relation : certificate.getPredecessorRelations()) {
             relation.setRelationType(determineRelationType(certificate, relation.getPredecessorCertificate()));

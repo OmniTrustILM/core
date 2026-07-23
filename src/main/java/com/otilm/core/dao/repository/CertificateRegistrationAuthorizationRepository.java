@@ -48,4 +48,8 @@ public interface CertificateRegistrationAuthorizationRepository extends JpaRepos
     @Modifying
     @Query("UPDATE CertificateRegistrationAuthorization r SET r.state = :state, r.updated = CURRENT_TIMESTAMP WHERE r.certificateUuid = :certificateUuid")
     void updateStateByCertificateUuid(@Param("certificateUuid") UUID certificateUuid, @Param("state") RegistrationState state);
+
+    @Modifying
+    @Query("UPDATE CertificateRegistrationAuthorization r SET r.expiresAt = null, r.updated = CURRENT_TIMESTAMP WHERE r.certificateUuid = :certificateUuid")
+    void clearIssuanceWindowByCertificateUuid(@Param("certificateUuid") UUID certificateUuid);
 }
