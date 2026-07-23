@@ -472,21 +472,28 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
         AuthorityProviderAdapter adapter = adapterFactory.forAuthority(authority);
 
-        // Project structured csrAttributes once (validated) so the placeholder DN and the connector wire derive
-        // from the same content; a flat request yields null here and the adapter builds its identity itself.
+        // Project the registration identity once (validated) so the placeholder row and the connector wire
+        // derive from the same content: structured csrAttributes through the issuance-definition projector,
+        // a flat request through the same builder the adapter uses for the wire. The placeholder DN keeps its
+        // historical derivation (rendered for structured, the raw request DN for flat).
         X509RequestContent registrationContent = buildStructuredRegistrationContent(raProfile, request);
-        String effectiveSubjectDn = registrationContent != null
-                ? RegisterWireBuilder.renderSubjectDn(registrationContent)
-                : request.getSubjectDn();
+        String effectiveSubjectDn;
+        if (registrationContent != null) {
+            effectiveSubjectDn = RegisterWireBuilder.renderSubjectDn(registrationContent);
+        } else {
+            effectiveSubjectDn = request.getSubjectDn();
+            registrationContent = RegisterWireBuilder.buildContent(
+                    request.getSubjectDn(), request.getSubjectAltName(), request.getExtensions());
+        }
 
         // No connector-backed registration for this authority (not a RegisterCapability, or the flag is not
         // advertised) -> platform-level pre-registration (see registerPlatformLevel); otherwise connector-backed below.
         if (!(adapter instanceof RegisterCapability registerCapability)
                 || !capabilityService.supports(authority, FeatureFlag.CERTIFICATE_REGISTRATION)) {
-            return registerPlatformLevel(raProfile, request, effectiveSubjectDn, createCustomAttributes);
+            return registerPlatformLevel(raProfile, request, effectiveSubjectDn, registrationContent, createCustomAttributes);
         }
 
-        Certificate placeholder = certificateService.createRegistrationPlaceholder(raProfile, effectiveSubjectDn);
+        Certificate placeholder = certificateService.createRegistrationPlaceholder(raProfile, effectiveSubjectDn, registrationContent);
         // Re-load with the full adapter graph for the transaction-less connector call, as the poll listener does.
         // No pessimistic lock here (unlike the cancel/poll paths): the placeholder was just created and its UUID
         // is not yet known to any concurrent actor, so the read-modify-write below cannot race.
@@ -575,7 +582,12 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      *
      * <p><b>Behaviour.</b> The placeholder, its register-&gt;issue binding, and (when a secret is supplied) its
      * challenge authorization are created and owned entirely by the platform, with no connector {@code /register}
-     * call. The certificate reaches {@code REGISTERED} directly.</p>
+     * call. The certificate reaches {@code REGISTERED} directly. The placeholder records the full registered
+     * identity the platform can represent — subject DN and subject alternative names from the projected
+     * {@code registrationContent}. Requested extensions are not persisted on the row (it has no column for
+     * them and there is no wire to forward them to); the operator-visible record of what was requested is
+     * the certificate's request attributes, and the extensions that reach the issued certificate arrive
+     * with the CSR at issuance.</p>
      *
      * <p><b>Completion.</b> Runs later through the normal issue path; {@code issueCertificateAction} routes to the
      * register-bound path only for a {@code RegisterCapability} adapter that advertises the flag, so a platform-level
@@ -587,8 +599,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private ClientCertificateDataResponseDto registerPlatformLevel(RaProfile raProfile,
                                                                    ClientCertificateRegistrationDto request,
                                                                    String effectiveSubjectDn,
+                                                                   X509RequestContent registrationContent,
                                                                    boolean createCustomAttributes) throws NotFoundException, AttributeException {
-        Certificate placeholder = certificateService.createRegistrationPlaceholder(raProfile, effectiveSubjectDn);
+        Certificate placeholder = certificateService.createRegistrationPlaceholder(raProfile, effectiveSubjectDn, registrationContent);
         Certificate certificate = certificateRepository.findForPollingByUuid(placeholder.getUuid())
                 .orElseThrow(() -> new NotFoundException(Certificate.class, placeholder.getUuid()));
         stateMachine.transition(certificate, CertificateState.PENDING_REGISTRATION);

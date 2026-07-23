@@ -592,12 +592,10 @@ public class AttributeEngine {
     private void updateDataAttributeDefinition(UUID connectorUuid, String operation, DataAttribute dataAttribute, Supplier<Map<String, String>> codeToOidMap) throws AttributeException {
         validateAttributeDefinition(dataAttribute, connectorUuid);
         if (dataAttribute instanceof DataAttributeV3 v3 && v3.getFieldMapping() != null) {
-            if (isRequestOperation(operation)) {
-                validateFieldMapping(v3, connectorUuid != null ? connectorUuid.toString() : null, codeToOidMap);
-            } else {
-                logger.warn("DataAttribute '{}' has fieldMapping but is registered outside a request operation context (operation={}); fieldMapping validation skipped",
-                        dataAttribute.getName(), operation);
-            }
+            // A fieldMapping declares projection intent; a malformed one is an authoring error whatever
+            // operation the definition registers under (issuance definitions register with operation=null),
+            // so validity is intrinsic to the definition and not gated on the operation.
+            validateFieldMapping(v3, connectorUuid != null ? connectorUuid.toString() : null, codeToOidMap);
         }
 
         // find by connector uuid and name only because attribute uuid could be generated when data attribute was migrated from RequestAttribute
@@ -1242,11 +1240,6 @@ public class AttributeEngine {
             if (!hasCallback && !hasCoreValueSource)
                 throw new AttributeException("Attribute with Resource Content Type is missing callback", attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
         }
-    }
-
-    private static boolean isRequestOperation(String operation) {
-        return AttributeOperation.CERTIFICATE_ISSUE.equals(operation)
-                || AttributeOperation.SIGN.equals(operation);
     }
 
     private static Supplier<Map<String, String>> lazyCodeToOidMap() {

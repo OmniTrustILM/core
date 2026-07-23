@@ -280,8 +280,8 @@ public class AuthorityProviderV3Adapter
         AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
 
-        // Structured csrAttributes are projected once by the orchestrator (identityContent); a flat request
-        // carries no pre-built content, so build the identity here from subjectDn/subjectAltName/extensions.
+        // The orchestrator projects the identity once (structured csrAttributes or the flat fields) and passes
+        // it as identityContent; the flat build below is a defensive fallback for callers supplying no content.
         X509RequestContent content;
         if (identityContent != null) {
             content = identityContent;

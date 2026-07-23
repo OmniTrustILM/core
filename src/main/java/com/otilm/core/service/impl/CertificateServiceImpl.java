@@ -13,6 +13,7 @@ import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceCertificateContentData;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
+import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.auth.UserDto;
 import com.otilm.api.model.core.certificate.*;
@@ -1151,12 +1152,16 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
 
     @Override
     @Transactional
-    public Certificate createRegistrationPlaceholder(RaProfile raProfile, String effectiveSubjectDn) {
-        // Identity-only placeholder: no key/CSR/content yet. The authoritative subject, SAN and key
-        // material are recorded when the follow-up CSR issuance completes against this record, so only
-        // the subject DN identity from the registration request is captured here.
+    public Certificate createRegistrationPlaceholder(RaProfile raProfile, String effectiveSubjectDn, X509RequestContent registrationContent) {
+        // Identity-only placeholder: no key/CSR/content yet. The registered identity — subject DN plus any
+        // subject alternative names from the projected registration content — is captured here; the
+        // authoritative subject, SAN and key material are overwritten when the follow-up CSR issuance
+        // completes against this record.
         Certificate certificate = new Certificate();
         CertificateUtil.applyRegistrationSubject(certificate, effectiveSubjectDn);
+        if (registrationContent != null) {
+            CertificateUtil.applyRegistrationSan(certificate, registrationContent.getSubjectAltNames());
+        }
         certificate.setState(CertificateState.REQUESTED);
         certificate.setComplianceStatus(ComplianceStatus.NOT_CHECKED);
         certificate.setValidationStatus(CertificateValidationStatus.NOT_CHECKED);

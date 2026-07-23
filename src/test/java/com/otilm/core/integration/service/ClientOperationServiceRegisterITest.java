@@ -28,7 +28,11 @@ import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.mapping.FieldMapping;
 import com.otilm.api.model.common.attribute.v3.mapping.FieldType;
 import com.otilm.api.model.common.attribute.v3.mapping.RdnMappedField;
+import com.otilm.api.model.common.attribute.v3.mapping.SanMappedField;
+import com.otilm.api.model.connector.v3.certificate.CertificateExtension;
 import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
+import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.GeneralNameType;
 import com.otilm.api.model.core.v2.AvailableOperationsDto;
 import com.otilm.api.model.core.v2.CertificateOperationKind;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
@@ -67,6 +71,7 @@ import com.otilm.core.security.authn.client.AuthenticationInfo;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authn.client.UserManagementApiClient;
+import com.otilm.core.service.CertificateExternalService;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.ResourceObjectAssociationService;
 import com.otilm.core.service.handler.ConnectorCapabilityService;
@@ -85,6 +90,7 @@ import com.otilm.core.service.writer.registration.CertificateRegistrationWriter;
 import com.otilm.core.service.writer.statuspoll.CertificateStatusPollWriter;
 import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.CertificateUtil;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
@@ -105,6 +111,7 @@ import java.security.KeyPairGenerator;
 import java.time.OffsetDateTime;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -130,6 +137,8 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     private ClientOperationInternalService clientOperationInternalService;
     @Autowired
     private CertificateInternalService certificateService;
+    @Autowired
+    private CertificateExternalService certificateExternalService;
     @Autowired
     private CertificateRepository certificateRepository;
     @Autowired
@@ -894,6 +903,133 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
         Assertions.assertNull(infoCaptor.getValue().connectorUuid(), "register request values are stored connectorless");
         Assertions.assertEquals(1, valuesCaptor.getValue().size());
         Assertions.assertEquals(cnUuid, valuesCaptor.getValue().get(0).getUuid());
+    }
+
+    // ── registered identity (SAN / extensions) on the placeholder ────────────
+
+    @Test
+    void registerPersistsProjectedSanOnPlaceholder() throws Exception {
+        // A csrAttribute mapped to a DNS SAN must be recorded on the placeholder row, not reduced to the
+        // subject DN. SAN-only identities are permitted (RFC 5280 §4.1.2.6), so the DN stays empty here.
+        UUID sanUuid = UUID.randomUUID();
+        DataAttributeV3 sanDef = new DataAttributeV3();
+        sanDef.setUuid(sanUuid.toString());
+        sanDef.setName("dnsName");
+        SanMappedField san = new SanMappedField();
+        san.setFieldType(FieldType.SAN);
+        san.setGeneralNameType(GeneralNameType.DNS);
+        FieldMapping fieldMapping = new FieldMapping();
+        fieldMapping.setFields(List.of(san));
+        sanDef.setFieldMapping(fieldMapping);
+        when(issuanceDefinitionResolver.resolve(Mockito.any())).thenReturn(List.of(sanDef));
+        when(registeringAdapter().register(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.syncOk(null, List.of(), CertificateType.X509));
+
+        ClientCertificateRegistrationDto request = new ClientCertificateRegistrationDto();
+        request.setCsrAttributes(List.of(new RequestAttributeV3(sanUuid, "dnsName",
+                AttributeContentType.STRING, List.<BaseAttributeContentV3<?>>of(new StringAttributeContentV3("device-9.example.com")))));
+
+        ClientCertificateDataResponseDto response = clientOperationService.registerCertificate(
+                authorityParent, securedRaProfile, request);
+
+        Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
+        Map<String, List<String>> sans = CertificateUtil.deserializeSans(cert.getSubjectAlternativeNames());
+        Assertions.assertEquals(List.of("device-9.example.com"), sans.get("dNSName"),
+                "the projected DNS SAN must be persisted on the placeholder row");
+    }
+
+    @Test
+    void registerPersistsFlatSanOnPlaceholder() throws Exception {
+        // The flat subjectAltName string must be recorded on the placeholder row, same as the projected form.
+        when(registeringAdapter().register(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
+        ClientCertificateRegistrationDto request = registrationRequest();
+        request.setSubjectAltName("DNS:device-1.example.com,IP:10.0.0.1");
+
+        ClientCertificateDataResponseDto response = clientOperationService.registerCertificate(
+                authorityParent, securedRaProfile, request);
+
+        Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
+        Map<String, List<String>> sans = CertificateUtil.deserializeSans(cert.getSubjectAlternativeNames());
+        Assertions.assertEquals(List.of("device-1.example.com"), sans.get("dNSName"),
+                "the flat DNS SAN must be persisted on the placeholder row");
+        Assertions.assertEquals(List.of("10.0.0.1"), sans.get("iPAddress"),
+                "the flat IP SAN must be persisted on the placeholder row");
+    }
+
+    @Test
+    void registerPersistsOtherNameSanOnPlaceholder() throws Exception {
+        // otherName rides the flat form as 'otherName:<oid>;UTF8:<value>' and must persist in the same
+        // 'oid=value' serialized form used for issued certificates (the shared formatOtherNameSan).
+        when(registeringAdapter().register(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
+        ClientCertificateRegistrationDto request = registrationRequest();
+        request.setSubjectAltName("otherName:1.3.6.1.4.1.311.20.2.3;UTF8:device-9@acme.test");
+
+        ClientCertificateDataResponseDto response = clientOperationService.registerCertificate(
+                authorityParent, securedRaProfile, request);
+
+        Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
+        Map<String, List<String>> sans = CertificateUtil.deserializeSans(cert.getSubjectAlternativeNames());
+        Assertions.assertEquals(List.of("1.3.6.1.4.1.311.20.2.3=device-9@acme.test"), sans.get("otherName"),
+                "the otherName SAN must persist on the placeholder in the oid=value serialized form");
+    }
+
+    @Test
+    void platformLevelRegistrationPersistsSanOnPlaceholder() throws Exception {
+        // Platform-level path (no connector-backed registration): the requested SAN must be stored on the
+        // placeholder, not silently dropped
+        when(adapterFactory.forAuthority(Mockito.any())).thenReturn(mock(AuthorityProviderAdapter.class));
+        ClientCertificateRegistrationDto request = registrationRequest();
+        request.setSubjectAltName("DNS:device-1.example.com");
+
+        ClientCertificateDataResponseDto response = clientOperationService.registerCertificate(
+                authorityParent, securedRaProfile, request);
+
+        Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
+        Assertions.assertEquals(CertificateState.REGISTERED, cert.getState());
+        Map<String, List<String>> sans = CertificateUtil.deserializeSans(cert.getSubjectAlternativeNames());
+        Assertions.assertEquals(List.of("device-1.example.com"), sans.get("dNSName"),
+                "the platform-level placeholder must record the requested SAN");
+        // The certificate detail must expose the SAN for a content-less placeholder too — the detail mapper
+        // reads the SAN column unconditionally, not only for certificates that already carry issued content.
+        CertificateDetailDto detail = certificateExternalService.getCertificate(SecuredUUID.fromString(response.getUuid()));
+        Assertions.assertEquals(List.of("device-1.example.com"), detail.getSubjectAlternativeNames().get("dNSName"),
+                "the certificate detail of a placeholder must expose the registered SAN");
+    }
+
+    @Test
+    void platformLevelRegistrationAcceptsExtensions() throws Exception {
+        // Extensions cannot be stored on the placeholder row or forwarded (no connector /register call), but
+        // they must not fail a platform-level pre-registration: the request attributes returned for the
+        // certificate carry what was requested, and the authoritative extensions arrive with the CSR at issuance.
+        when(adapterFactory.forAuthority(Mockito.any())).thenReturn(mock(AuthorityProviderAdapter.class));
+        ClientCertificateRegistrationDto request = registrationRequest();
+        CertificateExtension extension = new CertificateExtension();
+        extension.setOid("1.3.6.1.5.5.7.1.1");
+        extension.setValueBase64(Base64.getEncoder().encodeToString(new byte[]{0x30, 0x00}));
+        request.setExtensions(List.of(extension));
+
+        ClientCertificateDataResponseDto response =
+                clientOperationService.registerCertificate(authorityParent, securedRaProfile, request);
+
+        Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
+        Assertions.assertEquals(CertificateState.REGISTERED, cert.getState(),
+                "extensions must not fail a platform-level pre-registration");
+    }
+
+    @Test
+    void registerRejectsMalformedFlatSanBeforePlaceholder() {
+        // The flat identity is now projected in the orchestrator, before the placeholder — a malformed SAN
+        // rejects with no row, uniform with the sibling register validations.
+        registeringAdapter();
+        ClientCertificateRegistrationDto request = registrationRequest();
+        request.setSubjectAltName("BOGUS:device-1");
+
+        Assertions.assertThrows(ValidationException.class, () -> clientOperationService.registerCertificate(
+                authorityParent, securedRaProfile, request));
+        Assertions.assertEquals(0, certificateRepository.count(),
+                "a malformed flat SAN must be rejected before the placeholder is created");
     }
 
     @Test
