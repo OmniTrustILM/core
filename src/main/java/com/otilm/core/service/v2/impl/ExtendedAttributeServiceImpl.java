@@ -2,6 +2,7 @@ package com.otilm.core.service.v2.impl;
 
 import com.otilm.api.exception.*;
 import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
@@ -9,8 +10,10 @@ import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.Connector2FunctionGroup;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.repository.ConnectorRepository;
+import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
+import com.otilm.core.service.handler.authority.RegisterCapability;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -40,6 +43,13 @@ public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
     @Autowired
     public void setAttributeEngine(AttributeEngine attributeEngine) {
         this.attributeEngine = attributeEngine;
+    }
+
+    private ConnectorCapabilityService capabilityService;
+
+    @Autowired
+    public void setCapabilityService(ConnectorCapabilityService capabilityService) {
+        this.capabilityService = capabilityService;
     }
 
     @Override
@@ -96,6 +106,44 @@ public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
         validateLegacyConnector(connector);
         AuthorityProviderAdapter adapter = authorityProviderAdapterFactory.forAuthority(raProfile.getAuthorityInstanceReference());
         return adapter.listRevokeAttributes(authorityRef, raProfile);
+    }
+
+    @Override
+    public List<BaseAttribute> listRegisterCertificateAttributes(RaProfile raProfile) throws ConnectorException, NotFoundException {
+        var authorityRef = raProfile.getAuthorityInstanceReference();
+        var connector = authorityRef.getConnector();
+        if (connector == null) {
+            throw new NotFoundException("Connector of the Authority is not available / deleted");
+        }
+        // No legacy-connector check here (unlike issue/revoke): registration is a v3-only capability, so a legacy
+        // or v2 authority simply routes to a non-RegisterCapability adapter and the guard below returns an empty
+        // set — uniform "no register support" behaviour rather than a v2-framed 404.
+        AuthorityProviderAdapter adapter = authorityProviderAdapterFactory.forAuthority(authorityRef);
+        if (adapter instanceof RegisterCapability registerCapability
+                && capabilityService.supports(authorityRef, FeatureFlag.CERTIFICATE_REGISTRATION)) {
+            return registerCapability.listRegisterAttributes(authorityRef, raProfile);
+        }
+        return List.of();
+    }
+
+    @Override
+    public void mergeAndValidateRegisterAttributes(RaProfile raProfile, List<RequestAttribute> attributes) throws ConnectorException, AttributeException, NotFoundException {
+        var authorityRef = raProfile.getAuthorityInstanceReference();
+        if (authorityRef.getConnector() == null) {
+            throw new ValidationException(ValidationError.create("Connector of the Authority is not available / deleted"));
+        }
+        AuthorityProviderAdapter adapter = authorityProviderAdapterFactory.forAuthority(authorityRef);
+        // Registration is v3-only; a non-register-capable authority carries no register attributes to validate.
+        if (!(adapter instanceof RegisterCapability registerCapability)
+                || !capabilityService.supports(authorityRef, FeatureFlag.CERTIFICATE_REGISTRATION)) {
+            return;
+        }
+        if (attributes == null) {
+            attributes = new ArrayList<>();
+        }
+        // v3 has no connector-side validate; materialize the register schema and validate structurally via the engine.
+        List<BaseAttribute> definitions = registerCapability.listRegisterAttributes(authorityRef, raProfile);
+        attributeEngine.validateUpdateDataAttributes(authorityRef.getConnectorUuid(), AttributeOperation.CERTIFICATE_REGISTER, definitions, attributes);
     }
 
     @Override

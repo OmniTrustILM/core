@@ -490,7 +490,11 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
         if (certificate.getRaProfile() != null && certificate.getRaProfile().getAuthorityInstanceReference() != null && certificate.getRaProfile().getAuthorityInstanceReference().getConnectorUuid() != null) {
             dto.setIssueAttributes(attributeEngine.getObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(certificate.getRaProfile().getAuthorityInstanceReference().getConnectorUuid()).operation(AttributeOperation.CERTIFICATE_ISSUE).build()));
             dto.setRevokeAttributes(attributeEngine.getObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(certificate.getRaProfile().getAuthorityInstanceReference().getConnectorUuid()).operation(AttributeOperation.CERTIFICATE_REVOKE).build()));
+            dto.setRegisterAttributes(attributeEngine.getObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(certificate.getRaProfile().getAuthorityInstanceReference().getConnectorUuid()).operation(AttributeOperation.CERTIFICATE_REGISTER).build()));
         }
+        // Register request-attribute values are stored connectorless at operation=null (see registerCertificate);
+        // read unconditionally so a REGISTERED placeholder (which has no certificate request) still exposes them.
+        dto.setRegistrationRequestAttributes(attributeEngine.getObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).build()));
         // TODO: originally showing only metadata from discovery resource, should it be like that?
         dto.setMetadata(attributeEngine.getMappedMetadataContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).build()));
         dto.setCustomAttributes(attributeEngine.getObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid()));
@@ -1229,6 +1233,25 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
             // Preserve the hybrid/PQC alternative key's inventory linkage, mirroring the canonical
             // CSR-attach path; the request entity is managed here, so its alt-key fields flush at commit.
             setCertificateRequestAltKey(certificateRequestEntity, request.getAltPublicKey());
+        }
+        // Persist the operator-supplied request-attribute values from the completion on the request entity,
+        // connectorless at operation=null — the same slot direct issue uses, read back into certificateRequest.attributes.
+        // Write-if-empty so a fingerprint-shared CSR's attributes are not clobbered. Best-effort: this audit capture
+        // must not fail completion (the CSR itself carries the identity). The resolve is local under STATIC_ONLY (no
+        // connector call); hoist pre-lock if connector-set merge is later enabled.
+        List<RequestAttribute> completionRequestAttributes = issueRequest.getCsrAttributes() == null ? List.of()
+                : issueRequest.getCsrAttributes().stream().filter(a -> a != null).toList();
+        if (!completionRequestAttributes.isEmpty()) {
+            ObjectAttributeContentInfo info = ObjectAttributeContentInfo.builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid()).build();
+            List<ResponseAttribute> existing = attributeEngine.getObjectDataAttributesContent(info);
+            if (existing == null || existing.isEmpty()) {
+                try {
+                    attributeEngine.validateUpdateDataAttributes(null, null, issuanceDefinitionResolver.resolve(certificate.getRaProfile()), completionRequestAttributes);
+                    attributeEngine.updateObjectDataAttributesContent(info, completionRequestAttributes);
+                } catch (Exception e) {
+                    log.debug("Skipping completion request-attribute persistence for certificate {}: {}", certificateUuid, e.getMessage());
+                }
+            }
         }
         certificateRepository.save(certificate);
     }

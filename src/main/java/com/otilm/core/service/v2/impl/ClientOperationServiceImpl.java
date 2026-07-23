@@ -336,6 +336,14 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
     @Override
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.ANY, parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
+    public List<BaseAttribute> listRegisterCertificateAttributes(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid) throws ConnectorException, NotFoundException {
+        RaProfile raProfile = raProfileRepository.findByUuidAndEnabledIsTrue(raProfileUuid.getValue())
+                .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
+        return extendedAttributeService.listRegisterCertificateAttributes(raProfile);
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.ANY, parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
     public void validateIssueCertificateAttributes(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid, List<RequestAttribute> attributes) throws ConnectorException, ValidationException, NotFoundException {
         RaProfile raProfile = raProfileRepository.findByUuidAndEnabledIsTrue(raProfileUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
@@ -494,6 +502,16 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             if (createCustomAttributes && request.getCustomAttributes() != null && !request.getCustomAttributes().isEmpty()) {
                 attributeEngine.updateObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid(), request.getCustomAttributes());
             }
+            persistRegistrationRequestValues(certificate, request);
+            // Persist the connector's register-operation attributes (register + connector), symmetric with how
+            // issue/revoke store their operation attributes, so they surface as registerAttributes on the detail.
+            if (request.getAttributes() != null && !request.getAttributes().isEmpty()) {
+                extendedAttributeService.mergeAndValidateRegisterAttributes(raProfile, request.getAttributes());
+                attributeEngine.updateObjectDataAttributesContent(
+                        ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid())
+                                .connector(authority.getConnectorUuid()).operation(AttributeOperation.CERTIFICATE_REGISTER).build(),
+                        request.getAttributes());
+            }
             // Apply owner/groups before the connector call, alongside custom attributes: an invalid owner/group
             // UUID fails the placeholder here (pre-acceptance) rather than after a connector has already accepted.
             applyRegistrationAssociations(certificate, request);
@@ -580,6 +598,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             if (createCustomAttributes && request.getCustomAttributes() != null && !request.getCustomAttributes().isEmpty()) {
                 attributeEngine.updateObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid(), request.getCustomAttributes());
             }
+            persistRegistrationRequestValues(certificate, request);
             applyRegistrationAssociations(certificate, request);
             maybeCreateRegistrationAuthorization(certificate, request);
             // Write the register->issue binding (no connector meta) so a platform-level placeholder carries the same
@@ -678,6 +697,22 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             RegisterWireBuilder.assertFlatRepresentable(content);
         }
         return content;
+    }
+
+    /**
+     * Persists the operator-supplied request-attribute values of a structured registration on the certificate,
+     * connectorless at operation=null — the key {@code getCertificate} reads into {@code registrationRequestAttributes}.
+     * The definitions were materialised by {@link #buildStructuredRegistrationContent} (operation=null), so this only
+     * writes content. A flat registration carries no csrAttributes and stores nothing.
+     */
+    private void persistRegistrationRequestValues(Certificate certificate, ClientCertificateRegistrationDto request)
+            throws AttributeException, NotFoundException {
+        if (!hasStructuredIdentity(request.getCsrAttributes())) {
+            return;
+        }
+        List<RequestAttribute> csrAttributes = request.getCsrAttributes().stream().filter(Objects::nonNull).toList();
+        attributeEngine.updateObjectDataAttributesContent(
+                ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).build(), csrAttributes);
     }
 
     /**
