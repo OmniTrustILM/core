@@ -916,6 +916,23 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     }
 
     @Test
+    void registerRejectsIssuanceWindowWithoutChallenge() {
+        // An issuance window is enforced only within the challenge regime (it lives on the authorization, created
+        // only with a secret), so a window without an authorizationSecret must be rejected up front rather than
+        // silently dropped — before any placeholder is created.
+        ClientCertificateRegistrationDto request = new ClientCertificateRegistrationDto();
+        request.setSubjectDn("CN=device-nowindow,O=Test");
+        request.setExpiresAt(OffsetDateTime.now().plusDays(1));
+
+        ValidationException ex = Assertions.assertThrows(ValidationException.class,
+                () -> clientOperationService.registerCertificate(authorityParent, securedRaProfile, request));
+        Assertions.assertTrue(ex.getMessage().contains("requires an authorization secret"),
+                "an issuance window without a challenge must be rejected");
+        Assertions.assertEquals(0, certificateRepository.count(),
+                "no placeholder should be created when the window-without-challenge combination is rejected");
+    }
+
+    @Test
     void registerWrapsCsrAttributeValidationFailure() throws Exception {
         // An AttributeException from the attribute engine's validation must surface as a client-facing
         // ValidationException ("Invalid csrAttributes...") and leave no placeholder behind.

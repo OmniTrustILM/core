@@ -459,6 +459,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         }
         rejectAmbiguousRegistrationIdentity(request);
         rejectPastRegistrationWindow(request);
+        rejectWindowWithoutChallenge(request);
         // Connector call below holds no transaction (NOT_SUPPORTED), so load the authority graph eagerly —
         // every association the adapter dereferences must be initialized before the session closes.
         RaProfile raProfile = raProfileRepository.findWithAuthorityByUuid(raProfileUuid.getValue())
@@ -726,6 +727,20 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         OffsetDateTime expiresAt = request.getExpiresAt();
         if (secret != null && !secret.isBlank() && expiresAt != null && !expiresAt.isAfter(OffsetDateTime.now(ZoneOffset.UTC))) {
             throw new ValidationException("The registration issuance window (expiresAt) must be in the future.");
+        }
+    }
+
+    /**
+     * Rejects an issuance window supplied without a challenge. The window is enforced only within the challenge
+     * regime — it lives on the {@link CertificateRegistrationAuthorization}, which is created only when a secret is
+     * present — so a window without an {@code authorizationSecret} would be silently dropped. Reject it up front
+     * rather than accept a deadline that has no effect.
+     */
+    private static void rejectWindowWithoutChallenge(ClientCertificateRegistrationDto request) {
+        String secret = request.getAuthorizationSecret();
+        if ((secret == null || secret.isBlank()) && request.getExpiresAt() != null) {
+            throw new ValidationException(
+                    "A registration issuance window (expiresAt) requires an authorization secret; a registration without a challenge has no completion deadline.");
         }
     }
 
