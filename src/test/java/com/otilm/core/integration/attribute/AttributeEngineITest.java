@@ -190,12 +190,9 @@ class AttributeEngineITest extends BaseSpringBootTest {
     }
 
     private static void ensureOidCached(OidCategory category, String oid, OidRecord oidRecord) {
-        Map<String, OidRecord> cache = OidHandler.getOidCache(category);
-        if (cache == null) {
-            OidHandler.cacheOidCategory(category, new HashMap<>());
-            cache = OidHandler.getOidCache(category);
-        }
-        cache.put(oid, oidRecord);
+        // Route through cacheOid so the copy-on-write contract holds and the derived RDN code
+        // lookup is refreshed — mutating the map from getOidCache() directly bypasses both.
+        OidHandler.cacheOid(category, oid, oidRecord);
     }
 
     @Test
@@ -1622,11 +1619,13 @@ class AttributeEngineITest extends BaseSpringBootTest {
             Assertions.assertTrue(ex.getMessage().contains("fieldMapping is only valid for attributes with STRING or TEXT content type"), ex::getMessage);
         }
 
-        // ── isRequestOperation gating ─────────────────────────────────────────────
+        // ── fieldMapping validated regardless of operation ───────────────────────
 
         @Test
-        void testFieldMapping_nonRequestOperation_skipsValidation() {
-            // Invalid fieldMapping (no objectType) should NOT throw when operation is not a request operation
+        void testFieldMapping_nonRequestOperation_validatesFieldMapping() {
+            // A fieldMapping declares projection intent; a malformed one is an authoring error
+            // whatever operation the definition registers under (issuance definitions register
+            // with operation=null), so validation must not be gated on the operation
             DataAttributeV3 attr = fieldMappingAttribute("fm_non_req_op");
             FieldMapping fm = new FieldMapping();
             fm.setObjectType(null);
@@ -1634,7 +1633,19 @@ class AttributeEngineITest extends BaseSpringBootTest {
             attr.setFieldMapping(fm);
 
             UUID connectorUuid = connectorAuthority.getUuid();
-            // null operation → skips validateFieldMapping, so no exception
+            AttributeException ex = Assertions.assertThrows(AttributeException.class,
+                    () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, null, List.of(attr)));
+            Assertions.assertTrue(ex.getMessage().contains("fieldMapping.objectType is required"), ex::getMessage);
+        }
+
+        @Test
+        void testFieldMapping_nonRequestOperation_acceptsValidMapping() {
+            // The register build registers issuance definitions with operation=null; a well-formed
+            // mapping must be accepted there, not merely rejected when malformed
+            DataAttributeV3 attr = fieldMappingAttribute("fm_non_req_op_valid");
+            attr.setFieldMapping(fieldMappingWith(rdnField("CN")));
+
+            UUID connectorUuid = connectorAuthority.getUuid();
             Assertions.assertDoesNotThrow(
                     () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, null, List.of(attr)));
         }
