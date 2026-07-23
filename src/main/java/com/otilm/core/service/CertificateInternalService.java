@@ -5,6 +5,7 @@ import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.dashboard.StatisticsDto;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
 import com.otilm.api.model.core.certificate.*;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
@@ -50,15 +51,18 @@ public interface CertificateInternalService extends ResourceExtensionService {
      * @param effectiveSubjectDn the subject DN to persist — the flat {@code subjectDn} for a flat request,
      *                           or the DN rendered from projected {@code csrAttributes} for a structured one
      *                           (resolved by the caller so the placeholder matches the register wire identity)
+     * @param registrationContent the projected registration identity content; its subject alternative
+     *                            names are persisted on the placeholder alongside the subject DN, so the
+     *                            platform record carries the full registered identity (may be null)
      */
-    Certificate createRegistrationPlaceholder(RaProfile raProfile, String effectiveSubjectDn);
+    Certificate createRegistrationPlaceholder(RaProfile raProfile, String effectiveSubjectDn, X509RequestContent registrationContent);
 
     /**
      * Attaches an operator-supplied CSR to an existing certificate (a REGISTERED placeholder), preparing it
      * for issuance. The registration identity already on the row (subject DN / SAN) is preserved; the issued
      * certificate's identity is written from the CA response at issuance.
      */
-    void addCertificateRequestToExisting(UUID certificateUuid, ClientCertificateIssueRequestDto issueRequest)
+    UUID addCertificateRequestToExisting(UUID certificateUuid, ClientCertificateIssueRequestDto issueRequest)
             throws CertificateRequestException, NoSuchAlgorithmException, NotFoundException;
 
     CertificateChainResponseDto getCertificateChain(SecuredUUID uuid, boolean withEndCertificate) throws NotFoundException;

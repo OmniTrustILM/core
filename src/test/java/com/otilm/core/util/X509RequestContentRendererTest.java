@@ -98,6 +98,21 @@ class X509RequestContentRendererTest {
         }
 
         @Test
+        void resolvesRdnType_caseInsensitively() throws IOException {
+            // given — registered codes supplied in lower case; RFC 4514 keywords are case-insensitive
+            // and the parse path (PlatformX500NameStyle.attrNameToOID) already matches case-insensitively,
+            // so the wire renderer must resolve the same codes rather than reject them.
+            var x509 = subjectOf(rdn("cn", "host.example.com"), rdn("mycode", "val"));
+
+            // when
+            X500Principal name = X509RequestContentRenderer.toX500Principal(x509);
+
+            // then — resolved to the registered OIDs despite the lower-case codes
+            assertThat(name.toString()).contains("CN=host.example.com");
+            assertThat(name.toString()).contains("1.2.3.4.5.6=val");
+        }
+
+        @Test
         void returnsEmptyDn_whenSubjectIsEmpty() throws IOException {
             // given
             var x509 = subjectOf();

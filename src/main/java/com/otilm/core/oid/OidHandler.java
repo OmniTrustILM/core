@@ -2,9 +2,12 @@ package com.otilm.core.oid;
 
 import com.otilm.api.model.core.oid.OidCategory;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 
 public class OidHandler {
@@ -22,16 +25,70 @@ public class OidHandler {
 
     private static final Map<OidCategory, Map<String, OidRecord>> oidCache = new ConcurrentHashMap<>();
 
+    /**
+     * Case-insensitive RDN code/altCode → OID lookup. Rebuilt on every RDN cache mutation and
+     * republished as an immutable snapshot, so readers on hot paths (DN parsing) never iterate
+     * a map another thread may be mutating.
+     */
+    private static final AtomicReference<Map<String, String>> rdnCodeToOid =
+            new AtomicReference<>(Collections.emptyMap());
+
+    /**
+     * Serializes writers so that the read-copy-publish of a per-category map and the rebuild of the
+     * derived {@link #rdnCodeToOid} index happen as one unit. A private monitor is used rather than
+     * the {@code OidHandler.class} object so foreign code cannot contend on the same lock.
+     */
+    private static final Object WRITE_LOCK = new Object();
+
+    /** The published per-category map, or {@code null} when the category is not loaded. Immutable — see {@link #cacheOidCategory}. */
     public static Map<String, OidRecord> getOidCache(OidCategory oidCategory) {
         return oidCache.get(oidCategory);
     }
 
     public static void cacheOidCategory(OidCategory category, Map<String, OidRecord> oidRecordMap) {
-        oidCache.put(category, oidRecordMap);
+        synchronized (WRITE_LOCK) {
+            // Publish an immutable defensive copy: per-category maps are iterated lock-free by
+            // readers (getCodeToOidMap, style snapshots), so a caller mutating the passed map
+            // after publish would desync oidCache from the derived rdnCodeToOid index. Copying
+            // here makes the copy-on-write contract structural rather than convention-only.
+            oidCache.put(category, Collections.unmodifiableMap(new HashMap<>(oidRecordMap)));
+            refreshRdnCodeLookup(category);
+        }
     }
 
     public static void cacheOid(OidCategory category, String oid, OidRecord oidRecord) {
-        oidCache.get(category).put(oid, oidRecord);
+        synchronized (WRITE_LOCK) {
+            // Copy-on-write: build the next map fresh, then publish it immutable so readers never
+            // observe a map another thread might mutate. getOrDefault keeps the first write to an
+            // as-yet-uncached category from throwing.
+            Map<String, OidRecord> next = new HashMap<>(oidCache.getOrDefault(category, Map.of()));
+            next.put(oid, oidRecord);
+            oidCache.put(category, Collections.unmodifiableMap(next));
+            refreshRdnCodeLookup(category);
+        }
+    }
+
+    /** OID for an RDN code or alternative code, matched case-insensitively; {@code null} when unknown. */
+    public static String getOidForRdnCode(String code) {
+        return code == null ? null : rdnCodeToOid.get().get(code);
+    }
+
+    /**
+     * The published, immutable, case-insensitive RDN code/altCode → OID snapshot. Capture it once
+     * and reuse it for a whole DN so every RDN of one subject resolves against the same registry
+     * state, rather than re-reading the reference per attribute.
+     */
+    public static Map<String, String> getRdnCodeToOidMap() {
+        return rdnCodeToOid.get();
+    }
+
+    private static void refreshRdnCodeLookup(OidCategory category) {
+        if (category != OidCategory.RDN_ATTRIBUTE_TYPE) {
+            return;
+        }
+        Map<String, String> lookup = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        lookup.putAll(getCodeToOidMap());
+        rdnCodeToOid.set(Collections.unmodifiableMap(lookup));
     }
 
     public static Map<String, String> getCodeToOidMap() {
@@ -63,6 +120,17 @@ public class OidHandler {
 
 
     public static void removeCachedOid(OidCategory category, String oid) {
-        oidCache.get(category).remove(oid);
+        synchronized (WRITE_LOCK) {
+            Map<String, OidRecord> current = oidCache.get(category);
+            // Removing from a never-loaded category is a no-op: don't materialize an empty entry,
+            // so getOidCache(category) stays null for callers that read null as "not loaded yet".
+            if (current == null) {
+                return;
+            }
+            Map<String, OidRecord> next = new HashMap<>(current);
+            next.remove(oid);
+            oidCache.put(category, Collections.unmodifiableMap(next));
+            refreshRdnCodeLookup(category);
+        }
     }
 }

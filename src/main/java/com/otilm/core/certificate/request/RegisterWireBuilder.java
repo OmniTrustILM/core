@@ -56,9 +56,7 @@ public final class RegisterWireBuilder {
      */
     public static X509RequestContent buildContent(String subjectDn, String subjectAltName,
                                                   List<CertificateExtension> extensions) {
-        X509RequestContent content = new X509RequestContent();
-        content.setCertificateType(CertificateType.X509);
-        content.setSubject(parseSubject(subjectDn));
+        X509RequestContent content = buildIdentityContent(subjectDn);
         content.setSubjectAltNames(parseSubjectAltName(subjectAltName));
         content.setExtensions(mapExtensions(extensions));
         return content;
@@ -82,7 +80,7 @@ public final class RegisterWireBuilder {
     public static CertificateRegistrationRequestDtoV3 buildRegistration(X509RequestContent content,
                                                                         boolean connectorSupportsStructured) {
         CertificateRegistrationRequestDtoV3 dto = new CertificateRegistrationRequestDtoV3();
-        dto.setSubjectDn(renderSubjectDn(content));
+        dto.setSubjectDn(renderWireSubjectDn(content));
         dto.setSubjectAltName(renderSubjectAltName(content.getSubjectAltNames()));
         if (connectorSupportsStructured) {
             dto.setRequestContent(content);
@@ -173,12 +171,14 @@ public final class RegisterWireBuilder {
             return result;
         }
         for (CertificateExtension extension : extensions) {
-            RequestedExtension mapped = new RequestedExtension();
-            mapped.setOid(extension.getOid());
-            mapped.setCritical(extension.isCritical());
-            mapped.setEncoding(ExtensionValueEncoding.DER);
-            mapped.setValue(extension.getValueBase64());
-            result.add(mapped);
+            if (extension != null) {
+                RequestedExtension mapped = new RequestedExtension();
+                mapped.setOid(extension.getOid());
+                mapped.setCritical(extension.isCritical());
+                mapped.setEncoding(ExtensionValueEncoding.DER);
+                mapped.setValue(extension.getValueBase64());
+                result.add(mapped);
+            }
         }
         return result;
     }
@@ -186,8 +186,11 @@ public final class RegisterWireBuilder {
     // ── flat-wire rendering ─────────────────────────────────────────────────
 
     /**
-     * Renders the RFC 4514 subject DN string for the given content, or null when it carries no subject.
-     * Shared with the register orchestrator so the persisted placeholder DN matches the wire anchor exactly.
+     * Renders the subject DN in the platform display form (registry codes such as {@code EMAIL}), or null
+     * when the content carries no subject. Used by the register orchestrator for the persisted placeholder
+     * DN and the UI; the connector wire uses {@link #renderWireSubjectDn(X509RequestContent)} instead, so
+     * the two strings differ in dialect while deriving from the same content. DN identity comparisons use
+     * the separate normalized form, never these display strings.
      */
     public static String renderSubjectDn(X509RequestContent content) {
         if (content.getSubject() == null || content.getSubject().isEmpty()) {
@@ -196,6 +199,25 @@ public final class RegisterWireBuilder {
         try {
             X500Principal principal = X509RequestContentRenderer.toX500Principal(content);
             return X500Name.getInstance(PlatformX500NameStyle.DEFAULT, principal.getEncoded()).toString();
+        } catch (IOException | IllegalArgumentException e) {
+            // Keep the renderer/encoder message off the wire-facing exception (info-leak rule).
+            throw new ValidationException("Unable to render subject DN from the certificate request content");
+        }
+    }
+
+    /**
+     * Renders the subject DN for the connector wire in strict RFC 2253/4514 form: registered short
+     * keywords (CN, L, ST, O, OU, C, STREET, DC, UID), dotted-decimal OIDs with hexstring values for
+     * every other attribute, and full value escaping. Platform registry codes (e.g. {@code EMAIL})
+     * never reach the wire — connectors parse this field with standards-strict parsers that are
+     * entitled to reject unregistered keywords. Returns null when the content carries no subject.
+     */
+    public static String renderWireSubjectDn(X509RequestContent content) {
+        if (content.getSubject() == null || content.getSubject().isEmpty()) {
+            return null;
+        }
+        try {
+            return X509RequestContentRenderer.toX500Principal(content).getName(X500Principal.RFC2253);
         } catch (IOException | IllegalArgumentException e) {
             // Keep the renderer/encoder message off the wire-facing exception (info-leak rule).
             throw new ValidationException("Unable to render subject DN from the certificate request content");

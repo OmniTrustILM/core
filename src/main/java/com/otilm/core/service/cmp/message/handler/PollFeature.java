@@ -49,9 +49,12 @@ public class PollFeature {
      * <ul>
      *   <li>{@link PollResult.Reached} when the certificate's state equals
      *       {@code expectedState};</li>
-     *   <li>{@link PollResult.StillPending} when the certificate is in
-     *       {@code PENDING_ISSUE} / {@code PENDING_REVOKE} (the connector accepted
-     *       asynchronously with HTTP 202);</li>
+     *   <li>{@link PollResult.StillPending} when the certificate is still in
+     *       {@code PENDING_ISSUE} / {@code PENDING_REVOKE} once the poll budget is
+     *       exhausted. {@code PENDING_*} is ridden out within the budget — every issuance
+     *       routes through {@code PENDING_ISSUE} on the actions-listener thread, even when
+     *       the connector completes synchronously moments later, so an immediate return
+     *       here would misreport nearly every issuance as asynchronous;</li>
      *   <li>{@link PollResult.Diverted} when the certificate reaches a terminal state
      *       (one of {@code ISSUED}, {@code REVOKED}, {@code FAILED}, {@code REJECTED})
      *       that is not the expected one — typically because another thread (an operator
@@ -59,9 +62,11 @@ public class PollFeature {
      *       running.</li>
      * </ul>
      *
-     * <p>Transitional states ({@code REQUESTED}, {@code PENDING_APPROVAL}) are not reported
-     * back to the caller — the loop sleeps and re-reads until one of the three outcomes
-     * above is observed or the budget is exhausted.</p>
+     * <p>Transitional states ({@code REQUESTED}, {@code PENDING_APPROVAL}, {@code PENDING_*})
+     * are not reported back to the caller mid-budget — the loop sleeps and re-reads until one
+     * of the outcomes above is observed or the budget is exhausted (which yields
+     * {@link PollResult.StillPending} for {@code PENDING_*}, or a timeout exception for the
+     * other transitional states).</p>
      *
      * @param tid           processing transaction id, see {@link PKIHeader#getTransactionID()}
      * @param serialNumber  serial number of the polled certificate (for log context;
@@ -100,22 +105,29 @@ public class PollFeature {
                             tid, serialNumber, certUUID, expectedState);
                     return new PollResult.Reached(polledCert);
                 }
-                if (current == CertificateState.PENDING_ISSUE || current == CertificateState.PENDING_REVOKE) {
-                    log.debug("TID={}, SN={} | certificate uuid={} is in asynchronous state {} — caller will signal client to retry",
-                            tid, serialNumber, certUUID, current);
-                    return new PollResult.StillPending(current);
-                }
                 if (isDivergentTerminal(current, expectedState)) {
                     log.warn("TID={}, SN={} | certificate uuid={} diverted to {} while waiting for {}",
                             tid, serialNumber, certUUID, current, expectedState);
                     return new PollResult.Diverted(current);
                 }
                 if (System.currentTimeMillis() - startRequest >= timeoutMs) {
+                    // PENDING_* is ridden out for the whole budget: even a synchronously-
+                    // completing connector transits PENDING_ISSUE on the actions-listener
+                    // thread, so only budget exhaustion makes "still pending" a verdict.
+                    if (current == CertificateState.PENDING_ISSUE || current == CertificateState.PENDING_REVOKE) {
+                        log.debug("TID={}, SN={} | certificate uuid={} still in asynchronous state {} after {} ms — caller will signal client to retry",
+                                tid, serialNumber, certUUID, current, timeoutMs);
+                        return new PollResult.StillPending(current);
+                    }
                     throw new CmpProcessingException(tid, PKIFailureInfo.systemFailure,
                             String.format("SN=%s | polling timed out after %d ms — cert is in transitional state %s, expected %s",
                                     serialNumber, timeoutMs, current, expectedState));
                 }
-                TimeUnit.MILLISECONDS.sleep(POLL_INTERVAL_MS);
+                // Clamp to the remaining budget so the loop never overshoots timeoutMs by up to a
+                // full interval (matches CertificateValidationStatusPoller). Positive here: the
+                // elapsed >= timeoutMs check above already returned/threw when the budget was spent.
+                long remaining = timeoutMs - (System.currentTimeMillis() - startRequest);
+                TimeUnit.MILLISECONDS.sleep(Math.min(POLL_INTERVAL_MS, remaining));
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();

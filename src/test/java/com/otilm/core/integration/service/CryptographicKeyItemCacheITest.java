@@ -19,13 +19,13 @@ import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.repository.*;
-import com.otilm.core.messaging.jms.producers.NotificationProducer;
 import com.otilm.core.model.crypto.CryptographicKeyItemModel;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CryptographicKeyExternalService;
 import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.service.TokenProfileInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.mockbeans.ProducerMocks;
 import org.bouncycastle.jcajce.spec.MLDSAParameterSpec;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,7 +33,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.context.annotation.Import;
 
 import java.security.KeyPairGenerator;
 import java.security.Security;
@@ -49,6 +49,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Integration tests verifying that the cryptographic key item cache is correctly populated on lookup
  * and evicted after mutations that change the key item's observable state.
  */
+@Import(ProducerMocks.class)
 class CryptographicKeyItemCacheITest extends BaseSpringBootTest {
 
     @Autowired
@@ -77,9 +78,6 @@ class CryptographicKeyItemCacheITest extends BaseSpringBootTest {
 
     @Autowired
     private CryptographicKeyItemRepository cryptographicKeyItemRepository;
-
-    @MockitoBean
-    private NotificationProducer notificationProducer;
 
     private CryptographicKey key;
     private CryptographicKeyItem keyItem;
