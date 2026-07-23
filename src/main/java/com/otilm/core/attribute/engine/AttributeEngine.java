@@ -1280,6 +1280,10 @@ public class AttributeEngine {
         }
         validateResourceAttributeProperties(attribute, connectorUuidStr, attributeResource, hasCallback);
 
+        validateReadOnlyAttributeProperties(attribute, connectorUuidStr, readOnly, hasCallback, hasContent, list);
+    }
+
+    private static void validateReadOnlyAttributeProperties(BaseAttribute attribute, String connectorUuidStr, boolean readOnly, boolean hasCallback, boolean hasContent, boolean list) throws AttributeException {
         if (readOnly) {
             if (hasCallback) {
                 throw new AttributeException("Read only attribute cannot have callback", attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);

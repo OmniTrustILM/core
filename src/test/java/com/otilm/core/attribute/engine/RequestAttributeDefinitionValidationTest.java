@@ -81,8 +81,9 @@ class RequestAttributeDefinitionValidationTest {
     }
 
     private static void assertRejected(BaseAttribute definition, String expectedMessagePart) {
+        List<BaseAttribute> definitions = List.of(definition);
         ValidationException e = Assertions.assertThrows(ValidationException.class,
-                () -> AttributeEngine.validateRequestAttributeDefinitions(List.of(definition)));
+                () -> AttributeEngine.validateRequestAttributeDefinitions(definitions));
         Assertions.assertTrue(e.getMessage().contains(expectedMessagePart),
                 "expected message containing '" + expectedMessagePart + "' but was: " + e.getMessage());
     }
