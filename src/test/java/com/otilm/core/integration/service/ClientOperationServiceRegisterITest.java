@@ -153,6 +153,8 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     @Autowired
     private CertificateRegistrationAuthorizationRepository authorizationRepository;
     @Autowired
+    private com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter registrationAuthorizationWriter;
+    @Autowired
     private SettingsCache settingsCache;
     @Autowired
     private SettingExternalService settingService;
@@ -1096,6 +1098,22 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
         Assertions.assertEquals(AttributeOperation.CERTIFICATE_REGISTER, info.operation(),
                 "connector register attributes are stored under the register operation");
         Assertions.assertNotNull(info.connectorUuid(), "connector register attributes are connector-scoped");
+    }
+
+    @Test
+    void clearIssuanceWindowNullsExpiryAndKeepsStateActive() {
+        // The window governs only the initial issuance; clearing it leaves the authorization ACTIVE and durable
+        // for a later renew/rekey, with no stale deadline a future sweep could flip to EXPIRED.
+        Certificate cert = seedIssuedCert();
+        activeAuthorizationFor(cert.getUuid());
+        Assertions.assertNotNull(authorizationRepository.findByCertificateUuid(cert.getUuid()).orElseThrow().getExpiresAt(),
+                "precondition: the authorization starts with an issuance window");
+
+        registrationAuthorizationWriter.clearIssuanceWindow(cert.getUuid());
+
+        CertificateRegistrationAuthorization after = authorizationRepository.findByCertificateUuid(cert.getUuid()).orElseThrow();
+        Assertions.assertNull(after.getExpiresAt(), "the issuance window must be cleared on completion");
+        Assertions.assertEquals(RegistrationState.ACTIVE, after.getState(), "the authorization stays ACTIVE for renew/rekey");
     }
 
     @Test
