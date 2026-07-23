@@ -511,10 +511,11 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 attributeEngine.updateObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid(), request.getCustomAttributes());
             }
             persistRegistrationRequestValues(certificate, request);
-            // Persist the connector's register-operation attributes (register + connector), symmetric with how
-            // issue/revoke store their operation attributes, so they surface as registerAttributes on the detail.
+            // Validate the connector's register-operation attributes against the schema — always, so a required
+            // register attribute is enforced even when the client sends none — then persist the supplied ones on the
+            // certificate (register + connector), symmetric with issue/revoke, so they surface as registerAttributes.
+            extendedAttributeService.mergeAndValidateRegisterAttributes(raProfile, request.getAttributes());
             if (request.getAttributes() != null && !request.getAttributes().isEmpty()) {
-                extendedAttributeService.mergeAndValidateRegisterAttributes(raProfile, request.getAttributes());
                 attributeEngine.updateObjectDataAttributesContent(
                         ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid())
                                 .connector(authority.getConnectorUuid()).operation(AttributeOperation.CERTIFICATE_REGISTER).build(),
@@ -727,6 +728,36 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         List<RequestAttribute> csrAttributes = request.getCsrAttributes().stream().filter(Objects::nonNull).toList();
         attributeEngine.updateObjectDataAttributesContent(
                 ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).build(), csrAttributes);
+    }
+
+    /**
+     * Persists the operator-supplied completion request-attribute values on the certificate request, connectorless at
+     * operation=null (the slot direct issue uses; read back into {@code certificateRequest.attributes}). Called from
+     * {@code issueExistingCertificate} (NOT_SUPPORTED), so it runs outside the CSR-attach row lock: the resolve — which
+     * can reach the connector for a non-STATIC_ONLY profile — and each attribute-engine write execute in their own
+     * transaction, so an invalid attribute or an unreachable connector is skipped (WARN) without failing the completed
+     * certificate. Write-if-empty so a fingerprint-shared CSR's attributes are not clobbered.
+     */
+    private void persistCompletionRequestValues(RaProfile raProfile, UUID certificateRequestUuid, ClientCertificateIssueRequestDto request) {
+        if (certificateRequestUuid == null || request.getCsrAttributes() == null) {
+            return;
+        }
+        List<RequestAttribute> csrAttributes = request.getCsrAttributes().stream().filter(Objects::nonNull).toList();
+        if (csrAttributes.isEmpty()) {
+            return;
+        }
+        ObjectAttributeContentInfo info = ObjectAttributeContentInfo.builder(Resource.CERTIFICATE_REQUEST, certificateRequestUuid).build();
+        try {
+            var existing = attributeEngine.getObjectDataAttributesContent(info);
+            if (existing != null && !existing.isEmpty()) {
+                return;
+            }
+            attributeEngine.validateUpdateDataAttributes(null, null, issuanceDefinitionResolver.resolve(raProfile), csrAttributes);
+            attributeEngine.updateObjectDataAttributesContent(info, csrAttributes);
+        } catch (ValidationException | AttributeException | ConnectorException | NotFoundException e) {
+            logger.warn("Skipping completion request-attribute persistence for certificate request {}: {}",
+                    certificateRequestUuid, safeMessage(e, "completion attribute persistence failed"));
+        }
     }
 
     /**
@@ -1548,11 +1579,16 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 request != null ? request.getAuthorizationSecret() : null);
 
         if (registered) {
+            UUID certificateRequestUuid;
             try {
-                certificateService.addCertificateRequestToExisting(certificate.getUuid(), request);
+                certificateRequestUuid = certificateService.addCertificateRequestToExisting(certificate.getUuid(), request);
             } catch (CertificateRequestException | NoSuchAlgorithmException e) {
                 throw new ValidationException(ValidationError.create("Invalid certificate signing request: " + e.getMessage()));
             }
+            // Persist the completion request-attribute values outside the CSR-attach transaction and its row lock
+            // (this method is NOT_SUPPORTED), so the resolve and the attribute-engine writes run in their own
+            // transactions and cannot mark the completed certificate's transaction rollback-only.
+            persistCompletionRequestValues(raProfile, certificateRequestUuid, request);
         }
 
         final ActionMessage actionMessage = new ActionMessage();

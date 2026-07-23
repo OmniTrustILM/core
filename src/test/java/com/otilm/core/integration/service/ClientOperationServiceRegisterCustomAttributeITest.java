@@ -1,5 +1,6 @@
 package com.otilm.core.integration.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.attribute.ResponseAttribute;
@@ -95,7 +96,7 @@ class ClientOperationServiceRegisterCustomAttributeITest extends BaseSpringBootT
     @Autowired
     private RaProfileCertificateRequestAttributeWriter requestAttributeWriter;
     @Autowired
-    private com.fasterxml.jackson.databind.ObjectMapper objectMapper;
+    private ObjectMapper objectMapper;
 
     @MockitoBean
     private AuthorityProviderAdapterFactory adapterFactory;
@@ -297,6 +298,44 @@ class ClientOperationServiceRegisterCustomAttributeITest extends BaseSpringBootT
         Assertions.assertEquals("device-complete",
                 ((StringAttributeContentV3) ((ResponseAttributeV3) reqAttrs.getFirst()).getContent().getFirst()).getData(),
                 "the completion request-attribute value must be readable from the detail");
+    }
+
+    @Test
+    void completionWithUnpersistableRequestAttributeStillCompletes() throws Exception {
+        // Author a required CN attribute (STATIC_ONLY so resolve is local), then complete with that attribute EMPTY.
+        // Validation fails (a required value is missing) — a ValidationException (RuntimeException) that, before the
+        // fix, marked the completion transaction rollback-only. The persistence must now be skipped best-effort and
+        // the certificate must still complete.
+        DataAttributeV3 cnDef = aMappedDataAttribute().withName("commonName").required().mappingRdn("2.5.4.3").build();
+        ((RdnMappedField) cnDef.getFieldMapping().getFields().getFirst()).setFieldType(FieldType.RDN);
+        UUID cnUuid = UUID.randomUUID();
+        cnDef.setUuid(cnUuid.toString());
+        requestAttributeWriter.saveStaticSet(raProfile,
+                objectMapper.writeValueAsString(List.of(cnDef)), AttributeSetMergeMode.STATIC_ONLY, null);
+
+        AuthorityProviderAdapter adapter = mock(AuthorityProviderAdapter.class,
+                Mockito.withSettings().extraInterfaces(RegisterCapability.class));
+        when(adapterFactory.forAuthority(Mockito.any())).thenReturn(adapter);
+        when(((RegisterCapability) adapter).register(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
+        ClientCertificateRegistrationDto registration = new ClientCertificateRegistrationDto();
+        registration.setSubjectDn("CN=device-badattr,O=Acme");
+        String certUuid = clientOperationService.registerCertificate(authorityParent, securedRaProfile, registration).getUuid();
+
+        ClientCertificateIssueRequestDto completion = new ClientCertificateIssueRequestDto();
+        completion.setRequest(generateCsrBase64());
+        completion.setFormat(CertificateRequestFormat.PKCS10);
+        // Required attribute submitted with no content -> validation fails; the persistence is skipped, not fatal.
+        completion.setCsrAttributes(List.of(new RequestAttributeV3(cnUuid, "commonName",
+                AttributeContentType.STRING, List.<BaseAttributeContentV3<?>>of())));
+
+        // Must not throw — the completion succeeds despite the unpersistable request attribute.
+        clientOperationService.issueExistingCertificate(authorityParent, securedRaProfile, certUuid, completion);
+
+        CertificateDetailDto detail = certificateExternalService.getCertificate(SecuredUUID.fromString(certUuid));
+        Assertions.assertNotNull(detail.getCertificateRequest(), "the CSR must be attached even though the attribute was skipped");
+        Assertions.assertTrue(detail.getCertificateRequest().getAttributes().isEmpty(),
+                "the unpersistable completion attribute must be skipped, not persisted");
     }
 
     private String generateCsrBase64() throws Exception {

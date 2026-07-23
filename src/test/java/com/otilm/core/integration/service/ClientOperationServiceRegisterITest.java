@@ -53,6 +53,7 @@ import com.otilm.core.dao.entity.Group;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.CertificateRegistration;
 import com.otilm.core.dao.entity.CertificateRegistrationAuthorization;
+import com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter;
 import com.otilm.core.dao.entity.RegistrationState;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository;
@@ -153,7 +154,7 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     @Autowired
     private CertificateRegistrationAuthorizationRepository authorizationRepository;
     @Autowired
-    private com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter registrationAuthorizationWriter;
+    private CertificateRegistrationAuthorizationWriter registrationAuthorizationWriter;
     @Autowired
     private SettingsCache settingsCache;
     @Autowired
