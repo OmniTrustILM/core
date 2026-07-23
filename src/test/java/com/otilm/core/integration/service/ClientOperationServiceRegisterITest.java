@@ -42,6 +42,7 @@ import com.otilm.api.model.core.v2.ClientCertificateRekeyRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.v2.OperationSupport;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.certificate.request.IssuanceDefinitionResolver;
 import com.otilm.api.model.core.auth.UserDetailDto;
@@ -1066,6 +1067,35 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
                 "an issuance window without a challenge must be rejected");
         Assertions.assertEquals(0, certificateRepository.count(),
                 "no placeholder should be created when the window-without-challenge combination is rejected");
+    }
+
+    @Test
+    void registerPersistsConnectorRegisterAttributesUnderTheRegisterOperation() throws Exception {
+        // A connector-backed registration carrying connector register attributes stores them on the certificate
+        // under the register operation (+ connector), so they surface as registerAttributes on the detail.
+        RegisterCapability adapter = registeringAdapter();
+        when(adapter.register(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
+        when(adapter.listRegisterAttributes(Mockito.any(), Mockito.any())).thenReturn(List.of());
+
+        RequestAttribute registerAttr = new RequestAttributeV3(UUID.randomUUID(), "registerParam",
+                AttributeContentType.STRING, List.<BaseAttributeContentV3<?>>of(new StringAttributeContentV3("v")));
+        ClientCertificateRegistrationDto request = new ClientCertificateRegistrationDto();
+        request.setSubjectDn("CN=device-conn-attrs,O=Acme");
+        request.setAttributes(List.of(registerAttr));
+
+        ClientCertificateDataResponseDto response = clientOperationService.registerCertificate(
+                authorityParent, securedRaProfile, request);
+
+        UUID certUuid = UUID.fromString(response.getUuid());
+        ArgumentCaptor<ObjectAttributeContentInfo> infoCaptor = ArgumentCaptor.forClass(ObjectAttributeContentInfo.class);
+        verify(attributeEngine).updateObjectDataAttributesContent(infoCaptor.capture(), Mockito.anyList());
+        ObjectAttributeContentInfo info = infoCaptor.getValue();
+        Assertions.assertEquals(Resource.CERTIFICATE, info.objectType());
+        Assertions.assertEquals(certUuid, info.objectUuid());
+        Assertions.assertEquals(AttributeOperation.CERTIFICATE_REGISTER, info.operation(),
+                "connector register attributes are stored under the register operation");
+        Assertions.assertNotNull(info.connectorUuid(), "connector register attributes are connector-scoped");
     }
 
     @Test
