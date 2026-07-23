@@ -19,6 +19,7 @@ public final class V3ConnectorStubs {
     // ---- endpoint paths (from CertificateApiClient v3 constants) ----
 
     private static final String REGISTER_PATH   = "/v3/authorityProvider/certificates/register";
+    private static final String REGISTER_ATTRIBUTES_PATH = REGISTER_PATH + "/attributes";
     public static final String REGISTER_STATUS = "/v3/authorityProvider/certificates/register/status";
     private static final String ISSUE_PATH      = "/v3/authorityProvider/certificates/issue";
 
@@ -37,6 +38,7 @@ public final class V3ConnectorStubs {
      */
     public static void stubRegisterSync(WireMockServer wm, String metaJson) {
         String safeMetaJson = (metaJson == null || metaJson.isBlank()) ? "[]" : metaJson;
+        stubRegisterAttributesEmpty(wm);
         wm.stubFor(post(urlEqualTo(REGISTER_PATH))
                 .willReturn(aResponse()
                         .withStatus(200)
@@ -53,6 +55,7 @@ public final class V3ConnectorStubs {
      */
     public static void stubRegisterAsync(WireMockServer wm, String trackingMeta) {
         String safeMeta = (trackingMeta == null || trackingMeta.isBlank()) ? "[]" : trackingMeta;
+        stubRegisterAttributesEmpty(wm);
         wm.stubFor(post(urlEqualTo(REGISTER_PATH))
                 .willReturn(aResponse()
                         .withStatus(202)
@@ -60,6 +63,17 @@ public final class V3ConnectorStubs {
                         .withBody("""
                                 {"certificateData": null, "meta": %s}
                                 """.formatted(safeMeta))));
+    }
+
+    /**
+     * Stubs the connector's register-operation attribute-list endpoint to return an empty schema, so the
+     * unconditional {@code mergeAndValidateRegisterAttributes} on the register-capable path succeeds without real
+     * register-attribute data. Every register-capable stub needs this — a real register-capable connector exposes
+     * {@code /register/attributes} alongside {@code /register}.
+     */
+    private static void stubRegisterAttributesEmpty(WireMockServer wm) {
+        wm.stubFor(post(urlEqualTo(REGISTER_ATTRIBUTES_PATH)).willReturn(WireMock.okJson("[]")));
+        wm.stubFor(get(urlEqualTo(REGISTER_ATTRIBUTES_PATH)).willReturn(WireMock.okJson("[]")));
     }
 
     // ---- Register status (stateful scenario) ----------------------------
