@@ -22,10 +22,18 @@ import java.util.stream.Collectors;
  * permissions editor then calls {@code GET /api/v1/auth/resources/{resource}/objects}, which
  * {@code ResourceServiceImpl} serves by looking up a {@link ResourceExtensionService} bean keyed by the
  * resource code. A resource advertised via {@code @AuthEndpoint} but without a matching extension-service
- * bean fails that call with HTTP 501 (issue #1873, Signing Records and Trusted Certificates).
+ * bean fails that call with HTTP 501 (Signing Records and Trusted Certificates).
  *
- * <p>This rule fails the build when the two sets diverge, keeping the advertised-object-access contract and
- * the object-listing capability in lockstep.
+ * <p>This rule fails the build when a resource advertises object access via {@code @AuthEndpoint} but has no
+ * {@link ResourceExtensionService} bean to serve the object listing. The reverse is allowed: a
+ * {@link ResourceExtensionService} without {@code @AuthEndpoint} (e.g. CERTIFICATE) is legitimate and not
+ * flagged.
+ *
+ * <p>The guard resolves the served resources from {@code @Service}-annotated {@link ResourceExtensionService}
+ * classes whose annotation value is the resource code — the registration convention every extension service
+ * follows ({@code @Service(Resource.Codes.X)}, a compile-time constant). A bean registered another way
+ * ({@code @Component}, a {@code @Bean} factory method, or a value-less {@code @Service}) would not be seen
+ * here even though the runtime lookup would resolve it, so keep this convention when adding an extension service.
  */
 @AnalyzeClasses(packages = "com.otilm.core", importOptions = ImportOption.DoNotIncludeTests.class)
 public class AuthEndpointResourceExtensionArchTest {
