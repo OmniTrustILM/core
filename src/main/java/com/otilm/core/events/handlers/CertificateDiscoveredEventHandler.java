@@ -227,20 +227,21 @@ public class CertificateDiscoveredEventHandler extends EventHandler<Certificate>
             future.join();
         }
 
-        // Upload certificate keys out of parallel processing to avoid collisions
+        // Upload certificate keys out of parallel processing to avoid collisions. Isolate each entry: one
+        // failing key upload must not abort the remaining uploads or the FINISHED event-history bookkeeping below.
         for (Map.Entry<PublicKey, List<UUID>> entry : keyToCertificates.entrySet()) {
             try {
                 certificateHandler.uploadDiscoveredCertificateKey(entry.getKey(), entry.getValue());
-            } catch (NoSuchAlgorithmException e) {
-                logger.error("Could not create public key for certificates with UUIDs {}: {}", e.getMessage(), entry.getValue());
+            } catch (Exception e) {
+                logger.error("Could not create public key for certificates with UUIDs {}: {}", entry.getValue(), e.getMessage(), e);
             }
         }
 
         for (Map.Entry<PublicKey, List<UUID>> entry : altKeyToCertificates.entrySet()) {
             try {
                 certificateHandler.uploadDiscoveredCertificateAltKey(entry.getKey(), entry.getValue());
-            } catch (NoSuchAlgorithmException e) {
-                logger.error("Could not create alternative public key for certificates with UUIDs {}: {}", e.getMessage(), entry.getValue());
+            } catch (Exception e) {
+                logger.error("Could not create alternative public key for certificates with UUIDs {}: {}", entry.getValue(), e.getMessage(), e);
             }
         }
 
