@@ -1,12 +1,12 @@
 package com.otilm.core.integration.service;
 
+import com.otilm.api.exception.NotSupportedException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.InfoAttributeV2;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
-import com.otilm.api.model.common.attribute.v3.mapping.SourceParam;
 import com.otilm.api.model.common.attribute.v3.mapping.ValueSourceType;
 import com.otilm.api.model.core.raprofile.AttributeSetMergeMode;
 import com.otilm.api.model.core.raprofile.RaProfileCertificateRequestAttributesDto;
@@ -37,6 +37,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -282,16 +283,8 @@ class RaProfileCertificateRequestAttributeServiceITest extends BaseSpringBootTes
         RaProfile raProfile = newRaProfile();
         RaProfileCertificateRequestAttributesUpdateDto request = new RaProfileCertificateRequestAttributesUpdateDto();
         request.setRequestAttributes(List.of(def("u1", "server")));
-        request.setMergeMode(AttributeSetMergeMode.CONNECTOR_ONLY);
+        request.setMergeMode(AttributeSetMergeMode.STATIC_ONLY);
         request.setExternalCsrValidationStrict(Boolean.TRUE);
-        ValueSourceBindingDto bindingDto = new ValueSourceBindingDto();
-        bindingDto.setAttributeUuid("u1");
-        bindingDto.setValueSourceType(ValueSourceType.STATIC_LIST);
-        bindingDto.setCollectionRef("cmdb.servers");
-        SourceParam param = new SourceParam();
-        param.setAttributeName("datacenter");
-        bindingDto.setParams(List.of(param));
-        request.setValueSourceBindings(List.of(bindingDto));
 
         // when
         service.updateConfiguration(raProfile, request);
@@ -299,16 +292,44 @@ class RaProfileCertificateRequestAttributeServiceITest extends BaseSpringBootTes
 
         // then
         assertThat(stored.getRequestAttributes()).extracting(BaseAttribute::getName).containsExactly("server");
-        assertThat(stored.getMergeMode()).isEqualTo(AttributeSetMergeMode.CONNECTOR_ONLY);
+        assertThat(stored.getMergeMode()).isEqualTo(AttributeSetMergeMode.STATIC_ONLY);
         assertThat(stored.getExternalCsrValidationStrict()).isTrue();
-        assertThat(stored.getValueSourceBindings()).hasSize(1);
-        assertThat(stored.getValueSourceBindings().get(0).getValueSourceType()).isEqualTo(ValueSourceType.STATIC_LIST);
-        assertThat(stored.getValueSourceBindings().get(0).getCollectionRef()).isEqualTo("cmdb.servers");
-        assertThat(stored.getValueSourceBindings().get(0).getParams()).extracting(p -> p.getAttributeName()).containsExactly("datacenter");
+        assertThat(stored.getValueSourceBindings()).isEmpty();
     }
 
     @Test
-    void getConfigurationResolvesStoredNullMergeModeToMerge() {
+    void unsupportedMergeModeThrowsException() {
+        RaProfile raProfile = newRaProfile();
+        RaProfileCertificateRequestAttributesUpdateDto request = new RaProfileCertificateRequestAttributesUpdateDto();
+        request.setRequestAttributes(List.of(def("u1", "server")));
+        request.setMergeMode(AttributeSetMergeMode.CONNECTOR_ONLY);
+        assertThatThrownBy(() -> service.updateConfiguration(raProfile, request))
+                .isInstanceOf(NotSupportedException.class)
+                .hasMessageContaining("Merge mode CONNECTOR_ONLY is not supported");
+    }
+
+    @Test
+    void omittedMergeModeAcceptedAsEffectiveMerge() {
+        RaProfile raProfile = newRaProfile();
+        RaProfileCertificateRequestAttributesUpdateDto request = new RaProfileCertificateRequestAttributesUpdateDto();
+        request.setRequestAttributes(List.of(def("u1", "server")));
+        service.updateConfiguration(raProfile, request);
+        assertEquals(AttributeSetMergeMode.STATIC_ONLY, service.getConfiguration(raProfile).getMergeMode());
+    }
+
+    @Test
+    void valueSourceBindingsIncludedThrowsException() {
+        RaProfile raProfile = newRaProfile();
+        RaProfileCertificateRequestAttributesUpdateDto request = new RaProfileCertificateRequestAttributesUpdateDto();
+        request.setMergeMode(AttributeSetMergeMode.STATIC_ONLY);
+        request.setValueSourceBindings(List.of(new ValueSourceBindingDto()));
+        assertThatThrownBy(() -> service.updateConfiguration(raProfile, request))
+                .isInstanceOf(NotSupportedException.class)
+                .hasMessageContaining("Value-source bindings are not supported in this version");
+    }
+
+    @Test
+    void getConfigurationResolvesStoredNullMergeModeToStaticOnly() {
         // given: a stored set whose merge mode was left null
         RaProfile raProfile = newRaProfile();
         writer.saveStaticSet(raProfile, AttributeDefinitionUtils.serialize(List.of(def("u1", "server"))), null, null);
@@ -317,18 +338,18 @@ class RaProfileCertificateRequestAttributeServiceITest extends BaseSpringBootTes
         RaProfileCertificateRequestAttributesDto stored = service.getConfiguration(raProfile);
 
         // then: the read view exposes the effective default rather than null
-        assertThat(stored.getMergeMode()).isEqualTo(AttributeSetMergeMode.MERGE);
+        assertThat(stored.getMergeMode()).isEqualTo(AttributeSetMergeMode.STATIC_ONLY);
     }
 
     @Test
-    void getConfigurationReturnsMergeWhenNoSetStored() {
+    void getConfigurationReturnsStaticOnlyWhenNoSetStored() {
         // given: an RA Profile with no request-attribute set at all
         RaProfile raProfile = newRaProfile();
 
         // when
         RaProfileCertificateRequestAttributesDto stored = service.getConfiguration(raProfile);
 
-        // then: merge mode is still the effective default, never null
-        assertThat(stored.getMergeMode()).isEqualTo(AttributeSetMergeMode.MERGE);
+        // then: the read view exposes the effective default rather than null
+        assertThat(stored.getMergeMode()).isEqualTo(AttributeSetMergeMode.STATIC_ONLY);
     }
 }

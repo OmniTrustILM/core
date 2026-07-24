@@ -28,10 +28,10 @@ public final class RequestAttributeSetResolver {
      * Resolves a possibly-{@code null} stored merge mode to its effective value.
      *
      * @param mode the per-RA-Profile merge mode as stored (may be {@code null})
-     * @return {@code mode} when non-null, otherwise {@link AttributeSetMergeMode#MERGE}
+     * @return {@code mode} when non-null, otherwise {@link AttributeSetMergeMode#STATIC_ONLY}
      */
     public static AttributeSetMergeMode effectiveMode(AttributeSetMergeMode mode) {
-        return mode == null ? AttributeSetMergeMode.MERGE : mode;
+        return mode == null ? AttributeSetMergeMode.STATIC_ONLY : mode;
     }
 
     /**
