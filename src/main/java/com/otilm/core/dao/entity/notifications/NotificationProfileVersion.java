@@ -24,8 +24,16 @@ import java.util.UUID;
 @ToString
 @RequiredArgsConstructor
 @Entity
-@Table(name = "notification_profile_version")
+@Table(
+        name = "notification_profile_version",
+        uniqueConstraints = @UniqueConstraint(
+                name = NotificationProfileVersion.UNIQUE_VERSION_CONSTRAINT,
+                columnNames = {"notification_profile_uuid", "version"}
+        )
+)
 public class NotificationProfileVersion extends UniquelyIdentified {
+
+    public static final String UNIQUE_VERSION_CONSTRAINT = "uq_notification_profile_version";
 
     @Column(name = "notification_profile_uuid", nullable = false)
     private UUID notificationProfileUuid;
