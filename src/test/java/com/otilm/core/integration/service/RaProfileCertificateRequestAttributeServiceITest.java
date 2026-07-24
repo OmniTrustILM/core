@@ -37,6 +37,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -308,13 +309,12 @@ class RaProfileCertificateRequestAttributeServiceITest extends BaseSpringBootTes
     }
 
     @Test
-    void omittedMergeModeIsRejectedAsEffectiveMerge() {
+    void omittedMergeModeAcceptedAsEffectiveMerge() {
         RaProfile raProfile = newRaProfile();
         RaProfileCertificateRequestAttributesUpdateDto request = new RaProfileCertificateRequestAttributesUpdateDto();
         request.setRequestAttributes(List.of(def("u1", "server")));
-        assertThatThrownBy(() -> service.updateConfiguration(raProfile, request))
-                .isInstanceOf(NotSupportedException.class)
-                .hasMessageContaining("Merge mode MERGE is not supported");
+        service.updateConfiguration(raProfile, request);
+        assertEquals(AttributeSetMergeMode.STATIC_ONLY, service.getConfiguration(raProfile).getMergeMode());
     }
 
     @Test
@@ -329,7 +329,7 @@ class RaProfileCertificateRequestAttributeServiceITest extends BaseSpringBootTes
     }
 
     @Test
-    void getConfigurationResolvesStoredNullMergeModeToMerge() {
+    void getConfigurationResolvesStoredNullMergeModeToStaticOnly() {
         // given: a stored set whose merge mode was left null
         RaProfile raProfile = newRaProfile();
         writer.saveStaticSet(raProfile, AttributeDefinitionUtils.serialize(List.of(def("u1", "server"))), null, null);
@@ -338,18 +338,18 @@ class RaProfileCertificateRequestAttributeServiceITest extends BaseSpringBootTes
         RaProfileCertificateRequestAttributesDto stored = service.getConfiguration(raProfile);
 
         // then: the read view exposes the effective default rather than null
-        assertThat(stored.getMergeMode()).isEqualTo(AttributeSetMergeMode.MERGE);
+        assertThat(stored.getMergeMode()).isEqualTo(AttributeSetMergeMode.STATIC_ONLY);
     }
 
     @Test
-    void getConfigurationReturnsMergeWhenNoSetStored() {
+    void getConfigurationReturnsStaticOnlyWhenNoSetStored() {
         // given: an RA Profile with no request-attribute set at all
         RaProfile raProfile = newRaProfile();
 
         // when
         RaProfileCertificateRequestAttributesDto stored = service.getConfiguration(raProfile);
 
-        // then: merge mode is still the effective default, never null
-        assertThat(stored.getMergeMode()).isEqualTo(AttributeSetMergeMode.MERGE);
+        // then: the read view exposes the effective default rather than null
+        assertThat(stored.getMergeMode()).isEqualTo(AttributeSetMergeMode.STATIC_ONLY);
     }
 }

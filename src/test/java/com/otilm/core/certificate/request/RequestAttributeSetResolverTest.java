@@ -101,13 +101,13 @@ class RequestAttributeSetResolverTest {
         }
 
         @Test
-        void nullModeDefaultsToMerge() {
+        void nullModeDefaultsToStaticOnly() {
             // given / when
             List<BaseAttribute> result = RequestAttributeSetResolver.merge(
                     List.of(def("u1", "a")), List.of(def("u2", "b")), null);
 
             // then
-            assertThat(result).hasSize(2);
+            assertThat(result).hasSize(1);
         }
 
         @Test
@@ -122,8 +122,8 @@ class RequestAttributeSetResolverTest {
     class EffectiveMode {
 
         @Test
-        void nullResolvesToMerge() {
-            assertThat(RequestAttributeSetResolver.effectiveMode(null)).isEqualTo(AttributeSetMergeMode.MERGE);
+        void nullResolvesToStaticOnly() {
+            assertThat(RequestAttributeSetResolver.effectiveMode(null)).isEqualTo(AttributeSetMergeMode.STATIC_ONLY);
         }
 
         @Test
