@@ -9,7 +9,6 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.core.aop.AuditLogged;
-import com.otilm.core.auth.AuthEndpoint;
 import com.otilm.core.logging.LogResource;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.TrustedCertificateExternalService;
@@ -31,7 +30,6 @@ public class TrustedCertificateControllerImpl implements TrustedCertificateContr
     private final TrustedCertificateExternalService trustedCertificateService;
 
     @Override
-    @AuthEndpoint(resourceName = Resource.TRUSTED_CERTIFICATE)
     @AuditLogged(module = Module.CORE, resource = Resource.TRUSTED_CERTIFICATE, operation = Operation.LIST)
     public List<TrustedCertificateDto> listTrustedCertificates() {
         return trustedCertificateService.listTrustedCertificates();

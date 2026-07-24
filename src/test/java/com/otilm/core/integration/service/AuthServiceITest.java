@@ -749,8 +749,7 @@ class AuthServiceITest extends BaseSpringBootTest {
                         "uuid": "f3f2f6e1-6c8b-4f7c-9a9b-4d6e9b5c3e2a",
                         "name": "trustedCertificates",
                         "displayName": "Trusted Certificates",
-                        "listObjectsEndpoint": "/v1/trustedCertificates",
-                        "objectAccess": true,
+                        "objectAccess": false,
                         "actions": [
                             {
                                 "uuid": "53421445-5d6e-4257-b59d-235aaf26e61e",
@@ -828,8 +827,7 @@ class AuthServiceITest extends BaseSpringBootTest {
                         "uuid": "d1c8e5b4-9c3a-4c8e-9b0c-1f2a5e6f7896",
                         "name": "signingRecords",
                         "displayName": "Signing Record",
-                        "listObjectsEndpoint": "/v1/signingRecords/search",
-                        "objectAccess": true,
+                        "objectAccess": false,
                         "actions": [
                             {
                                 "uuid": "b31b0ea1-d97f-4ade-895c-a982f4544e1b",
