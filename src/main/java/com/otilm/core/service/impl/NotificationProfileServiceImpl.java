@@ -6,10 +6,13 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.notification.*;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.notification.RecipientType;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.core.dao.entity.notifications.NotificationInstanceReference;
 import com.otilm.core.dao.entity.notifications.NotificationProfile;
 import com.otilm.core.dao.entity.notifications.NotificationProfileVersion;
 import com.otilm.core.dao.entity.workflows.Execution;
+import com.otilm.core.dao.repository.notifications.NotificationInstanceReferenceRepository;
 import com.otilm.core.dao.repository.notifications.NotificationProfileRepository;
 import com.otilm.core.dao.repository.notifications.NotificationProfileVersionRepository;
 import com.otilm.core.dao.repository.workflows.ExecutionRepository;
@@ -20,12 +23,16 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.NotificationProfileExternalService;
 import com.otilm.core.service.ResourceObjectAssociationService;
 import com.otilm.core.util.RequestValidatorHelper;
+import org.hibernate.exception.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
@@ -35,16 +42,24 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
-@Transactional
+@Transactional(rollbackFor = Exception.class)
 public class NotificationProfileServiceImpl implements NotificationProfileExternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(NotificationProfileServiceImpl.class);
 
+    private NotificationProfileServiceImpl self;
     private NotificationProfileRepository notificationProfileRepository;
     private NotificationProfileVersionRepository notificationProfileVersionRepository;
+    private NotificationInstanceReferenceRepository notificationInstanceReferenceRepository;
 
     private ExecutionRepository executionRepository;
     private ResourceObjectAssociationService resourceObjectAssociationService;
+
+    @Lazy
+    @Autowired
+    public void setSelf(NotificationProfileServiceImpl self) {
+        this.self = self;
+    }
 
     @Autowired
     public void setNotificationProfileRepository(NotificationProfileRepository notificationProfileRepository) {
@@ -54,6 +69,11 @@ public class NotificationProfileServiceImpl implements NotificationProfileExtern
     @Autowired
     public void setNotificationProfileVersionRepository(NotificationProfileVersionRepository notificationProfileVersionRepository) {
         this.notificationProfileVersionRepository = notificationProfileVersionRepository;
+    }
+
+    @Autowired
+    public void setNotificationInstanceReferenceRepository(NotificationInstanceReferenceRepository notificationInstanceReferenceRepository) {
+        this.notificationInstanceReferenceRepository = notificationInstanceReferenceRepository;
     }
 
     @Autowired
@@ -119,6 +139,7 @@ public class NotificationProfileServiceImpl implements NotificationProfileExtern
         if (notificationProfileRepository.findByName(requestDto.getName()).isPresent()) {
             throw new AlreadyExistException("Notification profile with name " + requestDto.getName() + " already exists.");
         }
+        validateNotificationInstanceExists(requestDto.getNotificationInstanceUuid());
 
         NotificationProfile notificationProfile = new NotificationProfile();
         notificationProfile.setName(requestDto.getName());
@@ -143,18 +164,34 @@ public class NotificationProfileServiceImpl implements NotificationProfileExtern
 
     @Override
     @ExternalAuthorization(resource = Resource.NOTIFICATION_PROFILE, action = ResourceAction.UPDATE)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public NotificationProfileDetailDto editNotificationProfile(SecuredUUID uuid, NotificationProfileUpdateRequestDto updateRequestDto) throws NotFoundException {
-        NotificationProfile notificationProfile = notificationProfileRepository.findByUuid(uuid).orElseThrow(() -> new NotFoundException(NotificationProfile.class, uuid));
-        NotificationProfileVersion currentVersion = notificationProfile.getCurrentVersion();
+        validateNotificationInstanceExists(updateRequestDto.getNotificationInstanceUuid());
+        // Resolve recipient info from the request before opening the write transaction: recipient lookup
+        // can call the auth service over HTTP and must not hold a DB connection or the profile row lock.
+        List<NameAndUuidDto> recipients = resolveRecipients(updateRequestDto.getRecipientType(), updateRequestDto.getRecipientUuids());
 
-        if (areVersionsEqual(currentVersion, updateRequestDto)) {
-            logger.debug("Current version of notification profile {} is same as in request. New version is not created", notificationProfile.getName());
-            return getNotificationProfileDetailDto(currentVersion);
-        }
+        // The transaction boundary comes from the self-proxied call; invoking persistEditedVersion directly
+        // on `this` would skip the @Transactional advice and reintroduce the version race.
+        return self.persistEditedVersion(uuid, updateRequestDto, recipients);
+    }
 
+    @Transactional(rollbackFor = Exception.class)
+    NotificationProfileDetailDto persistEditedVersion(SecuredUUID uuid, NotificationProfileUpdateRequestDto updateRequestDto, List<NameAndUuidDto> recipients) throws NotFoundException {
+        // The row lock serializes concurrent edits; without it, both could read the same latest version and
+        // insert duplicate version numbers.
+        NotificationProfile notificationProfile = notificationProfileRepository.findAndLockByUuid(uuid.getValue()).orElseThrow(() -> new NotFoundException(NotificationProfile.class, uuid));
+        NotificationProfileVersion currentVersion = notificationProfileVersionRepository.findTopByNotificationProfileUuidOrderByVersionDesc(uuid.getValue()).orElseThrow(() -> new NotFoundException(NotificationProfileVersion.class, uuid));
+
+        // Description lives on the profile, not on the version — persist it even when no new version is created
         if (!Objects.equals(notificationProfile.getDescription(), updateRequestDto.getDescription())) {
             notificationProfile.setDescription(updateRequestDto.getDescription());
             notificationProfileRepository.save(notificationProfile);
+        }
+
+        if (areVersionsEqual(currentVersion, updateRequestDto)) {
+            logger.debug("Current version of notification profile {} is same as in request. New version is not created", notificationProfile.getName());
+            return currentVersion.mapToDetailDto(recipients);
         }
 
         NotificationProfileVersion notificationProfileVersion = new NotificationProfileVersion();
@@ -167,22 +204,55 @@ public class NotificationProfileServiceImpl implements NotificationProfileExtern
         notificationProfileVersion.setInternalNotification(updateRequestDto.isInternalNotification());
         notificationProfileVersion.setFrequency(updateRequestDto.getFrequency());
         notificationProfileVersion.setRepetitions(updateRequestDto.getRepetitions());
-        notificationProfileVersion = notificationProfileVersionRepository.save(notificationProfileVersion);
-
-        return getNotificationProfileDetailDto(notificationProfileVersion);
-    }
-
-    private NotificationProfileDetailDto getNotificationProfileDetailDto(NotificationProfileVersion notificationProfileVersion) throws NotFoundException {
-        // retrieve recipients info and check for existence of such object
-        List<NameAndUuidDto> recipients = new ArrayList<>();
-        if (notificationProfileVersion.getRecipientUuids() != null) {
-            recipients = new ArrayList<>();
-            for (UUID recipientUuid : notificationProfileVersion.getRecipientUuids()) {
-                recipients.add(resourceObjectAssociationService.getRecipientObjectInfo(notificationProfileVersion.getRecipientType(), recipientUuid));
+        try {
+            notificationProfileVersion = notificationProfileVersionRepository.saveAndFlush(notificationProfileVersion);
+        } catch (DataIntegrityViolationException e) {
+            // Backstop for the unique (notification_profile_uuid, version) constraint, reachable only if a
+            // writer bypasses the row lock above. Other integrity violations (e.g. a foreign key on a
+            // concurrently deleted notification instance) are not concurrent-edit collisions and must surface as-is.
+            if (isUniqueVersionViolation(e)) {
+                throw new ValidationException("Notification profile %s was concurrently modified. Retry the edit.".formatted(notificationProfile.getName()));
             }
+            throw e;
         }
 
         return notificationProfileVersion.mapToDetailDto(recipients);
+    }
+
+    /**
+     * Fails fast with a not-found error for a client-supplied notification instance reference that does not
+     * exist; without this check the insert would fail the foreign key and surface as a server error. The
+     * foreign key still guards the race with a concurrent instance deletion.
+     */
+    private void validateNotificationInstanceExists(UUID notificationInstanceUuid) throws NotFoundException {
+        if (notificationInstanceUuid != null && notificationInstanceReferenceRepository.findByUuid(notificationInstanceUuid).isEmpty()) {
+            throw new NotFoundException(NotificationInstanceReference.class, notificationInstanceUuid);
+        }
+    }
+
+    private static boolean isUniqueVersionViolation(DataIntegrityViolationException e) {
+        for (Throwable cause = e.getCause(); cause != null; cause = cause.getCause()) {
+            if (cause instanceof ConstraintViolationException constraintViolation) {
+                return NotificationProfileVersion.UNIQUE_VERSION_CONSTRAINT.equalsIgnoreCase(constraintViolation.getConstraintName());
+            }
+        }
+        return false;
+    }
+
+    private NotificationProfileDetailDto getNotificationProfileDetailDto(NotificationProfileVersion notificationProfileVersion) throws NotFoundException {
+        return notificationProfileVersion.mapToDetailDto(resolveRecipients(notificationProfileVersion.getRecipientType(), notificationProfileVersion.getRecipientUuids()));
+    }
+
+    // retrieve recipients info and check for existence of such object
+    private List<NameAndUuidDto> resolveRecipients(RecipientType recipientType, List<UUID> recipientUuids) throws NotFoundException {
+        List<NameAndUuidDto> recipients = new ArrayList<>();
+        if (recipientUuids != null) {
+            for (UUID recipientUuid : recipientUuids) {
+                recipients.add(resourceObjectAssociationService.getRecipientObjectInfo(recipientType, recipientUuid));
+            }
+        }
+
+        return recipients;
     }
 
     private boolean areVersionsEqual(NotificationProfileVersion currentVersion, NotificationProfileUpdateRequestDto requestDto) {

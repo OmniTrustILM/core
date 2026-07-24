@@ -56,9 +56,7 @@ public final class RegisterWireBuilder {
      */
     public static X509RequestContent buildContent(String subjectDn, String subjectAltName,
                                                   List<CertificateExtension> extensions) {
-        X509RequestContent content = new X509RequestContent();
-        content.setCertificateType(CertificateType.X509);
-        content.setSubject(parseSubject(subjectDn));
+        X509RequestContent content = buildIdentityContent(subjectDn);
         content.setSubjectAltNames(parseSubjectAltName(subjectAltName));
         content.setExtensions(mapExtensions(extensions));
         return content;
@@ -173,12 +171,14 @@ public final class RegisterWireBuilder {
             return result;
         }
         for (CertificateExtension extension : extensions) {
-            RequestedExtension mapped = new RequestedExtension();
-            mapped.setOid(extension.getOid());
-            mapped.setCritical(extension.isCritical());
-            mapped.setEncoding(ExtensionValueEncoding.DER);
-            mapped.setValue(extension.getValueBase64());
-            result.add(mapped);
+            if (extension != null) {
+                RequestedExtension mapped = new RequestedExtension();
+                mapped.setOid(extension.getOid());
+                mapped.setCritical(extension.isCritical());
+                mapped.setEncoding(ExtensionValueEncoding.DER);
+                mapped.setValue(extension.getValueBase64());
+                result.add(mapped);
+            }
         }
         return result;
     }

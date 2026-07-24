@@ -112,6 +112,14 @@ public class ClientOperationControllerImpl implements ClientOperationController 
     }
 
     @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.ATTRIBUTE, name = "register", affiliatedResource = Resource.RA_PROFILE, operation = Operation.LIST_ATTRIBUTES)
+    public List<BaseAttribute> listRegisterCertificateAttributes(
+            String authorityUuid,
+            @LogResource(uuid = true, affiliated = true) String raProfileUuid) throws ConnectorException, NotFoundException {
+        return clientOperationService.listRegisterCertificateAttributes(SecuredParentUUID.fromString(authorityUuid), SecuredUUID.fromString(raProfileUuid));
+    }
+
+    @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.ATTRIBUTE, name = "revoke", affiliatedResource = Resource.RA_PROFILE, operation = Operation.VALIDATE_ATTRIBUTES)
     public void validateRevokeCertificateAttributes(
             String authorityUuid,

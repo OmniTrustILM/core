@@ -4,6 +4,7 @@ import com.otilm.api.exception.CertificateRequestException;
 import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.connector.v3.certificate.GeneralNameEntry;
 import com.otilm.api.model.core.certificate.*;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.oid.SystemOid;
@@ -248,7 +249,7 @@ public class CertificateUtil {
             DLSequence otherNameSeq = (DLSequence) GeneralName.getInstance(value).getName();
             var oidSeq = otherNameSeq.getObjectAt(0).toString();
             var valueSeq = ((DLTaggedObject) otherNameSeq.getObjectAt(1)).getBaseObject().toString();
-            return "%s=%s".formatted(oidSeq, valueSeq);
+            return formatOtherNameSan(oidSeq, valueSeq);
         }
         if (sanType == GeneralName.ediPartyName) {
             DLSequence ediPartySeq = (DLSequence) GeneralName.getInstance(value).getName();
@@ -603,6 +604,43 @@ public class CertificateUtil {
         } catch (IllegalArgumentException e) {
             throw new ValidationException(ValidationError.create("Invalid subject DN '%s': %s".formatted(subjectDn, e.getMessage())));
         }
+    }
+
+    /**
+     * Records the SAN identity of a no-CSR registration placeholder from the projected registration
+     * content, serialized in the same map format used for issued certificates. No entries is a no-op,
+     * leaving the column null exactly as for a DN-only registration.
+     */
+    public static void applyRegistrationSan(Certificate modal, List<GeneralNameEntry> subjectAltNames) {
+        if (subjectAltNames == null || subjectAltNames.isEmpty()) {
+            return;
+        }
+        Map<String, List<String>> sans = buildEmptySans();
+        for (GeneralNameEntry entry : subjectAltNames) {
+            // Projected entries carry a validated type and otherName OID; guard anyway so a malformed
+            // persisted mapping surfaces as a controlled rejection instead of an NPE or a literal
+            // "null=value" SAN inside the placeholder transaction.
+            if (entry.getType() == null) {
+                throw new ValidationException(ValidationError.create(
+                        "A projected subject alternative name entry carries no type; check the SAN field mappings of the issuance attributes"));
+            }
+            if (entry.getType() == GeneralNameType.OTHER_NAME
+                    && (entry.getOtherNameOid() == null || entry.getOtherNameOid().isBlank())) {
+                throw new ValidationException(ValidationError.create(
+                        "A projected otherName subject alternative name entry carries no OID; check the SAN field mappings of the issuance attributes"));
+            }
+            String value = entry.getType() == GeneralNameType.OTHER_NAME
+                    ? formatOtherNameSan(entry.getOtherNameOid(), entry.getValue())
+                    : entry.getValue();
+            sans.get(SAN_TYPE_MAP.get(entry.getType().getBcTag())).add(value);
+        }
+        modal.setSubjectAlternativeNames(serializeSans(sans));
+    }
+
+    /** Single source of the persisted otherName SAN form, shared by issued-certificate parsing and
+     * registration placeholders so the two can never drift. */
+    private static String formatOtherNameSan(String oid, String value) {
+        return "%s=%s".formatted(oid, value);
     }
 
     private static void setSubjectDNParams(Certificate modal, X500Name subjectDN) {

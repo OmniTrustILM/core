@@ -29,8 +29,10 @@ public interface RegisterCapability {
      * {@link com.otilm.core.exception.ConnectorAcceptedButLocalFailureException}; a raw {@link RuntimeException}
      * signals a pre-acceptance failure.
      *
-     * @param identityContent the structured identity projected once by the orchestrator (from {@code csrAttributes}),
-     *                         or null for a flat request — the adapter then builds it from subjectDn/subjectAltName/extensions
+     * @param identityContent the registration identity projected once by the orchestrator — from structured
+     *                         {@code csrAttributes} or from the flat subjectDn/subjectAltName/extensions — so the
+     *                         persisted placeholder and the wire derive from the same content; when null the
+     *                         adapter builds it from the request's flat fields defensively
      * @return SYNC_OK when the CA confirmed immediately, ASYNC_ACCEPTED when polling is needed.
      */
     AdapterOperationResult register(Certificate cert, ClientCertificateRegistrationDto req,

@@ -1,5 +1,6 @@
 package com.otilm.core.integration.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.attribute.ResponseAttribute;
@@ -12,7 +13,17 @@ import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
+import com.otilm.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
+import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
+import com.otilm.api.model.common.attribute.v3.mapping.FieldType;
+import com.otilm.api.model.common.attribute.v3.mapping.RdnMappedField;
+import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.raprofile.AttributeSetMergeMode;
+import com.otilm.core.service.CertificateExternalService;
+import com.otilm.core.service.writer.RaProfileCertificateRequestAttributeWriter;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
@@ -34,6 +45,10 @@ import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.service.handler.authority.RegisterCapability;
 import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
+import org.bouncycastle.pkcs.PKCS10CertificationRequest;
+import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequestBuilder;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -42,9 +57,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 
+import static com.otilm.core.util.builders.MappedDataAttributeV3Builder.aMappedDataAttribute;
 import static com.otilm.core.util.builders.RequestAttributeV3Builder.aCustomAttribute;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -72,6 +91,12 @@ class ClientOperationServiceRegisterCustomAttributeITest extends BaseSpringBootT
     private ConnectorRepository connectorRepository;
     @Autowired
     private CertificateRepository certificateRepository;
+    @Autowired
+    private CertificateExternalService certificateExternalService;
+    @Autowired
+    private RaProfileCertificateRequestAttributeWriter requestAttributeWriter;
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @MockitoBean
     private AuthorityProviderAdapterFactory adapterFactory;
@@ -201,5 +226,124 @@ class ClientOperationServiceRegisterCustomAttributeITest extends BaseSpringBootT
         List<Certificate> certs = certificateRepository.findAll();
         Assertions.assertTrue(certs.isEmpty(),
                 "an up-front custom-attribute validation failure must leave no placeholder certificate behind");
+    }
+
+    @Test
+    void registerPersistsRequestAttributeValuesVisibleOnTheCertificateDetail() throws Exception {
+        // Author an RA-profile request attribute mapping the CN RDN, so the real resolver returns it and the
+        // submitted value projects to the placeholder identity and is persisted as a registration request attribute.
+        DataAttributeV3 cnDef = aMappedDataAttribute().withName("commonName").mappingRdn("2.5.4.3").build();
+        // fieldType is the serialized type discriminator for MappedField; the builder leaves it unset, so set it
+        // here or the RA-profile set can't be deserialized back by the real resolver.
+        ((RdnMappedField) cnDef.getFieldMapping().getFields().getFirst()).setFieldType(FieldType.RDN);
+        UUID cnUuid = UUID.randomUUID();
+        cnDef.setUuid(cnUuid.toString());
+        requestAttributeWriter.saveStaticSet(raProfile,
+                objectMapper.writeValueAsString(List.of(cnDef)), AttributeSetMergeMode.STATIC_ONLY, null);
+
+        AuthorityProviderAdapter adapter = mock(AuthorityProviderAdapter.class,
+                Mockito.withSettings().extraInterfaces(RegisterCapability.class));
+        when(adapterFactory.forAuthority(Mockito.any())).thenReturn(adapter);
+        when(((RegisterCapability) adapter).register(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
+
+        ClientCertificateRegistrationDto request = new ClientCertificateRegistrationDto();
+        request.setCsrAttributes(List.of(new RequestAttributeV3(cnUuid, "commonName",
+                AttributeContentType.STRING, List.<BaseAttributeContentV3<?>>of(new StringAttributeContentV3("device-rt")))));
+
+        ClientCertificateDataResponseDto response = clientOperationService.registerCertificate(
+                authorityParent, securedRaProfile, request);
+
+        CertificateDetailDto detail = certificateExternalService.getCertificate(SecuredUUID.fromString(response.getUuid()));
+        List<ResponseAttribute> persisted = detail.getRegistrationRequestAttributes();
+        Assertions.assertEquals(1, persisted.size(), "the submitted request attribute must round-trip to the certificate detail");
+        ResponseAttributeV3 attr = (ResponseAttributeV3) persisted.getFirst();
+        Assertions.assertEquals("commonName", attr.getName());
+        Assertions.assertEquals("device-rt",
+                ((StringAttributeContentV3) attr.getContent().getFirst()).getData(),
+                "the submitted registration request-attribute value must be readable from the detail");
+    }
+
+    @Test
+    void completionPersistsRequestAttributeValuesOnTheRequestEntity() throws Exception {
+        // Author the CN request attribute so the completion can resolve + validate it.
+        DataAttributeV3 cnDef = aMappedDataAttribute().withName("commonName").mappingRdn("2.5.4.3").build();
+        ((RdnMappedField) cnDef.getFieldMapping().getFields().getFirst()).setFieldType(FieldType.RDN);
+        UUID cnUuid = UUID.randomUUID();
+        cnDef.setUuid(cnUuid.toString());
+        requestAttributeWriter.saveStaticSet(raProfile,
+                objectMapper.writeValueAsString(List.of(cnDef)), AttributeSetMergeMode.STATIC_ONLY, null);
+
+        // Register a flat placeholder (no csrAttributes → no registrationRequestAttributes), then complete it with a
+        // CSR carrying request attributes; the completion values are persisted on the request entity.
+        AuthorityProviderAdapter adapter = mock(AuthorityProviderAdapter.class,
+                Mockito.withSettings().extraInterfaces(RegisterCapability.class));
+        when(adapterFactory.forAuthority(Mockito.any())).thenReturn(adapter);
+        when(((RegisterCapability) adapter).register(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
+        ClientCertificateRegistrationDto registration = new ClientCertificateRegistrationDto();
+        registration.setSubjectDn("CN=device-complete,O=Acme");
+        String certUuid = clientOperationService.registerCertificate(authorityParent, securedRaProfile, registration).getUuid();
+
+        ClientCertificateIssueRequestDto completion = new ClientCertificateIssueRequestDto();
+        completion.setRequest(generateCsrBase64());
+        completion.setFormat(CertificateRequestFormat.PKCS10);
+        completion.setCsrAttributes(List.of(new RequestAttributeV3(cnUuid, "commonName",
+                AttributeContentType.STRING, List.<BaseAttributeContentV3<?>>of(new StringAttributeContentV3("device-complete")))));
+        clientOperationService.issueExistingCertificate(authorityParent, securedRaProfile, certUuid, completion);
+
+        CertificateDetailDto detail = certificateExternalService.getCertificate(SecuredUUID.fromString(certUuid));
+        List<ResponseAttribute> reqAttrs = detail.getCertificateRequest().getAttributes();
+        Assertions.assertEquals(1, reqAttrs.size(), "the completion request attribute must be persisted on the request entity");
+        Assertions.assertEquals("device-complete",
+                ((StringAttributeContentV3) ((ResponseAttributeV3) reqAttrs.getFirst()).getContent().getFirst()).getData(),
+                "the completion request-attribute value must be readable from the detail");
+    }
+
+    @Test
+    void completionWithUnpersistableRequestAttributeStillCompletes() throws Exception {
+        // Author a required CN attribute (STATIC_ONLY so resolve is local), then complete with that attribute EMPTY.
+        // Validation fails (a required value is missing) — a ValidationException (RuntimeException) that, before the
+        // fix, marked the completion transaction rollback-only. The persistence must now be skipped best-effort and
+        // the certificate must still complete.
+        DataAttributeV3 cnDef = aMappedDataAttribute().withName("commonName").required().mappingRdn("2.5.4.3").build();
+        ((RdnMappedField) cnDef.getFieldMapping().getFields().getFirst()).setFieldType(FieldType.RDN);
+        UUID cnUuid = UUID.randomUUID();
+        cnDef.setUuid(cnUuid.toString());
+        requestAttributeWriter.saveStaticSet(raProfile,
+                objectMapper.writeValueAsString(List.of(cnDef)), AttributeSetMergeMode.STATIC_ONLY, null);
+
+        AuthorityProviderAdapter adapter = mock(AuthorityProviderAdapter.class,
+                Mockito.withSettings().extraInterfaces(RegisterCapability.class));
+        when(adapterFactory.forAuthority(Mockito.any())).thenReturn(adapter);
+        when(((RegisterCapability) adapter).register(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
+        ClientCertificateRegistrationDto registration = new ClientCertificateRegistrationDto();
+        registration.setSubjectDn("CN=device-badattr,O=Acme");
+        String certUuid = clientOperationService.registerCertificate(authorityParent, securedRaProfile, registration).getUuid();
+
+        ClientCertificateIssueRequestDto completion = new ClientCertificateIssueRequestDto();
+        completion.setRequest(generateCsrBase64());
+        completion.setFormat(CertificateRequestFormat.PKCS10);
+        // Required attribute submitted with no content -> validation fails; the persistence is skipped, not fatal.
+        completion.setCsrAttributes(List.of(new RequestAttributeV3(cnUuid, "commonName",
+                AttributeContentType.STRING, List.<BaseAttributeContentV3<?>>of())));
+
+        // Must not throw — the completion succeeds despite the unpersistable request attribute.
+        clientOperationService.issueExistingCertificate(authorityParent, securedRaProfile, certUuid, completion);
+
+        CertificateDetailDto detail = certificateExternalService.getCertificate(SecuredUUID.fromString(certUuid));
+        Assertions.assertNotNull(detail.getCertificateRequest(), "the CSR must be attached even though the attribute was skipped");
+        Assertions.assertTrue(detail.getCertificateRequest().getAttributes().isEmpty(),
+                "the unpersistable completion attribute must be skipped, not persisted");
+    }
+
+    private String generateCsrBase64() throws Exception {
+        KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("RSA");
+        keyPairGenerator.initialize(2048);
+        KeyPair keyPair = keyPairGenerator.generateKeyPair();
+        PKCS10CertificationRequest csr = new JcaPKCS10CertificationRequestBuilder(new X500Name("CN=device-complete,O=Acme"), keyPair.getPublic())
+                .build(new JcaContentSignerBuilder("SHA256withRSA").build(keyPair.getPrivate()));
+        return Base64.getEncoder().encodeToString(csr.getEncoded());
     }
 }
