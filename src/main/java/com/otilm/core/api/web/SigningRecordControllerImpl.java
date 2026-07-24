@@ -12,7 +12,6 @@ import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.signing.signingrecord.SigningRecordDto;
 import com.otilm.api.model.core.signing.signingrecord.SigningRecordListDto;
 import com.otilm.core.aop.AuditLogged;
-import com.otilm.core.auth.AuthEndpoint;
 import com.otilm.core.logging.LogResource;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -34,7 +33,6 @@ public class SigningRecordControllerImpl implements SigningRecordController {
     }
 
     @Override
-    @AuthEndpoint(resourceName = Resource.SIGNING_RECORD)
     @AuditLogged(module = Module.SIGNING, resource = Resource.SIGNING_RECORD, operation = Operation.LIST)
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformation() {
         return signingRecordService.getSearchableFieldInformation();
