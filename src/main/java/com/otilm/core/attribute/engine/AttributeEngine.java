@@ -402,6 +402,70 @@ public class AttributeEngine {
         }
     }
 
+    /**
+     * Authoring-time validation for platform-owned request-attribute definitions (the platform default set in
+     * Settings and RA-profile static sets). Every definition must be a v3 data attribute declaring a
+     * {@code fieldMapping} with at least one coherent field: an unmapped definition is never projected into
+     * request content (see CertificateRequestAttributeProjector), so in a platform-authored set it can only be
+     * dead weight — and nothing downstream re-validates an authored mapping before certificate issue. Default
+     * content, when provided, must be well-formed: non-null data, conforming to the declared content type, and
+     * satisfying the definition's constraints. Connector-registered attribute sets are validated on the
+     * registration path instead and may stay unmapped.
+     *
+     * @param definitions the authored definitions; {@code null} means "not updating" and is a no-op
+     * @throws ValidationException when any definition is malformed; messages are platform-authored and safe to expose
+     */
+    public static void validateRequestAttributeDefinitions(List<BaseAttribute> definitions) {
+        if (definitions == null) {
+            return;
+        }
+        Supplier<Map<String, String>> codeToOidMap = lazyCodeToOidMap();
+        for (BaseAttribute definition : definitions) {
+            String name = definition == null || definition.getName() == null ? "?" : definition.getName();
+            if (!(definition instanceof DataAttributeV3 v3)) {
+                throw new ValidationException("Request attribute definition '%s' must be a v3 data attribute".formatted(name));
+            }
+            // No explicit type check needed: the DataAttributeV3 constructor pins type = DATA, and the same
+            // field is Jackson's polymorphic discriminator, so class and type can never disagree on the wire.
+            if (v3.getFieldMapping() == null || v3.getFieldMapping().getFields() == null || v3.getFieldMapping().getFields().isEmpty()) {
+                throw new ValidationException("Request attribute definition '%s' must declare a field mapping with at least one mapped field".formatted(name));
+            }
+            try {
+                validateAttributeDefinition(v3, null);
+                validateFieldMapping(v3, null, codeToOidMap);
+            } catch (AttributeException e) {
+                // AttributeException messages are authored inside this class — safe to surface.
+                throw new ValidationException(e.getMessage());
+            }
+            validateDefaultContent(v3);
+        }
+    }
+
+    /**
+     * Default content of an authored definition, when present, must be usable at request time: every item
+     * carries data, conforms to the declared content type, and satisfies the definition's constraints.
+     */
+    private static void validateDefaultContent(DataAttributeV3 definition) {
+        List<? extends AttributeContent> content = definition.getContent();
+        if (content == null || content.isEmpty()) {
+            return;
+        }
+        for (AttributeContent item : content) {
+            if (item == null || item.getData() == null) {
+                throw new ValidationException("Request attribute definition '%s' default content is malformed and does not contain data".formatted(definition.getName()));
+            }
+            if (item.getContentType() != null && item.getContentType() != definition.getContentType()) {
+                throw new ValidationException("Request attribute definition '%s' default content does not match content type %s".formatted(definition.getName(), definition.getContentType().getLabel()));
+            }
+        }
+        List<ValidationError> constraintErrors = AttributeDefinitionUtils.validateConstraints(definition, content);
+        if (!constraintErrors.isEmpty()) {
+            throw new ValidationException("Request attribute definition '%s' default content violates constraints: %s".formatted(
+                    definition.getName(),
+                    constraintErrors.stream().map(ValidationError::getErrorDescription).collect(Collectors.joining("; "))));
+        }
+    }
+
     public AttributeDefinition updateCustomAttributeDefinition(CustomAttributeV3 customAttribute, List<Resource> resources) throws AttributeException {
         validateAttributeDefinition(customAttribute, null);
 
@@ -1120,7 +1184,7 @@ public class AttributeEngine {
         }
     }
 
-    private void validateAttributeDefinition(BaseAttribute attribute, UUID connectorUuid) throws AttributeException {
+    private static void validateAttributeDefinition(BaseAttribute attribute, UUID connectorUuid) throws AttributeException {
         String connectorUuidStr = connectorUuid == null ? null : connectorUuid.toString();
         if (attribute.getUuid() == null || !UUID_REGEX.matcher(attribute.getUuid()).matches()) {
             throw new AttributeException("Attribute does not have valid UUID", attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
@@ -1178,7 +1242,9 @@ public class AttributeEngine {
         AttributeResource attributeResource = null;
         if (attribute.getType() == AttributeType.CUSTOM) {
             CustomAttributeV3 customAttribute = (CustomAttributeV3) attribute;
-
+            if (customAttribute.getProperties() == null) {
+                throw new AttributeException("Attribute does not have properties", attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
+            }
             label = customAttribute.getProperties().getLabel();
             readOnly = customAttribute.getProperties().isReadOnly();
             list = customAttribute.getProperties().isList();
@@ -1188,7 +1254,9 @@ public class AttributeEngine {
             extensibleList = customAttribute.getProperties().isExtensibleList();
         } else {
             DataAttribute dataAttribute = (DataAttribute) attribute;
-
+            if (dataAttribute.getProperties() == null) {
+                throw new AttributeException("Attribute does not have properties", attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
+            }
             label = dataAttribute.getProperties().getLabel();
             readOnly = dataAttribute.getProperties().isReadOnly();
             list = dataAttribute.getProperties().isList();
@@ -1212,6 +1280,10 @@ public class AttributeEngine {
         }
         validateResourceAttributeProperties(attribute, connectorUuidStr, attributeResource, hasCallback);
 
+        validateReadOnlyAttributeProperties(attribute, connectorUuidStr, readOnly, hasCallback, hasContent, list);
+    }
+
+    private static void validateReadOnlyAttributeProperties(BaseAttribute attribute, String connectorUuidStr, boolean readOnly, boolean hasCallback, boolean hasContent, boolean list) throws AttributeException {
         if (readOnly) {
             if (hasCallback) {
                 throw new AttributeException("Read only attribute cannot have callback", attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
@@ -1223,8 +1295,6 @@ public class AttributeEngine {
                 throw new AttributeException("Read only attribute cannot be list", attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
             }
         }
-
-
     }
 
     private static void validateResourceAttributeProperties(BaseAttribute attribute, String connectorUuidStr, AttributeResource attributeResource, boolean hasCallback) throws AttributeException {
