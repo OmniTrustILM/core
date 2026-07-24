@@ -12,14 +12,8 @@ import com.otilm.api.model.core.raprofile.AttributeSetMergeMode;
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.SettingsSectionCategory;
 import com.otilm.core.certificate.request.DefaultRequestAttributeSet;
-import com.otilm.core.dao.entity.AuthorityInstanceReference;
-import com.otilm.core.dao.entity.Connector;
-import com.otilm.core.dao.entity.RaProfile;
-import com.otilm.core.dao.entity.Setting;
-import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
-import com.otilm.core.dao.repository.ConnectorRepository;
-import com.otilm.core.dao.repository.RaProfileRepository;
-import com.otilm.core.dao.repository.SettingRepository;
+import com.otilm.core.dao.entity.*;
+import com.otilm.core.dao.repository.*;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateExternalService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
@@ -54,6 +48,8 @@ class CsrGenerationAttributesITest extends BaseSpringBootTest {
     private AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;
     @Autowired
     private ConnectorRepository connectorRepository;
+    @Autowired
+    private RaProfileCertificateRequestAttributeRepository  raProfileCertificateRequestAttributeRepository;
 
     // Stub the connector dynamic-set fetch so no test needs a live authority/connector round-trip.
     @MockitoBean
@@ -125,6 +121,11 @@ class CsrGenerationAttributesITest extends BaseSpringBootTest {
         raProfile.setAuthorityInstanceReference(authority);
         raProfile.setAuthorityInstanceReferenceUuid(authority.getUuid());
         raProfile = raProfileRepository.save(raProfile);
+
+        RaProfileCertificateRequestAttribute requestAttribute = new RaProfileCertificateRequestAttribute();
+        requestAttribute.setRaProfile(raProfile);
+        requestAttribute.setMergeMode(AttributeSetMergeMode.MERGE);
+        raProfileCertificateRequestAttributeRepository.save(requestAttribute);
 
         when(extendedAttributeService.listIssueCertificateAttributes(any()))
                 .thenReturn(List.of(def("c1", "connector-attr")));
