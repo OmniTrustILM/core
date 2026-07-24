@@ -229,7 +229,7 @@
         <dependency>
             <groupId>com.pivovarit</groupId>
             <artifactId>parallel-collectors</artifactId>
-            <version>3.4.0</version>
+            <version>4.1.1</version>
         </dependency>
 
         <dependency>
