@@ -21,7 +21,7 @@
         <mockwebserver.version>5.3.2</mockwebserver.version>
         <commons-beanutils.version>1.11.0</commons-beanutils.version>
         <testcontainers.version>1.21.4</testcontainers.version>
-        <git-commit-id-maven.version>9.0.2</git-commit-id-maven.version>
+        <git-commit-id-maven.version>9.2.0</git-commit-id-maven.version>
         <java.version>21</java.version>
 
         <sonar.host.url>https://sonarcloud.io</sonar.host.url>
