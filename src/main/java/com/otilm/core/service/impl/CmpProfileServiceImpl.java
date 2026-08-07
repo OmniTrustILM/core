@@ -14,6 +14,7 @@ import com.otilm.api.model.core.cmp.CmpProfileDetailDto;
 import com.otilm.api.model.core.cmp.CmpProfileDto;
 import com.otilm.api.model.core.cmp.CmpProfileVariant;
 import com.otilm.api.model.core.cmp.ProtectionMethod;
+import com.otilm.api.model.core.protocol.ProtocolChallengeSource;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
@@ -129,6 +130,16 @@ public class CmpProfileServiceImpl implements CmpProfileExternalService, CmpProf
 
         CmpProfile cmpProfile = new CmpProfile();
 
+        // An absent challengeSource keeps the entity's PROTOCOL_DEFAULT default on create.
+        if (request.getChallengeSource() != null) {
+            cmpProfile.setChallengeSource(request.getChallengeSource());
+        }
+        // Validate the registration rules before variant validation so its actionable messages win over the
+        // variant's generic protection-method complaint.
+        if (cmpProfile.getChallengeSource() == ProtocolChallengeSource.CERTIFICATE_REGISTRATION) {
+            validateRegistrationChallengeSource(request);
+        }
+
         // validate and set variant configuration
         validateAndSetVariantConfiguration(cmpProfile, request);
 
@@ -187,6 +198,16 @@ public class CmpProfileServiceImpl implements CmpProfileExternalService, CmpProf
     @ExternalAuthorization(resource = Resource.CMP_PROFILE, action = ResourceAction.UPDATE)
     public CmpProfileDetailDto editCmpProfile(SecuredUUID cmpProfileUuid, CmpProfileEditRequestDto request) throws ConnectorException, AttributeException, NotFoundException {
         CmpProfile cmpProfile = getCmpProfileEntity(cmpProfileUuid);
+
+        // An absent challengeSource keeps the stored value on edit.
+        if (request.getChallengeSource() != null) {
+            cmpProfile.setChallengeSource(request.getChallengeSource());
+        }
+        // Validate the registration rules before variant validation so its actionable messages win over the
+        // variant's generic protection-method complaint.
+        if (cmpProfile.getChallengeSource() == ProtocolChallengeSource.CERTIFICATE_REGISTRATION) {
+            validateRegistrationChallengeSource(request);
+        }
 
         // validate and set variant configuration
         validateAndSetVariantConfiguration(cmpProfile, request);
@@ -419,9 +440,20 @@ public class CmpProfileServiceImpl implements CmpProfileExternalService, CmpProf
      * @throws NotFoundException When the certificate for signature response protection is not found
      */
     private void validateAndSetProtectionMethods(CmpProfile cmpProfile, CmpProfileRequestDto request) throws NotFoundException {
+        // Registration rules were validated ahead of variant validation; here only the secret is cleared.
+        boolean registrationMode = cmpProfile.getChallengeSource() == ProtocolChallengeSource.CERTIFICATE_REGISTRATION;
+
         // validate and set request protection method
         switch (request.getRequestProtectionMethod()) {
-            case SHARED_SECRET -> applySharedSecret(cmpProfile, request);
+            // In registration mode the per-registration challenge is the MAC secret; a stored profile secret
+            // must not survive as a latent second credential.
+            case SHARED_SECRET -> {
+                if (registrationMode) {
+                    cmpProfile.setSharedSecret(null);
+                } else {
+                    applySharedSecret(cmpProfile, request);
+                }
+            }
             case SIGNATURE -> cmpProfile.setSharedSecret(null);
             default ->
                     throw new ValidationException(ValidationError.create("Protection method for the CMP request not supported"));
@@ -442,6 +474,27 @@ public class CmpProfileServiceImpl implements CmpProfileExternalService, CmpProf
             }
             default ->
                     throw new ValidationException(ValidationError.create("Protection method for the CMP response not supported"));
+        }
+    }
+
+    /**
+     * Rules of the certificate-registration challenge source: the per-registration challenge is the MAC key,
+     * so the profile stores no shared secret; MAC/shared-secret request protection exists only on the V2
+     * variant (V2_3GPP forces signature both ways, V3 is unsupported), so registration mode requires V2 and
+     * shared-secret request protection.
+     */
+    private static void validateRegistrationChallengeSource(CmpProfileRequestDto request) {
+        if (request.getVariant() != CmpProfileVariant.V2) {
+            throw new ValidationException(ValidationError.create(
+                    "Certificate registration challenge source requires the CMP v2 variant"));
+        }
+        if (request.getRequestProtectionMethod() != ProtectionMethod.SHARED_SECRET) {
+            throw new ValidationException(ValidationError.create(
+                    "Certificate registration challenge source requires shared-secret request protection"));
+        }
+        if (request.getSharedSecret() != null && !request.getSharedSecret().isBlank()) {
+            throw new ValidationException(ValidationError.create(
+                    "A shared secret cannot be configured when the challenge source is certificate registration"));
         }
     }
 

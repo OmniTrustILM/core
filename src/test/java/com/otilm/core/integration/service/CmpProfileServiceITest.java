@@ -20,6 +20,7 @@ import com.otilm.api.model.core.cmp.CmpProfileDto;
 import com.otilm.api.model.core.cmp.CmpProfileVariant;
 import com.otilm.api.model.core.cmp.ProtectionMethod;
 import com.otilm.api.model.core.protocol.ProtocolCertificateAssociationsRequestDto;
+import com.otilm.api.model.core.protocol.ProtocolChallengeSource;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
@@ -147,6 +148,112 @@ class CmpProfileServiceITest extends BaseSpringBootTest {
 
         certificateService.deleteCertificate(certificate.getSecuredUuid());
         Assertions.assertDoesNotThrow(() -> cmpProfileService.getCmpProfile(cmpProfile.getSecuredUuid()));
+    }
+
+    private CmpProfileRequestDto registrationCreateRequest(String name) {
+        CmpProfileRequestDto request = new CmpProfileRequestDto();
+        request.setName(name);
+        request.setVariant(CmpProfileVariant.V2);
+        request.setRequestProtectionMethod(ProtectionMethod.SHARED_SECRET);
+        request.setResponseProtectionMethod(ProtectionMethod.SHARED_SECRET);
+        request.setChallengeSource(ProtocolChallengeSource.CERTIFICATE_REGISTRATION);
+        return request;
+    }
+
+    @Test
+    void registrationSourceRejectsSharedSecret() {
+        CmpProfileRequestDto request = registrationCreateRequest("RegWithSecret");
+        request.setSharedSecret("secret");
+
+        ValidationException ex = Assertions.assertThrows(ValidationException.class,
+                () -> cmpProfileService.createCmpProfile(request));
+        Assertions.assertTrue(ex.getMessage().contains("shared secret cannot be configured"), ex.getMessage());
+    }
+
+    @Test
+    void registrationSourceRejectsNonV2Variant() {
+        CmpProfileRequestDto request = registrationCreateRequest("RegOn3gpp");
+        request.setVariant(CmpProfileVariant.V2_3GPP);
+        request.setResponseProtectionMethod(ProtectionMethod.SIGNATURE);
+
+        ValidationException ex = Assertions.assertThrows(ValidationException.class,
+                () -> cmpProfileService.createCmpProfile(request));
+        Assertions.assertTrue(ex.getMessage().contains("v2 variant"), ex.getMessage());
+    }
+
+    @Test
+    void registrationSourceRejectsSignatureRequestProtection() {
+        CmpProfileRequestDto request = registrationCreateRequest("RegSigRequest");
+        request.setRequestProtectionMethod(ProtectionMethod.SIGNATURE);
+        request.setResponseProtectionMethod(ProtectionMethod.SIGNATURE);
+
+        ValidationException ex = Assertions.assertThrows(ValidationException.class,
+                () -> cmpProfileService.createCmpProfile(request));
+        Assertions.assertTrue(ex.getMessage().contains("shared-secret request protection"), ex.getMessage());
+    }
+
+    @Test
+    void registrationSourcePersistsWithoutSharedSecret() throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException {
+        CmpProfileDto dto = cmpProfileService.createCmpProfile(registrationCreateRequest("RegCreate"));
+
+        Assertions.assertEquals(ProtocolChallengeSource.CERTIFICATE_REGISTRATION, dto.getChallengeSource());
+        CmpProfile created = cmpProfileRepository.findByUuid(UUID.fromString(dto.getUuid())).orElseThrow();
+        Assertions.assertEquals(ProtocolChallengeSource.CERTIFICATE_REGISTRATION, created.getChallengeSource());
+        Assertions.assertNull(created.getSharedSecret());
+    }
+
+    @Test
+    void switchingToRegistrationSourceClearsStoredSecret() throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException {
+        CmpProfileRequestDto create = new CmpProfileRequestDto();
+        create.setName("SwitchToReg");
+        create.setVariant(CmpProfileVariant.V2);
+        create.setRequestProtectionMethod(ProtectionMethod.SHARED_SECRET);
+        create.setResponseProtectionMethod(ProtectionMethod.SHARED_SECRET);
+        create.setSharedSecret("secret");
+        CmpProfileDto created = cmpProfileService.createCmpProfile(create);
+
+        CmpProfileEditRequestDto edit = new CmpProfileEditRequestDto();
+        edit.setVariant(CmpProfileVariant.V2);
+        edit.setRequestProtectionMethod(ProtectionMethod.SHARED_SECRET);
+        edit.setResponseProtectionMethod(ProtectionMethod.SHARED_SECRET);
+        edit.setChallengeSource(ProtocolChallengeSource.CERTIFICATE_REGISTRATION);
+
+        CmpProfileDetailDto edited = cmpProfileService.editCmpProfile(SecuredUUID.fromString(created.getUuid()), edit);
+
+        Assertions.assertEquals(ProtocolChallengeSource.CERTIFICATE_REGISTRATION, edited.getChallengeSource());
+        CmpProfile updated = cmpProfileRepository.findByUuid(UUID.fromString(created.getUuid())).orElseThrow();
+        Assertions.assertNull(updated.getSharedSecret());
+    }
+
+    @Test
+    void omittedChallengeSourceKeepsStoredSource() throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException {
+        CmpProfileDto created = cmpProfileService.createCmpProfile(registrationCreateRequest("KeepReg"));
+
+        CmpProfileEditRequestDto edit = new CmpProfileEditRequestDto();
+        edit.setVariant(CmpProfileVariant.V2);
+        edit.setRequestProtectionMethod(ProtectionMethod.SHARED_SECRET);
+        edit.setResponseProtectionMethod(ProtectionMethod.SHARED_SECRET);
+        // challengeSource omitted -> keep the stored CERTIFICATE_REGISTRATION
+
+        CmpProfileDetailDto edited = cmpProfileService.editCmpProfile(SecuredUUID.fromString(created.getUuid()), edit);
+
+        Assertions.assertEquals(ProtocolChallengeSource.CERTIFICATE_REGISTRATION, edited.getChallengeSource());
+    }
+
+    @Test
+    void newProfileDefaultsToProtocolDefaultChallengeSource() throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException {
+        CmpProfileRequestDto request = new CmpProfileRequestDto();
+        request.setName("DefaultChallengeSource");
+        request.setVariant(CmpProfileVariant.V2);
+        request.setRequestProtectionMethod(ProtectionMethod.SHARED_SECRET);
+        request.setResponseProtectionMethod(ProtectionMethod.SHARED_SECRET);
+        request.setSharedSecret("secret");
+
+        CmpProfileDto dto = cmpProfileService.createCmpProfile(request);
+
+        Assertions.assertEquals(ProtocolChallengeSource.PROTOCOL_DEFAULT, dto.getChallengeSource());
+        CmpProfile created = cmpProfileRepository.findByUuid(UUID.fromString(dto.getUuid())).orElseThrow();
+        Assertions.assertEquals(ProtocolChallengeSource.PROTOCOL_DEFAULT, created.getChallengeSource());
     }
 
     @Test

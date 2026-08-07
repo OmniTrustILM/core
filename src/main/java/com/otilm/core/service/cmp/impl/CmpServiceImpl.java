@@ -22,6 +22,7 @@ import com.otilm.core.service.cmp.message.builder.PkiMessageBuilder;
 import com.otilm.core.service.cmp.message.handler.CertConfirmMessageHandler;
 import com.otilm.core.service.cmp.message.handler.CrmfMessageHandler;
 import com.otilm.core.service.cmp.message.handler.PollReqMessageHandler;
+import com.otilm.core.service.cmp.registration.CmpRegistrationResolver;
 import com.otilm.core.service.cmp.message.handler.RevocationMessageHandler;
 import com.otilm.core.service.cmp.message.validator.impl.BodyValidator;
 import com.otilm.core.service.cmp.message.validator.impl.HeaderValidator;
@@ -128,6 +129,13 @@ public class CmpServiceImpl implements CmpExternalService {
         this.pollReqMessageHandler = pollReqMessageHandler;
     }
 
+    private CmpRegistrationResolver cmpRegistrationResolver;
+
+    @Autowired
+    public void setCmpRegistrationResolver(CmpRegistrationResolver cmpRegistrationResolver) {
+        this.cmpRegistrationResolver = cmpRegistrationResolver;
+    }
+
     // -- TRANSACTION
     private CmpTransactionService cmpTransactionService;
 
@@ -228,7 +236,7 @@ public class CmpServiceImpl implements CmpExternalService {
                     certificateKeyServiceImpl, issueAttributes, revokeAttributes);
             /*rfc4210*/
             case V2 -> new CmpConfigurationContext(cmpProfile, raProfile, pkiRequest,
-                    certificateKeyServiceImpl, issueAttributes, revokeAttributes);
+                    certificateKeyServiceImpl, issueAttributes, revokeAttributes, cmpRegistrationResolver);
             /*rfc9483*/
             case V3 -> throw new UnsupportedOperationException("not implemented");
         };

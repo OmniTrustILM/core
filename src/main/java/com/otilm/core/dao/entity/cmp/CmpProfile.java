@@ -5,6 +5,7 @@ import com.otilm.api.model.core.cmp.CmpProfileDetailDto;
 import com.otilm.api.model.core.cmp.CmpProfileDto;
 import com.otilm.api.model.core.cmp.CmpProfileVariant;
 import com.otilm.api.model.core.cmp.ProtectionMethod;
+import com.otilm.api.model.core.protocol.ProtocolChallengeSource;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.ProtocolCertificateAssociations;
 import com.otilm.core.dao.entity.RaProfile;
@@ -81,6 +82,12 @@ public class CmpProfile extends UniquelyIdentifiedAndAudited implements Serializ
     @Column(name = "shared_secret")
     private String sharedSecret;
 
+    @Setter
+    @Getter
+    @Column(name = "challenge_source", nullable = false)
+    @Enumerated(EnumType.STRING)
+    private ProtocolChallengeSource challengeSource = ProtocolChallengeSource.PROTOCOL_DEFAULT;
+
     @Getter
     @OneToOne(fetch = FetchType.LAZY)
     @JsonBackReference
@@ -130,6 +137,7 @@ public class CmpProfile extends UniquelyIdentifiedAndAudited implements Serializ
         cmpProfileDto.setVariant(variant);
         cmpProfileDto.setName(name);
         cmpProfileDto.setUuid(uuid.toString());
+        cmpProfileDto.setChallengeSource(challengeSource);
     }
 
     @Override

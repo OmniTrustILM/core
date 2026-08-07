@@ -85,6 +85,24 @@ class PollFeatureTest {
     }
 
     @Test
+    void returnsStillPending_whenRegistrationPlaceholderStuckInRegistered_afterBudgetExhausted() throws Exception {
+        // A registration completion leaves the placeholder REGISTERED until the actions listener claims it
+        // into PENDING_ISSUE. If that claim outlasts the budget the poll must report StillPending (client polls
+        // again), not a timeout — otherwise a registration that issues moments later hard-fails the client.
+        setField("pollFeatureTimeout", 0);
+        UUID certUuid = UUID.randomUUID();
+        Certificate cert = certificateInState(certUuid, CertificateState.REGISTERED);
+        when(certificateService.getCertificateEntity(any(SecuredUUID.class)))
+                .thenReturn(cert);
+
+        PollResult result = pollFeature.pollCertificate(
+                new DEROctetString(new byte[]{1}), "01", certUuid.toString(), CertificateState.ISSUED);
+
+        assertThat(result).isInstanceOfSatisfying(PollResult.StillPending.class,
+                sp -> assertThat(sp.currentState()).isEqualTo(CertificateState.REGISTERED));
+    }
+
+    @Test
     void ridesThroughPendingIssue_andReturnsReached_whenStateFlipsWithinBudget() throws Exception {
         // The actions listener parks the cert in PENDING_ISSUE for the duration of the
         // connector call — even a synchronously-completing connector transits this state.

@@ -50,11 +50,12 @@ public class PollFeature {
      *   <li>{@link PollResult.Reached} when the certificate's state equals
      *       {@code expectedState};</li>
      *   <li>{@link PollResult.StillPending} when the certificate is still in
-     *       {@code PENDING_ISSUE} / {@code PENDING_REVOKE} once the poll budget is
-     *       exhausted. {@code PENDING_*} is ridden out within the budget — every issuance
-     *       routes through {@code PENDING_ISSUE} on the actions-listener thread, even when
-     *       the connector completes synchronously moments later, so an immediate return
-     *       here would misreport nearly every issuance as asynchronous;</li>
+     *       {@code PENDING_ISSUE} / {@code PENDING_REVOKE}, or is a registration placeholder
+     *       still {@code REGISTERED}, once the poll budget is exhausted. These are ridden out
+     *       within the budget — every issuance routes through {@code PENDING_ISSUE} on the
+     *       actions-listener thread (a registration placeholder is first claimed there out of
+     *       {@code REGISTERED}), even when the connector completes synchronously moments later,
+     *       so an immediate return here would misreport nearly every issuance as asynchronous;</li>
      *   <li>{@link PollResult.Diverted} when the certificate reaches a terminal state
      *       (one of {@code ISSUED}, {@code REVOKED}, {@code FAILED}, {@code REJECTED})
      *       that is not the expected one — typically because another thread (an operator
@@ -62,11 +63,11 @@ public class PollFeature {
      *       running.</li>
      * </ul>
      *
-     * <p>Transitional states ({@code REQUESTED}, {@code PENDING_APPROVAL}, {@code PENDING_*})
-     * are not reported back to the caller mid-budget — the loop sleeps and re-reads until one
-     * of the outcomes above is observed or the budget is exhausted (which yields
-     * {@link PollResult.StillPending} for {@code PENDING_*}, or a timeout exception for the
-     * other transitional states).</p>
+     * <p>Transitional states ({@code REGISTERED}, {@code REQUESTED}, {@code PENDING_APPROVAL},
+     * {@code PENDING_*}) are not reported back to the caller mid-budget — the loop sleeps and
+     * re-reads until one of the outcomes above is observed or the budget is exhausted (which
+     * yields {@link PollResult.StillPending} for {@code PENDING_*} or a {@code REGISTERED}
+     * placeholder, or a timeout exception for the other transitional states).</p>
      *
      * @param tid           processing transaction id, see {@link PKIHeader#getTransactionID()}
      * @param serialNumber  serial number of the polled certificate (for log context;
@@ -113,8 +114,11 @@ public class PollFeature {
                 if (System.currentTimeMillis() - startRequest >= timeoutMs) {
                     // PENDING_* is ridden out for the whole budget: even a synchronously-
                     // completing connector transits PENDING_ISSUE on the actions-listener
-                    // thread, so only budget exhaustion makes "still pending" a verdict.
-                    if (current == CertificateState.PENDING_ISSUE || current == CertificateState.PENDING_REVOKE) {
+                    // thread, so only budget exhaustion makes "still pending" a verdict. A
+                    // registration placeholder stays REGISTERED until that same listener claims
+                    // it into PENDING_ISSUE, so it is asynchronous too — signal the client to retry.
+                    if (current == CertificateState.PENDING_ISSUE || current == CertificateState.PENDING_REVOKE
+                            || current == CertificateState.REGISTERED) {
                         log.debug("TID={}, SN={} | certificate uuid={} still in asynchronous state {} after {} ms — caller will signal client to retry",
                                 tid, serialNumber, certUUID, current, timeoutMs);
                         return new PollResult.StillPending(current);
