@@ -23,7 +23,7 @@ class BrandingSettingsValidatorTest {
     /** Every field is optional, so an operator clearing all of their branding at once must not be refused. */
     @Test
     void anEmptyUpdateIsAccepted() {
-        Assertions.assertDoesNotThrow(() -> BrandingSettingsValidator.validate(new BrandingSettingsUpdateDto()));
+        Assertions.assertDoesNotThrow(() -> BrandingSettingsValidator.validated(new BrandingSettingsUpdateDto()));
     }
 
     @Test
@@ -36,7 +36,7 @@ class BrandingSettingsValidatorTest {
         branding.setTextColor("#171717");
         branding.setDefaultTheme(BrandingTheme.DARK);
 
-        Assertions.assertDoesNotThrow(() -> BrandingSettingsValidator.validate(branding));
+        Assertions.assertDoesNotThrow(() -> BrandingSettingsValidator.validated(branding));
     }
 
     @ParameterizedTest
@@ -45,7 +45,7 @@ class BrandingSettingsValidatorTest {
         BrandingSettingsUpdateDto branding = new BrandingSettingsUpdateDto();
         setter.accept(branding, "#aB12Ef");
 
-        Assertions.assertDoesNotThrow(() -> BrandingSettingsValidator.validate(branding));
+        Assertions.assertDoesNotThrow(() -> BrandingSettingsValidator.validated(branding));
     }
 
     @ParameterizedTest
@@ -56,7 +56,7 @@ class BrandingSettingsValidatorTest {
             setter.accept(branding, candidate);
 
             Assertions
-                    .assertThrows(ValidationException.class, () -> BrandingSettingsValidator.validate(branding),
+                    .assertThrows(ValidationException.class, () -> BrandingSettingsValidator.validated(branding),
                             "accepted invalid color " + candidate);
         });
     }
@@ -68,7 +68,7 @@ class BrandingSettingsValidatorTest {
         branding.setBackgroundColor("chartreuse");
 
         String message = Assertions
-                .assertThrows(ValidationException.class, () -> BrandingSettingsValidator.validate(branding))
+                .assertThrows(ValidationException.class, () -> BrandingSettingsValidator.validated(branding))
                 .getMessage();
 
         Assertions.assertTrue(message.contains("backgroundColor"), message);
@@ -80,7 +80,7 @@ class BrandingSettingsValidatorTest {
      */
     @Test
     void aMissingUpdateIsRefusedRatherThanDereferenced() {
-        Assertions.assertThrows(ValidationException.class, () -> BrandingSettingsValidator.validate(null));
+        Assertions.assertThrows(ValidationException.class, () -> BrandingSettingsValidator.validated(null));
     }
 
     @Test
@@ -89,7 +89,7 @@ class BrandingSettingsValidatorTest {
         branding.setDarkLogo("data:image/jpeg;base64,/9j/4AAQ");
 
         String message = Assertions
-                .assertThrows(ValidationException.class, () -> BrandingSettingsValidator.validate(branding))
+                .assertThrows(ValidationException.class, () -> BrandingSettingsValidator.validated(branding))
                 .getMessage();
 
         Assertions.assertTrue(message.contains("darkLogo"), message);

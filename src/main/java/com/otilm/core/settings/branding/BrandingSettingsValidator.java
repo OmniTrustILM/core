@@ -22,10 +22,6 @@ public final class BrandingSettingsValidator {
 
     private static final Map<String, Function<BrandingSettingsUpdateDto, String>> COLORS = colorAccessors();
 
-    private static final Map<String, Function<BrandingSettingsUpdateDto, String>> LOGOS = Map
-            .of("lightLogo", BrandingSettingsUpdateDto::getLightLogo, "darkLogo",
-                    BrandingSettingsUpdateDto::getDarkLogo);
-
     private BrandingSettingsValidator() {
     }
 
@@ -39,7 +35,12 @@ public final class BrandingSettingsValidator {
         return Map.copyOf(accessors);
     }
 
-    public static void validate(BrandingSettingsUpdateDto branding) {
+    /**
+     * Validates a branding update and returns the form of it that may be stored: identical to the submitted one except
+     * that SVG logos come back sanitized. Returning a copy rather than editing the caller's object keeps the submitted
+     * request intact for logging, and makes it impossible to store an unsanitized logo by forgetting to reassign.
+     */
+    public static BrandingSettingsUpdateDto validated(BrandingSettingsUpdateDto branding) {
         // Bean Validation rejects a missing body on the controller path, but the service is also reachable directly,
         // and a caller that gets there with nothing to apply has made a mistake worth naming rather than a null
         // dereference deep inside an accessor.
@@ -48,7 +49,17 @@ public final class BrandingSettingsValidator {
         }
 
         COLORS.forEach((field, accessor) -> validateColor(field, accessor.apply(branding)));
-        LOGOS.forEach((field, accessor) -> BrandingLogoValidator.validate(field, accessor.apply(branding)));
+
+        BrandingSettingsUpdateDto stored = new BrandingSettingsUpdateDto();
+        stored.setPrimaryColor(branding.getPrimaryColor());
+        stored.setSecondaryColor(branding.getSecondaryColor());
+        stored.setTertiaryColor(branding.getTertiaryColor());
+        stored.setBackgroundColor(branding.getBackgroundColor());
+        stored.setTextColor(branding.getTextColor());
+        stored.setDefaultTheme(branding.getDefaultTheme());
+        stored.setLightLogo(BrandingLogoValidator.validateAndSanitize("lightLogo", branding.getLightLogo()));
+        stored.setDarkLogo(BrandingLogoValidator.validateAndSanitize("darkLogo", branding.getDarkLogo()));
+        return stored;
     }
 
     private static void validateColor(String field, String value) {

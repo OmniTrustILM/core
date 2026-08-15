@@ -60,20 +60,20 @@ class BrandingLogoValidatorTest {
 
     private static String rejectionMessage(String logo) {
         return Assertions
-                .assertThrows(ValidationException.class, () -> BrandingLogoValidator.validate(FIELD, logo))
+                .assertThrows(ValidationException.class, () -> BrandingLogoValidator.validateAndSanitize(FIELD, logo))
                 .getMessage();
     }
 
     /** Clearing a slot is how an operator removes a logo, so the absent value is the common case, not an error. */
     @Test
     void aClearedSlotIsAccepted() {
-        Assertions.assertDoesNotThrow(() -> BrandingLogoValidator.validate(FIELD, null));
+        Assertions.assertDoesNotThrow(() -> BrandingLogoValidator.validateAndSanitize(FIELD, null));
     }
 
     @ParameterizedTest
     @CsvSource({"200,200", "300,100", "240,120", "1,1", "3,1"})
     void aPngWithinTheAllowedAspectRatioIsAccepted(int width, int height) {
-        Assertions.assertDoesNotThrow(() -> BrandingLogoValidator.validate(FIELD, pngLogo(width, height)));
+        Assertions.assertDoesNotThrow(() -> BrandingLogoValidator.validateAndSanitize(FIELD, pngLogo(width, height)));
     }
 
     /** The boundaries are inclusive, so 1:1 and 3:1 pass and anything a hair outside them does not. */
@@ -203,7 +203,7 @@ class BrandingLogoValidatorTest {
             "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0,0,240,120'/>",
             "<svg width='100' height='100'/>"})
     void anSvgWithReadableProportionsInsideTheRangeIsAccepted(String svg) {
-        Assertions.assertDoesNotThrow(() -> BrandingLogoValidator.validate(FIELD, svgLogo(svg)));
+        Assertions.assertDoesNotThrow(() -> BrandingLogoValidator.validateAndSanitize(FIELD, svgLogo(svg)));
     }
 
     @Test
@@ -248,7 +248,7 @@ class BrandingLogoValidatorTest {
     void anSvgSizedInPercentagesFallsBackToItsViewBox() {
         String relative = "<svg xmlns='http://www.w3.org/2000/svg' width='100%' height='100%' viewBox='0 0 200 100'/>";
 
-        Assertions.assertDoesNotThrow(() -> BrandingLogoValidator.validate(FIELD, svgLogo(relative)));
+        Assertions.assertDoesNotThrow(() -> BrandingLogoValidator.validateAndSanitize(FIELD, svgLogo(relative)));
     }
 
     @Test
@@ -268,7 +268,7 @@ class BrandingLogoValidatorTest {
     void anSvgMixingUnitsBetweenWidthAndHeightFallsBackToItsViewBox() {
         String mixed = "<svg xmlns='http://www.w3.org/2000/svg' width='50mm' height='100px' viewBox='0 0 200 100'/>";
 
-        Assertions.assertDoesNotThrow(() -> BrandingLogoValidator.validate(FIELD, svgLogo(mixed)));
+        Assertions.assertDoesNotThrow(() -> BrandingLogoValidator.validateAndSanitize(FIELD, svgLogo(mixed)));
     }
 
     @Test
@@ -353,7 +353,7 @@ class BrandingLogoValidatorTest {
         Assertions
                 .assertTrue(Assertions
                         .assertThrows(ValidationException.class,
-                                () -> BrandingLogoValidator.validate("darkLogo", pngLogo(500, 100)))
+                                () -> BrandingLogoValidator.validateAndSanitize("darkLogo", pngLogo(500, 100)))
                         .getMessage()
                         .contains("'darkLogo'"));
     }

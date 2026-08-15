@@ -13,7 +13,9 @@ import com.otilm.core.dao.repository.SettingRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.service.SettingExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
+import java.util.Base64;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -213,6 +215,35 @@ class BrandingSettingsITest extends BaseSpringBootTest {
         denyResourceAccess(Resource.SETTINGS, ResourceAction.UPDATE_BRANDING);
 
         Assertions.assertEquals(PRIMARY, settingService.getBrandingSettings().getPrimaryColor());
+    }
+
+    /**
+     * The sanitizer is only worth anything if it sits between the request and the row. Asserted against the stored
+     * value rather than the read-back DTO, so a sanitizer wired in after persistence would still fail here.
+     */
+    @Test
+    void onlyTheSanitizedSvgReachesTheSettingsTable() {
+        String hostile = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 100'>"
+                + "<script>alert(1)</script><rect width='200' height='100' onload='alert(2)' fill='#0073CF'/></svg>";
+        BrandingSettingsUpdateDto branding = new BrandingSettingsUpdateDto();
+        branding
+                .setLightLogo("data:image/svg+xml;base64,"
+                        + Base64.getEncoder().encodeToString(hostile.getBytes(StandardCharsets.UTF_8)));
+
+        settingService.updateBrandingSettings(branding);
+
+        String stored = storedBranding()
+                .stream()
+                .filter(setting -> "lightLogo".equals(setting.getName()))
+                .findFirst()
+                .orElseThrow()
+                .getValue();
+        String decoded = new String(Base64.getDecoder().decode(stored.substring(stored.indexOf(',') + 1)),
+                StandardCharsets.UTF_8);
+
+        Assertions.assertFalse(decoded.contains("script"), decoded);
+        Assertions.assertFalse(decoded.contains("onload"), decoded);
+        Assertions.assertTrue(decoded.contains("#0073CF"), decoded);
     }
 
     @Test
