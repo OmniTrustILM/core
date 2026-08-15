@@ -3,8 +3,11 @@ package com.otilm.core.api.web;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.interfaces.core.web.SettingController;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.logging.Sensitive;
 import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.settings.BrandingSettingsDto;
+import com.otilm.api.model.core.settings.BrandingSettingsUpdateDto;
 import com.otilm.api.model.core.settings.EventSettingsDto;
 import com.otilm.api.model.core.settings.EventsSettingsDto;
 import com.otilm.api.model.core.settings.PlatformSettingsDto;
@@ -49,6 +52,23 @@ public class SettingControllerImpl implements SettingController {
     @AuditLogged(module = Module.CORE, resource = Resource.SETTINGS, operation = Operation.UPDATE, name = "platform")
     public void updatePlatformSettings(PlatformSettingsUpdateDto request) {
         settingService.updatePlatformSettings(request);
+    }
+
+    @Override
+    @AuditLogged(module = Module.CORE, resource = Resource.SETTINGS, operation = Operation.DETAIL, name = "branding")
+    public BrandingSettingsDto getBrandingSettings() {
+        return settingService.getBrandingSettings();
+    }
+
+    /**
+     * The body is kept out of the verbose audit record. Two logos at their limit are close to 2.7 MiB of base64, and
+     * the audit record travels over JMS: recording them would put that on the queue for every branding save, to say
+     * only what the operation name already says.
+     */
+    @Override
+    @AuditLogged(module = Module.CORE, resource = Resource.SETTINGS, operation = Operation.UPDATE, name = "branding")
+    public void updateBrandingSettings(@Sensitive BrandingSettingsUpdateDto brandingSettingsDto) {
+        settingService.updateBrandingSettings(brandingSettingsDto);
     }
 
     @Override

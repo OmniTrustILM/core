@@ -27,4 +27,10 @@ public interface SettingRepository extends SecurityFilterRepository<Setting, UUI
     // updates cannot both pass the in-process issuer-uniqueness check before either commits.
     @Query(value = "SELECT pg_advisory_xact_lock(hashtext('oauth2-provider-settings'))", nativeQuery = true)
     Object lockOAuth2ProviderWrites();
+
+    // Transaction-scoped advisory lock serializing branding writes. Branding is one row per field, each written by
+    // reading the existing row and inserting when there is none, so without this two first updates could both observe
+    // no row and insert the same field.
+    @Query(value = "SELECT pg_advisory_xact_lock(hashtext('platform-branding-settings'))", nativeQuery = true)
+    Object lockBrandingWrites();
 }
