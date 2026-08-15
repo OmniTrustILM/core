@@ -71,7 +71,13 @@ public class AuthHelper {
     /** {@code AuthResourceSynchronizer} rederives this role's grants from the resource catalogue on every startup. */
     public static final String AUDITOR_ROLE_NAME = "auditor";
 
-    public static final List<String> PERMITTED_ENDPOINTS = List.of("/v?/health/**", "/v?/connector/register");
+    /**
+     * {@code /v?/branding} is the first entry here that serves operator-configured content rather than platform
+     * mechanics: the login page renders the customer's identity before anyone signs in. It is read-only and returns a
+     * purpose-built DTO carrying branding fields and nothing else.
+     */
+    public static final List<String> PERMITTED_ENDPOINTS = List
+            .of("/v?/health/**", "/v?/connector/register", "/v?/branding");
     public static final List<String> OAUTH2_ENDPOINTS = List
             .of("/login", "/oauth2/**", "/v?/oauth2/**", "/v?/health/**", "/v?/connector/register");
 
