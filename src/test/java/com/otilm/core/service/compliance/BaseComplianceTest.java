@@ -42,6 +42,7 @@ import com.otilm.core.service.v2.ComplianceProfileExternalService;
 import com.otilm.core.service.v2.ComplianceProfileInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.MetaDefinitions;
+import com.otilm.core.util.WireMockPorts;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -123,7 +124,7 @@ public abstract class BaseComplianceTest extends BaseSpringBootTest {
 
     @BeforeEach
     protected void setUp() throws AlreadyExistException {
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(WireMockPorts.CONNECTOR);
         mockServer.start();
 
         mockComplianceProviderResponses(true);

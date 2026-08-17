@@ -314,10 +314,18 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
 
     @AfterEach
     void tearDown() {
-        contentSigningFormattingMock.stop();
-        timestampingFormattingMock.stop();
-        cryptographyProviderServerMock.stop();
-        signerConnectorServerMock.stop();
+        if (contentSigningFormattingMock != null) {
+            contentSigningFormattingMock.stop();
+        }
+        if (timestampingFormattingMock != null) {
+            timestampingFormattingMock.stop();
+        }
+        if (cryptographyProviderServerMock != null) {
+            cryptographyProviderServerMock.stop();
+        }
+        if (signerConnectorServerMock != null) {
+            signerConnectorServerMock.stop();
+        }
     }
 
     private void createSigningRecordFor(SigningProfileDto profile) {
@@ -1782,7 +1790,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             contentSigningFormattingMock.stubFormattingAttributeDefinition(attrUuid, attrName);
 
             // and: a second content signing formatting connector (formattingB)
-            ContentSigningFormattingMock formattingBMock = connectorMockFactory.startContentSigningFormatting();
+            ContentSigningFormattingMock formattingBMock = connectorMockFactory.startSecondContentSigningFormatting();
             formattingBMock.stubFormattingAttributeDefinition(attrUuid, attrName);
             ConnectorDetailDto formattingBConnector = connectorService
                     .createConnector(aV2ConnectorRequest()

@@ -17,7 +17,8 @@ import java.util.UUID;
  */
 public class ContentSigningFormattingMock extends BaseConnectorMock {
 
-    ContentSigningFormattingMock() {
+    ContentSigningFormattingMock(int port) {
+        super(port);
         stubV2InfoDetails(List
                 .of(interfaceInfo(ConnectorInterface.INFO, List.of()),
                         interfaceInfo(ConnectorInterface.HEALTH, List.of()),

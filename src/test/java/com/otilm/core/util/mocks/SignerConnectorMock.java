@@ -1,6 +1,7 @@
 package com.otilm.core.util.mocks;
 
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
+import com.otilm.core.util.WireMockPorts;
 
 import java.util.List;
 
@@ -11,6 +12,7 @@ import java.util.List;
 public class SignerConnectorMock extends BaseConnectorMock {
 
     SignerConnectorMock() {
+        super(WireMockPorts.SIGNER);
         stubV2Info(List
                 .of(ConnectorInterface.INFO, ConnectorInterface.HEALTH, ConnectorInterface.METRICS,
                         ConnectorInterface.SIGNING));
