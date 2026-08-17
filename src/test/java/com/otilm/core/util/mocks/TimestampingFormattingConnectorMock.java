@@ -7,6 +7,7 @@ import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
+import com.otilm.core.util.WireMockPorts;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.List;
@@ -26,7 +27,8 @@ import java.util.UUID;
 public class TimestampingFormattingConnectorMock extends BaseConnectorMock {
 
     TimestampingFormattingConnectorMock() {
-        super(new TimestampingFormatDtbsTransformer(), new TimestampingFormatResponseTransformer());
+        super(WireMockPorts.TIMESTAMPING_FORMATTING, new TimestampingFormatDtbsTransformer(),
+                new TimestampingFormatResponseTransformer());
         stubV2InfoDetails(List
                 .of(interfaceInfo(ConnectorInterface.INFO, List.of()),
                         interfaceInfo(ConnectorInterface.HEALTH, List.of()),

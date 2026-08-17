@@ -15,9 +15,8 @@ package com.otilm.core.util;
  * classes stubbing the same service also share a cached context depends on their other context axes; the port is not
  * one of them, which is the point.
  * <p>
- * <b>When a new constant is warranted</b> — only when two services must be stubbed with conflicting behaviour at the
- * same time. Two classes stubbing the <em>same</em> service never need separate ports, because they never run
- * concurrently.
+ * <b>When a new constant is warranted</b> — only when two stubs must be alive at the same time. That happens within a
+ * single class, since separate classes run in sequence and share one port.
  * <p>
  * <b>Duplication in YAML</b> — the test {@code application.yml} repeats these ports as literals, because it cannot
  * reference constants, as the floor for the context-loading tests that extend neither base class.
@@ -33,6 +32,30 @@ public final class WireMockPorts {
 
     /** scheduler stub. */
     public static final int SCHEDULER = 10011;
+
+    /**
+     * The connector stub a test class starts for itself, whatever function group it impersonates. One constant serves
+     * them all, because each class stops its server before the next begins.
+     */
+    public static final int CONNECTOR = 10020;
+
+    /** {@link com.otilm.core.util.mocks.CryptographyProviderConnectorMock}. */
+    public static final int CRYPTOGRAPHY_PROVIDER = 10021;
+
+    /** {@link com.otilm.core.util.mocks.ContentSigningFormattingMock}. */
+    public static final int CONTENT_SIGNING_FORMATTING = 10022;
+
+    /**
+     * A second {@link com.otilm.core.util.mocks.ContentSigningFormattingMock}, for tests that move a signing profile
+     * between two formatting connectors.
+     */
+    public static final int CONTENT_SIGNING_FORMATTING_SECONDARY = 10023;
+
+    /** {@link com.otilm.core.util.mocks.TimestampingFormattingConnectorMock}. */
+    public static final int TIMESTAMPING_FORMATTING = 10024;
+
+    /** {@link com.otilm.core.util.mocks.SignerConnectorMock}. */
+    public static final int SIGNER = 10025;
 
     public static final String AUTH_SERVICE_URL_KEY = "auth-service.base-url";
 
