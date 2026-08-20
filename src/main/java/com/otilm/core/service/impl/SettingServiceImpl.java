@@ -312,7 +312,8 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
     @Override
     @ExternalAuthorization(resource = Resource.SETTINGS, action = ResourceAction.UPDATE_BRANDING)
     public void updateBrandingSettings(BrandingSettingsUpdateDto brandingSettings) {
-        BrandingSettingsValidator.validate(brandingSettings);
+        // SVG logos come back sanitized, so the submitted document never reaches the settings table.
+        BrandingSettingsUpdateDto sanitized = BrandingSettingsValidator.validated(brandingSettings);
 
         // Held before the rows are read, because a field is written by looking for its row and inserting when there is
         // none: two concurrent first updates would otherwise both find nothing and insert the same field twice.
@@ -320,7 +321,7 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
 
         Map<String, Setting> stored = storedBrandingSettings();
         BRANDING_FIELDS
-                .forEach((name, field) -> writeBrandingField(name, field.fromUpdate().apply(brandingSettings),
+                .forEach((name, field) -> writeBrandingField(name, field.fromUpdate().apply(sanitized),
                         stored.get(name)));
 
         cacheAfterCommit(() -> settingsCache.cacheSettings(SettingsSection.PLATFORM, getPlatformSettingsInternal()));

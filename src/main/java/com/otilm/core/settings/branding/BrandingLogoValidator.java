@@ -14,6 +14,7 @@ import java.util.zip.CRC32;
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
+import javax.xml.transform.TransformerException;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 
@@ -63,12 +64,17 @@ public final class BrandingLogoValidator {
     }
 
     /**
+     * Validates a submitted logo and returns the form of it that may be stored. An SVG comes back sanitized, so the
+     * original is never what reaches the settings table; a PNG comes back unchanged, having no executable content to
+     * remove.
+     *
      * @param field the branding field the logo was submitted under, so a rejection names the slot the operator sees
      * @param dataUri the submitted value; {@code null} means the slot is being cleared and is always accepted
+     * @return the value to store, or {@code null} when the slot is being cleared
      */
-    public static void validate(String field, String dataUri) {
+    public static String validateAndSanitize(String field, String dataUri) {
         if (dataUri == null) {
-            return;
+            return null;
         }
 
         // Bounded before the regex runs and before anything is decoded: a payload this long cannot decode to a
@@ -97,14 +103,13 @@ public final class BrandingLogoValidator {
         if (startsWithPngSignature(content)) {
             requireDeclared(field, declaredMediaType, PNG_MEDIA_TYPE, "a PNG image");
             validatePng(field, content);
-            return;
+            return dataUri;
         }
 
         Element svgRoot = svgRootOrNull(content);
         if (svgRoot != null) {
             requireDeclared(field, declaredMediaType, SVG_MEDIA_TYPE, "an SVG document");
-            validateSvg(field, svgRoot);
-            return;
+            return sanitizedSvg(field, svgRoot);
         }
 
         throw reject(field, UNRECOGNISED_REASON);
@@ -209,7 +214,11 @@ public final class BrandingLogoValidator {
                 | ((long) (content[offset + 2] & 0xFF) << 8) | (content[offset + 3] & 0xFF);
     }
 
-    private static void validateSvg(String field, Element root) {
+    /**
+     * The stored value is built from the sanitized document rather than from the submitted bytes, so there is no path
+     * by which the original — scripts, event handlers, external references and all — reaches the settings table.
+     */
+    private static String sanitizedSvg(String field, Element root) {
         OptionalDouble ratio = ratioFromWidthAndHeight(root);
         if (ratio.isEmpty()) {
             ratio = ratioFromViewBox(root);
@@ -218,8 +227,19 @@ public final class BrandingLogoValidator {
             throw reject(field, "is an SVG with neither usable width and height nor a viewBox, "
                     + "so its aspect ratio cannot be determined");
         }
-
         validateRatio(field, ratio.getAsDouble());
+
+        Document document = root.getOwnerDocument();
+        SvgSanitizer.sanitize(document);
+        try {
+            return "data:%s;base64,%s"
+                    .formatted(SVG_MEDIA_TYPE,
+                            Base64
+                                    .getEncoder()
+                                    .encodeToString(SvgSanitizer.serialize(document).getBytes(StandardCharsets.UTF_8)));
+        } catch (TransformerException e) {
+            throw reject(field, "is an SVG that could not be rewritten after sanitization");
+        }
     }
 
     /** {@code null} rather than a rejection: content that is not an SVG may still be a PNG, and the caller decides. */
