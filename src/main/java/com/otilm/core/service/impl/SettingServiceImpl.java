@@ -10,6 +10,9 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.logging.enums.AuditLogOutput;
 import com.otilm.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.settings.BrandingSettingsDto;
+import com.otilm.api.model.core.settings.BrandingSettingsUpdateDto;
+import com.otilm.api.model.core.settings.BrandingTheme;
 import com.otilm.api.model.core.settings.CertificateRegistrationSettingsDto;
 import com.otilm.api.model.core.settings.CertificateRegistrationSettingsUpdateDto;
 import com.otilm.api.model.core.settings.CertificateRequestAttributesSettingsDto;
@@ -46,6 +49,7 @@ import com.otilm.core.service.TriggerExternalService;
 import com.otilm.core.service.TriggerInternalService;
 import com.otilm.core.service.registration.CertificateRegistrationDefaults;
 import com.otilm.core.settings.SettingsCache;
+import com.otilm.core.settings.branding.BrandingSettingsValidator;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.SecretEncodingVersion;
 import com.otilm.core.util.SecretsUtil;
@@ -64,10 +68,13 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiConsumer;
+import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -92,6 +99,12 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
 
     private static final String DESERIALIZATION_ERROR_MESSAGE = "Cannot deserialize OAuth2 Provider Settings for provider '%s'.";
     private static final Logger logger = LoggerFactory.getLogger(SettingServiceImpl.class);
+
+    /**
+     * Branding is stored as one row per field rather than one serialized blob, so that clearing a single colour or logo
+     * removes only its own row and that field falls back to its platform default independently of the rest.
+     */
+    private static final Map<String, BrandingField> BRANDING_FIELDS = brandingFields();
 
     private final ObjectMapper wireMapper;
     private final SettingsCache settingsCache;
@@ -213,7 +226,124 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
 
         platformSettings.setCertificates(certificateSettingsDto);
 
+        // Branding
+        platformSettings
+                .setBranding(
+                        readBrandingSettings(mappedSettings.get(SettingsSectionCategory.PLATFORM_BRANDING.getCode())));
+
         return platformSettings;
+    }
+
+    private record BrandingField(Function<BrandingSettingsUpdateDto, String> fromUpdate,
+            BiConsumer<BrandingSettingsDto, String> intoResponse) {
+    }
+
+    private static Map<String, BrandingField> brandingFields() {
+        Map<String, BrandingField> fields = new LinkedHashMap<>();
+        fields
+                .put("primaryColor", new BrandingField(BrandingSettingsUpdateDto::getPrimaryColor,
+                        BrandingSettingsDto::setPrimaryColor));
+        fields
+                .put("secondaryColor", new BrandingField(BrandingSettingsUpdateDto::getSecondaryColor,
+                        BrandingSettingsDto::setSecondaryColor));
+        fields
+                .put("tertiaryColor", new BrandingField(BrandingSettingsUpdateDto::getTertiaryColor,
+                        BrandingSettingsDto::setTertiaryColor));
+        fields
+                .put("backgroundColor", new BrandingField(BrandingSettingsUpdateDto::getBackgroundColor,
+                        BrandingSettingsDto::setBackgroundColor));
+        fields
+                .put("textColor",
+                        new BrandingField(BrandingSettingsUpdateDto::getTextColor, BrandingSettingsDto::setTextColor));
+        fields
+                .put("lightLogo",
+                        new BrandingField(BrandingSettingsUpdateDto::getLightLogo, BrandingSettingsDto::setLightLogo));
+        fields
+                .put("darkLogo",
+                        new BrandingField(BrandingSettingsUpdateDto::getDarkLogo, BrandingSettingsDto::setDarkLogo));
+        fields
+                .put("defaultTheme",
+                        new BrandingField(
+                                update -> update.getDefaultTheme() == null ? null : update.getDefaultTheme().getCode(),
+                                SettingServiceImpl::applyDefaultTheme));
+        return Map.copyOf(fields);
+    }
+
+    /**
+     * A stored theme code that no longer maps to anything is dropped rather than thrown: branding is read on every page
+     * render, and one unrecognised value must not take the whole platform settings read down with it.
+     */
+    private static void applyDefaultTheme(BrandingSettingsDto branding, String code) {
+        try {
+            branding.setDefaultTheme(BrandingTheme.findByCode(code));
+        } catch (ValidationException e) {
+            logger.warn("Ignoring unknown stored branding default theme '{}'.", code);
+        }
+    }
+
+    private BrandingSettingsDto readBrandingSettings(Map<String, Setting> brandingSettings) {
+        BrandingSettingsDto branding = new BrandingSettingsDto();
+        if (brandingSettings == null) {
+            return branding;
+        }
+        BRANDING_FIELDS.forEach((name, field) -> {
+            Setting setting = brandingSettings.get(name);
+            if (setting != null && setting.getValue() != null && !setting.getValue().isBlank()) {
+                field.intoResponse().accept(branding, setting.getValue());
+            }
+        });
+        return branding;
+    }
+
+    private Map<String, Setting> storedBrandingSettings() {
+        Map<String, Setting> stored = new HashMap<>();
+        settingRepository
+                .findBySectionAndCategory(SettingsSection.PLATFORM, SettingsSectionCategory.PLATFORM_BRANDING.getCode())
+                .forEach(setting -> stored.put(setting.getName(), setting));
+        return stored;
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.SETTINGS, action = ResourceAction.LIST)
+    public BrandingSettingsDto getBrandingSettings() {
+        return readBrandingSettings(storedBrandingSettings());
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.SETTINGS, action = ResourceAction.UPDATE_BRANDING)
+    public void updateBrandingSettings(BrandingSettingsUpdateDto brandingSettings) {
+        BrandingSettingsValidator.validate(brandingSettings);
+
+        // Held before the rows are read, because a field is written by looking for its row and inserting when there is
+        // none: two concurrent first updates would otherwise both find nothing and insert the same field twice.
+        settingRepository.lockBrandingWrites();
+
+        Map<String, Setting> stored = storedBrandingSettings();
+        BRANDING_FIELDS
+                .forEach((name, field) -> writeBrandingField(name, field.fromUpdate().apply(brandingSettings),
+                        stored.get(name)));
+
+        cacheAfterCommit(() -> settingsCache.cacheSettings(SettingsSection.PLATFORM, getPlatformSettingsInternal()));
+    }
+
+    private void writeBrandingField(String name, String value, Setting stored) {
+        if (value == null) {
+            // Reset to default is per field: with no row, the read leaves the field unset and the UI uses its own.
+            if (stored != null) {
+                settingRepository.delete(stored);
+            }
+            return;
+        }
+
+        Setting setting = stored;
+        if (setting == null) {
+            setting = new Setting();
+            setting.setSection(SettingsSection.PLATFORM);
+            setting.setCategory(SettingsSectionCategory.PLATFORM_BRANDING.getCode());
+            setting.setName(name);
+        }
+        setting.setValue(value);
+        settingRepository.save(setting);
     }
 
     private Setting certificateSetting(Map<String, Setting> certificateSettings, String name) {

@@ -1,6 +1,8 @@
 package com.otilm.core.service;
 
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.core.settings.BrandingSettingsDto;
+import com.otilm.api.model.core.settings.BrandingSettingsUpdateDto;
 import com.otilm.api.model.core.settings.EventSettingsDto;
 import com.otilm.api.model.core.settings.EventsSettingsDto;
 import com.otilm.api.model.core.settings.PlatformSettingsDto;
@@ -26,6 +28,21 @@ public interface SettingExternalService {
      * @param platformSettings Platform settings DTO
      */
     void updatePlatformSettings(PlatformSettingsUpdateDto platformSettings);
+
+    /**
+     * Get the branding applied across the platform user interface
+     *
+     * @return branding settings {@link com.otilm.api.model.core.settings.BrandingSettingsDto}
+     */
+    BrandingSettingsDto getBrandingSettings();
+
+    /**
+     * Update the branding applied across the platform user interface. A {@code null} field clears that part of the
+     * branding, so a caller sends the full desired state rather than only the fields it wants to change.
+     *
+     * @param brandingSettings Branding settings DTO
+     */
+    void updateBrandingSettings(BrandingSettingsUpdateDto brandingSettings);
 
     EventsSettingsDto getEventsSettings();
 
