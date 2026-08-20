@@ -111,7 +111,7 @@ public class PlatformAuthenticationFilter extends OncePerRequestFilter {
     private boolean isAuthenticationNeeded(final HttpServletRequest request) {
         SecurityContext securityContext = SecurityContextHolder.getContext();
 
-        if (AuthHelper.permitAllEndpointInRequest(request.getRequestURI(), context)
+        if (AuthHelper.permitAllEndpointInRequest(request.getRequestURI(), request.getMethod(), context)
                 || (AuthHelper.oauth2EndpointInRequest(request.getRequestURI(), context)
                         && securityContext.getAuthentication() == null)) {
             log.trace("Endpoint {} does not need authentication, using anonymous user.", request.getRequestURI());

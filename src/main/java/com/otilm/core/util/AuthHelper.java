@@ -33,6 +33,7 @@ import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -71,7 +72,16 @@ public class AuthHelper {
     /** {@code AuthResourceSynchronizer} rederives this role's grants from the resource catalogue on every startup. */
     public static final String AUDITOR_ROLE_NAME = "auditor";
 
+    /** Served without authentication for any HTTP method. */
     public static final List<String> PERMITTED_ENDPOINTS = List.of("/v?/health/**", "/v?/connector/register");
+
+    /**
+     * Served without authentication for {@code GET} alone. {@code /v?/branding} is here because the login page needs
+     * the customer's identity before anyone signs in; it returns a purpose-built DTO carrying branding fields and
+     * nothing else. Opening only {@code GET} keeps a write against the path refused by the security chain rather than
+     * by the handler mapping happening to register no other method.
+     */
+    public static final List<String> GET_PERMITTED_ENDPOINTS = List.of("/v?/branding");
     public static final List<String> OAUTH2_ENDPOINTS = List
             .of("/login", "/oauth2/**", "/v?/oauth2/**", "/v?/health/**", "/v?/connector/register");
 
@@ -334,12 +344,22 @@ public class AuthHelper {
         return allEndpoints.toArray(new String[0]);
     }
 
-    public static boolean permitAllEndpointInRequest(String requestUri, String context) {
+    public static String[] getGetOnlyPermitAllEndpoints() {
+        return GET_PERMITTED_ENDPOINTS.toArray(new String[0]);
+    }
+
+    public static boolean permitAllEndpointInRequest(String requestUri, String method, String context) {
         String requestUriWithoutContextPath = requestUri.replaceFirst(context, "");
         AntPathMatcher pathMatcher = new AntPathMatcher();
-        return PERMITTED_ENDPOINTS
-                .stream()
-                .anyMatch(endpoint -> pathMatcher.match(endpoint, requestUriWithoutContextPath));
+        if (matchesAny(PERMITTED_ENDPOINTS, pathMatcher, requestUriWithoutContextPath)) {
+            return true;
+        }
+        return HttpMethod.GET.matches(method)
+                && matchesAny(GET_PERMITTED_ENDPOINTS, pathMatcher, requestUriWithoutContextPath);
+    }
+
+    private static boolean matchesAny(List<String> endpoints, AntPathMatcher pathMatcher, String path) {
+        return endpoints.stream().anyMatch(endpoint -> pathMatcher.match(endpoint, path));
     }
 
     public static boolean oauth2EndpointInRequest(String requestUri, String context) {
