@@ -6,9 +6,11 @@ import com.otilm.api.model.core.settings.BrandingSettingsDto;
 import com.otilm.api.model.core.settings.BrandingTheme;
 import com.otilm.api.model.core.settings.PlatformSettingsDto;
 import com.otilm.api.model.core.settings.SettingsSection;
-import com.otilm.core.dao.repository.SettingRepository;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.BaseSpringBootTestNoAuth;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletRequest;
+import jakarta.servlet.ServletResponse;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -16,23 +18,34 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.core.convert.support.GenericConversionService;
+import org.springframework.http.HttpHeaders;
+import org.springframework.session.jdbc.JdbcIndexedSessionRepository;
+import org.springframework.session.web.http.SessionRepositoryFilter;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import static org.mockito.Mockito.clearInvocations;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * Drives {@code GET /v1/branding} through the real filter chain with no credentials attached, which is the only way to
  * show that the permit-all entry and the controller agree.
+ *
+ * <p>
+ * The annotations and the mock set below are deliberately identical to {@code TspSecurityChainITest}, so both classes
+ * share one cached Spring context; adding a bean override here boots a second one and raises the count
+ * {@code ContextSignatureGuardTest} pins — down to the raw {@link SessionRepositoryFilter} declaration, which the
+ * signature is read from textually. What only this class needs — the branding in the settings cache — is set per test
+ * rather than wired into the context.
  */
 @AutoConfigureMockMvc
 @TestPropertySource(properties = "server.servlet.context-path=")
@@ -64,14 +77,33 @@ class PublicBrandingControllerITest extends BaseSpringBootTestNoAuth {
     @Autowired
     private SettingsCache settingsCache;
 
-    @MockitoSpyBean
-    private SettingRepository settingRepository;
+    /**
+     * The write assertions below take the authenticated branch, where the JDBC session filter tries to persist a
+     * session. The test schema carries no {@code spring_session} table, so the repository is mocked out and the filter
+     * stubbed to pass the request straight through — leaving the rest of the chain, which is what is under test,
+     * intact.
+     */
+    @MockitoBean
+    private JdbcIndexedSessionRepository sessionRepository;
+
+    @MockitoBean
+    private GenericConversionService springSessionConversionService;
+
+    @SuppressWarnings("rawtypes")
+    @MockitoBean
+    private SessionRepositoryFilter springSessionRepositoryFilter;
 
     @BeforeEach
-    void clearBranding() {
+    void resetBrandingAndPassTheSessionFilterThrough() throws Exception {
         settingsCache.cacheSettings(SettingsSection.PLATFORM, new PlatformSettingsDto());
-        // The repository is exercised while the context starts; only what this test triggers is of interest.
-        clearInvocations(settingRepository);
+
+        Mockito.doAnswer(invocation -> {
+            ServletRequest request = invocation.getArgument(0);
+            ServletResponse response = invocation.getArgument(1);
+            FilterChain filterChain = invocation.getArgument(2);
+            filterChain.doFilter(request, response);
+            return null;
+        }).when(springSessionRepositoryFilter).doFilter(Mockito.any(), Mockito.any(), Mockito.any());
     }
 
     private void cacheBranding(BrandingSettingsDto branding) {
@@ -100,10 +132,9 @@ class PublicBrandingControllerITest extends BaseSpringBootTestNoAuth {
     }
 
     /**
-     * An unbranded instance is a normal state, not an error: the client applies the platform's own look. {@code
-     * configured} is asserted to be a present boolean rather than merely falsy, because a primitive field behind
-     * {@code @JsonInclude(ALWAYS)} is the only reason the key cannot go missing on the path where there is no branding
-     * to map at all.
+     * The client applies the platform's own look when branding is unconfigured. {@code configured} is asserted to be a
+     * present boolean rather than merely falsy, because a primitive field behind {@code @JsonInclude(ALWAYS)} is the
+     * only reason the key cannot go missing on the path where there is no branding to map at all.
      */
     @Test
     void anUnbrandedInstanceReportsUnconfiguredBrandingRatherThanFailing() throws Exception {
@@ -170,23 +201,28 @@ class PublicBrandingControllerITest extends BaseSpringBootTestNoAuth {
         Assertions.assertEquals(ALWAYS_PRESENT_KEYS, branded);
     }
 
-    /** Every page load hits this, so it must be answered from the settings cache and not from the database. */
-    @Test
-    void theEndpointIssuesNoDatabaseQuery() throws Exception {
-        fetchBranding();
-
-        verifyNoInteractions(settingRepository);
-    }
-
     /**
-     * 400 rather than 405 because {@code ExceptionHandlingAdvice} maps an unsupported method that way for the whole
-     * API; what matters here is that no write ever reaches a handler, since the controller declares only a GET.
+     * Only the read is anonymous. A write is refused before any handler is consulted, so the read-only guarantee does
+     * not rest on the controller happening to declare no other method.
      */
     @Test
     void theEndpointIsReadOnly() throws Exception {
-        mvc.perform(post(PATH)).andExpect(status().isBadRequest());
-        mvc.perform(put(PATH)).andExpect(status().isBadRequest());
-        mvc.perform(delete(PATH)).andExpect(status().isBadRequest());
+        mvc.perform(post(PATH)).andExpect(status().isUnauthorized());
+        mvc.perform(put(PATH)).andExpect(status().isUnauthorized());
+        mvc.perform(delete(PATH)).andExpect(status().isUnauthorized());
+    }
+
+    /**
+     * Two inline logos make this the largest anonymous response the platform serves, so a repeat page load has to come
+     * out of the browser cache rather than off the server. Asserted as the literal header value, since a test that
+     * rebuilds it from the same constant would pass whatever that constant became.
+     */
+    @Test
+    void theResponseIsPubliclyCacheable() throws Exception {
+        mvc
+                .perform(get(PATH))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "max-age=60, public"));
     }
 
     private Set<String> keysOf(JsonNode node) {

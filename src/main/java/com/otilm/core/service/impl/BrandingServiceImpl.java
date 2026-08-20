@@ -15,9 +15,9 @@ import org.springframework.stereotype.Service;
  * Serves the branding an unauthenticated caller may read.
  *
  * <p>
- * This is the platform's first anonymous endpoint carrying operator-configured content, so the response is assembled
- * field by field into a purpose-built DTO. Returning the settings DTO — or a subclass of it — would mean every field
- * later added to platform settings is served to anonymous callers by default, and nobody would have decided that.
+ * The response is assembled field by field into a purpose-built DTO. Returning the settings DTO — or a subclass of it —
+ * would mean every field later added to platform settings is served to anonymous callers by default, and nobody would
+ * have decided that.
  */
 @Service
 public class BrandingServiceImpl implements BrandingExternalService {
@@ -32,7 +32,7 @@ public class BrandingServiceImpl implements BrandingExternalService {
     /**
      * Reads through the settings cache, which is populated at startup and on the configured refresh interval, so a page
      * load costs no database query. A cache that has not been populated yet reports unconfigured branding rather than
-     * failing: the login page then renders the platform's own identity, which is what it did before branding existed.
+     * failing: the login page then renders the platform's own identity.
      */
     private static PublicBrandingDto toPublicBranding(BrandingSettingsDto branding) {
         PublicBrandingDto publicBranding = new PublicBrandingDto();

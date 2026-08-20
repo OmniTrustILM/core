@@ -7,13 +7,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * The anonymous branding surface. Read-only by construction: the controller interface declares a single {@code GET}, so
- * every other method against the path is refused by Spring's handler mapping rather than by a check that could be
- * forgotten.
- *
- * <p>
- * Deliberately not audit-logged. The login page calls this before anyone has authenticated, so every entry would name
- * the anonymous user, and an unauthenticated caller would be able to fill the audit log at will.
+ * The anonymous branding surface. The controller interface declares a single {@code GET}, so the path is read-only by
+ * construction. Deliberately not audit-logged: an unauthenticated caller would otherwise be able to fill the audit log
+ * at will, with every entry naming the anonymous user.
  */
 @RestController
 public class BrandingControllerImpl implements BrandingController {
