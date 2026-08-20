@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.xml.XMLConstants;
 import javax.xml.transform.OutputKeys;
@@ -24,16 +25,11 @@ import org.w3c.dom.NodeList;
  * Strips everything executable or externally referencing out of an operator-supplied SVG logo.
  *
  * <p>
- * Branding logos are stored by the platform and rendered on the login page to visitors who have not authenticated, so
- * an SVG logo is the highest-exposure input the branding feature accepts. The frontend renders logos through an
- * {@code img} element, where browsers already refuse to run script or fetch external resources; this sanitizer is the
- * server-side half, so that a logo is safe even if something later inlines it into the page.
- *
- * <p>
- * Elements are handled by allow-list rather than by removing the dangerous ones. A deny-list only ever covers the
- * attacks known when it was written — {@code script} and {@code foreignObject} are the obvious two, but {@code
- * animate} can rewrite an attribute after load and {@code handler} exists in SVG 1.2 — whereas an allow-list of drawing
- * constructs is safe against constructs nobody here has heard of yet.
+ * Elements are handled by allow-list rather than by removing the dangerous ones, because a deny-list only ever covers
+ * the attacks known when it was written — {@code animate} rewrites an attribute after load and {@code handler} exists
+ * in SVG 1.2 — whereas an allow-list of drawing constructs holds against constructs nobody here has heard of yet.
+ * Attributes are the mirror image, since a logo needs an open-ended set of them: everything is kept except what
+ * executes, rebases or fetches, and whether a value fetches is decided after CSS escapes are resolved.
  */
 public final class SvgSanitizer {
 
@@ -50,17 +46,38 @@ public final class SvgSanitizer {
 
     /**
      * A reference the document can resolve on its own. Anything else — an absolute URL, a {@code javascript:} scheme, a
-     * nested {@code data:} payload — is a way out of the document and is removed rather than inspected further.
+     * nested {@code data:} payload — is a way out of the document and is removed rather than inspected further. A
+     * fragment cannot name another document once {@code xml:base} is gone, which is why that is stripped as well.
      */
     private static final Pattern LOCAL_REFERENCE = Pattern.compile("^#[^\\s]*$");
 
-    /** {@code url(#gradient)} is a reference within the same document; {@code url(https://…)} is not. */
-    private static final Pattern EXTERNAL_CSS_REFERENCE = Pattern
-            .compile("url\\(\\s*['\"]?\\s*(?!#)", Pattern.CASE_INSENSITIVE);
+    /**
+     * {@code url(#gradient)} is a reference within the same document; {@code url(https://…)} is not. The quantifiers
+     * are possessive so that the engine cannot backtrack over consumed whitespace or an opening quote to make the
+     * lookahead succeed, which would report {@code url( #gradient)} and {@code url('#gradient')} as external.
+     */
+    private static final Pattern EXTERNAL_URL_FUNCTION = Pattern
+            .compile("url\\(\\s*+['\"]?+\\s*+(?!#)", Pattern.CASE_INSENSITIVE);
 
     private static final Pattern CSS_IMPORT = Pattern.compile("@import", Pattern.CASE_INSENSITIVE);
 
-    private static final Set<String> REFERENCE_ATTRIBUTES = Set.of("href", "xlink:href", "src");
+    /**
+     * {@code image-set()} accepts a bare string as well as a {@code url()}, so it fetches without matching the above.
+     */
+    private static final Pattern CSS_IMAGE_SET = Pattern.compile("image-set\\s*+\\(", Pattern.CASE_INSENSITIVE);
+
+    /**
+     * A CSS escape: a backslash and up to six hex digits naming a code point, closed by one optional whitespace
+     * character, or a backslash and one literal character. Escapes are legal anywhere a CSS value is parsed, which
+     * includes SVG presentation attributes, so {@code \75 rl(…)} tokenizes as {@code url(…)}.
+     */
+    private static final Pattern CSS_ESCAPE = Pattern.compile("\\\\(?:([0-9a-fA-F]{1,6})\\s?|(.))", Pattern.DOTALL);
+
+    /**
+     * Matched on local name alone rather than on the qualified name, so that every prefix bound to the XLink namespace
+     * is covered: {@code xlink:href} is only the conventional spelling, and {@code xl:href} means the same thing.
+     */
+    private static final Set<String> REFERENCE_ATTRIBUTES = Set.of("href", "src");
 
     private SvgSanitizer() {
     }
@@ -126,32 +143,92 @@ public final class SvgSanitizer {
         }
 
         for (Attr attribute : declared) {
-            String name = attribute.getName().toLowerCase(Locale.ROOT);
-            if (name.startsWith("on") || isRejectedReference(name, attribute.getValue())) {
-                element.removeAttributeNode(attribute);
-            } else if ("style".equals(name)) {
+            String name = localName(attribute).toLowerCase(Locale.ROOT);
+            if ("style".equals(name)) {
                 attribute.setValue(sanitizeCss(attribute.getValue()));
+            } else if (isRejected(attribute, name)) {
+                element.removeAttributeNode(attribute);
             }
         }
     }
 
     /**
-     * One rule covers {@code javascript:} and {@code data:} URLs and every external resource reference at once: a
-     * reference is kept only when it points inside this document.
+     * Event handlers execute; {@code xml:base} rebases every relative reference in its subtree, so a kept {@code #id}
+     * is only same-document once it is gone; a reference attribute is a way out of the document unless it points back
+     * into it. Anything else is a presentation attribute, whose value is parsed as CSS and can carry a fetching
+     * {@code url()} of its own — {@code fill}, {@code stroke}, {@code filter}, {@code mask}, {@code clip-path} and the
+     * {@code marker-*} family all take one — so the {@code url()} rule is applied to every remaining attribute rather
+     * than to a list of the ones that accept a functional IRI today.
      */
-    private static boolean isRejectedReference(String name, String value) {
-        return REFERENCE_ATTRIBUTES.contains(name) && !LOCAL_REFERENCE.matcher(value.trim()).matches();
+    private static boolean isRejected(Attr attribute, String name) {
+        if (isNamespaceDeclaration(attribute)) {
+            return false;
+        }
+
+        String value = attribute.getValue();
+        return name.startsWith("on") || isXmlBase(attribute, name)
+                || (REFERENCE_ATTRIBUTES.contains(name) && !LOCAL_REFERENCE.matcher(value.trim()).matches())
+                || EXTERNAL_URL_FUNCTION.matcher(decodeCssEscapes(value)).find();
     }
 
-    /** CSS can fetch too, through {@code @import} and {@code url()}, so both are removed from style declarations. */
+    /**
+     * {@code xmlns} and {@code xmlns:*} carry namespace URIs that are not references to fetch, and dropping one would
+     * unbind a prefix the document still uses.
+     */
+    private static boolean isNamespaceDeclaration(Attr attribute) {
+        return XMLConstants.XMLNS_ATTRIBUTE_NS_URI.equals(attribute.getNamespaceURI());
+    }
+
+    /** Matched by namespace URI, since the {@code xml} prefix is only the spelling the declaration-free form uses. */
+    private static boolean isXmlBase(Attr attribute, String name) {
+        return "base".equals(name) && XMLConstants.XML_NS_URI.equals(attribute.getNamespaceURI());
+    }
+
+    /**
+     * CSS fetches through {@code @import}, {@code url()} and {@code image-set()}, and can spell any of them with
+     * escapes, so the decision is taken on the unescaped text and the whole declaration is dropped on a match. Only the
+     * decision uses the unescaped copy: what survives is the original text, unmodified.
+     */
     private static String sanitizeCss(String css) {
         if (css == null || css.isBlank()) {
             return css;
         }
-        if (CSS_IMPORT.matcher(css).find() || EXTERNAL_CSS_REFERENCE.matcher(css).find()) {
-            return "";
+        String decoded = decodeCssEscapes(css);
+        boolean fetches = CSS_IMPORT.matcher(decoded).find() || EXTERNAL_URL_FUNCTION.matcher(decoded).find()
+                || CSS_IMAGE_SET.matcher(decoded).find();
+        return fetches ? "" : css;
+    }
+
+    /**
+     * Resolves CSS escapes, so that a token written {@code \75 rl(} is compared as {@code url(}. Used only to decide
+     * whether a value fetches; no value is ever rewritten from the result.
+     */
+    private static String decodeCssEscapes(String value) {
+        if (value.indexOf('\\') < 0) {
+            return value;
         }
-        return css;
+
+        Matcher matcher = CSS_ESCAPE.matcher(value);
+        StringBuilder decoded = new StringBuilder(value.length());
+        while (matcher.find()) {
+            matcher.appendReplacement(decoded, "");
+            String hex = matcher.group(1);
+            if (hex == null) {
+                decoded.append(matcher.group(2));
+            } else {
+                decoded.appendCodePoint(codePointOf(hex));
+            }
+        }
+        matcher.appendTail(decoded);
+        return decoded.toString();
+    }
+
+    /** CSS resolves an escape naming nothing addressable to the replacement character rather than failing to parse. */
+    private static int codePointOf(String hex) {
+        int codePoint = Integer.parseInt(hex, 16);
+        boolean addressable = codePoint > 0 && codePoint <= Character.MAX_CODE_POINT
+                && (codePoint < Character.MIN_SURROGATE || codePoint > Character.MAX_SURROGATE);
+        return addressable ? codePoint : 0xFFFD;
     }
 
     /** Serializes the sanitized document back to XML, so that only the sanitized form is ever stored. */
@@ -170,7 +247,7 @@ public final class SvgSanitizer {
         return writer.toString();
     }
 
-    private static String localName(Element element) {
-        return element.getLocalName() == null ? element.getNodeName() : element.getLocalName();
+    private static String localName(Node node) {
+        return node.getLocalName() == null ? node.getNodeName() : node.getLocalName();
     }
 }

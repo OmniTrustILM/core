@@ -312,7 +312,7 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
     @Override
     @ExternalAuthorization(resource = Resource.SETTINGS, action = ResourceAction.UPDATE_BRANDING)
     public void updateBrandingSettings(BrandingSettingsUpdateDto brandingSettings) {
-        // Only the validated form is written: SVG logos come back sanitized, so the submitted document never lands.
+        // SVG logos come back sanitized, so the submitted document never reaches the settings table.
         BrandingSettingsUpdateDto sanitized = BrandingSettingsValidator.validated(brandingSettings);
 
         // Held before the rows are read, because a field is written by looking for its row and inserting when there is

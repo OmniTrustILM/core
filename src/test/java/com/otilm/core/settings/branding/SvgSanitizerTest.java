@@ -134,6 +134,78 @@ class SvgSanitizerTest {
         Assertions.assertFalse(stored.contains("attacker.example"), stored);
     }
 
+    /**
+     * A functional IRI is not confined to {@code href}: every presentation attribute below takes a {@code url()}, and a
+     * deny-list naming only the reference attributes would let each of them fetch.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"fill", "stroke", "filter", "mask", "clip-path", "marker-start"})
+    void anExternalFunctionalIriInAPresentationAttributeDoesNotSurvive(String attribute) {
+        String stored = submit(OPEN + "<rect width='200' height='100' " + attribute
+                + "='url(https://attacker.example/x.svg#g)'/></svg>");
+
+        Assertions.assertFalse(stored.contains("attacker.example"), stored);
+    }
+
+    /** {@code xlink:href} is a convention, not the name: the namespace is what makes the attribute a reference. */
+    @Test
+    void anExternalReferenceUnderAnAlternateXlinkPrefixDoesNotSurvive() {
+        String stored = submit("<svg xmlns='http://www.w3.org/2000/svg' xmlns:xl='http://www.w3.org/1999/xlink' "
+                + "viewBox='0 0 200 100'><use xl:href='https://attacker.example/evil.svg#x'/></svg>");
+
+        Assertions.assertFalse(stored.contains("attacker.example"), stored);
+    }
+
+    /** With {@code xml:base} kept, the fragment references that are deliberately retained would resolve elsewhere. */
+    @Test
+    void anXmlBaseDoesNotSurvive() {
+        String stored = submit("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 100' "
+                + "xml:base='https://attacker.example/'><use href='#g'/></svg>");
+
+        Assertions.assertFalse(stored.contains("attacker.example"), stored);
+        Assertions.assertFalse(stored.contains("base="), stored);
+        Assertions.assertTrue(stored.contains("#g"), stored);
+    }
+
+    /**
+     * {@code \75 rl(} and {@code @\69 mport} tokenize as {@code url(} and {@code @import}, in a stylesheet and in a
+     * presentation attribute alike, so a literal comparison is made on the escaped spelling of either.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "<style>.a{fill:\\75 rl(https://attacker.example/x.svg#g)}</style><rect width='200' height='100'/>",
+            "<style>@\\69 mport url('https://attacker.example/x.css');</style><rect width='200' height='100'/>",
+            "<rect width='200' height='100' fill='\\75 rl(https://attacker.example/x.svg#g)'/>",
+            "<rect width='200' height='100' style='fill:\\75 rl(https://attacker.example/x.svg#g)'/>"})
+    void anEscapedFetchDoesNotSurvive(String body) {
+        String stored = submit(OPEN + body + "</svg>");
+
+        Assertions.assertFalse(stored.contains("attacker.example"), stored);
+    }
+
+    /** {@code image-set()} takes a bare string, so it fetches without ever writing {@code url(}. */
+    @Test
+    void anImageSetDoesNotSurvive() {
+        String stored = submit(OPEN + "<style>.a{background-image:image-set('https://attacker.example/x.png' 1x)}"
+                + "</style><rect width='200' height='100' class='a'/></svg>");
+
+        Assertions.assertFalse(stored.contains("attacker.example"), stored);
+    }
+
+    /**
+     * Whitespace and quotes around a fragment are legal CSS, and blanking the declaration over them would silently drop
+     * the gradient a logo is painted with.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"url(#g)", "url( #g)", "url('#g')", "url(  '#g'  )"})
+    void aQuotedOrPaddedLocalReferenceSurvives(String reference) {
+        String stored = submit(OPEN + "<defs><linearGradient id='g'><stop offset='0' stop-color='#fff'/>"
+                + "</linearGradient></defs><style>.a{fill:" + reference + "}</style>"
+                + "<rect width='200' height='100' class='a'/></svg>");
+
+        Assertions.assertTrue(stored.contains("fill:" + reference), stored);
+    }
+
     /** Sanitizing must not quietly turn a logo into a blank rectangle; the drawing itself has to come through. */
     @Test
     void aBenignLogoSurvivesIntact() {
