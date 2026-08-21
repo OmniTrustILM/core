@@ -28,10 +28,10 @@ import lombok.ToString;
 @Table(name = "notification")
 public class Notification extends UniquelyIdentified {
 
-    @Column(name = "message", nullable = false)
+    @Column(name = "message", nullable = false, columnDefinition = "TEXT")
     private String message;
 
-    @Column(name = "detail")
+    @Column(name = "detail", columnDefinition = "TEXT")
     private String detail;
 
     @Column(name = "sent_at", nullable = false, columnDefinition = "TIMESTAMP default CURRENT_TIMESTAMP")

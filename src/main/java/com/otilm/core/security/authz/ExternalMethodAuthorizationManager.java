@@ -62,7 +62,7 @@ public class ExternalMethodAuthorizationManager extends AbstractExternalAuthoriz
                 .filter(this::shouldBeSendToOpa)
                 .collect(Collectors
                         .toMap(ExternalAuthorizationConfigAttribute::attributeName,
-                                ExternalAuthorizationConfigAttribute::getAttributeValueAsString));
+                                ExternalAuthorizationConfigAttribute::attributeValueAsString));
         return new AuthorizationRequest(properties, extractUUIDsFromMethodArguments(methodInvocation),
                 extractParentUUIDsFromMethodArguments(methodInvocation), hasSecurityFilterParam(methodInvocation),
                 extractParentUUIDGetterClass(attributes), methodInvocation.getMethod().getName());

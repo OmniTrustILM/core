@@ -46,7 +46,13 @@ public class AuthHelper {
     // Access control request attributes
     public static final String REQ_ATTR_RESOURCE_NAME = "INTERNAL_ATTRIB_DENIED_RESOURCE_NAME";
     public static final String REQ_ATTR_RESOURCE_ACTION_NAME = "INTERNAL_ATTRIB_DENIED_RESOURCE_ACTION_NAME";
-    public static final int REQ_ATTR_ACCESS_CONTROL_SCOPE = 121;
+    /**
+     * Request scope, not session scope: {@code ServletRequestAttributes} routes every scope other than
+     * {@link RequestAttributes#SCOPE_REQUEST} to the HTTP session, creating one if needed. A later request that
+     * recorded no denial of its own then reads this one, and is told about a decision it never triggered. Session scope
+     * also persists a session row for every denial.
+     */
+    public static final int REQ_ATTR_ACCESS_CONTROL_SCOPE = RequestAttributes.SCOPE_REQUEST;
 
     // system users and roles names
     public static final String SYSTEM_USER_HEADER_NAME = "systemUsername";

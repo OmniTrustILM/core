@@ -83,7 +83,7 @@ public class ObjectFilterAspect {
                 .stream()
                 .collect(Collectors
                         .toMap(ExternalAuthorizationConfigAttribute::attributeName,
-                                ExternalAuthorizationConfigAttribute::getAttributeValueAsString));
+                                ExternalAuthorizationConfigAttribute::attributeValueAsString));
         populateSecurityFilter(properties, secFilter);
 
         return joinPoint.proceed(arguments);

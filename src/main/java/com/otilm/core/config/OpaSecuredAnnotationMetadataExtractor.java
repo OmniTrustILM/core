@@ -42,7 +42,7 @@ public class OpaSecuredAnnotationMetadataExtractor {
                 .trace("Attributes extracted from secured annotation: [%s]"
                         .formatted(attributes
                                 .stream()
-                                .map(ExternalAuthorizationConfigAttribute::getAttribute)
+                                .map(ExternalAuthorizationConfigAttribute::describe)
                                 .collect(Collectors.joining(","))));
 
         return attributes;
@@ -60,7 +60,7 @@ public class OpaSecuredAnnotationMetadataExtractor {
                 .trace("Attributes extracted from dynamic secured annotation: [%s]"
                         .formatted(attributes
                                 .stream()
-                                .map(ExternalAuthorizationConfigAttribute::getAttribute)
+                                .map(ExternalAuthorizationConfigAttribute::describe)
                                 .collect(Collectors.joining(","))));
 
         return attributes;

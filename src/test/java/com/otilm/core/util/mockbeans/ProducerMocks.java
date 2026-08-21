@@ -4,13 +4,17 @@ import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.jms.producers.NotificationProducer;
 import com.otilm.core.messaging.jms.producers.ValidationProducer;
+import com.otilm.core.messaging.model.NotificationMessage;
+import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.springframework.boot.context.TypeExcludeFilter;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
+import org.springframework.context.event.EventListener;
 import org.springframework.core.type.classreading.MetadataReader;
 import org.springframework.core.type.classreading.MetadataReaderFactory;
 
@@ -53,6 +57,34 @@ public class ProducerMocks {
     @Primary
     ValidationProducer mockValidationProducer() {
         return mock(ValidationProducer.class);
+    }
+
+    @Bean
+    RecordedNotificationMessages recordedNotificationMessages() {
+        return new RecordedNotificationMessages();
+    }
+
+    /**
+     * Records every {@link NotificationMessage} published as an application event, synchronously at publish time. The
+     * mocked {@link NotificationProducer} never forwards messages to the broker, so tests assert on this recorder — and
+     * can replay a captured message into the listener — instead of consuming JMS.
+     */
+    public static class RecordedNotificationMessages {
+
+        private final List<NotificationMessage> messages = new CopyOnWriteArrayList<>();
+
+        @EventListener
+        public void onNotificationMessage(NotificationMessage message) {
+            messages.add(message);
+        }
+
+        public List<NotificationMessage> messages() {
+            return List.copyOf(messages);
+        }
+
+        public void clear() {
+            messages.clear();
+        }
     }
 
     /**

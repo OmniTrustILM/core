@@ -76,7 +76,7 @@ class ExternalMethodAuthorizationManagerTest {
         when(metadataExtractor.extractAttributes(any())).thenReturn(List.of());
 
         // when
-        AuthorizationDecision result = manager.check(() -> authentication, methodInvocationWithoutSecuredUUIDs());
+        AuthorizationDecision result = manager.authorize(() -> authentication, methodInvocationWithoutSecuredUUIDs());
 
         // then
         Assertions.assertTrue(result.isGranted());
@@ -91,7 +91,7 @@ class ExternalMethodAuthorizationManagerTest {
         when(metadataExtractor.extractAttributes(any())).thenReturn(List.of());
 
         // when
-        AuthorizationDecision result = manager.check(() -> authentication, methodInvocationWithoutSecuredUUIDs());
+        AuthorizationDecision result = manager.authorize(() -> authentication, methodInvocationWithoutSecuredUUIDs());
 
         // then
         Assertions.assertFalse(result.isGranted());
@@ -105,7 +105,7 @@ class ExternalMethodAuthorizationManagerTest {
         when(metadataExtractor.extractAttributes(any())).thenReturn(List.of());
 
         // when
-        AuthorizationDecision result = manager.check(() -> authentication, methodInvocationWithoutSecuredUUIDs());
+        AuthorizationDecision result = manager.authorize(() -> authentication, methodInvocationWithoutSecuredUUIDs());
 
         // then
         Assertions.assertFalse(result.isGranted());
@@ -122,7 +122,7 @@ class ExternalMethodAuthorizationManagerTest {
         MethodInvocation mi = methodInvocationWithSecuredUUID("abfbc322-29e1-11ed-a261-0242ac120002");
 
         // when
-        manager.check(() -> authentication, mi);
+        manager.authorize(() -> authentication, mi);
 
         // then
         OpaRequestedResource resource = resourceCaptor.getValue();
@@ -141,7 +141,7 @@ class ExternalMethodAuthorizationManagerTest {
                 "abfbc322-29e1-11ed-a261-0242ac120003");
 
         // when
-        manager.check(() -> authentication, mi);
+        manager.authorize(() -> authentication, mi);
 
         // then
         OpaRequestedResource resource = resourceCaptor.getValue();
@@ -161,7 +161,9 @@ class ExternalMethodAuthorizationManagerTest {
         when(metadataExtractor.extractAttributes(any())).thenReturn(attributes);
 
         // when
-        manager.check(() -> authentication, methodInvocationWithSecuredUUID("abfbc322-29e1-11ed-a261-0242ac120002"));
+        manager
+                .authorize(() -> authentication,
+                        methodInvocationWithSecuredUUID("abfbc322-29e1-11ed-a261-0242ac120002"));
 
         // then
         OpaRequestedResource resource = resourceCaptor.getValue();
@@ -181,7 +183,9 @@ class ExternalMethodAuthorizationManagerTest {
         when(metadataExtractor.extractAttributes(any())).thenReturn(attributes);
 
         // when
-        manager.check(() -> authentication, methodInvocationWithSecuredUUID("abfbc322-29e1-11ed-a261-0242ac120002"));
+        manager
+                .authorize(() -> authentication,
+                        methodInvocationWithSecuredUUID("abfbc322-29e1-11ed-a261-0242ac120002"));
 
         // then
         OpaRequestedResource resource = resourceCaptor.getValue();
@@ -197,7 +201,7 @@ class ExternalMethodAuthorizationManagerTest {
         MethodInvocation mi = methodInvocationWithoutSecuredUUIDs();
 
         // when
-        AuthorizationDecision result = manager.check(() -> authentication, mi);
+        AuthorizationDecision result = manager.authorize(() -> authentication, mi);
 
         // then
         assertFalse(result.isGranted());
@@ -214,7 +218,7 @@ class ExternalMethodAuthorizationManagerTest {
         Authentication anonymousToken = AuthenticationTokenTestHelper.getAnonymousToken("anonymousUser");
 
         // when
-        manager.check(() -> anonymousToken, methodInvocationWithoutSecuredUUIDs());
+        manager.authorize(() -> anonymousToken, methodInvocationWithoutSecuredUUIDs());
 
         // then
         String principal = principalCaptor.getValue();
@@ -238,7 +242,7 @@ class ExternalMethodAuthorizationManagerTest {
                 SecuredResource.fromResource(Resource.RA_PROFILE));
 
         // when
-        AuthorizationDecision result = manager.check(() -> authentication, invocation);
+        AuthorizationDecision result = manager.authorize(() -> authentication, invocation);
 
         // then
         Assertions.assertTrue(result.isGranted());
@@ -252,7 +256,7 @@ class ExternalMethodAuthorizationManagerTest {
                 target.getClass().getMethod("dynamicListMethod", SecuredResource.class), (SecuredResource) null);
 
         // when
-        AuthorizationDecision result = manager.check(() -> authentication, invocation);
+        AuthorizationDecision result = manager.authorize(() -> authentication, invocation);
 
         // then
         assertFalse(result.isGranted());

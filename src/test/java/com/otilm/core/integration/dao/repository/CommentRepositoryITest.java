@@ -103,6 +103,22 @@ class CommentRepositoryITest extends BaseSpringBootTest {
     }
 
     @Test
+    void collectsDistinctThreadParticipants() {
+        UUID objectUuid = UUID.randomUUID();
+        Comment root = commentRepository.saveAndFlush(newComment(objectUuid, null));
+        Comment replyB = newComment(objectUuid, root.getUuid());
+        UUID authorB = replyB.getAuthorUuid();
+        commentRepository.saveAndFlush(replyB);
+        Comment replyB2 = newComment(objectUuid, root.getUuid());
+        replyB2.setAuthorUuid(authorB);
+        commentRepository.saveAndFlush(replyB2);
+        Comment replyC = commentRepository.saveAndFlush(newComment(objectUuid, root.getUuid()));
+
+        assertThat(commentRepository.findThreadParticipantUuids(root.getUuid()))
+                .containsExactlyInAnyOrder(root.getAuthorUuid(), authorB, replyC.getAuthorUuid());
+    }
+
+    @Test
     void deletingRootCascadesToReplies() {
         UUID objectUuid = UUID.randomUUID();
         Comment root = commentRepository.saveAndFlush(newComment(objectUuid, null));

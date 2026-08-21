@@ -121,6 +121,7 @@ import com.otilm.core.service.handler.CertificateHandler;
 import com.otilm.core.service.impl.CertificateServiceImpl;
 import com.otilm.core.tasks.DiscoveryCertificateTask;
 import com.otilm.core.util.AuthHelper;
+import com.otilm.core.util.AuthServiceWireMockStubs;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.WireMockPorts;
@@ -1330,36 +1331,7 @@ class EventHandlersITest extends BaseSpringBootTest {
     }
 
     private void mockAuthResponse(NameAndUuidDto userInfo) {
-        mockServer.stubFor(WireMock.get(WireMock.urlPathMatching("/auth/users/[^/]+")).willReturn(WireMock.okJson("""
-                {
-                    "uuid": "%s",
-                    "username": "%s",
-                    "email": "testuser1@example.com",
-                    "groups": [],
-                    "roles": []
-                }
-                """.formatted(userInfo.getUuid(), userInfo.getName()))));
-
-        mockServer.stubFor(WireMock.post(WireMock.urlPathMatching("/auth")).willReturn(WireMock.okJson("""
-                {
-                                  "authenticated": true,
-                                  "data": {
-                                    "user": {
-                                      "uuid": "%s",
-                                      "username": "%s"
-                                    },
-                                    "roles": [
-                                      {
-                                        "name": "superadmin"
-                                      }
-                                    ],
-                                    "permissions": {
-                                      "allowAllResources": true,
-                                      "resources": []
-                                    }
-                                  }
-                                }
-                """.formatted(userInfo.getUuid(), userInfo.getName()))));
+        AuthServiceWireMockStubs.stubImpersonation(mockServer, UUID.fromString(userInfo.getUuid()), userInfo.getName());
     }
 
     @Test

@@ -133,6 +133,17 @@ class CommentEventITest extends BaseSpringBootTest {
     }
 
     @Test
+    void repeatedResolutionRequestPublishesNoSecondEvent() throws NotFoundException {
+        CommentDto root = post("resolve me twice", null);
+        commentService.resolveComment(root.getUuid());
+        reset(eventProducer);
+
+        commentService.resolveComment(root.getUuid());
+
+        assertThat(capturedMessages()).isEmpty();
+    }
+
+    @Test
     void deletePublishesNothing() throws NotFoundException {
         CommentDto root = post("silent delete", null);
         reset(eventProducer);

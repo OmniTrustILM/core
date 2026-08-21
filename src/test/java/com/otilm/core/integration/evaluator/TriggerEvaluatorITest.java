@@ -48,6 +48,7 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CertificateLocation;
 import com.otilm.core.dao.entity.CertificateProtocolAssociation;
+import com.otilm.core.dao.entity.Comment;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
@@ -117,6 +118,9 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
 
     @Autowired
     private TriggerEvaluator<Discovery> discoveryTriggerEvaluator;
+
+    @Autowired
+    private TriggerEvaluator<Comment> commentTriggerEvaluator;
 
     @Autowired
     private CertificateRepository certificateRepository;
@@ -357,6 +361,50 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
         Assertions
                 .assertFalse(certificateTriggerEvaluator
                         .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+    }
+
+    @Test
+    void testCommentRuleEvaluatorOnProperties() throws RuleException {
+        Comment comment = new Comment();
+        comment.setResource(Resource.RA_PROFILE);
+        comment.setObjectUuid(UUID.randomUUID());
+        comment.setAuthorUuid(UUID.randomUUID());
+        comment.setAuthorUsername("tst-author");
+        comment.setBody("please review the profile");
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+
+        condition.setFieldIdentifier(FilterField.COMMENT_HOST_RESOURCE.name());
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        condition.setValue(List.of(Resource.RA_PROFILE.getCode()));
+        Assertions.assertTrue(commentTriggerEvaluator.evaluateConditionItem(condition, comment, Resource.COMMENT));
+        condition.setValue(List.of(Resource.CERTIFICATE.getCode()));
+        Assertions.assertFalse(commentTriggerEvaluator.evaluateConditionItem(condition, comment, Resource.COMMENT));
+
+        condition.setFieldIdentifier(FilterField.COMMENT_AUTHOR.name());
+        condition.setValue(List.of("tst-author", "another-user"));
+        Assertions.assertTrue(commentTriggerEvaluator.evaluateConditionItem(condition, comment, Resource.COMMENT));
+
+        condition.setFieldIdentifier(FilterField.COMMENT_BODY.name());
+        condition.setOperator(FilterConditionOperator.CONTAINS);
+        condition.setValue("review");
+        Assertions.assertTrue(commentTriggerEvaluator.evaluateConditionItem(condition, comment, Resource.COMMENT));
+
+        // The presence-only parent field separates roots from replies
+        condition.setFieldIdentifier(FilterField.COMMENT_PARENT.name());
+        condition.setValue(null);
+        condition.setOperator(FilterConditionOperator.EMPTY);
+        Assertions.assertTrue(commentTriggerEvaluator.evaluateConditionItem(condition, comment, Resource.COMMENT));
+        comment.setParentUuid(UUID.randomUUID());
+        Assertions.assertFalse(commentTriggerEvaluator.evaluateConditionItem(condition, comment, Resource.COMMENT));
+        condition.setOperator(FilterConditionOperator.NOT_EMPTY);
+        Assertions.assertTrue(commentTriggerEvaluator.evaluateConditionItem(condition, comment, Resource.COMMENT));
+
+        // Resolution timestamp presence separates open threads from resolved ones
+        condition.setFieldIdentifier(FilterField.COMMENT_RESOLVED_AT.name());
+        condition.setOperator(FilterConditionOperator.EMPTY);
+        Assertions.assertTrue(commentTriggerEvaluator.evaluateConditionItem(condition, comment, Resource.COMMENT));
+        comment.setResolvedAt(OffsetDateTime.now());
+        Assertions.assertFalse(commentTriggerEvaluator.evaluateConditionItem(condition, comment, Resource.COMMENT));
     }
 
     @Test

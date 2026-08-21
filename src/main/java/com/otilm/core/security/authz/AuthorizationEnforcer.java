@@ -3,6 +3,7 @@ package com.otilm.core.security.authz;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.model.auth.ResourceAction;
 import java.util.List;
+import java.util.UUID;
 import org.springframework.security.access.AccessDeniedException;
 
 /**
@@ -31,4 +32,15 @@ public interface AuthorizationEnforcer {
      * check fails.
      */
     void enforce(Resource resource, ResourceAction action, List<SecuredUUID> objectUuids) throws AccessDeniedException;
+
+    /**
+     * Whether {@code userUuid} -- somebody other than the current principal -- may perform {@code action} on the
+     * object. A user the auth service can no longer resolve is denied.
+     *
+     * <p>
+     * The decision is made against a principal resolved for that user, leaving the current security context and the
+     * actor MDC untouched, so this is safe to call while acting as somebody else. On top of the cost noted above, each
+     * call resolves the user against the auth service (cached).
+     */
+    boolean isAuthorizedAs(UUID userUuid, Resource resource, ResourceAction action, SecuredUUID objectUuid);
 }

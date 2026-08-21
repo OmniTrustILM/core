@@ -13,6 +13,7 @@ import com.otilm.core.security.authz.SecuredResource;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CommentExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import java.time.OffsetDateTime;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -145,6 +146,27 @@ class CommentServiceValidationITest extends BaseSpringBootTest {
         CommentDto reopened = list(raProfileUuid).getComments().getFirst();
         assertThat(reopened.getResolved()).isFalse();
         assertThat(reopened.getResolvedBy()).isNull();
+    }
+
+    @Test
+    void repeatedResolutionRequestIsANoOpAndAMissingCommentIsStillNotFound() throws NotFoundException {
+        CommentDto root = post(raProfileUuid, "root", null);
+        commentService.resolveComment(root.getUuid());
+        OffsetDateTime firstResolvedAt = list(raProfileUuid).getComments().getFirst().getResolvedAt();
+
+        commentService.resolveComment(root.getUuid());
+
+        CommentDto stillResolved = list(raProfileUuid).getComments().getFirst();
+        assertThat(stillResolved.getResolved()).isTrue();
+        assertThat(stillResolved.getResolvedAt()).isEqualTo(firstResolvedAt);
+
+        commentService.unresolveComment(root.getUuid());
+        commentService.unresolveComment(root.getUuid());
+        assertThat(list(raProfileUuid).getComments().getFirst().getResolved()).isFalse();
+
+        UUID missingUuid = UUID.randomUUID();
+        assertThatThrownBy(() -> commentService.resolveComment(missingUuid)).isInstanceOf(NotFoundException.class);
+        assertThatThrownBy(() -> commentService.unresolveComment(missingUuid)).isInstanceOf(NotFoundException.class);
     }
 
     @Test

@@ -139,11 +139,7 @@ public class AuditLogAspect {
         } catch (Exception e) {
             String message = e.getMessage();
             if (e instanceof AccessDeniedException) {
-                String resourceNameAccessDenied = AuthHelper.getDeniedPermissionResource();
-                String resourceActionName = AuthHelper.getDeniedPermissionResourceAction();
-                message = "%s. Required '%s' action permission for resource '%s'"
-                        .formatted(message, BeautificationUtil.camelToHumanForm(resourceActionName),
-                                Resource.findByCode(resourceNameAccessDenied).getLabel());
+                message = appendDeniedPermission(message);
             }
 
             logBuilder.operationResult(OperationResult.FAILURE);
@@ -164,6 +160,21 @@ public class AuditLogAspect {
             logBuilder.timestamp(OffsetDateTime.now());
             auditLogsProducer.produceMessage(new AuditLogMessage(logBuilder.build(), output));
         }
+    }
+
+    /**
+     * Appends the recorded denied permission to the audit message, or returns the original message when no permission
+     * was recorded.
+     */
+    private static String appendDeniedPermission(String message) {
+        String resourceName = AuthHelper.getDeniedPermissionResource();
+        String resourceActionName = AuthHelper.getDeniedPermissionResourceAction();
+        if (resourceName == null || resourceActionName == null) {
+            return message;
+        }
+        return "%s. Required '%s' action permission for resource '%s'"
+                .formatted(message, BeautificationUtil.camelToHumanForm(resourceActionName),
+                        Resource.findByCode(resourceName).getLabel());
     }
 
     /**

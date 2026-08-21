@@ -263,8 +263,10 @@ public class CommentServiceImpl implements CommentExternalService, CommentIntern
         int updated = resolved
                 ? commentWriter.resolve(uuid, changedAt, UUID.fromString(actor.getUuid()), actor.getName())
                 : commentWriter.unresolve(uuid);
+        // The thread is already in the requested state, or vanished between the read and the update: the
+        // request succeeds, but there is no transition to announce.
         if (updated == 0) {
-            throw new NotFoundException(Comment.class, uuid);
+            return;
         }
 
         CommentEventData eventData = baseEventData(comment, hostObject.getName());

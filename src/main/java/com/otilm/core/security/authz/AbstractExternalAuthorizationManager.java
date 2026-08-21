@@ -15,8 +15,15 @@ public abstract class AbstractExternalAuthorizationManager<T> implements Authori
 
     protected final Log logger = LogFactory.getLog(this.getClass());
 
+    /**
+     * Decides whether the authenticated caller may act on {@code object}.
+     *
+     * <p>
+     * <b>Never abstains.</b> The interface permits {@code null} to mean "no decision", but an unrecognised token type
+     * and a subclass that cannot decide both come back as an explicit denial instead.
+     */
     @Override
-    public AuthorizationDecision check(Supplier<Authentication> authenticationSupplier, T object) {
+    public AuthorizationDecision authorize(Supplier<Authentication> authenticationSupplier, T object) {
         Authentication authentication = authenticationSupplier.get();
         if (!(authentication instanceof PlatformAuthenticationToken
                 || authentication instanceof AnonymousAuthenticationToken)) {
@@ -26,7 +33,7 @@ public abstract class AbstractExternalAuthorizationManager<T> implements Authori
         }
 
         if (!canDecide(authentication, object)) {
-            logger.trace("Abstaining from voting as voter can't decide for given object.");
+            logger.trace("Denying as this manager can't decide for the given object.");
             return new AuthorizationDecision(false);
         }
 
@@ -36,6 +43,23 @@ public abstract class AbstractExternalAuthorizationManager<T> implements Authori
             return checkInternal((AnonymousAuthenticationToken) authentication, object);
         }
 
+    }
+
+    /**
+     * Delegates to {@link #authorize}, which holds the decision.
+     *
+     * <p>
+     * This override cannot simply be deleted while we are on Spring Security 6.5, where {@code check} is both abstract
+     * and deprecated. Spring Security 7 removes it and widens the surviving {@code authorize} to
+     * {@code Supplier<? extends Authentication>}, so that upgrade both drops this method and changes the signature
+     * above.
+     *
+     * @deprecated removed in Spring Security 7; call {@link #authorize} instead.
+     */
+    @Deprecated(forRemoval = true)
+    @Override
+    public AuthorizationDecision check(Supplier<Authentication> authenticationSupplier, T object) {
+        return authorize(authenticationSupplier, object);
     }
 
     protected abstract AuthorizationDecision checkInternal(PlatformAuthenticationToken authentication, T object);

@@ -10,6 +10,7 @@ import com.otilm.core.dao.entity.AuditLog;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
+import com.otilm.core.dao.entity.Comment;
 import com.otilm.core.dao.entity.ComplianceProfile;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.Credential;
@@ -78,6 +79,9 @@ public enum ResourceToClass {
     // APPROVALS
     APPROVAL_PROFILE(Resource.APPROVAL_PROFILE, ApprovalProfile.class),
     APPROVAL(Resource.APPROVAL, Approval.class),
+
+    // COMMENTS
+    COMMENT(Resource.COMMENT, Comment.class),
 
     // SIGNING
     SIGNING_PROFILE(Resource.SIGNING_PROFILE, SigningProfile.class),

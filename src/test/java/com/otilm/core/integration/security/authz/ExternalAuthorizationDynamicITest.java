@@ -25,8 +25,6 @@ import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.SecuredResource;
 import com.otilm.core.security.authz.SecuredUUID;
-import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
-import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
 import com.otilm.core.service.ComplianceExternalService;
 import com.otilm.core.service.ResourceExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -36,10 +34,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authorization.AuthorizationDeniedException;
-
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.argThat;
-import static org.mockito.Mockito.when;
 
 /**
  * End-to-end tests for the {@link com.otilm.core.security.authz.ExternalAuthorizationDynamic} annotation exercised
@@ -69,7 +63,7 @@ class ExternalAuthorizationDynamicITest extends BaseSpringBootTest {
 
     @Test
     void deniesWhenOpaRejectsResolvedResourceAndAnnotationAction() {
-        denyResourceAction(Resource.CERTIFICATE, ResourceAction.UPDATE);
+        denyResourceAccess(Resource.CERTIFICATE, ResourceAction.UPDATE);
 
         List<BaseAttributeContentV3<?>> content = List.of(new StringAttributeContentV3("value"));
         SecuredResource securedResource = SecuredResource.fromResource(Resource.CERTIFICATE);
@@ -84,7 +78,7 @@ class ExternalAuthorizationDynamicITest extends BaseSpringBootTest {
     void resolvesResourceFromArgumentSoOtherResourceStaysAuthorized() throws NotFoundException, AttributeException {
         Certificate certificate = persistCertificate();
         UUID attributeUuid = persistCertificateCustomAttribute();
-        denyResourceAction(Resource.ATTRIBUTE, ResourceAction.UPDATE);
+        denyResourceAccess(Resource.ATTRIBUTE, ResourceAction.UPDATE);
 
         List<BaseAttributeContentV3<?>> content = List.of(new StringAttributeContentV3("value"));
         List<ResponseAttribute> updated = resourceService
@@ -102,25 +96,13 @@ class ExternalAuthorizationDynamicITest extends BaseSpringBootTest {
      */
     @Test
     void authorizesAgainstSecuredResourceNotBareResourceArgument() {
-        denyResourceAction(Resource.SECRET, ResourceAction.DETAIL);
+        denyResourceAccess(Resource.SECRET, ResourceAction.DETAIL);
 
         SecuredResource securedResource = SecuredResource.fromResource(Resource.SECRET);
         UUID objectUuid = UUID.randomUUID();
         Assertions
                 .assertThrows(AuthorizationDeniedException.class, () -> complianceService
                         .getComplianceCheckResult(securedResource, null, Resource.CERTIFICATE, objectUuid));
-    }
-
-    private void denyResourceAction(Resource resource, ResourceAction action) {
-        when(opaClient.checkResourceAccess(any(), argThat(req -> isRequestFor(req, resource, action)), any(), any()))
-                .thenReturn(OpaResourceAccessResult.unauthorized());
-    }
-
-    private static boolean isRequestFor(OpaRequestedResource requestedResource, Resource resource,
-            ResourceAction action) {
-        return requestedResource != null && requestedResource.getProperties() != null
-                && resource.getCode().equals(requestedResource.getProperties().get("name"))
-                && action.getCode().equals(requestedResource.getProperties().get("action"));
     }
 
     private Certificate persistCertificate() {

@@ -2,6 +2,7 @@ package com.otilm.core.service.notifications;
 
 import com.otilm.api.model.common.events.data.ApprovalEventData;
 import com.otilm.api.model.common.events.data.CertificateExpiringEventData;
+import com.otilm.api.model.common.events.data.CommentEventData;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.service.notifications.NotificationSubjectResolver.SubjectRef;
 import java.util.UUID;
@@ -50,6 +51,21 @@ class NotificationSubjectResolverTest {
         subject = NotificationSubjectResolver.resolveSubject(Resource.APPROVAL, approvalUuid, approval);
 
         assertEquals(new SubjectRef(Resource.APPROVAL, approvalUuid), subject);
+    }
+
+    // Deliberate: the redirection also feeds the OBJECT-recipient path, so an admin can route comment
+    // notifications to a contact stored on the host object's attributes
+    @Test
+    void commentEventsResolveToTheHostObject() {
+        UUID commentUuid = UUID.randomUUID();
+        UUID hostUuid = UUID.randomUUID();
+        CommentEventData comment = new CommentEventData();
+        comment.setResource(Resource.CERTIFICATE);
+        comment.setObjectUuid(hostUuid);
+
+        SubjectRef subject = NotificationSubjectResolver.resolveSubject(Resource.COMMENT, commentUuid, comment);
+
+        assertEquals(new SubjectRef(Resource.CERTIFICATE, hostUuid), subject);
     }
 
     @Test

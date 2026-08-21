@@ -13,6 +13,7 @@ import com.otilm.core.security.authn.PlatformUserDetails;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
 import com.otilm.core.security.authz.opa.OpaClient;
 import com.otilm.core.security.authz.opa.dto.OpaObjectAccessResult;
+import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
 import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
 import com.otilm.core.service.SettingInternalService;
 import java.sql.SQLException;
@@ -20,6 +21,7 @@ import java.util.List;
 import java.util.UUID;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,6 +34,7 @@ import org.springframework.test.context.TestExecutionListeners.MergeMode;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @SpringBootTest
@@ -99,6 +102,16 @@ public class BaseSpringBootTest {
                                         && action.getCode().equals(req.getProperties().get("action"))),
                         Mockito.any(), Mockito.any()))
                 .thenReturn(denied);
+    }
+
+    /**
+     * Every resource-access request submitted to OPA so far, in submission order.
+     */
+    protected List<OpaRequestedResource> captureOpaRequests() {
+        ArgumentCaptor<OpaRequestedResource> captor = ArgumentCaptor.forClass(OpaRequestedResource.class);
+        verify(opaClient, Mockito.atLeastOnce())
+                .checkResourceAccess(Mockito.any(), captor.capture(), Mockito.any(), Mockito.any());
+        return captor.getAllValues();
     }
 
     /**

@@ -35,15 +35,20 @@ public interface CommentRepository extends SecurityFilterRepository<Comment, UUI
     @Query("SELECT c FROM Comment c WHERE c.uuid = :uuid")
     Optional<Comment> findWithLockByUuid(@Param("uuid") UUID uuid);
 
+    @Query("SELECT DISTINCT c.authorUuid FROM Comment c WHERE c.uuid = :rootUuid OR c.parentUuid = :rootUuid")
+    List<UUID> findThreadParticipantUuids(@Param("rootUuid") UUID rootUuid);
+
+    // The state predicate makes the transition atomic: a repeated request updates no rows, so the caller can
+    // tell a real transition from a no-op without reading the row first.
     @Modifying
     @Query("UPDATE Comment c SET c.resolvedAt = :resolvedAt, c.resolvedByUuid = :actorUuid, "
-            + "c.resolvedByUsername = :actorUsername WHERE c.uuid = :uuid")
+            + "c.resolvedByUsername = :actorUsername WHERE c.uuid = :uuid AND c.resolvedAt IS NULL")
     int resolve(@Param("uuid") UUID uuid, @Param("resolvedAt") OffsetDateTime resolvedAt,
             @Param("actorUuid") UUID actorUuid, @Param("actorUsername") String actorUsername);
 
     @Modifying
     @Query("UPDATE Comment c SET c.resolvedAt = NULL, c.resolvedByUuid = NULL, c.resolvedByUsername = NULL "
-            + "WHERE c.uuid = :uuid")
+            + "WHERE c.uuid = :uuid AND c.resolvedAt IS NOT NULL")
     int unresolve(@Param("uuid") UUID uuid);
 
     @Modifying
