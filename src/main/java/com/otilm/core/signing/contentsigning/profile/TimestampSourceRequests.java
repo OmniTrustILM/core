@@ -18,7 +18,7 @@ public final class TimestampSourceRequests {
     public static UUID internalProfileUuid(TimestampSourceRequestDto timestampSource) {
         return switch (timestampSource) {
             case null -> null;
-            case InternalTimestampSourceRequestDto internal -> internal.signingProfileUuid();
+            case InternalTimestampSourceRequestDto(UUID signingProfileUuid) -> signingProfileUuid;
         };
     }
 }

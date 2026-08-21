@@ -98,7 +98,7 @@ public class ManagedContentSigningEngine {
         requireAcceptableSigningCertificate(profile);
         Instant signingTime = clockSource.wallTimeInstant();
 
-        ComputeDtbsResponseDto dtbs = computeDtbs(request, profile, signingTime);
+        ComputeDtbsResponseDto dtbs = requireCompleteDtbs(computeDtbs(request, profile, signingTime));
         // The key is released only once the connector has committed to the authorized document.
         DtbsBindingVerifier.verify(request.authorizedDigest(), dtbs);
         byte[] signatureValue = acquisitions.signatureValue(profile, dtbs.getDtbs());
@@ -214,6 +214,30 @@ public class ManagedContentSigningEngine {
         dtbsRequest.setSignerCertificateChain(encodedChain(profile));
         dtbsRequest.setSigningTime(signingTime.atOffset(ZoneOffset.UTC));
         return formattingClient.computeDtbs(profile.signatureFormattingConnector(), dtbsRequest);
+    }
+
+    /**
+     * Acquiring the signature is not idempotent, so a response the connector already left incomplete has to be refused
+     * before the key is exercised. A missing {@code formattingContext} would otherwise surface only at
+     * {@code embedSignatureValue}, by which point the signature has been made and cannot be completed.
+     */
+    private static ComputeDtbsResponseDto requireCompleteDtbs(ComputeDtbsResponseDto response)
+            throws SigningEngineException {
+        if (response == null) {
+            throw incompleteDtbs("connector returned no computeDtbs response");
+        }
+        if (response.getDtbs() == null) {
+            throw incompleteDtbs("connector returned no dtbs to sign");
+        }
+        if (response.getFormattingContext() == null) {
+            throw incompleteDtbs("connector returned no formattingContext to complete the signature with");
+        }
+        return response;
+    }
+
+    private static SigningEngineException incompleteDtbs(String defect) {
+        return SigningEngineException
+                .stepFailed(SigningEngineFailure.CONNECTOR_FAULT, "computeDtbs", defect, null, CLIENT_MESSAGE);
     }
 
     /** The connector needs the CAs too: the signature embeds the chain a validator will walk. */

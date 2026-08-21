@@ -411,6 +411,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         }
         validateSigningSchemeCoherence(request.getSigningScheme());
         attributeEngine.validateCustomAttributesContent(Resource.SIGNING_PROFILE, request.getCustomAttributes());
+        validateManagedContentSigningWorkflow(request);
         List<BaseAttribute> formattingDefinitions = fetchFormattingAttributeDefinitions(request.getWorkflow());
         SigningProfileDto created = self.persistCreate(request, formattingDefinitions);
         evictSigningProfileCache(created.getName());
@@ -457,6 +458,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
             throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
         validateSigningSchemeCoherence(request.getSigningScheme());
         attributeEngine.validateCustomAttributesContent(Resource.SIGNING_PROFILE, request.getCustomAttributes());
+        validateManagedContentSigningWorkflow(request);
         List<BaseAttribute> formattingDefinitions = fetchFormattingAttributeDefinitions(request.getWorkflow());
         return self.persistUpdate(uuid, request, formattingDefinitions);
     }
@@ -909,6 +911,26 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         }
     }
 
+    private void validateManagedContentSigningWorkflow(SigningProfileRequestDto request) throws NotFoundException {
+        if (request.getSigningScheme().getSigningScheme() != SigningScheme.MANAGED
+                || !(request.getWorkflow() instanceof ContentSigningWorkflowRequestDto w)) {
+            return;
+        }
+        contentSigningWorkflowValidator
+                .validate(w,
+                        connectorService
+                                .getConnectorEntityWithInterfaces(
+                                        SecuredUUID.fromUUID(requireSignatureFormattingConnectorUuid(w))));
+    }
+
+    private static UUID requireSignatureFormattingConnectorUuid(ContentSigningWorkflowRequestDto w) {
+        if (w.getSignatureFormattingConnectorUuid() == null) {
+            throw new ValidationException(
+                    "Signature formatting connector is required for an ILM-managed content signing workflow");
+        }
+        return w.getSignatureFormattingConnectorUuid();
+    }
+
     /**
      * Resolves the formatting connector an ILM-managed content-signing profile must name, validates the workflow
      * against the levels that connector actually reaches, then stamps the ladder columns a signing run reads to decide
@@ -916,12 +938,8 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
      */
     private void applyManagedContentSigning(SigningProfileVersion version, ContentSigningWorkflowRequestDto w)
             throws NotFoundException {
-        if (w.getSignatureFormattingConnectorUuid() == null) {
-            throw new ValidationException(
-                    "Signature formatting connector is required for an ILM-managed content signing workflow");
-        }
         Connector contentConnector = connectorService
-                .getConnectorEntity(SecuredUUID.fromUUID(w.getSignatureFormattingConnectorUuid()));
+                .getConnectorEntity(SecuredUUID.fromUUID(requireSignatureFormattingConnectorUuid(w)));
         contentSigningWorkflowValidator.validate(w, contentConnector);
         version.setSignatureFormattingConnector(contentConnector);
         version.setSignatureFamily(w.getFamily());

@@ -4,6 +4,7 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.client.signing.profile.SigningProfileDto;
+import com.otilm.api.model.client.signing.profile.SigningProfileRequestDto;
 import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
 import com.otilm.api.model.client.signing.profile.record.SigningRecordPolicyRequestDto;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
@@ -52,6 +53,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import static com.otilm.core.util.builders.ConnectorRequestDtoBuilder.aV1ConnectorRequest;
@@ -194,11 +197,12 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         }
     }
 
-    @Test
-    void signsAPadesDocumentToTimestampedLevelAndTracesToItsTimestampRecord() throws Exception {
-        // given: a PAdES profile whose ceiling is TIMESTAMPED, pointing at an ILM-managed TSA profile
+    @ParameterizedTest
+    @EnumSource(SignatureFamily.class)
+    void signsADocumentToTimestampedLevelAndTracesToItsTimestampRecord(SignatureFamily family) throws Exception {
+        // given: a profile of this family whose ceiling is TIMESTAMPED, pointing at an ILM-managed TSA profile
         SigningProfileDto tsaProfile = createTimestampingProfile("timestamped-run-tsa");
-        SigningProfileDto contentProfile = createContentSigningProfile("timestamped-run-pades", SignatureFamily.PADES,
+        SigningProfileDto contentProfile = createContentSigningProfile(profileName("timestamped-run", family), family,
                 SignatureLevel.TIMESTAMPED, UUID.fromString(tsaProfile.getUuid()));
         byte[] document = "a document to sign".getBytes(StandardCharsets.UTF_8);
 
@@ -213,14 +217,15 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         assertThat(signed.timestampSerials()).hasSize(1);
         String serialHex = signed.timestampSerials().getFirst().toString(16);
         assertThat(recordsFor(tsaProfile.getName()))
-                .anySatisfy(record -> assertThat(record.getName()).contains(serialHex));
+                .anySatisfy(signingRecord -> assertThat(signingRecord.getName()).contains(serialHex));
         assertThat(recordsFor(contentProfile.getName())).isNotEmpty();
     }
 
-    @Test
-    void signsAPadesDocumentToSignedLevelAndLeavesARecord() throws Exception {
-        // given: a PAdES profile whose ceiling is SIGNED, which names no timestamp source
-        SigningProfileDto contentProfile = createContentSigningProfile("signed-run-pades", SignatureFamily.PADES,
+    @ParameterizedTest
+    @EnumSource(SignatureFamily.class)
+    void signsADocumentToSignedLevelAndLeavesARecord(SignatureFamily family) throws Exception {
+        // given: a profile of this family whose ceiling is SIGNED, which names no timestamp source
+        SigningProfileDto contentProfile = createContentSigningProfile(profileName("signed-run", family), family,
                 SignatureLevel.SIGNED, null);
         byte[] document = "a baseline document".getBytes(StandardCharsets.UTF_8);
 
@@ -290,19 +295,20 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
                             .withUrl(baselineOnlyMock.getUrl())
                             .build());
 
+            SigningProfileRequestDto request = aSigningProfileRequest()
+                    .withName("unreachable-ceiling-pades")
+                    .withStaticKeyManagedSigning(signingCertificate.getUuid())
+                    .withContentSigning(aContentSigningWorkflow()
+                            .withSignatureFormattingConnector(UUID.fromString(baselineOnlyConnector.getUuid()))
+                            .withFamily(SignatureFamily.PADES)
+                            .withMaxLevel(SignatureLevel.TIMESTAMPED)
+                            .withInternalTimestampSource(UUID.fromString(tsaProfile.getUuid()))
+                            .build())
+                    .withRecordPolicy(recordingEverything())
+                    .build();
+
             // when / then: a TIMESTAMPED ceiling is refused at save, not at signing time
-            assertThatThrownBy(() -> signingProfileService
-                    .createSigningProfile(aSigningProfileRequest()
-                            .withName("unreachable-ceiling-pades")
-                            .withStaticKeyManagedSigning(signingCertificate.getUuid())
-                            .withContentSigning(aContentSigningWorkflow()
-                                    .withSignatureFormattingConnector(UUID.fromString(baselineOnlyConnector.getUuid()))
-                                    .withFamily(SignatureFamily.PADES)
-                                    .withMaxLevel(SignatureLevel.TIMESTAMPED)
-                                    .withInternalTimestampSource(UUID.fromString(tsaProfile.getUuid()))
-                                    .build())
-                            .withRecordPolicy(recordingEverything())
-                            .build()))
+            assertThatThrownBy(() -> signingProfileService.createSigningProfile(request))
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("does not reach level TIMESTAMPED");
         } finally {
@@ -375,6 +381,11 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         return profile;
     }
 
+    /** Each parameterized run saves its own profile, so the name has to carry the family it was created for. */
+    private static String profileName(String prefix, SignatureFamily family) {
+        return prefix + "-" + family.getCode();
+    }
+
     private static SigningRecordPolicyRequestDto recordingEverything() {
         return aSigningRecordPolicyRequest()
                 .withRecordingEnabled(true)
@@ -389,7 +400,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
                 .listSigningRecords(aSearchRequest().build(), SecurityFilter.create())
                 .getItems()
                 .stream()
-                .filter(record -> signingProfileName.equals(record.getSigningProfile().getName()))
+                .filter(signingRecord -> signingProfileName.equals(signingRecord.getSigningProfile().getName()))
                 .toList();
     }
 }

@@ -27,9 +27,10 @@ class SignedContentTest {
         SignedContent signed = new SignedContent(DOCUMENT, SignatureLevel.SIGNED, List.of());
 
         // when / then
-        assertThat(signed).isNotEqualTo(new SignedContent(DOCUMENT, SignatureLevel.TIMESTAMPED, List.of()));
-        assertThat(signed).isNotEqualTo(new SignedContent(DOCUMENT, SignatureLevel.SIGNED, List.of(BigInteger.ONE)));
-        assertThat(signed).isNotEqualTo(new SignedContent("other".getBytes(), SignatureLevel.SIGNED, List.of()));
+        assertThat(signed)
+                .isNotEqualTo(new SignedContent(DOCUMENT, SignatureLevel.TIMESTAMPED, List.of()))
+                .isNotEqualTo(new SignedContent(DOCUMENT, SignatureLevel.SIGNED, List.of(BigInteger.ONE)))
+                .isNotEqualTo(new SignedContent("other".getBytes(), SignatureLevel.SIGNED, List.of()));
     }
 
     @Test
@@ -55,7 +56,10 @@ class SignedContentTest {
         String rendered = signed.toString();
 
         // then
-        assertThat(rendered).contains(DOCUMENT.length + " bytes").contains("SIGNED").contains("42");
-        assertThat(rendered).doesNotContain("signed document");
+        assertThat(rendered)
+                .contains(DOCUMENT.length + " bytes")
+                .contains("SIGNED")
+                .contains("42")
+                .doesNotContain("signed document");
     }
 }

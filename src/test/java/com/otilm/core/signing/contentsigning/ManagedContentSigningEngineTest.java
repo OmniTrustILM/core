@@ -445,6 +445,64 @@ class ManagedContentSigningEngineTest {
         }
 
         @Test
+        void refusesToReleaseTheKeyWhenTheConnectorReturnsNoFormattingContext() throws SigningEngineException {
+            // given: a response whose dtbs and echo are usable but whose formatting context is missing
+            ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
+            ComputeDtbsResponseDto incomplete = new ComputeDtbsResponseDto();
+            incomplete.setDtbs("dtbs".getBytes());
+            incomplete.setDocumentDigest(digestOf(DOCUMENT));
+            incomplete.setDocumentDigestAlgorithm(DigestAlgorithm.SHA_256);
+            when(formattingClient.computeDtbs(any(), any())).thenReturn(incomplete);
+
+            // when
+            SigningEngineException thrown = catchThrowableOfType(() -> engine
+                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API),
+                    SigningEngineException.class);
+
+            // then: the connector broke its contract, and no key was used
+            assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.CONNECTOR_FAULT);
+            assertThat(thrown.step()).isEqualTo("computeDtbs");
+            verify(acquisitions, never()).signatureValue(any(), any());
+            verify(formattingClient, never()).embedSignatureValue(any(), any());
+        }
+
+        @Test
+        void refusesToReleaseTheKeyWhenTheConnectorAnswersComputeDtbsWithNothing() throws SigningEngineException {
+            // given: a 200 carrying no body at all
+            ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
+            when(formattingClient.computeDtbs(any(), any())).thenReturn(null);
+
+            // when
+            SigningEngineException thrown = catchThrowableOfType(() -> engine
+                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API),
+                    SigningEngineException.class);
+
+            // then
+            assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.CONNECTOR_FAULT);
+            verify(acquisitions, never()).signatureValue(any(), any());
+        }
+
+        @Test
+        void refusesToReleaseTheKeyWhenTheConnectorReturnsNoDtbsToSign() throws SigningEngineException {
+            // given: an echo that binds correctly, but nothing to sign
+            ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
+            ComputeDtbsResponseDto incomplete = new ComputeDtbsResponseDto();
+            incomplete.setDocumentDigest(digestOf(DOCUMENT));
+            incomplete.setDocumentDigestAlgorithm(DigestAlgorithm.SHA_256);
+            incomplete.setFormattingContext("context".getBytes());
+            when(formattingClient.computeDtbs(any(), any())).thenReturn(incomplete);
+
+            // when
+            SigningEngineException thrown = catchThrowableOfType(() -> engine
+                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API),
+                    SigningEngineException.class);
+
+            // then
+            assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.CONNECTOR_FAULT);
+            verify(acquisitions, never()).signatureValue(any(), any());
+        }
+
+        @Test
         void refusesATargetAboveTheProfileCeiling() throws SigningEngineException {
             // given
             ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();

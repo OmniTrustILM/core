@@ -18,8 +18,31 @@ class AugmentationRequestTest {
         String rendered = request.toString();
 
         // then
-        assertThat(rendered).contains(FOREIGN_DOCUMENT.length + " bytes").contains("TIMESTAMPED");
-        assertThat(rendered).doesNotContain("a document signed elsewhere");
+        assertThat(rendered)
+                .contains(FOREIGN_DOCUMENT.length + " bytes")
+                .contains("TIMESTAMPED")
+                .doesNotContain("a document signed elsewhere");
+    }
+
+    @Test
+    void twoRequestsHoldingEqualDocumentBytesAreEqual() {
+        // given: distinct arrays, because a record's generated equals would compare them by identity
+        AugmentationRequest one = new AugmentationRequest(SignatureLevel.TIMESTAMPED, FOREIGN_DOCUMENT, null);
+        AugmentationRequest other = new AugmentationRequest(SignatureLevel.TIMESTAMPED, FOREIGN_DOCUMENT.clone(), null);
+
+        // when / then
+        assertThat(one).isEqualTo(other).hasSameHashCodeAs(other);
+    }
+
+    @Test
+    void requestsDifferingInTargetLevelOrDocumentAreNotEqual() {
+        // given
+        AugmentationRequest request = new AugmentationRequest(SignatureLevel.TIMESTAMPED, FOREIGN_DOCUMENT, null);
+
+        // when / then
+        assertThat(request)
+                .isNotEqualTo(new AugmentationRequest(SignatureLevel.LONG_TERM, FOREIGN_DOCUMENT, null))
+                .isNotEqualTo(new AugmentationRequest(SignatureLevel.TIMESTAMPED, "another".getBytes(), null));
     }
 
     @Test

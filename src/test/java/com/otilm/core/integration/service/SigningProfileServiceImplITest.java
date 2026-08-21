@@ -827,10 +827,10 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         @Test
         void managedScheme_contentSigningWorkflowWithAConnectorLackingTheFeature_throwsValidationException()
                 throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException {
-            // given: a formatting connector that advertises no content-signing feature on any family interface
+            // given: a formatting connector advertising no content-signing feature, and no per-operation route either
             ContentSigningFormattingMock featurelessMock = connectorMockFactory.startContentSigningFormatting();
             try {
-                featurelessMock.advertiseNoContentSigningFeature().stubPerOperationFormattingAttributes();
+                featurelessMock.advertiseNoContentSigningFeature();
                 ConnectorDetailDto featureless = connectorService
                         .createConnector(aV2ConnectorRequest()
                                 .withName("content-signing-formatting-featureless")
@@ -845,7 +845,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                                 .withManagedContentSigning(UUID.fromString(featureless.getUuid()))
                                 .build());
 
-                // then: the family-specific gate is what refuses it, naming the interface it looked at
+                // then: the family-specific gate refuses it before the connector is asked for its schemas
                 assertThatThrownBy(create)
                         .isInstanceOf(ValidationException.class)
                         .hasMessageContaining(
