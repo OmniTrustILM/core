@@ -15,7 +15,6 @@ import com.otilm.api.model.client.signing.profile.SigningProfileRequestDto;
 import com.otilm.api.model.client.signing.profile.scheme.DelegatedSigningRequestDto;
 import com.otilm.api.model.client.signing.profile.scheme.OneTimeKeyManagedSigningRequestDto;
 import com.otilm.api.model.client.signing.profile.scheme.StaticKeyManagedSigningRequestDto;
-import com.otilm.api.model.client.signing.profile.workflow.ContentSigningWorkflowRequestDto;
 import com.otilm.api.model.client.signing.profile.workflow.RawSigningWorkflowRequestDto;
 import com.otilm.api.model.client.signing.profile.workflow.TimestampingWorkflowRequestDto;
 import com.otilm.api.model.client.signing.timequality.TimeQualityConfigurationRequestDto;
@@ -374,20 +373,6 @@ public abstract class SigningProfileTestBase extends BaseSpringBootTest {
     }
 
     /**
-     * Builds a request using a DELEGATED scheme and CONTENT_SIGNING workflow.
-     */
-    protected SigningProfileRequestDto buildDelegatedContentRequest(String name) {
-        SigningProfileRequestDto request = new SigningProfileRequestDto();
-        request.setName(name);
-        request.setDescription("Test description for " + name);
-        request.setSigningScheme(buildDelegatedScheme());
-        ContentSigningWorkflowRequestDto workflow = new ContentSigningWorkflowRequestDto();
-        workflow.setSignatureFormattingConnectorUuid(formattingConnector.getUuid());
-        request.setWorkflow(workflow);
-        return request;
-    }
-
-    /**
      * Builds a request using a DELEGATED scheme and TIMESTAMPING workflow.
      */
     protected SigningProfileRequestDto buildDelegatedTimestampingRequest(String name) {
@@ -397,23 +382,6 @@ public abstract class SigningProfileTestBase extends BaseSpringBootTest {
         request.setSigningScheme(buildDelegatedScheme());
         TimestampingWorkflowRequestDto workflow = new TimestampingWorkflowRequestDto();
         workflow.setSignatureFormattingConnectorUuid(formattingConnector.getUuid());
-        request.setWorkflow(workflow);
-        return request;
-    }
-
-    /**
-     * Builds a request using a MANAGED/STATIC_KEY scheme and CONTENT_SIGNING workflow, optionally setting a Signature
-     * Formatting Provider UUID on the workflow.
-     */
-    protected SigningProfileRequestDto buildManagedStaticKeyContentRequest(String name, UUID formattingConnectorUuid) {
-        SigningProfileRequestDto request = new SigningProfileRequestDto();
-        request.setName(name);
-        request.setDescription("Test description for " + name);
-        StaticKeyManagedSigningRequestDto scheme = new StaticKeyManagedSigningRequestDto();
-        scheme.setCertificateUuid(certificate.getUuid());
-        request.setSigningScheme(scheme);
-        ContentSigningWorkflowRequestDto workflow = new ContentSigningWorkflowRequestDto();
-        workflow.setSignatureFormattingConnectorUuid(formattingConnectorUuid);
         request.setWorkflow(workflow);
         return request;
     }

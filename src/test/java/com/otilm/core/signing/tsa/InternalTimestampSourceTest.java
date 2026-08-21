@@ -1,10 +1,12 @@
 package com.otilm.core.signing.tsa;
 
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.model.signing.SigningCertificateBuilder;
 import com.otilm.core.model.signing.SigningProfileModel;
+import com.otilm.core.model.signing.SigningRecordPolicyModel;
 import com.otilm.core.model.signing.resolved.ResolvedManagedContentSigningProfile;
 import com.otilm.core.model.signing.resolved.ResolvedManagedTimestampingProfile;
 import com.otilm.core.model.signing.resolved.ResolvedStaticKeyManagedSigning;
@@ -160,6 +162,64 @@ class InternalTimestampSourceTest {
         verify(engine, never()).issue(any(), any(), any(), any());
     }
 
+    /**
+     * A content-signing profile's reference to this one is resolved per request, so a profile edited below the record
+     * floor after it was referenced must be refused here -- otherwise the signature embeds a timestamp no record
+     * traces.
+     */
+    @Test
+    void refusesAProfileWhoseRecordingWasSwitchedOffAfterItWasReferenced() throws Exception {
+        // given
+        doReturn(aSigningProfile()
+                .withName(PROFILE_NAME)
+                .withRecordPolicy(recordPolicy(false, SigningRecordPersistenceMode.IMMEDIATE))
+                .build()).when(signingProfileService).loadSigningProfileModel(PROFILE_NAME);
+
+        // when
+        SigningEngineException thrown = catchTimestamp();
+
+        // then
+        assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
+        assertThat(thrown.operatorMessage()).contains(PROFILE_NAME, "recording is disabled");
+        verify(engine, never()).issue(any(), any(), any(), any());
+    }
+
+    @Test
+    void refusesAProfileWhosePersistenceModeWasLoweredAfterItWasReferenced() throws Exception {
+        // given
+        doReturn(aSigningProfile()
+                .withName(PROFILE_NAME)
+                .withRecordPolicy(recordPolicy(true, SigningRecordPersistenceMode.BEST_EFFORT))
+                .build()).when(signingProfileService).loadSigningProfileModel(PROFILE_NAME);
+
+        // when
+        SigningEngineException thrown = catchTimestamp();
+
+        // then
+        assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
+        assertThat(thrown.operatorMessage()).contains("BEST_EFFORT");
+        verify(engine, never()).issue(any(), any(), any(), any());
+    }
+
+    /** The floor violation names the referenced profile's own configuration, so only the operator may read it. */
+    @Test
+    void keepsTheRecordFloorViolationOutOfTheClientMessage() throws Exception {
+        // given
+        doReturn(aSigningProfile()
+                .withName(PROFILE_NAME)
+                .withRecordPolicy(recordPolicy(true, SigningRecordPersistenceMode.BEST_EFFORT))
+                .build()).when(signingProfileService).loadSigningProfileModel(PROFILE_NAME);
+
+        // when
+        SigningEngineException thrown = catchTimestamp();
+
+        // then
+        assertThat(thrown.operatorMessage()).contains("BEST_EFFORT", PROFILE_NAME);
+        assertThat(thrown.clientMessage())
+                .isEqualTo("Internal error while timestamping the signature")
+                .doesNotContain("BEST_EFFORT", PROFILE_NAME);
+    }
+
     @Test
     void refusesAProfileThatDoesNotExist() throws Exception {
         // given
@@ -203,7 +263,7 @@ class InternalTimestampSourceTest {
         doReturn(aSigningProfile().build()).when(signingProfileService).loadSigningProfileModel(PROFILE_NAME);
         when(signingProfileResolverFactory.resolve(any()))
                 .thenReturn(new ResolvedManagedContentSigningProfile(UUID.randomUUID(), PROFILE_NAME, null, 1, true,
-                        List.of(), List.of(), null, null));
+                        List.of(), List.of(), null, null, null, null, null, null, null));
 
         // when / then
         SigningEngineException thrown = catchTimestamp();
@@ -274,6 +334,10 @@ class InternalTimestampSourceTest {
                 Boolean.FALSE, "1.2.3.4.5", List.of(), allowedDigestAlgorithms, false, List.of(),
                 LocalClockTimeQualityConfiguration.INSTANCE, null,
                 new ResolvedStaticKeyManagedSigning(SigningCertificateBuilder.valid(), List.of(), null, List.of()));
+    }
+
+    private static SigningRecordPolicyModel recordPolicy(boolean recordingEnabled, SigningRecordPersistenceMode mode) {
+        return new SigningRecordPolicyModel(recordingEnabled, false, false, false, false, null, false, mode);
     }
 
     private static byte[] imprintOfLength(int length) {
