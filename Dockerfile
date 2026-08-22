@@ -29,7 +29,7 @@ RUN $JAVA_HOME/bin/jlink \
   --output /javaruntime
 
 # Package stage
-FROM alpine:3.23
+FROM alpine:3.24
 
 ENV JAVA_HOME=/opt/jre
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
