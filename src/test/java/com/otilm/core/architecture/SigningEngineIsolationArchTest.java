@@ -44,6 +44,16 @@ public class SigningEngineIsolationArchTest {
                     + "vocabulary");
 
     @ArchTest
+    static final ArchRule content_signing_orchestrator_reaches_non_idempotent_steps_only_through_the_seam = noClasses()
+            .that()
+            .resideInAPackage("com.otilm.core.signing.contentsigning")
+            .should()
+            .dependOnClassesThat()
+            .resideInAnyPackage("com.otilm.core.signing.engine.signer..", "com.otilm.core.signing.tsa")
+            .because("minting a signature value or a timestamp token is not replayable; the orchestrator must reach "
+                    + "both only through ContentSigningAcquisitions, or a run can never be persisted and replayed");
+
+    @ArchTest
     static final ArchRule resolved_models_do_not_depend_on_a_protocol_package = noClasses()
             .that()
             .resideInAPackage("com.otilm.core.model.signing..")

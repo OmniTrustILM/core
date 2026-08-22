@@ -32,7 +32,8 @@ class SigningWorkflowModelsTest {
         UUID connectorUuid = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
         List<RequestAttribute> attrs = List.of();
 
-        ManagedContentSigningWorkflow wf = new ManagedContentSigningWorkflow(connectorUuid, attrs);
+        ManagedContentSigningWorkflow wf = new ManagedContentSigningWorkflow(connectorUuid, attrs, null, null, null,
+                null, null);
 
         assertEquals(SigningWorkflowType.CONTENT_SIGNING, wf.getWorkflowType());
         assertEquals(connectorUuid, wf.signatureFormattingConnectorUuid());

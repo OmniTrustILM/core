@@ -10,6 +10,7 @@ import com.otilm.core.service.SigningProfileInternalService;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
 import com.otilm.core.signing.engine.resolver.SigningProfileResolverFactory;
+import com.otilm.core.signing.record.SigningRecordFloor;
 import com.otilm.core.signing.tsa.messages.IssuedTimestamp;
 import com.otilm.core.signing.tsa.messages.TimestampImprint;
 import com.otilm.core.signing.tsa.messages.TspRequest;
@@ -54,6 +55,7 @@ public class InternalTimestampSource {
             throws SigningEngineException {
         try {
             SigningProfileModel<?, ?> profile = loadProfile(timestampingProfileName);
+            requireRecordFloor(profile);
             ResolvedManagedTimestampingProfile resolved = resolveTimestampingProfile(profile);
             requireUsableImprint(imprint, resolved);
             return engine.issue(requestFor(imprint), profile, resolved, SigningProtocol.INTERNAL_TSA);
@@ -81,6 +83,20 @@ public class InternalTimestampSource {
                     null);
         }
         return profile;
+    }
+
+    /**
+     * The referencing content-signing profile resolves this profile per request rather than pinning it, so the floor is
+     * asserted again here: an operator may lower it after the reference was saved, and a timestamp with no record of
+     * its own traces to nothing.
+     */
+    private static void requireRecordFloor(SigningProfileModel<?, ?> profile) throws SigningEngineException {
+        Optional<String> violation = SigningRecordFloor
+                .violation(profile.recordPolicy().recordingEnabled(), profile.recordPolicy().persistenceMode());
+        if (violation.isPresent()) {
+            throw misconfigured("timestamping Signing Profile '%s' no longer meets the signing-record floor: %s"
+                    .formatted(profile.name(), violation.get()), null);
+        }
     }
 
     private ResolvedManagedTimestampingProfile resolveTimestampingProfile(SigningProfileModel<?, ?> profile)

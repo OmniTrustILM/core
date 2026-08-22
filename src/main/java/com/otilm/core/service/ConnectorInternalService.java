@@ -16,6 +16,12 @@ public interface ConnectorInternalService extends ResourceExtensionService {
 
     Connector getConnectorEntity(SecuredUUID uuid) throws NotFoundException;
 
+    /**
+     * Loads a connector with its declared interfaces already fetched, for a caller that reads the features they
+     * advertise without an ambient transaction to lazy-load them in.
+     */
+    Connector getConnectorEntityWithInterfaces(SecuredUUID uuid) throws NotFoundException;
+
     void mergeAndValidateAttributes(SecuredUUID uuid, FunctionGroupCode functionGroup,
             List<RequestAttribute> attributes, String functionGroupType)
             throws ConnectorException, AttributeException, NotFoundException;

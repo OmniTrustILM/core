@@ -24,6 +24,7 @@ import com.otilm.api.model.client.signing.profile.workflow.ContentSigningWorkflo
 import com.otilm.api.model.client.signing.profile.workflow.RawSigningWorkflowDto;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.client.signing.profile.workflow.TimestampingWorkflowDto;
+import com.otilm.api.model.client.signing.profile.workflow.timestamp.InternalTimestampSourceDto;
 import com.otilm.api.model.client.signing.protocols.tsp.TspActivationDetailDto;
 import com.otilm.api.model.client.signing.protocols.tsp.TspProfileDto;
 import com.otilm.api.model.client.signing.timequality.TimeQualityConfigurationDto;
@@ -37,6 +38,8 @@ import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.RsaSignatureScheme;
+import com.otilm.api.model.common.signature.SignatureFamily;
+import com.otilm.api.model.common.signature.SignatureLevel;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.v2.ConnectorDetailDto;
 import com.otilm.api.model.core.cryptography.key.KeyDetailDto;
@@ -74,6 +77,7 @@ import com.otilm.core.service.TspProfileExternalService;
 import com.otilm.core.service.v2.ConnectorExternalService;
 import com.otilm.core.service.writer.signingrecord.SigningRecordWriter;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.builders.ContentSigningWorkflowRequestDtoBuilder;
 import com.otilm.core.util.mocks.ConnectorMockFactory;
 import com.otilm.core.util.mocks.ContentSigningFormattingMock;
 import com.otilm.core.util.mocks.CryptographyProviderConnectorMock;
@@ -83,11 +87,17 @@ import java.security.KeyPair;
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.UnaryOperator;
+import java.util.stream.Stream;
+import org.assertj.core.api.ThrowableAssert;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.AccessDeniedException;
 
@@ -184,6 +194,29 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
 
     @Autowired
     private AttributeRelationRepository attributeRelationRepository;
+
+    /** The rung must be advertised before registration: that is when the platform reads {@code /v2/info}. */
+    private ConnectorDetailDto registerTimestampedRungConnector(ContentSigningFormattingMock mock, String name)
+            throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException {
+        mock.advertiseTimestampedRung().stubPerOperationFormattingAttributes();
+        return connectorService.createConnector(aV2ConnectorRequest().withName(name).withUrl(mock.getUrl()).build());
+    }
+
+    private SigningProfileDto createProfileNamingTimestampSource(String name, ConnectorDetailDto connector,
+            UUID timestampSourceProfileUuid)
+            throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+        return signingProfileService
+                .createSigningProfile(aSigningProfileRequest()
+                        .withName(name)
+                        .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                        .withContentSigning(aContentSigningWorkflow()
+                                .withSignatureFormattingConnector(UUID.fromString(connector.getUuid()))
+                                .withFamily(SignatureFamily.PADES)
+                                .withMaxLevel(SignatureLevel.TIMESTAMPED)
+                                .withInternalTimestampSource(timestampSourceProfileUuid)
+                                .build())
+                        .build());
+    }
 
     private static String firstErrorMessage(ValidationException ex) {
         return ex.getErrors().stream().map(ValidationError::getErrorDescription).findFirst().orElse("");
@@ -284,12 +317,12 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                         .withRawSigning()
                         .build());
 
-        contentSigningFormattingMock.stubFormattingAttributes();
+        contentSigningFormattingMock.stubPerOperationFormattingAttributes();
         defaultContentSigningProfile = signingProfileService
                 .createSigningProfile(aSigningProfileRequest()
                         .withName("default-content-signing-profile")
                         .withDelegatedSigning(signerConnector.getUuid())
-                        .withContentSigning(UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                        .withDelegatedContentSigning()
                         .build());
 
         timestampingFormattingMock.stubFormattingAttributes();
@@ -637,6 +670,29 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
     @Nested
     class CreateTests {
 
+        /** The version row stores only the referenced uuid, so the name has to be resolved for the API to carry it. */
+        @Test
+        void contentSigningWorkflow_returnsTheTimestampSourceByName() throws Exception {
+            // given
+            ContentSigningFormattingMock formattingMock = connectorMockFactory.startContentSigningFormatting();
+            try {
+                ConnectorDetailDto connector = registerTimestampedRungConnector(formattingMock,
+                        "content-signing-formatting-named-source");
+
+                // when
+                SigningProfileDto created = createProfileNamingTimestampSource("named-timestamp-source-profile",
+                        connector, UUID.fromString(defaultTimestampingProfile.getUuid()));
+
+                // then
+                assertThat(((ContentSigningWorkflowDto) created.getWorkflow()).getTimestampSource())
+                        .isInstanceOfSatisfying(InternalTimestampSourceDto.class,
+                                source -> assertThat(source.signingProfile().getName())
+                                        .isEqualTo(defaultTimestampingProfile.getName()));
+            } finally {
+                formattingMock.stop();
+            }
+        }
+
         @Test
         void delegatedScheme_rawWorkflow_setsExpectedAttributes()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
@@ -673,7 +729,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                     .createSigningProfile(aSigningProfileRequest()
                             .withName("ct-delegated-content")
                             .withDelegatedSigning(signerConnector.getUuid())
-                            .withContentSigning(UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                            .withDelegatedContentSigning()
                             .build());
             SigningProfileDto getDto = signingProfileService
                     .getSigningProfile(SecuredUUID.fromString(createdProfile.getUuid()), null);
@@ -692,8 +748,194 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
 
             ContentSigningWorkflowDto workflow = assertInstanceOf(ContentSigningWorkflowDto.class,
                     createdProfile.getWorkflow());
-            assertEquals(contentSigningFormattingConnector.getUuid(),
-                    workflow.getSignatureFormattingConnector().getUuid());
+            assertThat(workflow.getSignatureFormattingConnector()).isNull();
+        }
+
+        static Stream<Arguments> ladderFields() {
+            return Stream
+                    .of(Arguments
+                            .of("family",
+                                    (UnaryOperator<ContentSigningWorkflowRequestDtoBuilder>) b -> b
+                                            .withFamily(SignatureFamily.PADES)),
+                            Arguments
+                                    .of("maxLevel",
+                                            (UnaryOperator<ContentSigningWorkflowRequestDtoBuilder>) b -> b
+                                                    .withMaxLevel(SignatureLevel.TIMESTAMPED)),
+                            Arguments
+                                    .of("timestampSource",
+                                            (UnaryOperator<ContentSigningWorkflowRequestDtoBuilder>) b -> b
+                                                    .withInternalTimestampSource(UUID.randomUUID())));
+        }
+
+        /**
+         * The level ladder is ILM's own signing configuration, so a delegated profile -- whose signature the signer
+         * connector builds end to end -- must not carry one: ignoring it would still let maxLevel decide which
+         * formatting operations' attributes are stored against a version whose ladder columns are NULL. Each field is
+         * refused on its own, and the assertion names the ladder guard's whole message so that no neighbouring guard
+         * can satisfy it. The timestamp source is a uuid that resolves to nothing, which proves the refusal precedes
+         * any lookup.
+         */
+        @ParameterizedTest(name = "{0}")
+        @MethodSource("ladderFields")
+        void delegatedScheme_contentSigningWorkflowCarryingOneLadderField_throwsValidationException(String field,
+                UnaryOperator<ContentSigningWorkflowRequestDtoBuilder> setField) {
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("ct-delegated-content-ladder-" + field)
+                            .withDelegatedSigning(signerConnector.getUuid())
+                            .withContentSigning(setField.apply(aContentSigningWorkflow()).build())
+                            .build());
+
+            // then
+            assertThatThrownBy(create)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining(
+                            "family, maxLevel and timestampSource must be omitted for delegated content signing");
+        }
+
+        /**
+         * The cap is enforced when a signing request arrives, whoever formats the signature, so it is the one workflow
+         * field a delegated profile may set -- and the value it sets has to survive the save.
+         */
+        @Test
+        void delegatedScheme_contentSigningWorkflowCarryingADocumentSizeCap_persistsTheCap()
+                throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // when
+            SigningProfileDto created = signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("ct-delegated-content-with-size-cap")
+                            .withDelegatedSigning(signerConnector.getUuid())
+                            .withContentSigning(aContentSigningWorkflow().withDocumentSizeCap(1024L).build())
+                            .build());
+
+            // then: the create response carries the cap
+            assertThat(assertInstanceOf(ContentSigningWorkflowDto.class, created.getWorkflow()).getDocumentSizeCap())
+                    .isEqualTo(1024L);
+
+            // and: reading the persisted version back confirms the column was written
+            SigningProfileDto fetched = signingProfileService
+                    .getSigningProfile(SecuredUUID.fromString(created.getUuid()), created.getVersion());
+            assertThat(assertInstanceOf(ContentSigningWorkflowDto.class, fetched.getWorkflow()).getDocumentSizeCap())
+                    .isEqualTo(1024L);
+        }
+
+        /**
+         * An ILM-managed profile formats the signature through the connector it names, so that connector has to
+         * advertise the content-signing feature on the interface serving the family the profile asked for.
+         */
+        @Test
+        void managedScheme_contentSigningWorkflowWithAConnectorLackingTheFeature_throwsValidationException()
+                throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException {
+            // given: a formatting connector advertising no content-signing feature, and no per-operation route either
+            ContentSigningFormattingMock featurelessMock = connectorMockFactory.startContentSigningFormatting();
+            try {
+                featurelessMock.advertiseNoContentSigningFeature();
+                ConnectorDetailDto featureless = connectorService
+                        .createConnector(aV2ConnectorRequest()
+                                .withName("content-signing-formatting-featureless")
+                                .withUrl(featurelessMock.getUrl())
+                                .build());
+
+                // when
+                ThrowableAssert.ThrowingCallable create = () -> signingProfileService
+                        .createSigningProfile(aSigningProfileRequest()
+                                .withName("ct-managed-content-featureless-connector")
+                                .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                                .withManagedContentSigning(UUID.fromString(featureless.getUuid()))
+                                .build());
+
+                // then: the family-specific gate refuses it before the connector is asked for its schemas
+                assertThatThrownBy(create)
+                        .isInstanceOf(ValidationException.class)
+                        .hasMessageContaining(
+                                "does not advertise the 'Content Signing' feature on its 'PAdES Formatting' interface");
+            } finally {
+                featurelessMock.stop();
+            }
+        }
+
+        /**
+         * The signer connector builds the data to be signed, so a delegated request naming a formatting connector is
+         * configuration the platform would never honour -- and the API contract refuses it too.
+         */
+        @Test
+        void delegatedScheme_contentSigningWorkflowCarryingAFormattingConnector_throwsValidationException() {
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("ct-delegated-content-with-formatting-connector")
+                            .withDelegatedSigning(signerConnector.getUuid())
+                            .withContentSigning(aContentSigningWorkflow()
+                                    .withSignatureFormattingConnector(
+                                            UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                                    .build())
+                            .build());
+
+            // then
+            assertThatThrownBy(create)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining(
+                            "signatureFormattingConnectorUuid must be omitted for delegated content signing");
+        }
+
+        /** Formatting attributes have no connector to configure once the formatting connector itself is refused. */
+        @Test
+        void delegatedScheme_contentSigningWorkflowCarryingFormattingAttributes_throwsValidationException() {
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("ct-delegated-content-with-formatting-attributes")
+                            .withDelegatedSigning(signerConnector.getUuid())
+                            .withContentSigning(aContentSigningWorkflow()
+                                    .withSignatureFormattingConnectorAttributes(List
+                                            .of(aStringAttribute(
+                                                    UUID.fromString("11111111-2222-3333-4444-555555555557"),
+                                                    "data_delegatedFormattingAttr", "value")))
+                                    .build())
+                            .build());
+
+            // then
+            assertThatThrownBy(create)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining(
+                            "signatureFormattingConnectorAttributes must be omitted for delegated content signing");
+        }
+
+        @Test
+        void managedScheme_contentSigningWorkflowWithoutAFamily_throwsValidationException() {
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("ct-managed-content-no-family")
+                            .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                            .withContentSigning(aContentSigningWorkflow()
+                                    .withSignatureFormattingConnector(
+                                            UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                                    .withMaxLevel(SignatureLevel.SIGNED)
+                                    .build())
+                            .build());
+
+            // then
+            assertThatThrownBy(create).isInstanceOf(ValidationException.class);
+        }
+
+        @Test
+        void managedScheme_contentSigningWorkflowWithoutAMaxLevel_throwsValidationException() {
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("ct-managed-content-no-max-level")
+                            .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                            .withContentSigning(aContentSigningWorkflow()
+                                    .withSignatureFormattingConnector(
+                                            UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                                    .withFamily(SignatureFamily.PADES)
+                                    .build())
+                            .build());
+
+            // then
+            assertThatThrownBy(create).isInstanceOf(ValidationException.class);
         }
 
         @Test
@@ -780,7 +1022,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                     .createSigningProfile(aSigningProfileRequest()
                             .withName("ct-static-content")
                             .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
-                            .withContentSigning(UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                            .withManagedContentSigning(UUID.fromString(contentSigningFormattingConnector.getUuid()))
                             .build());
             SigningProfileDto getDto = signingProfileService
                     .getSigningProfile(SecuredUUID.fromString(createdProfile.getUuid()), null);
@@ -901,15 +1143,12 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             // when: update to content-signing workflow
             SigningProfileDto updated = signingProfileService
                     .updateSigningProfile(profileUuid,
-                            aSigningProfileRequestFromExistingProfile(profile)
-                                    .withContentSigning(UUID.fromString(contentSigningFormattingConnector.getUuid()))
-                                    .build());
+                            aSigningProfileRequestFromExistingProfile(profile).withDelegatedContentSigning().build());
 
-            // then
+            // then: the workflow switched, and a delegated profile persists no formatting connector
             ContentSigningWorkflowDto workflow = assertInstanceOf(ContentSigningWorkflowDto.class,
                     updated.getWorkflow());
-            assertEquals(contentSigningFormattingConnector.getUuid(),
-                    workflow.getSignatureFormattingConnector().getUuid());
+            assertThat(workflow.getSignatureFormattingConnector()).isNull();
         }
 
         @Test
@@ -1155,6 +1394,124 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                     "Error message should contain information about existing signing records");
             assertDoesNotThrow(() -> signingProfileService.getSigningProfile(profileUuid, null),
                     "Profile must still exist after failed delete");
+        }
+
+        @Test
+        void namedAsATimestampSource_throwsValidationExceptionWithTheReferencingProfileName() throws Exception {
+            // given: a content-signing profile naming the timestamping profile as its timestamp source
+            SecuredUUID timestampingProfileUuid = SecuredUUID.fromString(defaultTimestampingProfile.getUuid());
+            ContentSigningFormattingMock formattingMock = connectorMockFactory.startContentSigningFormatting();
+            try {
+                ConnectorDetailDto connector = registerTimestampedRungConnector(formattingMock,
+                        "content-signing-formatting-timestamped-rung");
+                createProfileNamingTimestampSource("expected-content-signing-name", connector,
+                        timestampingProfileUuid.getValue());
+
+                // when
+                ThrowableAssert.ThrowingCallable deleteProfile = () -> signingProfileService
+                        .deleteSigningProfile(timestampingProfileUuid);
+
+                // then: the reference is explained rather than surfacing as a constraint violation
+                assertThatThrownBy(deleteProfile)
+                        .isInstanceOf(ValidationException.class)
+                        .satisfies(thrown -> assertThat(firstErrorMessage((ValidationException) thrown))
+                                .contains("expected-content-signing-name", "timestamp source")
+                                .contains("repoint them, or lower their maxLevel to SIGNED")
+                                .doesNotContain("superseded version(s)"));
+            } finally {
+                formattingMock.stop();
+            }
+        }
+
+        /**
+         * Superseded version rows are retained and the foreign key spans every version, so the guard reports the
+         * reference a repointed profile still holds in its history rather than letting the delete look available.
+         */
+        @Test
+        void namedAsATimestampSourceByASupersededVersionOnly_stillRefusesTheDelete() throws Exception {
+            // given: a profile repointed away from the timestamp source in a new version
+            SecuredUUID timestampingProfileUuid = SecuredUUID.fromString(defaultTimestampingProfile.getUuid());
+            ContentSigningFormattingMock formattingMock = connectorMockFactory.startContentSigningFormatting();
+            try {
+                ConnectorDetailDto connector = registerTimestampedRungConnector(formattingMock,
+                        "content-signing-formatting-repointed");
+                SigningProfileDto referencing = createProfileNamingTimestampSource("repointed-content-signing-profile",
+                        connector, timestampingProfileUuid.getValue());
+                // A signing record on the current version is what makes the next save bump rather than overwrite.
+                createSigningRecordFor(referencing);
+                signingProfileService
+                        .updateSigningProfile(SecuredUUID.fromString(referencing.getUuid()),
+                                aSigningProfileRequest()
+                                        .withName(referencing.getName())
+                                        .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                                        .withContentSigning(aContentSigningWorkflow()
+                                                .withSignatureFormattingConnector(UUID.fromString(connector.getUuid()))
+                                                .withFamily(SignatureFamily.PADES)
+                                                .withMaxLevel(SignatureLevel.SIGNED)
+                                                .build())
+                                        .build());
+
+                // when
+                ThrowableAssert.ThrowingCallable deleteProfile = () -> signingProfileService
+                        .deleteSigningProfile(timestampingProfileUuid);
+
+                // then
+                assertThatThrownBy(deleteProfile)
+                        .isInstanceOf(ValidationException.class)
+                        .satisfies(thrown -> assertThat(firstErrorMessage((ValidationException) thrown))
+                                .contains("repointed-content-signing-profile")
+                                .contains("only in superseded version(s)")
+                                .contains("released only by deleting the Signing Profile")
+                                .doesNotContain("repoint them"));
+            } finally {
+                formattingMock.stop();
+            }
+        }
+
+        /**
+         * The two buckets carry different remedies, so a timestamp source held live by one profile and only
+         * historically by another has to report both rather than collapsing every name into one list.
+         */
+        @Test
+        void namedAsATimestampSourceLiveAndBySupersededVersionOnly_reportsEachRemedyWithItsOwnNames() throws Exception {
+            // given: one profile still naming the timestamp source, one repointed away from it in a new version
+            SecuredUUID timestampingProfileUuid = SecuredUUID.fromString(defaultTimestampingProfile.getUuid());
+            ContentSigningFormattingMock formattingMock = connectorMockFactory.startContentSigningFormatting();
+            try {
+                ConnectorDetailDto connector = registerTimestampedRungConnector(formattingMock,
+                        "content-signing-formatting-both-buckets");
+                createProfileNamingTimestampSource("live-reference-profile", connector,
+                        timestampingProfileUuid.getValue());
+                SigningProfileDto repointed = createProfileNamingTimestampSource("history-only-profile", connector,
+                        timestampingProfileUuid.getValue());
+                // A signing record on the current version is what makes the next save bump rather than overwrite.
+                createSigningRecordFor(repointed);
+                signingProfileService
+                        .updateSigningProfile(SecuredUUID.fromString(repointed.getUuid()),
+                                aSigningProfileRequest()
+                                        .withName(repointed.getName())
+                                        .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                                        .withContentSigning(aContentSigningWorkflow()
+                                                .withSignatureFormattingConnector(UUID.fromString(connector.getUuid()))
+                                                .withFamily(SignatureFamily.PADES)
+                                                .withMaxLevel(SignatureLevel.SIGNED)
+                                                .build())
+                                        .build());
+
+                // when
+                ThrowableAssert.ThrowingCallable deleteProfile = () -> signingProfileService
+                        .deleteSigningProfile(timestampingProfileUuid);
+
+                // then: each name sits under the remedy that applies to it, in that order
+                assertThatThrownBy(deleteProfile)
+                        .isInstanceOf(ValidationException.class)
+                        .satisfies(thrown -> assertThat(firstErrorMessage((ValidationException) thrown))
+                                .containsSubsequence("repoint them, or lower their maxLevel to SIGNED",
+                                        "live-reference-profile", "only in superseded version(s)",
+                                        "history-only-profile"));
+            } finally {
+                formattingMock.stop();
+            }
         }
 
         @Nested
@@ -1754,16 +2111,18 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             // given: stub the content signing formatting to expose a single configurable attribute
             UUID attrUuid = UUID.fromString("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
             String attrName = "data_testFormattingAttr";
-            contentSigningFormattingMock.stubFormattingAttributeDefinition(attrUuid, attrName);
+            contentSigningFormattingMock.stubPerOperationFormattingAttributeDefinition(attrUuid, attrName);
 
             // when
             SigningProfileDto dto = signingProfileService
                     .createSigningProfile(aSigningProfileRequest()
                             .withName("doc-profile-with-formatting-attrs")
-                            .withDelegatedSigning(signerConnector.getUuid())
+                            .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
                             .withContentSigning(aContentSigningWorkflow()
                                     .withSignatureFormattingConnector(
                                             UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                                    .withFamily(SignatureFamily.PADES)
+                                    .withMaxLevel(SignatureLevel.SIGNED)
                                     .withSignatureFormattingConnectorAttributes(
                                             List.of(aStringAttribute(attrUuid, attrName, "testValue")))
                                     .build())
@@ -1782,11 +2141,11 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             // given: stub the existing content signing formatting connector with a specific attribute definition
             UUID attrUuid = UUID.fromString("11111111-2222-3333-4444-555555555556");
             String attrName = "data_formattingSwitchTest";
-            contentSigningFormattingMock.stubFormattingAttributeDefinition(attrUuid, attrName);
+            contentSigningFormattingMock.stubPerOperationFormattingAttributeDefinition(attrUuid, attrName);
 
             // and: a second content signing formatting connector (formattingB)
             ContentSigningFormattingMock formattingBMock = connectorMockFactory.startContentSigningFormatting();
-            formattingBMock.stubFormattingAttributeDefinition(attrUuid, attrName);
+            formattingBMock.stubPerOperationFormattingAttributeDefinition(attrUuid, attrName);
             ConnectorDetailDto formattingBConnector = connectorService
                     .createConnector(aV2ConnectorRequest()
                             .withName("content-signing-formatting-b")
@@ -1798,10 +2157,12 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                 SigningProfileDto created = signingProfileService
                         .createSigningProfile(aSigningProfileRequest()
                                 .withName("formatting-switch-test")
-                                .withDelegatedSigning(signerConnector.getUuid())
+                                .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
                                 .withContentSigning(aContentSigningWorkflow()
                                         .withSignatureFormattingConnector(
                                                 UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                                        .withFamily(SignatureFamily.PADES)
+                                        .withMaxLevel(SignatureLevel.SIGNED)
                                         .withSignatureFormattingConnectorAttributes(
                                                 List.of(aStringAttribute(attrUuid, attrName, "valueA")))
                                         .build())
@@ -1816,6 +2177,8 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                                         .withContentSigning(aContentSigningWorkflow()
                                                 .withSignatureFormattingConnector(
                                                         UUID.fromString(formattingBConnector.getUuid()))
+                                                .withFamily(SignatureFamily.PADES)
+                                                .withMaxLevel(SignatureLevel.SIGNED)
                                                 .withSignatureFormattingConnectorAttributes(
                                                         List.of(aStringAttribute(attrUuid, attrName, "valueB")))
                                                 .build())
@@ -1854,15 +2217,17 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             // given: a content signing profile with a formatting attribute
             UUID attrUuid = UUID.fromString("cccccccc-dddd-eeee-ffff-000000000001");
             String attrName = "data_deleteFormattingAttr";
-            contentSigningFormattingMock.stubFormattingAttributeDefinition(attrUuid, attrName);
+            contentSigningFormattingMock.stubPerOperationFormattingAttributeDefinition(attrUuid, attrName);
 
             SigningProfileDto created = signingProfileService
                     .createSigningProfile(aSigningProfileRequest()
                             .withName("delete-clears-formatting-attrs")
-                            .withDelegatedSigning(signerConnector.getUuid())
+                            .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
                             .withContentSigning(aContentSigningWorkflow()
                                     .withSignatureFormattingConnector(
                                             UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                                    .withFamily(SignatureFamily.PADES)
+                                    .withMaxLevel(SignatureLevel.SIGNED)
                                     .withSignatureFormattingConnectorAttributes(
                                             List.of(aStringAttribute(attrUuid, attrName, "toDelete")))
                                     .build())
@@ -1894,22 +2259,39 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             // given: the formatting connector advertises a required attribute
             UUID attrUuid = UUID.fromString("00000000-dead-beef-0002-000000000001");
             String attrName = "req_content_attr";
-            contentSigningFormattingMock.stubFormattingAttributeDefinition(attrUuid, attrName, true);
+            contentSigningFormattingMock.stubPerOperationFormattingAttributeDefinition(attrUuid, attrName, true);
 
             // when: create a profile omitting the required attribute
             Executable create = () -> signingProfileService
                     .createSigningProfile(aSigningProfileRequest()
                             .withName("content-missing-required-attr")
-                            .withDelegatedSigning(signerConnector.getUuid())
-                            .withContentSigning(aContentSigningWorkflow()
-                                    .withSignatureFormattingConnector(
-                                            UUID.fromString(contentSigningFormattingConnector.getUuid()))
-                                    .build())
+                            .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                            .withManagedContentSigning(UUID.fromString(contentSigningFormattingConnector.getUuid()))
                             .build());
 
             // then
             assertThrows(ValidationException.class, create,
                     "createSigningProfile must reject a missing required formatting attribute");
+        }
+
+        @Test
+        void create_managedContentSigning_noFormattingConnector_throwsValidationExceptionWithoutCallingAConnector() {
+            // given: an ILM-managed profile naming no signature formatting connector at all
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("content-signing-no-formatting-connector")
+                            .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                            .withContentSigning(aContentSigningWorkflow()
+                                    .withFamily(SignatureFamily.PADES)
+                                    .withMaxLevel(SignatureLevel.SIGNED)
+                                    .build())
+                            .build());
+
+            // then: rejected before any connector is contacted, not with a lookup failure on a null UUID
+            assertThatThrownBy(create)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("Signature formatting connector is required");
         }
 
         @Test
@@ -2430,7 +2812,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                         .createSigningProfile(aSigningProfileRequest()
                                 .withName("cs-managed-model")
                                 .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
-                                .withContentSigning(UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                                .withManagedContentSigning(UUID.fromString(contentSigningFormattingConnector.getUuid()))
                                 .build());
 
                 // when

@@ -229,4 +229,16 @@ public class CryptographyProviderConnectorMock extends BaseConnectorMock {
                         .willReturn(WireMock.okJson("{\"signatures\":[{\"data\":\"" + sig + "\"}]}")));
         return this;
     }
+
+    /**
+     * Asserts the signing key was never exercised. Lets a test prove a gate refused before key release, rather than
+     * inferring it from the absence of a later side effect.
+     */
+    public CryptographyProviderConnectorMock verifyNoDataWasSigned() {
+        server
+                .verify(0, WireMock
+                        .postRequestedFor(
+                                WireMock.urlPathMatching("/v1/cryptographyProvider/tokens/[^/]+/keys/[^/]+/sign")));
+        return this;
+    }
 }

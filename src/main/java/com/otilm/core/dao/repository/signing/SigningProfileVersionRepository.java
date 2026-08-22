@@ -32,4 +32,18 @@ public interface SigningProfileVersionRepository extends JpaRepository<SigningPr
 
     @Query("SELECT DISTINCT v.signingProfile.name FROM SigningProfileVersion v WHERE v.tokenProfileUuid = :tokenProfileUuid AND v.version = v.signingProfile.latestVersion ORDER BY v.signingProfile.name")
     List<String> findSigningProfileNamesUsingTokenProfileInLatestVersion(UUID tokenProfileUuid);
+
+    /** Spans every version, matching the {@code timestamp_source_profile_uuid} foreign key it guards. */
+    @Query("SELECT DISTINCT v.signingProfile.name FROM SigningProfileVersion v WHERE v.timestampSourceProfileUuid = :timestampSourceProfileUuid ORDER BY v.signingProfile.name")
+    List<String> findSigningProfileNamesUsingTimestampSourceProfile(UUID timestampSourceProfileUuid);
+
+    /**
+     * The subset an edit can still release: subtract it from the all-version list to get the references only history
+     * holds.
+     */
+    @Query("SELECT DISTINCT v.signingProfile.name FROM SigningProfileVersion v WHERE v.timestampSourceProfileUuid = :timestampSourceProfileUuid AND v.version = v.signingProfile.latestVersion ORDER BY v.signingProfile.name")
+    List<String> findSigningProfileNamesUsingTimestampSourceProfileInLatestVersion(UUID timestampSourceProfileUuid);
+
+    @Query("SELECT v FROM SigningProfileVersion v WHERE v.signingProfileUuid = :signingProfileUuid AND v.version = v.signingProfile.latestVersion")
+    Optional<SigningProfileVersion> findLatestByProfileUuid(UUID signingProfileUuid);
 }

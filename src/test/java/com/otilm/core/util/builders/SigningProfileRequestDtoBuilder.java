@@ -25,8 +25,12 @@ import com.otilm.api.model.client.signing.profile.workflow.TimestampingWorkflowD
 import com.otilm.api.model.client.signing.profile.workflow.TimestampingWorkflowRequestDto;
 import com.otilm.api.model.client.signing.profile.workflow.WorkflowDto;
 import com.otilm.api.model.client.signing.profile.workflow.WorkflowRequestDto;
+import com.otilm.api.model.client.signing.profile.workflow.timestamp.InternalTimestampSourceDto;
+import com.otilm.api.model.client.signing.profile.workflow.timestamp.InternalTimestampSourceRequestDto;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.RsaSignatureScheme;
+import com.otilm.api.model.common.signature.SignatureFamily;
+import com.otilm.api.model.common.signature.SignatureLevel;
 import java.util.List;
 import java.util.UUID;
 
@@ -123,9 +127,17 @@ public class SigningProfileRequestDtoBuilder {
         return withWorkflow(new RawSigningWorkflowRequestDto());
     }
 
-    public SigningProfileRequestDtoBuilder withContentSigning(UUID signatureFormattingConnectorUuid) {
+    /** A delegated content-signing request carries no formatting connector and no level ladder, so this stamps none. */
+    public SigningProfileRequestDtoBuilder withDelegatedContentSigning() {
+        return withWorkflow(new ContentSigningWorkflowRequestDto());
+    }
+
+    /** Adds the ladder an ILM-managed content-signing profile must carry to pass profile save. */
+    public SigningProfileRequestDtoBuilder withManagedContentSigning(UUID signatureFormattingConnectorUuid) {
         ContentSigningWorkflowRequestDto contentSigningWorkflow = new ContentSigningWorkflowRequestDto();
         contentSigningWorkflow.setSignatureFormattingConnectorUuid(signatureFormattingConnectorUuid);
+        contentSigningWorkflow.setFamily(SignatureFamily.PADES);
+        contentSigningWorkflow.setMaxLevel(SignatureLevel.SIGNED);
         return withWorkflow(contentSigningWorkflow);
     }
 
@@ -193,6 +205,15 @@ public class SigningProfileRequestDtoBuilder {
                 req
                         .setSignatureFormattingConnectorAttributes(
                                 requestAttributesFromResponse(c.getSignatureFormattingConnectorAttributes()));
+                req.setFamily(c.getFamily());
+                req.setMaxLevel(c.getMaxLevel());
+                req.setDocumentSizeCap(c.getDocumentSizeCap());
+                if (c.getTimestampSource() instanceof InternalTimestampSourceDto internal
+                        && internal.signingProfile() != null) {
+                    req
+                            .setTimestampSource(new InternalTimestampSourceRequestDto(
+                                    UUID.fromString(internal.signingProfile().getUuid())));
+                }
                 yield req;
             }
             case TimestampingWorkflowDto t -> {

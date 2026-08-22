@@ -15,6 +15,7 @@ import com.otilm.api.model.client.signing.profile.workflow.ContentSigningWorkflo
 import com.otilm.api.model.client.signing.profile.workflow.RawSigningWorkflowDto;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.client.signing.profile.workflow.TimestampingWorkflowDto;
+import com.otilm.api.model.client.signing.profile.workflow.timestamp.InternalTimestampSourceDto;
 import com.otilm.api.model.client.signing.protocols.tsp.TspActivationDetailDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
@@ -47,10 +48,14 @@ public class SigningProfileMapper {
      * Transforms a {@link SigningProfile} and {@link SigningProfileVersion} entities to a full
      * {@link SigningProfileDto}, populating custom attributes, connector signing-operation attributes, and workflow
      * formatting attributes.
+     *
+     * @param timestampSourceProfileName name of the Signing Profile the content-signing workflow names as its timestamp
+     * source, which the caller resolves because the version row stores only its uuid; {@code null} when there is no
+     * reference or it no longer resolves
      */
     public static SigningProfileDto toDto(SigningProfile header, SigningProfileVersion version,
             List<ResponseAttribute> customAttributes, List<ResponseAttribute> signingOperationAttributes,
-            List<ResponseAttribute> signatureFormattingConnectorAttributes) {
+            List<ResponseAttribute> signatureFormattingConnectorAttributes, String timestampSourceProfileName) {
         SigningProfileDto dto = new SigningProfileDto();
         dto.setUuid(header.getUuid().toString());
         dto.setName(header.getName());
@@ -99,7 +104,8 @@ public class SigningProfileMapper {
 
         // Build workflow DTO from version (timestamping also reads unversioned fields from header)
         dto.setWorkflow(switch (version.getWorkflowType()) {
-            case CONTENT_SIGNING -> buildContentSigningWorkflowDto(version, signatureFormattingConnectorAttributes);
+            case CONTENT_SIGNING -> buildContentSigningWorkflowDto(version, signatureFormattingConnectorAttributes,
+                    timestampSourceProfileName);
             case RAW_SIGNING -> new RawSigningWorkflowDto();
             case TIMESTAMPING -> buildTimestampingWorkflowDto(header, version, signatureFormattingConnectorAttributes);
         });
@@ -193,7 +199,9 @@ public class SigningProfileMapper {
         return new SigningProfileModel<>(header.getUuid(), header.getName(), header.getDescription(),
                 version.getVersion(), header.isEnabled(), detectEnabledProtocols(header), header.getTspProfileUuid(),
                 new ManagedContentSigningWorkflow(version.getSignatureFormattingConnectorUuid(),
-                        cacheSafeList(signatureFormattingConnectorAttributes)),
+                        cacheSafeList(signatureFormattingConnectorAttributes), version.getSignatureFamily(),
+                        version.getMaxSignatureLevel(), version.getTimestampSourceProfileUuid(),
+                        version.getDocumentSizeCap(), header.getTimeQualityConfigurationUuid()),
                 buildManagedSchemeModel(version, signingOperationAttributes), buildRecordPolicyModel(version));
     }
 
@@ -240,10 +248,19 @@ public class SigningProfileMapper {
     // ──────────────────────────────────────────────────────────────────────────
 
     private static ContentSigningWorkflowDto buildContentSigningWorkflowDto(SigningProfileVersion version,
-            List<ResponseAttribute> signatureFormattingConnectorAttributes) {
+            List<ResponseAttribute> signatureFormattingConnectorAttributes, String timestampSourceProfileName) {
         ContentSigningWorkflowDto wf = new ContentSigningWorkflowDto();
         setFormattingRef(version, wf::setSignatureFormattingConnector);
         wf.setSignatureFormattingConnectorAttributes(safeList(signatureFormattingConnectorAttributes));
+        wf.setFamily(version.getSignatureFamily());
+        wf.setMaxLevel(version.getMaxSignatureLevel());
+        wf.setDocumentSizeCap(version.getDocumentSizeCap());
+        if (version.getTimestampSourceProfileUuid() != null) {
+            NameAndUuidDto timestampSourceProfile = new NameAndUuidDto();
+            timestampSourceProfile.setUuid(version.getTimestampSourceProfileUuid().toString());
+            timestampSourceProfile.setName(timestampSourceProfileName);
+            wf.setTimestampSource(new InternalTimestampSourceDto(timestampSourceProfile));
+        }
         return wf;
     }
 

@@ -36,7 +36,8 @@ class SigningProfileResolverFactoryTest {
     }
 
     private static SigningProfileModel<?, ?> aManagedContentSigningProfileModel() {
-        ManagedContentSigningWorkflow workflow = new ManagedContentSigningWorkflow(UUID.randomUUID(), List.of());
+        ManagedContentSigningWorkflow workflow = new ManagedContentSigningWorkflow(UUID.randomUUID(), List.of(), null,
+                null, null, null, null);
         return new SigningProfileModel<>(UUID.randomUUID(), "test-profile", null, 1, true, List.of(SigningProtocol.TSP),
                 UUID.randomUUID(), workflow, new StaticKeyManagedSigning(UUID.randomUUID(), List.of()),
                 SigningRecordPolicyModelBuilder.notRecording().build());
@@ -44,7 +45,7 @@ class SigningProfileResolverFactoryTest {
 
     private static ResolvedManagedContentSigningProfile aResolvedContentSigningProfile() {
         return new ResolvedManagedContentSigningProfile(UUID.randomUUID(), "docs", null, 1, true, List.of(), List.of(),
-                null, null);
+                null, null, null, null, null, null, null);
     }
 
     @Test

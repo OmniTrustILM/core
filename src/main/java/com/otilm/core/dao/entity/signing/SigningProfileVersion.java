@@ -4,6 +4,8 @@ import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenc
 import com.otilm.api.model.client.signing.profile.scheme.ManagedSigningType;
 import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
+import com.otilm.api.model.common.signature.SignatureFamily;
+import com.otilm.api.model.common.signature.SignatureLevel;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.RaProfile;
@@ -103,6 +105,20 @@ public class SigningProfileVersion extends UniquelyIdentifiedAndAudited {
     @JoinColumn(name = "signature_formatting_connector_uuid", insertable = false, updatable = false)
     @ToString.Exclude
     private Connector signatureFormattingConnector;
+
+    @Column(name = "signature_family")
+    @Enumerated(EnumType.STRING)
+    private SignatureFamily signatureFamily;
+
+    @Column(name = "max_signature_level")
+    @Enumerated(EnumType.STRING)
+    private SignatureLevel maxSignatureLevel;
+
+    @Column(name = "timestamp_source_profile_uuid")
+    private UUID timestampSourceProfileUuid;
+
+    @Column(name = "document_size_cap")
+    private Long documentSizeCap;
 
     @Column(name = "qualified_timestamp")
     private Boolean qualifiedTimestamp;
