@@ -22,13 +22,16 @@ import com.otilm.core.service.TimeQualityConfigurationExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.SearchHelper;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
+
+import static com.otilm.core.integration.search.CatalogueFields.allFields;
+import static com.otilm.core.integration.search.CatalogueFields.field;
+import static com.otilm.core.integration.search.CatalogueFields.propertyFields;
 
 /**
  * The {@code displayable} and {@code sortable} flags a published column catalogue carries. Property fields resolve
@@ -50,27 +53,6 @@ class ColumnCatalogueFlagsITest extends BaseSpringBootTest {
 
     @Autowired
     private AttributeEngine attributeEngine;
-
-    private static Optional<SearchFieldDataDto> field(List<SearchFieldDataByGroupDto> catalogue, String identifier) {
-        return catalogue
-                .stream()
-                .flatMap(group -> group.getSearchFieldData().stream())
-                .filter(item -> identifier.equals(item.getFieldIdentifier()))
-                .findFirst();
-    }
-
-    private static List<SearchFieldDataDto> allFields(List<SearchFieldDataByGroupDto> catalogue) {
-        return catalogue.stream().flatMap(group -> group.getSearchFieldData().stream()).toList();
-    }
-
-    /** The property group only, since the source is carried by the group rather than by each field. */
-    private static List<SearchFieldDataDto> propertyFields(List<SearchFieldDataByGroupDto> catalogue) {
-        return catalogue
-                .stream()
-                .filter(group -> group.getFilterFieldSource() == FilterFieldSource.PROPERTY)
-                .flatMap(group -> group.getSearchFieldData().stream())
-                .toList();
-    }
 
     @Test
     void everyPublishedFieldAnswersBothFlags() {

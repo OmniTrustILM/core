@@ -211,6 +211,11 @@ public enum FilterField {
             SearchFieldTypeEnum.LIST, KeyUsage.class, null, false, null),
     CKI_LENGTH(Resource.CRYPTOGRAPHIC_KEY, null, null, CryptographicKeyItem_.length, "Key Size",
             SearchFieldTypeEnum.NUMBER),
+    CKI_ENABLED(Resource.CRYPTOGRAPHIC_KEY, null, null, CryptographicKeyItem_.enabled, Constants.ENABLED,
+            SearchFieldTypeEnum.BOOLEAN),
+    // The key's created, not the item's, because that is the value the listing renders as creationTime.
+    CKI_CREATED(Resource.CRYPTOGRAPHIC_KEY, null, List.of(CryptographicKeyItem_.key), Audited_.created,
+            Constants.CREATED_AT, SearchFieldTypeEnum.DATETIME),
     CK_TOKEN_PROFILE(Resource.CRYPTOGRAPHIC_KEY, Resource.TOKEN_PROFILE,
             List.of(CryptographicKeyItem_.key, CryptographicKey_.tokenProfile), TokenProfile_.name, "Token profile",
             SearchFieldTypeEnum.LIST),
