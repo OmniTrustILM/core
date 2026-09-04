@@ -14,6 +14,10 @@
     <name>core</name>
 
     <properties>
+        <!-- The mainline value, and permanent: no PR ever commits a different one.
+             CI overrides it with -Dinterfaces.version=... when a PR body carries a
+             Depends-On or Interfaces-Version marker. -->
+        <interfaces.version>2.20.0-SNAPSHOT</interfaces.version>
         <archunit.version>1.4.2</archunit.version>
         <!-- CVE-2026-65182, CVE-2026-65905, CVE-2026-68525 (auth/constraint bypasses in embedded Tomcat).
              The announced fix version 10.1.58 was never published; 10.1.59 is its released successor.
@@ -67,7 +71,7 @@
         <dependency>
             <groupId>com.otilm</groupId>
             <artifactId>interfaces</artifactId>
-            <version>2.20.0-SNAPSHOT</version>
+            <version>${interfaces.version}</version>
         </dependency>
 
         <!-- Spring  -->
