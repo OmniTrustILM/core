@@ -1,5 +1,10 @@
 package com.otilm.core.cbom.asset.identity;
 
+import java.io.ByteArrayOutputStream;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.HexFormat;
@@ -23,13 +28,21 @@ import java.util.Set;
  * ({@code OidHandler.cacheOid}, and {@code updateCertificateSubjectDN} exists precisely to rewrite DNs on an OID
  * rename), so a short-name key would orphan every stored row on a rename. The mapping is read from the ratified tables,
  * which carry the long spellings too.</li>
- * <li><b>RDNs sort on the full rendered {@code oid=value} string</b>, plain lexicographic -- so {@code 2.5.4.10}
- * precedes {@code 2.5.4.3}, and it is not OID-numeric order either. Not on the normalized value, which the
- * specification claimed for months and which was caught by diffing vectors against it. Sorting is not a preference: the
- * producer's own renderer has already rebuilt the RDNs in a hardcoded field order and discarded true DER order, so
- * preserving source order would make one certificate reported by two producers never agree.</li>
+ * <li><b>RDNs sort on the full rendered {@code oid=value} string</b>, plain lexicographic by code point -- so
+ * {@code 2.5.4.10} precedes {@code 2.5.4.3}, and it is not OID-numeric order either. Not on the normalized value, which
+ * the specification claimed for months and which was caught by diffing vectors against it. Sorting is not a preference:
+ * the producer's own renderer has already rebuilt the RDNs in a hardcoded field order and discarded true DER order, so
+ * preserving source order would make one certificate reported by two producers never agree. Code point rather than
+ * UTF-16 unit, which is what {@code sort(null)} compared: the reference sorts by code point, as does every other
+ * ordered sequence in this package, and the two orders disagree on an astral character against one above U+E000.</li>
  * <li><b>{@code OID=#hexDER} is decoded</b> before comparison, because that is what one producer emits for every
  * attribute type it does not know.</li>
+ * <li><b>RFC 4514 escapes are decoded, RFC 2253 legacy forms are read.</b> A {@code \hh} pair is the octet it names, so
+ * {@code CN=a\2Cb} is the same name as {@code CN=a\,b} and not as {@code CN=a2Cb}, which dropping the backslash made
+ * it. A quoted value ({@code O="Entrust, Inc."}, the OpenSSL {@code -nameopt} rendering that 84 of the 1 595 corpus DN
+ * values carry) is one value: split on its inner comma, {@code O="Entrust, Inc."} and {@code O="Entrust, Ltd."}
+ * rendered one AVA, {@code 2.5.4.10=\"entrust}, with the rest silently dropped. And {@code ;} separates RDNs as RFC
+ * 2253 §4 requires, where RFC 4514 gives an unescaped {@code ;} no reading at all.</li>
  * <li><b>A DN carrying no {@code =} at all is a bare common name</b>, not a malformed DN. Refusing it made the
  * composite unconstructible and dropped two <em>different</em> root CAs onto one identity.</li>
  * </ul>
@@ -59,11 +72,11 @@ public final class DistinguishedNames {
         String trimmed = AsciiText.strip(dn);
         if (trimmed.indexOf('=') < 0) {
             String collapsed = AsciiText.collapseWhitespace(Normalizer.normalize(trimmed, Normalizer.Form.NFKC));
-            return COMMON_NAME_OID + "=" + escape(AsciiText.fold(collapsed));
+            return COMMON_NAME_OID + "=" + escape(escapePercent(AsciiText.fold(collapsed)));
         }
 
         List<String> rdns = new ArrayList<>();
-        for (String rdn : splitUnescaped(trimmed, ",")) {
+        for (String rdn : splitUnescaped(trimmed, ",;")) {
             if (AsciiText.isBlank(rdn)) {
                 continue;
             }
@@ -75,18 +88,17 @@ public final class DistinguishedNames {
                 }
                 String rawType = AsciiText.fold(AsciiText.strip(ava.substring(0, separator)));
                 String oid = tables.dnAttributeOids().getOrDefault(rawType, rawType);
-                String value = normalizeValue(unescape(AsciiText.strip(ava.substring(separator + 1))), oid);
-                avas.add(oid + "=" + escape(value));
+                avas.add(oid + "=" + escape(normalizeValue(AsciiText.strip(ava.substring(separator + 1)), oid)));
             }
             if (!avas.isEmpty()) {
-                avas.sort(null);
+                avas.sort(AsciiText.BY_CODE_POINT);
                 rdns.add(String.join("+", avas));
             }
         }
         if (rdns.isEmpty()) {
             return null;
         }
-        rdns.sort(null);
+        rdns.sort(AsciiText.BY_CODE_POINT);
         return String.join(",", rdns);
     }
 
@@ -112,31 +124,118 @@ public final class DistinguishedNames {
                 .allMatch(part -> part.startsWith(COMMON_NAME_OID + "=") && splitUnescaped(part, "+").size() == 1);
     }
 
-    private static String normalizeValue(String raw, String oid) {
-        String value = raw;
-        if (value.startsWith("#")) {
-            value = decodeHexDer(value);
+    /**
+     * @param rawValue the value as written, stripped and still escaped: whether it is quoted or opens with the ASCII
+     * {@code #} marker is decided on this spelling, before RFC 4514 unescaping and before NFKC, because both can
+     * manufacture a {@code #}
+     */
+    private static String normalizeValue(String rawValue, String oid) {
+        // One escape rule, three paths, and they must not overlap. A bare `%XX` in the output means "a byte no
+        // decoder could read"; every other percent is escaped to `%25` -- inside decodeEscapes for an ordinary textual
+        // value, and inside decodeHexDer for a hex value that decodes. Escaping only inside the hex paths left `CN=#FF`
+        // and `CN=%FF` rendering one AVA, because a literal value never enters that method.
+        //
+        // NFKC runs FIRST, on every path, because the escape is injective only over normalized text. U+FF05 FULLWIDTH
+        // PERCENT SIGN is not a `%` when the escape looks at it and is one afterwards, so `CN=\uFF05FF` normalized to
+        // a bare `%FF` -- byte-identical to what the malformed-bytes fallback renders for `CN=#FF`, and two issuers
+        // merged onto one row. Ordering it this way is what makes the class's own rule -- that any `%` in a
+        // normalized value came from an escape here -- true rather than nearly true.
+        //
+        // The `#` test does NOT move with it. RFC 4514 defines the hex-DER marker over ASCII `#` alone, and NFKC maps
+        // U+FF03 FULLWIDTH NUMBER SIGN and U+FE5F SMALL NUMBER SIGN onto `#`: tested after normalization, a textual
+        // common name spelled with a compatibility number sign was decoded as DER, failed UTF-8, and rendered the
+        // bare `%FF` reserved for a byte no decoder could read -- so `CN=#FF`, `CN=\uFF03FF` and `CN=\uFF05FF` were
+        // one issuer. The spelling as written decides whether the payload is hex; NFKC still normalizes the payload.
+        // A quoted value is text whatever it opens with: RFC 2253 quotes make the content literal.
+        String value;
+        if (isQuoted(rawValue)) {
+            value = decodeEscapes(rawValue.substring(1, rawValue.length() - 1));
+        } else if (rawValue.startsWith("#")) {
+            value = decodeHexDer(Normalizer.normalize(unescapePairs(rawValue), Normalizer.Form.NFKC));
+        } else {
+            value = decodeEscapes(rawValue);
         }
-        value = Normalizer.normalize(value, Normalizer.Form.NFKC);
         value = AsciiText.strip(AsciiText.collapseWhitespace(value));
         // ASCII-only (R12). A value differing only in non-ASCII case keys separately; the case-fold twin detector
         // reports the pair rather than merging it, which is what makes the under-merge visible instead of silent.
         return FOLDABLE_ATTRIBUTE_OIDS.contains(oid) ? AsciiText.fold(value) : value;
     }
 
-    /** Decodes the {@code #hexDER} form one producer emits for every attribute type it does not know. */
+    /**
+     * Decodes the {@code #hexDER} form one producer emits for every attribute type it does not know, refusing to
+     * collapse bytes that are not UTF-8.
+     *
+     * <p>
+     * <b>{@code new String(bytes, UTF_8)} was lossy in the identity-bearing direction.</b> It maps every malformed
+     * sequence to U+FFFD, so {@code #1401E9}, {@code #1401EA} and {@code #1401FF} produced one byte-identical AVA and
+     * two different issuers merged onto one row -- and {@code DocumentScope.certificateDigestClaims} normalizes the
+     * same values, so the refutation index could not see the contradiction either. This is the decoding-side twin of
+     * the unpaired-surrogate hole closed on the encoding side.
+     *
+     * <p>
+     * A sequence that is not UTF-8 renders as its bytes, percent-escaped -- {@code %14%01%E9} -- which is ASCII and
+     * reproducible in the reference kernel, whose {@code decode("utf-8", "replace")} carries the same defect and moves
+     * with this. Escaping the whole value rather than the offending run keeps the two implementations from having to
+     * agree on where a malformed run begins.
+     *
+     * <p>
+     * <b>The escape namespace is reserved across every path, or the escape is not injective.</b> Two attempts got this
+     * wrong before it was right. Escaping only the fallback moved the merge rather than closing it: {@code #FF} is not
+     * UTF-8 and renders {@code %FF}, while {@code #254646} decodes cleanly to the three ASCII characters {@code %FF}.
+     * Escaping both hex paths closed that pair and left a third: an ordinary textual AVA of {@code %FF} never enters
+     * this method at all, so {@code CN=#FF} and {@code CN=%FF} still rendered one value. The rule that holds is that
+     * <em>any</em> {@code %} in a normalized attribute value came from an escape here -- so {@link #normalizeValue}
+     * escapes the literal path instead of this method escaping it twice, and a bare {@code %XX} can only mean a byte no
+     * decoder could read. 0 of 1 595 corpus DN values carry a {@code %} or a {@code #} at all, so nothing moves today;
+     * what changes is that a forged value no longer merges.
+     */
     private static String decodeHexDer(String value) {
         try {
             byte[] decoded = HexFormat.of().parseHex(value.substring(1));
-            String text = new String(decoded, java.nio.charset.StandardCharsets.UTF_8);
+            String text = strictUtf8(decoded);
             StringBuilder printable = new StringBuilder(text.length());
             text.codePoints().filter(DistinguishedNames::isPrintable).forEach(printable::appendCodePoint);
             return AsciiText.strip(printable.toString());
         } catch (IllegalArgumentException e) {
             // Not hex after all. The leading marker is dropped and the rest compared verbatim, which is what the
-            // reference does -- refusing the value outright would lose a real attribute.
-            return value.substring(1);
+            // reference does -- refusing the value outright would lose a real attribute. Escaped like any other
+            // readable text: returning it raw let `CN=#%FF` render the bare `%FF` the malformed-bytes fallback
+            // reserves for `CN=#FF`.
+            return escapePercent(value.substring(1));
         }
+    }
+
+    private static String strictUtf8(byte[] bytes) {
+        try {
+            // Normalized before it is escaped, and escaped here rather than by the caller: the caller normalized the
+            // hex spelling, not the bytes it decodes to, so a value whose bytes spell U+FF05 would otherwise fold to
+            // a bare `%` after this method had already decided there was none. The fallback below must keep its
+            // escapes bare, or a malformed byte and a decoded value spelling that byte's escape render alike --
+            // which is item 17's own merge, moved rather than closed.
+            return escapePercent(Normalizer.normalize(decodeUtf8Strictly(bytes), Normalizer.Form.NFKC));
+        } catch (CharacterCodingException e) {
+            // Bare, and the only bare escapes in the result: the caller escapes the decode path's percents first, so
+            // `%FF` from here and a decoded literal `%FF` cannot render alike.
+            return bareBytes(bytes);
+        }
+    }
+
+    private static String decodeUtf8Strictly(byte[] bytes) throws CharacterCodingException {
+        return StandardCharsets.UTF_8
+                .newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+                .decode(ByteBuffer.wrap(bytes))
+                .toString();
+    }
+
+    /** Each byte as a bare {@code %XX}: the one rendering reserved for a byte no decoder could read. */
+    private static String bareBytes(byte[] bytes) {
+        StringBuilder escaped = new StringBuilder(bytes.length * 3);
+        for (byte value : bytes) {
+            escaped.append('%').append(HexFormat.of().withUpperCase().toHexDigits(value));
+        }
+        return escaped.toString();
     }
 
     /**
@@ -156,15 +255,17 @@ public final class DistinguishedNames {
     }
 
     /**
-     * Splits on separators, honouring RFC 4514 backslash escapes.
+     * Splits on separators, honouring RFC 4514 backslash escapes and RFC 2253 quoted values.
      *
      * <p>
-     * A plain split would break {@code O=Qualys\, Inc.} -- a real value in the corpus -- into two RDNs.
+     * A plain split would break {@code O=Qualys\, Inc.} -- a real value in the corpus -- into two RDNs, and a split
+     * blind to quotes broke {@code O="Entrust, Inc."} -- 84 corpus values -- the same way.
      */
     static List<String> splitUnescaped(String text, String separators) {
         List<String> parts = new ArrayList<>();
         StringBuilder current = new StringBuilder();
         boolean escaped = false;
+        boolean quoted = false;
         for (int index = 0; index < text.length(); index++) {
             char character = text.charAt(index);
             if (escaped) {
@@ -173,7 +274,10 @@ public final class DistinguishedNames {
             } else if (character == '\\') {
                 current.append(character);
                 escaped = true;
-            } else if (separators.indexOf(character) >= 0) {
+            } else if (character == '"') {
+                current.append(character);
+                quoted = !quoted;
+            } else if (!quoted && separators.indexOf(character) >= 0) {
                 parts.add(current.toString());
                 current.setLength(0);
             } else {
@@ -184,7 +288,87 @@ public final class DistinguishedNames {
         return parts;
     }
 
-    private static String unescape(String text) {
+    /** True when the value as written is one RFC 2253 quoted string: an opening quote closed by an unescaped one. */
+    private static boolean isQuoted(String rawValue) {
+        int last = rawValue.length() - 1;
+        if (last < 1 || rawValue.charAt(0) != '"' || rawValue.charAt(last) != '"') {
+            return false;
+        }
+        int backslashes = 0;
+        for (int index = last - 1; index > 0 && rawValue.charAt(index) == '\\'; index--) {
+            backslashes++;
+        }
+        return backslashes % 2 == 0;
+    }
+
+    /**
+     * Decodes RFC 4514 escapes into normalized, percent-escaped text.
+     *
+     * <p>
+     * A backslash before two hex digits is the octet they name, and consecutive pairs are one byte run: {@code \C3\BA}
+     * is {@code ú}, which then joins the surrounding text so NFKC sees a whole word. Dropping the backslash and keeping
+     * the digits, which this did before, made {@code CN=a\2Cb} the same name as {@code CN=a2Cb} and rendered the
+     * NetLock and E-Tugra roots in the corpus as {@code TanC3BAs...}. A run that is not UTF-8 renders as bare
+     * {@code %XX} bytes, the same reservation {@link #strictUtf8} makes: every other percent in the result was escaped
+     * here, after NFKC, so an undecodable byte and a literal spelling of its escape cannot render alike. A backslash
+     * before any other character yields that character; a trailing lone backslash escapes nothing and is dropped.
+     */
+    private static String decodeEscapes(String text) {
+        StringBuilder out = new StringBuilder(text.length());
+        StringBuilder pending = new StringBuilder();
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        int index = 0;
+        while (index < text.length()) {
+            char character = text.charAt(index);
+            if (character == '\\' && index + 2 < text.length() && HexFormat.isHexDigit(text.charAt(index + 1))
+                    && HexFormat.isHexDigit(text.charAt(index + 2))) {
+                bytes.write(HexFormat.fromHexDigits(text, index + 1, index + 3));
+                index += 3;
+                continue;
+            }
+            flushBytes(bytes, pending, out);
+            if (character != '\\') {
+                pending.append(character);
+                index++;
+            } else if (index + 1 < text.length()) {
+                pending.append(text.charAt(index + 1));
+                index += 2;
+            } else {
+                index++;
+            }
+        }
+        flushBytes(bytes, pending, out);
+        flushText(pending, out);
+        return out.toString();
+    }
+
+    /** A completed byte run joins the pending text when it decodes, and renders bare when it does not. */
+    private static void flushBytes(ByteArrayOutputStream bytes, StringBuilder pending, StringBuilder out) {
+        if (bytes.size() == 0) {
+            return;
+        }
+        byte[] run = bytes.toByteArray();
+        bytes.reset();
+        try {
+            pending.append(decodeUtf8Strictly(run));
+        } catch (CharacterCodingException e) {
+            flushText(pending, out);
+            out.append(bareBytes(run));
+        }
+    }
+
+    private static void flushText(StringBuilder pending, StringBuilder out) {
+        if (!pending.isEmpty()) {
+            out.append(escapePercent(Normalizer.normalize(pending, Normalizer.Form.NFKC)));
+            pending.setLength(0);
+        }
+    }
+
+    /**
+     * Drops the backslash of every escape pair and nothing more. The hex-DER path only: its payload is hex digits, so a
+     * {@code \hh} pair inside it is not an octet but a spelling {@link #decodeHexDer} will refuse as not hex.
+     */
+    private static String unescapePairs(String text) {
         StringBuilder out = new StringBuilder(text.length());
         boolean escaped = false;
         for (int index = 0; index < text.length(); index++) {
@@ -199,6 +383,14 @@ public final class DistinguishedNames {
             }
         }
         return out.toString();
+    }
+
+    /**
+     * Reserves the escape namespace, and is applied only after NFKC on whichever path produced the text -- the
+     * normalizer maps four code points onto `%` and `#`, so escaping first leaves an unescaped percent behind.
+     */
+    private static String escapePercent(String value) {
+        return value.replace("%", "%25");
     }
 
     /**

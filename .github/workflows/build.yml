@@ -4,6 +4,13 @@ on:
     branches: [main*]
   workflow_dispatch:
 
+# Read-only token. Every job checks out, resolves the parent POM and build-tools from GitHub
+# Packages, and exchanges artifacts within the run; none writes to the repository, and a
+# workflow that declares no permissions inherits whatever the repository default grants.
+permissions:
+  contents: read
+  packages: read
+
 jobs:
   build:
     if: github.event_name != 'pull_request'

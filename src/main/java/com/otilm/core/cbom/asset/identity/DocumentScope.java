@@ -10,6 +10,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * The derivations that need a view of a whole document rather than of one component, computed once per document.
@@ -47,32 +48,77 @@ public final class DocumentScope {
     private final Set<String> refutedCertificateDigests;
     private final Set<String> refutedSuiteCodes;
     private final Map<String, JsonNode> componentsByRef;
+    private final Set<String> ambiguousRefs;
 
     private DocumentScope(Set<String> refutedCertificateDigests, Set<String> refutedSuiteCodes,
-            Map<String, JsonNode> componentsByRef) {
+            Map<String, JsonNode> componentsByRef, Set<String> ambiguousRefs) {
         this.refutedCertificateDigests = refutedCertificateDigests;
         this.refutedSuiteCodes = refutedSuiteCodes;
         this.componentsByRef = componentsByRef;
+        this.ambiguousRefs = ambiguousRefs;
     }
 
     /** An empty scope, for keying a component with no document around it. Every refutation set is empty. */
     public static DocumentScope none() {
-        return new DocumentScope(Set.of(), Set.of(), Map.of());
+        return new DocumentScope(Set.of(), Set.of(), Map.of(), Set.of());
     }
 
+    /**
+     * Indexes the document's components by {@code bom-ref}, treating a duplicated ref as naming nothing.
+     *
+     * <p>
+     * <b>Ambiguity is unresolved, not first-one-wins.</b> {@code bom-ref} is producer-assigned and nothing in either
+     * schema version makes it unique, and real producer output duplicates it: 6 corpus documents carry 27 duplicated
+     * ref instances, one of them emitting {@code crypto/protocol/tls@TLSv1.3} three times in five documents.
+     * First-in-document-order made a certificate's key depend on which serialization of one document the platform
+     * happened to ingest -- permuting the components moved a real key from {@code 06b755a7…} to {@code eeba7e15…} --
+     * and permutation-invariance is a property the extractor states, so document order cannot be allowed to decide
+     * identity. An ambiguous ref therefore joins the absent, dangling and wrong-kind cases the resolution rule already
+     * treats as unresolved.
+     *
+     * <p>
+     * The counter-argument from the clean-room pass -- that an unresolved ref yields an empty slot, and empty-slot
+     * certificates merge -- does not separate the two arms: both certificates carry the <em>same</em> duplicated ref
+     * string, so first-one-wins hands them the same target and merges them too. What differs between the arms is only
+     * whether document order can move a key. 0 corpus rows move either way, because no duplicated ref is currently
+     * pointed at.
+     *
+     * <p>
+     * Both arms owe the producer an ingest finding, and neither can raise one yet: {@link #ambiguousRefs()} carries
+     * what a finding would name, and core#2073 owns the channel that reports it.
+     */
     public static DocumentScope of(JsonNode document, AssetNormalizer normalizer) {
         if (document == null) {
             return none();
         }
         Map<String, JsonNode> byRef = new LinkedHashMap<>();
+        Set<String> duplicated = new LinkedHashSet<>();
         for (JsonNode component : walk(document)) {
             JsonNode ref = component.get("bom-ref");
-            if (ref != null && ref.isTextual()) {
-                byRef.putIfAbsent(ref.textValue(), component);
+            if (ref != null && ref.isTextual() && byRef.putIfAbsent(ref.textValue(), component) != null) {
+                duplicated.add(ref.textValue());
             }
         }
-        return new DocumentScope(refute(certificateDigestClaims(document, normalizer)), refutedSuiteCodes(document),
-                byRef);
+        duplicated.forEach(byRef::remove);
+        return new DocumentScope(refute(certificateDigestClaims(document, normalizer)),
+                refutedSuiteCodes(document, normalizer), byRef, Set.copyOf(duplicated));
+    }
+
+    /**
+     * True when the component states an {@code assetType} that does not route to the protocol type.
+     *
+     * <p>
+     * Stated means textual and non-blank; whether it <em>routes</em> is not part of the test. Requiring the type to
+     * route barred only the three other known types, so {@code protocols}, {@code algo} or a component {@code type}
+     * copied into the wrong field -- all plausible producer text -- still contributed a suite name and could refute a
+     * real code document-wide, which is the hazard {@link #refutedSuiteCodes} states this gate exists to close.
+     */
+    private static boolean statesANonProtocolType(JsonNode properties, AssetNormalizer normalizer) {
+        JsonNode declared = properties == null ? null : properties.get("assetType");
+        if (declared == null || !declared.isTextual() || AsciiText.isBlank(declared.textValue())) {
+            return false;
+        }
+        return !CbomNames.ASSET_TYPE_PROTOCOL.equals(normalizer.normalizeAssetType(declared.textValue()));
     }
 
     /**
@@ -124,9 +170,21 @@ public final class DocumentScope {
         return refutedSuiteCodes;
     }
 
-    /** Resolves a document-internal bom-ref to its component, or {@code null}. */
+    /** Resolves a document-internal bom-ref to its component, or {@code null} when it names none or more than one. */
     public JsonNode resolve(JsonNode ref) {
         return ref != null && ref.isTextual() ? componentsByRef.get(ref.textValue()) : null;
+    }
+
+    /**
+     * Refs this document defines more than once, which resolve to nothing.
+     *
+     * <p>
+     * Exposed for the ingest finding that both arms of the ambiguity rule require and that no channel in
+     * {@code src/main} can yet report -- see {@link #of}. A caller that resolves nothing cannot otherwise tell an
+     * ambiguous ref from an absent one, and the producer needs to hear which of the two it emitted.
+     */
+    public Set<String> ambiguousRefs() {
+        return ambiguousRefs;
     }
 
     /**
@@ -187,70 +245,88 @@ public final class DocumentScope {
             AssetNormalizer normalizer) {
         Map<String, List<Map<String, String>>> claims = new LinkedHashMap<>();
         for (JsonNode component : walk(document)) {
-            JsonNode properties = component.get("cryptoProperties");
-            if (properties == null || !properties.isObject()) {
-                continue;
-            }
-            // Normalized, not raw. The router normalizes the spelling, so a raw comparison meant an assetType of
-            // "Certificate" was ROUTED as a certificate while staying invisible to refutation -- a safety control
-            // evadable by capitalization.
-            JsonNode assetType = properties.get("assetType");
-            if (!CbomNames.ASSET_TYPE_CERTIFICATE
-                    .equals(normalizer
-                            .normalizeAssetType(
-                                    assetType != null && assetType.isTextual() ? assetType.textValue() : null))) {
-                continue;
-            }
-            JsonNode certificate = properties.get(CbomNames.CERTIFICATE_PROPERTIES);
-            JsonNode certificateProperties = certificate != null && certificate.isObject() ? certificate : null;
-            Map<String, String> facts = new LinkedHashMap<>();
-            put(facts, "subject", DistinguishedNames
-                    .normalize(text(certificateProperties, CbomNames.SUBJECT_NAME), normalizer.tables()));
-            put(facts, "issuer", DistinguishedNames
-                    .normalize(text(certificateProperties, CbomNames.ISSUER_NAME), normalizer.tables()));
-            String serial = text(certificateProperties, "serialNumber");
-            put(facts, "serial", AsciiText.fold(AsciiText.strip(serial == null ? "" : serial)));
-            put(facts, "notBefore", ValidityTimestamps.normalize(text(certificateProperties, "notValidBefore")));
-            put(facts, "notAfter", ValidityTimestamps.normalize(text(certificateProperties, "notValidAfter")));
-            if (facts.isEmpty()) {
-                continue;
-            }
-            for (String digest : CertificateDigests.claimed(component, certificateProperties)) {
-                claims.computeIfAbsent(digest, key -> new ArrayList<>()).add(facts);
-            }
+            recordDigestClaims(component, normalizer, claims);
         }
         return claims;
     }
 
+    /** Files this component's claimed facts under every content digest it claims, when it is a certificate. */
+    private static void recordDigestClaims(JsonNode component, AssetNormalizer normalizer,
+            Map<String, List<Map<String, String>>> claims) {
+        JsonNode properties = component.get("cryptoProperties");
+        if (!statesACertificateType(properties, normalizer)) {
+            return;
+        }
+        JsonNode certificate = properties.get(CbomNames.CERTIFICATE_PROPERTIES);
+        JsonNode certificateProperties = certificate != null && certificate.isObject() ? certificate : null;
+        Map<String, String> facts = claimedFacts(certificateProperties, normalizer);
+        if (facts.isEmpty()) {
+            return;
+        }
+        for (String digest : CertificateDigests.claimed(component, certificateProperties)) {
+            claims.computeIfAbsent(digest, key -> new ArrayList<>()).add(facts);
+        }
+    }
+
     /**
-     * Cipher-suite codes that one document stamps on differently-named suites.
+     * Normalized, not raw. The router normalizes the spelling, so a raw comparison meant an {@code assetType} of
+     * {@code "Certificate"} was ROUTED as a certificate while staying invisible to refutation -- a safety control
+     * evadable by capitalization.
+     */
+    private static boolean statesACertificateType(JsonNode properties, AssetNormalizer normalizer) {
+        if (properties == null || !properties.isObject()) {
+            return false;
+        }
+        JsonNode assetType = properties.get("assetType");
+        return CbomNames.ASSET_TYPE_CERTIFICATE
+                .equals(normalizer
+                        .normalizeAssetType(assetType != null && assetType.isTextual() ? assetType.textValue() : null));
+    }
+
+    /** The identifying facts a certificate component states about itself, absent entries left out. */
+    private static Map<String, String> claimedFacts(JsonNode certificateProperties, AssetNormalizer normalizer) {
+        Map<String, String> facts = new LinkedHashMap<>();
+        put(facts, "subject",
+                DistinguishedNames.normalize(text(certificateProperties, CbomNames.SUBJECT_NAME), normalizer.tables()));
+        put(facts, "issuer",
+                DistinguishedNames.normalize(text(certificateProperties, CbomNames.ISSUER_NAME), normalizer.tables()));
+        String serial = text(certificateProperties, "serialNumber");
+        put(facts, "serial", AsciiText.fold(AsciiText.strip(serial == null ? "" : serial)));
+        put(facts, "notBefore", ValidityTimestamps.normalize(text(certificateProperties, "notValidBefore")));
+        put(facts, "notAfter", ValidityTimestamps.normalize(text(certificateProperties, "notValidAfter")));
+        return facts;
+    }
+
+    /**
+     * Cipher-suite codes that one document stamps on differently-named suites, read only from components that are
+     * protocols.
      *
      * <p>
      * One producer stamps the identical placeholder {@code ["0xC0","0x30"]} on TLS_AES_128_GCM_SHA256,
      * TLS_AES_256_GCM_SHA384 and TLS_CHACHA20_POLY1305_SHA256 alike, collapsing five distinct suites onto one identity.
      * So the code is corroborated against the suite name, and loses when it contradicts it.
+     *
+     * <p>
+     * <b>Gated like the certificate pass, and for the same reason.</b> This walked every component and read any
+     * {@code protocolProperties.cipherSuites} it found, while {@code certificateDigestClaims} two methods up gates on
+     * the <em>normalized</em> {@code assetType} because a raw comparison made that control evadable by capitalization.
+     * The asymmetry was reachable: an {@code algorithm} component carrying a stale protocol block could contribute a
+     * second name for a real suite code and refute it document-wide, moving the identity of every genuine protocol row
+     * that claims it. 0 of 107 corpus {@code cipherSuites} blocks sit on a non-protocol component, so nothing moves
+     * today.
+     *
+     * <p>
+     * <b>An absent {@code assetType} still contributes.</b> Skipping everything that does not normalize to
+     * {@code protocol} would also skip a component that states no type at all -- which, for a block carrying
+     * {@code cipherSuites}, is far more likely a protocol than not, and losing its refutation <em>over</em>-merges.
+     * That is the opposite direction from the certificate pass, where losing a refutation under-merges, so the safe
+     * gate here is "a type is stated and it is not protocol" rather than "the type is not protocol". A stated type the
+     * router does not know is barred like any other stated non-protocol type -- see {@link #statesANonProtocolType}.
      */
-    private static Set<String> refutedSuiteCodes(JsonNode document) {
+    private static Set<String> refutedSuiteCodes(JsonNode document, AssetNormalizer normalizer) {
         Map<String, Set<String>> names = new LinkedHashMap<>();
         for (JsonNode component : walk(document)) {
-            JsonNode properties = component.get("cryptoProperties");
-            JsonNode protocol = properties == null ? null : properties.get("protocolProperties");
-            JsonNode suites = protocol == null ? null : protocol.get("cipherSuites");
-            if (suites == null || !suites.isArray()) {
-                continue;
-            }
-            for (JsonNode suite : suites) {
-                if (!suite.isObject()) {
-                    continue;
-                }
-                String code = CipherSuites.code(suite.get("identifiers"));
-                JsonNode name = suite.get("name");
-                if (code != null && name != null && name.isTextual() && !AsciiText.isBlank(name.textValue())) {
-                    names
-                            .computeIfAbsent(code, key -> new HashSet<>())
-                            .add(AsciiText.upper(AsciiText.strip(name.textValue())));
-                }
-            }
+            recordSuiteNames(contributedCipherSuites(component, normalizer), names);
         }
         Set<String> refuted = new LinkedHashSet<>();
         names.forEach((code, seen) -> {
@@ -259,6 +335,59 @@ public final class DocumentScope {
             }
         });
         return Set.copyOf(refuted);
+    }
+
+    /**
+     * The {@code cipherSuites} array a component is allowed to refute with, or null when it has none or is barred.
+     */
+    private static JsonNode contributedCipherSuites(JsonNode component, AssetNormalizer normalizer) {
+        JsonNode properties = component.get("cryptoProperties");
+        if (statesANonProtocolType(properties, normalizer)) {
+            return null;
+        }
+        JsonNode protocol = properties == null ? null : properties.get("protocolProperties");
+        JsonNode suites = protocol == null ? null : protocol.get("cipherSuites");
+        return suites != null && suites.isArray() ? suites : null;
+    }
+
+    /**
+     * The infix that separates the OpenSSL alias of a TLS 1.3 suite from its IANA name: code {@code 0x1301} is
+     * {@code TLS_AES_128_GCM_SHA256} to IANA and {@code TLS_AKE_WITH_AES_128_GCM_SHA256} to one producer, and the
+     * {@code _WITH_} of every TLS 1.2 registry name is the same word.
+     */
+    private static final Pattern SUITE_NAME_ALIAS_INFIX = Pattern.compile("(?:ake)?with");
+
+    /**
+     * Files every named suite under its code, by the suite the name denotes rather than by its spelling. A code seen
+     * under two suites is refuted; one suite named twice is not, so the value is a set rather than a count.
+     *
+     * <p>
+     * Comparing raw names refuted a code on a naming alias: one document carrying both {@code TLS_AES_128_GCM_SHA256}
+     * and {@code TLS_AKE_WITH_AES_128_GCM_SHA256} for {@code 0x1301} -- the shape of one estate scanned by two tools --
+     * refuted the code document-wide and re-keyed every protocol row claiming it, including rows that never saw the
+     * alias. Refutation is the control for a fabricated code stamped on differently-named suites, so what has to differ
+     * is the suite: separators and case are dropped as for every table lookup, and the {@code WITH} infix goes with
+     * them. Nothing else is folded -- the 7 refuted codes in the 2026-08-18 corpus each carry two or more suites that
+     * stay distinct under this reading, so 0 rows move.
+     */
+    private static void recordSuiteNames(JsonNode suites, Map<String, Set<String>> names) {
+        if (suites == null) {
+            return;
+        }
+        for (JsonNode suite : suites) {
+            if (!suite.isObject()) {
+                continue;
+            }
+            String code = CipherSuites.code(suite.get("identifiers"));
+            JsonNode name = suite.get("name");
+            if (code != null && name != null && name.isTextual() && !AsciiText.isBlank(name.textValue())) {
+                names.computeIfAbsent(code, key -> new HashSet<>()).add(denotedSuite(name.textValue()));
+            }
+        }
+    }
+
+    private static String denotedSuite(String name) {
+        return SUITE_NAME_ALIAS_INFIX.matcher(AsciiText.lookupKey(name)).replaceAll("");
     }
 
     private static void put(Map<String, String> facts, String field, String value) {

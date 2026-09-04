@@ -1,10 +1,10 @@
 package com.otilm.core.cbom.asset.identity;
 
-import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.otilm.core.serialization.ObjectMapperFactory;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -51,9 +51,14 @@ class IdentityVectorTest {
     private static AssetNormalizer normalizer;
     private static CryptoAssetIdentity identity;
 
+    /**
+     * The ingest mapper, not a private one. This runner enabled {@code USE_BIG_DECIMAL_FOR_FLOATS}, which
+     * {@code ObjectMapperFactory.storage()} does not: inert while no vector carries a non-integer literal, and the day
+     * one did it would have parsed as a {@code DecimalNode} here and a {@code DoubleNode} in production.
+     */
     @BeforeAll
     static void loadOnce() throws IOException {
-        ObjectMapper mapper = new ObjectMapper().enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
+        ObjectMapper mapper = ObjectMapperFactory.storage();
         try (InputStream stream = IdentityVectorTest.class.getClassLoader().getResourceAsStream(VECTORS)) {
             assertThat(stream).describedAs("the ratified vectors must be on the test classpath").isNotNull();
             vectorFile = mapper.readTree(stream);
@@ -101,16 +106,25 @@ class IdentityVectorTest {
                 .isEqualTo(expected.get("chainStep").asText());
     }
 
+    /**
+     * A vector on a tier that hashes an inner string must publish it: without the inner pre-image a mismatched digest
+     * names no slot, which is what cost one round 768 guesses. The requirement is asserted, because the silent return
+     * this used to take on an absent {@code innerPreImages} let a hashed-tier vector without one pass as covered.
+     */
     @ParameterizedTest
     @MethodSource("vectors")
     void everyHashedSlotMatchesTheStringItHashes(Vector vector) {
         JsonNode inner = vector.node().get("expected").get("innerPreImages");
         if (inner == null || inner.isNull()) {
+            assertThat(vector.node().get("expected").get("chainStep").asText())
+                    .describedAs("%s hashes an inner string and must publish it as innerPreImages", vector.id())
+                    .isNotIn(ChainStep.CRT_DN_COMPOSITE.label(), ChainStep.PRT_TYPE_VERSION_SUITES.label(),
+                            ChainStep.PRT_TYPE_OCCURRENCE.label(), ChainStep.MAT_OCCURRENCE.label());
             return;
         }
         JsonNode component = vector.node().get("component");
         DocumentScope scope = DocumentScope.of(documentAround(vector.node()), normalizer);
-        JsonNode properties = MaterialRedaction.of(component.get("cryptoProperties")).payload();
+        JsonNode properties = MaterialRedaction.of(component.get("cryptoProperties")).keyedPayload();
 
         if (inner.hasNonNull("dnComposite")) {
             assertThat(identity.dnPreImage(properties, scope))
@@ -139,7 +153,7 @@ class IdentityVectorTest {
      */
     @Test
     void theWholeRatifiedSetIsRun() {
-        assertThat(vectorFile.get("vectors")).hasSize(vectorFile.get("vectorCount").asInt()).hasSize(267);
+        assertThat(vectorFile.get("vectors")).hasSize(vectorFile.get("vectorCount").asInt()).hasSize(269);
     }
 
     /**
@@ -148,20 +162,16 @@ class IdentityVectorTest {
      * <p>
      * Coverage is enumerated from the tiers rather than inferred from a count. Generated coverage covers the shapes a
      * generator happens to produce, and a branch nobody's corpus exercises stays invisible to it -- 295 of one round's
-     * 296 remaining divergences sat in exactly such a branch.
+     * 296 remaining divergences sat in exactly such a branch. The tiers are read from {@link ChainStep}, not from a
+     * literal beside this assertion: compared against a hand-written list, a new tier with no vector left both sides
+     * unchanged and the check green.
      */
     @Test
     void everyChainStepIsExercised() {
         Set<String> exercised = new LinkedHashSet<>();
         vectorFile.get("vectors").forEach(vector -> exercised.add(vector.get("expected").get("chainStep").asText()));
 
-        assertThat(exercised)
-                .containsExactlyInAnyOrder("alg:family", "alg:name", "alg:backstop", "crt:fingerprint",
-                        "crt:component-hash", "crt:serial+issuer", "crt:dn-composite", "crt:cn-only",
-                        "crt:subject-only", "crt:backstop", "prt:type+version+suites", "prt:type+version",
-                        "prt:type+version+name", "prt:type+occurrence", "prt:type+name", "prt:type-only",
-                        "prt:backstop", "mat:fingerprint", "mat:value-hash", "mat:id", "mat:occurrence", "mat:backstop",
-                        "backstop:unknown-type");
+        assertThat(exercised).containsExactlyInAnyOrderElementsOf(ChainStep.labels());
     }
 
     /**

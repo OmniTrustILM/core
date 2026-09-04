@@ -89,9 +89,20 @@ public final class AsciiText {
 
     /** Lower-cases ASCII letters only, leaving every other code point untouched. */
     public static String fold(String text) {
-        if (text == null) {
-            return null;
-        }
+        return text == null ? null : foldPresent(text);
+    }
+
+    /**
+     * {@link #fold} for a value whose presence is already established, so the return is not nullable.
+     *
+     * <p>
+     * Identical folding. The split exists because {@code fold}'s null tolerance is right at the producer boundary,
+     * where a missing member and an empty one both arrive as {@code null}, and wrong below it: the nullable return
+     * propagates into the dataflow of every caller that hands it a value it constructed one line earlier, and a
+     * dereference of the result is then unprovable rather than unreachable. Callers that built the string pass it here;
+     * callers reading a producer's member keep {@code fold}.
+     */
+    public static String foldPresent(String text) {
         StringBuilder folded = null;
         for (int index = 0; index < text.length(); index++) {
             char character = text.charAt(index);
@@ -116,6 +127,15 @@ public final class AsciiText {
         if (text == null) {
             return null;
         }
+        return upperPresent(text);
+    }
+
+    /**
+     * {@link #upper} for a string the caller knows is present -- the same split, and for the same reason, as
+     * {@link #foldPresent} against {@link #fold}: a nullable return propagates into the dataflow of every caller that
+     * dereferences it one line later, where the null is unreachable but unprovable.
+     */
+    public static String upperPresent(String text) {
         StringBuilder uppered = null;
         for (int index = 0; index < text.length(); index++) {
             char character = text.charAt(index);

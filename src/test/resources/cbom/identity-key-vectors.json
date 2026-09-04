@@ -2,7 +2,7 @@
  "$comment": "Frozen byte-level conformance vectors for core#2070 (R15/D19). The identity value is SHA-256 over the pre-image encoded UTF-8, lowercase hex. A mismatch on preImage names the slot; a mismatch on identityKey alone means the hashing or encoding differs.",
  "specId": "v1",
  "hash": "sha256(preImage.encode('utf-8')).hexdigest()",
- "vectorCount": 267,
+ "vectorCount": 269,
  "vectors": [
   {
    "id": "crt-dn-public-key-target",
@@ -1532,8 +1532,8 @@
    },
    "expected": {
     "chainStep": "alg:family",
-    "preImage": "ALG|LMS|||||lmshsslms",
-    "identityKey": "236023b324a7805fd33696f82eeb26dc37d964b2493556298fd062f96f40156c"
+    "preImage": "ALG|LMS|||||",
+    "identityKey": "94ef89166f22da15dec9a07c7228ccb9bc6bcb84e8f2dbcafea5ade78d5905a5"
    }
   },
   {
@@ -2688,7 +2688,7 @@
   },
   {
    "id": "gen-063-alg-family",
-   "why": "corpus shape alg:family/110000/fam=name/ps/notes=1, first seen at corpora/wild/0xD1g5~QU.I.R.K~examples~cbom~data-in-motion.cbom.json#7",
+   "why": "corpus shape alg:family/110000/fam=name/ps/notes=1, first seen at corpora/wild/0xD1g5~QU.I.R.K~examples~cbom~data-in-motion.cbom.json#7 | re-pinned 2026-09-04: the trailing 1 of SHA-1 was read as a parameter level after the family rule had consumed it; SHA-1 and SHA1 now key alike",
    "component": {
     "bom-ref": "crypto/algorithm/sha-1",
     "cryptoProperties": {
@@ -2711,13 +2711,13 @@
    },
    "expected": {
     "chainStep": "alg:family",
-    "preImage": "ALG|SHA-1|1||||",
-    "identityKey": "e2118dc3593be99e871be556fc1ee24a060682147a8df9307c91ec53ebf2ad77"
+    "preImage": "ALG|SHA-1|||||",
+    "identityKey": "614bc9aefdccf8b60daea00dbec3bccd05bd5f30a9987b0b0d482711fc7fbf90"
    }
   },
   {
    "id": "gen-155-alg-family",
-   "why": "corpus shape alg:family/110000/fam=name/ps/notes=2, first seen at corpora/wild/jusso-dev~Boab~examples~demo~reports~cbom.cdx.json#15",
+   "why": "corpus shape alg:family/110000/fam=name/ps/notes=2, first seen at corpora/wild/jusso-dev~Boab~examples~demo~reports~cbom.cdx.json#15 | re-pinned 2026-09-04: the trailing 1 of SHA-1 was read as a parameter level after the family rule had consumed it; SHA-1 and SHA1 now key alike",
    "component": {
     "type": "cryptographic-asset",
     "bom-ref": "boab:e04e1a1e-1b0f-47b7-b02b-9353e6df8055",
@@ -2744,8 +2744,8 @@
    },
    "expected": {
     "chainStep": "alg:family",
-    "preImage": "ALG|SHA-1|1||||",
-    "identityKey": "e2118dc3593be99e871be556fc1ee24a060682147a8df9307c91ec53ebf2ad77"
+    "preImage": "ALG|SHA-1|||||",
+    "identityKey": "614bc9aefdccf8b60daea00dbec3bccd05bd5f30a9987b0b0d482711fc7fbf90"
    }
   },
   {
@@ -4166,7 +4166,7 @@
   },
   {
    "id": "gen-165-alg-family",
-   "why": "corpus shape alg:family/110101/fam=corroborated/var=sized/ps, first seen at corpora/wild/qtonicquantum~cbom-cyclonedx-examples~examples~openssl~openssl.cbom.json#4",
+   "why": "corpus shape alg:family/110101/fam=corroborated/var=sized/ps, first seen at corpora/wild/qtonicquantum~cbom-cyclonedx-examples~examples~openssl~openssl.cbom.json#4 | re-pinned 2026-09-04: the CMS arc's strand row said mode POLY1305, a value outside modeTokens; the mode slot now holds vocabulary values only",
    "component": {
     "type": "cryptographic-asset",
     "bom-ref": "algo-chacha20",
@@ -4192,8 +4192,8 @@
    },
    "expected": {
     "chainStep": "alg:family",
-    "preImage": "ALG|ChaCha20|256||POLY1305||poly1305",
-    "identityKey": "2d76be3f0a02dded18277669ca0a0be585ce075ff6a9ef98e4e50f8962a84c16"
+    "preImage": "ALG|ChaCha20|256||||poly1305",
+    "identityKey": "604ce1019c9f47deaad8081d51b8230858e3418ed069e51e073c9a87d1d7c062"
    }
   },
   {
@@ -5667,9 +5667,9 @@
     ]
    },
    "expected": {
-    "chainStep": "alg:family",
-    "preImage": "ALG|GOST|||||rlegacy",
-    "identityKey": "cb5a7cab70ed453d762a28b3889566ffcad6fbee41a774bf0a7df72e5d540d39"
+    "chainStep": "alg:name",
+    "preImage": "ALG||gost%20r%2034.10/34.11%20(legacy)|||||gostrlegacy",
+    "identityKey": "d1d06c9d8ec503d2ccfb57bb2bc0cff6c0658743e57fe2ff3d6bd042f57758a4"
    }
   },
   {
@@ -9170,6 +9170,77 @@
     "chainStep": "mat:fingerprint",
     "preImage": "MAT|public-key|F|sha-256:abababababababababababababababababababababababababababababababab|claimed",
     "identityKey": "98c2e23d33eb86bc60806b2e96b6b7db31796ac598d646b4b22035b3c6737644"
+   }
+  },
+  {
+   "id": "crt-dn-public-key-target-17",
+   "why": "R16 material branch through the 1.7 spelling: the public key is named by `relatedCryptographicAssets[type=public-key].ref`, not by 1.6's `subjectPublicKeyRef`, and the entry type is matched separator-dropped and case-folded. Certificate, target and value are those of `crt-dn-public-key-target`, so the two spellings MUST land on one key -- a 1.6 producer and a 1.7 producer describing one certificate must not fork it. The entry type is spelled `PublicKey`, a real producer spelling, so that the fold is load-bearing: spelled canonically, a reader comparing the type raw reproduces this key and the vector proves nothing. A reader that compares the entry type raw, or reads the entry's `bom-ref` instead of its `ref`, resolves nothing and keys this certificate on an EMPTY `K:` slot",
+   "component": {
+    "type": "cryptographic-asset",
+    "name": "server",
+    "cryptoProperties": {
+     "assetType": "certificate",
+     "certificateProperties": {
+      "subjectName": "CN=vector.example",
+      "issuerName": "CN=vector ca",
+      "notValidBefore": "2026-01-01T00:00:00Z",
+      "notValidAfter": "2027-01-01T00:00:00Z",
+      "relatedCryptographicAssets": [
+       {
+        "type": "PublicKey",
+        "ref": "vector-public-key-17"
+       }
+      ]
+     }
+    }
+   },
+   "expected": {
+    "chainStep": "crt:dn-composite",
+    "preImage": "CRT|D|v1|1cfcd84b375f8e288114a954599b0ac64eed1a01231419d711893aa92b60026b",
+    "identityKey": "51b9ab1537a92b63c3eee95d1d0aaa420ee4d1795917997efc4966afb58e2e6c",
+    "innerPreImages": {
+     "dnComposite": "2.5.4.3=vector.example|2.5.4.3=vector ca|1767225600|1798761600|K:91b4d142823f7d20c5f08df69122de43f35f057a988d9619f6d3138485c9a203"
+    }
+   },
+   "refTargets": [
+    {
+     "type": "cryptographic-asset",
+     "bom-ref": "vector-public-key-17",
+     "name": "server public key",
+     "cryptoProperties": {
+      "assetType": "related-crypto-material",
+      "relatedCryptoMaterialProperties": {
+       "type": "public-key",
+       "value": "AAAA"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": "crt-serial-sentinel",
+   "why": "a serialNumber spelling the ratified sentinel `unknown` is an absent serial: keyed, it gave every certificate of the issuer one CRT|S row, so the pair falls to the distinguished-name composite. Curated 2026-09-04; the composite's inner pre-image is published so the slot is testable",
+   "component": {
+    "type": "cryptographic-asset",
+    "name": "issued.pem",
+    "cryptoProperties": {
+     "assetType": "certificate",
+     "certificateProperties": {
+      "subjectName": "CN=issued.example",
+      "issuerName": "CN=Example CA",
+      "serialNumber": "unknown",
+      "notValidBefore": "2026-01-01T00:00:00Z",
+      "notValidAfter": "2027-01-01T00:00:00Z"
+     }
+    }
+   },
+   "expected": {
+    "chainStep": "crt:dn-composite",
+    "preImage": "CRT|D|v1|9987c38aee243f590b38e5cd74c53018a5d8414bba61f6f499c9f26949a27dbf",
+    "identityKey": "32e47bde57452815c2443884e8ae12ace0b5f83492f0d6f23a46d60bac856e88",
+    "innerPreImages": {
+     "dnComposite": "2.5.4.3=issued.example|2.5.4.3=example ca|1767225600|1798761600|"
+    }
    }
   }
  ]

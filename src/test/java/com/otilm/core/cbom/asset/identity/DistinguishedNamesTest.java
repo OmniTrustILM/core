@@ -111,6 +111,67 @@ class DistinguishedNamesTest {
     }
 
     /**
+     * An RFC 4514 hex pair is the octet it names, and consecutive pairs are one UTF-8 run. Dropping the backslash and
+     * keeping the digits made {@code CN=a\\2Cb} the same name as {@code CN=a2Cb}, and rendered the NetLock and E-Tugra
+     * roots in the corpus -- seven DN values -- as {@code TanC3BAs...}.
+     */
+    @Test
+    void aHexPairIsTheOctetItNames() {
+        assertThat(DistinguishedNames.normalize("CN=a\\2Cb", TABLES))
+                .isEqualTo(DistinguishedNames.normalize("CN=a\\,b", TABLES))
+                .isNotEqualTo(DistinguishedNames.normalize("CN=a2Cb", TABLES));
+        assertThat(DistinguishedNames.normalize("O=Tan\\C3\\BAs", TABLES))
+                .isEqualTo(DistinguishedNames.normalize("O=Tan\u00FAs", TABLES));
+        assertThat(DistinguishedNames.normalize("CN=e\\CC\\81", TABLES))
+                .describedAs("the decoded run joins the surrounding text before NFKC, so a combining mark composes")
+                .isEqualTo(DistinguishedNames.normalize("CN=\u00E9", TABLES));
+    }
+
+    /** A pair that is not UTF-8 renders as the reserved bare byte, so it cannot alias a producer's literal escape. */
+    @Test
+    void anUndecodableHexPairRendersAsTheReservedBareByte() {
+        assertThat(DistinguishedNames.normalize("CN=\\FF", TABLES))
+                .isEqualTo("2.5.4.3=%ff")
+                .isNotEqualTo(DistinguishedNames.normalize("CN=%FF", TABLES));
+    }
+
+    /**
+     * An RFC 2253 quoted value is one value. 84 of the 1 595 corpus DN values are OpenSSL's {@code O = "Entrust, Inc."}
+     * rendering; split on the inner comma, {@code "Entrust, Inc."} and {@code "Entrust, Ltd."} rendered one AVA with
+     * the rest silently dropped, and the quote itself was kept as text.
+     */
+    @Test
+    void aQuotedValueIsOneValue() {
+        assertThat(DistinguishedNames.normalize("O=\"Entrust, Inc.\",C=US", TABLES))
+                .isEqualTo("2.5.4.10=entrust\\, inc.,2.5.4.6=us")
+                .isEqualTo(DistinguishedNames.normalize("O=Entrust\\, Inc.,C=US", TABLES))
+                .isEqualTo(DistinguishedNames.normalize("C = US, O = \"Entrust, Inc.\"", TABLES))
+                .isNotEqualTo(DistinguishedNames.normalize("O=\"Entrust, Ltd.\",C=US", TABLES));
+        assertThat(DistinguishedNames.normalize("CN=\"#414243\"", TABLES))
+                .describedAs("quoted content is text whatever it opens with")
+                .isEqualTo("2.5.4.3=\\#414243");
+        assertThat(DistinguishedNames.normalize("CN=say \"hi\"", TABLES))
+                .describedAs("a quote that does not enclose the whole value is a character in it")
+                .isEqualTo("2.5.4.3=say \\\"hi\\\"");
+    }
+
+    /** RFC 2253 §4 requires {@code ;} to be read as an RDN separator; RFC 4514 gives an unescaped one no meaning. */
+    @Test
+    void aSemicolonSeparatesRdns() {
+        assertThat(DistinguishedNames.normalize("CN=a;O=b", TABLES))
+                .isEqualTo(DistinguishedNames.normalize("CN=a,O=b", TABLES));
+    }
+
+    /**
+     * RDNs sort by code point, as the reference and every other ordered sequence here do. {@code sort(null)} compared
+     * UTF-16 units, which put an astral character below one at or above U+E000.
+     */
+    @Test
+    void rdnsSortByCodePointNotByUtf16Unit() {
+        assertThat(DistinguishedNames.normalize("CN=\uD83D\uDE00,CN=\uE000", TABLES)).startsWith("2.5.4.3=\uE000,");
+    }
+
+    /**
      * Go emits every attribute type it does not know this way, and decoding is mandatory or two producers never match.
      */
     @Test
@@ -163,5 +224,78 @@ class DistinguishedNamesTest {
     void multiValuedRdnsSortWithinThemselves() {
         assertThat(DistinguishedNames.normalize("CN=b+O=a", TABLES))
                 .isEqualTo(DistinguishedNames.normalize("O=a+CN=b", TABLES));
+    }
+
+    /**
+     * A DER value that is not UTF-8 keys apart from one that spells its escape.
+     *
+     * <p>
+     * Escaping only the malformed path moved item 17's merge rather than closing it: {@code #FF} is not UTF-8 and
+     * renders {@code %FF}, while {@code #254646} decodes cleanly to the three ASCII characters {@code %FF}. Two
+     * distinct DER attribute values, one AVA -- the same "two issuers on one row" failure, different inputs.
+     */
+    @org.junit.jupiter.api.Test
+    void aMalformedDerValueDoesNotKeyAsItsOwnEscape() {
+        assertThat(DistinguishedNames.normalize("CN=#FF", TABLES))
+                .isNotEqualTo(DistinguishedNames.normalize("CN=#254646", TABLES));
+        assertThat(DistinguishedNames.normalize("CN=#1401E9", TABLES))
+                .isNotEqualTo(DistinguishedNames.normalize("CN=#1401EA", TABLES));
+        assertThat(DistinguishedNames.normalize("CN=#FF", TABLES))
+                .describedAs("a refused byte and a producer spelling its escape are different values")
+                .isNotEqualTo(DistinguishedNames.normalize("CN=%FF", TABLES));
+        assertThat(DistinguishedNames.normalize("CN=%25FF", TABLES))
+                .describedAs("and the escape of the escape is a third")
+                .isNotEqualTo(DistinguishedNames.normalize("CN=%FF", TABLES));
+    }
+
+    /**
+     * A compatibility spelling of the escape character cannot forge a refused byte.
+     *
+     * <p>
+     * NFKC maps U+FF05 FULLWIDTH PERCENT SIGN onto {@code %}, so escaping before normalizing left {@code CN=\uFF05FF}
+     * rendering the bare {@code %FF} that the malformed-bytes fallback reserves for {@code CN=#FF} -- the same
+     * two-issuers-on-one-row merge the escape namespace exists to prevent, reached through the normalizer rather than
+     * through a hex path.
+     *
+     * <p>
+     * Its mirror is not closed by the same reordering but by the opposite one. Testing for the {@code #} marker
+     * <em>after</em> NFKC let U+FF03 FULLWIDTH NUMBER SIGN manufacture a marker: {@code CN=\uFF03FF} was decoded as
+     * DER, failed UTF-8, and rendered the same bare {@code %FF} as {@code CN=#FF}, so three issuers became one row. RFC
+     * 4514 defines the marker over ASCII {@code #} alone; a compatibility number sign is text.
+     */
+    @Test
+    void aFullwidthEscapeCharacterCannotForgeARefusedByte() {
+        assertThat(DistinguishedNames.normalize("CN=\uFF05FF", TABLES))
+                .describedAs("the normalizer's percent is a producer's percent, so it is escaped like one")
+                .isEqualTo(DistinguishedNames.normalize("CN=%FF", TABLES))
+                .isNotEqualTo(DistinguishedNames.normalize("CN=#FF", TABLES));
+        assertThat(DistinguishedNames.normalize("CN=\uFF03FF", TABLES))
+                .describedAs("a compatibility number sign is text, never the hex-DER marker")
+                .isEqualTo(DistinguishedNames.normalize("CN=\\#FF", TABLES))
+                .isNotEqualTo(DistinguishedNames.normalize("CN=#FF", TABLES));
+        assertThat(DistinguishedNames.normalize("CN=\uFE5F414243", TABLES))
+                .describedAs("so a readable payload behind one is not decoded either")
+                .isNotEqualTo(DistinguishedNames.normalize("CN=#414243", TABLES));
+        assertThat(DistinguishedNames.normalize("CN=#%FF", TABLES))
+                .describedAs("an unreadable hex spelling is text, and text has its percents escaped")
+                .isNotEqualTo(DistinguishedNames.normalize("CN=#FF", TABLES));
+    }
+
+    /**
+     * The bare-common-name path reserves the escape namespace exactly as the attribute path does.
+     *
+     * <p>
+     * A DN with no {@code =} is keyed as a common name, and its percents were escaped by a different line of code than
+     * {@code CN=}'s. Dropping that escape leaves every other test green while {@code %FF} and {@code CN=#FF} -- a
+     * producer spelling an escape and a byte no decoder could read -- merge onto one issuer, which is the invariant
+     * {@link #aMalformedDerValueDoesNotKeyAsItsOwnEscape} pins for the prefixed spelling.
+     */
+    @Test
+    void theBareNamePathReservesTheEscapeNamespaceToo() {
+        assertThat(DistinguishedNames.normalize("%FF", TABLES))
+                .isNotEqualTo(DistinguishedNames.normalize("CN=#FF", TABLES));
+        assertThat(DistinguishedNames.normalize("\uFF05FF", TABLES))
+                .describedAs("and normalizes before it escapes, as the attribute path does")
+                .isEqualTo(DistinguishedNames.normalize("%FF", TABLES));
     }
 }

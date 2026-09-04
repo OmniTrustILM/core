@@ -1,8 +1,10 @@
 package com.otilm.core.cbom.asset.identity;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -67,10 +69,12 @@ public record AssetNormalizer(IdentityTables tables) {
     private static final int MAX_PRIMITIVE_LENGTH = 64;
 
     /**
-     * The longest component name this normalizer will process, matching {@code ck_crypto_asset_name_length} and the
-     * writer's own pre-check. Held as a constant here because normalization runs long before the write.
+     * The longest producer string this normalizer will read, matching {@code ck_crypto_asset_name_length} and the
+     * writer's own pre-check on the name. Held as a constant here because normalization runs long before the write. The
+     * algorithm-property fields and the {@code oid} are held to the same bound -- {@link #boundedText} says why one
+     * bound is enough, and which producer strings it does not cover.
      */
-    private static final int MAX_NORMALIZABLE_NAME_LENGTH = 1024;
+    private static final int MAX_NORMALIZABLE_LENGTH = 1024;
 
     /**
      * Post-quantum families, standardized and pre-standard alike, folded for comparison. Used <em>only</em> to
@@ -115,14 +119,40 @@ public record AssetNormalizer(IdentityTables tables) {
 
     /**
      * Families whose {@code parameterSet} means a KEY size, so a digest length in the name can never be it: an
-     * "RSA-256" key is absurd, and {@code SHA512withRSA} was storing 512. Scoped to the RSA schemes on purpose -- for a
+     * "RSA-256" key is absurd, and {@code SHA512withRSA} was storing 512. Scoped to the RSA family on purpose -- for a
      * hash or a MAC the digest length IS the parameter, and for ECDSA it usually coincides with the curve size, so
-     * stripping it there would discard real information to fix a coincidence.
+     * stripping it there would discard real information to fix a coincidence. The bare pseudo-family is in scope: it is
+     * what a JCA transformation such as {@code RSA/ECB/OAEPWithSHA-256AndMGF1Padding} elects, and the scheme prefixes
+     * alone let exactly that name store a 256-bit key.
      */
-    private static final List<String> KEY_SIZE_FAMILIES = List.of("RSASSA-", "RSAES-", "RSA-X931");
+    private static final List<String> KEY_SIZE_FAMILIES = List.of("RSA");
 
-    private static final Pattern DIGEST_IN_NAME = Pattern.compile("(?<![A-Za-z0-9])(?i:SHA|MD)-?(\\d{3,4})(?!\\d)");
+    /**
+     * A digest token and the length it names, in every spelling the RSA schemes are written with. The left guard admits
+     * the JCA infix -- {@code RSA/ECB/OAEPWithSHA-256AndMGF1Padding} names SHA-256 after a letter -- and the optional
+     * family digit admits RFC 8332's {@code rsa-sha2-256} and the {@code SHA3-256} spelling; without either, the rule
+     * the Javadoc of {@link #KEY_SIZE_FAMILIES} states was true only for the hyphenated {@code SHA256withRSA} shape,
+     * and the commonest JCA spelling stored a 256-bit RSA key.
+     */
+    private static final Pattern DIGEST_IN_NAME = Pattern
+            .compile("(?:(?<![A-Z0-9])|(?<=with))(?:SHA|MD)-?(?:[23][-_/]?)?(\\d{3,4})(?!\\d)",
+                    Pattern.CASE_INSENSITIVE);
 
+    /**
+     * The separators a producer's {@code assetType} spelling may carry, over the reference whitespace set.
+     *
+     * <p>
+     * {@code [\s_]+} was Java's {@code \s}, which does not treat U+0085, U+00A0, U+2007 or U+202F as whitespace -- so
+     * {@code related crypto material} written with a no-break space missed this key, missed the plain
+     * {@code toLowerCase} fallback beside it, and routed to the unroutable tier, where a material asset keys as a raw
+     * backstop instead of through the material chain. A fifth site for core#2165 item 18, found by review after the
+     * item's own list was closed.
+     *
+     * <p>
+     * {@link AsciiText#collapseWhitespace} rather than {@link AsciiText#lookupKey}: the lookup key also folds {@code -}
+     * and {@code /}, which would widen routing past whitespace and could move a key on a spelling {@code ASSET_TYPES}
+     * does not carry. Widening exactly one thing is what makes this a repair.
+     */
     private static final Pattern ASSET_TYPE_SEPARATORS = Pattern.compile("[\\s_]+");
 
     /** The {@code -<digits>} parameter-set size {@link #sizedFamilyToken} appends to a family token. */
@@ -153,11 +183,33 @@ public record AssetNormalizer(IdentityTables tables) {
 
     private static final Pattern NON_ALPHANUMERIC = Pattern.compile("[^A-Za-z0-9]");
 
+    /**
+     * The word JCA glues to a padding token in a transformation string. Admitted into the name match as an optional
+     * suffix because the right word guard alone refused it: {@code AES/CBC/PKCS5Padding} -- the commonest JCA spelling
+     * -- derived no padding while {@code AES/CBC/PKCS5} did, and the two split. {@code OAEPWithSHA-256AndMGF1Padding}
+     * still derives none: the token there is followed by {@code With}, not by this word.
+     */
+    private static final String JCA_PADDING_WORD = "PADDING";
+
+    private static final String JCA_PADDING_SUFFIX = "(?:" + JCA_PADDING_WORD + ")?";
+
     private static final Pattern LOCAL_SIZE_RUN = Pattern.compile("[^A-Za-z0-9]*[A-Za-z]*[-_/]?(\\d{1,5})");
 
     private static final Pattern ADJACENT_SIZE_RUN = Pattern.compile("[-_/]?(\\d{2,5})");
 
-    private static final Pattern CURVE_ALTERNATIVES = Pattern.compile("\\s*(?:/|,|\\+|\\bor\\b|\\band\\b)\\s*");
+    /**
+     * The separators producers use for "either of these", and nothing around them.
+     *
+     * <p>
+     * The surrounding {@code \s*} this carried made the split <b>quadratic</b> on producer-supplied text: every start
+     * position scanned the whole remaining whitespace run before failing on the alternation, so 16 000 spaces in an
+     * {@code ellipticCurve} field took 6.8s and a megabyte took hours. At the time only the component NAME was
+     * length-capped and the curve channels were not, so the field was an uncapped stall in ingest. Matching the
+     * separator alone is linear -- a megabyte now costs 31ms -- and costs nothing, because {@code canonicalCurve}
+     * strips each part before it looks anything up. {@link #boundedText} has since closed the other half: the pattern
+     * bounds the work per character, the cap bounds the characters.
+     */
+    private static final Pattern CURVE_ALTERNATIVES = Pattern.compile("[/,+]|\\bor\\b|\\band\\b");
 
     /** The ratified tables this pipeline reads. Exposed so the identity chain resolves names through the same data. */
     @Override
@@ -171,22 +223,55 @@ public record AssetNormalizer(IdentityTables tables) {
      *
      * <p>
      * Redaction runs first and unconditionally, so no later step -- and no caller -- ever observes key material.
+     *
+     * <p>
+     * The algorithm slots are derived only for a component routed as an algorithm. Every one of them is read out of the
+     * name and {@code algorithmProperties}, so without the gate a certificate named {@code server-rsa-2048.pem} carried
+     * RSA, 2048 and a signature primitive, and a password named for the DES vault it opens carried DES and a block
+     * cipher -- into columns that are stored, indexed and offered as filters. The strand's protocol arcs state the
+     * rule: family derivation runs only on {@code assetType == algorithm}. The OID is not one of those slots. It is the
+     * asset's own identifier, protocol assets carry one in real documents, and it is recorded for every type.
      */
     public Result normalize(JsonNode component) {
         MaterialRedaction redaction = MaterialRedaction.of(component.get("cryptoProperties"));
-        JsonNode properties = redaction.payload();
-        JsonNode algorithm = objectOrEmpty(properties.get("algorithmProperties"));
+        JsonNode properties = redaction.keyedPayload();
 
         // Routed on cryptoProperties.assetType alone, never on the component's own type and never on which
         // properties block happens to be present. A producer bug once stamped relatedCryptoMaterialProperties onto
         // algorithms and certificates; a presence-based router would have pulled those into the wrong chain and
         // minted phantom material rows from the empty blocks it left behind.
-        String componentName = text(component.get("name"));
+        //
+        // The name is read raw because past the bound it refuses the component, where every other field reads as
+        // absent, and the bounded reader would have turned the refusal into a nameless row. The asset type is read
+        // raw because it is the router, not a slot: bounded, one character past the limit cost a material row its
+        // whole chain and keyed it on the unknown-type backstop, the outcome ASSET_TYPE_SEPARATORS was added to
+        // close for whitespace, reached through length instead. Routing is a closed four-value decision that does
+        // linear work and no unbounded work follows it, so the bound bought nothing there.
+        JsonNode name = component.get("name");
+        String componentName = name != null && name.isTextual() ? name.textValue() : null;
         requireNormalizableName(componentName);
-        NormalizedAsset norm = new NormalizedAsset(normalizeAssetType(text(properties.get("assetType"))),
+        JsonNode assetType = properties.get("assetType");
+        NormalizedAsset norm = new NormalizedAsset(
+                normalizeAssetType(assetType != null && assetType.isTextual() ? assetType.textValue() : null),
                 componentName);
 
-        IdentityTables.OidEntry enrichment = deriveFamily(norm, properties, algorithm);
+        recordOid(norm, boundedText(norm, properties, "oid"));
+        if (CbomNames.ASSET_TYPE_ALGORITHM.equals(norm.assetType())) {
+            deriveAlgorithmSlots(norm, objectOrEmpty(properties.get("algorithmProperties")));
+        }
+        return new Result(norm, redaction);
+    }
+
+    /** The normalized asset and the redaction whose payload every later step must read. */
+    public record Result(NormalizedAsset asset, MaterialRedaction redaction) {
+    }
+
+    /**
+     * Family, size, curve, mode, padding, primitive and variant, in the order the class documentation fixes: each
+     * step's answer decides what the next may still read out of the name.
+     */
+    private void deriveAlgorithmSlots(NormalizedAsset norm, JsonNode algorithm) {
+        IdentityTables.OidEntry enrichment = deriveFamily(norm, algorithm);
         deriveParameterSet(norm, algorithm, enrichment);
         deriveCurve(norm, algorithm, enrichment);
         deriveMode(norm, algorithm, enrichment);
@@ -213,11 +298,6 @@ public record AssetNormalizer(IdentityTables tables) {
                             + "); the stored family " + norm.family()
                             + " is one half of it, because the registry has no " + "hybrid token");
         }
-        return new Result(norm, redaction);
-    }
-
-    /** The normalized asset and the redaction whose payload every later step must read. */
-    public record Result(NormalizedAsset asset, MaterialRedaction redaction) {
     }
 
     /**
@@ -235,8 +315,21 @@ public record AssetNormalizer(IdentityTables tables) {
      * the name that caused it.
      */
     private static void requireNormalizableName(String name) {
-        if (name != null && name.codePointCount(0, name.length()) > MAX_NORMALIZABLE_NAME_LENGTH) {
+        if (exceedsNormalizableLength(name)) {
             throw new IllegalArgumentException("A component name exceeds the storable length");
+        }
+    }
+
+    private static boolean exceedsNormalizableLength(String value) {
+        return value != null && value.codePointCount(0, value.length()) > MAX_NORMALIZABLE_LENGTH;
+    }
+
+    /** The producer's arc as written and as reduced, with a note when the two differ by more than spelling. */
+    private void recordOid(NormalizedAsset norm, String rawOid) {
+        norm.setRawOid(rawOid);
+        norm.setOid(normalizeOid(rawOid));
+        if (rawOid != null && norm.oid() == null) {
+            norm.note("oid " + rawOid + " is not a usable dotted arc");
         }
     }
 
@@ -245,7 +338,7 @@ public record AssetNormalizer(IdentityTables tables) {
         if (raw == null || AsciiText.isBlank(raw)) {
             return null;
         }
-        String stripped = AsciiText.strip(raw);
+        String stripped = AsciiText.collapseWhitespace(AsciiText.strip(raw));
         String key = ASSET_TYPE_SEPARATORS.matcher(stripped).replaceAll("").toLowerCase(Locale.ROOT);
         String routed = ASSET_TYPES.get(key);
         return routed != null ? routed : ASSET_TYPES.get(stripped.toLowerCase(Locale.ROOT));
@@ -409,6 +502,7 @@ public record AssetNormalizer(IdentityTables tables) {
             return "";
         }
         Set<String> found = new LinkedHashSet<>();
+        Map<String, String> familyOf = new HashMap<>();
         boolean hybrid = winner != null && HYBRID_FAMILIES.contains(winner);
         // No text is stripped before the scan. Stripping the winner's matched text was tried and REVERTED: it removed
         // the spurious `dsa` read out of `ECDSA`, and it also removed the digest from `curve25519-sha256`, merging an
@@ -420,7 +514,11 @@ public record AssetNormalizer(IdentityTables tables) {
             }
             Matcher matcher = (hybrid ? rule.unguarded() : rule.loose()).matcher(haystack);
             if (matcher.find()) {
-                found.add(sizedFamilyToken(rule.family(), matcher.group(), haystack.substring(matcher.end())));
+                String token = sizedFamilyToken(rule.family(), matcher.group(), haystack.substring(matcher.end()));
+                found.add(token);
+                // The token alone cannot answer which family produced it, and the fold below has to know: the token
+                // carries a size, so reading its family back out of the string is what truncated `sha-2` to `sha`.
+                familyOf.putIfAbsent(token, rule.family());
             }
         }
         if (winner != null) {
@@ -429,10 +527,7 @@ public record AssetNormalizer(IdentityTables tables) {
             // `poly1305` inside `ChaCha20-Poly1305` and `sha-2-256` inside `curve25519-sha256`, both of which name a
             // second construction rather than re-spelling the first.
             String foldedWinner = AsciiText.fold(winner);
-            found.removeIf(token -> {
-                String head = token.split("-")[0];
-                return foldedWinner.contains(head) && !head.equals(foldedWinner);
-            });
+            found.removeIf(token -> restatesWinner(foldedWinner, familyOf.get(token)));
         }
         // Markers scan the ORIGINAL name, not the winner-stripped haystack: a marker is often part of the winning
         // token and still identity-bearing. `ChaCha20-Poly1305` is matched whole by its own rule, so scanning a
@@ -448,6 +543,40 @@ public record AssetNormalizer(IdentityTables tables) {
             }
         }
         return String.join(",", new TreeSet<>(found));
+    }
+
+    /**
+     * Whether a secondary token's own family is already spelled inside the winning family's token.
+     *
+     * <p>
+     * <b>The family, not the token's first hyphen-part.</b> A token carries its size -- {@link #sizedFamilyToken}
+     * renders {@code SHA-2} at 256 bits as {@code sha-2-256} -- so the predecessor's
+     * {@code foldedWinner.contains(token.split("-")[0])} truncated the family to {@code sha}, which {@code sha-3}
+     * contains. {@code SHA-256 with SHA3} and {@code SHA3-256 with} therefore both produced
+     * {@code ALG|SHA-3|256||||with}: the weak-crypto erasure this filter exists to prevent, performed by the filter.
+     * Comparing the family the rule actually named keeps {@code sha-2} beside a SHA-3 winner and still folds away the
+     * {@code dsa} that {@code ecdsa} spells, the {@code rsa} that {@code rsaes-oaep} spells and the {@code chacha20}
+     * that {@code chacha20-poly1305} spells.
+     *
+     * <p>
+     * <b>The containment stays a plain substring test, and that is ratified rather than sloppy.</b> Of the table's 130
+     * families, 22 folded pairs contain one another, and four look accidental: {@code aes} inside {@code rsaes-oaep}
+     * and {@code rsaes-pkcs1}, {@code ec} inside {@code classic mceliece}, {@code scrypt} inside {@code yescrypt}.
+     * Tightening the rule to require alignment with a hyphen-part -- begins-with, or ends-with leaving a registry token
+     * -- was implemented and reverted: it re-keyed vectors {@code gen-218} and {@code gen-219}, whose components are
+     * named literally {@code RSAES-OAEP} and whose ratified pre-image {@code ALG|RSAES-OAEP||||OAEP|} carries an
+     * <em>empty</em> variant slot. For that name there is no second construction to preserve, only a spelling artefact,
+     * and the ratified answer is to erase it.
+     *
+     * <p>
+     * What no artefact settles is a name stating both -- {@code RSAES-OAEP-AES256} -- where the same rule erases an AES
+     * the producer really did state. Separating the two needs the match position, which is what the reverted attempt
+     * used; no corpus row and no vector carries such a name, so it is an open adjudication on core#2165 rather than a
+     * defect to patch under a ratified vector.
+     */
+    private boolean restatesWinner(String foldedWinner, String family) {
+        String folded = AsciiText.fold(family);
+        return folded != null && foldedWinner.contains(folded) && !folded.equals(foldedWinner);
     }
 
     /**
@@ -495,14 +624,7 @@ public record AssetNormalizer(IdentityTables tables) {
      * discard the curve and break 1.6/1.7 parity, since 1.6 has no curve field at all. Only a genuine cross-group
      * contradiction refutes, and there the name wins.
      */
-    private IdentityTables.OidEntry deriveFamily(NormalizedAsset norm, JsonNode properties, JsonNode algorithm) {
-        String rawOid = text(properties.get("oid"));
-        norm.setRawOid(rawOid);
-        norm.setOid(normalizeOid(rawOid));
-        if (rawOid != null && norm.oid() == null) {
-            norm.note("oid " + rawOid + " is not a usable dotted arc");
-        }
-
+    private IdentityTables.OidEntry deriveFamily(NormalizedAsset norm, JsonNode algorithm) {
         IdentityTables.OidEntry entry = oidLookup(norm.oid());
         if (isCipherSuiteName(norm.name())) {
             norm.setFamily(null);
@@ -511,7 +633,7 @@ public record AssetNormalizer(IdentityTables tables) {
             return null;
         }
 
-        String declared = text(algorithm.get("algorithmFamily"));
+        String declared = boundedText(norm, algorithm, "algorithmFamily");
         String fromOid = entry == null ? null : entry.family();
         String fromName = familyFromName(norm.name());
         norm.setOidDerivedFamily(fromOid);
@@ -668,13 +790,38 @@ public record AssetNormalizer(IdentityTables tables) {
             return null;
         }
         if (parameterSetIdentifier.isNumber() && !parameterSetIdentifier.isBoolean()) {
-            double value = parameterSetIdentifier.doubleValue();
-            return value == Math.rint(value) ? accept((int) value, CbomNames.PARAMETER_SET_IDENTIFIER, notes) : null;
+            // Refused before `decimalValue()`, which throws NumberFormatException on a non-finite double: Jackson
+            // parses `1e400` into DoubleNode(Infinity), and the throw escaped as a RuntimeException that the extractor
+            // catches as a whole-component skip. An unreadable side field costs its own slot, never the row -- the
+            // same ruling `boundedText` applies to an over-long one. Keyed on the number, not the node shape: a
+            // mapper with USE_BIG_DECIMAL_FOR_FLOATS hands the same literal over as a DecimalNode, which is neither a
+            // double nor a float and whose exact value is a 401-digit integer that used to land verbatim in a note.
+            if (parameterSetIdentifier.isFloatingPointNumber()
+                    && !Double.isFinite(parameterSetIdentifier.doubleValue())) {
+                notes.add(NON_FINITE_PARAMETER_SET_NOTE);
+                return null;
+            }
+            // The exact value reaches `accept`, so a refusal names what the producer wrote. Through `(int)` a
+            // saturating cast made `9007199254740993` refused as `size 2147483647 outside whitelist` -- a number
+            // nobody sent. What this does NOT do is reject `64.0000000000000000001`: measured on this project's
+            // mapper, that literal arrives as `DoubleNode(64.0)` because `USE_BIG_DECIMAL_FOR_FLOATS` is off, so its
+            // precision is gone before this method sees it and `decimalValue()` returns 64.0 too. Rejecting it would
+            // be a mapper-level change, and no value inside the 64..16384 whitelist keys differently either way --
+            // doubles are exact on every integer below 2^53. Recorded because a review pass asked for the exact
+            // check as a fix for that example, and it is not one.
+            BigDecimal exact = parameterSetIdentifier.decimalValue().stripTrailingZeros();
+            return exact.scale() <= 0
+                    ? accept(exact.toBigIntegerExact(), CbomNames.PARAMETER_SET_IDENTIFIER, notes)
+                    : null;
         }
-        if (!parameterSetIdentifier.isTextual()) {
+        String spelled = boundedText(parameterSetIdentifier);
+        if (spelled == null) {
+            if (parameterSetIdentifier.isTextual()) {
+                notes.add(droppedFieldNote(CbomNames.PARAMETER_SET_IDENTIFIER));
+            }
             return null;
         }
-        String text = AsciiText.strip(parameterSetIdentifier.textValue());
+        String text = AsciiText.strip(spelled);
         if (DIGITS.matcher(text).matches()) {
             return accept(new BigInteger(text), CbomNames.PARAMETER_SET_IDENTIFIER, notes);
         }
@@ -704,8 +851,11 @@ public record AssetNormalizer(IdentityTables tables) {
         // Nothing passed the key-size whitelist. A trailing standalone integer is then a PARAMETER LEVEL, not a key
         // size, and it must bypass the floor: `ML-DSA-44` keyed identically to bare `ML-DSA` because 44 is below 64,
         // while `-65` and `-87` separated only by the accident of clearing it. Applied to the STRIPPED name, so a
-        // trailing digit run belonging to a curve cannot be read as a level.
-        Matcher level = PARAMETER_LEVEL.matcher(AsciiText.strip(stripStoplist(name)));
+        // trailing digit run belonging to a curve cannot be read as a level -- and with the family rule's own match
+        // removed, so a digit the family spelling consumed is not read a second time as a level: `SHA-1` stored a
+        // parameter set of 1 and split from `SHA1`, `MD-5` from `MD5`. A digit run consumed by one slot must never
+        // be consumed again by another, and the family is a slot.
+        Matcher level = PARAMETER_LEVEL.matcher(AsciiText.strip(stripStoplist(withoutFamilyToken(name))));
         if (!level.find()) {
             return null;
         }
@@ -713,6 +863,17 @@ public record AssetNormalizer(IdentityTables tables) {
                 .add("parameter level " + level.group(1) + " accepted below the key-size floor: it labels a "
                         + "parameter set, not a key length");
         return Integer.parseInt(level.group(1));
+    }
+
+    /** The name with the text the first matching grammar rule consumed replaced by a space. */
+    private String withoutFamilyToken(String name) {
+        for (IdentityTables.GrammarRule rule : tables.nameGrammar()) {
+            Matcher matcher = rule.strict().matcher(name);
+            if (matcher.find()) {
+                return matcher.replaceFirst(" ");
+            }
+        }
+        return name;
     }
 
     /**
@@ -786,10 +947,10 @@ public record AssetNormalizer(IdentityTables tables) {
      * rather than observed.
      */
     private void deriveCurve(NormalizedAsset norm, JsonNode algorithm, IdentityTables.OidEntry enrichment) {
-        String parameterSetIdentifier = text(algorithm.get(CbomNames.PARAMETER_SET_IDENTIFIER));
+        String parameterSetIdentifier = boundedText(norm, algorithm, CbomNames.PARAMETER_SET_IDENTIFIER);
         List<String[]> channels = new ArrayList<>();
-        channels.add(new String[]{text(algorithm.get(CbomNames.ELLIPTIC_CURVE)), CbomNames.ELLIPTIC_CURVE});
-        channels.add(new String[]{text(algorithm.get("curve")), "curve (inferred by producer)"});
+        channels.add(new String[]{boundedText(norm, algorithm, CbomNames.ELLIPTIC_CURVE), CbomNames.ELLIPTIC_CURVE});
+        channels.add(new String[]{boundedText(norm, algorithm, "curve"), "curve (inferred by producer)"});
         channels.add(new String[]{parameterSetIdentifier, CbomNames.PARAMETER_SET_IDENTIFIER});
         channels.add(new String[]{enrichment == null ? null : enrichment.curve(), "oid"});
         // Only an EC-bearing family may take a curve from free text, or any incidental word that happens to be a
@@ -805,8 +966,8 @@ public record AssetNormalizer(IdentityTables tables) {
             }
         }
         for (String raw : List
-                .of(nullToEmpty(text(algorithm.get(CbomNames.ELLIPTIC_CURVE))),
-                        nullToEmpty(text(algorithm.get("curve"))))) {
+                .of(nullToEmpty(boundedText(norm, algorithm, CbomNames.ELLIPTIC_CURVE)),
+                        nullToEmpty(boundedText(norm, algorithm, "curve")))) {
             if (!AsciiText.isBlank(raw) && !tables.isSentinel(raw)) {
                 norm.note("curve " + raw + " is not a registry token");
             }
@@ -902,10 +1063,20 @@ public record AssetNormalizer(IdentityTables tables) {
 
     private void deriveMode(NormalizedAsset norm, JsonNode algorithm, IdentityTables.OidEntry enrichment) {
         norm
-                .setMode(normalizeMode(text(algorithm.get("mode")),
-                        text(algorithm.get(CbomNames.PARAMETER_SET_IDENTIFIER)), norm.name()));
+                .setMode(normalizeMode(boundedText(norm, algorithm, "mode"),
+                        boundedText(norm, algorithm, CbomNames.PARAMETER_SET_IDENTIFIER), norm.name()));
         if (norm.mode() == null && enrichment != null && enrichment.mode() != null) {
-            norm.setMode(enrichment.mode());
+            // Through the same vocabulary the field and the name go through. Taken verbatim, an arc whose strand row
+            // said `POLY1305` put a value outside `modeTokens` into the slot, and a ChaCha20-Poly1305 asset keyed
+            // one way with the CMS arc and another without it. The generator refuses such a row now; this is the
+            // loader-side half of the same rule, for an artifact that did not come out of the generator.
+            String token = modeToken(enrichment.mode());
+            if (token == null) {
+                norm
+                        .note("mode " + enrichment.mode() + " from arc " + enrichment.matchedArc()
+                                + " is not a mode token and does not enter the key");
+            }
+            norm.setMode(token);
         }
     }
 
@@ -921,10 +1092,9 @@ public record AssetNormalizer(IdentityTables tables) {
     public String normalizeMode(String mode, String parameterSetIdentifier, String name) {
         for (String candidate : new String[]{mode, parameterSetIdentifier}) {
             if (candidate != null && !tables.isSentinel(candidate)) {
-                for (String token : tables.modeTokens()) {
-                    if (AsciiText.lookupKey(token).equals(AsciiText.lookupKey(candidate))) {
-                        return AsciiText.upper(token);
-                    }
+                String token = modeToken(candidate);
+                if (token != null) {
+                    return token;
                 }
             }
         }
@@ -940,6 +1110,16 @@ public record AssetNormalizer(IdentityTables tables) {
         return null;
     }
 
+    /** The vocabulary's spelling of a mode a producer or an arc named, or {@code null} when it names none. */
+    private String modeToken(String candidate) {
+        for (String token : tables.modeTokens()) {
+            if (AsciiText.lookupKey(token).equals(AsciiText.lookupKey(candidate))) {
+                return AsciiText.upper(token);
+            }
+        }
+        return null;
+    }
+
     /**
      * Padding, field first then the name -- exactly parallel to mode.
      *
@@ -948,12 +1128,14 @@ public record AssetNormalizer(IdentityTables tables) {
      * merged {@code AES-128-CBC-PKCS7} with {@code AES-128-CBC-RAW}, which are different constructions.
      */
     private void derivePadding(NormalizedAsset norm, JsonNode algorithm) {
-        String declared = text(algorithm.get("padding"));
+        String declared = boundedText(norm, algorithm, "padding");
         if (declared != null && !AsciiText.isBlank(declared) && !tables.isSentinel(declared)) {
-            String token = AsciiText.upper(AsciiText.strip(declared));
+            // Flattened exactly as the name is below: `PKCS#7` and `PKCS5Padding` are the same spellings in the field
+            // as in a name, and compared raw the field refused both as out-of-vocabulary.
+            String token = paddingSpelling(declared);
             // L7: the slot was an unbounded passthrough and has stored arbitrary producer text verbatim. Only a value
             // in the closed padding vocabulary may enter the key.
-            if (tables.paddingTokens().stream().noneMatch(known -> AsciiText.upper(known).equals(token))) {
+            if (tables.paddingTokens().stream().noneMatch(known -> AsciiText.upperPresent(known).equals(token))) {
                 norm.note("L7: padding " + declared + " is outside the closed vocabulary and does not enter the key");
                 return;
             }
@@ -965,14 +1147,32 @@ public record AssetNormalizer(IdentityTables tables) {
             // without this they fail to match a producer that puts the value in the field instead.
             String flattened = NON_ALPHANUMERIC.matcher(norm.name()).replaceAll("");
             for (String token : tables.paddingTokens()) {
-                Pattern word = Pattern.compile(Pattern.quote(token) + RIGHT_WORD_GUARD, Pattern.CASE_INSENSITIVE);
-                if (word.matcher(flattened).find()) {
+                Pattern word = Pattern
+                        .compile(Pattern.quote(token) + JCA_PADDING_SUFFIX + RIGHT_WORD_GUARD,
+                                Pattern.CASE_INSENSITIVE);
+                Matcher matcher = word.matcher(flattened);
+                if (matcher.find()) {
                     norm.setPadding(canonicalPadding(token));
-                    norm.setPaddingFromName(token);
+                    // The matched spelling, suffix included, so the residue pass strips what this slot consumed:
+                    // recording the bare token left `padding` in the variant of `AES/CBC/PKCS5Padding` and split it
+                    // from `AES/CBC/PKCS5` a second time, one slot over.
+                    norm.setPaddingFromName(matcher.group());
                     return;
                 }
             }
         }
+    }
+
+    /**
+     * A declared padding reduced to the vocabulary's spelling: punctuation dropped, upper-cased, and the JCA
+     * {@code Padding} suffix removed, so {@code padding: "PKCS5Padding"} copied out of a transformation string says
+     * what {@code PKCS5} says.
+     */
+    private static String paddingSpelling(String declared) {
+        String flattened = AsciiText.upperPresent(NON_ALPHANUMERIC.matcher(declared).replaceAll(""));
+        return flattened.length() > JCA_PADDING_WORD.length() && flattened.endsWith(JCA_PADDING_WORD)
+                ? flattened.substring(0, flattened.length() - JCA_PADDING_WORD.length())
+                : flattened;
     }
 
     private String canonicalPadding(String token) {
@@ -990,7 +1190,7 @@ public record AssetNormalizer(IdentityTables tables) {
      * splits an omitting producer from a declaring one.
      */
     private void derivePrimitive(NormalizedAsset norm, JsonNode algorithm) {
-        String declared = text(algorithm.get("primitive"));
+        String declared = boundedText(norm, algorithm, "primitive");
         if (declared != null && !AsciiText.isBlank(declared) && !tables.isSentinel(declared)) {
             String stripped = AsciiText.strip(declared);
             // Every other typed slot is registry-bounded; this one is producer text straight through, and it lands in
@@ -1015,7 +1215,7 @@ public record AssetNormalizer(IdentityTables tables) {
                 return;
             }
         }
-        String fromFunctions = primitiveFromFunctions(algorithm.get("cryptoFunctions"));
+        String fromFunctions = primitiveFromFunctions(norm, algorithm.get("cryptoFunctions"));
         if (fromFunctions != null) {
             norm.setPrimitive(fromFunctions);
             return;
@@ -1023,14 +1223,16 @@ public record AssetNormalizer(IdentityTables tables) {
         norm.setPrimitive(norm.family() == null ? null : tables.primitiveDefaults().get(norm.family()));
     }
 
-    private String primitiveFromFunctions(JsonNode functions) {
+    private String primitiveFromFunctions(NormalizedAsset norm, JsonNode functions) {
         if (functions == null || !functions.isArray()) {
             return null;
         }
         Set<String> tokens = new LinkedHashSet<>();
         functions.forEach(function -> {
-            if (function.isTextual() && !AsciiText.isBlank(function.textValue())) {
-                tokens.add(AsciiText.strip(function.textValue()).toLowerCase(Locale.ROOT));
+            String spelled = boundedText(function);
+            noteIfDropped(norm, function, "cryptoFunctions");
+            if (!AsciiText.isBlank(spelled)) {
+                tokens.add(AsciiText.strip(spelled).toLowerCase(Locale.ROOT));
             }
         });
         if (tokens.stream().anyMatch(CONFLICTING_FUNCTIONS::contains)) {
@@ -1052,7 +1254,8 @@ public record AssetNormalizer(IdentityTables tables) {
      */
     private void foldAuthenticatedEncryption(NormalizedAsset norm) {
         // The null check on the primitive is not defensive noise: Set.of refuses a null argument outright, where the
-        // reference's membership test simply answers false. A protocol asset carrying no primitive reaches here.
+        // reference's membership test simply answers false. An algorithm with no family and no declared primitive
+        // reaches here with none.
         if (norm.mode() != null && norm.primitive() != null && AE_MODES.contains(AsciiText.upper(norm.mode()))
                 && AE_FOLDABLE.contains(norm.primitive())) {
             norm.setPrimitive("ae");
@@ -1078,6 +1281,15 @@ public record AssetNormalizer(IdentityTables tables) {
         if (name == null || AsciiText.isBlank(name)) {
             return null;
         }
+        String stripped = strippedOfConsumedTokens(name, mode, paddingFromName);
+        Set<String> kept = sizeRunsWorthKeeping(stripped, name, family, parameterSet);
+        String letters = residualLetters(stripped, paddingFromName, dropped);
+        String residue = withSynonymFolded(letters) + (kept.isEmpty() ? "" : "|" + String.join(",", kept));
+        return residue.isEmpty() ? null : residue;
+    }
+
+    /** The name with every grammar rule, the mode and padding tokens this name yielded, and any curve removed. */
+    private String strippedOfConsumedTokens(String name, String mode, String paddingFromName) {
         String stripped = name;
         for (IdentityTables.GrammarRule rule : tables.nameGrammar()) {
             stripped = rule.strict().matcher(stripped).replaceAll(" ");
@@ -1090,8 +1302,11 @@ public record AssetNormalizer(IdentityTables tables) {
                         .replaceAll(" ");
             }
         }
-        stripped = tables.curveStrip().matcher(stripped).replaceAll(" ");
+        return tables.curveStrip().matcher(stripped).replaceAll(" ");
+    }
 
+    /** Every digit run the size slot did not already account for, plus the truncation and level markers. */
+    private Set<String> sizeRunsWorthKeeping(String stripped, String name, String family, Integer parameterSet) {
         // Compared as BigInteger, kept as text. A component name is an unrestricted string, so a legitimate name
         // carrying a long decimal identifier threw here and cost the asset its row; the run itself still enters the
         // residue verbatim, leading zeros and all.
@@ -1100,16 +1315,22 @@ public record AssetNormalizer(IdentityTables tables) {
         Matcher runs = DIGITS.matcher(stripped);
         while (runs.find()) {
             BigInteger value = new BigInteger(runs.group());
-            if (value.compareTo(floor) < 0
-                    || (parameterSet != null && value.equals(BigInteger.valueOf(parameterSet)))) {
-                continue;
+            if (value.compareTo(floor) >= 0
+                    && (parameterSet == null || !value.equals(BigInteger.valueOf(parameterSet)))) {
+                kept.add(runs.group());
             }
-            kept.add(runs.group());
         }
+        addTruncationMarker(kept, name, family, floor);
+        addLevelMarkers(kept, stripped, parameterSet);
+        return kept;
+    }
 
-        // A trailing separator-delimited digest length is a TRUNCATION marker, but only when the name carries a base
-        // length too -- otherwise `SHA-256` would read its own only digit run as a truncation of itself. Both
-        // spellings must produce the same marker: NIST writes `SHA-512/224` and producers write `SHA-512-224`.
+    /**
+     * A trailing separator-delimited digest length is a TRUNCATION marker, but only when the name carries a base length
+     * too -- otherwise {@code SHA-256} would read its own only digit run as a truncation of itself. Both spellings must
+     * produce the same marker: NIST writes {@code SHA-512/224} and producers write {@code SHA-512-224}.
+     */
+    private void addTruncationMarker(Set<String> kept, String name, String family, BigInteger floor) {
         int runsAtOrAboveFloor = 0;
         Matcher nameRuns = DIGITS.matcher(name);
         while (nameRuns.find()) {
@@ -1122,62 +1343,78 @@ public record AssetNormalizer(IdentityTables tables) {
                 && runsAtOrAboveFloor >= 2 && Integer.parseInt(truncation.group(1)) >= tables.sizeMin()) {
             kept.add("t" + truncation.group(1));
         }
+    }
 
-        // A digit attached to a letter is a LEVEL marker, not a size, and it survives the size floor: `BIKE-L1`, `-L3`
-        // and `-L5` are three different parameter sets and all three merged because 1, 3 and 5 fall below the minimum.
-        // A level marker must not be a slice of the parameter set: `RSA-4096` and `RSA4096` produced residues `|096`
-        // versus nothing and split 23 corpus rows.
+    /**
+     * A digit attached to a letter is a LEVEL marker, not a size, and it survives the size floor: {@code BIKE-L1},
+     * {@code -L3} and {@code -L5} are three different parameter sets and all three merged because 1, 3 and 5 fall below
+     * the minimum. A level marker must not be a slice of the parameter set: {@code RSA-4096} and {@code RSA4096}
+     * produced residues {@code |096} versus nothing and split 23 corpus rows.
+     */
+    private void addLevelMarkers(Set<String> kept, String stripped, Integer parameterSet) {
         Matcher levels = LEVEL_MARKER.matcher(stripped);
         while (levels.find()) {
             String digits = NON_DIGITS.matcher(levels.group(1)).replaceAll("");
-            if (parameterSet != null && String.valueOf(parameterSet).endsWith(digits)) {
-                continue;
+            if (parameterSet == null || !String.valueOf(parameterSet).endsWith(digits)) {
+                kept.add(AsciiText.fold(levels.group(1)));
             }
-            kept.add(AsciiText.fold(levels.group(1)));
         }
+    }
 
-        String letters = AsciiText.fold(NON_LETTERS.matcher(stripped).replaceAll(""));
-        // L7, half-fixed and deliberately so. Filtering this residue against a closed construction vocabulary was
-        // tried and REVERTED: it removed 72 spurious rows but introduced over-merges in the severe direction, because
-        // free text in a name is sometimes noise and sometimes a construction. `KEM Combiner (SHA-256)` merged with
-        // plain `SHA-256`, which is wrong: a KEM combiner using SHA-256 is not SHA-256. Over-splitting is visible and
-        // repairable; over-merging is silent corruption.
+    /**
+     * The flattened letters left in the name, with the padding token removed only when this name is where it was read.
+     *
+     * <p>
+     * L7, half-fixed and deliberately so. Filtering this residue against a closed construction vocabulary was tried and
+     * REVERTED: it removed 72 spurious rows but introduced over-merges in the severe direction, because free text in a
+     * name is sometimes noise and sometimes a construction. {@code KEM Combiner (SHA-256)} merged with plain
+     * {@code SHA-256}, which is wrong: a KEM combiner using SHA-256 is not SHA-256. Over-splitting is visible and
+     * repairable; over-merging is silent corruption.
+     */
+    private String residualLetters(String stripped, String paddingFromName, List<String> dropped) {
+        String letters = AsciiText.foldPresent(NON_LETTERS.matcher(stripped).replaceAll(""));
         if (!letters.isEmpty() && !tables.variantVocabulary().contains(letters)) {
             dropped.add(letters);
         }
-        // The padding token is removed from the flattened letters ONLY when it was actually read out of this name.
         // Stripping every padding spelling unconditionally ate a meaningful token: `AES-128-CBC-OpenPKCS11` collapsed
         // onto `AES-128-CBC-Open` because `pkcs` is a substring of `openpkcs`.
-        if (paddingFromName != null) {
-            String flattened = NON_LETTERS.matcher(paddingFromName).replaceAll("").toLowerCase(Locale.ROOT);
-            if (!flattened.isEmpty() && letters.endsWith(flattened)) {
-                letters = letters.substring(0, letters.length() - flattened.length());
-            } else if (!flattened.isEmpty() && letters.startsWith(flattened)) {
-                letters = letters.substring(flattened.length());
-            }
+        if (paddingFromName == null) {
+            return letters;
         }
-        // Synonyms fold at a PREFIX or SUFFIX only, longest key first. Free substring replacement corrupted unrelated
-        // words -- `kw` inside "backward" turned `SHAKE256-BackwardSecure` into `bacwrapardsecure` -- while
-        // whole-residue matching missed compound residues such as `kwrfc`.
+        String flattened = NON_LETTERS.matcher(paddingFromName).replaceAll("").toLowerCase(Locale.ROOT);
+        if (!flattened.isEmpty() && letters.endsWith(flattened)) {
+            return letters.substring(0, letters.length() - flattened.length());
+        }
+        if (!flattened.isEmpty() && letters.startsWith(flattened)) {
+            return letters.substring(flattened.length());
+        }
+        return letters;
+    }
+
+    /**
+     * Synonyms fold at a PREFIX or SUFFIX only, longest key first.
+     *
+     * <p>
+     * Free substring replacement corrupted unrelated words -- {@code kw} inside "backward" turned
+     * {@code SHAKE256-BackwardSecure} into {@code bacwrapardsecure} -- while whole-residue matching missed compound
+     * residues such as {@code kwrfc}. The first spelling that matches wins and the rest are not considered.
+     */
+    private String withSynonymFolded(String letters) {
         List<String> spellings = new ArrayList<>(tables.variantSynonyms().keySet());
         spellings.sort((left, right) -> Integer.compare(right.length(), left.length()));
         for (String spelling : spellings) {
             String replacement = tables.variantSynonyms().get(spelling);
             if (letters.equals(spelling)) {
-                letters = replacement;
-                break;
+                return replacement;
             }
             if (letters.startsWith(spelling)) {
-                letters = replacement + letters.substring(spelling.length());
-                break;
+                return replacement + letters.substring(spelling.length());
             }
             if (letters.endsWith(spelling)) {
-                letters = letters.substring(0, letters.length() - spelling.length()) + replacement;
-                break;
+                return letters.substring(0, letters.length() - spelling.length()) + replacement;
             }
         }
-        String residue = letters + (kept.isEmpty() ? "" : "|" + String.join(",", kept));
-        return residue.isEmpty() ? null : residue;
+        return letters;
     }
 
     private static final Pattern NON_DIGITS = Pattern.compile("\\D");
@@ -1188,9 +1425,71 @@ public record AssetNormalizer(IdentityTables tables) {
                 : com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode();
     }
 
-    private static String text(JsonNode node) {
-        return node != null && node.isTextual() ? node.textValue() : null;
+    /**
+     * A producer field's text, or {@code null} when the node is not textual or the value exceeds
+     * {@code MAX_NORMALIZABLE_LENGTH}.
+     *
+     * <p>
+     * The gate in front of every producer string <em>this normalizer</em> reads before a grammar, a table or an arc
+     * walk sees it: the algorithm-property fields and the {@code oid}. The name carried the bound and nothing else did,
+     * so a producer's {@code ellipticCurve}, {@code parameterSetIdentifier} or {@code oid} reached the alternatives
+     * split, a {@code BigInteger} parse and the per-arc OID walk at whatever length the JSON reader allowed -- 20
+     * million characters by default, with no body cap on the upload -- and the last two are quadratic. Measured at this
+     * bound's absence, a 200 000-arc OID took 265 seconds through {@code oidLookup}. No registry spelling, mode,
+     * padding or arc comes near the bound, so nothing real reads as absent.
+     *
+     * <p>
+     * It is not the gate for the strings the identity tiers read themselves -- a material id or fingerprint content, a
+     * certificate serial, a protocol type -- which reach a pre-image at the parser's length. Those paths are linear,
+     * roughly 10 ns per character at four million, so the bound is not needed for availability there and is not
+     * applied; what it would decide is which of them enters a key, which is a ratification question. The asset type is
+     * deliberately unbounded too -- see {@link #normalize}.
+     *
+     * <p>
+     * Absent rather than refused: an over-long side field costs its own slot, not the row -- the ruling the over-long
+     * primitive already follows. The name alone is refused, by {@link #requireNormalizableName}, because there the
+     * bound is the storage bound and a refused name could never have been written; none of these fields is stored raw.
+     */
+    private static String boundedText(JsonNode node) {
+        String value = node != null && node.isTextual() ? node.textValue() : null;
+        return exceedsNormalizableLength(value) ? null : value;
     }
+
+    /**
+     * {@link #boundedText} for a named field of {@code parent}, recording the drop on the row when the bound fires.
+     *
+     * <p>
+     * Reading as absent is the ruled behaviour, but absent is the MERGE direction: two {@code RSA} rows whose over-long
+     * {@code parameterSetIdentifier}s differ both key {@code ALG|RSA|||||}, where the readable spellings kept them
+     * apart. The over-long primitive already leaves a note; without one here the merge left no trace at all. Several
+     * fields are read more than once along the derivation, so the note is recorded once per field.
+     */
+    private static String boundedText(NormalizedAsset norm, JsonNode parent, String field) {
+        JsonNode node = parent.get(field);
+        noteIfDropped(norm, node, field);
+        return boundedText(node);
+    }
+
+    private static void noteIfDropped(NormalizedAsset norm, JsonNode node, String field) {
+        if (node != null && node.isTextual() && exceedsNormalizableLength(node.textValue())) {
+            String note = droppedFieldNote(field);
+            if (!norm.notes().contains(note)) {
+                norm.note(note);
+            }
+        }
+    }
+
+    private static String droppedFieldNote(String field) {
+        return "the declared " + field + " exceeds " + MAX_NORMALIZABLE_LENGTH
+                + " characters and was dropped rather than normalized";
+    }
+
+    /**
+     * Its own note, not {@link #droppedFieldNote}'s: that one says the value exceeded 1024 characters, which for a
+     * five-character {@code 1e400} is false in a provenance block that is stored and can be served.
+     */
+    static final String NON_FINITE_PARAMETER_SET_NOTE = "the declared " + CbomNames.PARAMETER_SET_IDENTIFIER
+            + " is not a finite number and was dropped rather than normalized";
 
     private static String nullToEmpty(String value) {
         return value == null ? "" : value;

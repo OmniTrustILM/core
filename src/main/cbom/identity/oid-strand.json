@@ -1610,12 +1610,12 @@
   "1.2.840.113549.1.9.16.3.18": {
    "family": "ChaCha20",
    "parameterSet": 256,
-   "mode": "POLY1305",
+   "mode": null,
    "curve": null,
    "primitive": "ae",
    "source": "verified",
    "name": "id-alg-AEADChaCha20Poly1305",
-   "note": "RFC 8103. Only exists in the CMS arc. cbom-lens instead emits the NON-OID literal 'ietf-rfc8439' in cryptoProperties.oid for this algorithm -- see residual risk."
+   "note": "RFC 8103. Only exists in the CMS arc. cbom-lens instead emits the NON-OID literal 'ietf-rfc8439' in cryptoProperties.oid for this algorithm -- see residual risk. The mode was POLY1305 until 2026-09-04: Poly1305 is the AEAD tag, not a CycloneDX mode value, and the name's poly1305 secondary marker already carries it, so the arc contributed a mode the name never could and split the asset from its OID-less spelling."
   },
   "1.2.840.113549.1.9.16.3.28": {
    "family": "HKDF",

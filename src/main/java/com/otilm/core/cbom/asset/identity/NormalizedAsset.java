@@ -131,11 +131,12 @@ public final class NormalizedAsset {
     }
 
     /**
-     * The keyed values the twin detector examines.
+     * The keyed text the twin detector examines: the pre-image itself, then every inner string whose digest it carries.
      *
      * <p>
      * Detector input only. It must never reach a stored payload or a key, which is why it is excluded from the
-     * provenance block below.
+     * provenance block below -- and it is the dictionary-attackable input itself, not a selection of the fields that
+     * fed it, so the fence around the pre-image applies to this accessor in full.
      */
     public List<String> keyedCaseValues() {
         return List.copyOf(keyedCaseValues);

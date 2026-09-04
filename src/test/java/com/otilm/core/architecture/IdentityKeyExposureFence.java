@@ -7,7 +7,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -29,30 +29,83 @@ import java.util.stream.Stream;
 final class IdentityKeyExposureFence {
 
     /**
-     * Matches an identity-key value under every spelling the code base can produce: {@code identity_key} (SQL),
-     * {@code identityKey} (Java member), {@code IDENTITY_KEY} (constant), {@code getIdentityKey} (accessor),
-     * {@code identity-key} (a JSON or header name). ASCII-only case folding, so the verdict cannot depend on the
-     * platform locale.
+     * The stored-value vocabulary: every spelling the code base can produce for a value that lives in a column.
      *
      * <p>
-     * The alias vocabulary is fenced too. {@code crypto_asset_alias.absorbed_key} and {@code canonical_key} <em>hold
-     * identity-key values</em> — {@code canonical_key} is a foreign key onto {@code crypto_asset.identity_key} — so a
-     * DTO exposing {@code canonicalKey}, a {@code FilterField} over {@code absorbedKey}, or a log line binding either
-     * would ship exactly the hash whose low-entropy preimage falls to a dictionary attack, while passing a fence that
-     * only knew the word "identity".
+     * {@code identity_key} (SQL), {@code identityKey} (Java member), {@code IDENTITY_KEY} (constant),
+     * {@code getIdentityKey} (accessor), {@code identity-key} (a JSON or header name). ASCII-only case folding, so the
+     * verdict cannot depend on the platform locale.
+     *
+     * <p>
+     * The alias vocabulary is fenced with it. {@code crypto_asset_alias.absorbed_key} and {@code canonical_key}
+     * <em>hold identity-key values</em> — {@code canonical_key} is a foreign key onto {@code crypto_asset.identity_key}
+     * — so a DTO exposing {@code canonicalKey}, a {@code FilterField} over {@code absorbedKey}, or a log line binding
+     * either would ship exactly the hash whose low-entropy preimage falls to a dictionary attack, while passing a fence
+     * that only knew the word "identity".
      */
-    private static final Pattern IDENTITY_KEY = Pattern
-            .compile("identity[_\\-\\s]?key|absorbed[_\\-\\s]?key|canonical[_\\-\\s]?key", Pattern.CASE_INSENSITIVE);
+    private static final String STORED_VALUE_VOCABULARY = "identity[_\\-\\s]?key|absorbed[_\\-\\s]?key"
+            + "|canonical[_\\-\\s]?key";
 
     /**
-     * Any method call named after a log level. Deliberately loose — it matches {@code log.debug(}, {@code logger.warn(}
-     * and the wrapped {@code logger.getLogger().debug(} alike, because the point is to catch the bound value reaching
-     * an appender, whatever the logger handle is called.
+     * The pre-image vocabulary: the spellings for the material itself, ahead of the key it hashes to.
+     *
+     * <p>
+     * The key is one dictionary attack away from the material; the pre-image <em>is</em> the material, spelled out.
+     * {@code keyedPayload} is here for the same reason: since core#2165 it is the node the material pre-image is built
+     * from, and it deliberately keeps a producer's uncontracted members — which can be an inlined plaintext — because
+     * R2 and R15 name the five reference fields as the whole of what may be stripped before a hash. The stored payload
+     * is the one that drops them, so {@code storedPayload} is <b>not</b> fenced: naming it is the correct choice, and
+     * fencing the safe spelling would train readers to reach for the unsafe one.
+     *
+     * <p>
+     * {@code (?!slot)} excludes {@code PreImageSlot}, the type that renders a slot, from roughly forty call sites
+     * across this package. The type name is not the value, and without the lookahead the fence would flag every one of
+     * them and be turned off.
+     *
+     * <p>
+     * A member called {@code key} or {@code value} alone still carries the same content past a lexical rule, and
+     * fencing those spellings would flag every public key in the code base. That residual is closed for the carriers
+     * this code base has by {@link #KEY_CARRIER_ACCESSORS}, which judges a call by what the accessor returns rather
+     * than by the words on the line. A carrier not registered there is still outside every rule.
+     */
+    private static final String PRE_IMAGE_VOCABULARY = "pre[_\\-\\s]?image(?!slot)|keyed[_\\-\\s]?payload";
+
+    /**
+     * Every fenced spelling, composed from the two vocabularies so they cannot drift apart.
+     *
+     * <p>
+     * A file's allowlist entry names the vocabulary it may use, and this pattern is what decides whether anything
+     * <em>else</em> is left on the line after that vocabulary is discounted — see {@link #sourceFileViolations}.
+     */
+    private static final Pattern IDENTITY_KEY = Pattern
+            .compile(STORED_VALUE_VOCABULARY + "|" + PRE_IMAGE_VOCABULARY, Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Any call that puts a value on a log line. Deliberately loose — it matches {@code log.debug(},
+     * {@code logger.warn(} and the wrapped {@code logger.getLogger().debug(} alike, because the point is to catch the
+     * bound value reaching an appender, whatever the logger handle is called.
+     *
+     * <p>
+     * An MDC or {@code ThreadContext} binding is a log line too, and the one this codebase actually writes: eighteen
+     * {@code MDC.put} sites attach context to every subsequent statement of the request, so a value bound there is
+     * printed by every log line until it is removed. A span attribute or event is forwarded by the tracing appender the
+     * same way. Both were invisible to the level-name rule.
      */
     private static final Pattern LOGGING_CALL = Pattern
             .compile("\\.\\s*(trace|debug|info|warn|error|logEvent|log)\\s*\\("
                     + "|\\bSystem\\s*\\.\\s*(out|err)\\s*\\.\\s*(print|println|printf|format)\\s*\\("
-                    + "|\\.\\s*printStackTrace\\s*\\(", Pattern.CASE_INSENSITIVE);
+                    + "|\\.\\s*printStackTrace\\s*\\("
+                    + "|\\b(MDC|ThreadContext)\\s*\\.\\s*(put|putCloseable|putAll)\\s*\\("
+                    + "|\\.\\s*(setAttribute|addEvent)\\s*\\(", Pattern.CASE_INSENSITIVE);
+
+    /**
+     * The argument list of a thrown exception. A message travels to whatever catches the exception and is logged there,
+     * and {@code CryptoAssetConstraintTranslator} — allowlisted for the stored value — exists to turn the unique
+     * constraint on that value into a message. Unlike a logging call this is judged on the line with its literals
+     * blanked: {@code "identity key has invalid shape"} names the column and states no value, where a bound variable
+     * beside it does.
+     */
+    private static final Pattern THROW_ARGUMENT = Pattern.compile("\\bthrow\\s+new\\s+[\\w.$<>]+\\s*\\(");
 
     /**
      * A string or character literal, escapes included. Blanked out before parentheses are counted, so a parenthesis
@@ -74,23 +127,83 @@ final class IdentityKeyExposureFence {
             .of("com.otilm.core.model", "com.otilm.core.api", "com.otilm.api.model");
 
     /**
-     * The only production sources allowed to name the identity key. Persistence has to: the column, its query, its
-     * writer and the translator that recognises its unique constraint by name. Everything else naming it is a leak.
+     * The production sources allowed to name a fenced value, each mapped to the <em>one vocabulary</em> it may name.
      *
      * <p>
-     * The calculator that produces the value is deliberately <em>not</em> here. It names the key only in documentation,
-     * which the rule exempts anyway, so the entry granted an exemption nothing used -- and it would have covered a
-     * future code-level mention in the one file best placed to leak the value it computes. Re-adding it later is a
-     * reviewed one-liner; leaving it in is a hole nobody would notice opening.
+     * <b>Scoped, not per file.</b> A bare path exemption is broader than any reason for granting it: allowlisting the
+     * identity calculator so it may name the pre-image it builds would also let it name the {@code identity_key} it
+     * produces, which is the single worst place in the code base to open that hole. This class said so before the entry
+     * existed -- "it would have covered a future code-level mention in the one file best placed to leak the value it
+     * computes" -- and the first attempt at core#2165 item 20 granted exactly that exemption anyway. A mention is
+     * exempt only when the line names nothing outside its file's own vocabulary.
+     *
+     * <p>
+     * Persistence has to name the stored value: the column, its query, its writer and the translator that recognises
+     * its unique constraint by name. The identity layer has to name the pre-image: the record that carries it, and the
+     * two classes that build and hash the keyed payload. Everything else naming either is a leak.
+     *
+     * <p>
+     * The exemption covers <em>naming</em> only. The logging rule carries no allowlist, so none of these files may put
+     * a fenced value in a log line.
      */
-    static final Set<String> SOURCE_ALLOWLIST = Set
-            .of("src/main/java/com/otilm/core/dao/entity/cbom/CryptoAsset.java",
-                    "src/main/java/com/otilm/core/dao/entity/cbom/CryptoAssetAlias.java",
-                    "src/main/java/com/otilm/core/dao/repository/cbom/CryptoAssetRepository.java",
-                    "src/main/java/com/otilm/core/dao/repository/cbom/CryptoAssetAliasRepository.java",
-                    "src/main/java/com/otilm/core/service/writer/cbom/CryptoAssetWriter.java",
-                    "src/main/java/com/otilm/core/service/writer/cbom/CryptoAssetAliasWriter.java",
-                    "src/main/java/com/otilm/core/dao/CryptoAssetConstraintTranslator.java");
+    static final Map<String, Pattern> SOURCE_ALLOWLIST = Map
+            .ofEntries(storedValue("src/main/java/com/otilm/core/dao/entity/cbom/CryptoAsset.java"),
+                    storedValue("src/main/java/com/otilm/core/dao/entity/cbom/CryptoAssetAlias.java"),
+                    storedValue("src/main/java/com/otilm/core/dao/repository/cbom/CryptoAssetRepository.java"),
+                    storedValue("src/main/java/com/otilm/core/dao/repository/cbom/CryptoAssetAliasRepository.java"),
+                    storedValue("src/main/java/com/otilm/core/service/writer/cbom/CryptoAssetWriter.java"),
+                    storedValue("src/main/java/com/otilm/core/service/writer/cbom/CryptoAssetAliasWriter.java"),
+                    storedValue("src/main/java/com/otilm/core/dao/CryptoAssetConstraintTranslator.java"),
+                    // The extractor hands the keyed asset to the persistence path, so it names the stored value
+                    // for the same reason the entity does. Allowlisted rather than dodged: the record component was
+                    // once called `key` purely so this regex would not see it, which is invisible to a reader where
+                    // an entry is a reviewed record. Scoped, so a pre-image spelling here still fails.
+                    storedValue("src/main/java/com/otilm/core/cbom/asset/identity/CbomAssetExtractor.java"),
+                    preImage("src/main/java/com/otilm/core/cbom/asset/identity/CryptoAssetIdentity.java"),
+                    preImage("src/main/java/com/otilm/core/cbom/asset/identity/MaterialRedaction.java"),
+                    preImage("src/main/java/com/otilm/core/cbom/asset/identity/AssetNormalizer.java"));
+
+    private static Map.Entry<String, Pattern> storedValue(String path) {
+        return Map.entry(path, Pattern.compile(STORED_VALUE_VOCABULARY, Pattern.CASE_INSENSITIVE));
+    }
+
+    private static Map.Entry<String, Pattern> preImage(String path) {
+        return Map.entry(path, Pattern.compile(PRE_IMAGE_VOCABULARY, Pattern.CASE_INSENSITIVE));
+    }
+
+    /**
+     * The accessors that hand out a fenced value, each mapped to the vocabulary that value belongs to.
+     *
+     * <p>
+     * Both lexical rules judge a line by the words on it, so a record component the identity chain calls {@code key}
+     * carries the identity key past both: {@code extracted.key()} in a service, or bound into a log line, discloses the
+     * value with nothing on the line for a regex to see. A call to one of these is therefore judged by what the
+     * accessor <em>returns</em>. The caller needs the same allowlist entry it would need to write the word out -- the
+     * extractor may read {@code Identity.key()} because its file is allowlisted for the stored value, and may not read
+     * {@code Identity.preImage()} because it is not allowlisted for the material. {@code preImage} and
+     * {@code identityKey} are lexically fenced already; they are registered so the two rules cannot disagree about
+     * which members are carriers.
+     *
+     * <p>
+     * Not the records' whole surface. {@code step()}, {@code guard()} and {@code asset()} carry nothing fenced, and
+     * fencing them would flag every reader of a chain step. A new component holding either value belongs here whatever
+     * it is called, and the self-test proves the map is consulted by the class and method names the byte code reports,
+     * never by the caller's spelling.
+     */
+    static final Map<String, String> KEY_CARRIER_ACCESSORS = Map
+            .of("com.otilm.core.cbom.asset.identity.CryptoAssetIdentity$Identity.key", STORED_VALUE_VOCABULARY,
+                    "com.otilm.core.cbom.asset.identity.CryptoAssetIdentity$Identity.preImage", PRE_IMAGE_VOCABULARY,
+                    "com.otilm.core.cbom.asset.identity.CbomAssetExtractor$ExtractedAsset.identityKey",
+                    STORED_VALUE_VOCABULARY,
+                    // Registered because the detector's input list now begins with the pre-image itself, so this
+                    // accessor returns the dictionary-attackable string under a name no regex would read as one.
+                    "com.otilm.core.cbom.asset.identity.NormalizedAsset.keyedCaseValues", PRE_IMAGE_VOCABULARY,
+                    // The unsalted digest of a possibly low-entropy secret, whose own Javadoc says it must never
+                    // reach a stored payload or a wire response -- and `identityDigest` matches neither vocabulary,
+                    // so until it was registered any production class could read it into a DTO or a log line with
+                    // nothing for either rule to see. Its sibling `publishedDigest` stays unfenced deliberately: it
+                    // is the one that is safe to serve, the same split as `storedPayload` against `keyedPayload`.
+                    "com.otilm.core.cbom.asset.identity.MaterialRedaction.identityDigest", PRE_IMAGE_VOCABULARY);
 
     private IdentityKeyExposureFence() {
     }
@@ -104,8 +217,31 @@ final class IdentityKeyExposureFence {
         }
     }
 
+    /**
+     * One method call, reduced to what the fence needs to judge it. Class names are binary names -- {@code Outer$Inner}
+     * -- which is how the byte code reports them.
+     */
+    record AccessorCall(String callerClass, String targetClass, String methodName) {
+
+        String target() {
+            return targetClass + "." + methodName;
+        }
+    }
+
     static boolean mentionsIdentityKey(String text) {
         return text != null && IDENTITY_KEY.matcher(text).find();
+    }
+
+    /**
+     * Whether an allowlisted file's line names only the vocabulary that file is entitled to.
+     *
+     * <p>
+     * The file's own vocabulary is discounted and the line re-tested, so a persistence source may say
+     * {@code identityKey} and an identity source may say {@code preImage}, while either saying the other's is a
+     * violation on the spot. That is what makes the entry an exemption for a reason rather than for a file.
+     */
+    private static boolean namesNothingBeyondItsVocabulary(Pattern exempt, String line) {
+        return exempt != null && !mentionsIdentityKey(exempt.matcher(line).replaceAll(""));
     }
 
     static boolean isFencedPackage(String packageName) {
@@ -131,6 +267,122 @@ final class IdentityKeyExposureFence {
     }
 
     /**
+     * Calls to a {@link #KEY_CARRIER_ACCESSORS key carrier} from a class whose source file is not allowlisted for the
+     * vocabulary the accessor returns.
+     *
+     * <p>
+     * The caller is judged by its source file rather than by its class so that this rule and the lexical one share a
+     * single allowlist: one reviewed record says which files may hold the value, however they come to hold it.
+     */
+    static List<String> keyCarrierCallViolations(Collection<AccessorCall> calls) {
+        return calls
+                .stream()
+                .filter(call -> KEY_CARRIER_ACCESSORS.containsKey(call.target()))
+                .filter(call -> !mayReadCarrier(call))
+                .map(call -> call.callerClass() + " reads " + call.target()
+                        + "(), which hands out the crypto-asset identity key or its pre-image, from a source not "
+                        + "allowlisted for that value")
+                .toList();
+    }
+
+    private static boolean mayReadCarrier(AccessorCall call) {
+        Pattern exempt = SOURCE_ALLOWLIST.get(sourcePathOf(call.callerClass()));
+        return exempt != null && exempt.pattern().equals(KEY_CARRIER_ACCESSORS.get(call.target()));
+    }
+
+    /**
+     * One declared method, reduced to what the fence needs to judge a re-export: who declares it, what it returns, and
+     * which {@link #KEY_CARRIER_ACCESSORS carriers} it calls. Class names are binary names, as the byte code reports
+     * them; {@code carrierTargets} are in the {@code Outer$Inner.method} form the carrier map is keyed by.
+     */
+    record MethodShape(String declaringClass, String name, String returnType, Collection<String> carrierTargets) {
+
+        String target() {
+            return declaringClass + "." + name;
+        }
+    }
+
+    /**
+     * One declared member and every raw type its declaration involves -- its own type or return type, its parameters,
+     * and the type arguments of each -- reduced to binary class names.
+     */
+    record TypedMember(String declaringClass, String packageName, String kind, String name,
+            Collection<String> involvedTypes) {
+
+        @Override
+        public String toString() {
+            return declaringClass + "." + name + " (" + kind + ")";
+        }
+    }
+
+    /**
+     * Methods that read a carrier and hand its value on under a name no rule sees.
+     *
+     * <p>
+     * {@link #keyCarrierCallViolations} judges the call site, so one method in an allowlisted class returning
+     * {@code asset.identityKey()} as {@code fingerprintOf(asset)} made every caller of {@code fingerprintOf} invisible
+     * to all four rules: the allowlisted file read the carrier legitimately, and the service reading the re-export
+     * named nothing fenced. A method that calls a registered carrier and returns a {@code String} is therefore itself a
+     * carrier, and must be registered as one or stop returning the value -- registration is the reviewed record that
+     * the re-export is deliberate, as {@code ExtractedAsset.identityKey} is.
+     *
+     * <p>
+     * What this does not see, stated so nobody relies on it: a carrier value returned inside a record or a collection,
+     * or passed as an argument to another class's method. Following the value through those needs dataflow the byte
+     * code does not hand out, so the residual is confined to methods of the allowlisted classes and closed by review of
+     * those files rather than by this rule.
+     */
+    static List<String> carrierReExportViolations(Collection<MethodShape> methods) {
+        return methods
+                .stream()
+                .filter(method -> "java.lang.String".equals(method.returnType()))
+                .filter(method -> !KEY_CARRIER_ACCESSORS.containsKey(method.target()))
+                .filter(method -> method.carrierTargets().stream().anyMatch(KEY_CARRIER_ACCESSORS::containsKey))
+                .map(method -> method.target() + "() returns a String after reading "
+                        + method.carrierTargets().stream().filter(KEY_CARRIER_ACCESSORS::containsKey).sorted().toList()
+                        + ": a re-export of the crypto-asset identity key or its pre-image that no caller's line "
+                        + "names; register it in KEY_CARRIER_ACCESSORS or stop returning the value")
+                .toList();
+    }
+
+    /**
+     * Members of a fenced package typed with a class that declares a carrier, directly or as a type argument.
+     *
+     * <p>
+     * {@link #declaredMemberViolations} judges member names, so {@code record Dto(String name, Identity detail)} in a
+     * model package passed: nothing on it is called anything fenced. {@code Identity} and {@code ExtractedAsset} are
+     * public records, and a serializer walks a record by its components and renders {@code preImage} and
+     * {@code identityKey} verbatim -- the stock wire mapper refuses the empty beans behind them today, and one
+     * {@code @JsonIgnoreProperties} would turn that refusal into the leak. A client-facing declaration has no business
+     * being typed with the material's carrier, whatever the member is called.
+     */
+    static List<String> carrierTypedMemberViolations(Collection<TypedMember> members) {
+        return members
+                .stream()
+                .filter(member -> isFencedPackage(member.packageName()))
+                .filter(member -> member.involvedTypes().stream().anyMatch(IdentityKeyExposureFence::declaresACarrier))
+                .map(member -> member + " is typed with a class that carries the crypto-asset identity key or its "
+                        + "pre-image, in a client-facing package")
+                .toList();
+    }
+
+    /** Whether the class, named in binary form, declares one of the registered carriers. */
+    static boolean declaresACarrier(String className) {
+        return KEY_CARRIER_ACCESSORS.keySet().stream().anyMatch(accessor -> accessor.startsWith(className + "."));
+    }
+
+    /**
+     * The repository-relative source file a class was compiled from. The outermost class decides: a nested class, an
+     * anonymous class and a lambda's synthetic host all live in the file of the class enclosing them, and the allowlist
+     * is written in files.
+     */
+    static String sourcePathOf(String className) {
+        int nested = className.indexOf('$');
+        String outer = nested < 0 ? className : className.substring(0, nested);
+        return "src/main/java/" + outer.replace('.', '/') + ".java";
+    }
+
+    /**
      * Violations in one production source file: the identity key named at all outside {@link #SOURCE_ALLOWLIST}, or
      * named anywhere inside a logging call in any file at all. The logging rule carries no allowlist — the files that
      * legitimately hold the value are exactly the files from which it could reach an appender.
@@ -146,9 +398,10 @@ final class IdentityKeyExposureFence {
      */
     static List<String> sourceFileViolations(Path repoRelativePath, List<String> lines) {
         String path = repoRelativePath.toString().replace('\\', '/');
-        boolean allowlisted = SOURCE_ALLOWLIST.contains(path);
+        Pattern exempt = SOURCE_ALLOWLIST.get(path);
         List<String> violations = new ArrayList<>();
         int openLoggingParens = 0;
+        int openThrowParens = 0;
         boolean inTextBlock = false;
         boolean inBlockComment = false;
         for (int i = 0; i < lines.size(); i++) {
@@ -176,31 +429,37 @@ final class IdentityKeyExposureFence {
             }
             String code = LITERAL.matcher(countable).replaceAll("\"\"");
             boolean insideLoggingCall = openLoggingParens > 0 || LOGGING_CALL.matcher(code).find();
+            boolean insideThrow = openThrowParens > 0 || THROW_ARGUMENT.matcher(code).find();
             if (mentionsIdentityKey(line)) {
                 if (insideLoggingCall) {
                     violations.add(path + ":" + (i + 1) + " logs the crypto-asset identity key: " + line.strip());
-                } else if (!allowlisted) {
+                } else if (insideThrow && mentionsIdentityKey(code)) {
+                    violations
+                            .add(path + ":" + (i + 1) + " puts the crypto-asset identity key in an exception message: "
+                                    + line.strip());
+                } else if (!namesNothingBeyondItsVocabulary(exempt, line)) {
                     violations
                             .add(path + ":" + (i + 1) + " names the crypto-asset identity key outside persistence: "
                                     + line.strip());
                 }
             }
-            openLoggingParens = remainingLoggingParens(code, openLoggingParens);
+            openLoggingParens = remainingParens(LOGGING_CALL, code, openLoggingParens);
+            openThrowParens = remainingParens(THROW_ARGUMENT, code, openThrowParens);
         }
         return violations;
     }
 
     /**
-     * How many parentheses of a logging call are still open at the end of this line, given how many were open at its
-     * start. Counting begins at the {@code (} of a logging call and stops when that call closes, so ordinary
-     * parenthesised code between two logging statements is never mistaken for an open call.
+     * How many parentheses of a sink call are still open at the end of this line, given how many were open at its
+     * start. Counting begins at the {@code (} of the call and stops when that call closes, so ordinary parenthesised
+     * code between two sink statements is never mistaken for an open call.
      *
      * <p>
      * A count that drifts can only drift toward reporting more, never less: an unbalanced line leaves the call open and
-     * keeps the following lines under the logging rule, which is the direction a fence should fail in.
+     * keeps the following lines under the sink's rule, which is the direction a fence should fail in.
      */
-    private static int remainingLoggingParens(String code, int carriedDepth) {
-        Matcher call = LOGGING_CALL.matcher(code);
+    private static int remainingParens(Pattern sink, String code, int carriedDepth) {
+        Matcher call = sink.matcher(code);
         int depth = carriedDepth;
         int callOpensAt = call.find() ? call.end() - 1 : -1;
         for (int i = 0; i < code.length(); i++) {

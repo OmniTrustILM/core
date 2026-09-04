@@ -453,8 +453,6 @@ class ContentDigestTest {
         assertThat(CipherSuites.tokens(twoSuites, Set.of())).isEqualTo("n:TLS_A\nn:TLS_B");
         assertThat(CipherSuites.tokens(numericName, Set.of())).isEqualTo("n:1301");
         assertThat(CipherSuites.tokens(numericCode, Set.of())).isEqualTo("c:1301");
-        assertThat(CipherSuites.digest(oneSuite, Set.of())).isNotEqualTo(CipherSuites.digest(twoSuites, Set.of()));
-        assertThat(CipherSuites.digest(numericName, Set.of())).isNotEqualTo(CipherSuites.digest(numericCode, Set.of()));
     }
 
     /** "Declared but unreadable" must never look like "none were offered". */

@@ -173,12 +173,6 @@ public final class CipherSuites {
         return tokens.isEmpty() ? null : String.join("\n", tokens);
     }
 
-    /** SHA-256 over {@link #tokens}, or {@code null} when no suite yielded one. */
-    public static String digest(JsonNode properties, Set<String> refuted) {
-        String tokens = tokens(properties, refuted);
-        return tokens == null ? null : IdentityDigests.sha256Hex(tokens);
-    }
-
     /** True when the properties declare a {@code cipherSuites} array with at least one entry. */
     public static boolean declared(JsonNode properties) {
         JsonNode protocol = properties == null ? null : properties.get("protocolProperties");
