@@ -8,6 +8,7 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.cryptography.token.TokenInstanceRequestDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.cryptography.token.TokenInstanceDetailDto;
 import com.otilm.api.model.core.cryptography.token.TokenInstanceDto;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -124,6 +125,14 @@ public interface TokenInstanceExternalService {
      * @throws ConnectorException when there are issues with connector communication or error from connector
      */
     List<BaseAttribute> listTokenProfileAttributes(SecuredUUID uuid) throws ConnectorException, NotFoundException;
+
+    /**
+     * Lists the key usages supported by the token instance.
+     *
+     * @param tokenInstanceUuid the UUID of the token instance
+     * @return a list of {@link KeyUsage} values supported by the token instance
+     */
+    List<KeyUsage> listSupportedKeyUsages(SecuredUUID tokenInstanceUuid) throws NotFoundException, ConnectorException;
 
     /**
      * @param uuid UUID of the concerned token instance

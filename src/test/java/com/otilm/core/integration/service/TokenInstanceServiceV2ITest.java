@@ -1,5 +1,6 @@
 package com.otilm.core.integration.service;
 
+import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
@@ -13,6 +14,7 @@ import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.cryptography.token.TokenInstanceDetailDto;
 import com.otilm.api.model.core.cryptography.token.TokenInstanceDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
@@ -155,8 +157,12 @@ class TokenInstanceServiceV2ITest extends BaseSpringBootTest {
     @Test
     void listTokenProfileAttributes_sendsStoredScopedAttributes() throws Exception {
         // given
+        String attributeName = "profile-scope-label";
+        String attributeValue = "persisted-profile-scope-value";
         TokenInstanceReference token = persistToken("existing-v2-token");
-        String emptyScopedRequest = "{\"tokenAttributes\":[]}";
+        persistTokenAttribute(token, attributeName, attributeValue);
+        String expectedScopedRequest = "{\"tokenAttributes\":[{\"name\":\"" + attributeName
+                + "\",\"content\":[{\"data\":\"" + attributeValue + "\"}]}]}";
 
         // when
         List<BaseAttribute> attributes = tokenInstanceService
@@ -164,7 +170,7 @@ class TokenInstanceServiceV2ITest extends BaseSpringBootTest {
 
         // then
         assertNotNull(attributes);
-        connectorMock.verifyScopedTokenProfileAttributesRequest(emptyScopedRequest);
+        connectorMock.verifyScopedTokenProfileAttributesRequest(expectedScopedRequest);
     }
 
     @Test
@@ -271,6 +277,56 @@ class TokenInstanceServiceV2ITest extends BaseSpringBootTest {
 
         // then
         connectorMock.verifyScopedTokenProfileAttributesRequest(emptyScopedRequest);
+    }
+
+    @Test
+    void listSupportedKeyUsages_returnsConnectorValues_withTokenScope() throws Exception {
+        // given
+        String attributeName = "key-usage-scope-label";
+        String attributeValue = "persisted-key-usage-scope-value";
+        String responseJson = "[\"sign\",\"encrypt\"]";
+        TokenInstanceReference token = persistToken("v2-key-usages-token");
+        persistTokenAttribute(token, attributeName, attributeValue);
+        connectorMock.stubTokenProfileKeyUsages(responseJson);
+        String expectedScopedRequest = "{\"tokenAttributes\":[{\"name\":\"" + attributeName
+                + "\",\"content\":[{\"data\":\"" + attributeValue + "\"}]}]}";
+
+        // when
+        List<KeyUsage> usages = tokenInstanceService.listSupportedKeyUsages(token.getSecuredUuid());
+
+        // then
+        assertEquals(List.of(KeyUsage.SIGN, KeyUsage.ENCRYPT), usages);
+        connectorMock.verifyScopedTokenProfileKeyUsagesRequest(expectedScopedRequest);
+    }
+
+    @Test
+    void listSupportedKeyUsages_returnsEmptyList_forMissingBody() throws Exception {
+        // given
+        String emptyScopedRequest = "{\"tokenAttributes\":[]}";
+        TokenInstanceReference token = persistToken("v2-missing-key-usages-token");
+        connectorMock.stubTokenProfileKeyUsagesWithoutBody();
+
+        // when
+        List<KeyUsage> usages = tokenInstanceService.listSupportedKeyUsages(token.getSecuredUuid());
+
+        // then
+        assertTrue(usages.isEmpty());
+        connectorMock.verifyScopedTokenProfileKeyUsagesRequest(emptyScopedRequest);
+    }
+
+    @Test
+    void listSupportedKeyUsages_throwsConnectorException_forConnectorError() {
+        // given
+        String emptyScopedRequest = "{\"tokenAttributes\":[]}";
+        TokenInstanceReference token = persistToken("v2-key-usages-error-token");
+        connectorMock.stubTokenProfileKeyUsagesError();
+
+        // when
+        Executable listUsages = () -> tokenInstanceService.listSupportedKeyUsages(token.getSecuredUuid());
+
+        // then
+        assertThrows(ConnectorException.class, listUsages);
+        connectorMock.verifyScopedTokenProfileKeyUsagesRequest(emptyScopedRequest);
     }
 
     @Test

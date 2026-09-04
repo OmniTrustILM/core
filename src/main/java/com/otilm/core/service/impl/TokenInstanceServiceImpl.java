@@ -14,6 +14,7 @@ import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.cryptography.token.TokenInstanceDetailDto;
 import com.otilm.api.model.core.cryptography.token.TokenInstanceDto;
 import com.otilm.api.model.core.cryptography.token.TokenInstanceStatusDetailDto;
@@ -27,9 +28,9 @@ import com.otilm.core.mapper.crypto.TokenInstanceDtoMapper;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.connector.ImmutableConnectorFullModel;
 import com.otilm.core.model.crypto.ImmutableTokenInstanceBasicModel;
-import com.otilm.core.model.crypto.ImmutableTokenProfileFullModel;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
 import com.otilm.core.model.crypto.TokenInstanceFullModel;
+import com.otilm.core.model.crypto.TokenProfileBasicModel;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -341,6 +342,17 @@ public class TokenInstanceServiceImpl implements TokenInstanceExternalService, T
 
     @Override
     @ExternalAuthorization(resource = Resource.TOKEN, action = ResourceAction.ANY)
+    public List<KeyUsage> listSupportedKeyUsages(SecuredUUID tokenInstanceUuid)
+            throws NotFoundException, ConnectorException {
+        logger.info("Listing supported Key Usages of token instance with uuid: '{}'", tokenInstanceUuid);
+        TokenInstanceFullModel tokenInstanceReference = getTokenInstanceModel(tokenInstanceUuid);
+        return tokenProviderAdapterFactory
+                .forToken(tokenInstanceReference)
+                .listSupportedKeyUsages(tokenInstanceReference);
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.TOKEN, action = ResourceAction.ANY)
     public List<BaseAttribute> listTokenInstanceActivationAttributes(SecuredUUID uuid)
             throws ConnectorException, NotFoundException {
         logger.info("Listing token instance activation attributes of token instance with uuid: '{}'", uuid);
@@ -502,7 +514,7 @@ public class TokenInstanceServiceImpl implements TokenInstanceExternalService, T
                                             tokenInstanceReference
                                                     .tokenProfiles()
                                                     .stream()
-                                                    .map(ImmutableTokenProfileFullModel::name)
+                                                    .map(TokenProfileBasicModel::name)
                                                     .collect(Collectors.toSet())));
         }
 
