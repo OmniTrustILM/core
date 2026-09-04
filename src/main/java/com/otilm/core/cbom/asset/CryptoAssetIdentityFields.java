@@ -2,6 +2,7 @@ package com.otilm.core.cbom.asset;
 
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetType;
 import com.otilm.core.cbom.asset.identity.AsciiText;
+import com.otilm.core.cbom.asset.identity.NormalizedAsset;
 import java.text.Normalizer;
 import java.util.Locale;
 
@@ -53,6 +54,26 @@ public record CryptoAssetIdentityFields(CryptographicAssetType assetType, String
      * {@code assetType} is passed through: it is this platform's own enum constant, already canonical, and running the
      * producer-text fold over it would imply it is producer text.
      */
+    /**
+     * The columns a normalized asset becomes, before folding.
+     *
+     * <p>
+     * This is the one place the derivation's shape and the row's shape are stated against each other, and it exists
+     * because both the ingest path (core#2073) and the PQC re-evaluation sweep depend on them agreeing. The sweep reads
+     * a stored row and must reach the verdict ingest would have reached in memory; if these two shapes drift, the two
+     * answers drift with them, silently and only for the assets whose derivation touched the field that moved.
+     *
+     * <p>
+     * {@code parameterSet} is the drift most likely to happen: {@link NormalizedAsset#parameterSet()} is an
+     * {@code Integer} and this column is text, so a rule comparing a stored {@code "2048"} against a derived
+     * {@code 2048} would be false for every RSA key in the inventory while looking correct.
+     */
+    public static CryptoAssetIdentityFields of(CryptographicAssetType assetType, NormalizedAsset asset) {
+        return new CryptoAssetIdentityFields(assetType, asset.name(), asset.oid(), asset.family(), asset.primitive(),
+                asset.parameterSet() == null ? null : String.valueOf(asset.parameterSet()), asset.curve(), asset.mode(),
+                asset.padding(), asset.variant());
+    }
+
     public CryptoAssetIdentityFields normalized() {
         return new CryptoAssetIdentityFields(assetType, fold(name), fold(oid), fold(algorithmFamily), fold(primitive),
                 fold(parameterSet), fold(curve), fold(mode), fold(padding), fold(variant));

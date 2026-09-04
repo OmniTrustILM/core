@@ -257,3 +257,8 @@ provisioning:
       delay: 500
       max-delay: 1000
       multiplier: 2
+
+crypto-asset:
+  pqc-sweep:
+    batch-size: 500
+    max-batches-per-sweep: 20

@@ -3,10 +3,12 @@ package com.otilm.core.dao.repository.cbom;
 import com.otilm.core.dao.entity.cbom.CryptoAsset;
 import com.otilm.core.dao.repository.SecurityFilterRepository;
 import com.otilm.core.model.cbom.CryptoAssetListRow;
+import com.otilm.core.model.cbom.PqcStaleVerdictRow;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -16,8 +18,9 @@ import org.springframework.stereotype.Repository;
  * Queries and guarded writes for the deduplicated cryptographic asset inventory.
  *
  * <p>
- * Every {@code @Modifying} statement here is called from {@code CryptoAssetWriter} and from nowhere else: the
- * transactional boundary lives on the writer, never on this interface.
+ * Every {@code @Modifying} statement here is called from a writer bean in {@code ..service.writer..} and from nowhere
+ * else -- {@code CryptoAssetWriter} for the ingest path, {@code CryptoAssetPqcVerdictWriter} for the re-evaluation
+ * sweep's batches. The transactional boundary lives on those writers, never on this interface.
  */
 @Repository
 public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAsset, UUID> {
@@ -180,6 +183,66 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
             """, nativeQuery = true)
     void applyPqcVerdict(@Param("uuid") UUID uuid, @Param("verdict") String verdict, @Param("ruleId") String ruleId,
             @Param("reason") String reason, @Param("rulesetVersion") int rulesetVersion,
+            @Param("evaluatedFields") String evaluatedFields);
+
+    /**
+     * The re-evaluation sweep's work list: rows carrying a verdict from an older rule-set generation, or none at all.
+     *
+     * <p>
+     * <b>Keyset-cursored, not offset-paged, and that is a correctness property rather than a performance one.</b> A
+     * verdict write raises {@code pqc_ruleset_version} to the current generation, so a written row leaves this result
+     * set -- an offset would then skip exactly as many unread rows as the previous batch wrote. Re-querying from the
+     * start instead terminates only if every claimed row leaves, and a row whose evaluation throws or whose guarded
+     * update writes nothing does not: it would return at the head of every batch and strand the rest of the table
+     * behind it, sweep after sweep. Ordering by uuid and carrying the last one forward makes the sweep advance whatever
+     * happens to an individual row.
+     *
+     * <p>
+     * {@code pqc_ruleset_version IS NULL} is the never-evaluated case, which is every row until ingest gains a caller.
+     */
+    @Query("""
+            SELECT new com.otilm.core.model.cbom.PqcStaleVerdictRow(a.uuid, a.assetType, a.name, a.oid,
+                a.algorithmFamily, a.primitive, a.parameterSet, a.curve, a.mode, a.padding, a.variant,
+                a.mergedCryptoProperties)
+            FROM CryptoAsset a
+            WHERE (a.pqcRulesetVersion IS NULL OR a.pqcRulesetVersion < :version) AND a.uuid > :after
+            ORDER BY a.uuid
+            """)
+    List<PqcStaleVerdictRow> findStaleVerdictRows(@Param("version") int version, @Param("after") UUID after,
+            Pageable page);
+
+    /**
+     * Stores a verdict only while the row is still stale, and reports whether it did.
+     *
+     * <p>
+     * Identical to {@link #applyPqcVerdict} but for the guard, and the guard is what closes the sweep's read-to-write
+     * window. The sweep reads a batch of rows in its outer transaction and writes them in a later one; ingest
+     * (core#2073) can upsert fresher identity columns and a current-generation verdict in between. Without the guard
+     * the sweep would then overwrite that with a verdict computed from the columns it read earlier, stamp it current,
+     * and leave a row that looks freshly evaluated and is wrong until the next generation bump -- which is the worst
+     * shape this failure could take, because nothing would find it.
+     *
+     * @return 1 if the row was still stale and was written, 0 if a fresher verdict had already landed
+     */
+    @Modifying
+    @Query(value = """
+            UPDATE {h-schema}crypto_asset
+            SET pqc_verdict = :verdict,
+                pqc_rule_id = :ruleId,
+                pqc_reason = :reason,
+                pqc_ruleset_version = :rulesetVersion,
+                pqc_evaluated_fields = CAST(:evaluatedFields AS jsonb),
+                pqc_evaluated_at = CURRENT_TIMESTAMP,
+                pqc_decided_at = CASE
+                    WHEN crypto_asset.pqc_verdict IS DISTINCT FROM CAST(:verdict AS TEXT) THEN CURRENT_TIMESTAMP
+                    ELSE COALESCE(crypto_asset.pqc_decided_at, CURRENT_TIMESTAMP)
+                END,
+                i_upd = CURRENT_TIMESTAMP
+            WHERE uuid = :uuid
+              AND (pqc_ruleset_version IS NULL OR pqc_ruleset_version < :rulesetVersion)
+            """, nativeQuery = true)
+    int applyPqcVerdictIfStale(@Param("uuid") UUID uuid, @Param("verdict") String verdict,
+            @Param("ruleId") String ruleId, @Param("reason") String reason, @Param("rulesetVersion") int rulesetVersion,
             @Param("evaluatedFields") String evaluatedFields);
 
     @Modifying

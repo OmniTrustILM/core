@@ -430,3 +430,8 @@ signing-record:
     fallback-cron: ${SIGNING_RECORD_DELETE_AFTER_RETRIEVAL_CRON:0 0 3 * * *}
     batch-size: ${SIGNING_RECORD_DELETE_AFTER_RETRIEVAL_BATCH_SIZE:1000}
     max-batches-per-sweep: ${SIGNING_RECORD_DELETE_AFTER_RETRIEVAL_MAX_BATCHES_PER_SWEEP:10}
+
+crypto-asset:
+  pqc-sweep:
+    batch-size: ${CRYPTO_ASSET_PQC_SWEEP_BATCH_SIZE:500}
+    max-batches-per-sweep: ${CRYPTO_ASSET_PQC_SWEEP_MAX_BATCHES:20}
