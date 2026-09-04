@@ -5,6 +5,7 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SortDirection;
 import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
+import java.util.function.Supplier;
 
 /**
  * Ordering a caller asked for, addressed the way a filter addresses a field: a source plus an identifier that is unique
@@ -20,11 +21,11 @@ import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFil
  * that reaches the attribute sort key without them is refused rather than run unauthorized.
  *
  * @param resource the resource the listing selects, or {@code null} for a specification built without one
- * @param attributeContentFilter the caller's custom-attribute permissions, or {@code null} when no attribute sort was
- * resolved
+ * @param attributeContentFilterSource the caller's custom-attribute permissions, or {@code null} when no attribute sort
+ * was resolved. A supplier so that the listing's filter, sort and projection share one resolution.
  */
 public record SortSpecification(FilterFieldSource fieldSource, String fieldIdentifier, SortDirection direction,
-        Resource resource, CustomAttributeContentFilter attributeContentFilter) {
+        Resource resource, Supplier<CustomAttributeContentFilter> attributeContentFilterSource) {
 
     public SortSpecification(FilterFieldSource fieldSource, String fieldIdentifier, SortDirection direction) {
         this(fieldSource, fieldIdentifier, direction, null, null);

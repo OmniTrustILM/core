@@ -18,6 +18,8 @@ import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.logging.LoggingSettingsDto;
+import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
 import com.otilm.core.dao.entity.AuditLog;
 import com.otilm.core.dao.entity.AuditLog_;
 import com.otilm.core.dao.repository.AuditLogRepository;
@@ -45,9 +47,11 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 import org.apache.commons.lang3.function.TriFunction;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -70,6 +74,15 @@ public class AuditLogServiceImpl implements AuditLogExternalService, AuditLogInt
     @PersistenceContext
     private EntityManager entityManager;
 
+    private AttributeEngine attributeEngine;
+
+    // Lazily, because the engine reaches the caller's permissions through AuthHelper, whose authentication client
+    // logs through this service - injecting it eagerly closes that cycle and no context starts.
+    @Autowired
+    public void setAttributeEngine(@Lazy AttributeEngine attributeEngine) {
+        this.attributeEngine = attributeEngine;
+    }
+
     @Autowired
     public void setAuditLogRepository(AuditLogRepository auditLogRepository) {
         this.auditLogRepository = auditLogRepository;
@@ -86,8 +99,10 @@ public class AuditLogServiceImpl implements AuditLogExternalService, AuditLogInt
         RequestValidatorHelper.revalidateSearchRequestDto(request, Resource.AUDIT_LOG);
         final Pageable p = PageRequest.of(request.getPageNumber() - 1, request.getItemsPerPage());
 
+        final Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
         final TriFunction<Root<AuditLog>, CriteriaBuilder, CriteriaQuery<?>, jakarta.persistence.criteria.Predicate> additionalWhereClause = (
-                root, cb, cr) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cr, root, request.getFilters());
+                root, cb,
+                cr) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cr, root, request.getFilters(), contentFilter);
         final List<AuditLogDto> auditLogs = auditLogRepository
                 .findUsingSecurityFilter(SecurityFilter.create(), List.of(), additionalWhereClause, p,
                         (root, cb) -> cb.desc(root.get(AuditLog_.id)))
@@ -110,8 +125,9 @@ public class AuditLogServiceImpl implements AuditLogExternalService, AuditLogInt
     @Override
     @ExternalAuthorization(resource = Resource.AUDIT_LOG, action = ResourceAction.EXPORT)
     public ExportResultDto exportAuditLogs(final List<SearchFilterRequestDto> filters) {
+        final Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
         final TriFunction<Root<AuditLog>, CriteriaBuilder, CriteriaQuery<?>, jakarta.persistence.criteria.Predicate> additionalWhereClause = (
-                root, cb, cr) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cr, root, filters);
+                root, cb, cr) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cr, root, filters, contentFilter);
 
         final List<AuditLog> auditLogsEntities = auditLogRepository
                 .findUsingSecurityFilter(SecurityFilter.create(), List.of(), additionalWhereClause,
@@ -164,8 +180,9 @@ public class AuditLogServiceImpl implements AuditLogExternalService, AuditLogInt
     @Override
     @ExternalAuthorization(resource = Resource.AUDIT_LOG, action = ResourceAction.DELETE)
     public void purgeAuditLogs(final List<SearchFilterRequestDto> filters) {
+        final Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
         final TriFunction<Root<AuditLog>, CriteriaBuilder, CriteriaDelete<AuditLog>, jakarta.persistence.criteria.Predicate> additionalWhereClause = (
-                root, cb, cd) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cd, root, filters);
+                root, cb, cd) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cd, root, filters, contentFilter);
         final Integer deletedCount = auditLogRepository
                 .deleteUsingSecurityFilter(SecurityFilter.create(), additionalWhereClause);
         logger.getLogger().debug("Deleted {} audit logs", deletedCount);

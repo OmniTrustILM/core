@@ -6,8 +6,10 @@ import com.otilm.api.model.client.certificate.SearchSortRequestDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
+import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
 import com.otilm.core.dao.repository.SortSpecification;
 import java.util.Objects;
+import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -37,8 +39,11 @@ public class ListingSortResolver {
      * The specification a listing hands the repository, or {@code null} when the request named no sort.
      *
      * @param resource the resource the listing selects, which is what the identifier is resolved against
+     * @param contentFilterSource the caller's custom-attribute permissions, carried onto the specification so the
+     * ordering reads the same resolution the listing's filter and projection do
      */
-    public SortSpecification resolve(final Resource resource, final SearchSortRequestDto sort) {
+    public SortSpecification resolve(final Resource resource, final SearchSortRequestDto sort,
+            final Supplier<CustomAttributeContentFilter> contentFilterSource) {
         if (sort == null) {
             return null;
         }
@@ -48,7 +53,7 @@ public class ListingSortResolver {
         }
         requireSortableAttributeField(resource, source, sort.getFieldIdentifier());
         return new SortSpecification(source, sort.getFieldIdentifier(), sort.getDirection(), resource,
-                attributeEngine.loadCustomAttributeContentFilter());
+                contentFilterSource);
     }
 
     /**

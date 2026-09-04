@@ -20,6 +20,8 @@ import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
+import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.dao.entity.Cbom;
 import com.otilm.core.dao.entity.Cbom_;
@@ -64,6 +66,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.function.TriFunction;
@@ -101,6 +104,13 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
 
     private ObjectFilterAspect objectFilterAspect;
 
+    private AttributeEngine attributeEngine;
+
+    @Autowired
+    public void setAttributeEngine(AttributeEngine attributeEngine) {
+        this.attributeEngine = attributeEngine;
+    }
+
     @Autowired
     public void setCryptoAssetRepository(CryptoAssetRepository cryptoAssetRepository) {
         this.cryptoAssetRepository = cryptoAssetRepository;
@@ -127,9 +137,10 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
             SearchRequestDto request) {
         RequestValidatorHelper.revalidateSearchRequestDto(request);
         validatePaging(request);
+        final Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
         TriFunction<Root<CryptoAsset>, CriteriaBuilder, CriteriaQuery<?>, Predicate> where = (root, cb,
                 criteriaQuery) -> FilterPredicatesBuilder
-                        .getFiltersPredicate(cb, criteriaQuery, root, request.getFilters());
+                        .getFiltersPredicate(cb, criteriaQuery, root, request.getFilters(), contentFilter);
         Pageable page = PageRequest.of(request.getPageNumber() - 1, request.getItemsPerPage());
         // The contract's "ordered by name ascending" means the SERVED name -- displayLabel's guarded coalesce --
         // not the bare column, which would sort every oid-served row after the named ones (NULL sorts last).
@@ -341,13 +352,14 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
     @ExternalAuthorization(resource = Resource.CRYPTO_ASSET, action = ResourceAction.LIST)
     public List<NameAndUuidDto> listResourceObjects(SecurityFilter filter, List<SearchFilterRequestDto> filters,
             PaginationRequestDto pagination) {
+        final Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
         // A search typed into the role editor's picker arrives as filters; honour them the way the inventory list
         // does (the entity-instance extension is the platform's filter-honouring precedent).
         TriFunction<Root<CryptoAsset>, CriteriaBuilder, CriteriaQuery<?>, Predicate> where = filters == null
                 || filters.isEmpty()
                         ? null
                         : (root, cb, criteriaQuery) -> FilterPredicatesBuilder
-                                .getFiltersPredicate(cb, criteriaQuery, root, filters);
+                                .getFiltersPredicate(cb, criteriaQuery, root, filters, contentFilter);
         return cryptoAssetRepository
                 .listResourceObjects(filter, CryptographicAssetServiceImpl::displayLabel, where, pagination);
     }

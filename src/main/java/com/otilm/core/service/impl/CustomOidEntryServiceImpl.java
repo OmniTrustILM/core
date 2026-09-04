@@ -17,6 +17,8 @@ import com.otilm.api.model.core.oid.properties.RdnAttributeTypeOidPropertiesDto;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
+import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.dao.entity.oid.CertificateExtensionCustomOidEntry;
 import com.otilm.core.dao.entity.oid.CustomOidEntry;
@@ -57,6 +59,7 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.apache.commons.lang3.function.TriFunction;
 import org.slf4j.Logger;
@@ -83,6 +86,13 @@ public class CustomOidEntryServiceImpl implements CustomOidEntryExternalService 
 
     /** Keeps a lasting shadowed row visible in recent log output without repeating it on every refresh. */
     private final PersistentWarningThrottle shadowedWarnings = new PersistentWarningThrottle(Duration.ofHours(1));
+
+    private AttributeEngine attributeEngine;
+
+    @Autowired
+    public void setAttributeEngine(AttributeEngine attributeEngine) {
+        this.attributeEngine = attributeEngine;
+    }
 
     @Autowired
     public void setCertificateService(CertificateInternalService certificateService) {
@@ -403,8 +413,10 @@ public class CustomOidEntryServiceImpl implements CustomOidEntryExternalService 
         RequestValidatorHelper.revalidateSearchRequestDto(request, Resource.OID);
         final Pageable p = PageRequest.of(request.getPageNumber() - 1, request.getItemsPerPage());
 
+        final Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
         final TriFunction<Root<CustomOidEntry>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause = (
-                root, cb, cr) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cr, root, request.getFilters());
+                root, cb,
+                cr) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cr, root, request.getFilters(), contentFilter);
         final List<CustomOidEntryResponseDto> oidEntries = customOidEntryRepository
                 .findUsingSecurityFilter(SecurityFilter.create(), List.of(), additionalWhereClause, p,
                         (root, cb) -> cb.desc(root.get(CustomOidEntry_.oid)))

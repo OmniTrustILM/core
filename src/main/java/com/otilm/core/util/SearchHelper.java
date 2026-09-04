@@ -9,6 +9,7 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldType;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
+import com.otilm.core.attribute.engine.AttributeColumnProjector;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.enums.SearchFieldTypeEnum;
@@ -155,7 +156,12 @@ public class SearchHelper {
         if (attributeSearchInfo.getAttributeContentType() == AttributeContentType.TIME) {
             conditionOperators.removeAll(List.of(FilterConditionOperator.IN_NEXT, FilterConditionOperator.IN_PAST));
         }
-        if (attributeSearchInfo.getProtectionLevel() == ProtectionLevel.ENCRYPTED) {
+        // Content no response renders answers only whether a value is present: ciphertext no listing can decrypt, and
+        // the content types AttributeColumnProjector withholds outright. Offering a value condition would publish a
+        // filter the listing then refuses.
+        if (attributeSearchInfo.getProtectionLevel() == ProtectionLevel.ENCRYPTED
+                || AttributeColumnProjector.WITHHELD_CONTENT_TYPES
+                        .contains(attributeSearchInfo.getAttributeContentType())) {
             conditionOperators = List.of(FilterConditionOperator.EMPTY, FilterConditionOperator.NOT_EMPTY);
         }
         fieldDataDto.setConditions(conditionOperators);
@@ -268,8 +274,7 @@ public class SearchHelper {
      * the user, which rules out putting its values in a column of their own.
      */
     private static boolean isDisplayable(final SearchFieldObject attributeSearchInfo) {
-        return attributeSearchInfo.getAttributeContentType() != AttributeContentType.SECRET
-                && attributeSearchInfo.getAttributeContentType() != AttributeContentType.CODEBLOCK
+        return !AttributeColumnProjector.WITHHELD_CONTENT_TYPES.contains(attributeSearchInfo.getAttributeContentType())
                 && attributeSearchInfo.getProtectionLevel() != ProtectionLevel.ENCRYPTED
                 && attributeSearchInfo.isVisible();
     }

@@ -104,6 +104,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.function.SingletonSupplier;
 
 @Component
 @Transactional
@@ -1419,6 +1420,11 @@ public class AttributeEngine {
      */
     public CustomAttributeContentFilter loadCustomAttributeContentFilter() {
         return toContentFilter(loadCustomAttributesSecurityResourceFilter());
+    }
+
+    /** The same permissions behind a supplier that resolves them on first use and then reuses the answer. */
+    public Supplier<CustomAttributeContentFilter> customAttributeContentFilterOnce() {
+        return SingletonSupplier.of(this::loadCustomAttributeContentFilter);
     }
 
     private static CustomAttributeContentFilter toContentFilter(SecurityResourceFilter securityResourceFilter) {

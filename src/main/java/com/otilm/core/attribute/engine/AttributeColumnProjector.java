@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -44,10 +45,10 @@ public class AttributeColumnProjector {
 
     /**
      * Content that is never projected, whatever a request asks for. The catalogue already marks these fields
-     * undisplayable, so a well-behaved caller cannot reach them; this is the second lock, because the first one is a
-     * flag on a response the caller is free to ignore.
+     * undisplayable and offers them presence conditions alone, so a well-behaved caller cannot reach a value through
+     * them; this is the second lock, because the first one is a flag on a response the caller is free to ignore.
      */
-    private static final Set<AttributeContentType> WITHHELD_CONTENT_TYPES = Set
+    public static final Set<AttributeContentType> WITHHELD_CONTENT_TYPES = Set
             .of(AttributeContentType.SECRET, AttributeContentType.CODEBLOCK);
 
     /** What a list cell reads out of a file value: a file renders as its name, with its media type behind it. */
@@ -60,7 +61,6 @@ public class AttributeColumnProjector {
     private static final Set<String> RESOURCE_IDENTITY_FIELDS = Set.of("resource", "uuid", "name");
 
     private final AttributeContent2ObjectRepository attributeContent2ObjectRepository;
-    private final AttributeEngine attributeEngine;
 
     private record RequestedColumn(FilterFieldSource source, AttributeType attributeType, String attributeName,
             AttributeContentType contentType, String fieldIdentifier) {
@@ -77,8 +77,8 @@ public class AttributeColumnProjector {
      * cannot be read is left unprojected rather than failing the listing.
      */
     public <T extends AttributeProjectable> void project(Resource resource, List<SearchColumnRequestDto> columns,
-            List<T> entries, Function<T, UUID> uuidOf) {
-        project(resource, columns, entries, uuidOf, uuidOf);
+            List<T> entries, Function<T, UUID> uuidOf, Supplier<CustomAttributeContentFilter> contentFilterSource) {
+        project(resource, columns, entries, uuidOf, uuidOf, contentFilterSource);
     }
 
     /**
@@ -89,7 +89,8 @@ public class AttributeColumnProjector {
      * the overload above does - keeps the whole page in one query.
      */
     public <T extends AttributeProjectable> void project(Resource resource, List<SearchColumnRequestDto> columns,
-            List<T> entries, Function<T, UUID> uuidOf, Function<T, UUID> metadataUuidOf) {
+            List<T> entries, Function<T, UUID> uuidOf, Function<T, UUID> metadataUuidOf,
+            Supplier<CustomAttributeContentFilter> contentFilterSource) {
         if (columns == null || columns.isEmpty() || entries == null || entries.isEmpty()) {
             return;
         }
@@ -105,7 +106,7 @@ public class AttributeColumnProjector {
         byResolver.computeIfAbsent(uuidOf, resolver -> new ArrayList<>()).addAll(columnsOtherThanMetadata(requested));
         byResolver.computeIfAbsent(metadataUuidOf, resolver -> new ArrayList<>()).addAll(metadataColumns(requested));
 
-        CustomAttributeContentFilter contentFilter = attributeEngine.loadCustomAttributeContentFilter();
+        CustomAttributeContentFilter contentFilter = contentFilterSource.get();
 
         // Keyed by identity: a listing DTO may implement equals, and two equal entries are still two rows that each
         // need their own values.

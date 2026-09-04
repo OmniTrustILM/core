@@ -13,6 +13,8 @@ import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.auth.UserProfileDto;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
 import com.otilm.core.dao.entity.Approval;
 import com.otilm.core.dao.entity.ApprovalProfileVersion;
 import com.otilm.core.dao.entity.ApprovalRecipient;
@@ -52,6 +54,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.BiFunction;
+import java.util.function.Supplier;
 import org.apache.commons.lang3.function.TriFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -77,6 +80,8 @@ public class ApprovalServiceImpl implements ApprovalExternalService, ApprovalInt
                                             root.<Resource>get("resource").as(String.class)),
                                     "/"),
                             root.<UUID>get("objectUuid").as(String.class));
+
+    private AttributeEngine attributeEngine;
 
     private ApprovalRepository approvalRepository;
 
@@ -454,6 +459,11 @@ public class ApprovalServiceImpl implements ApprovalExternalService, ApprovalInt
     // SETTERs
 
     @Autowired
+    public void setAttributeEngine(AttributeEngine attributeEngine) {
+        this.attributeEngine = attributeEngine;
+    }
+
+    @Autowired
     public void setApprovalRepository(ApprovalRepository approvalRepository) {
         this.approvalRepository = approvalRepository;
     }
@@ -498,8 +508,9 @@ public class ApprovalServiceImpl implements ApprovalExternalService, ApprovalInt
     @ExternalAuthorization(resource = Resource.APPROVAL, action = ResourceAction.LIST)
     public List<NameAndUuidDto> listResourceObjects(SecurityFilter filter, List<SearchFilterRequestDto> filters,
             PaginationRequestDto pagination) {
+        final Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
         TriFunction<Root<Approval>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause = (root, cb,
-                cr) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cr, root, filters);
+                cr) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cr, root, filters, contentFilter);
         return approvalRepository
                 .listResourceObjects(filter, APPROVAL_NAME_EXPRESSION, additionalWhereClause, pagination);
     }

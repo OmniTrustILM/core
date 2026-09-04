@@ -74,6 +74,7 @@ import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.attribute.engine.AttributeColumnProjector;
 import com.otilm.core.attribute.engine.AttributeContentPurpose;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.ListingSortResolver;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
@@ -214,6 +215,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.function.BiFunction;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.function.TriFunction;
@@ -586,12 +588,13 @@ public class CertificateServiceImpl
         setupSecurityFilter(filter);
         RequestValidatorHelper.revalidateSearchRequestDto(request);
         Pageable p = PageRequest.of(request.getPageNumber() - 1, request.getItemsPerPage());
+        final Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
         TriFunction<Root<Certificate>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause = getAdditionalWhereClause(
-                request.getFilters(), request.isIncludeArchived());
+                request.getFilters(), request.isIncludeArchived(), contentFilter);
         List<UUID> certificateUuids = certificateRepository
                 .findUuidsUsingSecurityFilter(filter, additionalWhereClause, p,
                         (root, cb) -> cb.desc(root.get("created")),
-                        listingSortResolver.resolve(Resource.CERTIFICATE, request.getSort()));
+                        listingSortResolver.resolve(Resource.CERTIFICATE, request.getSort(), contentFilter));
 
         // We use DTO projection instead of Hibernate entities for performance reasons.
         List<CertificateDto> certificates;
@@ -616,7 +619,7 @@ public class CertificateServiceImpl
 
         attributeColumnProjector
                 .project(Resource.CERTIFICATE, request.getColumns(), certificates,
-                        certificate -> AttributeColumnProjector.parseUuid(certificate.getUuid()));
+                        certificate -> AttributeColumnProjector.parseUuid(certificate.getUuid()), contentFilter);
 
         Long maxItems = certificateRepository.countUsingSecurityFilter(filter, additionalWhereClause);
         CertificateResponseDto responseDto = new CertificateResponseDto();
@@ -630,10 +633,11 @@ public class CertificateServiceImpl
     }
 
     private static TriFunction<Root<Certificate>, CriteriaBuilder, CriteriaQuery<?>, Predicate> getAdditionalWhereClause(
-            List<SearchFilterRequestDto> filters, boolean includeArchived) {
+            List<SearchFilterRequestDto> filters, boolean includeArchived,
+            Supplier<CustomAttributeContentFilter> contentFilterSource) {
         return (root, cb, cr) -> {
             List<Predicate> predicates = new ArrayList<>();
-            predicates.add(FilterPredicatesBuilder.getFiltersPredicate(cb, cr, root, filters));
+            predicates.add(FilterPredicatesBuilder.getFiltersPredicate(cb, cr, root, filters, contentFilterSource));
             if (!includeArchived) {
                 predicates.add(cb.isFalse(root.get(Certificate_.ARCHIVED)));
             }
@@ -2352,7 +2356,7 @@ public class CertificateServiceImpl
     public List<NameAndUuidDto> listResourceObjects(SecurityFilter filter, List<SearchFilterRequestDto> filters,
             PaginationRequestDto pagination) {
         final TriFunction<Root<Certificate>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause = getAdditionalWhereClause(
-                filters, false);
+                filters, false, attributeEngine.customAttributeContentFilterOnce());
         return certificateRepository
                 .listResourceObjects(filter,
                         // Creates the name as "{commonName} (SN: {serialNumber})", if the common name is empty or null,

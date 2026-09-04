@@ -22,6 +22,7 @@ import com.otilm.api.model.core.vaultprofile.VaultProfileDto;
 import com.otilm.api.model.core.vaultprofile.VaultProfileRequestDto;
 import com.otilm.api.model.core.vaultprofile.VaultProfileUpdateRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.comparator.SearchFieldDataComparator;
@@ -54,6 +55,7 @@ import jakarta.transaction.Transactional;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.apache.commons.lang3.function.TriFunction;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
@@ -125,8 +127,9 @@ public class VaultProfileServiceImpl implements VaultProfileExternalService, Vau
         securityFilter.setParentRefProperty(VaultProfile_.VAULT_INSTANCE_UUID);
 
         Pageable p = PageRequest.of(request.getPageNumber() - 1, request.getItemsPerPage());
+        final Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
         TriFunction<Root<VaultProfile>, CriteriaBuilder, CriteriaQuery<?>, Predicate> predicate = (root, cb,
-                cq) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cq, root, request.getFilters());
+                cq) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cq, root, request.getFilters(), contentFilter);
         List<VaultProfileDto> vaultProfiles = vaultProfileRepository
                 .findUsingSecurityFilter(securityFilter, List.of(), predicate, p,
                         (root, cb) -> cb.desc(root.get(Audited_.CREATED)))
@@ -349,8 +352,9 @@ public class VaultProfileServiceImpl implements VaultProfileExternalService, Vau
     public List<NameAndUuidDto> listResourceObjects(SecurityFilter filter, List<SearchFilterRequestDto> filters,
             PaginationRequestDto pagination) {
         filter.setParentRefProperty(VaultProfile_.VAULT_INSTANCE_UUID);
+        final Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
         TriFunction<Root<VaultProfile>, CriteriaBuilder, CriteriaQuery<?>, Predicate> predicate = (root, cb,
-                cq) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cq, root, filters);
+                cq) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cq, root, filters, contentFilter);
         return vaultProfileRepository.listResourceObjects(filter, VaultProfile_.name, predicate, pagination);
     }
 

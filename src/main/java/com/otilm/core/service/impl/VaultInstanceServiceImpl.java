@@ -25,6 +25,7 @@ import com.otilm.api.model.core.vault.VaultInstanceDto;
 import com.otilm.api.model.core.vault.VaultInstanceRequestDto;
 import com.otilm.api.model.core.vault.VaultInstanceUpdateRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
 import com.otilm.core.attribute.engine.ConnectorRequestAttributesBuilder;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
@@ -54,6 +55,7 @@ import jakarta.persistence.criteria.Root;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.apache.commons.lang3.function.TriFunction;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
@@ -194,8 +196,9 @@ public class VaultInstanceServiceImpl implements VaultInstanceExternalService, V
             SecurityFilter securityFilter) {
         RequestValidatorHelper.revalidateSearchRequestDto(request, Resource.VAULT);
         Pageable p = PageRequest.of(request.getPageNumber() - 1, request.getItemsPerPage());
+        final Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
         TriFunction<Root<VaultInstance>, CriteriaBuilder, CriteriaQuery<?>, Predicate> predicate = (root, cb,
-                cq) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cq, root, request.getFilters());
+                cq) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cq, root, request.getFilters(), contentFilter);
         List<VaultInstanceDto> vaultInstances = vaultInstanceRepository
                 .findUsingSecurityFilter(securityFilter,
                         List.of(VaultInstance_.CONNECTOR, VaultInstance_.CONNECTOR_INTERFACE), predicate, p,

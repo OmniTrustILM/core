@@ -53,6 +53,7 @@ import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.comparator.SearchFieldDataComparator;
@@ -103,6 +104,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.function.TriFunction;
 import org.slf4j.Logger;
@@ -214,8 +216,10 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         RequestValidatorHelper.revalidateSearchRequestDto(request, Resource.LOCATION);
         final Pageable p = PageRequest.of(request.getPageNumber() - 1, request.getItemsPerPage());
 
+        final Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
         final TriFunction<Root<Location>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause = (root,
-                cb, cr) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cr, root, request.getFilters());
+                cb,
+                cr) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cr, root, request.getFilters(), contentFilter);
         final List<LocationDto> listedKeyDTOs = locationRepository
                 .findUsingSecurityFilter(filter, List.of("certificates", "certificates.certificate"),
                         additionalWhereClause, p, (root, cb) -> cb.desc(root.get("created")))
@@ -1071,8 +1075,9 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
     @ExternalAuthorization(resource = Resource.LOCATION, action = ResourceAction.LIST)
     public List<NameAndUuidDto> listResourceObjects(SecurityFilter filter, List<SearchFilterRequestDto> filters,
             PaginationRequestDto pagination) {
+        final Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
         final TriFunction<Root<Location>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause = (root,
-                cb, cr) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cr, root, filters);
+                cb, cr) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cr, root, filters, contentFilter);
         return locationRepository.listResourceObjects(filter, Location_.name, additionalWhereClause, pagination);
     }
 
