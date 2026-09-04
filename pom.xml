@@ -139,7 +139,7 @@
         <dependency>
             <groupId>org.messaginghub</groupId>
             <artifactId>pooled-jms</artifactId>
-            <version>3.2.2</version>
+            <version>3.2.4</version>
         </dependency>
 
         <!-- Conditional processing of logback-spring.xml -->
