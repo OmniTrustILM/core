@@ -21,7 +21,7 @@
         <tomcat.version>10.1.59</tomcat.version>
         <log-schema.version>1.1</log-schema.version>
         <hsqldb.version>2.7.3</hsqldb.version>
-        <nimbus-jose-jwt.version>10.8</nimbus-jose-jwt.version>
+        <nimbus-jose-jwt.version>10.9.1</nimbus-jose-jwt.version>
         <mockwebserver.version>5.3.2</mockwebserver.version>
         <commons-beanutils.version>1.11.0</commons-beanutils.version>
         <testcontainers.version>1.21.4</testcontainers.version>
