@@ -21,6 +21,7 @@ import com.otilm.core.mapper.comment.CommentMapper;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.model.EventMessage;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.model.comment.CommentDeletionData;
 import com.otilm.core.security.authz.AnyPrincipalEndpoint;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorizationDynamic;
@@ -305,8 +306,12 @@ public class CommentServiceImpl implements CommentExternalService, CommentIntern
         if (!(authorDeletesOwnThread || mayCascade)) {
             throw deletionDenied(uuid, comment);
         }
-        recordAuditData(baseEventData(comment, hostObject.getName()));
-        commentWriter.deleteRoot(uuid, mayCascade ? null : comment.getAuthorUuid());
+        List<Comment> cascadedReplies = commentWriter.deleteRoot(uuid, mayCascade ? null : comment.getAuthorUuid());
+        CommentDeletionData deletionData = fillEventData(new CommentDeletionData(), comment, hostObject.getName());
+        deletionData
+                .setCascadedReplies(
+                        cascadedReplies.stream().map(reply -> baseEventData(reply, hostObject.getName())).toList());
+        recordAuditData(deletionData);
     }
 
     private AccessDeniedException deletionDenied(UUID uuid, Comment comment) {
@@ -414,7 +419,10 @@ public class CommentServiceImpl implements CommentExternalService, CommentIntern
     }
 
     private CommentEventData baseEventData(Comment comment, String objectName) {
-        CommentEventData eventData = new CommentEventData();
+        return fillEventData(new CommentEventData(), comment, objectName);
+    }
+
+    private static <T extends CommentEventData> T fillEventData(T eventData, Comment comment, String objectName) {
         eventData.setCommentUuid(comment.getUuid());
         eventData.setParentUuid(comment.getParentUuid());
         eventData.setResource(comment.getResource());

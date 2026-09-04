@@ -10,6 +10,7 @@ import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.service.writer.CommentWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import java.time.Duration;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -152,6 +153,42 @@ class CommentWriterConcurrencyITest extends BaseSpringBootTest {
         assertThatThrownBy(() -> deleter.get(10, TimeUnit.SECONDS)).hasRootCauseInstanceOf(ValidationException.class);
         assertThat(commentRepository.findById(root.getUuid())).isPresent();
         assertThat(commentRepository.existsByParentUuidAndAuthorUuidNot(root.getUuid(), root.getAuthorUuid())).isTrue();
+    }
+
+    @Test
+    void aReplyBeingDeletedByAnotherRequestIsNotReportedAsCascaded() throws Exception {
+        Group group = newGroup();
+        Comment root = commentRepository.saveAndFlush(newComment(group.getUuid()));
+        Comment reply = newComment(group.getUuid());
+        reply.setParentUuid(root.getUuid());
+        UUID replyUuid = commentRepository.saveAndFlush(reply).getUuid();
+        CountDownLatch replyDeleted = new CountDownLatch(1);
+        CountDownLatch mayCommitReplyDeletion = new CountDownLatch(1);
+
+        // The direct deletion holds the reply's row lock until it commits
+        Future<Integer> replyDeleter = executor.submit(() -> transactionTemplate.execute(status -> {
+            int deleted = commentWriter.delete(replyUuid);
+            replyDeleted.countDown();
+            await(mayCommitReplyDeletion);
+            return deleted;
+        }));
+
+        assertThat(replyDeleted.await(10, TimeUnit.SECONDS)).isTrue();
+
+        Future<List<Comment>> rootDeleter = executor.submit(() -> transactionTemplate.execute(status -> {
+            try {
+                return commentWriter.deleteRoot(root.getUuid(), null);
+            } catch (NotFoundException e) {
+                throw new IllegalStateException(e);
+            }
+        }));
+
+        awaitLockWaiter("transactionid");
+        mayCommitReplyDeletion.countDown();
+
+        assertThat(replyDeleter.get(10, TimeUnit.SECONDS)).isEqualTo(1);
+        assertThat(rootDeleter.get(10, TimeUnit.SECONDS)).isEmpty();
+        assertThat(commentRepository.existsByResourceAndObjectUuid(Resource.GROUP, group.getUuid())).isFalse();
     }
 
     private Group newGroup() {
