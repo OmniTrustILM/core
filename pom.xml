@@ -308,7 +308,7 @@
         <dependency>
             <groupId>org.apache.httpcomponents.client5</groupId>
             <artifactId>httpclient5</artifactId>
-            <version>5.6.1</version>
+            <version>5.6.3</version>
         </dependency>
         <!-- Explicit httpcore5 pins: CVE-2026-54399 is fixed in core5 5.4.3, but every released httpclient5,
              5.6.1 included, still pulls in an httpcore5 below 5.4.3. Drop both once a httpclient5 release
