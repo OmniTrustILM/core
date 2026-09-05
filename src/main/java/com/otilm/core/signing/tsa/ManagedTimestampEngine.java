@@ -105,6 +105,7 @@ public class ManagedTimestampEngine {
     private IssuedTimestamp issueToken(TspRequest request, SigningProfileModel<?, ?> signingProfile,
             ResolvedManagedTimestampingProfile timestampingProfile, SigningProtocol protocol)
             throws SigningEngineException {
+        requirePolicy(request, timestampingProfile);
         ResolvedManagedScheme signingScheme = timestampingProfile.resolvedScheme();
         requireTrustworthyTime(timestampingProfile);
         requireAcceptableSigningCertificate(timestampingProfile, signingScheme);
@@ -141,6 +142,17 @@ public class ManagedTimestampEngine {
         } catch (Exception e) {
             throw new SigningEngineException(SigningEngineFailure.STEP_FAILED,
                     "unexpected error during timestamp generation", e, INTERNAL_ERROR_CLIENT_MESSAGE);
+        }
+    }
+
+    /** Refusing here keeps the formatter from being asked to encode a policy that does not exist. */
+    private static void requirePolicy(TspRequest request, ResolvedManagedTimestampingProfile timestampingProfile)
+            throws SigningEngineException {
+        if (EffectiveTimestampPolicy.resolve(request, timestampingProfile.defaultPolicyId()).isEmpty()) {
+            throw new SigningEngineException(SigningEngineFailure.MISCONFIGURED,
+                    "timestamping Signing Profile '%s' configures no default policy ID and the request names none"
+                            .formatted(timestampingProfile.name()),
+                    "No timestamp policy ID is available");
         }
     }
 

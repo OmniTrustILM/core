@@ -184,6 +184,12 @@ class TsaServiceImplITest extends BaseSpringBootTest {
      */
     private SigningProfileDto createTimestampingSigningProfile(String name,
             List<DigestAlgorithm> allowedDigestAlgorithms, List<String> allowedPolicyIds) throws Exception {
+        return createTimestampingSigningProfile(name, allowedDigestAlgorithms, allowedPolicyIds, DEFAULT_POLICY_ID);
+    }
+
+    private SigningProfileDto createTimestampingSigningProfile(String name,
+            List<DigestAlgorithm> allowedDigestAlgorithms, List<String> allowedPolicyIds, String defaultPolicyId)
+            throws Exception {
         SigningProfileDto signingProfile = signingProfileService
                 .createSigningProfile(aSigningProfileRequest()
                         .withName(name)
@@ -191,7 +197,7 @@ class TsaServiceImplITest extends BaseSpringBootTest {
                         .withTimestamping(aTimestampingWorkflow()
                                 .withSignatureFormattingConnector(
                                         UUID.fromString(timestampingFormattingConnector.getUuid()))
-                                .withDefaultPolicyId(DEFAULT_POLICY_ID)
+                                .withDefaultPolicyId(defaultPolicyId)
                                 .withValidateTokenSignature(false)
                                 .withQualifiedTimestamp(false)
                                 .withAllowedDigestAlgorithms(allowedDigestAlgorithms)
@@ -366,6 +372,34 @@ class TsaServiceImplITest extends BaseSpringBootTest {
                     .isInstanceOf(TspRequestValidationException.class)
                     .satisfies(ex -> assertThat(((TspRequestValidationException) ex).getFailureInfo())
                             .isEqualTo(TspFailureInfo.UNACCEPTED_POLICY));
+        }
+
+        @Test
+        void throwsValidationException_whenNeitherTheRequestNorTheProfileNamesAPolicy() throws Exception {
+            // given
+            SigningProfileDto profile = createTimestampingSigningProfile("sp-no-default-policy", List.of(), List.of(),
+                    null);
+
+            // when / then
+            assertThatThrownBy(
+                    () -> tsaService.processTspRequestForSigningProfile(profile.getName(), aTspRequest().build()))
+                    .isInstanceOf(TspRequestValidationException.class)
+                    .satisfies(ex -> assertThat(((TspRequestValidationException) ex).getFailureInfo())
+                            .isEqualTo(TspFailureInfo.BAD_REQUEST));
+        }
+
+        @Test
+        void grantsTimestamp_whenTheRequestNamesThePolicyTheProfileHasNoDefaultFor() throws Exception {
+            // given — a profile without a default policy is still usable by a request that names one
+            SigningProfileDto profile = createTimestampingSigningProfile("sp-policy-from-request", List.of(), List.of(),
+                    null);
+
+            // when
+            TspResponse response = tsaService
+                    .processTspRequestForSigningProfile(profile.getName(), aTspRequest().policy("1.2.3").build());
+
+            // then
+            assertThat(response).isInstanceOf(TspResponse.Granted.class);
         }
 
         @Test

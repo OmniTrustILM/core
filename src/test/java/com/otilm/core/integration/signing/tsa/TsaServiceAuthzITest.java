@@ -48,6 +48,8 @@ import static org.mockito.Mockito.when;
 
 class TsaServiceAuthzITest extends BaseSpringBootTest {
 
+    private static final String DEFAULT_POLICY_ID = "1.2.3.4.5";
+
     @Autowired
     private TsaExternalService tsaService;
 
@@ -75,7 +77,7 @@ class TsaServiceAuthzITest extends BaseSpringBootTest {
         lenient().when(signingProfileResolverFactory.resolve(any())).thenAnswer(invocation -> {
             SigningProfileModel<?, ?> model = invocation.getArgument(0);
             return new ResolvedManagedTimestampingProfile(model.uuid(), model.name(), model.description(),
-                    model.version(), model.enabled(), List.of(SigningProtocol.TSP), Boolean.FALSE, "1.2.3.4.5",
+                    model.version(), model.enabled(), List.of(SigningProtocol.TSP), Boolean.FALSE, DEFAULT_POLICY_ID,
                     List.of(), List.of(), false, List.of(), LocalClockTimeQualityConfiguration.INSTANCE, null,
                     new ResolvedStaticKeyManagedSigning(SigningCertificateBuilder.valid(), List.of(), null, List.of()));
         });
@@ -100,6 +102,7 @@ class TsaServiceAuthzITest extends BaseSpringBootTest {
         version.setManagedSigningType(ManagedSigningType.STATIC_KEY);
         version.setAllowedDigestAlgorithms(List.of());
         version.setAllowedPolicyIds(List.of());
+        version.setDefaultPolicyId(DEFAULT_POLICY_ID);
         signingProfileVersionRepository.saveAndFlush(version);
 
         return profile;
