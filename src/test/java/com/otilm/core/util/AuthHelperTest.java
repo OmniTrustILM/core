@@ -1,5 +1,6 @@
 package com.otilm.core.util;
 
+import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.core.logging.enums.ActorType;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.api.model.core.logging.records.ActorRecord;
@@ -139,6 +140,40 @@ class AuthHelperTest {
                         new AuthenticationInfo(AuthMethod.USER_PROXY, userUuid.toString(), "operator", List.of()))));
 
         assertEquals(userUuid, AuthHelper.getActingUserUuidOrNull());
+    }
+
+    @Test
+    void getActingUserOrNull_returnsTheAuthenticatedUsersUuidAndUsername() {
+        UUID userUuid = UUID.randomUUID();
+        SecurityContextHolder
+                .getContext()
+                .setAuthentication(new PlatformAuthenticationToken(new PlatformUserDetails(
+                        new AuthenticationInfo(AuthMethod.USER_PROXY, userUuid.toString(), "operator", List.of()))));
+
+        NameAndUuidDto actingUser = AuthHelper.getActingUserOrNull();
+
+        assertNotNull(actingUser);
+        assertEquals(userUuid.toString(), actingUser.getUuid());
+        assertEquals("operator", actingUser.getName());
+    }
+
+    /** "anonymousUser" is a placeholder, not an identity, so it must not be persisted as one. */
+    @Test
+    void getActingUserOrNull_returnsNullForAnonymousPrincipal() {
+        AuthenticationInfo anonymous = AuthenticationInfo.getAnonymousAuthenticationInfo();
+        SecurityContextHolder
+                .getContext()
+                .setAuthentication(new PlatformAnonymousToken(UUID.randomUUID().toString(),
+                        new PlatformUserDetails(anonymous), anonymous.getAuthorities()));
+
+        assertNull(AuthHelper.getActingUserOrNull());
+    }
+
+    @Test
+    void getActingUserOrNull_returnsNullWhenNobodyIsAuthenticated() {
+        SecurityContextHolder.clearContext();
+
+        assertNull(AuthHelper.getActingUserOrNull());
     }
 
     @Test

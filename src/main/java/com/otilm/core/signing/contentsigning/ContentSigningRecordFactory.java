@@ -9,13 +9,15 @@ import com.otilm.core.signing.record.DeferredSigningRecordInputSource;
 import com.otilm.core.signing.record.SigningRecordInput;
 import com.otilm.core.signing.record.SigningRecordInputSource;
 import com.otilm.core.signing.record.TimestampTokenSerialNumbers;
+import com.otilm.core.util.AuthHelper;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.stereotype.Component;
 
 /**
- * Builds the signing-record input for a content-signing run.
+ * Builds the signing-record input for a content-signing run. {@code requestedBy} is the identity on the thread that
+ * produced the signature, so the record names who asked for it; it stays unset when that thread carries no identity.
  */
 @Component
 public class ContentSigningRecordFactory {
@@ -47,7 +49,7 @@ public class ContentSigningRecordFactory {
                 .signingProfile(signingProfile)
                 .protocol(protocol)
                 .signingTime(signingTime)
-                .requestedBy(null)
+                .requestedBy(AuthHelper.getActingUserOrNull())
                 .displayName("%s %s".formatted(signingProfile.name(), result.level().getFormatName(profile.family())))
                 .requestMetadataJson(buildRequestMetadataJson(signingProfile, profile, result))
                 .signedDocument(result.signedDocument())

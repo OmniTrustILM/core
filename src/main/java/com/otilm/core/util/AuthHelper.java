@@ -251,6 +251,21 @@ public class AuthHelper {
         }
     }
 
+    /**
+     * The acting user's uuid and username, or {@code null} when the thread carries no identifiable user — the
+     * {@link NameAndUuidDto} counterpart of {@link #getActingUserUuidOrNull()}, for callers that persist the username
+     * next to the uuid. Absence has the same two shapes described there, and an anonymous caller is reported as no user
+     * rather than as the literal "anonymousUser" its principal carries.
+     */
+    public static NameAndUuidDto getActingUserOrNull() {
+        try {
+            NameAndUuidDto actingUser = getUserIdentification();
+            return NullUtil.parseUuidOrNull(actingUser.getUuid()) == null ? null : actingUser;
+        } catch (ValidationException | IllegalArgumentException e) {
+            return null;
+        }
+    }
+
     public static UserProfileDto getUserProfile() {
         UserProfileDto userProfileDto;
         try {

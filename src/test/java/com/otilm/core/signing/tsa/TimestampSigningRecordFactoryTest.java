@@ -4,24 +4,32 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
+import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.api.model.core.signing.SigningProtocol;
+import com.otilm.core.security.authn.PlatformAuthenticationToken;
+import com.otilm.core.security.authn.PlatformUserDetails;
+import com.otilm.core.security.authn.client.AuthenticationInfo;
 import com.otilm.core.signing.record.SigningRecordInput;
 import com.otilm.core.util.builders.SigningProfileModelBuilder;
 import java.math.BigInteger;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.aSigningRecordPolicy;
 import static com.otilm.core.signing.tsa.messages.TspRequestBuilder.aTspRequest;
 import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
@@ -47,6 +55,11 @@ class TimestampSigningRecordFactoryTest {
     void setUp() {
         objectMapper = new ObjectMapper();
         factory = new TimestampSigningRecordFactory(objectMapper);
+    }
+
+    @AfterEach
+    void clearCaller() {
+        SecurityContextHolder.clearContext();
     }
 
     /** The record must tell an auditor whether a client asked for the token or the platform issued it itself. */
@@ -175,7 +188,7 @@ class TimestampSigningRecordFactoryTest {
     }
 
     @Test
-    void build_leavesSignatureDtbsAndRequestedByNull() {
+    void build_leavesSignatureAndDtbsNull() {
         // given the TSP path stores only the self-contained token, leaving the other content slots empty
 
         // when
@@ -187,6 +200,43 @@ class TimestampSigningRecordFactoryTest {
         // then
         assertNull(input.getSignature());
         assertNull(input.getDtbs());
+    }
+
+    /**
+     * The TSP authenticators put the caller — for Basic credentials, the ILM user the credential maps to — into the
+     * SecurityContext of the thread that then issues the token, so the record can name who asked for it.
+     */
+    @Test
+    void build_attributesTheRecordToTheAuthenticatedCaller() {
+        // given
+        UUID callerUuid = UUID.randomUUID();
+        authenticateAs(callerUuid, "tsp-client");
+
+        // when
+        SigningRecordInput input = factory
+                .source(aRecordingProfile().build(), aTspRequest().build(), SERIAL, GEN_TIME, ENCODED_TOKEN,
+                        SigningProtocol.TSP)
+                .build();
+
+        // then
+        assertNotNull(input.getRequestedBy());
+        assertEquals(callerUuid.toString(), input.getRequestedBy().getUuid());
+        assertEquals("tsp-client", input.getRequestedBy().getName());
+    }
+
+    @Test
+    void build_leavesRequestedByNull_whenTheIssuingThreadCarriesNoIdentity() {
+        // given
+        SecurityContextHolder.clearContext();
+
+        // when
+        SigningRecordInput input = factory
+                .source(aRecordingProfile().build(), aTspRequest().build(), SERIAL, GEN_TIME, ENCODED_TOKEN,
+                        SigningProtocol.INTERNAL_TSA)
+                .build();
+
+        // then
+        assertNull(input.getRequestedBy());
     }
 
     @Test
@@ -204,6 +254,13 @@ class TimestampSigningRecordFactoryTest {
 
         // then
         assertThrows(IllegalStateException.class, build);
+    }
+
+    private static void authenticateAs(UUID userUuid, String username) {
+        SecurityContextHolder
+                .getContext()
+                .setAuthentication(new PlatformAuthenticationToken(new PlatformUserDetails(
+                        new AuthenticationInfo(AuthMethod.USER_PROXY, userUuid.toString(), username, List.of()))));
     }
 
     private static SigningProfileModelBuilder aRecordingProfile() {
