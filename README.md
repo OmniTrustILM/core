@@ -1,6 +1,6 @@
 # ILM Core
 
-> This repository is part of the open source project ILM. You can find more information about the project at the [ILM](https://github.com/ILM/ILM) repository, including the contribution guide.
+> This repository is part of the open source project ILM. You can find more information about the project at the [ILM](https://github.com/OmniTrustILM/ilm) repository, including the contribution guide.
 
 `Core` provides the basic functionality for the ILM platform. It implements the logic for the certificate lifecycle management and handles all related tasks. You can think about it as a brain of the ILM platform.
 
