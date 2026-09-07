@@ -37,8 +37,10 @@ jobs:
           set -euo pipefail
 
           emit() { echo "mvnarg=$1" >>"$GITHUB_OUTPUT"; echo "override=$2" >>"$GITHUB_OUTPUT"; }
+          fail() { echo "::error::$1"; exit 1; }
 
-          # merge_group carries no pull_request object; build against the pom.
+          # merge_group carries no pull_request object. Unreachable under the
+          # current triggers; kept so adding one cannot silently resolve wrong.
           if [ "$EVENT" != pull_request ]; then
             echo "Not a pull_request event - using the pom value."
             emit "" "none"; exit 0
@@ -49,7 +51,15 @@ jobs:
           # invisible and the override could never be cleared without a push -
           # which dismisses the approval. It also keeps raw body text out of the
           # environment.
-          BODY=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/$PR" --jq '.body // ""')
+          if ! BODY=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/$PR" --jq '.body // ""'); then
+            fail "Could not read the body of ${GITHUB_REPOSITORY}#${PR}."
+          fi
+
+          # Fenced blocks and HTML comments go first: the regexes below are
+          # line-oriented and know nothing about Markdown, so a body that quotes
+          # the marker syntax - this feature's own PR body, say - would otherwise
+          # pin the build to whatever the example names.
+          BODY=$(printf '%s\n' "$BODY" | python3 -c 'import re,sys; t=sys.stdin.read(); t=re.sub(r"<!--.*?-->","",t,flags=re.S); sys.stdout.write(re.sub(r"^```.*?^```","",t,flags=re.S|re.M))')
 
           NUM=$(printf '%s' "$BODY" \
             | grep -oiP '^Depends-On:[[:space:]]*OmniTrustILM/interfaces#\K[0-9]{1,7}(?=[[:space:]]*$)' \
@@ -57,23 +67,29 @@ jobs:
           VER=$(printf '%s' "$BODY" \
             | grep -oiP '^Interfaces-Version:[[:space:]]*\K[0-9][0-9A-Za-z.\-]{0,60}(?=[[:space:]]*$)' \
             | head -1 || true)
-          # Anchored to end of line, so a marker with trailing junk cannot
-          # silently become a different valid override - `Interfaces-Version:
-          # 2.20.0; rm -rf /` would otherwise truncate to a pin on 2.20.0. And a
-          # line that is present but does not match is an error rather than a
-          # silent no-op: the author believes they pinned something.
-          if printf '%s' "$BODY" | grep -qiP '^Depends-On:' && [ -z "$NUM" ]; then
-            echo "::error::A Depends-On: line is present but malformed. Expected: Depends-On: OmniTrustILM/interfaces#<number>"
-            exit 1
+          # The extractors above are strict - line start, nothing after the
+          # value - so a marker with trailing junk is rejected rather than
+          # truncated: `Interfaces-Version: 2.20.0; rm -rf /` does not become a
+          # pin on 2.20.0. The probes below are deliberately looser, because a
+          # marker the author plainly meant has to fail loudly instead of
+          # vanishing; a bullet, an indent, bold or a blockquote all miss the
+          # extractor. The Depends-On probe names the repository, so a Depends-On
+          # line addressed to any other repo in the org is left alone.
+          if printf '%s' "$BODY" | grep -qiP '^[[:space:]>*_-]*Depends-On[[:space:]]*:[[:space:]*_]*(https?://github\.com/)?OmniTrustILM/interfaces' && [ -z "$NUM" ]; then
+            fail "A Depends-On: line for interfaces is present but not in the accepted form. It must begin the line and read: Depends-On: OmniTrustILM/interfaces#<number> - a pull-request URL is not accepted."
           fi
-          if printf '%s' "$BODY" | grep -qiP '^Interfaces-Version:' && [ -z "$VER" ]; then
-            echo "::error::An Interfaces-Version: line is present but malformed. Expected a published version, e.g. Interfaces-Version: 2.20.0-M904-bea47fb9"
-            exit 1
+          if printf '%s' "$BODY" | grep -qiP '^[[:space:]>*_-]*Interfaces-Version[[:space:]]*:' && [ -z "$VER" ]; then
+            fail "An Interfaces-Version: line is present but not in the accepted form. It must begin the line and name a published version, e.g. Interfaces-Version: 2.20.0-M906-480022e4"
           fi
 
-          # Constrained by the regexes above to a charset with no shell
-          # metacharacters, which is what licenses interpolating mvnarg directly
-          # into the run: blocks of the compile, test and package jobs.
+          # Both markers set: name the loser rather than letting it disappear.
+          if [ -n "$VER" ] && [ -n "$NUM" ]; then
+            echo "::warning::Both markers present - Interfaces-Version wins; ignoring Depends-On: OmniTrustILM/interfaces#${NUM}."
+          fi
+
+          # Reaches the build jobs through the environment, never interpolated
+          # into their run: blocks, so the value is not shell source text there.
+          # The regexes still constrain it; this removes the dependence on them.
           if [ -n "$VER" ]; then
             echo "Explicit override: $VER"
             emit "-Dinterfaces.version=$VER" "explicit"; exit 0
@@ -83,25 +99,49 @@ jobs:
             emit "" "none"; exit 0
           fi
 
+          # Captured, not tested inline: a command substitution inside an `if`
+          # condition does not trip `set -e`, so a 404 or a rate limit would read
+          # as "not merged" and send the author hunting a label already applied.
+          if ! IPR=$(gh api "repos/OmniTrustILM/interfaces/pulls/$NUM" --jq '[.merged, .state] | @tsv'); then
+            fail "Cannot read OmniTrustILM/interfaces#${NUM} - check that the number names an existing pull request."
+          fi
+          read -r MERGED ISTATE <<<"$IPR"
+
           # Self-clearing: once the interfaces PR merges, the same unchanged
           # marker stops meaning "override" and starts meaning "nothing to do".
-          if [ "$(gh api "repos/OmniTrustILM/interfaces/pulls/$NUM" --jq .merged)" = true ]; then
+          if [ "$MERGED" = true ]; then
             echo "interfaces#$NUM is merged - using the mainline pom value."
             emit "" "none"; exit 0
+          fi
+
+          # Otherwise a PR closed without merging reads as "still open" and keeps
+          # this build pinned to an abandoned branch for as long as the marker
+          # stays; the snapshot outlives it, cleanup being a weekly cron.
+          if [ "$ISTATE" = closed ]; then
+            fail "OmniTrustILM/interfaces#${NUM} was closed without merging. Remove the Depends-On line, or repoint it at whatever superseded it."
           fi
 
           # Looked up rather than derived from core's own property: across a
           # release cut interfaces publishes 2.21.0-alpha-PR<n>-SNAPSHOT while
           # this pom still reads 2.20.0, and deriving would resolve a stale
           # pre-bump artifact.
-          PRV=$(gh api --paginate \
-                  /orgs/OmniTrustILM/packages/maven/com.otilm.interfaces/versions \
-                  --jq '.[].name' \
-                | grep -E -- "-alpha-PR${NUM}-SNAPSHOT\$" | head -1 || true)
+          if ! VERSIONS=$(gh api --paginate \
+                  "/orgs/OmniTrustILM/packages/maven/com.otilm.interfaces/versions?per_page=100" \
+                  --jq '.[] | [.created_at, .name] | @tsv'); then
+            fail "Could not list the published interfaces package versions."
+          fi
+
+          # The whole name is anchored, not just the suffix: the prefix is the
+          # version in the interfaces PR's own pom, so leaving it unconstrained
+          # would carry PR-controlled text into the mvn argument. Newest by
+          # created_at rather than by API order, which is not contractual and
+          # matters when a PR spans a release cut and so holds two bases.
+          PRV=$(printf '%s\n' "$VERSIONS" \
+            | awk -F'\t' -v n="$NUM" '$2 ~ "^[0-9][0-9A-Za-z.-]*-alpha-PR" n "-SNAPSHOT$"' \
+            | sort -r | head -1 | cut -f2)
 
           if [ -z "$PRV" ]; then
-            echo "::error::No published snapshot for interfaces#${NUM}. It needs the publish-snapshot label and a finished build. Fork PRs never publish - their token is read-only."
-            exit 1
+            fail "No published snapshot for interfaces#${NUM}. It needs the publish-snapshot label and a finished build. Fork PRs never publish - their token is read-only."
           fi
 
           echo "interfaces#$NUM is open - building against $PRV"
@@ -120,7 +160,8 @@ jobs:
             echo "- mvn arg: \`${ARG:-(none)}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # Required to be green before merge, so an override can never reach main.
+  # Reached transitively by the required `Build` job's `needs` - "Interfaces pin"
+  # is not itself a required context, so do not drop it from that list.
   # Red on both override modes; `pr` clears itself once the interfaces PR
   # merges and the workflow is re-run, `explicit` only when the line is deleted.
   pin-gate:
@@ -177,9 +218,9 @@ jobs:
       - name: Compile
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
-        run: >-
-          mvn -B -U -ntp test-compile -Dmaven.compiler.proc=full
-          ${{ needs.resolve-interfaces.outputs.mvnarg }}
+          MVNARG: ${{ needs.resolve-interfaces.outputs.mvnarg }}
+        # $MVNARG unquoted on purpose: empty contributes no argument.
+        run: mvn -B -U -ntp test-compile -Dmaven.compiler.proc=full $MVNARG
 
       - name: Package compiled output
         run: tar -czf compiled.tar.gz target/classes target/test-classes
@@ -220,9 +261,8 @@ jobs:
       - name: Run ${{ matrix.group }} tests
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
-        run: >-
-          mvn -B -U -ntp test -Ptest-${{ matrix.group }} -Dmaven.compiler.skip=true
-          ${{ needs.resolve-interfaces.outputs.mvnarg }}
+          MVNARG: ${{ needs.resolve-interfaces.outputs.mvnarg }}
+        run: mvn -B -U -ntp test -Ptest-${{ matrix.group }} -Dmaven.compiler.skip=true $MVNARG
 
       - name: Upload coverage exec
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -287,9 +327,8 @@ jobs:
       - name: Merge coverage, generate report, and package
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
-        run: >-
-          mvn -B -U -ntp package -DskipTests -Pmerge-coverage -Dmaven.compiler.skip=true
-          ${{ needs.resolve-interfaces.outputs.mvnarg }}
+          MVNARG: ${{ needs.resolve-interfaces.outputs.mvnarg }}
+        run: mvn -B -U -ntp package -DskipTests -Pmerge-coverage -Dmaven.compiler.skip=true $MVNARG
 
       # Write PR number to file
       - name: Write PR number to file
@@ -318,6 +357,9 @@ jobs:
 
   generated:
     name: Generated artifacts
+    # `mvn test` runs the compile and test-compile phases, so this job builds the
+    # whole tree and needs the override as much as compile/test/package do.
+    needs: resolve-interfaces
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -387,9 +429,10 @@ jobs:
       - name: Key the miniature CBOM corpus
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # resolves com.otilm parent and build-tools from GitHub Packages
+          MVNARG: ${{ needs.resolve-interfaces.outputs.mvnarg }}
         run: |
           mvn -B -U -ntp test -Dtest=CorpusKeySnapshotTest#snapshot -Dsurefire.failIfNoSpecifiedTests=false \
-            -Dcorpus.dir=src/test/resources/cbom/corpus -Dcorpus.out=target/corpus-keys.tsv
+            -Dcorpus.dir=src/test/resources/cbom/corpus -Dcorpus.out=target/corpus-keys.tsv $MVNARG
 
       - name: Fail if the committed corpus keys are not the instrument's output
         run: |
