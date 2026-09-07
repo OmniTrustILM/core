@@ -100,7 +100,7 @@ jobs:
                 | grep -E -- "-alpha-PR${NUM}-SNAPSHOT\$" | head -1 || true)
 
           if [ -z "$PRV" ]; then
-            echo "::error::No published snapshot for interfaces#${NUM}. Has its build finished? Fork and Dependabot PRs never publish - Dependabot runs get a read-only token."
+            echo "::error::No published snapshot for interfaces#${NUM}. It needs the publish-snapshot label and a finished build. Fork PRs never publish - their token is read-only."
             exit 1
           fi
 
