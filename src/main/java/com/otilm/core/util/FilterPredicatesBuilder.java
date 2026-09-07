@@ -89,11 +89,6 @@ public class FilterPredicatesBuilder {
             .of(AttributeContentType.INTEGER, AttributeContentType.FLOAT, AttributeContentType.DATE,
                     AttributeContentType.TIME, AttributeContentType.DATETIME);
     private static final String JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME = "jsonb_extract_path_text";
-
-    /** The path within a stored attribute definition at which its visibility lives. */
-    private static final String DEFINITION_PROPERTIES_KEY = "properties";
-
-    private static final String VISIBLE_KEY = "visible";
     private static final String TEXTREGEXEQ_FUNCTION_NAME = "textregexeq";
     private static final String ARRAY_CONTAINS_FUNCTION_NAME = PostgresFunctionContributor.ARRAY_CONTAINS;
 
@@ -1309,17 +1304,11 @@ public class FilterPredicatesBuilder {
     }
 
     /**
-     * Whether the definition behind a content row says its attribute may be shown to a user. Read out of the stored
-     * definition document with {@code jsonb_extract_path_text}, since visibility is a property of the serialized
-     * attribute rather than a column; absent counts as visible, as it does in {@code AttributeDefinitionProperties}.
+     * Whether the definition behind a content row says its attribute may be shown to a user. Reads the mirrored column,
+     * so this cannot fall open on a document whose shape has moved.
      */
     private static Predicate definitionIsVisible(final CriteriaBuilder criteriaBuilder, final Join joinDefinition) {
-        final Expression<String> visible = criteriaBuilder
-                .function(JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME, String.class,
-                        joinDefinition.get(AttributeDefinition_.definition),
-                        criteriaBuilder.literal(DEFINITION_PROPERTIES_KEY), criteriaBuilder.literal(VISIBLE_KEY));
-        return criteriaBuilder
-                .or(criteriaBuilder.isNull(visible), criteriaBuilder.notEqual(visible, Boolean.FALSE.toString()));
+        return criteriaBuilder.isTrue(joinDefinition.get(AttributeDefinition_.visible));
     }
 
     /**
@@ -1340,6 +1329,10 @@ public class FilterPredicatesBuilder {
         // Only custom definitions carry a permission model and a visibility the platform enforces. On a data or
         // metadata definition `visible` is a connector's display hint, and the nullable `enabled` column is unset,
         // so applying either would drop rows a listing is meant to return.
+        //
+        // The projection and the catalogue do withhold a hidden data or metadata field, because those decide what is
+        // rendered and a display hint governs that. Filtering is not rendering, so such a value stays answerable here
+        // by design: the split is deliberate, not an oversight the projection predicate was meant to close.
         if (attributeType != AttributeType.CUSTOM) {
             return predicates;
         }

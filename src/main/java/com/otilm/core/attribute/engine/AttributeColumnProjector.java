@@ -215,11 +215,8 @@ public class AttributeColumnProjector {
 
         for (ProjectedAttributeContent content : stored) {
             // Encrypted content is ciphertext that only its own decryption path can read, and a listing does not take
-            // that path. An attribute whose definition says it is not visible is not to be shown to a user, which is
-            // what a column does with it. The catalogue withholds both kinds of field; a row that reaches here anyway
-            // is dropped, because the flag it withheld them with is a hint on a response the caller is free to ignore.
-            if (content.encryptedContent() != null || WITHHELD_CONTENT_TYPES.contains(content.contentType())
-                    || !AttributeDefinitionProperties.isVisible(content.definition())) {
+            // that path. The query already excludes a definition marked not visible.
+            if (content.encryptedContent() != null || WITHHELD_CONTENT_TYPES.contains(content.contentType())) {
                 continue;
             }
             RequestedColumn column = matchRequested(requested, content);
