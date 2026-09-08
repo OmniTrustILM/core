@@ -14,9 +14,9 @@
     <name>core</name>
 
     <properties>
-        <!-- The mainline value, and permanent: no PR ever commits a different one.
-             CI overrides it with -Dinterfaces.version=... when a PR body carries a
-             Depends-On or Interfaces-Version marker. -->
+        <!-- The mainline value - only a release-cut PR changes it, in lockstep with
+             this project's own <version>. CI overrides it with -Dinterfaces.version=...
+             when a PR body carries a Depends-On or Interfaces-Version marker. -->
         <interfaces.version>2.20.0-SNAPSHOT</interfaces.version>
         <archunit.version>1.4.2</archunit.version>
         <!-- CVE-2026-65182, CVE-2026-65905, CVE-2026-68525 (auth/constraint bypasses in embedded Tomcat).

@@ -174,10 +174,11 @@ jobs:
         env:
           MODE: ${{ needs.resolve-interfaces.outputs.override }}
         run: |
+          set -euo pipefail
           case "$MODE" in
             none) echo "No override active." ;;
             pr)   echo "::error::Building against an unmerged interfaces PR. Merge it, wait for the publish, then re-run all jobs."; exit 1 ;;
-            explicit) echo "::error::An explicit Interfaces-Version override is active. Remove the marker from the PR body and re-run before merging."; exit 1 ;;
+            explicit) echo "::error::An explicit Interfaces-Version override is active. Remove the marker from the PR body, then re-run all jobs - re-running only the failed job replays the cached resolution."; exit 1 ;;
             *) echo "::error::Unknown resolver mode '$MODE'"; exit 1 ;;
           esac
 
