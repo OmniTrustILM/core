@@ -35,6 +35,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
@@ -93,6 +94,7 @@ public class AttributeDefinition extends UniquelyIdentified implements ObjectAcc
      * visibility from one column rather than three readings of the document. Written only by {@link #setDefinition},
      * which is what keeps the two in step.
      */
+    @Setter(AccessLevel.NONE)
     @Column(name = "visible", nullable = false)
     private boolean visible = true;
 

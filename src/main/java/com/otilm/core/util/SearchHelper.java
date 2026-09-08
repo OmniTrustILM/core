@@ -323,6 +323,7 @@ public class SearchHelper {
             .thenComparing(SearchFieldObject::getLabel, Comparator.nullsLast(Comparator.naturalOrder()))
             .thenComparing(SearchFieldObject::isList)
             .thenComparing(SearchFieldObject::isMultiSelect)
+            .thenComparing(SearchFieldObject::isVisible)
             .thenComparing(SearchFieldObject::getProtectionLevel, Comparator.nullsLast(Comparator.naturalOrder()))
             .thenComparing(field -> field.getContentItems() == null ? null : String.join("\0", field.getContentItems()),
                     Comparator.nullsLast(Comparator.naturalOrder()));
@@ -352,6 +353,11 @@ public class SearchHelper {
         // matchable.
         if (other.getProtectionLevel() != ProtectionLevel.ENCRYPTED) {
             merged.setProtectionLevel(other.getProtectionLevel());
+        }
+        // Projection and the filter predicates keep the content of every visible definition, so the collapsed field is
+        // shown whenever any definition behind it is visible.
+        if (other.isVisible()) {
+            merged.setVisible(true);
         }
         // A fixed-choice list input is only correct if every definition is a list; otherwise free-form input must
         // survive the merge, since a list rendering would make the free-form definitions' values un-enterable.

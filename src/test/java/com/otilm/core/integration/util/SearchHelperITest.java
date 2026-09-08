@@ -222,6 +222,41 @@ class SearchHelperITest extends BaseSpringBootTest {
     }
 
     @Test
+    void testPrepareSearchForJSONMergedFieldIsVisibleWhenAnyDuplicateIsVisible() {
+        List<SearchFieldDataDto> fields = SearchHelper
+                .prepareSearchForJSON(List.of(visibilityFieldObject(false), visibilityFieldObject(true)),
+                        Resource.DISCOVERY);
+        List<SearchFieldDataDto> fieldsReversed = SearchHelper
+                .prepareSearchForJSON(List.of(visibilityFieldObject(true), visibilityFieldObject(false)),
+                        Resource.DISCOVERY);
+
+        assertThat(fields).hasSize(1);
+        assertThat(fields.getFirst().getDisplayable())
+                .as("projection and filtering keep the visible definition's content, so the field must be offered")
+                .isTrue();
+        assertThat(fieldsReversed.getFirst().getDisplayable())
+                .as("and not depend on the (unordered) query result order")
+                .isTrue();
+    }
+
+    @Test
+    void testPrepareSearchForJSONMergedFieldStaysHiddenWhenEveryDuplicateIsHidden() {
+        List<SearchFieldDataDto> fields = SearchHelper
+                .prepareSearchForJSON(List.of(visibilityFieldObject(false), visibilityFieldObject(false)),
+                        Resource.DISCOVERY);
+
+        assertThat(fields).hasSize(1);
+        assertThat(fields.getFirst().getDisplayable()).isFalse();
+    }
+
+    private static SearchFieldObject visibilityFieldObject(boolean visible) {
+        SearchFieldObject field = new SearchFieldObject("username", AttributeContentType.STRING, AttributeType.META);
+        field.setLabel("Username");
+        field.setVisible(visible);
+        return field;
+    }
+
+    @Test
     void testPrepareSearchForJSONMergeIsDeterministicRegardlessOfInputOrder() {
         SearchFieldObject labeledUser = new SearchFieldObject("username", AttributeContentType.STRING,
                 AttributeType.META);
