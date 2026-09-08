@@ -19,6 +19,7 @@ import jakarta.persistence.metamodel.Attribute;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -32,21 +33,63 @@ public class SearchHelper {
     private static final String SEARCH_LABEL_TEMPLATE = "%s (%s)";
 
     /**
-     * Fields that share one attribute with another field of the same resource, and so display something drawn out of it
-     * rather than the attribute itself. Derived rather than listed, so a field added later is classified without an
-     * edit here: the certificate validation-check fields are the case that exists today, each reading one serialized
-     * validation result.
+     * The {@link FilterField} sets the flags are decided against.
      *
      * <p>
-     * Held in a nested class so it is computed on first use rather than when {@link SearchHelper} loads. Reading it
+     * Held in a nested class so they are computed on first use rather than when {@link SearchHelper} loads. Reading one
      * initializes {@link FilterField}, whose entries reference the JPA static metamodel, so a caller without a
      * persistence context would otherwise fail on this class rather than on the field it asked about.
      */
-    private static final class SharedAttributeFields {
+    private static final class FilterFieldSets {
 
-        private static final Set<FilterField> VALUES = fieldsSharingAnAttribute();
+        /**
+         * Fields that share one attribute with another field of the same resource, and so display something drawn out
+         * of it rather than the attribute itself. Derived rather than listed, so a field added later is classified
+         * without an edit here: the certificate validation-check fields are the case that exists today, each reading
+         * one serialized validation result.
+         */
+        private static final Set<FilterField> SHARING_AN_ATTRIBUTE = fieldsSharingAnAttribute();
 
-        private SharedAttributeFields() {
+        /**
+         * Fields of a configurable-column listing whose value that listing does not carry. Offering one as a column
+         * publishes a heading whose every cell is empty, whatever the request asks for.
+         *
+         * <p>
+         * Listed rather than derived. Neither of the two rules that look like they would decide this holds: every field
+         * of these listings has a non-null attribute, so having one excludes nothing, and reaching a value through a
+         * join predicts nothing either - {@code CERTIFICATE_PROTOCOL} is joined and absent from the listing while
+         * {@code RA_PROFILE_NAME} and {@code GROUP_NAME} are joined and present. What decides it is whether the query
+         * the listing runs selects the value, which only reading that query answers.
+         *
+         * <p>
+         * A field is listed here when the listing DTO has no property for it, or has one the list mapper leaves unset.
+         * A field the DTO does carry stays displayable even where no frontend renderer draws it yet: that is a column
+         * waiting for its cell, not a column that can never have one.
+         */
+        private static final Set<FilterField> ABSENT_FROM_LISTING = EnumSet
+                .of(
+                        // Certificates. The listing builds each CertificateDto from the constructor projection in
+                        // CertificateRepository.findCertificateDtosByUuidsIn, filling groups from a second query;
+                        // CertificateDetailDtoMapper.toListDto serves the protocol-specific listings instead. Neither
+                        // the projection nor the DTO carries any of these.
+                        FilterField.CERT_LOCATION_NAME, FilterField.KEY_USAGE, FilterField.SUBJECT_TYPE,
+                        FilterField.SUBJECT_ALTERNATIVE_NAMES, FilterField.OCSP_VALIDATION, FilterField.CRL_VALIDATION,
+                        FilterField.SIGNATURE_VALIDATION, FilterField.CERTIFICATE_PROTOCOL, FilterField.ACME_PROFILE,
+                        FilterField.SCEP_PROFILE, FilterField.CMP_PROFILE, FilterField.ACME_ACCOUNT,
+                        FilterField.SUCCEEDING_CERTIFICATES, FilterField.PRECEDING_CERTIFICATES,
+
+                        // Connectors. The v2 ConnectorDto the listing returns carries no authentication type; only
+                        // the v1 detail DTO does.
+                        FilterField.CONNECTOR_AUTH_TYPE,
+
+                        // Secrets. Secret.setCommonFields sets the source vault profile and not the sync ones.
+                        FilterField.SECRET_SYNC_VAULT_PROFILE,
+
+                        // Signing records. SigningRecordMapper.toListDto sets the retrieval timestamp on the detail
+                        // DTO only; SigningRecordListDto has no property for it.
+                        FilterField.SIGNING_RECORD_SIGNED_DOCUMENT_RETRIEVED_AT);
+
+        private FilterFieldSets() {
         }
     }
 
@@ -85,8 +128,8 @@ public class SearchHelper {
             values = withoutNull;
         }
         fieldDataDto.setValue(values);
-        fieldDataDto.setDisplayable(true);
-        fieldDataDto.setSortable(isSortable(filterField));
+        fieldDataDto.setDisplayable(isDisplayable(filterField));
+        fieldDataDto.setSortable(isSortableField(filterField));
 
         if (filterField.getEnumClass() != null) {
             fieldDataDto.setPlatformEnum(PlatformEnum.findByClass(filterField.getEnumClass()));
@@ -174,20 +217,21 @@ public class SearchHelper {
     }
 
     /**
-     * The resources whose listing passes the sort a request carries to the repository.
+     * The resources whose listing is wired to the configurable-column pipeline: it returns an {@code
+     * AttributeProjectable} DTO and passes the sort a request carries to the repository.
      *
      * <p>
-     * The flag is published per field while the ordering is wired per listing, and only the listings named here are
-     * wired. A field of any other resource is reported not sortable however orderable its path is, because a catalogue
-     * reporting {@code true} there would advertise an ordering that listing discards: the client sorts, receives the
-     * default order, and is told nothing.
+     * Both flags are published per field while the pipeline is wired per listing, and only the listings named here are
+     * wired. A field of any other resource is reported neither displayable nor sortable however orderable its path is,
+     * because a catalogue reporting {@code true} there would advertise a column that listing cannot project and an
+     * ordering it discards: the client asks, receives the default columns in the default order, and is told nothing.
      *
      * <p>
      * Explicit rather than derived: the wiring lives in each listing service and nothing on a {@link FilterField} knows
-     * whether its listing was wired. A listing that gains ordering adds itself here, and
+     * whether its listing was wired. A listing that gains the pipeline adds itself here, and
      * {@code RequestValidatorHelper.revalidateSearchRequestDto} refuses a sort on every listing that has not.
      */
-    private static final Set<Resource> SORT_WIRED_RESOURCES = Set
+    private static final Set<Resource> CONFIGURABLE_COLUMN_RESOURCES = Set
             .of(Resource.CERTIFICATE, Resource.CRYPTOGRAPHIC_KEY, Resource.DISCOVERY, Resource.CONNECTOR,
                     Resource.SECRET, Resource.CBOM, Resource.SIGNING_RECORD);
 
@@ -208,7 +252,7 @@ public class SearchHelper {
      * Whether the listing of this resource applies the sort a request carries.
      */
     public static boolean listingAppliesSort(final Resource resource) {
-        return SORT_WIRED_RESOURCES.contains(resource);
+        return CONFIGURABLE_COLUMN_RESOURCES.contains(resource);
     }
 
     /**
@@ -225,11 +269,40 @@ public class SearchHelper {
     }
 
     /**
-     * What the catalogue advertises as sortable: a field whose path can be ordered by, on a listing that applies the
-     * ordering.
+     * What the catalogue advertises as sortable: a field the catalogue offers as a column at all, whose path can be
+     * ordered by. A sort is triggered by clicking a column header, so a field that cannot be shown cannot be ordered on
+     * however orderable its path is.
      */
-    private static boolean isSortable(final FilterField filterField) {
-        return SORT_WIRED_RESOURCES.contains(filterField.getRootResource()) && isOrderableField(filterField);
+    public static boolean isSortableField(final FilterField filterField) {
+        return CONFIGURABLE_COLUMN_RESOURCES.contains(filterField.getRootResource())
+                && isOrderableOnListing(filterField);
+    }
+
+    /**
+     * Whether a listing may be ordered by this field, which is what a requested sort is refused against.
+     *
+     * <p>
+     * Wider than the catalogue's {@code sortable} flag, and deliberately so. On a listing that publishes columns the
+     * two agree, because ordering there is triggered by clicking a column header and a field that listing cannot show
+     * has no header to click. Every other listing orders from its own code rather than from a header - the OID entries
+     * listing orders by {@code OID_ENTRY_CODE}, which no column picker ever offered - so only the path matters there.
+     */
+    public static boolean isOrderableOnListing(final FilterField filterField) {
+        return isOrderableField(filterField) && (isDisplayable(filterField)
+                || !CONFIGURABLE_COLUMN_RESOURCES.contains(filterField.getRootResource()));
+    }
+
+    /**
+     * Whether a property field may be requested as a column: its listing has to be wired to the column pipeline at all,
+     * and has to carry the value the column would show.
+     *
+     * <p>
+     * Answered here rather than by a pass over the assembled catalogue, so it is decided in the one place {@code
+     * sortable} is and no caller can assemble a catalogue that forgets to answer it.
+     */
+    public static boolean isDisplayable(final FilterField filterField) {
+        return CONFIGURABLE_COLUMN_RESOURCES.contains(filterField.getRootResource())
+                && !FilterFieldSets.ABSENT_FROM_LISTING.contains(filterField);
     }
 
     /**
@@ -255,7 +328,7 @@ public class SearchHelper {
     public static boolean isOrderableField(final FilterField filterField) {
         return filterField.getFieldAttribute() != null && !filterField.isNativeArrayField()
                 && filterField.getJsonPath() == null && filterField.getExpectedValue() == null
-                && !isBitMaskField(filterField) && !SharedAttributeFields.VALUES.contains(filterField);
+                && !isBitMaskField(filterField) && !FilterFieldSets.SHARING_AN_ATTRIBUTE.contains(filterField);
     }
 
     /** Whether the field's column is one integer holding a set of flags rather than the value the cell renders. */

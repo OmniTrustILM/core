@@ -19,6 +19,7 @@ import com.otilm.core.service.CbomExternalService;
 import com.otilm.core.service.DiscoveryExternalService;
 import com.otilm.core.service.SigningRecordExternalService;
 import com.otilm.core.service.TimeQualityConfigurationExternalService;
+import com.otilm.core.service.v2.ConnectorExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.SearchHelper;
 import java.util.List;
@@ -50,6 +51,9 @@ class ColumnCatalogueFlagsITest extends BaseSpringBootTest {
 
     @Autowired
     private TimeQualityConfigurationExternalService timeQualityConfigurationService;
+
+    @Autowired
+    private ConnectorExternalService connectorService;
 
     @Autowired
     private AttributeEngine attributeEngine;
@@ -100,11 +104,12 @@ class ColumnCatalogueFlagsITest extends BaseSpringBootTest {
 
     @Test
     void aNativeArrayPropertyFieldIsDisplayable() {
-        // A multi-valued field has no single scalar key to order a row by, but it does have values to render.
-        SearchFieldDataDto ntpServers = field(timeQualityConfigurationService.getSearchableFieldInformation(),
-                FilterField.TIME_QUALITY_CONFIGURATION_NTP_SERVERS.name()).orElseThrow();
+        // A multi-valued field has no single scalar key to order a row by, but it does have values to render. Taken
+        // from the connector catalogue because a listing outside the column pipeline offers no columns at all.
+        SearchFieldDataDto features = field(connectorService.getSearchableFieldInformationByGroup(),
+                FilterField.CONNECTOR_FEATURES.name()).orElseThrow();
 
-        Assertions.assertEquals(true, ntpServers.getDisplayable());
+        Assertions.assertEquals(true, features.getDisplayable());
     }
 
     @Test
