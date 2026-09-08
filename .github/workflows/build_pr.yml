@@ -59,7 +59,7 @@ jobs:
           # line-oriented and know nothing about Markdown, so a body that quotes
           # the marker syntax - this feature's own PR body, say - would otherwise
           # pin the build to whatever the example names.
-          BODY=$(printf '%s\n' "$BODY" | python3 -c 'import re,sys; t=sys.stdin.read(); t=re.sub(r"<!--.*?-->","",t,flags=re.S); sys.stdout.write(re.sub(r"^```.*?^```","",t,flags=re.S|re.M))')
+          BODY=$(printf '%s\n' "$BODY" | python3 -c 'import re,sys; t=sys.stdin.read(); t=re.sub(r"<!--.*?-->","",t,flags=re.S); t=re.sub(r"^[ \t]*(```|~~~).*?^[ \t]*\1","",t,flags=re.S|re.M); sys.stdout.write(t)')
 
           NUM=$(printf '%s' "$BODY" \
             | grep -oiP '^Depends-On:[[:space:]]*OmniTrustILM/interfaces#\K[0-9]{1,7}(?=[[:space:]]*$)' \
@@ -73,9 +73,10 @@ jobs:
           # pin on 2.20.0. The probes below are deliberately looser, because a
           # marker the author plainly meant has to fail loudly instead of
           # vanishing; a bullet, an indent, bold or a blockquote all miss the
-          # extractor. The Depends-On probe names the repository, so a Depends-On
-          # line addressed to any other repo in the org is left alone.
-          if printf '%s' "$BODY" | grep -qiP '^[[:space:]>*_-]*Depends-On[[:space:]]*:[[:space:]*_]*(https?://github\.com/)?OmniTrustILM/interfaces' && [ -z "$NUM" ]; then
+          # extractor. The Depends-On probe names the repository and closes it
+          # off, so a Depends-On line addressed to any other repo in the org is
+          # left alone - including a sibling whose name starts with the same word.
+          if printf '%s' "$BODY" | grep -qiP '^[[:space:]>*_-]*Depends-On[[:space:]]*:[[:space:]*_]*(https?://github\.com/)?OmniTrustILM/interfaces(?![0-9A-Za-z._-])' && [ -z "$NUM" ]; then
             fail "A Depends-On: line for interfaces is present but not in the accepted form. It must begin the line and read: Depends-On: OmniTrustILM/interfaces#<number> - a pull-request URL is not accepted."
           fi
           if printf '%s' "$BODY" | grep -qiP '^[[:space:]>*_-]*Interfaces-Version[[:space:]]*:' && [ -z "$VER" ]; then
