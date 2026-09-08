@@ -61,6 +61,12 @@ jobs:
           # pin the build to whatever the example names.
           BODY=$(printf '%s\n' "$BODY" | python3 -c 'import re,sys; t=sys.stdin.read(); t=re.sub(r"<!--.*?-->","",t,flags=re.S); t=re.sub(r"^[ \t]*(```|~~~).*?^[ \t]*\1","",t,flags=re.S|re.M); sys.stdout.write(t)')
 
+          # head -1 below would otherwise take the earlier line silently.
+          DUPD=$(printf '%s' "$BODY" | grep -ciP '^Depends-On[[:space:]]*:' || true)
+          DUPV=$(printf '%s' "$BODY" | grep -ciP '^Interfaces-Version[[:space:]]*:' || true)
+          [ "${DUPD:-0}" -le 1 ] || fail "The PR body has ${DUPD} Depends-On lines. Keep exactly one."
+          [ "${DUPV:-0}" -le 1 ] || fail "The PR body has ${DUPV} Interfaces-Version lines. Keep exactly one."
+
           NUM=$(printf '%s' "$BODY" \
             | grep -oiP '^Depends-On:[[:space:]]*OmniTrustILM/interfaces#\K[0-9]{1,7}(?=[[:space:]]*$)' \
             | head -1 || true)
@@ -103,14 +109,31 @@ jobs:
           # Captured, not tested inline: a command substitution inside an `if`
           # condition does not trip `set -e`, so a 404 or a rate limit would read
           # as "not merged" and send the author hunting a label already applied.
-          if ! IPR=$(gh api "repos/OmniTrustILM/interfaces/pulls/$NUM" --jq '[.merged, .state] | @tsv'); then
+          if ! IPR=$(gh api "repos/OmniTrustILM/interfaces/pulls/$NUM" --jq '[.merged, .state, (.merge_commit_sha // ""), (.merged_at // "")] | @tsv'); then
             fail "Cannot read OmniTrustILM/interfaces#${NUM} - check that the number names an existing pull request."
           fi
-          read -r MERGED ISTATE <<<"$IPR"
+          read -r MERGED ISTATE MSHA MAT <<<"$IPR"
+
+          if ! VERSIONS=$(gh api --paginate \
+                  "/orgs/OmniTrustILM/packages/maven/com.otilm.interfaces/versions?per_page=100" \
+                  --jq '.[] | [.created_at, .name] | @tsv'); then
+            fail "Could not list the published interfaces package versions."
+          fi
 
           # Self-clearing: once the interfaces PR merges, the same unchanged
           # marker stops meaning "override" and starts meaning "nothing to do".
           if [ "$MERGED" = true ]; then
+            # Mainline SNAPSHOT carries the change only once the interfaces
+            # publish finishes, 220-367s after the merge. The merge commit's
+            # immutable -M build is the proof that it did.
+            if ! printf '%s\n' "$VERSIONS" | cut -f2 \
+                 | grep -qE "^[0-9][0-9A-Za-z.-]*-M[0-9]+-${MSHA:0:8}\$"; then
+              AGE=$(( $(date -u +%s) - $(date -u -d "${MAT:-@0}" +%s) ))
+              if [ "$AGE" -lt 900 ]; then
+                fail "interfaces#${NUM} merged ${AGE}s ago but its build has not published yet. Wait for it, then re-run all jobs."
+              fi
+              echo "::warning::interfaces#${NUM} merged ${AGE}s ago with no -M build; a release-cut merge produces none. Proceeding against mainline."
+            fi
             echo "interfaces#$NUM is merged - using the mainline pom value."
             emit "" "none"; exit 0
           fi
@@ -126,12 +149,7 @@ jobs:
           # release cut interfaces publishes 2.21.0-alpha-PR<n>-SNAPSHOT while
           # this pom still reads 2.20.0, and deriving would resolve a stale
           # pre-bump artifact.
-          if ! VERSIONS=$(gh api --paginate \
-                  "/orgs/OmniTrustILM/packages/maven/com.otilm.interfaces/versions?per_page=100" \
-                  --jq '.[] | [.created_at, .name] | @tsv'); then
-            fail "Could not list the published interfaces package versions."
-          fi
-
+          #
           # The whole name is anchored, not just the suffix: the prefix is the
           # version in the interfaces PR's own pom, so leaving it unconstrained
           # would carry PR-controlled text into the mvn argument. Newest by
