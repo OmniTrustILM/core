@@ -3,6 +3,8 @@ package com.otilm.core.dao.repository.cbom;
 import com.otilm.core.dao.entity.cbom.CryptoAsset;
 import com.otilm.core.dao.repository.SecurityFilterRepository;
 import com.otilm.core.model.cbom.CryptoAssetListRow;
+import com.otilm.core.model.cbom.PqcStaleVerdictRow;
+import jakarta.persistence.Tuple;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -16,8 +18,9 @@ import org.springframework.stereotype.Repository;
  * Queries and guarded writes for the deduplicated cryptographic asset inventory.
  *
  * <p>
- * Every {@code @Modifying} statement here is called from {@code CryptoAssetWriter} and from nowhere else: the
- * transactional boundary lives on the writer, never on this interface.
+ * Every {@code @Modifying} statement here is called from a writer bean in {@code ..service.writer..} and from nowhere
+ * else -- {@code CryptoAssetWriter} for the ingest path, {@code CryptoAssetPqcVerdictWriter} for the re-evaluation
+ * sweep's batches. The transactional boundary lives on those writers, never on this interface.
  */
 @Repository
 public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAsset, UUID> {
@@ -181,6 +184,105 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
     void applyPqcVerdict(@Param("uuid") UUID uuid, @Param("verdict") String verdict, @Param("ruleId") String ruleId,
             @Param("reason") String reason, @Param("rulesetVersion") int rulesetVersion,
             @Param("evaluatedFields") String evaluatedFields);
+
+    /**
+     * The sweep's work list, one keyset page of it. See {@link #staleVerdictRows} for what a caller uses.
+     *
+     * <p>
+     * Native, and not for speed: {@code xmin} is the row version the guarded write compares, and no JPQL projection can
+     * reach a system column. It has to be read in the <em>same</em> statement as the columns the verdict is computed
+     * from -- the sweep's transaction is {@code READ COMMITTED}, so a second statement would see a later snapshot and a
+     * write landing between the two would be invisible to the guard. {@code merged_crypto_properties} comes back as
+     * text because the evaluator wants a {@code JsonNode}: the entity converter would build a {@code Map} only for the
+     * sweep to serialize it again.
+     *
+     * <p>
+     * <b>Stale</b> is either half of the contract: a verdict from an older generation of the rules, or a verdict older
+     * than the row it describes. {@code pqc_evaluated_at < i_upd} catches the second -- a payload re-election, a richer
+     * source winning, an identity refresh -- because the guarded write sets both to one {@code CURRENT_TIMESTAMP}, so a
+     * verdict never re-offers itself while any later writer does.
+     *
+     * <p>
+     * Keyset-cursored, and that is correctness rather than performance: a written row leaves this result set, so an
+     * offset would skip exactly as many unread rows as the last batch wrote, and re-querying from the start only
+     * terminates if every claimed row leaves -- one the guard refuses does not, and would return at the head forever.
+     */
+    @Query(value = """
+            SELECT uuid,
+                   asset_type,
+                   name,
+                   oid,
+                   algorithm_family,
+                   primitive,
+                   parameter_set,
+                   curve,
+                   mode,
+                   padding,
+                   variant,
+                   merged_crypto_properties::text AS merged_crypto_properties,
+                   xmin::text::bigint AS row_version
+            FROM {h-schema}crypto_asset
+            WHERE (pqc_ruleset_version IS NULL
+                    OR pqc_ruleset_version < :version
+                    OR pqc_evaluated_at < i_upd)
+              AND uuid > :after
+            ORDER BY uuid
+            LIMIT :limit
+            """, nativeQuery = true)
+    List<Tuple> findStaleVerdictRows(@Param("version") int version, @Param("after") UUID after,
+            @Param("limit") int limit);
+
+    /**
+     * {@link #findStaleVerdictRows} mapped onto the record the sweep evaluates. A default method rather than a
+     * {@code @SqlResultSetMapping} so the column-to-component mapping is read by name, in one place, and by a caller
+     * that can be mocked.
+     */
+    default List<PqcStaleVerdictRow> staleVerdictRows(int version, UUID after, int limit) {
+        return findStaleVerdictRows(version, after, limit).stream().map(PqcStaleVerdictRow::fromWorkListRow).toList();
+    }
+
+    /**
+     * {@link #applyPqcVerdict} guarded against the sweep's read-to-write window, so a verdict computed from columns
+     * that have since moved is refused rather than stamped current.
+     *
+     * <p>
+     * The guard is {@code xmin}, the transaction that wrote the row's current version, and not {@code i_upd}.
+     * {@code i_upd} is {@code CURRENT_TIMESTAMP}, which is {@code transaction_timestamp()}: microsecond resolution,
+     * non-monotonic, and <em>identical</em> for two backends whose transactions begin together -- measured at 2.0 % of
+     * barrier-synchronised pairs. Comparing it is a value check, not a version check, and a payload landing from such a
+     * transaction would pass. No two transactions share an xid. A tuple frozen between the read and this write reads
+     * {@code xmin} as 2, which can only refuse a write the next sweep retries, never admit a stale one.
+     *
+     * <p>
+     * The staleness clause restates {@link #findStaleVerdictRows}'s definition of the work list, and has to: a row
+     * offered because its payload moved is already at the current generation, so a version-only clause would refuse
+     * every write the widened work list asks for.
+     *
+     * @return 1 if the row was written, 0 if it was written by someone else since it was read, or is no longer stale
+     */
+    @Modifying
+    @Query(value = """
+            UPDATE {h-schema}crypto_asset
+            SET pqc_verdict = :verdict,
+                pqc_rule_id = :ruleId,
+                pqc_reason = :reason,
+                pqc_ruleset_version = :rulesetVersion,
+                pqc_evaluated_fields = CAST(:evaluatedFields AS jsonb),
+                pqc_evaluated_at = CURRENT_TIMESTAMP,
+                pqc_decided_at = CASE
+                    WHEN crypto_asset.pqc_verdict IS DISTINCT FROM CAST(:verdict AS TEXT) THEN CURRENT_TIMESTAMP
+                    ELSE COALESCE(crypto_asset.pqc_decided_at, CURRENT_TIMESTAMP)
+                END,
+                i_upd = CURRENT_TIMESTAMP
+            WHERE uuid = :uuid
+              AND (pqc_ruleset_version IS NULL
+                    OR pqc_ruleset_version < :rulesetVersion
+                    OR pqc_evaluated_at < i_upd)
+              AND xmin::text::bigint = :rowVersion
+            """, nativeQuery = true)
+    int applyPqcVerdictIfStale(@Param("uuid") UUID uuid, @Param("rowVersion") long rowVersion,
+            @Param("verdict") String verdict, @Param("ruleId") String ruleId, @Param("reason") String reason,
+            @Param("rulesetVersion") int rulesetVersion, @Param("evaluatedFields") String evaluatedFields);
 
     @Modifying
     @Query("DELETE FROM CryptoAsset a WHERE a.uuid = :uuid")

@@ -925,6 +925,37 @@ class NormalizationRulesTest {
     }
 
     /**
+     * Yarrow and CMEA refuse a following letter and nothing else, so a glued size and the registry's hyphenated
+     * variants still elect. The cost is the separator-free spelling of the registry's own variant: {@code YarrowAES}
+     * elects nothing, because the AES rule's left guard refuses it as well. Skipjack and RC4 keep no right guard
+     * because {@code RC4A} is a published variant and {@code RC4Engine} a real glued spelling; all four are legacy
+     * families, so a missed election erases a weak-crypto finding for any of them, and only the spelling evidence tells
+     * them apart.
+     */
+    @ParameterizedTest
+    @CsvSource({
+            "Yarrow,Yarrow",
+            "Yarrow256,Yarrow",
+            "Yarrow-160,Yarrow",
+            "Yarrow-AES-SHA256,Yarrow",
+            "YarrowAES,",
+            "Yarrowed,",
+            "CMEA,CMEA",
+            "CMEA-64,CMEA",
+            "CMEA (legacy),CMEA",
+            "CMEAS,",
+            "CMEAlgorithm,",
+            "Skipjack,Skipjack",
+            "Skipjacked,Skipjack",
+            "SkipjackEngine,Skipjack",
+            "RC4,RC4",
+            "RC4A,RC4",
+            "RC4Engine,RC4"})
+    void aLegacyFamilyRefusesAGluedLetterOnlyWhereNoRealSpellingGluesOne(String name, String expected) {
+        assertThat(normalize(name).family()).isEqualTo(expected);
+    }
+
+    /**
      * GOST is one registry token for several standards, so a name citing a standard stays on the name tier -- glued or
      * separated -- and every other spelling elects the family.
      *

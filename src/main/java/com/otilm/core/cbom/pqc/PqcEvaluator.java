@@ -6,7 +6,6 @@ import com.otilm.api.model.core.cryptoasset.PqcVerdict;
 import com.otilm.core.cbom.asset.CryptoAssetIdentityFields;
 import com.otilm.core.cbom.asset.identity.AsciiText;
 import com.otilm.core.cbom.asset.identity.AssetNormalizer;
-import com.otilm.core.cbom.asset.identity.NormalizedAsset;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -24,12 +23,8 @@ import org.springframework.stereotype.Component;
  * lets the whole rule set be tested without Spring or a database.
  *
  * <p>
- * Ingest holds a {@link NormalizedAsset}; the sweep holds only a stored row. Both go through {@link #fromStoredRow}, so
- * one derivation serves both -- but not over the same bytes. Ingest evaluates the row it <em>would</em> write, and the
- * row that survives the upsert keeps the first producer's {@code name}; the sweep reads the merge-elected source's
- * payload, which need not be the one ingest saw. Two producers sharing one identity key can therefore make the two
- * sides disagree about {@code name}, {@code materialType} and {@code materialSize}. Closing that means evaluating the
- * stored row after the upsert, which is the caller's move.
+ * {@link #fromStoredRow} is the only way to build a {@link PqcRuleInput}: every caller, ingest included, evaluates the
+ * row as the database holds it after the upsert and the merge, so two callers reading one row cannot disagree.
  */
 @Component
 @Lazy
@@ -295,17 +290,7 @@ public class PqcEvaluator {
         return dispositionOfComponent(token);
     }
 
-    // ---- The two input shapes -------------------------------------------------------------------------------------
-
-    /**
-     * Delegates rather than reading the derivation, because a verdict describes the row that will be stored. Reusing
-     * {@link NormalizedAsset#hybridComponents()} looked equivalent: they come from the raw name, while the sweep
-     * re-derives from the folded column, so a name with fullwidth digits produced different evidence on each side.
-     */
-    public PqcRuleInput fromNormalized(NormalizedAsset asset, JsonNode cryptoProperties) {
-        return fromStoredRow(CryptoAssetIdentityFields.of(assetTypeOf(asset.assetType()), asset).normalized(),
-                cryptoProperties);
-    }
+    // ---- The input shape ------------------------------------------------------------------------------------------
 
     /**
      * {@code hybridComponents} is re-derived, not read: it is out-of-key by construction and has no column.
@@ -314,8 +299,8 @@ public class PqcEvaluator {
      * The material tier derives no family -- {@code AssetNormalizer} leaves it null for every
      * {@code related-crypto-material} component, with or without an {@code algorithmRef} -- so a private key whose own
      * name says {@code RSA-2048} reached the rules with nothing to classify. The name is a column, so reading the
-     * family out of it is available identically to both callers. Confined to material: on an algorithm row a null
-     * family is the normalizer's decision, a cipher suite above all, and stands.
+     * family out of it is available to every caller. Confined to material: on an algorithm row a null family is the
+     * normalizer's decision, a cipher suite above all, and stands.
      */
     public PqcRuleInput fromStoredRow(CryptoAssetIdentityFields fields, JsonNode mergedCryptoProperties) {
         String family = ratifiedFamily(fields.algorithmFamily());

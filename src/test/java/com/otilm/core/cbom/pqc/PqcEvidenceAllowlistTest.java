@@ -45,16 +45,23 @@ class PqcEvidenceAllowlistTest {
                         .containsAll(rule.readsFields()));
     }
 
+    static List<String> algorithmNames() {
+        return List
+                .of("RSA-2048", "RSA", "ECDSA-P-256", "Ed25519", "AES-256-GCM", "SHA-256", "SHA-512/224", "DES", "MD5",
+                        "ML-KEM-768", "ML-DSA-65", "SLH-DSA-SHA2-128s", "Kyber768", "Dilithium3", "SIKEp434",
+                        "Falcon-512", "FN-DSA-512", "X25519-ML-KEM-768", "X25519-Kyber768", "X-Wing", "GOST",
+                        "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256", "Acme Proprietary Wrap", "HMAC-SHA256", "3DES-CMAC",
+                        "ChaCha20-Poly1305", "XMSS-SHA2_10_256", "HSS-LMS", "bcrypt", "Classic McEliece 348864",
+                        "X25519-ML-KEM-\uFF17\uFF16\uFF18", "RSA-\uFF12\uFF10\uFF14\uFF18", "\uFF32\uFF33\uFF21-2048");
+    }
+
     /**
-     * The parity corpus of algorithm names, plus the shapes it lacks: the material and asset-type rules read fields no
-     * algorithm row carries, so without these the allowlist was never driven through them.
+     * One algorithm name per rule family, plus the shapes an algorithm row lacks: the material and asset-type rules
+     * read fields no algorithm row carries, so without these the allowlist was never driven through them.
      */
     static Stream<Arguments> components() {
         return Stream
-                .concat(PqcParityTest
-                        .assets()
-                        .stream()
-                        .map(name -> Arguments.of(name, PqcEvaluatorTest.algorithm(name))),
+                .concat(algorithmNames().stream().map(name -> Arguments.of(name, PqcEvaluatorTest.algorithm(name))),
                         Stream
                                 .of(Arguments
                                         .of("secret-key of 256 bits",
@@ -144,7 +151,8 @@ class PqcEvidenceAllowlistTest {
     void aRuleDeclaringAnUnknownFieldIsRefused() {
         assertThat(PqcRules.EVIDENCE_FIELDS).doesNotContain("identityKey");
         PqcRuleInput input = evaluator
-                .fromNormalized(normalizer.normalize(PqcEvaluatorTest.algorithm("RSA-2048")).asset(), null);
+                .fromStoredRow(PqcEvaluatorTest
+                        .storedRow(normalizer.normalize(PqcEvaluatorTest.algorithm("RSA-2048")).asset()), null);
         List<String> rogueFields = List.of("identityKey");
 
         // The allowlist guard's own text, not the field name: the exhaustiveness default in the projection's switch
@@ -158,7 +166,8 @@ class PqcEvidenceAllowlistTest {
     private PqcDecision decide(JsonNode component) {
         var properties = component.get("cryptoProperties");
         return evaluator
-                .evaluate(evaluator.fromNormalized(normalizer.normalize(component).asset(), properties),
+                .evaluate(evaluator
+                        .fromStoredRow(PqcEvaluatorTest.storedRow(normalizer.normalize(component).asset()), properties),
                         PqcEvaluator.nistQuantumSecurityLevel(properties));
     }
 }

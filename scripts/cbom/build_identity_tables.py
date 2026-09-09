@@ -173,13 +173,25 @@ NAME_GRAMMAR = [
     {"pattern": r"(?<![A-Za-z0-9])scrypt", "family": "scrypt", "why": "registry token"},
 
     # --- DRBG named after its primitives, same principle ---------------------------
-    {"pattern": r"(?<![A-Za-z0-9])Yarrow", "family": "Yarrow",
+    {"pattern": r"(?<![A-Za-z0-9])Yarrow(?![A-Za-z])", "family": "Yarrow",
      "why": "registry token with no rule; superseded by Fortuna by its own authors and carrying a "
             "legacy disposition, yet a bare `Yarrow` resolved to nothing and was read back as a broken "
             "component of itself, the same defect as CMEA. Same shape as Skipjack, placed here rather "
             "than beside it because the registry's variant pattern is `Yarrow[-{blockCipher}]"
             "[-{hashAlgorithm}]`: the name may carry the cipher and the hash it is built over, and "
-            "after the AES and SHA-2 rules `Yarrow-AES-SHA256` would elect its block cipher"},
+            "after the AES and SHA-2 rules `Yarrow-AES-SHA256` would elect its block cipher. The right guard "
+            "refuses a letter only: `Yarrowed` elected the family and took the drbg default, while a glued size "
+            "(`Yarrow256`, `Yarrow160`) and the hyphenated registry variants must still elect. Its cost is the "
+            "separator-free spelling of the registry variant: `YarrowAES` elects nothing, since the AES rule's left "
+            "guard refuses it too. That cost has a mirror in the material tier, accepted in the same breath: as sized "
+            "symmetric key material `YarrowAES` now reads `READY / MATERIAL-SYMMETRIC-READY` where it read "
+            "`NOT_READY / CLASSICAL-LEGACY`, because the material rules decide once no legacy family is named - so a "
+            "false `ready` on a glued legacy token replaces a false legacy finding on a name that was merely a word "
+            "(`Yarrowed`), and the direction of the error changes rather than only its size. Decided on spelling "
+            "evidence, not on safety: the corpus carries this family under "
+            "no spelling at all (its one near-hit, `pyarrow`, is a Python library the left guard already refuses), so "
+            "no glued spelling is known to be lost, whereas a legacy family that misses an election loses a weak-crypto "
+            "finding for Yarrow exactly as it would for Skipjack"},
 
     # --- MAC before digest: HMAC-SHA256 must not read as SHA-2 ------------------
     {"pattern": r"(?<![A-Za-z0-9])HMAC(?![A-Za-z0-9])", "family": "HMAC",
@@ -379,7 +391,9 @@ NAME_GRAMMAR = [
     # One rule per token: RC2/RC4/RC5/RC6 are four different families and four
     # different risk verdicts, so they must never share a rule.
     {"pattern": r"(?<![A-Za-z0-9])RC2(?![A-Za-z0-9])", "family": "RC2", "why": "registry token"},
-    {"pattern": r"(?<![A-Za-z0-9])RC4", "family": "RC4", "why": "cbom-lens RC4-128"},
+    {"pattern": r"(?<![A-Za-z0-9])RC4", "family": "RC4",
+     "why": "cbom-lens RC4-128. No right guard, deliberately: `RC4A` is a published variant and "
+            "`RC4Engine` a real glued spelling, and over-election is the safe error for a broken cipher"},
     {"pattern": r"(?<![A-Za-z0-9])RC5(?![A-Za-z0-9])", "family": "RC5", "why": "registry token"},
     {"pattern": r"(?<![A-Za-z0-9])RC6(?![A-Za-z0-9])", "family": "RC6", "why": "registry token"},
 
@@ -410,12 +424,21 @@ NAME_GRAMMAR = [
             "before family derivation runs, so they cannot reach this"},
     {"pattern": r"(?<![A-Za-z0-9])Skipjack", "family": "Skipjack",
      "why": "registry token with no rule; `Skipjack (broken cipher)` resolved to nothing, and a "
-            "broken cipher going unnamed is the opposite of what the inventory is for"},
-    {"pattern": r"(?<![A-Za-z0-9])CMEA", "family": "CMEA",
+            "broken cipher going unnamed is the opposite of what the inventory is for. No right guard, "
+            "deliberately: `SkipjackEngine` is a real glued spelling and over-election is the safe error "
+            "for a broken cipher, so `Skipjacked` electing the family is accepted"},
+    {"pattern": r"(?<![A-Za-z0-9])CMEA(?![A-Za-z])", "family": "CMEA",
      "why": "registry token with no rule; the family's own disposition is classically broken "
             "(Wagner, Schneier and Kelsey, FSE 1997), yet a bare `CMEA` resolved to nothing and the "
             "token survived into the variant residue, where the verdict path read it back as a "
-            "broken component of an asset that has no components. Same shape as Skipjack"},
+            "broken component of an asset that has no components. Same shape as Skipjack, except for the "
+            "right guard: `CMEAlgorithm` elected the family, and CMEA's relatives glue on the left (ECMEA), "
+            "so refusing a following letter loses only a glued right spelling such as `CMEAS`, which then elects "
+            "nothing, while `CMEA-64` still elects. The same mirror as Yarrow applies and is accepted with it: as "
+            "sized symmetric key material `CMEAS` now reads `READY / MATERIAL-SYMMETRIC-READY` where it read "
+            "`NOT_READY / CLASSICAL-LEGACY`. Decided on spelling evidence, not on safety: the corpus carries "
+            "this family under no spelling, so no glued spelling is known to be lost, whereas a legacy family that "
+            "misses an election loses a weak-crypto finding for CMEA exactly as it would for Skipjack"},
     {"pattern": r"(?<![A-Za-z0-9])Fernet", "family": "Fernet",
      "why": "pseudo-family: a real construction the registry cannot express, 5 corpus rows"},
 

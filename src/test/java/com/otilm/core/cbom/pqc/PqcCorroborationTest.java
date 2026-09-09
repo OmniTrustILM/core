@@ -101,7 +101,8 @@ class PqcCorroborationTest {
         JsonNode component = componentWithLevel(name, level);
         JsonNode properties = component.get("cryptoProperties");
         return evaluator
-                .evaluate(evaluator.fromNormalized(normalizer.normalize(component).asset(), properties),
+                .evaluate(evaluator
+                        .fromStoredRow(PqcEvaluatorTest.storedRow(normalizer.normalize(component).asset()), properties),
                         PqcEvaluator.nistQuantumSecurityLevel(properties));
     }
 

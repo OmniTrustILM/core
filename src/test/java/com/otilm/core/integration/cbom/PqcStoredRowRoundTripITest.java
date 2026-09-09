@@ -34,15 +34,17 @@ import org.springframework.beans.factory.annotation.Autowired;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The verdict the sweep reads off a stored row against the verdict ingest recorded, over a row written by the shipped
- * writer and read back from PostgreSQL, so the two sides share only the rule set.
+ * A row written by the shipped writers and read back from PostgreSQL still carries the columns and the elected payload
+ * ingest gave it, and the verdict recorded on it is the one the rule set owes those stored inputs.
  *
  * <p>
- * Each single-producer vector also asserts the rule id the rule set owes the asset. That oracle is not redundant: a
- * derivation that drops a column leaves both sides agreeing on {@code FAMILY-UNRESOLVED}, which a parity assertion
- * alone cannot see.
+ * Not a parity test. There is one input shape, so evaluating the read-back row and comparing with the verdict that same
+ * evaluation recorded is one function on both sides; what that comparison catches is a column or payload that did not
+ * survive storage. The hardcoded rule ids and evidence values in each test are the oracle that a derivation which drops
+ * a column cannot satisfy -- both sides would agree on {@code FAMILY-UNRESOLVED} and the comparison alone would not see
+ * it.
  */
-class PqcStoredRowParityITest extends BaseSpringBootTest {
+class PqcStoredRowRoundTripITest extends BaseSpringBootTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final TypeReference<Map<String, Object>> PAYLOAD = new TypeReference<>() {
@@ -89,107 +91,113 @@ class PqcStoredRowParityITest extends BaseSpringBootTest {
                                         "MATERIAL-SYMMETRIC-READY"));
     }
 
+    /**
+     * With one producer the row is exactly the derivation's columns, folded -- the premise the unit suite's in-memory
+     * stored-row fixture rests on, pinned here against the real writer.
+     */
     @ParameterizedTest
     @MethodSource("singleProducerVectors")
-    void aRowWrittenByOneProducerDecidesAsIngestDid(JsonNode component, String expectedRuleId) {
+    void aRowWrittenByOneProducerKeepsItsColumnsAndItsVerdict(JsonNode component, String expectedRuleId) {
         CryptoAsset row = asset(ingest(component, firstCbom));
 
-        PqcDecision sweep = sweep(row);
+        PqcDecision fromStoredRow = decide(row);
 
         assertThat(row.getPqcRuleId())
                 .describedAs("ingest must have decided what the rule set owes this asset")
                 .isEqualTo(expectedRuleId);
-        assertThat(sweep.ruleId()).isEqualTo(row.getPqcRuleId());
-        assertThat(sweep.verdict()).isEqualTo(row.getPqcVerdict());
-        JsonNode sweepEvidence = MAPPER.valueToTree(sweep.evaluatedFields());
-        JsonNode recordedEvidence = MAPPER.valueToTree(row.getPqcEvaluatedFields());
-        assertThat(sweepEvidence).isEqualTo(recordedEvidence);
+        assertThat(storedFields(row)).isEqualTo(derivedFields(identity.of(component).asset()).normalized());
+        assertRecordedVerdictIsWhatTheStoredRowDecides(fromStoredRow, row);
     }
 
     /**
      * The key path collapses internal whitespace runs where the column's fold does not, so the two spellings share one
-     * row; {@code COALESCE} then keeps the first, which is what makes re-sync idempotent.
+     * row; {@code COALESCE} then keeps the first, which is what makes re-sync idempotent. The second producer's verdict
+     * is read off that stored spelling, not off the one it sent.
      */
     @Test
-    void theRowKeepsTheFirstProducersNameWhileIngestEvaluatedTheSecond() {
+    void twoSpellingsOfOneNameDecideFromTheStoredSpelling() {
         UUID first = ingest(algorithm("private key"), firstCbom);
         UUID second = ingest(algorithm("private  key"), secondCbom);
         assertThat(second).describedAs("the two spellings key alike").isEqualTo(first);
 
         CryptoAsset row = asset(second);
-        PqcDecision sweep = sweep(row);
 
         assertThat(row.getName()).isEqualTo("private key");
-        assertThat(row.getPqcRuleId())
-                .describedAs("ingest evaluated the second producer's spelling, which the name list does not hold")
-                .isEqualTo(PqcRules.FAMILY_UNRESOLVED);
-        assertThat(row.getPqcVerdict()).isEqualTo(PqcVerdict.UNKNOWN);
-        assertThat(sweep.ruleId())
-                .describedAs("the sweep reads the first producer's spelling, which it does")
-                .isEqualTo("NAME-NOT-AN-ALGORITHM");
-        assertThat(sweep.verdict()).isEqualTo(PqcVerdict.NOT_APPLICABLE);
+        assertThat(row.getPqcRuleId()).isEqualTo("NAME-NOT-AN-ALGORITHM");
+        assertThat(row.getPqcVerdict()).isEqualTo(PqcVerdict.NOT_APPLICABLE);
+        assertThat(row.getPqcEvaluatedFields()).containsEntry(PqcRules.NAME, "private key");
+        assertRecordedVerdictIsWhatTheStoredRowDecides(decide(row), row);
     }
 
     /**
      * {@code size} is outside the material identity tuple, so producers disagreeing about it share one row, and the
-     * merge elects the richest payload rather than the one ingest read.
+     * merge elects the richest payload. The verdict is read off the elected payload, whichever producer sent it.
      */
     @Test
-    void theMergeElectsTheRichestPayloadWhileIngestEvaluatedTheThinOne() {
+    void producersDisagreeingAboutASizeDecideFromTheElectedPayload() {
         UUID rich = ingest(material("vault-key-2024",
                 "\"id\":\"vault-key-2024\",\"size\":64,\"state\":\"active\",\"format\":\"raw\""), firstCbom);
         UUID thin = ingest(material("vault-key-2024", "\"id\":\"vault-key-2024\",\"size\":256"), secondCbom);
         assertThat(thin).describedAs("size is not part of the material identity").isEqualTo(rich);
 
         CryptoAsset row = asset(thin);
-        PqcDecision sweep = sweep(row);
 
         assertThat(row.getSourceCount()).isEqualTo(2);
         assertThat(elected(row).get("size").intValue()).isEqualTo(64);
         assertThat(row.getPqcRuleId())
-                .describedAs("ingest evaluated the thin producer's own payload")
-                .isEqualTo("MATERIAL-SYMMETRIC-READY");
-        assertThat(row.getPqcVerdict()).isEqualTo(PqcVerdict.READY);
-        assertThat(sweep.ruleId())
-                .describedAs("the sweep reads the elected payload; 64 is inside the ratified size band")
+                .describedAs("64 is inside the ratified size band")
                 .isEqualTo("MATERIAL-SYMMETRIC-WEAK");
-        assertThat(sweep.verdict()).isEqualTo(PqcVerdict.NOT_READY);
+        assertThat(row.getPqcVerdict()).isEqualTo(PqcVerdict.NOT_READY);
+        assertThat(row.getPqcEvaluatedFields()).containsEntry(PqcRules.MATERIAL_SIZE, 64);
+        assertRecordedVerdictIsWhatTheStoredRowDecides(decide(row), row);
     }
 
     // ---- the two sides ----
 
-    /** Key the component, upsert identity and source, evaluate the derivation, record the verdict. */
+    /** Key the component, upsert identity and source, then evaluate the row that came back and record the verdict. */
     private UUID ingest(JsonNode component, Cbom cbom) {
         CryptoAssetIdentity.Identity keyed = identity.of(component);
-        NormalizedAsset asset = keyed.asset();
         JsonNode payload = keyed.redaction().storedPayload();
 
-        UUID assetUuid = assetWriter
-                .upsertIdentity(keyed.key(),
-                        CryptoAssetIdentityFields.of(PqcEvaluator.assetTypeOf(asset.assetType()), asset),
-                        keyed.guard());
+        UUID assetUuid = assetWriter.upsertIdentity(keyed.key(), derivedFields(keyed.asset()), keyed.guard());
         sourceWriter
                 .upsertSource(assetUuid, cbom.getUuid(), MAPPER.convertValue(payload, PAYLOAD), List.of(),
                         OffsetDateTime.now());
 
-        PqcDecision decision = evaluator
-                .evaluate(evaluator.fromNormalized(asset, payload), PqcEvaluator.nistQuantumSecurityLevel(payload));
+        PqcDecision decision = decide(asset(assetUuid));
         assetWriter
                 .applyPqcVerdict(assetUuid, decision.verdict(), decision.ruleId(), decision.reason(),
                         PqcRuleset.VERSION, decision.evaluatedFields());
         return assetUuid;
     }
 
-    /** The sweep's view: nothing but the columns and the elected payload that came back from the database. */
-    private PqcDecision sweep(CryptoAsset row) {
-        CryptoAssetIdentityFields stored = new CryptoAssetIdentityFields(row.getAssetType(), row.getName(),
-                row.getOid(), row.getAlgorithmFamily(), row.getPrimitive(), row.getParameterSet(), row.getCurve(),
-                row.getMode(), row.getPadding(), row.getVariant());
+    /** Nothing but the columns and the elected payload that came back from the database. */
+    private PqcDecision decide(CryptoAsset row) {
         JsonNode merged = row.getMergedCryptoProperties() == null
                 ? null
                 : MAPPER.valueToTree(row.getMergedCryptoProperties());
         return evaluator
-                .evaluate(evaluator.fromStoredRow(stored, merged), PqcEvaluator.nistQuantumSecurityLevel(merged));
+                .evaluate(evaluator.fromStoredRow(storedFields(row), merged),
+                        PqcEvaluator.nistQuantumSecurityLevel(merged));
+    }
+
+    /** The stored columns and payload still decide what was recorded from them; a lost column would move one side. */
+    private void assertRecordedVerdictIsWhatTheStoredRowDecides(PqcDecision fromStoredRow, CryptoAsset row) {
+        assertThat(fromStoredRow.ruleId()).isEqualTo(row.getPqcRuleId());
+        assertThat(fromStoredRow.verdict()).isEqualTo(row.getPqcVerdict());
+        JsonNode decidedEvidence = MAPPER.valueToTree(fromStoredRow.evaluatedFields());
+        JsonNode recordedEvidence = MAPPER.valueToTree(row.getPqcEvaluatedFields());
+        assertThat(decidedEvidence).isEqualTo(recordedEvidence);
+    }
+
+    private static CryptoAssetIdentityFields storedFields(CryptoAsset row) {
+        return new CryptoAssetIdentityFields(row.getAssetType(), row.getName(), row.getOid(), row.getAlgorithmFamily(),
+                row.getPrimitive(), row.getParameterSet(), row.getCurve(), row.getMode(), row.getPadding(),
+                row.getVariant());
+    }
+
+    private static CryptoAssetIdentityFields derivedFields(NormalizedAsset asset) {
+        return CryptoAssetIdentityFields.of(PqcEvaluator.assetTypeOf(asset.assetType()), asset);
     }
 
     private static JsonNode elected(CryptoAsset row) {

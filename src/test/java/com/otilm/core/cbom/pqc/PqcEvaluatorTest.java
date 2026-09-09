@@ -4,8 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetType;
 import com.otilm.api.model.core.cryptoasset.PqcVerdict;
+import com.otilm.core.cbom.asset.CryptoAssetIdentityFields;
 import com.otilm.core.cbom.asset.identity.AssetNormalizer;
 import com.otilm.core.cbom.asset.identity.IdentityTables;
+import com.otilm.core.cbom.asset.identity.NormalizedAsset;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -652,8 +654,17 @@ class PqcEvaluatorTest {
     private PqcDecision verdictOf(JsonNode component) {
         JsonNode properties = component.get("cryptoProperties");
         return evaluator
-                .evaluate(evaluator.fromNormalized(normalizer.normalize(component).asset(), properties),
+                .evaluate(evaluator.fromStoredRow(storedRow(normalizer.normalize(component).asset()), properties),
                         PqcEvaluator.nistQuantumSecurityLevel(properties));
+    }
+
+    /**
+     * The row a single producer's derivation leaves in the table: its columns, folded by the column's own rule. Exact
+     * only for one producer -- a second sharing the key keeps the first's {@code name} and may lose the merge election
+     * -- which is why the multi-producer cases live in the integration suite over a real row.
+     */
+    static CryptoAssetIdentityFields storedRow(NormalizedAsset asset) {
+        return CryptoAssetIdentityFields.of(PqcEvaluator.assetTypeOf(asset.assetType()), asset).normalized();
     }
 
     static JsonNode algorithm(String name) {
