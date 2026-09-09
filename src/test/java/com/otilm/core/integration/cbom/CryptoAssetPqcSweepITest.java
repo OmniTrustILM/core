@@ -31,7 +31,7 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.PageRequest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -44,12 +44,17 @@ import static org.assertj.core.api.Assertions.assertThat;
  * What it proves is the orchestration, not the SQL: the two-timestamp semantics are already pinned by
  * {@link CryptoAssetInventoryITest#aReEvaluationAdvancesEvaluatedAtButNotDecidedAt} and re-proving them here would only
  * assert that the same statement still does what that test says. What is new is the parts that can only be wrong in a
- * database -- the keyset cursor advancing across batches, the per-sweep cap, the guard refusing a row touched between
- * the sweep's read and its write, and the advisory lock admitting one sweeper.
+ * database -- the keyset cursor advancing across batches, the per-sweep cap, what the work list calls stale, the guard
+ * refusing a row that moved between the sweep's read and its write, and the advisory lock admitting one sweeper.
  */
 class CryptoAssetPqcSweepITest extends BaseSpringBootTest {
 
     private static final int AWAIT_TIMEOUT_SECONDS = 10;
+
+    private static final UUID BEFORE_FIRST = new UUID(0L, 0L);
+
+    private static final Map<String, Object> SECRET_KEY_64 = Map
+            .of("relatedCryptoMaterialProperties", Map.of("type", "secret-key", "size", 64));
 
     @Autowired
     private CryptoAssetRepository assetRepository;
@@ -75,6 +80,9 @@ class CryptoAssetPqcSweepITest extends BaseSpringBootTest {
     @Autowired
     private PlatformTransactionManager transactionManager;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     private final ExecutorService lockHolderThread = Executors.newSingleThreadExecutor();
 
     @AfterEach
@@ -90,7 +98,7 @@ class CryptoAssetPqcSweepITest extends BaseSpringBootTest {
         PqcVerdictSweeper.SweepOutcome outcome = sweeper.sweep();
 
         assertThat(outcome.ran()).isTrue();
-        assertThat(outcome.evaluated()).isGreaterThanOrEqualTo(2);
+        assertThat(outcome.written()).isGreaterThanOrEqualTo(2);
         assertThat(verdictOf(rsa)).isEqualTo(PqcVerdict.NOT_READY);
         assertThat(verdictOf(aes)).isEqualTo(PqcVerdict.READY);
         assertThat(asset(rsa).getPqcRulesetVersion()).isEqualTo(PqcRuleset.VERSION);
@@ -106,7 +114,7 @@ class CryptoAssetPqcSweepITest extends BaseSpringBootTest {
 
         sweeper.sweep();
 
-        assertThat(assetRepository.findStaleVerdictRows(PqcRuleset.VERSION, new UUID(0L, 0L), PageRequest.of(0, 100)))
+        assertThat(workList())
                 .describedAs("after a successful sweep, nothing may still carry a verdict below the shipped generation")
                 .isEmpty();
     }
@@ -149,53 +157,103 @@ class CryptoAssetPqcSweepITest extends BaseSpringBootTest {
     }
 
     /**
-     * The guard itself, exercised where the race actually happens.
-     *
-     * <p>
-     * {@link #afresherVerdictIsNotOverwritten} writes the fresh verdict before the sweep runs, so the work list never
-     * offers the row and the guard is never reached -- removing the guard's clauses would leave that test green. This
-     * one calls the writer with a batch the sweep would have built from a stale read, after a fresher verdict has
-     * landed, which is one of the two orderings the guard exists for.
+     * The staleness half of the guard, alone. {@link #afresherVerdictIsNotOverwritten} writes the fresh verdict before
+     * the sweep runs, so the work list never offers the row and no clause of the guard is reached. This one hands the
+     * writer the row version as it stands <em>after</em> ingest's write, so the {@code xmin} clause matches and only
+     * the staleness clause can refuse -- which is the one thing no other test here can fail on.
      */
     @Test
-    void theGuardedWriteRefusesABatchBuiltFromAStaleRead() {
+    void theGuardedWriteRefusesARowThatIsNoLongerStale() {
         UUID uuid = upsert("RSA", "rsa", "2048");
-        PqcVerdictWrite staleRead = new PqcVerdictWrite(uuid, staleRow(uuid).updated(), new PqcDecision(
-                PqcVerdict.NOT_READY, "SWEEP-STALE", "computed from the columns read earlier", Map.of()));
-
         assetWriter
                 .applyPqcVerdict(uuid, PqcVerdict.READY, "INGEST-WON", "written by ingest", PqcRuleset.VERSION, null);
+        PqcVerdictWrite afterIngest = new PqcVerdictWrite(uuid, rowVersionOf(uuid), new PqcDecision(
+                PqcVerdict.NOT_READY, "SWEEP-STALE", "computed from the columns read earlier", Map.of()));
 
-        assertThat(verdictWriter.applyStaleBatch(List.of(staleRead), PqcRuleset.VERSION))
+        assertThat(verdictWriter.applyStaleBatch(List.of(afterIngest), PqcRuleset.VERSION))
                 .describedAs("the row is no longer stale, so the guarded update must write nothing")
-                .isZero();
+                .isEmpty();
         assertThat(asset(uuid).getPqcRuleId()).isEqualTo("INGEST-WON");
     }
 
     /**
      * The other ordering: what lands in the window is a payload, not a verdict. A payload moves no generation, so a
-     * guard on {@code pqc_ruleset_version} alone would write the verdict computed without it and stamp the row current
-     * -- and a current row is offered to no later sweep, so the contradiction between verdict and payload would stand
-     * until the next generation bump.
+     * guard on {@code pqc_ruleset_version} alone would write the verdict computed without it and stamp the row current.
      */
     @Test
     void aPayloadLandingBetweenReadAndWriteKeepsTheRowOnTheWorkList() {
         UUID uuid = upsertMaterial("vault-key-2024");
         PqcStaleVerdictRow read = staleRow(uuid);
-        assertThat(read.mergedCryptoProperties()).describedAs("read before any payload landed").isNull();
-        PqcVerdictWrite fromRead = new PqcVerdictWrite(uuid, read.updated(), new PqcDecision(PqcVerdict.UNKNOWN,
+        assertThat(read.mergedCryptoPropertiesJson()).describedAs("read before any payload landed").isNull();
+        PqcVerdictWrite fromRead = new PqcVerdictWrite(uuid, read.rowVersion(), new PqcDecision(PqcVerdict.UNKNOWN,
                 "SWEEP-NO-PAYLOAD", "computed before the payload landed", Map.of()));
 
-        sourceWriter
-                .upsertSource(uuid, cbom().getUuid(),
-                        Map.of("relatedCryptoMaterialProperties", Map.of("type", "secret-key", "size", 64)), List.of(),
-                        OffsetDateTime.now());
+        sourceWriter.upsertSource(uuid, cbom().getUuid(), SECRET_KEY_64, List.of(), OffsetDateTime.now());
 
         assertThat(verdictWriter.applyStaleBatch(List.of(fromRead), PqcRuleset.VERSION))
                 .describedAs(
                         "the row's inputs moved after the read, so the verdict computed from that read must not land")
-                .isZero();
+                .isEmpty();
         assertThat(asset(uuid).getPqcRulesetVersion()).describedAs("still on the work list").isNull();
+
+        sweeper.sweep();
+
+        assertThat(asset(uuid).getPqcRuleId()).isEqualTo("MATERIAL-SYMMETRIC-WEAK");
+        assertThat(asset(uuid).getPqcEvaluatedFields()).containsEntry("materialSize", 64);
+    }
+
+    /**
+     * The same window, with the payload landing from a transaction that shares the {@code CURRENT_TIMESTAMP} the sweep
+     * read -- which happens, measured, in 2.0 % of transaction pairs that begin together, because
+     * {@code CURRENT_TIMESTAMP} is {@code transaction_timestamp()}: microsecond resolution and non-monotonic. A guard
+     * comparing {@code i_upd} is then a value check and lets the write land.
+     *
+     * <p>
+     * The collision is staged rather than raced: the payload is written with {@code i_upd} left at exactly the value
+     * the sweep read, which is the state such a pair produces, and is deterministic. What must refuse the write is the
+     * row version, and only the row version -- the row is still stale, and its timestamp still says untouched.
+     */
+    @Test
+    void aPayloadLandingWithoutMovingTheTimestampKeepsTheRowOnTheWorkList() {
+        UUID uuid = upsertMaterial("vault-key-2024");
+        PqcStaleVerdictRow read = staleRow(uuid);
+        OffsetDateTime updatedAsRead = asset(uuid).getUpdated();
+        PqcVerdictWrite fromRead = new PqcVerdictWrite(uuid, read.rowVersion(), new PqcDecision(PqcVerdict.UNKNOWN,
+                "SWEEP-NO-PAYLOAD", "computed before the payload landed", Map.of()));
+
+        landPayloadKeepingTheTimestamp(uuid, updatedAsRead);
+
+        assertThat(asset(uuid).getUpdated())
+                .describedAs("the premise: the payload landed and left i_upd exactly as the sweep read it")
+                .isEqualTo(updatedAsRead);
+        assertThat(rowVersionOf(uuid))
+                .describedAs("the row version, unlike the timestamp, cannot be shared by two transactions")
+                .isNotEqualTo(read.rowVersion());
+
+        assertThat(verdictWriter.applyStaleBatch(List.of(fromRead), PqcRuleset.VERSION))
+                .describedAs("the row was rewritten after the read, so the verdict computed from that read must not "
+                        + "land")
+                .isEmpty();
+        assertThat(asset(uuid).getPqcRulesetVersion()).describedAs("still on the work list").isNull();
+    }
+
+    /**
+     * Staleness is not only the generation. A payload that lands <em>after</em> a row was stamped current leaves the
+     * stored verdict describing inputs the row no longer has, and a version-only work list would never offer it again
+     * -- the contradiction would stand until the next generation bump, which may be months.
+     */
+    @Test
+    void aPayloadLandingAfterTheStampPutsTheRowBackOnTheWorkList() {
+        UUID uuid = upsertMaterial("vault-key-2024");
+        sweeper.sweep();
+        assertThat(asset(uuid).getPqcRulesetVersion()).isEqualTo(PqcRuleset.VERSION);
+        assertThat(workList()).describedAs("a freshly stamped row does not re-offer itself").isEmpty();
+
+        sourceWriter.upsertSource(uuid, cbom().getUuid(), SECRET_KEY_64, List.of(), OffsetDateTime.now());
+
+        assertThat(workList().stream().map(PqcStaleVerdictRow::uuid))
+                .describedAs("the verdict is now older than the row it describes")
+                .containsExactly(uuid);
 
         sweeper.sweep();
 
@@ -249,9 +307,8 @@ class CryptoAssetPqcSweepITest extends BaseSpringBootTest {
                 .describedAs("with the test batch size of 5 this must cross several boundaries; a single batch would "
                         + "let offset paging or a broken cursor pass")
                 .isGreaterThan(1);
-        assertThat(outcome.evaluated()).isGreaterThanOrEqualTo(25);
-        assertThat(assetRepository.findStaleVerdictRows(PqcRuleset.VERSION, new UUID(0L, 0L), PageRequest.of(0, 100)))
-                .isEmpty();
+        assertThat(outcome.written()).isGreaterThanOrEqualTo(25);
+        assertThat(workList()).isEmpty();
     }
 
     private UUID upsert(String name, String family, String parameterSet) {
@@ -274,13 +331,31 @@ class CryptoAssetPqcSweepITest extends BaseSpringBootTest {
         return cbomRepository.save(cbom);
     }
 
+    /**
+     * A payload landing while {@code i_upd} stays put -- what a writer whose transaction began in the same microsecond
+     * as the one the sweep read produces. Written here rather than through {@code CryptoAssetSourceWriter} because no
+     * caller can choose its own {@code transaction_timestamp()}; the state is what the guard has to survive.
+     */
+    private void landPayloadKeepingTheTimestamp(UUID uuid, OffsetDateTime keptUpdated) {
+        jdbcTemplate
+                .update("UPDATE " + dbSchema + ".crypto_asset SET merged_crypto_properties = CAST(? AS jsonb), "
+                        + "properties_hash = ?, properties_leaf_count = ?, source_count = ?, i_upd = ? WHERE uuid = ?",
+                        "{\"relatedCryptoMaterialProperties\": {\"type\": \"secret-key\", \"size\": 64}}",
+                        "staged-payload", 2, 1, keptUpdated, uuid);
+    }
+
+    private long rowVersionOf(UUID uuid) {
+        return jdbcTemplate
+                .queryForObject("SELECT xmin::text::bigint FROM " + dbSchema + ".crypto_asset WHERE uuid = ?",
+                        Long.class, uuid);
+    }
+
+    private List<PqcStaleVerdictRow> workList() {
+        return assetRepository.staleVerdictRows(PqcRuleset.VERSION, BEFORE_FIRST, 100);
+    }
+
     private PqcStaleVerdictRow staleRow(UUID uuid) {
-        return assetRepository
-                .findStaleVerdictRows(PqcRuleset.VERSION, new UUID(0L, 0L), PageRequest.of(0, 100))
-                .stream()
-                .filter(row -> row.uuid().equals(uuid))
-                .findFirst()
-                .orElseThrow();
+        return workList().stream().filter(row -> row.uuid().equals(uuid)).findFirst().orElseThrow();
     }
 
     private CryptoAsset asset(UUID uuid) {

@@ -434,4 +434,4 @@ signing-record:
 crypto-asset:
   pqc-sweep:
     batch-size: ${CRYPTO_ASSET_PQC_SWEEP_BATCH_SIZE:500}
-    max-batches-per-sweep: ${CRYPTO_ASSET_PQC_SWEEP_MAX_BATCHES:20}
+    max-batches-per-sweep: ${CRYPTO_ASSET_PQC_SWEEP_MAX_BATCHES_PER_SWEEP:20}

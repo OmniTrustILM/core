@@ -183,7 +183,12 @@ NAME_GRAMMAR = [
             "refuses a letter only: `Yarrowed` elected the family and took the drbg default, while a glued size "
             "(`Yarrow256`, `Yarrow160`) and the hyphenated registry variants must still elect. Its cost is the "
             "separator-free spelling of the registry variant: `YarrowAES` elects nothing, since the AES rule's left "
-            "guard refuses it too. Decided on spelling evidence, not on safety: the corpus carries this family under "
+            "guard refuses it too. That cost has a mirror in the material tier, accepted in the same breath: as sized "
+            "symmetric key material `YarrowAES` now reads `READY / MATERIAL-SYMMETRIC-READY` where it read "
+            "`NOT_READY / CLASSICAL-LEGACY`, because the material rules decide once no legacy family is named - so a "
+            "false `ready` on a glued legacy token replaces a false legacy finding on a name that was merely a word "
+            "(`Yarrowed`), and the direction of the error changes rather than only its size. Decided on spelling "
+            "evidence, not on safety: the corpus carries this family under "
             "no spelling at all (its one near-hit, `pyarrow`, is a Python library the left guard already refuses), so "
             "no glued spelling is known to be lost, whereas a legacy family that misses an election loses a weak-crypto "
             "finding for Yarrow exactly as it would for Skipjack"},
@@ -429,7 +434,9 @@ NAME_GRAMMAR = [
             "broken component of an asset that has no components. Same shape as Skipjack, except for the "
             "right guard: `CMEAlgorithm` elected the family, and CMEA's relatives glue on the left (ECMEA), "
             "so refusing a following letter loses only a glued right spelling such as `CMEAS`, which then elects "
-            "nothing, while `CMEA-64` still elects. Decided on spelling evidence, not on safety: the corpus carries "
+            "nothing, while `CMEA-64` still elects. The same mirror as Yarrow applies and is accepted with it: as "
+            "sized symmetric key material `CMEAS` now reads `READY / MATERIAL-SYMMETRIC-READY` where it read "
+            "`NOT_READY / CLASSICAL-LEGACY`. Decided on spelling evidence, not on safety: the corpus carries "
             "this family under no spelling, so no glued spelling is known to be lost, whereas a legacy family that "
             "misses an election loses a weak-crypto finding for CMEA exactly as it would for Skipjack"},
     {"pattern": r"(?<![A-Za-z0-9])Fernet", "family": "Fernet",
