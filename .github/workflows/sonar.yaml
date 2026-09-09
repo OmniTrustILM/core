@@ -27,9 +27,8 @@ jobs:
           RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
         run: |
           set -euo pipefail
-          # Falls back to the run conclusion when the read fails. SonarCloud Code
-          # Analysis is a required context, so a bad read must not withhold it
-          # from every pull request in the repository.
+          # Falls back to the run conclusion when the read fails: SonarCloud Code
+          # Analysis is required, so a bad read must not withhold it repo-wide.
           # Keyed on exit status, not emptiness: gh prints an API error body to
           # stdout, so a failed read would otherwise look like a real answer.
           PKG=$(gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/jobs" \

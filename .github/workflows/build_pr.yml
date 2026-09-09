@@ -15,11 +15,9 @@ permissions:
   packages: read
 
 jobs:
-  # A coupled interfaces change cannot be validated here until it merges, so a
-  # marker in the PR body redirects this build at the interfaces PR's own
-  # snapshot for the duration of review. The pom is never touched: core's
-  # ruleset dismisses approvals on push and forbids self-approval of the push,
-  # so a revert commit would cost the author a second review round.
+  # A marker in the PR body redirects this build at an unmerged interfaces PR's
+  # snapshot. The pom is never touched: core dismisses approvals on push and
+  # forbids self-approval, so a revert commit would cost a second review round.
   resolve-interfaces:
     name: Resolve interfaces version
     runs-on: ubuntu-latest
@@ -50,19 +48,15 @@ jobs:
             emit "" "none"; exit 0
           fi
 
-          # Fetched live rather than read from github.event.pull_request.body: a
-          # re-run replays the original payload, so an edited marker would be
-          # invisible and the override could never be cleared without a push -
-          # which dismisses the approval. It also keeps raw body text out of the
-          # environment.
+          # Live, not github.event.pull_request.body: a re-run replays the original
+          # payload, so an edited marker would be invisible and the override could
+          # never clear without a push, which dismisses the approval.
           if ! BODY=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/$PR" --jq '.body // ""'); then
             fail "Could not read the body of ${GITHUB_REPOSITORY}#${PR}."
           fi
 
-          # Fenced blocks and HTML comments go first: the regexes below are
-          # line-oriented and know nothing about Markdown, so a body that quotes
-          # the marker syntax - this feature's own PR body, say - would otherwise
-          # pin the build to whatever the example names.
+          # Fenced blocks and HTML comments go first: the regexes are line-oriented,
+          # so a body quoting the marker syntax would otherwise pin the build.
           BODY=$(printf '%s\n' "$BODY" | python3 -c 'import re,sys; t=sys.stdin.read(); t=re.sub(r"<!--.*?-->","",t,flags=re.S); t=re.sub(r"^[ \t]*(```|~~~).*?^[ \t]*\1","",t,flags=re.S|re.M); sys.stdout.write(t)')
 
           # head -1 below would otherwise take the earlier line silently.
@@ -79,15 +73,12 @@ jobs:
             | head -1 || true)
           # Strict extractors, loose probes.
           #
-          # Strict: line start, nothing after the value. Trailing junk is
-          # rejected, not truncated - `Interfaces-Version: 2.20.0; rm -rf /`
-          # does not become a pin on 2.20.0.
+          # Strict: line start, nothing after the value - `Interfaces-Version:
+          # 2.20.0; rm -rf /` is rejected, not truncated to a pin on 2.20.0.
           #
-          # Loose: a bulleted, indented, bold or blockquoted marker misses the
-          # extractor, so the probe has to catch it and fail loudly.
-          #
-          # The Depends-On probe closes off the repository name, so a marker for
-          # another repo - or a sibling starting with the same word - is ignored.
+          # Loose: a decorated marker misses the extractor, so the probe catches it
+          # and fails loudly. The Depends-On probe closes off the repository name,
+          # so another repo's marker - or a same-prefix sibling - is ignored.
           if printf '%s' "$BODY" | grep -qiP '^[[:space:]>*_+#.)0-9-]*Depends-On[[:space:]*_]*:[[:space:]*_]*(https?://github\.com/)?OmniTrustILM/interfaces(?![0-9A-Za-z._-])' && [ -z "$NUM" ]; then
             fail "A Depends-On: line for interfaces is present but not in the accepted form. It must begin the line and read: Depends-On: OmniTrustILM/interfaces#<number> - a pull-request URL is not accepted."
           fi
@@ -100,9 +91,8 @@ jobs:
             echo "::warning::Both markers present - Interfaces-Version wins; ignoring Depends-On: OmniTrustILM/interfaces#${NUM}."
           fi
 
-          # Reaches the build jobs through the environment, never interpolated
-          # into their run: blocks, so the value is not shell source text there.
-          # The regexes still constrain it; this removes the dependence on them.
+          # Reaches the build jobs through the environment, never interpolated into
+          # their run: blocks, so the value is never shell source text.
           if [ -n "$VER" ]; then
             echo "Explicit override: $VER"
             emit "-Dinterfaces.version=$VER" "explicit"; exit 0
@@ -112,9 +102,8 @@ jobs:
             emit "" "none"; exit 0
           fi
 
-          # Captured, not tested inline: a command substitution inside an `if`
-          # condition does not trip `set -e`, so a 404 or a rate limit would read
-          # as "not merged" and send the author hunting a label already applied.
+          # Captured, not tested inline: a substitution inside an `if` does not trip
+          # `set -e`, so a 404 or rate limit would read as "not merged".
           if ! IPR=$(gh api "repos/OmniTrustILM/interfaces/pulls/$NUM" --jq '[.merged, .state, (.merge_commit_sha // ""), (.merged_at // "")] | @tsv'); then
             fail "Cannot read OmniTrustILM/interfaces#${NUM} - check that the number names an existing pull request."
           fi
@@ -144,23 +133,20 @@ jobs:
             emit "" "none"; exit 0
           fi
 
-          # Otherwise a PR closed without merging reads as "still open" and keeps
-          # this build pinned to an abandoned branch for as long as the marker
-          # stays; the snapshot outlives it, cleanup being a weekly cron.
+          # A PR closed without merging would otherwise read as "still open" and keep
+          # this build pinned to an abandoned branch; its snapshot outlives it.
           if [ "$ISTATE" = closed ]; then
             fail "OmniTrustILM/interfaces#${NUM} was closed without merging. Remove the Depends-On line, or repoint it at whatever superseded it."
           fi
 
-          # Looked up rather than derived from core's own property: across a
-          # release cut interfaces publishes 2.21.0-alpha-PR<n>-SNAPSHOT while
-          # this pom still reads 2.20.0, and deriving would resolve a stale
-          # pre-bump artifact.
+          # Looked up, not derived from core's own property: across a release cut
+          # interfaces publishes 2.21.0-alpha-PR<n>-SNAPSHOT while this pom still
+          # reads 2.20.0.
           #
-          # The whole name is anchored, not just the suffix: the prefix is the
-          # version in the interfaces PR's own pom, so leaving it unconstrained
-          # would carry PR-controlled text into the mvn argument. Newest by
-          # created_at rather than by API order, which is not contractual and
-          # matters when a PR spans a release cut and so holds two bases.
+          # The whole name is anchored, not just the suffix - the prefix comes from
+          # the interfaces PR's own pom, so it would otherwise carry PR-controlled
+          # text into the mvn argument. Newest by created_at, not API order, which
+          # is not contractual and matters when a PR spans a release cut.
           PRV=$(printf '%s\n' "$VERSIONS" \
             | awk -F'\t' -v n="$NUM" '$2 ~ "^[0-9][0-9A-Za-z.-]*-alpha-PR" n "-SNAPSHOT$"' \
             | sort -r | head -1 | cut -f2)
@@ -172,9 +158,8 @@ jobs:
           echo "interfaces#$NUM is open - building against $PRV"
           emit "-Dinterfaces.version=$PRV" "pr"
 
-      # sonar.yaml is a separate workflow and cannot read job outputs. Without
-      # this it analyses the compiled classes against a classpath they were not
-      # built with.
+      # sonar.yaml is a separate workflow and cannot read job outputs; without this
+      # it analyses the compiled classes against a classpath they were not built with.
       - name: Publish the resolved argument
         env:
           ARG: ${{ steps.resolve.outputs.mvnarg }}

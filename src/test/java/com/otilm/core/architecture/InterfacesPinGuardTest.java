@@ -18,22 +18,15 @@ import org.yaml.snakeyaml.Yaml;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Pins the two list memberships that stop an unmerged {@code interfaces} override reaching {@code main}.
+ * Pins what stops an unmerged {@code interfaces} override from reaching {@code main}.
  * <p>
- * A pull request may redirect its build at an unmerged {@code interfaces} pull request's snapshot by carrying a
- * {@code Depends-On:} or {@code Interfaces-Version:} marker in its body. Two lists in {@code build_pr.yml} keep that
- * safe, and both are silent when they drift.
+ * Three lines carry the merge block, each removable as a tidy-up: {@code pin-gate} in the aggregate job's
+ * {@code needs}; the aggregate's {@code !cancelled()}, without which it is skipped when the gate fails and a skipped
+ * required check counts as passing; and its scan failing on a non-successful upstream. A fourth, {@code $MVNARG} on
+ * every job that compiles the tree, keeps a coupled pull request from reddening for the wrong reason.
  * <p>
- * The merge block stands on three legs, and every one of them is a line somebody could remove as a tidy-up.
- * {@code pin-gate} must stay in the aggregate job's {@code needs}; the aggregate must keep {@code !cancelled()}, or it
- * is skipped when the gate fails and GitHub counts a skipped required check as passing; and its scan must keep failing
- * on a non-successful upstream. Any one of them gone and an active override merges with every check green.
- * <p>
- * A fourth: a job that compiles the tree without the resolved argument reddens a coupled pull request against the
- * mainline snapshot, with diagnostics pointing at the new job rather than at the missing override.
- * <p>
- * Neither surfaces anywhere near the edit that caused it; this test fails at the edit instead. It loads no Spring
- * context, so it does not affect {@link ContextSignatureGuardTest#BASELINE}.
+ * All four are silent when they drift, and none surfaces near the edit that caused it. Loads no Spring context, so it
+ * does not affect {@link ContextSignatureGuardTest#BASELINE}.
  */
 class InterfacesPinGuardTest {
 
