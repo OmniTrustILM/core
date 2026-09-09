@@ -59,6 +59,20 @@ class SearchHelperColumnFlagsTest {
         Assertions.assertEquals(false, prepare(AttributeContentType.CODEBLOCK, ProtectionLevel.NONE).getDisplayable());
     }
 
+    /**
+     * A listing outside the column pipeline never invokes the projector, so even an ordinary custom attribute of that
+     * resource has nothing to fill the cells of a column asking for it.
+     */
+    @Test
+    void noAttributeOfAnUnwiredListingIsOfferedAsAColumn() {
+        Assertions
+                .assertEquals(false,
+                        SearchHelper
+                                .prepareSearchForJSON(attributeField(AttributeContentType.TEXT, ProtectionLevel.NONE),
+                                        false, Resource.LOCATION)
+                                .getDisplayable());
+    }
+
     @Test
     void anOrdinaryAttributeOfAWiredListingIsSortable() {
         Assertions.assertEquals(true, prepare(AttributeContentType.TEXT, ProtectionLevel.NONE).getSortable());

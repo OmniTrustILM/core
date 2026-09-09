@@ -201,10 +201,11 @@ public final class SortOrderBuilder {
             throw new ValidationException(
                     ValidationError.create("Unknown sort field identifier %s.".formatted(sort.fieldIdentifier())));
         }
-        // Refused against the same predicate the catalogue publishes as `sortable`, so a request the frontend was told
-        // to withhold is answered with an error rather than with a silently unordered page. Checked before the path is
-        // resolved, because several of these fields do resolve to a path - it is just not the value the column shows.
-        if (!SearchHelper.isOrderableField(field)) {
+        // Refused against the predicate the catalogue publishes as `sortable`, widened to the listings that publish
+        // no columns at all and order from their own code instead. So a request the frontend was told to withhold is
+        // answered with an error rather than with a silently unordered page. Checked before the path is resolved,
+        // because several of these fields do resolve to a path - it is just not the value the column shows.
+        if (!SearchHelper.isOrderableOnListing(field)) {
             throw new ValidationException(
                     ValidationError.create("Field %s cannot be used to order this listing.".formatted(field.name())));
         }
