@@ -198,9 +198,9 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
      *
      * <p>
      * <b>Stale</b> is either half of the contract: a verdict from an older generation of the rules, or a verdict older
-     * than the row it describes. {@code pqc_evaluated_at < i_upd} catches the second -- a payload re-election, a
-     * richer source winning, an identity refresh -- because the guarded write sets both to one
-     * {@code CURRENT_TIMESTAMP}, so a verdict never re-offers itself while any later writer does.
+     * than the row it describes. {@code pqc_evaluated_at < i_upd} catches the second -- a payload re-election, a richer
+     * source winning, an identity refresh -- because the guarded write sets both to one {@code CURRENT_TIMESTAMP}, so a
+     * verdict never re-offers itself while any later writer does.
      *
      * <p>
      * Keyset-cursored, and that is correctness rather than performance: a written row leaves this result set, so an
@@ -238,10 +238,7 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
      * that can be mocked.
      */
     default List<PqcStaleVerdictRow> staleVerdictRows(int version, UUID after, int limit) {
-        return findStaleVerdictRows(version, after, limit)
-                .stream()
-                .map(PqcStaleVerdictRow::fromWorkListRow)
-                .toList();
+        return findStaleVerdictRows(version, after, limit).stream().map(PqcStaleVerdictRow::fromWorkListRow).toList();
     }
 
     /**

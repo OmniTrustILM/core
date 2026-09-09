@@ -52,8 +52,8 @@ public class CryptoAssetPqcVerdictWriter {
     /**
      * One row in one transaction, for retrying a batch that rolled back. Without it a single row the database refuses
      * -- a constraint the rules have drifted past, a deadlock -- takes its whole batch down, and since the cursor
-     * restarts at the nil uuid every sweep, that batch is reached first on every run and starves every stale row
-     * behind it.
+     * restarts at the nil uuid every sweep, that batch is reached first on every run and starves every stale row behind
+     * it.
      *
      * @return true if the row was written, false if the guard refused it
      */

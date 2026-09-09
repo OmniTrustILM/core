@@ -125,8 +125,8 @@ class PqcVerdictSweeperTest {
     /**
      * A batch shares one transaction, so a single row the database refuses rolls back every good write beside it. The
      * cursor restarts at the nil uuid every sweep, so a refusal that persists would be reached first on every run and
-     * starve every stale row behind it -- the batch is therefore retried one row per transaction, and only the row
-     * that still fails is left behind.
+     * starve every stale row behind it -- the batch is therefore retried one row per transaction, and only the row that
+     * still fails is left behind.
      */
     @Test
     void aBatchThatRollsBackIsRetriedOneRowPerTransaction() {
