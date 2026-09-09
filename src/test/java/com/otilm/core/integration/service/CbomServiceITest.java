@@ -31,6 +31,7 @@ import com.otilm.core.dao.entity.ScheduledJobHistory;
 import com.otilm.core.dao.repository.CbomRepository;
 import com.otilm.core.dao.repository.ScheduledJobHistoryRepository;
 import com.otilm.core.dao.repository.ScheduledJobsRepository;
+import com.otilm.core.dao.repository.cbom.CbomSyncSkipRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.model.cbom.BomEntryDto;
 import com.otilm.core.model.cbom.BomVersionDto;
@@ -45,6 +46,7 @@ import com.otilm.core.service.writer.cbom.CbomAssetSyncStateWriter;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.tasks.CbomSyncTask;
 import com.otilm.core.util.BaseSpringBootTest;
+import java.sql.SQLException;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -54,11 +56,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
@@ -111,6 +115,9 @@ class CbomServiceITest extends BaseSpringBootTest {
 
     @Autowired
     private CbomRepository cbomRepository;
+
+    @Autowired
+    private CbomSyncSkipRepository skipRepository;
 
     @Autowired
     private CbomAssetSyncStateWriter syncStateWriter;
@@ -1321,13 +1328,16 @@ class CbomServiceITest extends BaseSpringBootTest {
         mockSearchResponse(response);
 
         // When
-        cbomInternalService.sync();
+        String result = cbomInternalService.sync();
 
         // Then no boms were stored
         List<Cbom> savedCboms = cbomRepository.findAll();
         assertEquals(0, savedCboms.size());
         // ... and no get detail REST API has been called
         mockServer.verify(0, WireMock.getRequestedFor(WireMock.urlPathEqualTo("/api/v1/bom/serial-1")));
+        // an entry without a usable identity cannot be retried, so nothing is recorded for it
+        assertEquals(0, skipRepository.count());
+        assertTrue(result.contains("1 invalid entries"));
     }
 
     @Test
@@ -1366,6 +1376,11 @@ class CbomServiceITest extends BaseSpringBootTest {
         List<String> serialNumbers = savedCboms.stream().map(Cbom::getSerialNumber).sorted().toList();
 
         assertTrue(serialNumbers.containsAll(List.of("serial-1")));
+        // the 404 entry is not lost: it is recorded for the bounded retry
+        assertEquals(1, skipRepository.count());
+        assertEquals("serial-2", skipRepository.findAll().getFirst().getSerialNumber());
+        assertEquals("document not found in the repository (HTTP 404)",
+                skipRepository.findAll().getFirst().getReason());
     }
 
     @Test
@@ -1525,9 +1540,7 @@ class CbomServiceITest extends BaseSpringBootTest {
         mockEntrySpecVersionSource(entry, "1.6", "source");
 
         doReturn(false).when(cbomRepositorySpy).existsBySerialNumberAndVersion(serialNumber, version);
-        doThrow(new org.springframework.dao.DataIntegrityViolationException("duplicate key"))
-                .when(cbomRepositorySpy)
-                .save(any(Cbom.class));
+        doThrow(constraintViolation("cbom_serial_version_unique")).when(cbomRepositorySpy).save(any(Cbom.class));
 
         // When
         String result = cbomInternalService.sync();
@@ -1535,6 +1548,36 @@ class CbomServiceITest extends BaseSpringBootTest {
         // Then: DataIntegrityViolationException propagates out of the transaction and is counted as duplicate
         assertTrue(result.contains("skipped duplicates 1"));
         assertTrue(result.contains("stored 0 new entries"));
+    }
+
+    @Test
+    void sync_shouldRecordASkipWhenTheDatabaseRefusesTheRowForAnotherConstraint() throws Exception {
+        // Only the dedup key's unique constraint means "someone else stored it first". Any other invariant of the
+        // `cbom` row -- a check constraint, a column the feed left null -- is this entry's own problem, and counting
+        // it as a duplicate would drop the entry without a trace.
+        String serialNumber = "serial-other-constraint";
+        int version = 1;
+
+        BomEntryDto entry = entry(serialNumber, String.valueOf(version), OffsetDateTime.now());
+        mockSearchResponse(List.of(entry));
+        mockEntrySpecVersionSource(entry, "1.6", "source");
+
+        doReturn(false).when(cbomRepositorySpy).existsBySerialNumberAndVersion(serialNumber, version);
+        doThrow(constraintViolation("ck_cbom_asset_sync_state")).when(cbomRepositorySpy).save(any(Cbom.class));
+
+        String result = cbomInternalService.sync();
+
+        assertTrue(result.contains("1 entries could not be stored and were recorded for retry"), result);
+        assertTrue(result.contains("stored 0 new entries"), result);
+        assertEquals(1, skipRepository.count());
+        assertEquals("storing the CBOM row failed: the database refused it (see the Core log)",
+                skipRepository.findAll().getFirst().getReason());
+    }
+
+    /** A refusal shaped the way the JPA stack delivers one: the constraint name lives in the Hibernate cause. */
+    private static DataIntegrityViolationException constraintViolation(String constraintName) {
+        return new DataIntegrityViolationException("duplicate key", new ConstraintViolationException("duplicate key",
+                new SQLException("duplicate key value", "23505"), constraintName));
     }
 
     private String bomEntryJson() {
@@ -1558,7 +1601,7 @@ class CbomServiceITest extends BaseSpringBootTest {
         BomEntryDto entry = new BomEntryDto();
         entry.setSerialNumber(serialNumber);
         entry.setVersion(version);
-        entry.setTimestamp(timestamp);
+        entry.setCreatedAt(timestamp);
         entry.setCryptoStats(cryptoStats);
 
         return entry;

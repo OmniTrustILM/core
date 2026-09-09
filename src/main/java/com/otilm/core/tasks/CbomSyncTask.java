@@ -1,6 +1,7 @@
 package com.otilm.core.tasks;
 
 import com.otilm.api.exception.CbomRepositoryException;
+import com.otilm.api.exception.PlatformException;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
 import com.otilm.core.api.ScheduledJobSkippedException;
@@ -50,8 +51,13 @@ public class CbomSyncTask implements ScheduledJobTask {
         return true;
     }
 
+    /**
+     * Runs without a transaction of its own: the run pages an external service and reads one document per entry, and
+     * the service method it calls is {@code NOT_SUPPORTED} for that reason. Opening a transaction here only to have it
+     * suspended for the whole run would keep it open, unused, for as long as the run takes.
+     */
     @Override
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public ScheduledTaskResult performJob(final ScheduledJobInfo scheduledJobInfo, final Object taskData) {
         if (!cbomService.isCbomRepositoryClientConfigured()) {
             throw new ScheduledJobSkippedException();
@@ -66,9 +72,13 @@ public class CbomSyncTask implements ScheduledJobTask {
                 throw new ScheduledJobSkippedException();
             }
 
+            // Only a shaped domain exception's own message is operator-safe; anything else (JPA, the WebClient
+            // stack, a bare RuntimeException) could quote driver or framework internals, so it is replaced with the
+            // fallback below. The stack trace itself is still logged, for the Core log.
+            final String safeReason = PlatformException.safeMessage(e, "unexpected error, see the Core log");
             final String errorMessage = String
                     .format("Unable to sync CBOMs for job %s. Error: %s",
-                            scheduledJobInfo == null ? "" : scheduledJobInfo.jobName(), e.getMessage());
+                            scheduledJobInfo == null ? "" : scheduledJobInfo.jobName(), safeReason);
             logger.error(errorMessage, e);
             return new ScheduledTaskResult(SchedulerJobExecutionStatus.FAILED, errorMessage, Resource.CBOM, null);
         }

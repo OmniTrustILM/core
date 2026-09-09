@@ -9,7 +9,6 @@ import com.otilm.core.tasks.CbomSyncTask;
 import com.otilm.core.tasks.ScheduledJobInfo;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
@@ -19,6 +18,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -34,40 +35,60 @@ class CbomSyncTaskITest extends BaseSpringBootTest {
     void testPerformJob_Success() throws Exception {
         ScheduledJobInfo scheduledJobInfo = new ScheduledJobInfo(CbomSyncTask.NAME);
         Object taskData = new Object();
-        Mockito.when(cbomService.isCbomRepositoryClientConfigured()).thenReturn(true);
+        when(cbomService.isCbomRepositoryClientConfigured()).thenReturn(true);
 
         ScheduledTaskResult result = cbomSyncTask.performJob(scheduledJobInfo, taskData);
 
         assertEquals(SchedulerJobExecutionStatus.SUCCESS, result.getStatus());
-        Mockito.verify(cbomService, Mockito.times(1)).isCbomRepositoryClientConfigured();
-        Mockito.verify(cbomService, Mockito.times(1)).sync();
+        verify(cbomService, times(1)).isCbomRepositoryClientConfigured();
+        verify(cbomService, times(1)).sync();
     }
 
     @Test
     void testPerformJob_Failure() throws Exception {
         ScheduledJobInfo scheduledJobInfo = new ScheduledJobInfo(CbomSyncTask.NAME);
-        Mockito.when(cbomService.isCbomRepositoryClientConfigured()).thenReturn(true);
-        Mockito.doThrow(new RuntimeException("Sync failed")).when(cbomService).sync();
+        when(cbomService.isCbomRepositoryClientConfigured()).thenReturn(true);
+        doThrow(new RuntimeException("Sync failed")).when(cbomService).sync();
 
         ScheduledTaskResult result = cbomSyncTask.performJob(scheduledJobInfo, new Object());
 
         assertEquals(SchedulerJobExecutionStatus.FAILED, result.getStatus());
-        assertTrue(result.getResultMessage().contains("Sync failed"));
-        Mockito.verify(cbomService, Mockito.times(1)).isCbomRepositoryClientConfigured();
-        Mockito.verify(cbomService, Mockito.times(1)).sync();
+        // A bare RuntimeException is not a PlatformException, so its raw message must not reach the operator-visible
+        // result -- only the fallback text may.
+        assertTrue(result.getResultMessage().contains("unexpected error, see the Core log"));
+        assertFalse(result.getResultMessage().contains("Sync failed"));
+        verify(cbomService, times(1)).isCbomRepositoryClientConfigured();
+        verify(cbomService, times(1)).sync();
+    }
+
+    @Test
+    void testPerformJob_Failure_PlatformExceptionMessageIsSurfaced() throws Exception {
+        ScheduledJobInfo scheduledJobInfo = new ScheduledJobInfo(CbomSyncTask.NAME);
+        when(cbomService.isCbomRepositoryClientConfigured()).thenReturn(true);
+        ProblemDetail problemDetail = ProblemDetail
+                .forStatusAndDetail(HttpStatus.BAD_GATEWAY, "CBOM Repository repeated the page cursor");
+        doThrow(new CbomRepositoryException(problemDetail)).when(cbomService).sync();
+
+        ScheduledTaskResult result = cbomSyncTask.performJob(scheduledJobInfo, new Object());
+
+        assertEquals(SchedulerJobExecutionStatus.FAILED, result.getStatus());
+        // CbomRepositoryException is a PlatformException with a Core-shaped message, so it is surfaced verbatim.
+        assertTrue(result.getResultMessage().contains("CBOM Repository repeated the page cursor"));
+        verify(cbomService, times(1)).isCbomRepositoryClientConfigured();
+        verify(cbomService, times(1)).sync();
     }
 
     @Test
     void testPerformJob_Skip() throws Exception {
         ScheduledJobInfo scheduledJobInfo = new ScheduledJobInfo(CbomSyncTask.NAME);
-        Mockito.when(cbomService.isCbomRepositoryClientConfigured()).thenReturn(false);
+        when(cbomService.isCbomRepositoryClientConfigured()).thenReturn(false);
 
         Object triggerObject = new Object();
         assertThrows(ScheduledJobSkippedException.class,
                 () -> cbomSyncTask.performJob(scheduledJobInfo, triggerObject));
 
-        Mockito.verify(cbomService, Mockito.times(1)).isCbomRepositoryClientConfigured();
-        Mockito.verify(cbomService, Mockito.times(0)).sync();
+        verify(cbomService, times(1)).isCbomRepositoryClientConfigured();
+        verify(cbomService, times(0)).sync();
     }
 
     @Test

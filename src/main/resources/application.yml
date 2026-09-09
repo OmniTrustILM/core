@@ -410,6 +410,16 @@ connector:
 cbom:
   client:
     max-buffer-size: ${CBOM_CLIENT_MAX_BUFFER_SIZE:20971520}
+  sync:
+    # Page size sent as `limit` to the repository search (1..1000); pages are followed through `Link rel="next"`.
+    page-size: ${CBOM_SYNC_PAGE_SIZE:1000}
+    # Each run lists documents created after (start of the last successful run - overlap). The overlap must cover
+    # clock skew between Core and the object store plus the longest upload duration (S3 stamps a multipart upload with
+    # its initiation time); the repository documents 60 s. Re-read entries are deduplicated on (serialNumber, version).
+    # A bare number is read as seconds; a unit suffix (60s, 2m) is also accepted.
+    overlap: ${CBOM_SYNC_OVERLAP:60s}
+    # An entry that could not be stored is retried on this many later runs, then recorded as permanently skipped.
+    skipped-retry-runs: ${CBOM_SYNC_SKIPPED_RETRY_RUNS:3}
 
 signing-record:
   outbox:

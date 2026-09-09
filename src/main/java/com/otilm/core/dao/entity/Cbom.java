@@ -8,6 +8,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.time.OffsetDateTime;
 import java.util.Objects;
 import lombok.Getter;
@@ -23,9 +24,12 @@ import org.hibernate.proxy.HibernateProxy;
 @ToString
 @RequiredArgsConstructor
 @Entity
-@Table(name = "cbom")
-// Stated here as well as in the migration so the entity-generated schema the tests run against carries the same
-// invariant and the same constraint name as production.
+// The unique constraint and the check below are stated here as well as in the migration so the entity-generated
+// schema the tests run against carries the same invariants under the same names as production: the header sync tells
+// a duplicate from any other refusal by reading `cbom_serial_version_unique` off the violation.
+@Table(name = "cbom",
+        uniqueConstraints = @UniqueConstraint(name = "cbom_serial_version_unique",
+                columnNames = {"serial_number", "version"}))
 @Check(name = "ck_cbom_asset_sync_state",
         constraints = "asset_sync_state IN ('PENDING', 'IN_PROGRESS', 'SYNCED', 'FAILED')")
 public class Cbom extends UniquelyIdentified implements DtoMapper<CbomDto> {
