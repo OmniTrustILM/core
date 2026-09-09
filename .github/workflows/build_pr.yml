@@ -25,6 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      packages: read
       pull-requests: read
     outputs:
       mvnarg:   ${{ steps.resolve.outputs.mvnarg }}
@@ -65,7 +66,7 @@ jobs:
           BODY=$(printf '%s\n' "$BODY" | python3 -c 'import re,sys; t=sys.stdin.read(); t=re.sub(r"<!--.*?-->","",t,flags=re.S); t=re.sub(r"^[ \t]*(```|~~~).*?^[ \t]*\1","",t,flags=re.S|re.M); sys.stdout.write(t)')
 
           # head -1 below would otherwise take the earlier line silently.
-          DUPD=$(printf '%s' "$BODY" | grep -ciP '^Depends-On[[:space:]]*:' || true)
+          DUPD=$(printf '%s' "$BODY" | grep -ciP '^[[:space:]>*_-]*Depends-On[[:space:]]*:[[:space:]*_]*(https?://github\.com/)?OmniTrustILM/interfaces(?![0-9A-Za-z._-])' || true)
           DUPV=$(printf '%s' "$BODY" | grep -ciP '^Interfaces-Version[[:space:]]*:' || true)
           [ "${DUPD:-0}" -le 1 ] || fail "The PR body has ${DUPD} Depends-On lines. Keep exactly one."
           [ "${DUPV:-0}" -le 1 ] || fail "The PR body has ${DUPV} Interfaces-Version lines. Keep exactly one."
@@ -76,15 +77,17 @@ jobs:
           VER=$(printf '%s' "$BODY" \
             | grep -oiP '^Interfaces-Version:[[:space:]]*\K[0-9][0-9A-Za-z.\-]{0,60}(?=[[:space:]]*$)' \
             | head -1 || true)
-          # The extractors above are strict - line start, nothing after the
-          # value - so a marker with trailing junk is rejected rather than
-          # truncated: `Interfaces-Version: 2.20.0; rm -rf /` does not become a
-          # pin on 2.20.0. The probes below are deliberately looser, because a
-          # marker the author plainly meant has to fail loudly instead of
-          # vanishing; a bullet, an indent, bold or a blockquote all miss the
-          # extractor. The Depends-On probe names the repository and closes it
-          # off, so a Depends-On line addressed to any other repo in the org is
-          # left alone - including a sibling whose name starts with the same word.
+          # Strict extractors, loose probes.
+          #
+          # Strict: line start, nothing after the value. Trailing junk is
+          # rejected, not truncated - `Interfaces-Version: 2.20.0; rm -rf /`
+          # does not become a pin on 2.20.0.
+          #
+          # Loose: a bulleted, indented, bold or blockquoted marker misses the
+          # extractor, so the probe has to catch it and fail loudly.
+          #
+          # The Depends-On probe closes off the repository name, so a marker for
+          # another repo - or a sibling starting with the same word - is ignored.
           if printf '%s' "$BODY" | grep -qiP '^[[:space:]>*_-]*Depends-On[[:space:]]*:[[:space:]*_]*(https?://github\.com/)?OmniTrustILM/interfaces(?![0-9A-Za-z._-])' && [ -z "$NUM" ]; then
             fail "A Depends-On: line for interfaces is present but not in the accepted form. It must begin the line and read: Depends-On: OmniTrustILM/interfaces#<number> - a pull-request URL is not accepted."
           fi
@@ -177,11 +180,11 @@ jobs:
           ARG: ${{ steps.resolve.outputs.mvnarg }}
         run: printf '%s\n' "$ARG" > mvnarg.txt
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - name: Upload the resolved interfaces argument
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: interfaces-mvnarg
           path: mvnarg.txt
-          retention-days: 1
 
       - name: Summarise
         env:

@@ -12,10 +12,14 @@ jobs:
     name: Sonar precondition
     if: github.event.workflow_run.conclusion != 'cancelled'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     outputs:
-      analyse: ${{ steps.c.outputs.analyse }}
+      analyse: ${{ steps.check.outputs.analyse }}
     steps:
-      - id: c
+      - id: check
+        name: Check the build produced its artifacts
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
@@ -130,18 +134,19 @@ jobs:
           key: ${{ runner.os }}-sonar-${{ steps.cache-month.outputs.yearmonth }}
           restore-keys: |
             ${{ runner.os }}-sonar-
-      # SonarCloud Scan analysis and push
-      # continue-on-error: a run predating this artifact still analyses, just
-      # against the pom value.
-      - name: Download the resolved interfaces argument
+      # Outside the checkout: at the tree root a failed download would leave the
+      # head commit's own mvnarg.txt to be read instead.
+      - id: mvnarg
+        name: Download the resolved interfaces argument
         continue-on-error: true
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: interfaces-mvnarg
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: ${{ github.event.workflow_run.id }}
-          path: .
+          path: ${{ runner.temp }}/mvnarg
 
+      # SonarCloud Scan analysis and push
       - name: SonarCloud Scan
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -151,7 +156,14 @@ jobs:
           SONAR_PR_BRANCH: ${{ fromJson(steps.get_pr_data.outputs.data).head.ref }}
           SONAR_PR_BASE: ${{ fromJson(steps.get_pr_data.outputs.data).base.ref }}
         run: |
-          MVNARG=$(cat mvnarg.txt 2>/dev/null || true)
+          set -euo pipefail
+          # A missing artifact means analysing against a classpath the classes
+          # were not built with, so it fails rather than falling back silently.
+          if [ "${{ steps.mvnarg.outcome }}" != success ]; then
+            echo "::error::The resolved interfaces argument is missing. Re-run Build PR to regenerate it."
+            exit 1
+          fi
+          MVNARG=$(cat "$RUNNER_TEMP/mvnarg/mvnarg.txt")
           # Unquoted: empty contributes no argument.
           mvn org.sonarsource.scanner.maven:sonar-maven-plugin:sonar $MVNARG \
             -Dsonar.scm.revision="$SONAR_REVISION" \
