@@ -120,4 +120,40 @@ class TspRequestValidatorTest {
         // when / then
         assertThatCode(() -> validator.validate(workflow, request)).doesNotThrowAnyException();
     }
+
+    @Test
+    void throwsBadRequest_whenNeitherTheRequestNorTheProfileNamesAPolicy() {
+        // given — RFC 3161 makes TSTInfo.policy mandatory, so the token could not be assembled
+        var workflow = aManagedTimestampingWorkflow().defaultPolicyId(null).build();
+        var request = aTspRequest().build(); // no policy → Optional.empty()
+
+        // when / then
+        assertThatThrownBy(() -> validator.validate(workflow, request))
+                .isInstanceOf(TspRequestValidationException.class)
+                .satisfies(ex -> assertThat(((TspRequestValidationException) ex).getFailureInfo())
+                        .isEqualTo(TspFailureInfo.BAD_REQUEST));
+    }
+
+    @Test
+    void throwsBadRequest_whenTheProfileDefaultPolicyIsBlank() {
+        // given — a stored default of whitespace names no policy any more than a missing one does
+        var workflow = aManagedTimestampingWorkflow().defaultPolicyId("   ").build();
+        var request = aTspRequest().build();
+
+        // when / then
+        assertThatThrownBy(() -> validator.validate(workflow, request))
+                .isInstanceOf(TspRequestValidationException.class)
+                .satisfies(ex -> assertThat(((TspRequestValidationException) ex).getFailureInfo())
+                        .isEqualTo(TspFailureInfo.BAD_REQUEST));
+    }
+
+    @Test
+    void doesNotThrow_whenTheRequestNamesAPolicyAndTheProfileHasNoDefault() {
+        // given
+        var workflow = aManagedTimestampingWorkflow().defaultPolicyId(null).build();
+        var request = aTspRequest().policy("1.2.3.4.5").build();
+
+        // when / then
+        assertThatCode(() -> validator.validate(workflow, request)).doesNotThrowAnyException();
+    }
 }

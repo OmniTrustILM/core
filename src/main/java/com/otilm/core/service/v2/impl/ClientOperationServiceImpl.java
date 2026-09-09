@@ -447,6 +447,17 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     public CertificateDetailDto submitCertificateRequest(ClientCertificateRequestDto request,
             CertificateProtocolInfo protocolInfo) throws ConnectorException, CertificateException,
             NoSuchAlgorithmException, AttributeException, CertificateRequestException, NotFoundException {
+        return submitCertificateRequestInternal(request, protocolInfo).certificate();
+    }
+
+    /**
+     * Body of {@link #submitCertificateRequest}, additionally handing back the request-attribute warnings so the issue
+     * / renew / rekey responses can carry them. Those three reach this by self-invocation, as they do the public
+     * method, so the authorization probe below stays load-bearing.
+     */
+    private SubmittedRequest submitCertificateRequestInternal(ClientCertificateRequestDto request,
+            CertificateProtocolInfo protocolInfo) throws ConnectorException, CertificateException,
+            NoSuchAlgorithmException, AttributeException, CertificateRequestException, NotFoundException {
         // Issue/renew/rekey reach this body by self-invocation, bypassing the annotation above, so without this probe
         // a platform key signs a CSR before the nested CREATE gate can deny. Denies nobody that gate would admit.
         certificateService.checkCreatePermissions();
@@ -475,10 +486,11 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         // round-trips; proxied callers (REST v1 submit, SCEP manual-approval) still run under the class-level
         // transaction. Ordering constraint: the uploaded-CSR attribute validation inside generateBase64EncodedCsr
         // must run before the issue-attribute merge.
-        String certificateRequest = generateBase64EncodedCsr(request.getRequest(), request.getFormat(),
+        PreparedRequest prepared = generateBase64EncodedCsr(request.getRequest(), request.getFormat(),
                 request.getCsrAttributes(), request.getKeyUuid(), request.getTokenProfileUuid(),
                 request.getSignatureAttributes(), request.getAltKeyUuid(), request.getAltTokenProfileUuid(),
                 request.getAltSignatureAttributes(), raProfile);
+        String certificateRequest = prepared.csr();
         if (raProfile != null) {
             extendedAttributeService.mergeAndValidateIssueAttributes(raProfile, request.getIssueAttributes());
         }
@@ -506,7 +518,13 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             }
             throw e;
         }
-        return certificate;
+        return new SubmittedRequest(certificate, prepared.requestAttributeWarnings());
+    }
+
+    private record PreparedRequest(String csr, List<String> requestAttributeWarnings) {
+    }
+
+    private record SubmittedRequest(CertificateDetailDto certificate, List<String> requestAttributeWarnings) {
     }
 
     /**
@@ -520,10 +538,10 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * connector exception relaying upstream text — contributes no message, keeping SQL fragments, internal identifiers
      * and upstream error detail off the wire.
      */
-    private CertificateDetailDto submitAndShapeFailure(ClientCertificateRequestDto request,
+    private SubmittedRequest submitAndShapeFailure(ClientCertificateRequestDto request,
             CertificateProtocolInfo protocolInfo, String failureMessage) throws CertificateOperationException {
         try {
-            return submitCertificateRequest(request, protocolInfo);
+            return submitCertificateRequestInternal(request, protocolInfo);
         } catch (RequestAttributePolicyViolationException e) {
             throw e;
         } catch (Exception e) {
@@ -567,12 +585,14 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         certificateRequestDto.setAltTokenProfileUuid(request.getAltTokenProfileUuid());
         certificateRequestDto.setAltSignatureAttributes(request.getAltSignatureAttributes());
 
-        CertificateDetailDto certificate = submitAndShapeFailure(certificateRequestDto, protocolInfo,
+        SubmittedRequest submitted = submitAndShapeFailure(certificateRequestDto, protocolInfo,
                 "Failed to submit certificate request");
+        CertificateDetailDto certificate = submitted.certificate();
 
         final ClientCertificateDataResponseDto response = new ClientCertificateDataResponseDto();
         response.setCertificateData("");
         response.setUuid(certificate.getUuid());
+        response.setRequestAttributeWarnings(submitted.requestAttributeWarnings());
 
         // check for compliance of certificate request
         if (isRequestNotCompliant(UUID.fromString(certificate.getUuid()), certificate.getCertificateRequest().getUuid(),
@@ -1820,7 +1840,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
     public ClientCertificateDataResponseDto issueExistingCertificate(final SecuredParentUUID authorityUuid,
             final SecuredUUID raProfileUuid, final String certificateUuid,
-            final ClientCertificateIssueRequestDto request) throws NotFoundException {
+            final ClientCertificateIssueRequestDto request) throws NotFoundException, CertificateException {
         // NOT_SUPPORTED so the CSR attach below commits in its own transaction before the ISSUE action is
         // enqueued; otherwise the async consumer could read the placeholder before the CSR is visible and fail it.
         RaProfile raProfile = raProfileRepository
@@ -1876,6 +1896,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                             .formatted(certificate.toStringShort())));
         }
 
+        List<String> requestAttributeWarnings = List.of();
         if (registered) {
             // The CSR attach and completion attributes commit before the async ISSUE probe can deny, so gate here.
             // A verified challenge is itself the holder's authorization; demanding the operator permission on top
@@ -1883,6 +1904,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             if (!challengeAuthorized) {
                 certificateService.checkCreatePermissions();
             }
+            // Runs after the challenge gate above, so a caller who cannot authorize cannot probe the policy, and
+            // before the attach below, so a strict violation rejects with nothing persisted.
+            requestAttributeWarnings = validateCompletionRequestAttributes(request, raProfile);
             UUID certificateRequestUuid;
             try {
                 certificateRequestUuid = certificateService
@@ -1909,6 +1933,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         final ClientCertificateDataResponseDto response = new ClientCertificateDataResponseDto();
         response.setCertificateData("");
         response.setUuid(certificateUuid);
+        response.setRequestAttributeWarnings(requestAttributeWarnings);
         return response;
     }
 
@@ -1993,14 +2018,16 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                         .getClientAttributes(attributeEngine
                                 .getObjectCustomAttributesContent(Resource.CERTIFICATE, oldCertificate.getUuid())));
 
-        CertificateDetailDto newCertificate = submitAndShapeFailure(certificateRequestDto, null,
+        SubmittedRequest submitted = submitAndShapeFailure(certificateRequestDto, null,
                 "Failed to submit certificate request for certificate renewal");
+        CertificateDetailDto newCertificate = submitted.certificate();
         persistRenewAttributes(oldCertificate.getRaProfile(), UUID.fromString(newCertificate.getUuid()),
                 request.getAttributes());
 
         final ClientCertificateDataResponseDto response = new ClientCertificateDataResponseDto();
         response.setCertificateData("");
         response.setUuid(newCertificate.getUuid());
+        response.setRequestAttributeWarnings(submitted.requestAttributeWarnings());
 
         // check for compliance of certificate request
         if (isRequestNotCompliant(UUID.fromString(newCertificate.getUuid()),
@@ -2229,14 +2256,16 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                         .getClientAttributes(attributeEngine
                                 .getObjectCustomAttributesContent(Resource.CERTIFICATE, oldCertificate.getUuid())));
 
-        CertificateDetailDto newCertificate = submitAndShapeFailure(certificateRequestDto, null,
+        SubmittedRequest submitted = submitAndShapeFailure(certificateRequestDto, null,
                 "Failed to submit certificate request for certificate rekey");
+        CertificateDetailDto newCertificate = submitted.certificate();
         persistRenewAttributes(oldCertificate.getRaProfile(), UUID.fromString(newCertificate.getUuid()),
                 request.getAttributes());
 
         final ClientCertificateDataResponseDto response = new ClientCertificateDataResponseDto();
         response.setCertificateData("");
         response.setUuid(newCertificate.getUuid());
+        response.setRequestAttributeWarnings(submitted.requestAttributeWarnings());
 
         // check for compliance of certificate request
         if (isRequestNotCompliant(UUID.fromString(newCertificate.getUuid()),
@@ -3079,34 +3108,71 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     /**
+     * Validates the operator's completion CSR for a registered certificate against the resolved request-attribute set.
+     *
+     * <p>
+     * A null format is not validated: the parser selects on format, and the CSR attach rejects it with a clear message.
+     * Only the parse is a client fault — a strict profile whose attribute set cannot be resolved is a server-side
+     * inability, so that {@link CertificateException} propagates to the caller unshaped.
+     */
+    private List<String> validateCompletionRequestAttributes(ClientCertificateIssueRequestDto request,
+            RaProfile raProfile) throws CertificateException {
+        if (request.getFormat() == null) {
+            return List.of();
+        }
+        CertificateRequest parsedRequest;
+        try {
+            parsedRequest = CertificateRequestUtils.createCertificateRequest(request.getRequest(), request.getFormat());
+        } catch (CertificateRequestException | IllegalArgumentException e) {
+            // Fixed text: an IllegalArgumentException here carries JDK or third-party wording (a base64 decoder's
+            // "Illegal base64 character", an internal class name) that the global advice deliberately withholds.
+            logger.debug("Failed to parse completion CSR for request-attribute validation", e);
+            throw new ValidationException(ValidationError.create("Certificate signing request could not be parsed"));
+        }
+        try {
+            return protocolRequestAttributeValidator.validate(parsedRequest, raProfile);
+        } catch (CertificateException e) {
+            // The cause is the connector failure, whose message is the authority's raw response body, and the
+            // CertificateException advice appends cause messages to the response. Keep the platform-authored
+            // message, drop the cause.
+            logger
+                    .error("Request-attribute set unavailable while completing certificate registration (RA profile {})",
+                            raProfile.getName(), e);
+            throw new CertificateException(e.getMessage());
+        }
+    }
+
+    /**
      * Parse the uploaded CSR into typed content and delegate request-attribute policy validation to the shared
      * {@link ProtocolRequestAttributeValidator}. A policy violation propagates as
      * {@link RequestAttributePolicyViolationException} unchanged.
      */
-    private void validateUploadedRequestAttributes(String csr, CertificateRequestFormat requestFormat,
+    private List<String> validateUploadedRequestAttributes(String csr, CertificateRequestFormat requestFormat,
             RaProfile raProfile) throws CertificateException {
         if (raProfile == null) {
-            return;
+            return List.of();
         }
         try {
             CertificateRequest request = CertificateRequestUtils.createCertificateRequest(csr, requestFormat);
-            protocolRequestAttributeValidator.validate(request, raProfile);
+            return protocolRequestAttributeValidator.validate(request, raProfile);
         } catch (CertificateRequestException | IllegalArgumentException e) {
             logger.debug("Failed to parse uploaded CSR for request-attribute validation", e);
             throw new CertificateException("Uploaded certificate request could not be parsed for validation", e);
         }
     }
 
-    private String generateBase64EncodedCsr(String uploadedRequest, CertificateRequestFormat requestFormat,
+    private PreparedRequest generateBase64EncodedCsr(String uploadedRequest, CertificateRequestFormat requestFormat,
             List<RequestAttribute> csrAttributes, UUID keyUUid, UUID tokenProfileUuid,
             List<RequestAttribute> signatureAttributes, UUID altKeyUUid, UUID altTokenProfileUuid,
             List<RequestAttribute> altSignatureAttributes, RaProfile raProfile)
             throws NotFoundException, CertificateException, AttributeException, ConnectorException {
         String requestB64;
         String csr;
+        // The platform-built branch below derives the CSR from the resolved set, so it raises no warnings.
+        List<String> warnings = List.of();
         if (uploadedRequest != null && !uploadedRequest.isEmpty()) {
             csr = uploadedRequest;
-            validateUploadedRequestAttributes(csr, requestFormat, raProfile);
+            warnings = validateUploadedRequestAttributes(csr, requestFormat, raProfile);
         } else {
             // TODO: support for the CRMF should be handled also in case it should be generated
             if (requestFormat == CertificateRequestFormat.CRMF) {
@@ -3145,7 +3211,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         try {
             // TODO: CRMF request should be checked and encoded, not just blindly returned
             if (requestFormat == CertificateRequestFormat.CRMF) {
-                return csr;
+                return new PreparedRequest(csr, warnings);
             }
             // TODO: replace with CertificateRequest object eventually
             requestB64 = Base64
@@ -3157,7 +3223,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             logger.debug("Failed to parse CSR", e);
             throw new CertificateException(e);
         }
-        return requestB64;
+        return new PreparedRequest(requestB64, warnings);
     }
 
     @Override

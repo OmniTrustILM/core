@@ -29,7 +29,6 @@ public final class BrandingSettingsValidator {
         Map<String, Function<BrandingSettingsUpdateDto, String>> accessors = new LinkedHashMap<>();
         accessors.put("primaryColor", BrandingSettingsUpdateDto::getPrimaryColor);
         accessors.put("secondaryColor", BrandingSettingsUpdateDto::getSecondaryColor);
-        accessors.put("tertiaryColor", BrandingSettingsUpdateDto::getTertiaryColor);
         accessors.put("backgroundColor", BrandingSettingsUpdateDto::getBackgroundColor);
         accessors.put("textColor", BrandingSettingsUpdateDto::getTextColor);
         return Map.copyOf(accessors);
@@ -53,7 +52,6 @@ public final class BrandingSettingsValidator {
         BrandingSettingsUpdateDto stored = new BrandingSettingsUpdateDto();
         stored.setPrimaryColor(branding.getPrimaryColor());
         stored.setSecondaryColor(branding.getSecondaryColor());
-        stored.setTertiaryColor(branding.getTertiaryColor());
         stored.setBackgroundColor(branding.getBackgroundColor());
         stored.setTextColor(branding.getTextColor());
         stored.setDefaultTheme(branding.getDefaultTheme());

@@ -34,6 +34,8 @@ import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.otilm.core.attribute.engine.AttributeColumnProjector;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
+import com.otilm.core.attribute.engine.ListingSortResolver;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.comparator.SearchFieldDataComparator;
@@ -90,6 +92,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.apache.commons.lang3.function.TriFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -122,6 +125,8 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
 
     private AttributeEngine attributeEngine;
     private AttributeColumnProjector attributeColumnProjector;
+
+    private ListingSortResolver listingSortResolver;
 
     private TriggerInternalService triggerInternalService;
     private DiscoveryRepository discoveryRepository;
@@ -208,6 +213,11 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     }
 
     @Autowired
+    public void setListingSortResolver(ListingSortResolver listingSortResolver) {
+        this.listingSortResolver = listingSortResolver;
+    }
+
+    @Autowired
     public void setDiscoveryRepository(DiscoveryRepository discoveryRepository) {
         this.discoveryRepository = discoveryRepository;
     }
@@ -239,17 +249,20 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
         RequestValidatorHelper.revalidateSearchRequestDto(request);
         final Pageable p = PageRequest.of(request.getPageNumber() - 1, request.getItemsPerPage());
 
+        final Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
         final TriFunction<Root<Discovery>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause = (root,
-                cb, cr) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cr, root, request.getFilters());
+                cb,
+                cr) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cr, root, request.getFilters(), contentFilter);
         final List<DiscoveryListDto> listedDiscoveriesDTOs = discoveryRepository
                 .findUsingSecurityFilter(filter, List.of("connectorInterface"), additionalWhereClause, p,
-                        (root, cb) -> cb.desc(root.get("created")))
+                        (root, cb) -> cb.desc(root.get("created")),
+                        listingSortResolver.resolve(Resource.DISCOVERY, request.getSort(), contentFilter))
                 .stream()
                 .map(DiscoveryDtoMapper::toListDto)
                 .toList();
         attributeColumnProjector
                 .project(Resource.DISCOVERY, request.getColumns(), listedDiscoveriesDTOs,
-                        discovery -> AttributeColumnProjector.parseUuid(discovery.getUuid()));
+                        discovery -> AttributeColumnProjector.parseUuid(discovery.getUuid()), contentFilter);
 
         final Long maxItems = discoveryRepository.countUsingSecurityFilter(filter, additionalWhereClause);
 
@@ -858,7 +871,7 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
                 .getResourceSearchableFields(Resource.DISCOVERY, false);
 
         List<SearchFieldDataDto> fields = List
-                .of(SearchHelper.prepareSearch(FilterField.CKI_NAME),
+                .of(SearchHelper.prepareSearch(FilterField.DISCOVERY_NAME),
                         SearchHelper
                                 .prepareSearch(FilterField.DISCOVERY_STATUS,
                                         Arrays.stream(DiscoveryStatus.values()).map(DiscoveryStatus::getCode).toList()),

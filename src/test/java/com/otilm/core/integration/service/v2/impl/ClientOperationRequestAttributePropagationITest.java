@@ -1,7 +1,10 @@
 package com.otilm.core.integration.service.v2.impl;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
+import com.github.tomakehurst.wiremock.client.WireMock;
+import com.otilm.api.model.common.UuidDto;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.attribute.CsrAttributes;
 import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
@@ -21,7 +24,11 @@ import java.io.StringWriter;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.util.List;
+import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.asn1.x509.BasicConstraints;
+import org.bouncycastle.asn1.x509.Extension;
+import org.bouncycastle.asn1.x509.ExtensionsGenerator;
 import org.bouncycastle.operator.ContentSigner;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
@@ -113,7 +120,7 @@ class ClientOperationRequestAttributePropagationITest extends BaseSpringBootTest
                         .doesNotContain("NotFoundException"));
     }
 
-    /** Builds a self-signed PKCS#10 request over the given subject DN (no CommonName) and PEM-encodes it. */
+    /** Builds a self-signed PKCS#10 request over the given subject DN and PEM-encodes it. */
     private static String pemEncodedCsrWithSubject(String subjectDn) throws Exception {
         KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
         kpg.initialize(2048);
@@ -121,6 +128,87 @@ class ClientOperationRequestAttributePropagationITest extends BaseSpringBootTest
 
         JcaPKCS10CertificationRequestBuilder builder = new JcaPKCS10CertificationRequestBuilder(new X500Name(subjectDn),
                 keyPair.getPublic());
+        ContentSigner signer = new JcaContentSignerBuilder("SHA256withRSA").build(keyPair.getPrivate());
+        PKCS10CertificationRequest csr = builder.build(signer);
+
+        StringWriter stringWriter = new StringWriter();
+        try (PemWriter pemWriter = new PemWriter(stringWriter)) {
+            pemWriter.writeObject(new PemObject("CERTIFICATE REQUEST", csr.getEncoded()));
+        }
+        return stringWriter.toString();
+    }
+
+    @Test
+    void returnsWarningsOnResponse_whenLenientProfileAndUnmappedExtension() throws Exception {
+        // given — a lenient RA profile whose resolved set maps only CommonName, and an uploaded CSR whose subject
+        // is that CommonName but which also carries an extension the set does not map
+        when(requestAttributeService.resolveIssueAttributeSet(any()))
+                .thenReturn(List.of(CsrAttributes.commonNameAttribute()));
+        when(requestAttributeService.resolveExternalCsrValidationStrict(any())).thenReturn(false);
+        stubIssueAttributes();
+        ClientCertificateIssueRequestDto request = new ClientCertificateIssueRequestDto();
+        request.setRequest(pemEncodedCsrWithUnmappedExtension());
+        request.setFormat(CertificateRequestFormat.PKCS10);
+        request.setAttributes(List.of());
+
+        // when
+        ClientCertificateDataResponseDto response = clientOperationService
+                .issueCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                        request, null);
+
+        // then — issuance proceeded and the warning reached the operator
+        assertThat(response.getUuid()).isNotBlank();
+        assertThat(response.getRequestAttributeWarnings())
+                .anySatisfy(w -> assertThat(w).contains("Extension '2.5.29.19' is not allowed"));
+
+        // and — the audit record carries the uuid only, never the variable-length warning list
+        assertThat(response.toLogData()).isInstanceOf(UuidDto.class);
+    }
+
+    @Test
+    void returnsNoWarningsOnResponse_whenUploadedCsrIsFullyMapped() throws Exception {
+        // given — the same lenient profile and a CSR carrying nothing beyond the mapped CommonName
+        when(requestAttributeService.resolveIssueAttributeSet(any()))
+                .thenReturn(List.of(CsrAttributes.commonNameAttribute()));
+        when(requestAttributeService.resolveExternalCsrValidationStrict(any())).thenReturn(false);
+        stubIssueAttributes();
+        ClientCertificateIssueRequestDto request = new ClientCertificateIssueRequestDto();
+        request.setRequest(pemEncodedCsrWithSubject("CN=mapped.example.com"));
+        request.setFormat(CertificateRequestFormat.PKCS10);
+        request.setAttributes(List.of());
+
+        // when
+        ClientCertificateDataResponseDto response = clientOperationService
+                .issueCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                        request, null);
+
+        assertThat(response.getRequestAttributeWarnings()).isEmpty();
+    }
+
+    private void stubIssueAttributes() {
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock
+                                .urlPathMatching(
+                                        "/v2/authorityProvider/authorities/[^/]+/certificates/issue/attributes"))
+                        .willReturn(WireMock.okJson("[]")));
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock
+                                .urlPathMatching(
+                                        "/v2/authorityProvider/authorities/[^/]+/certificates/issue/attributes/validate"))
+                        .willReturn(WireMock.okJson("true")));
+    }
+
+    private static String pemEncodedCsrWithUnmappedExtension() throws Exception {
+        KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
+        kpg.initialize(2048);
+        KeyPair keyPair = kpg.generateKeyPair();
+        ExtensionsGenerator extensionsGenerator = new ExtensionsGenerator();
+        extensionsGenerator.addExtension(Extension.basicConstraints, false, new BasicConstraints(false));
+        JcaPKCS10CertificationRequestBuilder builder = new JcaPKCS10CertificationRequestBuilder(
+                new X500Name("CN=mapped.example.com"), keyPair.getPublic());
+        builder.addAttribute(PKCSObjectIdentifiers.pkcs_9_at_extensionRequest, extensionsGenerator.generate());
         ContentSigner signer = new JcaContentSignerBuilder("SHA256withRSA").build(keyPair.getPrivate());
         PKCS10CertificationRequest csr = builder.build(signer);
 

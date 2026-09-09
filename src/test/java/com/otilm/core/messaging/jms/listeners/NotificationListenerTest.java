@@ -20,6 +20,7 @@ import com.otilm.core.dao.repository.notifications.PendingNotificationRepository
 import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.messaging.model.NotificationMessage;
 import com.otilm.core.messaging.model.NotificationRecipient;
+import com.otilm.core.model.notification.NotificationSubject;
 import com.otilm.core.security.authn.client.RoleManagementApiClient;
 import com.otilm.core.security.authn.client.UserManagementApiClient;
 import com.otilm.core.service.NotificationInternalService;
@@ -45,6 +46,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -91,7 +93,7 @@ class NotificationListenerTest {
         ArgumentCaptor<String> detail = ArgumentCaptor.forClass(String.class);
         verify(notificationService)
                 .createNotificationForUser(text.capture(), detail.capture(), eq(ownerUuid.toString()),
-                        eq(Resource.CERTIFICATE), eq(certUuid.toString()));
+                        eq(Resource.CERTIFICATE), eq(certUuid.toString()), isNull());
 
         assertTrue(text.getValue().contains("CN=device-7"), "the internal notification names the certificate");
         assertFalse((text.getValue() + detail.getValue()).contains("s3cret-challenge-value"),
@@ -204,6 +206,28 @@ class NotificationListenerTest {
     }
 
     @Test
+    void commentNotificationsNameTheCommentTheyAreAbout() {
+        UUID hostUuid = UUID.randomUUID();
+        UUID commentUuid = UUID.randomUUID();
+        UUID recipient = UUID.randomUUID();
+        CommentEventData data = new CommentEventData();
+        data.setCommentUuid(commentUuid);
+        data.setResource(Resource.RA_PROFILE);
+        data.setObjectUuid(hostUuid);
+        data.setObjectName("tst-ra-profile");
+        data.setAuthorUsername("tst-author");
+
+        listener()
+                .processMessage(new NotificationMessage(ResourceEvent.COMMENT_CREATED, Resource.RA_PROFILE, hostUuid,
+                        null, List.of(new NotificationRecipient(RecipientType.USER, recipient)), data));
+
+        verify(notificationService)
+                .createNotificationForUser(any(), eq(null), eq(recipient.toString()), eq(Resource.RA_PROFILE),
+                        eq(hostUuid.toString()),
+                        eq(new NotificationSubject(Resource.COMMENT, commentUuid.toString(), null)));
+    }
+
+    @Test
     void explicitRecipientsYieldsNoneWhenUuidListMissing() {
         // A profile configured with an explicit recipient type but no UUIDs must not dereference the null list.
         assertTrue(NotificationListener.explicitRecipients(RecipientType.GROUP, null).isEmpty(),
@@ -251,7 +275,9 @@ class NotificationListenerTest {
         ArgumentCaptor<String> detail = ArgumentCaptor.forClass(String.class);
         verify(notificationService)
                 .createNotificationForUser(text.capture(), detail.capture(), eq(recipientUuid.toString()),
-                        eq(data.getResource()), eq(data.getObjectUuid().toString()));
+                        eq(data.getResource()), eq(data.getObjectUuid().toString()),
+                        eq(new NotificationSubject(Resource.COMMENT, data.getCommentUuid().toString(),
+                                data.getParentUuid() == null ? null : data.getParentUuid().toString())));
         return new String[]{text.getValue(), detail.getValue()};
     }
 

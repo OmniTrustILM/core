@@ -35,6 +35,8 @@ import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.otilm.core.attribute.engine.AttributeColumnProjector;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
+import com.otilm.core.attribute.engine.ListingSortResolver;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.config.cache.CacheEvictor;
@@ -91,6 +93,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.function.TriFunction;
@@ -135,6 +138,8 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
 
     private AttributeColumnProjector attributeColumnProjector;
 
+    private ListingSortResolver listingSortResolver;
+
     @Autowired
     public void setCommentService(CommentInternalService commentService) {
         this.commentService = commentService;
@@ -143,6 +148,11 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
     @Autowired
     public void setAttributeColumnProjector(AttributeColumnProjector attributeColumnProjector) {
         this.attributeColumnProjector = attributeColumnProjector;
+    }
+
+    @Autowired
+    public void setListingSortResolver(ListingSortResolver listingSortResolver) {
+        this.listingSortResolver = listingSortResolver;
     }
 
     @Autowired
@@ -240,17 +250,20 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
         RequestValidatorHelper.revalidateSearchRequestDto(request);
         final Pageable p = PageRequest.of(request.getPageNumber() - 1, request.getItemsPerPage());
 
+        final Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
         final TriFunction<Root<Connector>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause = (root,
-                cb, cr) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cr, root, request.getFilters());
+                cb,
+                cr) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cr, root, request.getFilters(), contentFilter);
         final List<ConnectorDto> connectorDtos = connectorRepository
                 .findUsingSecurityFilter(filter, List.of(), additionalWhereClause, p,
-                        (root, cb) -> cb.desc(root.get("created")))
+                        (root, cb) -> cb.desc(root.get("created")),
+                        listingSortResolver.resolve(Resource.CONNECTOR, request.getSort(), contentFilter))
                 .stream()
                 .map(Connector::mapToListDto)
                 .toList();
         attributeColumnProjector
                 .project(Resource.CONNECTOR, request.getColumns(), connectorDtos,
-                        connector -> AttributeColumnProjector.parseUuid(connector.getUuid()));
+                        connector -> AttributeColumnProjector.parseUuid(connector.getUuid()), contentFilter);
 
         final Long maxItems = connectorRepository.countUsingSecurityFilter(filter, additionalWhereClause);
 

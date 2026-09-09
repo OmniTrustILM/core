@@ -44,14 +44,16 @@ class CommentRepositoryITest extends BaseSpringBootTest {
         Comment reply = commentRepository.saveAndFlush(newComment(objectUuid, root.getUuid()));
 
         assertThat(root.getCreatedAt()).isNotNull();
-        assertThat(commentRepository.findByParentUuidOrderByCreatedAtAsc(root.getUuid(), PageRequest.of(0, 10)))
+        assertThat(commentRepository.findByParentUuid(root.getUuid(), PageRequest.of(0, 10)))
                 .extracting(Comment::getUuid)
                 .containsExactly(reply.getUuid());
         assertThat(commentRepository.countRepliesByRoots(List.of(root.getUuid()))).singleElement().satisfies(row -> {
             assertThat(row[0]).isEqualTo(root.getUuid());
             assertThat(row[1]).isEqualTo(1L);
         });
-        assertThat(commentRepository.existsByParentUuid(root.getUuid())).isTrue();
+        assertThat(commentRepository.existsByParentUuidAndAuthorUuidNot(root.getUuid(), root.getAuthorUuid())).isTrue();
+        assertThat(commentRepository.existsByParentUuidAndAuthorUuidNot(root.getUuid(), reply.getAuthorUuid()))
+                .isFalse();
     }
 
     @Test
@@ -61,8 +63,7 @@ class CommentRepositoryITest extends BaseSpringBootTest {
         commentRepository.saveAndFlush(newComment(objectUuid, root.getUuid()));
 
         Page<Comment> page = commentRepository
-                .findByResourceAndObjectUuidAndParentUuidIsNullOrderByCreatedAtAsc(Resource.RA_PROFILE, objectUuid,
-                        PageRequest.of(0, 10));
+                .findByResourceAndObjectUuidAndParentUuidIsNull(Resource.RA_PROFILE, objectUuid, PageRequest.of(0, 10));
 
         assertThat(page.getTotalElements()).isEqualTo(1);
         assertThat(page.getContent().getFirst().getUuid()).isEqualTo(root.getUuid());
@@ -82,16 +83,17 @@ class CommentRepositoryITest extends BaseSpringBootTest {
     }
 
     @Test
-    void nonCascadingRootDeletionIsBlockedOnceTheThreadHasReplies() {
+    void soleAuthorRootDeletionIsBlockedOnceAnotherUserReplied() {
         UUID objectUuid = UUID.randomUUID();
         Comment root = commentRepository.saveAndFlush(newComment(objectUuid, null));
         commentRepository.saveAndFlush(newComment(objectUuid, root.getUuid()));
 
         UUID rootUuid = root.getUuid();
-        assertThatThrownBy(() -> commentWriter.deleteRoot(rootUuid, false)).isInstanceOf(ValidationException.class);
+        assertThatThrownBy(() -> commentWriter.deleteRoot(rootUuid, root.getAuthorUuid()))
+                .isInstanceOf(ValidationException.class);
         assertThat(commentRepository.count()).isEqualTo(2);
 
-        assertThatCode(() -> commentWriter.deleteRoot(root.getUuid(), true)).doesNotThrowAnyException();
+        assertThatCode(() -> commentWriter.deleteRoot(root.getUuid(), null)).doesNotThrowAnyException();
         assertThat(commentRepository.count()).isZero();
     }
 

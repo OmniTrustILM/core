@@ -8,6 +8,7 @@ import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.core.dao.entity.Connector;
@@ -87,6 +88,7 @@ class CryptographicProviderITest {
         connector = connectorRepository.save(connector);
 
         tokenInstanceReference = new TokenInstanceReference();
+        tokenInstanceReference.setStatus(TokenInstanceStatus.CONNECTED);
         tokenInstanceReference.setTokenInstanceUuid("1l");
         tokenInstanceReference.setConnector(connector);
         tokenInstanceReferenceRepository.save(tokenInstanceReference);

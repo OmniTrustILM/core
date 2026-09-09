@@ -3,15 +3,18 @@ package com.otilm.core.integration.service;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.notification.NotificationDto;
 import com.otilm.api.model.client.notification.NotificationRequestDto;
 import com.otilm.api.model.client.notification.NotificationResponseDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.dao.repository.notifications.NotificationRecipientRepository;
+import com.otilm.core.model.notification.NotificationSubject;
 import com.otilm.core.service.NotificationExternalService;
 import com.otilm.core.service.NotificationInternalService;
 import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.WireMockPorts;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -21,6 +24,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.Rollback;
 import org.springframework.transaction.annotation.Transactional;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
 @Transactional
@@ -99,6 +104,47 @@ class NotificationServiceITest extends BaseSpringBootTest {
         // all notifications that are present in DB are send to bulk delete, but deleted should be only those of logged
         // user
         Assertions.assertEquals(3, notificationRecipientRepository.findAll().size());
+    }
+
+    @Test
+    void listedCommentNotificationsCarryTheirSubject() {
+        String hostUuid = UUID.randomUUID().toString();
+        String rootUuid = UUID.randomUUID().toString();
+        String replyUuid = UUID.randomUUID().toString();
+        notificationInternalService
+                .createNotificationForUser("root", null, mockUser1Uuid, Resource.RA_PROFILE, hostUuid,
+                        new NotificationSubject(Resource.COMMENT, rootUuid, null));
+        notificationInternalService
+                .createNotificationForUser("reply", null, mockUser1Uuid, Resource.RA_PROFILE, hostUuid,
+                        new NotificationSubject(Resource.COMMENT, replyUuid, rootUuid));
+        notificationInternalService
+                .createNotificationForUser("plain", null, mockUser1Uuid, Resource.DISCOVERY, hostUuid);
+
+        NotificationRequestDto request = new NotificationRequestDto();
+        request.setItemsPerPage(10);
+        request.setPageNumber(1);
+        for (boolean unread : new boolean[]{false, true}) {
+            request.setUnread(unread);
+            List<NotificationDto> listed = notificationExternalService.listNotifications(request).getItems();
+
+            assertThat(listed).hasSize(3);
+            NotificationDto root = byMessage(listed, "root");
+            assertThat(root.getSubjectObjectType()).isEqualTo(Resource.COMMENT);
+            assertThat(root.getSubjectObjectIdentification()).isEqualTo(rootUuid);
+            assertThat(root.getSubjectParentIdentification()).isNull();
+            NotificationDto reply = byMessage(listed, "reply");
+            assertThat(reply.getSubjectObjectType()).isEqualTo(Resource.COMMENT);
+            assertThat(reply.getSubjectObjectIdentification()).isEqualTo(replyUuid);
+            assertThat(reply.getSubjectParentIdentification()).isEqualTo(rootUuid);
+            NotificationDto plain = byMessage(listed, "plain");
+            assertThat(plain.getSubjectObjectType()).isNull();
+            assertThat(plain.getSubjectObjectIdentification()).isNull();
+            assertThat(plain.getSubjectParentIdentification()).isNull();
+        }
+    }
+
+    private static NotificationDto byMessage(List<NotificationDto> notifications, String message) {
+        return notifications.stream().filter(n -> message.equals(n.getMessage())).findFirst().orElseThrow();
     }
 
     private void setupAuthServiceMock() {

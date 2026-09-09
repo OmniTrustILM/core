@@ -51,6 +51,8 @@ import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.otilm.core.attribute.engine.AttributeColumnProjector;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
+import com.otilm.core.attribute.engine.ListingSortResolver;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.comparator.SearchFieldDataComparator;
@@ -96,6 +98,7 @@ import com.otilm.core.util.CryptographyUtil;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import com.otilm.core.util.RequestValidatorHelper;
 import com.otilm.core.util.SearchHelper;
+import com.otilm.core.util.SortOrderBuilder;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Predicate;
@@ -117,8 +120,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 import org.apache.commons.lang3.function.TriFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -171,6 +174,8 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     // --------------------------------------------------------------------------------
     private AttributeEngine attributeEngine;
     private AttributeColumnProjector attributeColumnProjector;
+
+    private ListingSortResolver listingSortResolver;
     private ConnectorApiFactory connectorApiFactory;
     private ConnectorInternalService connectorService;
     private TokenInstanceInternalService tokenInstanceService;
@@ -221,6 +226,11 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     @Autowired
     public void setAttributeColumnProjector(AttributeColumnProjector attributeColumnProjector) {
         this.attributeColumnProjector = attributeColumnProjector;
+    }
+
+    @Autowired
+    public void setListingSortResolver(ListingSortResolver listingSortResolver) {
+        this.listingSortResolver = listingSortResolver;
     }
 
     @Autowired
@@ -305,22 +315,30 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
         RequestValidatorHelper.revalidateSearchRequestDto(request);
 
         final Pageable p = PageRequest.of(request.getPageNumber() - 1, request.getItemsPerPage());
+        final Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
         final TriFunction<Root<CryptographicKeyItem>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause = (
-                root, cb, cr) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cr, root, request.getFilters());
+                root, cb,
+                cr) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cr, root, request.getFilters(), contentFilter);
 
         List<UUID> filteredKeyUuids = cryptographicKeyItemRepository
                 .findUuidsUsingSecurityFilter(filter, additionalWhereClause, p,
-                        (root, cb) -> cb.desc(root.get("createdAt")));
+                        (root, cb) -> cb.desc(root.get("createdAt")),
+                        listingSortResolver.resolve(Resource.CRYPTOGRAPHIC_KEY, request.getSort(), contentFilter));
 
-        List<CryptographicKeyItem> filteredKeys = cryptographicKeyItemRepository
-                .findFullByUuidInOrderByCreatedAtDesc(filteredKeyUuids);
+        List<CryptographicKeyItem> filteredKeys = SortOrderBuilder
+                .rankBy(filteredKeyUuids, cryptographicKeyItemRepository.findFullByUuidIn(filteredKeyUuids),
+                        CryptographicKeyItem::getUuid);
 
-        List<Integer> associationsCounts = cryptographicKeyItemRepository.getCountsOfAssociations(filteredKeyUuids);
+        Map<UUID, Integer> associationsCounts = cryptographicKeyItemRepository
+                .getCountsOfAssociations(filteredKeyUuids)
+                .stream()
+                .collect(Collectors
+                        .toMap(CryptographicKeyItemRepository.KeyItemAssociationCount::getUuid,
+                                CryptographicKeyItemRepository.KeyItemAssociationCount::getAssociations));
 
-        List<KeyItemDto> listedKeyDtos = IntStream.range(0, filteredKeys.size()).mapToObj(i -> {
-            CryptographicKeyItem cki = filteredKeys.get(i);
+        List<KeyItemDto> listedKeyDtos = filteredKeys.stream().map(cki -> {
             KeyItemDto dto = cki.mapToSummaryDto();
-            dto.setAssociations(associationsCounts.get(i));
+            dto.setAssociations(associationsCounts.getOrDefault(cki.getUuid(), 0));
             return dto;
         }).toList();
 
@@ -329,7 +347,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
         attributeColumnProjector
                 .project(Resource.CRYPTOGRAPHIC_KEY, request.getColumns(), listedKeyDtos,
                         keyItem -> AttributeColumnProjector.parseUuid(keyItem.getKeyWrapperUuid()),
-                        keyItem -> AttributeColumnProjector.parseUuid(keyItem.getUuid()));
+                        keyItem -> AttributeColumnProjector.parseUuid(keyItem.getUuid()), contentFilter);
 
         final Long maxItems = cryptographicKeyItemRepository.countUsingSecurityFilter(filter, additionalWhereClause);
         final CryptographicKeyResponseDto responseDto = new CryptographicKeyResponseDto();
@@ -1659,6 +1677,8 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                                 .prepareSearch(FilterField.CKI_USAGE,
                                         Arrays.stream(KeyUsage.values()).map(KeyUsage::getCode).toList()),
                         SearchHelper.prepareSearch(FilterField.CKI_LENGTH),
+                        SearchHelper.prepareSearch(FilterField.CKI_ENABLED),
+                        SearchHelper.prepareSearch(FilterField.CKI_CREATED),
                         SearchHelper
                                 .prepareSearch(FilterField.CKI_STATE,
                                         Arrays.stream(KeyState.values()).map(KeyState::getCode).toList()),

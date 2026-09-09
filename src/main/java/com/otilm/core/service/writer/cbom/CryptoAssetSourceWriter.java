@@ -8,6 +8,7 @@ import com.otilm.core.dao.repository.cbom.CryptoAssetSourceRepository;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -80,9 +81,15 @@ public class CryptoAssetSourceWriter {
         sourceRepository
                 .upsertSource(UUID.randomUUID(), assetUuid, cbomUuid, JsonColumnText.render(cryptoProperties),
                         digest.leafCount(), digest.hash(),
-                        JsonColumnText.render(OccurrenceEvidenceCapper.cap(occurrences)),
-                        occurrences == null ? 0 : occurrences.size(), seenAt);
+                        JsonColumnText.render(OccurrenceEvidenceCapper.cap(occurrences)), occurrenceCount(occurrences),
+                        seenAt);
         assetRepository.recomputeMergeFromSources(assetUuid);
+    }
+
+    // A JSON-null array element carries no evidence -- OccurrenceEvidenceCapper#cap filters it out before capping --
+    // so counting it here would let occurrence_count overstate what cap() considers an occurrence.
+    private static int occurrenceCount(List<Map<String, Object>> occurrences) {
+        return occurrences == null ? 0 : (int) occurrences.stream().filter(Objects::nonNull).count();
     }
 
     /**

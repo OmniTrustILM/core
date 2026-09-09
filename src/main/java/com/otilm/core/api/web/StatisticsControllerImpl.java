@@ -53,6 +53,6 @@ public class StatisticsControllerImpl implements StatisticsController {
     @Override
     @AuditLogged(module = Module.CORE, resource = Resource.CRYPTO_ASSET, operation = Operation.STATISTICS)
     public CryptographicAssetStatisticsDto getCryptographicAssetStatistics() {
-        return cryptographicAssetService.getCryptographicAssetStatistics();
+        return cryptographicAssetService.getCryptographicAssetStatistics(SecurityFilter.create());
     }
 }

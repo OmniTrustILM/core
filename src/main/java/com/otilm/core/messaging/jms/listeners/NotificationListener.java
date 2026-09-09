@@ -50,6 +50,7 @@ import com.otilm.core.dao.repository.notifications.PendingNotificationRepository
 import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.messaging.model.NotificationMessage;
 import com.otilm.core.messaging.model.NotificationRecipient;
+import com.otilm.core.model.notification.NotificationSubject;
 import com.otilm.core.security.authn.client.RoleManagementApiClient;
 import com.otilm.core.security.authn.client.UserManagementApiClient;
 import com.otilm.core.service.NotificationInternalService;
@@ -495,6 +496,31 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
     }
 
     /**
+     * The notification targets the host object, which is the page that exists; naming the comment as well is what lets
+     * the reader be taken to it rather than to the top of a busy thread list. The body stays out: the notification
+     * points at the comment, it does not mirror user-authored text.
+     */
+    private static InternalNotificationEventData commentNotification(String text, CommentEventData data) {
+        InternalNotificationEventData notificationData = new InternalNotificationEventData(text, null);
+        notificationData.setSubjectObjectType(Resource.COMMENT);
+        notificationData.setSubjectObjectIdentification(uuidText(data.getCommentUuid()));
+        notificationData.setSubjectParentIdentification(uuidText(data.getParentUuid()));
+        return notificationData;
+    }
+
+    private static String uuidText(UUID uuid) {
+        return uuid == null ? null : uuid.toString();
+    }
+
+    private static NotificationSubject subjectOf(InternalNotificationEventData notificationData) {
+        if (notificationData.getSubjectObjectType() == null) {
+            return null;
+        }
+        return new NotificationSubject(notificationData.getSubjectObjectType(),
+                notificationData.getSubjectObjectIdentification(), notificationData.getSubjectParentIdentification());
+    }
+
+    /**
      * Which object the persisted notification points the reader at. Almost every event names the record the reader acts
      * on -- an approval notification must open the approval, not the object awaiting it -- so the message's own
      * coordinates win. A comment has no page of its own, so its notification points at the host object instead,
@@ -807,16 +833,17 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
             InternalNotificationEventData notificationData, Resource resource, UUID objectUuid) {
         String targetUuid = objectUuid != null ? objectUuid.toString() : null;
         String recipientUuid = recipient.getRecipientUuid().toString();
+        NotificationSubject subject = subjectOf(notificationData);
         return switch (recipient.getRecipientType()) {
             case USER -> notificationService
                     .createNotificationForUser(notificationData.getText(), notificationData.getDetail(), recipientUuid,
-                            resource, targetUuid);
+                            resource, targetUuid, subject);
             case ROLE -> notificationService
                     .createNotificationForRole(notificationData.getText(), notificationData.getDetail(), recipientUuid,
-                            resource, targetUuid);
+                            resource, targetUuid, subject);
             case GROUP -> notificationService
                     .createNotificationForGroup(notificationData.getText(), notificationData.getDetail(), recipientUuid,
-                            resource, targetUuid);
+                            resource, targetUuid, subject);
             default -> throw new ValidationException(
                     "Unhandled recipient type for internal notification: " + recipient.getRecipientType());
         };
@@ -914,19 +941,19 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
             // the thread, it does not mirror user-authored text.
             case COMMENT_CREATED -> {
                 CommentEventData data = (CommentEventData) eventData;
-                yield new InternalNotificationEventData("%s %s on %s '%s'"
+                yield commentNotification("%s %s on %s '%s'"
                         .formatted(data.getAuthorUsername(),
                                 data.getParentUuid() == null ? "commented" : "replied to a comment thread",
                                 data.getResource().getLabel(), data.getObjectName()),
-                        null);
+                        data);
             }
             case COMMENT_RESOLVED -> {
                 CommentEventData data = (CommentEventData) eventData;
-                yield new InternalNotificationEventData("%s %s a comment thread on %s '%s'"
+                yield commentNotification("%s %s a comment thread on %s '%s'"
                         .formatted(data.getResolvedByUsername(),
                                 Boolean.TRUE.equals(data.getResolved()) ? "resolved" : "reopened",
                                 data.getResource().getLabel(), data.getObjectName()),
-                        null);
+                        data);
             }
             case CERTIFICATE_REGISTERED -> {
                 CertificateRegisteredEventData data = (CertificateRegisteredEventData) eventData;

@@ -5,11 +5,11 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.comment.CommentCreateRequestDto;
 import com.otilm.api.model.client.comment.CommentDto;
 import com.otilm.api.model.client.comment.CommentResponseDto;
+import com.otilm.api.model.common.SortedPaginationRequestDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.auth.UserDto;
 import com.otilm.api.model.core.auth.UserProfileDto;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
-import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.core.dao.entity.OwnerAssociation;
 import com.otilm.core.dao.repository.OwnerAssociationRepository;
 import com.otilm.core.model.auth.ResourceAction;
@@ -71,7 +71,10 @@ class CommentAuthorizationITest extends BaseSpringBootTest {
     }
 
     private UUID authenticateAs(String username) {
-        UUID userUuid = UUID.randomUUID();
+        return authenticateAs(username, UUID.randomUUID());
+    }
+
+    private UUID authenticateAs(String username, UUID userUuid) {
         UserProfileDto userProfileDto = new UserProfileDto();
         UserDto userDto = new UserDto();
         userDto.setUuid(userUuid.toString());
@@ -102,8 +105,8 @@ class CommentAuthorizationITest extends BaseSpringBootTest {
 
     private CommentResponseDto list(Resource resource, UUID objectUuid) throws NotFoundException {
         return commentService
-                .listComments(SecuredResource.fromResource(resource), SecuredUUID.fromUUID(objectUuid),
-                        new PaginationRequestDto());
+                .listComments(SecuredResource.fromResource(resource), SecuredUUID.fromUUID(objectUuid), null,
+                        new SortedPaginationRequestDto());
     }
 
     private void grantOwnership(Resource resource, UUID objectUuid, UUID ownerUuid) {
@@ -203,8 +206,8 @@ class CommentAuthorizationITest extends BaseSpringBootTest {
         denyResourceAccess(Resource.RA_PROFILE, ResourceAction.DETAIL);
 
         UUID replyUuid = reply.getUuid();
-        PaginationRequestDto pagination = new PaginationRequestDto();
-        assertThatThrownBy(() -> commentService.listReplies(replyUuid, pagination))
+        SortedPaginationRequestDto pagination = new SortedPaginationRequestDto();
+        assertThatThrownBy(() -> commentService.listReplies(replyUuid, null, pagination))
                 .isInstanceOf(AccessDeniedException.class);
         assertThatThrownBy(() -> commentService.resolveComment(replyUuid)).isInstanceOf(AccessDeniedException.class);
     }
@@ -226,17 +229,53 @@ class CommentAuthorizationITest extends BaseSpringBootTest {
     }
 
     @Test
-    void rootAuthorCannotDeleteOwnRootOnceReplied() throws NotFoundException {
+    void rootAuthorDeletesOwnThreadWhenEveryReplyIsTheirs() throws NotFoundException {
         UUID objectUuid = hostObjects.create(Resource.RA_PROFILE);
         authenticateAs("tst-author");
         CommentDto root = post(Resource.RA_PROFILE, objectUuid, null);
         post(Resource.RA_PROFILE, objectUuid, root.getUuid());
+        restrictObjectAccess(Resource.RA_PROFILE, ResourceAction.UPDATE);
+        denyResourceAccess(Resource.RA_PROFILE, ResourceAction.UPDATE);
 
+        commentService.deleteComment(root.getUuid());
+
+        assertThat(list(Resource.RA_PROFILE, objectUuid).getComments()).isEmpty();
+    }
+
+    @Test
+    void rootAuthorCannotDeleteOwnRootOnceAnotherUserReplied() throws NotFoundException {
+        UUID objectUuid = hostObjects.create(Resource.RA_PROFILE);
+        UUID authorUuid = authenticateAs("tst-author");
+        CommentDto root = post(Resource.RA_PROFILE, objectUuid, null);
+        post(Resource.RA_PROFILE, objectUuid, root.getUuid());
+        authenticateAs("tst-replier");
+        post(Resource.RA_PROFILE, objectUuid, root.getUuid());
+
+        authenticateAs("tst-author", authorUuid);
         restrictObjectAccess(Resource.RA_PROFILE, ResourceAction.UPDATE);
         denyResourceAccess(Resource.RA_PROFILE, ResourceAction.UPDATE);
 
         UUID rootUuid = root.getUuid();
         assertThatThrownBy(() -> commentService.deleteComment(rootUuid)).isInstanceOf(AccessDeniedException.class);
+        assertThat(list(Resource.RA_PROFILE, objectUuid).getComments().getFirst().getReplyCount()).isEqualTo(2);
+    }
+
+    @Test
+    void authorWhoOwnsTheHostCascadesOverAnotherUsersReply() throws NotFoundException {
+        UUID objectUuid = hostObjects.create(Resource.RA_PROFILE);
+        UUID authorUuid = authenticateAs("tst-author");
+        grantOwnership(Resource.RA_PROFILE, objectUuid, authorUuid);
+        CommentDto root = post(Resource.RA_PROFILE, objectUuid, null);
+        authenticateAs("tst-replier");
+        post(Resource.RA_PROFILE, objectUuid, root.getUuid());
+
+        authenticateAs("tst-author", authorUuid);
+        restrictObjectAccess(Resource.RA_PROFILE, ResourceAction.UPDATE);
+        denyResourceAccess(Resource.RA_PROFILE, ResourceAction.UPDATE);
+
+        commentService.deleteComment(root.getUuid());
+
+        assertThat(list(Resource.RA_PROFILE, objectUuid).getComments()).isEmpty();
     }
 
     @Test

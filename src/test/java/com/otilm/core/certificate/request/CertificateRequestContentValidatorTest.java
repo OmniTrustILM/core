@@ -1,6 +1,5 @@
 package com.otilm.core.certificate.request;
 
-import com.otilm.api.exception.CertificateRequestValidationException;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
@@ -42,8 +41,6 @@ import org.junit.jupiter.api.Test;
 
 import static com.otilm.core.util.builders.MappedDataAttributeV3Builder.aMappedDataAttribute;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class CertificateRequestContentValidatorTest {
 
@@ -555,51 +552,6 @@ class CertificateRequestContentValidatorTest {
         }
     }
 
-    @Nested
-    class InstanceOverload {
-
-        @Test
-        void throws_whenStrictAndRequiredRdnMissing() throws Exception {
-            // given — CSR subject has O only; the set requires CN; strict (lenient=false)
-            CertificateRequest request = pkcs10("O=Example");
-            List<BaseAttribute> definitions = List
-                    .of(aMappedDataAttribute().withName("cn").required().mappingRdn("CN").build());
-
-            // when / then
-            assertThatThrownBy(() -> new CertificateRequestContentValidator().validate(request, definitions, false))
-                    .isInstanceOf(CertificateRequestValidationException.class)
-                    .hasMessageContaining("request-attribute policy");
-        }
-
-        @Test
-        void accepts_whenLenientAndRequiredRdnMissing() throws Exception {
-            // given — same CSR and set, but lenient (lenient=true) downgrades the violation to a warning
-            CertificateRequest request = pkcs10("O=Example");
-            List<BaseAttribute> definitions = List
-                    .of(aMappedDataAttribute().withName("cn").required().mappingRdn("CN").build());
-
-            // when / then
-            assertThatCode(() -> new CertificateRequestContentValidator().validate(request, definitions, true))
-                    .doesNotThrowAnyException();
-        }
-
-        @Test
-        void shapesUncheckedParseFailure_asValidationException_withoutLeakingInternals() throws Exception {
-            // given — a PKCS#10 whose extensionRequest attribute has an EMPTY value set: structurally
-            // valid ASN.1 that fails extension extraction with an unchecked exception, not a typed one
-            CertificateRequest request = pkcs10WithEmptyExtensionRequest();
-            List<BaseAttribute> definitions = List
-                    .of(aMappedDataAttribute().withName("cn").required().mappingRdn("CN").build());
-
-            // when / then — protocol adapters expose this message on the wire and the global advice
-            // forwards cause messages to clients, so the exception must be platform-authored and causeless
-            assertThatThrownBy(() -> new CertificateRequestContentValidator().validate(request, definitions, false))
-                    .isInstanceOf(CertificateRequestValidationException.class)
-                    .hasMessage("Certificate request could not be processed for validation")
-                    .hasNoCause();
-        }
-    }
-
     // ── Structured extension enforcement ────────────────────────────────────
 
     @Nested
@@ -659,7 +611,7 @@ class CertificateRequestContentValidatorTest {
             // when
             var result = CertificateRequestContentValidator
                     .validate(definitions, contentWithKeyUsage(CertificateKeyUsage.KEY_CERT_SIGN),
-                            RequestAttributePolicy.lenient());
+                            new RequestAttributePolicy(false, false));
 
             // then
             assertThat(result.getErrors()).isEmpty();
@@ -752,7 +704,7 @@ class CertificateRequestContentValidatorTest {
             // when
             var result = CertificateRequestContentValidator
                     .validate(definitions, contentWithKeyUsage(CertificateKeyUsage.KEY_CERT_SIGN),
-                            RequestAttributePolicy.lenient());
+                            new RequestAttributePolicy(false, false));
 
             // then
             assertThat(result.getErrors()).isEmpty();

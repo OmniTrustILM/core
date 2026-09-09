@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.model.client.dashboard.SigningRecordStatisticsPeriod;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.core.oid.OidCategory;
+import com.otilm.api.model.core.search.SortDirection;
 import com.otilm.core.auth.oauth2.AuthenticationSnapshotRequestFilter;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import java.time.LocalDate;
@@ -105,6 +106,9 @@ public class WebAppConfig implements WebMvcConfigurer {
         registry
                 .addConverter(String.class, OidCategory.class,
                         source -> StringUtils.isBlank(source) ? null : OidCategory.fromCode(source));
+        registry
+                .addConverter(String.class, SortDirection.class,
+                        source -> StringUtils.isBlank(source) ? SortDirection.ASC : SortDirection.fromCode(source));
     }
 
     /**

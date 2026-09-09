@@ -2,6 +2,8 @@ package com.otilm.core.integration.service;
 
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
+import com.otilm.api.model.client.dashboard.SigningRecordStatisticsDto;
+import com.otilm.api.model.client.dashboard.SigningRecordStatisticsPeriod;
 import com.otilm.api.model.client.signing.profile.SigningProfileDto;
 import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.common.PaginationResponseDto;
@@ -17,6 +19,7 @@ import com.otilm.core.dao.entity.signing.SigningRecord;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
+import com.otilm.core.security.authz.opa.dto.OpaObjectAccessResult;
 import com.otilm.core.service.SigningProfileExternalService;
 import com.otilm.core.service.SigningRecordExternalService;
 import com.otilm.core.service.SigningRecordInternalService;
@@ -26,9 +29,13 @@ import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.builders.SearchRequestDtoBuilder;
 import com.otilm.core.util.mocks.ConnectorMockFactory;
 import com.otilm.core.util.mocks.SignerConnectorMock;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,6 +54,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.when;
 
 /**
  * Drives {@link SigningRecordExternalService} end to end: signing profiles are created through
@@ -63,6 +73,18 @@ class SigningRecordServiceITest extends BaseSpringBootTest {
     private static final String ALPHA_RECORD_V1 = "alpha-record-v1";
     private static final String ALPHA_RECORD_V2 = "alpha-record-v2";
     private static final String BETA_RECORD_V1 = "beta-record-v1";
+
+    /**
+     * The bucket key the volume series is expected to use, spelled out here rather than borrowed from the production
+     * formatter so the test pins the wire format rather than mirroring whatever it becomes.
+     */
+    private static final DateTimeFormatter HOUR_BUCKET_KEY = DateTimeFormatter
+            .ofPattern("yyyy-MM-dd'T'HH:00:00'Z'")
+            .withZone(ZoneOffset.UTC);
+
+    private static final DateTimeFormatter DAY_BUCKET_KEY = DateTimeFormatter
+            .ofPattern("yyyy-MM-dd'T'00:00:00'Z'")
+            .withZone(ZoneOffset.UTC);
 
     @Autowired
     private SigningRecordExternalService signingRecordService;
@@ -507,6 +529,208 @@ class SigningRecordServiceITest extends BaseSpringBootTest {
                     signingRecordService
                             .listSigningRecords(SearchRequestDtoBuilder.all(), SecurityFilter.create())
                             .getTotalItems());
+        }
+    }
+
+    /**
+     * Signing history is immutable: how much was signed in a period must read the same before and after the records
+     * describing it are deleted. What is currently <em>retained</em> is a separate figure and does follow the
+     * deletions.
+     */
+    @Nested
+    class StatisticsTests {
+
+        @Test
+        void volumeOverTimeKeepsTheSigningAfterItsRecordIsDeleted() throws NotFoundException {
+            // given
+            Instant signedAt = hoursAgo(2);
+            SigningRecord signingRecord = insertRecordSignedAt(signedAt);
+            assertEquals(1L, volumeIn(signedAt));
+
+            // when
+            signingRecordService.deleteSigningRecord(SecuredUUID.fromUUID(signingRecord.getUuid()));
+
+            // then
+            assertEquals(1L, volumeIn(signedAt));
+        }
+
+        @Test
+        void volumeOverTimeSumsRetainedAndDeletedSigningsOfTheSameBucket() throws NotFoundException {
+            // given
+            Instant signedAt = hoursAgo(2);
+            SigningRecord deleted = insertRecordSignedAt(signedAt);
+            insertRecordSignedAt(signedAt.plusSeconds(60));
+
+            // when
+            signingRecordService.deleteSigningRecord(SecuredUUID.fromUUID(deleted.getUuid()));
+
+            // then
+            assertEquals(2L, volumeIn(signedAt));
+        }
+
+        @Test
+        void volumeOverTimeCountsADeletedSigningOnce() throws NotFoundException {
+            // given
+            Instant signedAt = hoursAgo(2);
+            SigningRecord signingRecord = insertRecordSignedAt(signedAt);
+
+            // when
+            signingRecordService.deleteSigningRecord(SecuredUUID.fromUUID(signingRecord.getUuid()));
+
+            // then
+            assertEquals(1L, totalVolume());
+        }
+
+        @Test
+        void windowCountsKeepTheSigningAfterItsRecordIsDeleted() throws NotFoundException {
+            // given
+            SigningRecord signingRecord = insertRecordSignedAt(hoursAgo(2));
+
+            // when
+            signingRecordService.deleteSigningRecord(SecuredUUID.fromUUID(signingRecord.getUuid()));
+
+            // then
+            SigningRecordStatisticsDto statistics = statistics();
+            assertEquals(1L, statistics.getCountLast24h());
+            assertEquals(1L, statistics.getCountLast7d());
+        }
+
+        @Test
+        void dailySeriesSumsTheHourlyHistoryOfADeletedDay() throws NotFoundException {
+            // given
+            Instant earlier = hoursIntoTheDayBeforeYesterday(3);
+            Instant later = hoursIntoTheDayBeforeYesterday(21);
+            SigningRecord morning = insertRecordSignedAt(earlier);
+            SigningRecord evening = insertRecordSignedAt(later);
+
+            // when
+            signingRecordService.deleteSigningRecord(SecuredUUID.fromUUID(morning.getUuid()));
+            signingRecordService.deleteSigningRecord(SecuredUUID.fromUUID(evening.getUuid()));
+
+            // then
+            Map<String, Long> daily = statistics(SigningRecordStatisticsPeriod.LAST_7D).getVolumeOverTime();
+            assertEquals(2L, daily.get(DAY_BUCKET_KEY.format(earlier)));
+        }
+
+        @Test
+        void windowCountsExcludeADeletedSigningOlderThanTheWindow() throws NotFoundException {
+            // given
+            SigningRecord signingRecord = insertRecordSignedAt(Instant.now().minus(Duration.ofDays(3)));
+
+            // when
+            signingRecordService.deleteSigningRecord(SecuredUUID.fromUUID(signingRecord.getUuid()));
+
+            // then
+            SigningRecordStatisticsDto statistics = statistics();
+            assertEquals(0L, statistics.getCountLast24h());
+            assertEquals(1L, statistics.getCountLast7d());
+        }
+
+        @Test
+        void windowCountsAreUnchangedByDeletingASigningAtTheWindowEdge() throws NotFoundException {
+            // given a signing in the very hour the 24h cutoff falls in, where an exact and an hour-aligned window
+            // disagree about whether it belongs
+            SigningRecord signingRecord = insertRecordSignedAt(
+                    Instant.now().minus(Duration.ofDays(1)).truncatedTo(ChronoUnit.HOURS));
+            long before = statistics().getCountLast24h();
+
+            // when
+            signingRecordService.deleteSigningRecord(SecuredUUID.fromUUID(signingRecord.getUuid()));
+
+            // then
+            assertEquals(1L, before);
+            assertEquals(before, statistics().getCountLast24h());
+        }
+
+        @Test
+        void volumeOverTimeOfDeletedSigningsStaysScopedToTheProfilesTheCallerMaySee() throws Exception {
+            // given
+            Instant signedAt = hoursAgo(2);
+            SigningProfileDto otherProfile = createSigningProfile("out-of-scope-profile");
+            SigningRecord mine = insertRecordSignedAt(defaultProfile, signedAt);
+            SigningRecord theirs = insertRecordSignedAt(otherProfile, signedAt);
+            signingRecordService.deleteSigningRecord(SecuredUUID.fromUUID(mine.getUuid()));
+            signingRecordService.deleteSigningRecord(SecuredUUID.fromUUID(theirs.getUuid()));
+            assertEquals(2L, volumeIn(signedAt));
+
+            // when
+            allowOnlySigningProfile(defaultProfile);
+
+            // then
+            assertEquals(1L, volumeIn(signedAt));
+        }
+
+        @Test
+        void totalRetainedDropsWhenTheRecordIsDeleted() throws NotFoundException {
+            // given
+            SigningRecord signingRecord = insertRecordSignedAt(hoursAgo(2));
+            assertEquals(1L, statistics().getTotalRetained());
+
+            // when
+            signingRecordService.deleteSigningRecord(SecuredUUID.fromUUID(signingRecord.getUuid()));
+
+            // then
+            assertEquals(0L, statistics().getTotalRetained());
+        }
+
+        private SigningRecord insertRecordSignedAt(Instant signingTime) {
+            return insertRecordSignedAt(defaultProfile, signingTime);
+        }
+
+        private SigningRecord insertRecordSignedAt(SigningProfileDto profile, Instant signingTime) {
+            SigningRecord signingRecord = aSigningRecord()
+                    .withSigningProfile(profile)
+                    .withSigningTime(signingTime)
+                    .build();
+            signingRecordWriter.insert(signingRecord);
+            return signingRecord;
+        }
+
+        /**
+         * Narrows the OPA object-access vote for signing profiles to {@code allowed}, the way it comes back for an
+         * operator scoped to a subset of them. The vote for signing records themselves stays unrestricted, so what the
+         * assertion measures is the signing-profile scope alone.
+         */
+        private void allowOnlySigningProfile(SigningProfileDto allowed) {
+            OpaObjectAccessResult scoped = new OpaObjectAccessResult();
+            scoped.setActionAllowedForGroupOfObjects(false);
+            scoped.setAllowedObjects(List.of(allowed.getUuid()));
+            scoped.setForbiddenObjects(List.of());
+            when(opaClient
+                    .checkObjectAccess(any(),
+                            argThat(request -> request != null && request.getProperties() != null
+                                    && Resource.SIGNING_PROFILE.getCode().equals(request.getProperties().get("name"))),
+                            any(), any()))
+                    .thenReturn(scoped);
+        }
+
+        /** Well inside the 24h window and clear of both its edges, so the assertions do not race the clock. */
+        private Instant hoursAgo(int hours) {
+            return Instant.now().minus(Duration.ofHours(hours)).truncatedTo(ChronoUnit.HOURS).plusSeconds(1800);
+        }
+
+        /**
+         * {@code hour} o'clock UTC on the day before yesterday — a whole day inside the 7-day window, so a daily bucket
+         * built from it is neither the partial leading day nor today.
+         */
+        private Instant hoursIntoTheDayBeforeYesterday(int hour) {
+            return Instant.now().minus(Duration.ofDays(2)).truncatedTo(ChronoUnit.DAYS).plus(Duration.ofHours(hour));
+        }
+
+        private Long volumeIn(Instant bucket) {
+            return statistics().getVolumeOverTime().get(HOUR_BUCKET_KEY.format(bucket));
+        }
+
+        private long totalVolume() {
+            return statistics().getVolumeOverTime().values().stream().mapToLong(Long::longValue).sum();
+        }
+
+        private SigningRecordStatisticsDto statistics() {
+            return statistics(SigningRecordStatisticsPeriod.LAST_24H);
+        }
+
+        private SigningRecordStatisticsDto statistics(SigningRecordStatisticsPeriod period) {
+            return signingRecordService.getSigningRecordStatistics(period, SecurityFilter.create());
         }
     }
 

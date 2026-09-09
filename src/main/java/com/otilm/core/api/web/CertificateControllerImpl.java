@@ -12,6 +12,9 @@ import com.otilm.api.interfaces.core.web.CertificateController;
 import com.otilm.api.model.client.approval.ApprovalResponseDto;
 import com.otilm.api.model.client.certificate.BulkOperationResponse;
 import com.otilm.api.model.client.certificate.CertificateComplianceCheckDto;
+import com.otilm.api.model.client.certificate.CertificateImportRequestDto;
+import com.otilm.api.model.client.certificate.CertificateImportResponseDto;
+import com.otilm.api.model.client.certificate.CertificateKeystoreRequestDto;
 import com.otilm.api.model.client.certificate.CertificateResponseDto;
 import com.otilm.api.model.client.certificate.CertificateSearchRequestDto;
 import com.otilm.api.model.client.certificate.CertificateUpdateObjectsDto;
@@ -49,6 +52,7 @@ import com.otilm.core.service.CertificateExternalService;
 import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.util.converter.CertificateFormatConverter;
 import com.otilm.core.util.converter.CertificateFormatEncodingConverter;
+import jakarta.validation.Valid;
 import java.io.IOException;
 import java.net.URI;
 import java.security.NoSuchAlgorithmException;
@@ -147,6 +151,20 @@ public class CertificateControllerImpl implements CertificateController {
         UuidDto responseDto = new UuidDto();
         responseDto.setUuid(dto.getUuid());
         return ResponseEntity.created(location).body(responseDto);
+    }
+
+    @Override
+    public CertificateImportResponseDto importCertificates(@Valid CertificateImportRequestDto request)
+            throws ValidationException, NotFoundException, ConnectorException, AttributeException, CertificateException,
+            IOException {
+        return null;
+    }
+
+    @Override
+    public ResponseEntity<org.springframework.core.io.Resource> downloadKeystore(UUID uuid,
+            @Valid CertificateKeystoreRequestDto request) throws NotFoundException, ValidationException,
+            ConnectorException, AttributeException, CertificateException, IOException {
+        return null;
     }
 
     @Override

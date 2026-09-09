@@ -31,3 +31,28 @@
 # same paths - see the plugin excludes in pom.xml.
 src/main/java/db/migration/**       -text
 src/main/resources/db/migration/**  -text
+
+# Generated data artifacts: files a generator writes in full, never a human. Marking them
+# generated collapses them behind a click in a pull request and drops them from the repository's
+# language statistics. They stay diffable, which matters: the reproducibility gate in
+# .github/workflows/build_pr.yml prints the drift when a regeneration disagrees with the committed
+# bytes, and that output is only useful if git will still render it.
+#
+# The entry condition is that something regenerates the file and CI proves it. identity-tables.json
+# qualifies: `Generated artifacts` rebuilds it from the inputs on every pull request and fails on a
+# single differing byte, so nobody has to read it to trust it.
+#
+# identity-key-vectors.json is deliberately NOT listed. It looks like bulk data and it is, but no
+# generator produces it and no job checks it, so reading the diff is the only thing standing between
+# a silently edited expectation and a green run. Collapsing it would remove that guard while looking
+# like housekeeping.
+src/main/resources/cbom/identity-tables.json         linguist-generated=true
+
+# Vendored upstream snapshots feeding the generator, reviewed at the version they were taken
+# from, not hunk by hunk. cryptography-defs.schema.json is byte-identical to the copy shipped
+# in org.cyclonedx:cyclonedx-core-java:13.2.0 apart from a trailing newline.
+src/main/cbom/identity/cryptography-defs.json        linguist-generated=true
+src/main/cbom/identity/cryptography-defs.schema.json linguist-generated=true
+
+# oid-strand.json is deliberately NOT marked: it is a ratified local decision set carrying
+# per-arc rationale, and its diff IS the review material.

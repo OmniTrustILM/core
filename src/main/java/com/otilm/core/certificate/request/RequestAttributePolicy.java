@@ -7,8 +7,4 @@ package com.otilm.core.certificate.request;
  * @param whitelist {@code true} treats RDN/SAN/extension targets not in the resolved set as errors.
  */
 public record RequestAttributePolicy(boolean strict, boolean whitelist) {
-
-    public static RequestAttributePolicy lenient() {
-        return new RequestAttributePolicy(false, false);
-    }
 }

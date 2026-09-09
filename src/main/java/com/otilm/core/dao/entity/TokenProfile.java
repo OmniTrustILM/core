@@ -4,10 +4,7 @@ import com.fasterxml.jackson.annotation.JsonBackReference;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.enums.BitMaskEnum;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
-import com.otilm.api.model.core.cryptography.tokenprofile.TokenProfileDetailDto;
-import com.otilm.api.model.core.cryptography.tokenprofile.TokenProfileDto;
 import com.otilm.core.service.model.Securable;
-import com.otilm.core.util.DtoMapper;
 import com.otilm.core.util.ObjectAccessControlMapper;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -35,7 +32,6 @@ import org.hibernate.proxy.HibernateProxy;
 public class TokenProfile extends UniquelyIdentifiedAndAudited
         implements
             Serializable,
-            DtoMapper<TokenProfileDto>,
             Securable,
             ObjectAccessControlMapper<NameAndUuidDto> {
 
@@ -77,34 +73,6 @@ public class TokenProfile extends UniquelyIdentifiedAndAudited
     public void setUsage(List<KeyUsage> usage) {
         this.usage = BitMaskEnum
                 .convertSetToBitMask(usage.isEmpty() ? EnumSet.noneOf(KeyUsage.class) : EnumSet.copyOf(usage));
-    }
-
-    @Override
-    public TokenProfileDto mapToDto() {
-        TokenProfileDto dto = new TokenProfileDto();
-        dto.setEnabled(enabled);
-        dto.setUuid(uuid.toString());
-        dto.setName(name);
-        dto.setDescription(description);
-        dto.setTokenInstanceName(tokenInstanceName);
-        dto.setTokenInstanceUuid(tokenInstanceReferenceUuid.toString());
-        dto.setTokenInstanceStatus(tokenInstanceReference.getStatus());
-        dto.setUsages(getUsage());
-        return dto;
-    }
-
-    public TokenProfileDetailDto mapToDetailDto() {
-        TokenProfileDetailDto dto = new TokenProfileDetailDto();
-        dto.setEnabled(enabled);
-        dto.setUuid(uuid.toString());
-        dto.setName(name);
-        dto.setDescription(description);
-        dto.setTokenInstanceName(tokenInstanceName);
-        dto.setTokenInstanceUuid(tokenInstanceReferenceUuid.toString());
-        dto.setTokenInstanceStatus(tokenInstanceReference.getStatus());
-        dto.setUsages(getUsage());
-        // Custom Attributes and Metadata should be set in the service
-        return dto;
     }
 
     @Override

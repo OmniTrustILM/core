@@ -356,6 +356,30 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
         assertThat(String.valueOf(stored.getEvidence())).doesNotContain(SECRET_MARKER);
     }
 
+    /**
+     * F6: {@code cap()} filters JSON-null array elements out before it ever counts an occurrence, so a null carries no
+     * evidence and must not inflate {@code occurrence_count} either -- the stored count has to keep agreeing with what
+     * capping considered real.
+     */
+    @Test
+    void occurrenceCountExcludesJsonNullArrayElements() {
+        UUID assetUuid = upsert(rsa2048(), null);
+        List<Map<String, Object>> occurrencesWithNulls = new ArrayList<>();
+        occurrencesWithNulls.add(Map.of("location", "src/a.java"));
+        occurrencesWithNulls.add(null);
+        occurrencesWithNulls.add(null);
+
+        sourceWriter
+                .upsertSource(assetUuid, leanCbom.getUuid(), Map.of("primitive", "signature"), occurrencesWithNulls,
+                        OffsetDateTime.now());
+
+        CryptoAssetSource stored = source(assetUuid, leanCbom.getUuid());
+        assertThat(stored.getOccurrenceCount())
+                .describedAs("a JSON-null array element carries no evidence and must not inflate the true count")
+                .isEqualTo(1);
+        assertThat(stored.getEvidence()).hasSize(1);
+    }
+
     // ---- foreign-key behaviour ----
 
     @Test

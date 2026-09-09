@@ -1,0 +1,154 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "serialNumber": "urn:uuid:5b1c2d3e-0000-4000-8000-000000000002",
+  "version": 1,
+  "components": [
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "key-dup",
+      "name": "key-dup-first",
+      "cryptoProperties": {
+        "assetType": "related-crypto-material",
+        "relatedCryptoMaterialProperties": {"type": "public-key", "value": "AQID"}
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "key-dup",
+      "name": "key-dup-second",
+      "cryptoProperties": {
+        "assetType": "related-crypto-material",
+        "relatedCryptoMaterialProperties": {"type": "public-key", "value": "BAUG"}
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "key-one",
+      "name": "key-one",
+      "cryptoProperties": {
+        "assetType": "related-crypto-material",
+        "relatedCryptoMaterialProperties": {"type": "public-key", "value": "AAAA"}
+      }
+    },
+    {
+      "type": "library",
+      "bom-ref": "crypto-lib",
+      "name": "crypto-lib",
+      "version": "3.2.1",
+      "components": [
+        {
+          "type": "cryptographic-asset",
+          "bom-ref": "nested-chacha20",
+          "name": "ChaCha20",
+          "cryptoProperties": {"assetType": "algorithm", "algorithmProperties": {"primitive": "stream-cipher"}}
+        },
+        {
+          "type": "cryptographic-asset",
+          "bom-ref": "key-nested",
+          "name": "key-nested",
+          "cryptoProperties": {
+            "assetType": "related-crypto-material",
+            "relatedCryptoMaterialProperties": {"type": "public-key", "value": "BBBB"}
+          }
+        }
+      ]
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "cert-resolving",
+      "name": "cert-resolving",
+      "cryptoProperties": {
+        "assetType": "certificate",
+        "certificateProperties": {
+          "subjectName": "CN=referrer.example.test,O=Fence Corpus",
+          "issuerName": "CN=Fence Corpus Root CA,O=Fence Corpus",
+          "notValidBefore": "2026-01-01T00:00:00Z",
+          "notValidAfter": "2027-01-01T00:00:00Z",
+          "subjectPublicKeyRef": "key-one"
+        }
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "cert-nested",
+      "name": "cert-nested",
+      "cryptoProperties": {
+        "assetType": "certificate",
+        "certificateProperties": {
+          "subjectName": "CN=referrer.example.test,O=Fence Corpus",
+          "issuerName": "CN=Fence Corpus Root CA,O=Fence Corpus",
+          "notValidBefore": "2026-01-01T00:00:00Z",
+          "notValidAfter": "2027-01-01T00:00:00Z",
+          "subjectPublicKeyRef": "key-nested"
+        }
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "cert-ambiguous",
+      "name": "cert-ambiguous",
+      "cryptoProperties": {
+        "assetType": "certificate",
+        "certificateProperties": {
+          "subjectName": "CN=referrer.example.test,O=Fence Corpus",
+          "issuerName": "CN=Fence Corpus Root CA,O=Fence Corpus",
+          "notValidBefore": "2026-01-01T00:00:00Z",
+          "notValidAfter": "2027-01-01T00:00:00Z",
+          "subjectPublicKeyRef": "key-dup"
+        }
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "cert-dangling",
+      "name": "cert-dangling",
+      "cryptoProperties": {
+        "assetType": "certificate",
+        "certificateProperties": {
+          "subjectName": "CN=referrer.example.test,O=Fence Corpus",
+          "issuerName": "CN=Fence Corpus Root CA,O=Fence Corpus",
+          "notValidBefore": "2026-01-01T00:00:00Z",
+          "notValidAfter": "2027-01-01T00:00:00Z",
+          "subjectPublicKeyRef": "key-nowhere"
+        }
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "cert-two-keys",
+      "name": "cert-two-keys",
+      "cryptoProperties": {
+        "assetType": "certificate",
+        "certificateProperties": {
+          "subjectName": "CN=referrer.example.test,O=Fence Corpus",
+          "issuerName": "CN=Fence Corpus Root CA,O=Fence Corpus",
+          "notValidBefore": "2026-01-01T00:00:00Z",
+          "notValidAfter": "2027-01-01T00:00:00Z",
+          "relatedCryptographicAssets": [
+            {"type": "public-key", "ref": "key-one"},
+            {"type": "public-key", "ref": "key-nested"}
+          ]
+        }
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "cert-related-asset-17",
+      "name": "cert-related-asset-17",
+      "cryptoProperties": {
+        "assetType": "certificate",
+        "certificateProperties": {
+          "subjectName": "CN=referrer.example.test,O=Fence Corpus",
+          "issuerName": "CN=Fence Corpus Root CA,O=Fence Corpus",
+          "notValidBefore": "2026-01-01T00:00:00Z",
+          "notValidAfter": "2027-01-01T00:00:00Z",
+          "relatedCryptographicAssets": [
+            {"type": "PublicKey", "ref": "key-one"},
+            {"type": "signature-algorithm", "ref": "nested-chacha20"}
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 package com.otilm.core.integration.service;
 
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.dao.entity.Comment;
 import com.otilm.core.dao.entity.Group;
@@ -9,6 +10,7 @@ import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.service.writer.CommentWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import java.time.Duration;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -119,6 +121,76 @@ class CommentWriterConcurrencyITest extends BaseSpringBootTest {
         assertThat(groupRepository.findByName(group.getName())).isEmpty();
     }
 
+    @Test
+    void soleAuthorDeletionWaitingOnTheRowLockIsRejectedOnceAnotherUsersReplyCommits() throws Exception {
+        Group group = newGroup();
+        Comment root = commentRepository.saveAndFlush(newComment(group.getUuid()));
+        CountDownLatch replied = new CountDownLatch(1);
+        CountDownLatch mayCommitReply = new CountDownLatch(1);
+
+        // Once flushed, the reply's insert holds a key-share lock on the root until it commits
+        Future<Comment> replier = executor.submit(() -> transactionTemplate.execute(status -> {
+            Comment reply = newComment(group.getUuid());
+            reply.setParentUuid(root.getUuid());
+            Comment saved = create(reply);
+            commentRepository.flush();
+            replied.countDown();
+            await(mayCommitReply);
+            return saved;
+        }));
+
+        assertThat(replied.await(10, TimeUnit.SECONDS)).isTrue();
+
+        Future<Object> deleter = executor.submit(() -> transactionTemplate.execute(status -> {
+            deleteRootAsSoleAuthor(root);
+            return null;
+        }));
+
+        awaitLockWaiter("transactionid");
+        mayCommitReply.countDown();
+
+        assertThat(replier.get(10, TimeUnit.SECONDS)).isNotNull();
+        assertThatThrownBy(() -> deleter.get(10, TimeUnit.SECONDS)).hasRootCauseInstanceOf(ValidationException.class);
+        assertThat(commentRepository.findById(root.getUuid())).isPresent();
+        assertThat(commentRepository.existsByParentUuidAndAuthorUuidNot(root.getUuid(), root.getAuthorUuid())).isTrue();
+    }
+
+    @Test
+    void aReplyBeingDeletedByAnotherRequestIsNotReportedAsCascaded() throws Exception {
+        Group group = newGroup();
+        Comment root = commentRepository.saveAndFlush(newComment(group.getUuid()));
+        Comment reply = newComment(group.getUuid());
+        reply.setParentUuid(root.getUuid());
+        UUID replyUuid = commentRepository.saveAndFlush(reply).getUuid();
+        CountDownLatch replyDeleted = new CountDownLatch(1);
+        CountDownLatch mayCommitReplyDeletion = new CountDownLatch(1);
+
+        // The direct deletion holds the reply's row lock until it commits
+        Future<Integer> replyDeleter = executor.submit(() -> transactionTemplate.execute(status -> {
+            int deleted = commentWriter.delete(replyUuid);
+            replyDeleted.countDown();
+            await(mayCommitReplyDeletion);
+            return deleted;
+        }));
+
+        assertThat(replyDeleted.await(10, TimeUnit.SECONDS)).isTrue();
+
+        Future<List<Comment>> rootDeleter = executor.submit(() -> transactionTemplate.execute(status -> {
+            try {
+                return commentWriter.deleteRoot(root.getUuid(), null);
+            } catch (NotFoundException e) {
+                throw new IllegalStateException(e);
+            }
+        }));
+
+        awaitLockWaiter("transactionid");
+        mayCommitReplyDeletion.countDown();
+
+        assertThat(replyDeleter.get(10, TimeUnit.SECONDS)).isEqualTo(1);
+        assertThat(rootDeleter.get(10, TimeUnit.SECONDS)).isEmpty();
+        assertThat(commentRepository.existsByResourceAndObjectUuid(Resource.GROUP, group.getUuid())).isFalse();
+    }
+
     private Group newGroup() {
         Group group = new Group();
         group.setName("tst-group-" + UUID.randomUUID());
@@ -143,18 +215,31 @@ class CommentWriterConcurrencyITest extends BaseSpringBootTest {
         }
     }
 
-    /**
-     * The interleaving under test only exists while the second worker sits in the advisory-lock wait, so the first
-     * worker must not commit before that wait is observable in pg_locks; timing out here means the lock was never
-     * contended — the serialization itself is broken, not the test.
-     */
+    private void deleteRootAsSoleAuthor(Comment root) {
+        try {
+            commentWriter.deleteRoot(root.getUuid(), root.getAuthorUuid());
+        } catch (NotFoundException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     private void awaitAdvisoryLockWaiter() {
+        awaitLockWaiter("advisory");
+    }
+
+    /**
+     * The interleaving under test only exists while the second worker sits in a lock wait, so the first worker must not
+     * commit before that wait is observable in pg_locks; timing out here means the lock was never contended — the
+     * serialization itself is broken, not the test. A row lock held by another transaction shows up as a wait on that
+     * transaction's id.
+     */
+    private void awaitLockWaiter(String lockType) {
         Awaitility
                 .await()
                 .atMost(Duration.ofSeconds(10))
                 .until(() -> jdbcTemplate
-                        .queryForObject("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted",
-                                Long.class) > 0);
+                        .queryForObject("SELECT count(*) FROM pg_locks WHERE locktype = ? AND NOT granted", Long.class,
+                                lockType) > 0);
     }
 
     private static void await(CountDownLatch latch) {

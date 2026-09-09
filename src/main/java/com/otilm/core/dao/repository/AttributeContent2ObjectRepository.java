@@ -108,17 +108,16 @@ public interface AttributeContent2ObjectRepository extends SecurityFilterReposit
      * restricted custom attribute by naming it as a column.
      *
      * <p>
-     * Selects the definition document alongside the content because the {@code visible} flag lives in it rather than in
-     * a column, and an attribute whose definition says it is not to be shown to a user must not be projected into a
-     * column. The catalogue queries above select the same document for the same reason.
+     * Excludes a definition marked not visible, so an attribute the catalogue withholds is never loaded only to be
+     * dropped afterwards.
      */
     @Query("""
             SELECT new com.otilm.core.attribute.engine.records.ProjectedAttributeContent(
-                aco.objectUuid, ad.type, ad.name, ad.contentType, aci.json, aci.encryptedData, ad.definition)
+                aco.objectUuid, ad.type, ad.name, ad.contentType, aci.json, aci.encryptedData)
                 FROM AttributeContent2Object aco
                 JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid
                 JOIN AttributeDefinition ad ON ad.uuid = aci.attributeDefinitionUuid
-                WHERE ad.type IN (:attributeTypes) AND ad.name IN (:attributeNames)
+                WHERE ad.type IN (:attributeTypes) AND ad.name IN (:attributeNames) AND ad.visible = true
                     AND aco.objectType = :objectType AND aco.objectUuid IN (:objectUuids)
                     AND (ad.type <> :customType
                         OR (ad.enabled = true

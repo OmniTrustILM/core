@@ -16,8 +16,7 @@ class BrandingSettingsValidatorTest {
     private static Stream<BiConsumer<BrandingSettingsUpdateDto, String>> colorSetters() {
         return Stream
                 .of(BrandingSettingsUpdateDto::setPrimaryColor, BrandingSettingsUpdateDto::setSecondaryColor,
-                        BrandingSettingsUpdateDto::setTertiaryColor, BrandingSettingsUpdateDto::setBackgroundColor,
-                        BrandingSettingsUpdateDto::setTextColor);
+                        BrandingSettingsUpdateDto::setBackgroundColor, BrandingSettingsUpdateDto::setTextColor);
     }
 
     /** Every field is optional, so an operator clearing all of their branding at once must not be refused. */
@@ -31,7 +30,6 @@ class BrandingSettingsValidatorTest {
         BrandingSettingsUpdateDto branding = new BrandingSettingsUpdateDto();
         branding.setPrimaryColor("#0073CF");
         branding.setSecondaryColor("#00a3e0");
-        branding.setTertiaryColor("#7B61FF");
         branding.setBackgroundColor("#FFFFFF");
         branding.setTextColor("#171717");
         branding.setDefaultTheme(BrandingTheme.DARK);

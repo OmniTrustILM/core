@@ -7,6 +7,7 @@ import com.otilm.api.model.core.cbom.CbomAssetSyncState;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetType;
 import com.otilm.api.model.core.cryptoasset.PqcVerdict;
 import com.otilm.api.model.core.search.FilterConditionOperator;
+import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
 import com.otilm.core.cbom.asset.AssetRowKeys;
 import com.otilm.core.cbom.asset.CryptoAssetIdentityFields;
 import com.otilm.core.dao.entity.Cbom;
@@ -28,6 +29,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -51,6 +53,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * against an enum-mapped column is a fact about Hibernate, not something to assume.
  */
 class CryptoAssetSearchITest extends BaseSpringBootTest {
+
+    /** No attribute-content restriction: these cases pin predicate shape, not authorization. */
+    private static final Supplier<CustomAttributeContentFilter> UNRESTRICTED_ATTRIBUTE_CONTENT = () -> new CustomAttributeContentFilter(
+            null, null);
 
     @Autowired
     private CryptoAssetRepository assetRepository;
@@ -407,7 +413,8 @@ class CryptoAssetSearchITest extends BaseSpringBootTest {
         List<UUID> undistinctedUuidPage = assetRepository
                 .findUuidsUsingSecurityFilter(SecurityFilter.create(),
                         (root, cb, cr) -> FilterPredicatesBuilder
-                                .getFiltersPredicate(cb, cr, root, List.of(matchesEitherSerial)),
+                                .getFiltersPredicate(cb, cr, root, List.of(matchesEitherSerial),
+                                        UNRESTRICTED_ATTRIBUTE_CONTENT),
                         PageRequest.of(0, 10), (root, cb) -> cb.asc(root.get("uuid")));
         assertThat(undistinctedUuidPage)
                 .describedAs("the undistincted uuid page must not repeat populated's row either")
@@ -533,7 +540,8 @@ class CryptoAssetSearchITest extends BaseSpringBootTest {
     private List<UUID> searchAll(List<SearchFilterRequestDto> filters) {
         return assetRepository
                 .findUsingSecurityFilter(SecurityFilter.create(), List.of(),
-                        (root, cb, cr) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cr, root, filters))
+                        (root, cb, cr) -> FilterPredicatesBuilder
+                                .getFiltersPredicate(cb, cr, root, filters, UNRESTRICTED_ATTRIBUTE_CONTENT))
                 .stream()
                 .map(CryptoAsset::getUuid)
                 .toList();
@@ -542,7 +550,8 @@ class CryptoAssetSearchITest extends BaseSpringBootTest {
     private List<UUID> searchCbom(SearchFilterRequestDto filter) {
         return cbomRepository
                 .findUsingSecurityFilter(SecurityFilter.create(), List.of(),
-                        (root, cb, cr) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cr, root, List.of(filter)))
+                        (root, cb, cr) -> FilterPredicatesBuilder
+                                .getFiltersPredicate(cb, cr, root, List.of(filter), UNRESTRICTED_ATTRIBUTE_CONTENT))
                 .stream()
                 .map(Cbom::getUuid)
                 .toList();

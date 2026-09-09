@@ -82,6 +82,22 @@ class OccurrenceEvidenceCapperTest {
                 .doesNotContain(SECRET_MARKER);
     }
 
+    /** The cap is inclusive: exactly {@code MAX_OCCURRENCES} keeps every one, and one more loses exactly one. */
+    @Test
+    void theCapIsInclusive() {
+        List<Map<String, Object>> atCap = new ArrayList<>();
+        for (int i = 0; i < OccurrenceEvidenceCapper.MAX_OCCURRENCES; i++) {
+            atCap.add(occurrence("src/file" + i + ".java", null));
+        }
+        List<Map<String, Object>> oneOver = new ArrayList<>(atCap);
+        oneOver.add(occurrence("src/one-over.java", null));
+
+        assertThat(OccurrenceEvidenceCapper.cap(atCap)).hasSize(OccurrenceEvidenceCapper.MAX_OCCURRENCES);
+        assertThat(OccurrenceEvidenceCapper.cap(oneOver))
+                .hasSize(OccurrenceEvidenceCapper.MAX_OCCURRENCES)
+                .noneMatch(kept -> "src/one-over.java".equals(kept.get("location")));
+    }
+
     @Test
     void tooManyOccurrencesAreCutToTheCapInProducerOrder() {
         List<Map<String, Object>> occurrences = new ArrayList<>();

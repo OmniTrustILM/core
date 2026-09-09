@@ -2,6 +2,7 @@ package com.otilm.core.signing.tsa.validator;
 
 import com.otilm.api.interfaces.core.tsp.error.TspFailureInfo;
 import com.otilm.core.model.signing.workflow.TimestampingWorkflow;
+import com.otilm.core.signing.tsa.EffectiveTimestampPolicy;
 import com.otilm.core.signing.tsa.messages.TspRequest;
 import org.springframework.stereotype.Component;
 
@@ -26,6 +27,12 @@ public class TspRequestValidator {
 
     private void validatePolicy(TimestampingWorkflow timestampingWorkflow, TspRequest request)
             throws TspRequestValidationException {
+        if (EffectiveTimestampPolicy.resolve(request, timestampingWorkflow.defaultPolicyId()).isEmpty()) {
+            throw new TspRequestValidationException(TspFailureInfo.BAD_REQUEST,
+                    "Request names no policy and the profile configures no default policy ID",
+                    "A policy ID must be specified in the request; the chosen profile has no default policy ID");
+        }
+
         if (timestampingWorkflow.allowedPolicyIds().isEmpty()) {
             return;
         }

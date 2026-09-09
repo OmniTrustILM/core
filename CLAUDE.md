@@ -34,6 +34,8 @@ A purely line-based local script will systematically over-report. Match the form
 
 When a test passes but JaCoCo (or the coverage report) shows the relevant lines as uncovered, the test is reaching a different code path than expected — usually a `catch (Exception)` upstream is swallowing the actual flow before the asserted code runs. Investigate the trace, don't trust the green. Common signal: the assertion checks the *type* of an exception or response without checking the *origin*; the test passes because *any* exception of that type is thrown, including ones from setup steps.
 
+A mock shaped like the implementation proves nothing either. When a test stubs a collaborator at whatever nesting level the production code happens to read — one `when(attr.get())` because the code calls `get()`, one enumeration entry because the loop reads one — the test passes for every input the code already handles and cannot fail for the input it mishandles. It encodes the bug as the expectation. Prefer a real instance of the collaborator's value type (`BasicAttributes`, a real DTO, a real record) built to look like what the external system actually returns, and mock only the boundary you cannot construct. If a mock's stubbing mirrors the production call sequence line for line, it is asserting that the code does what it does.
+
 For logic deep in private methods or complex Spring contexts, extract a static testable kernel — a pure function that takes inputs and returns outputs — and unit-test it independently. Keep the integration test for the integration concerns (DB, AOP, transactions). The kernel + integration split makes both halves much easier to reason about.
 
 ## Transactions and external calls
@@ -87,6 +89,31 @@ try {
 ```
 
 Capture entry state before the external call (`final State entryState = entity.getState();`) so the restoration path has something to restore *to*.
+
+## Historical figures must not be derived from deletable rows
+
+A dashboard series, counter, or report that aggregates a table whose rows get deleted is rewritten by every one of those deletions — and retention sweeps and delete-after-retrieval mean the history changes with nobody touching it. Derive such a figure from a separate append-only aggregate instead, and fold rows into it in the **same statement** that deletes them:
+
+```sql
+WITH victim AS MATERIALIZED (
+    SELECT uuid, ... FROM detail WHERE ... LIMIT :limit FOR UPDATE OF detail [SKIP LOCKED]
+)
+, rolled AS (
+    INSERT INTO aggregate AS a (...) SELECT ... FROM victim GROUP BY ... ORDER BY <aggregate key>
+    ON CONFLICT (...) DO UPDATE SET row_count = a.row_count + EXCLUDED.row_count
+)
+DELETE FROM detail WHERE uuid IN (SELECT uuid FROM victim)
+```
+
+PostgreSQL runs a data-modifying CTE exactly once and to completion, and every part reads the same snapshot of the materialized `victim` rows, so the roll-up and the delete cover the identical set and commit together: no double counting, no gap, and nothing added to the write path. The statement's own result is still the DELETE's row count, so batch loops keep working. Native, so `@Modifying(flushAutomatically = true)` — Hibernate cannot auto-flush for SQL it does not parse.
+
+**Claim the rows, and fold them in in key order.** Without a locking clause a second deleter sees the same rows in its own snapshot, folds them in too, and then deletes nothing — one row counted twice. Without an `ORDER BY` on the grouped upsert, two writers carrying rows for the same aggregate keys can take those locks in opposite orders and deadlock. Which clause depends on the caller's contract: a keyed delete **waits** (`FOR UPDATE`), because its caller is told the row is gone and skipping would report success for a row the winner might yet roll back; a batch **skips** (`FOR UPDATE ... SKIP LOCKED`), because it has no per-record contract and waiting lets two sweeps picking overlapping victims in different index orders deadlock. Lock only the table you delete from (`FOR UPDATE OF sr`), never the ones you join for the predicate.
+
+Assemble the figure under one snapshot — `@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)`. Read across the two tables in separate READ COMMITTED statements and a row deleted between them is counted as both live and history.
+
+The aggregate keeps the column its detail rows were access-controlled by, and **no FK to it**: the parent is usually deletable once its detail rows are gone, and the aggregate has to outlive it. Read it back through the parent half of the security filter only — a rolled-up row has no detail identity left for a row-level filter to match on.
+
+Align the live half's window to the aggregate's bucket boundary, not to the exact cutoff. Against an exact cutoff a row inside the first bucket but before the cutoff counts for nothing while live and for one once deleted — deleting it *raises* the figure. Floored on both sides the two are exactly equivalent, and deletion becomes invisible. Say on the API field that the window opens on a bucket boundary.
 
 ## Transactional boundaries live on services, not repositories
 

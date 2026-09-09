@@ -1098,6 +1098,12 @@ public class ScepServiceImpl implements ScepExternalService {
             clientOperationExternalService
                     .issueExistingCertificate(raProfile.getAuthorityInstanceReference().getSecuredParentUuid(),
                             raProfile.getSecuredUuid(), matchedRegistration.getUuid().toString(), requestDto);
+        } catch (RequestAttributePolicyViolationException e) {
+            // A policy violation is about CSR content, not registration identity, so it is not an enumeration
+            // oracle and carries its platform-authored detail — the same shaping the plain enrolment sites use.
+            // The failure precedes the enqueue, so the staged mapping goes.
+            scepRegistrationTrackingWriter.discardPollMapping(scepRequest.getTransactionId(), scepProfile.getUuid());
+            throw new ScepException(e.getMessage(), e, FailInfo.BAD_REQUEST); // platform-authored, safe
         } catch (ValidationException | NotFoundException e) {
             // Denial detail (locked authorization, expired window, wrong challenge) stays in the log and
             // the certificate event history; the wire carries the anti-enumeration text so challenge
@@ -1105,6 +1111,14 @@ public class ScepServiceImpl implements ScepExternalService {
             scepRegistrationTrackingWriter.discardPollMapping(scepRequest.getTransactionId(), scepProfile.getUuid());
             logger.info("SCEP registration completion rejected: {}", e.getMessage());
             throw new ScepException(REGISTRATION_REJECTION, FailInfo.BAD_MESSAGE_CHECK);
+        } catch (CertificateException e) {
+            // A strict RA profile whose request-attribute set cannot be resolved is an authority-side outage, not
+            // a client fault: no ISSUE reached the broker, so drop the staged mapping rather than leaving a retry
+            // short-circuited to a poll. SCEP has no server-failure failInfo, so BAD_REQUEST is the closest the
+            // protocol allows — passed explicitly, as every other ScepException in this file does.
+            scepRegistrationTrackingWriter.discardPollMapping(scepRequest.getTransactionId(), scepProfile.getUuid());
+            logger.error("SCEP registration completion could not be validated", e);
+            throw new ScepException("Unable to complete certificate registration", e, FailInfo.BAD_REQUEST);
         } catch (RuntimeException e) {
             // A row-lock timeout, a data-integrity error, an authorization error, or a failed publish also
             // means no ISSUE reached the broker. Drop the staged mapping so a retry is not short-circuited to

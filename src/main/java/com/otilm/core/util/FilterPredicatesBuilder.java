@@ -1,5 +1,6 @@
 package com.otilm.core.util;
 
+import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.common.attribute.common.AttributeType;
@@ -9,6 +10,8 @@ import com.otilm.api.model.common.enums.IPlatformEnum;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.core.attribute.engine.AttributeColumnProjector;
+import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
 import com.otilm.core.dao.entity.AttributeContent2Object;
 import com.otilm.core.dao.entity.AttributeContent2Object_;
 import com.otilm.core.dao.entity.AttributeContentItem_;
@@ -24,9 +27,11 @@ import com.otilm.core.dao.entity.UniquelyIdentified_;
 import com.otilm.core.dao.entity.cbom.CryptoAssetSource;
 import com.otilm.core.dao.entity.cbom.CryptoAssetSource_;
 import com.otilm.core.dao.entity.cbom.CryptoAsset_;
+import com.otilm.core.dao.repository.SortSpecification;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.enums.ResourceToClass;
 import com.otilm.core.enums.SearchFieldTypeEnum;
+import com.otilm.core.model.AttributeFieldIdentifier;
 import com.otilm.core.model.cbom.CryptoAssetIdentityGuard;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
@@ -60,6 +65,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.StringTokenizer;
 import java.util.UUID;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
@@ -68,6 +74,7 @@ import javax.xml.datatype.DatatypeFactory;
 import javax.xml.datatype.Duration;
 import org.hibernate.query.criteria.HibernateCriteriaBuilder;
 import org.hibernate.query.criteria.JpaExpression;
+import org.hibernate.query.criteria.JpaSubQuery;
 
 public class FilterPredicatesBuilder {
 
@@ -95,8 +102,15 @@ public class FilterPredicatesBuilder {
                     FilterConditionOperator.ENDS_WITH, FilterConditionOperator.MATCHES,
                     FilterConditionOperator.NOT_MATCHES);
 
+    /**
+     * The predicate a listing applies for the filters a request carries.
+     *
+     * @param contentFilterSource the caller's custom-attribute permissions, read only when a filter reaches custom
+     * attribute content. Every listing supplies it, since what a request may name is the caller's choice.
+     */
     public static <T> Predicate getFiltersPredicate(final CriteriaBuilder criteriaBuilder,
-            final CommonAbstractCriteria query, final Root<T> root, final List<SearchFilterRequestDto> filterDtos) {
+            final CommonAbstractCriteria query, final Root<T> root, final List<SearchFilterRequestDto> filterDtos,
+            final Supplier<CustomAttributeContentFilter> contentFilterSource) {
         Map<String, From> joinedAssociations = new HashMap<>();
 
         // An explicit filter on the refuted-OID facet is the caller opting into matching refuted OID
@@ -116,7 +130,9 @@ public class FilterPredicatesBuilder {
                             .add(getPropertyFilterPredicate(criteriaBuilder, query, root, filterDto, joinedAssociations,
                                     refutedOidsOptedIn));
                 } else {
-                    predicates.add(getAttributeFilterPredicate(criteriaBuilder, query, root, filterDto));
+                    predicates
+                            .add(getAttributeFilterPredicate(criteriaBuilder, query, root, filterDto,
+                                    contentFilterSource));
                 }
             }
         }
@@ -124,8 +140,19 @@ public class FilterPredicatesBuilder {
         return criteriaBuilder.and(predicates.toArray(new Predicate[]{}));
     }
 
+    /**
+     * The {@code EXISTS} subquery one attribute-sourced filter selects rows by, gated by the readability checks the
+     * projection applies to the same content.
+     */
     private static <T> Predicate getAttributeFilterPredicate(final CriteriaBuilder criteriaBuilder,
-            final CommonAbstractCriteria query, final Root<T> root, final SearchFilterRequestDto filterDto) {
+            final CommonAbstractCriteria query, final Root<T> root, final SearchFilterRequestDto filterDto,
+            final Supplier<CustomAttributeContentFilter> contentFilterSource) {
+        // A listing that never resolved the caller's attribute permissions must not read content without them.
+        if (contentFilterSource == null) {
+            throw new ValidationException(ValidationError
+                    .create("Filtering by %s was not resolved against the caller's attribute permissions."
+                            .formatted(filterDto.getFieldIdentifier())));
+        }
         final Subquery<Integer> subquery = query.subquery(Integer.class);
         final Root<AttributeContent2Object> subqueryRoot = subquery.from(AttributeContent2Object.class);
         final Join joinContentItem = subqueryRoot.join(AttributeContent2Object_.attributeContentItem, JoinType.INNER);
@@ -133,37 +160,32 @@ public class FilterPredicatesBuilder {
 
         final AttributeType attributeType = filterDto.getFieldSource().getAttributeType();
         final String identifier = filterDto.getFieldIdentifier();
-        final String[] fieldIdentifier = identifier.split("\\|");
-        final AttributeContentType contentType = AttributeContentType.valueOf(fieldIdentifier[1]);
-        final String attributeName = fieldIdentifier[0];
+        final AttributeFieldIdentifier fieldIdentifier = AttributeFieldIdentifier.parse(identifier);
+        if (fieldIdentifier == null || fieldIdentifier.contentType() == null) {
+            throw new ValidationException(ValidationError
+                    .create("Filter field identifier %s does not name an attribute.".formatted(identifier)));
+        }
+        final AttributeContentType contentType = fieldIdentifier.contentType();
+        final String attributeName = fieldIdentifier.attributeName();
+        final boolean readsStoredValue = filterDto.getCondition() != FilterConditionOperator.EMPTY
+                && filterDto.getCondition() != FilterConditionOperator.NOT_EMPTY;
+        requireFilterableContentType(identifier, contentType, readsStoredValue);
         final boolean isNotExistCondition = List
                 .of(FilterConditionOperator.NOT_EQUALS, FilterConditionOperator.NOT_CONTAINS,
                         FilterConditionOperator.EMPTY, FilterConditionOperator.NOT_MATCHES)
                 .contains(filterDto.getCondition());
 
-        // attributes content for cryptographic key items are stored under resource CRYPTOGRAPHIC_KEY, but for meta
-        // attributes, object uuid is uuid of cryptographic key item and for custom and data attribute it is uuid of
-        // cryptographic key
-        // place for improvement is to consolidate resource for attributes content
-        final Resource resource = root.getJavaType().equals(CryptographicKeyItem.class)
-                ? Resource.CRYPTOGRAPHIC_KEY
-                : ResourceToClass.getResourceByClass(root.getJavaType());
-        final String objectUuidPath = resource == Resource.CRYPTOGRAPHIC_KEY
-                && (attributeType == AttributeType.CUSTOM || attributeType == AttributeType.DATA)
-                        ? CryptographicKeyItem_.keyUuid.getName()
-                        : UniquelyIdentified_.uuid.getName();
+        final Resource resource = attributeResourceOf(root);
+        final String objectUuidPath = attributeObjectUuidPath(root, attributeType);
 
-        List<Predicate> predicates = new ArrayList<>();
-        predicates.add(criteriaBuilder.equal(joinDefinition.get(AttributeDefinition_.type), attributeType));
-        predicates.add(criteriaBuilder.equal(joinDefinition.get(AttributeDefinition_.contentType), contentType));
-        predicates.add(criteriaBuilder.equal(joinDefinition.get(AttributeDefinition_.name), attributeName));
-        predicates.add(criteriaBuilder.equal(subqueryRoot.get(AttributeContent2Object_.objectType), resource));
+        List<Predicate> predicates = new ArrayList<>(attributeCorrelationPredicates(criteriaBuilder, root, subqueryRoot,
+                joinDefinition, attributeType, contentType, attributeName, resource, objectUuidPath));
+
         predicates
-                .add(criteriaBuilder
-                        .equal(subqueryRoot.get(AttributeContent2Object_.objectUuid), root.get(objectUuidPath)));
+                .addAll(attributeReadabilityPredicates(criteriaBuilder, joinContentItem, joinDefinition, attributeType,
+                        contentFilterSource, readsStoredValue));
 
-        if (filterDto.getCondition() != FilterConditionOperator.EMPTY
-                && filterDto.getCondition() != FilterConditionOperator.NOT_EMPTY) {
+        if (readsStoredValue) {
             Expression<String> attributeContentExpression = criteriaBuilder
                     .function(JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME, String.class,
                             joinContentItem.get(AttributeContentItem_.json),
@@ -1127,5 +1149,209 @@ public class FilterPredicatesBuilder {
             pathToPropertyBuilder.append(fieldAttribute.getName());
         }
         return pathToPropertyBuilder.toString();
+    }
+
+    /**
+     * The predicates that pin a content row to one attribute definition and to one object: the definition's type,
+     * content type and name, and the object the content is attached to. Shared by the filter predicate and the sort key
+     * so the two cannot disagree about which rows belong to a field.
+     */
+    private static <T> List<Predicate> attributeCorrelationPredicates(final CriteriaBuilder criteriaBuilder,
+            final Root<T> root, final Root<AttributeContent2Object> subqueryRoot, final Join joinDefinition,
+            final AttributeType attributeType, final AttributeContentType contentType, final String attributeName,
+            final Resource resource, final String objectUuidPath) {
+        return List
+                .of(criteriaBuilder.equal(joinDefinition.get(AttributeDefinition_.type), attributeType),
+                        criteriaBuilder.equal(joinDefinition.get(AttributeDefinition_.contentType), contentType),
+                        criteriaBuilder.equal(joinDefinition.get(AttributeDefinition_.name), attributeName),
+                        criteriaBuilder.equal(subqueryRoot.get(AttributeContent2Object_.objectType), resource),
+                        criteriaBuilder
+                                .equal(subqueryRoot.get(AttributeContent2Object_.objectUuid),
+                                        root.get(objectUuidPath)));
+    }
+
+    /**
+     * The resource an object's attribute content is stored under. Key items carry the key's attributes, so a key item
+     * root resolves to {@code CRYPTOGRAPHIC_KEY} rather than to a resource of its own.
+     *
+     * <p>
+     * A place for improvement is to consolidate the resource attribute content is stored under, so this mapping is not
+     * needed at all.
+     */
+    private static <T> Resource attributeResourceOf(final Root<T> root) {
+        return root.getJavaType().equals(CryptographicKeyItem.class)
+                ? Resource.CRYPTOGRAPHIC_KEY
+                : ResourceToClass.getResourceByClass(root.getJavaType());
+    }
+
+    /**
+     * Which uuid of the root the content is keyed by. For a key item, meta attributes are attached to the item while
+     * custom and data attributes are attached to the key it belongs to.
+     *
+     * <p>
+     * Decided from the root rather than from the resource, because the key uuid is a column of the key item and of
+     * nothing else: a root that is not one has no such path to read, whatever resource its content is filed under.
+     */
+    private static <T> String attributeObjectUuidPath(final Root<T> root, final AttributeType attributeType) {
+        return root.getJavaType().equals(CryptographicKeyItem.class)
+                && (attributeType == AttributeType.CUSTOM || attributeType == AttributeType.DATA)
+                        ? CryptographicKeyItem_.keyUuid.getName()
+                        : UniquelyIdentified_.uuid.getName();
+    }
+
+    /**
+     * A scalar sort key carrying the value of one attribute-sourced field for one row.
+     *
+     * <p>
+     * Filtering an attribute is order-agnostic and so is expressed as {@code EXISTS}, which yields no value to order
+     * by. Ordering needs the value itself, so this is a correlated scalar subquery instead: the same definition and
+     * object correlation as the filter, extracted from the stored json with the same {@code jsonb_extract_path_text}
+     * and the same per-content-type cast, so a column sorts by what the cell displays.
+     *
+     * <p>
+     * An attribute may hold several values for one object, which leaves the key ambiguous. The subquery therefore
+     * orders by definition and then by {@code item_order} and takes the first row - the same order the projection query
+     * reads a page of values in - so a multi-valued attribute sorts on the value the cell shows first, and two
+     * identical requests cannot pick differently among the definitions one attribute name may map to. A row with no
+     * value for the field yields no row and so a null key, which is ordered last in both directions by the caller
+     * rather than being dropped.
+     *
+     * <p>
+     * Ordering reads a value, so it is gated like the projection that renders one: encrypted content is skipped, a
+     * definition marked not visible is skipped whatever its attribute type, a disabled custom definition is skipped,
+     * and the caller's custom-attribute permissions narrow which definitions are readable at all. That the field may be
+     * ordered on at all - not secret, not a code block, and visible in at least one of the definitions it collapses -
+     * is settled before this by {@code ListingSortResolver} against the resource's published catalogue.
+     */
+    public static <T> Expression<?> getAttributeSortKey(final CriteriaBuilder criteriaBuilder,
+            final CommonAbstractCriteria query, final Root<T> root, final SortSpecification sort) {
+        final FilterFieldSource fieldSource = sort.fieldSource();
+        final String fieldIdentifier = sort.fieldIdentifier();
+        final AttributeType attributeType = fieldSource == null ? null : fieldSource.getAttributeType();
+        if (attributeType == null) {
+            throw new ValidationException(
+                    ValidationError.create("Sort field source %s names no attribute type.".formatted(fieldSource)));
+        }
+        // The caller's attribute permissions are what keeps ordering from reading further than projection does, so a
+        // specification that was never resolved against them is refused rather than run unrestricted.
+        final Supplier<CustomAttributeContentFilter> contentFilterSource = sort.attributeContentFilterSource();
+        if (contentFilterSource == null) {
+            throw new ValidationException(ValidationError
+                    .create("Ordering by %s was not resolved against the caller's attribute permissions."
+                            .formatted(fieldIdentifier)));
+        }
+
+        final AttributeFieldIdentifier identifier = AttributeFieldIdentifier.parse(fieldIdentifier);
+        if (identifier == null) {
+            throw new ValidationException(ValidationError
+                    .create("Sort field identifier %s does not name an attribute.".formatted(fieldIdentifier)));
+        }
+        final String attributeName = identifier.attributeName();
+        final AttributeContentType contentType = identifier.contentType();
+        if (contentType == null) {
+            throw new ValidationException(ValidationError
+                    .create("Unknown attribute content type %s in sort field identifier %s."
+                            .formatted(identifier.contentTypeName(), fieldIdentifier)));
+        }
+
+        // The resource the listing selects, which the catalogue was read from; the root is only a fallback for a
+        // caller that built a specification without one, and maps to nothing for an entity outside ResourceToClass.
+        final Resource resource = sort.resource() == null ? attributeResourceOf(root) : sort.resource();
+        final String objectUuidPath = attributeObjectUuidPath(root, attributeType);
+
+        // Typed to the value's own class rather than to Object: the aggregate the grouped ordering wraps this in
+        // takes a comparable, and an Object-typed subquery is not one.
+        final Class<?> valueClass = castedAttributeContentData.contains(contentType)
+                ? contentType.getContentDataClass()
+                : String.class;
+        final Subquery subquery = query.subquery(valueClass);
+        final Root<AttributeContent2Object> subqueryRoot = subquery.from(AttributeContent2Object.class);
+        final Join joinContentItem = subqueryRoot.join(AttributeContent2Object_.attributeContentItem, JoinType.INNER);
+        final Join joinDefinition = joinContentItem.join(AttributeContentItem_.attributeDefinition, JoinType.INNER);
+
+        final Expression<String> extracted = criteriaBuilder
+                .function(JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME, String.class,
+                        joinContentItem.get(AttributeContentItem_.json),
+                        criteriaBuilder.literal(contentType.isFilterByData() ? "data" : "reference"));
+        final Expression<?> value = castedAttributeContentData.contains(contentType)
+                ? ((JpaExpression<String>) extracted).cast(contentType.getContentDataClass())
+                : extracted;
+
+        final List<Predicate> predicates = new ArrayList<>(attributeCorrelationPredicates(criteriaBuilder, root,
+                subqueryRoot, joinDefinition, attributeType, contentType, attributeName, resource, objectUuidPath));
+        predicates
+                .addAll(attributeReadabilityPredicates(criteriaBuilder, joinContentItem, joinDefinition, attributeType,
+                        contentFilterSource, true));
+        // A hidden definition must supply no sort key either: the order of a page is part of what it shows, and the
+        // projection filling its cells keeps only visible definitions. Custom is narrowed for every reader already.
+        if (attributeType != AttributeType.CUSTOM) {
+            predicates.add(definitionIsVisible(criteriaBuilder, joinDefinition));
+        }
+
+        subquery.select(value).where(predicates.toArray(new Predicate[]{}));
+        ((JpaSubQuery) subquery)
+                .orderBy(criteriaBuilder.asc(joinContentItem.get(AttributeContentItem_.attributeDefinitionUuid)),
+                        criteriaBuilder.asc(subqueryRoot.get(AttributeContent2Object_.order)))
+                .fetch(1);
+
+        return subquery;
+    }
+
+    /**
+     * Refuses a value filter on content the projection withholds, which the catalogue offers presence conditions for
+     * and nothing else. A presence filter reads no value, so it is answered.
+     */
+    private static void requireFilterableContentType(final String fieldIdentifier,
+            final AttributeContentType contentType, final boolean readsStoredValue) {
+        if (readsStoredValue && AttributeColumnProjector.WITHHELD_CONTENT_TYPES.contains(contentType)) {
+            throw new ValidationException(ValidationError
+                    .create("Field %s can only be filtered on whether a value is present.".formatted(fieldIdentifier)));
+        }
+    }
+
+    /**
+     * Whether the definition behind a content row says its attribute may be shown to a user. Reads the mirrored column,
+     * so this cannot fall open on a document whose shape has moved.
+     */
+    private static Predicate definitionIsVisible(final CriteriaBuilder criteriaBuilder, final Join joinDefinition) {
+        return criteriaBuilder.isTrue(joinDefinition.get(AttributeDefinition_.visible));
+    }
+
+    /**
+     * The predicates that keep a query from reading content the same response would withhold: ciphertext, a disabled or
+     * hidden custom definition, and definitions the caller's attribute permissions exclude.
+     *
+     * @param readsStoredValue whether the query reads the stored value rather than only asking whether one exists.
+     * Encrypted content is offered presence conditions and nothing else, so excluding ciphertext rows from a presence
+     * question would answer "no value" for content that is set.
+     */
+    private static List<Predicate> attributeReadabilityPredicates(final CriteriaBuilder criteriaBuilder,
+            final Join joinContentItem, final Join joinDefinition, final AttributeType attributeType,
+            final Supplier<CustomAttributeContentFilter> contentFilterSource, final boolean readsStoredValue) {
+        final List<Predicate> predicates = new ArrayList<>();
+        if (readsStoredValue) {
+            predicates.add(criteriaBuilder.isNull(joinContentItem.get(AttributeContentItem_.encryptedData)));
+        }
+        // Only custom definitions carry a permission model and a visibility the platform enforces. On a data or
+        // metadata definition `visible` is a connector's display hint, and the nullable `enabled` column is unset,
+        // so applying either would drop rows a listing is meant to return.
+        //
+        // A display hint governs what is rendered, so the projection and the ordering that arranges it withhold a
+        // hidden data or metadata value while a filter still matches it.
+        if (attributeType != AttributeType.CUSTOM) {
+            return predicates;
+        }
+        predicates.add(definitionIsVisible(criteriaBuilder, joinDefinition));
+        final CustomAttributeContentFilter contentFilter = contentFilterSource.get();
+
+        predicates.add(criteriaBuilder.isTrue(joinDefinition.get(AttributeDefinition_.enabled)));
+        final Path<UUID> definitionUuid = joinContentItem.get(AttributeContentItem_.attributeDefinitionUuid);
+        if (contentFilter.allowedDefinitionUuids() != null) {
+            predicates.add(definitionUuid.in(contentFilter.allowedDefinitionUuids()));
+        }
+        if (contentFilter.forbiddenDefinitionUuids() != null) {
+            predicates.add(criteriaBuilder.not(definitionUuid.in(contentFilter.forbiddenDefinitionUuids())));
+        }
+        return predicates;
     }
 }

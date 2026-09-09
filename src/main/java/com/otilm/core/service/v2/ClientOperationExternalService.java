@@ -43,7 +43,7 @@ public interface ClientOperationExternalService {
 
     ClientCertificateDataResponseDto issueExistingCertificate(SecuredParentUUID authorityUuid,
             SecuredUUID raProfileUuid, String certificateUuid, ClientCertificateIssueRequestDto request)
-            throws NotFoundException;
+            throws NotFoundException, CertificateException;
 
     ClientCertificateDataResponseDto issueCertificate(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
             ClientCertificateIssueRequestDto request, CertificateProtocolInfo protocolInfo)

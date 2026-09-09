@@ -1,10 +1,9 @@
 /**
- * The deterministic half of the ratified cryptographic-asset identity chain: the primitives a stored identity key is
- * built out of.
+ * The ratified cryptographic-asset identity chain: one CycloneDX component in, one identity key out.
  *
  * <p>
- * The classes here look like a grab bag of utilities and are not one. They are two layers of a single pipeline, and the
- * reason each exists is that its JDK or platform equivalent would have made a stored key unstable.
+ * The classes here look like a grab bag of utilities and are not one. They are four layers of a single pipeline, and
+ * the reason each exists is that its JDK or platform equivalent would have made a stored key unstable.
  *
  * <ul>
  * <li><b>Byte determinism.</b> {@link com.otilm.core.cbom.asset.identity.AsciiText},
@@ -22,14 +21,14 @@
  * {@link com.otilm.core.cbom.asset.identity.MaterialRedaction}. Each reduces one producer-controlled field to a keyable
  * token. Redaction is here rather than in a security package because its digest is an input to the material tier, not
  * only a control.</li>
+ * <li><b>Table-driven normalization.</b> {@link com.otilm.core.cbom.asset.identity.IdentityTables},
+ * {@link com.otilm.core.cbom.asset.identity.AssetNormalizer},
+ * {@link com.otilm.core.cbom.asset.identity.NormalizedAsset} and
+ * {@link com.otilm.core.cbom.asset.identity.DistinguishedNames} — the half driven by the ratified decision tables.</li>
+ * <li><b>Orchestration.</b> {@link com.otilm.core.cbom.asset.identity.CryptoAssetIdentity} routes by asset type,
+ * {@link com.otilm.core.cbom.asset.identity.DocumentScope} carries the whole-document derivations a single component
+ * cannot see, and {@link com.otilm.core.cbom.asset.identity.CbomAssetExtractor} walks the tree.</li>
  * </ul>
- *
- * <p>
- * <b>Nothing in production calls them yet, and that is the shape of the split rather than dead code.</b> The two layers
- * that do -- table-driven normalization and the routing that assembles a key -- need the ratified decision tables,
- * which arrive with a generator of their own in core#2168. They land on top of this package and compose it; splitting
- * them off keeps the tables' bulk out of the review of the persistence layer that this change is actually about. Each
- * class here is pinned by its own test, so the layer is reviewable on its own terms before anything keys on it.
  *
  * <p>
  * <b>Do not reuse these as general utilities.</b> Their divergences are the point, and a caller who wants ordinary text
@@ -38,8 +37,7 @@
  *
  * <p>
  * The package stays flat on purpose. Splitting it by layer would force
- * {@link com.otilm.core.cbom.asset.identity.CbomNames} and {@code CertificateDigests.isPresent} to widen from
- * package-private, and that encapsulation is what keeps the pipeline's vocabulary out of reach of the rest of the
- * platform.
+ * {@link com.otilm.core.cbom.asset.identity.CbomNames} and the digest-claim helpers to widen from package-private, and
+ * that encapsulation is what keeps the pipeline's vocabulary out of reach of the rest of the platform.
  */
 package com.otilm.core.cbom.asset.identity;

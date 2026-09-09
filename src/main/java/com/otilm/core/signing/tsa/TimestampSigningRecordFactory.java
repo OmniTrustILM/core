@@ -9,6 +9,7 @@ import com.otilm.core.signing.record.SigningRecordInput;
 import com.otilm.core.signing.record.SigningRecordInputSource;
 import com.otilm.core.signing.record.TimestampTokenSerialNumbers;
 import com.otilm.core.signing.tsa.messages.TspRequest;
+import com.otilm.core.util.AuthHelper;
 import java.math.BigInteger;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -27,8 +28,9 @@ import org.springframework.stereotype.Component;
  * {@code requestMetadataJson}, unconditionally.
  *
  * <p>
- * {@code requestedBy} is left {@code null}: the TSP caller identity is resolved in the protocol layer and is not
- * currently threaded down to the TSA engine, and in-process issuance has no caller identity of its own.
+ * {@code requestedBy} is the identity on the thread that issued the token. On the TSP path a TSP authenticator put it
+ * into the SecurityContext; in-process issuance has no caller of its own, so the record names whoever requested the
+ * signature the timestamp goes into. It stays unset when the issuing thread carries no identity.
  */
 @Component
 public class TimestampSigningRecordFactory {
@@ -63,7 +65,7 @@ public class TimestampSigningRecordFactory {
                 .signingProfile(signingProfile)
                 .protocol(protocol)
                 .signingTime(genTime)
-                .requestedBy(null)
+                .requestedBy(AuthHelper.getActingUserOrNull())
                 .displayName(signingProfile.name() + " #" + serialHex)
                 .requestMetadataJson(buildRequestMetadataJson(signingProfile, request, serialHex))
                 .signedDocument(encodedToken)

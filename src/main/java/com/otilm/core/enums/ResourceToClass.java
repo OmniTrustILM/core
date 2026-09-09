@@ -8,6 +8,7 @@ import com.otilm.core.dao.entity.Approval;
 import com.otilm.core.dao.entity.ApprovalProfile;
 import com.otilm.core.dao.entity.AuditLog;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
+import com.otilm.core.dao.entity.Cbom;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.Comment;
@@ -21,6 +22,7 @@ import com.otilm.core.dao.entity.Group;
 import com.otilm.core.dao.entity.Location;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.ScheduledJob;
+import com.otilm.core.dao.entity.Secret;
 import com.otilm.core.dao.entity.Setting;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
@@ -28,6 +30,7 @@ import com.otilm.core.dao.entity.acme.AcmeAccount;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
 import com.otilm.core.dao.entity.cbom.CryptoAsset;
 import com.otilm.core.dao.entity.notifications.Notification;
+import com.otilm.core.dao.entity.oid.CustomOidEntry;
 import com.otilm.core.dao.entity.scep.ScepProfile;
 import com.otilm.core.dao.entity.signing.SigningProfile;
 import com.otilm.core.dao.entity.signing.SigningRecord;
@@ -47,6 +50,7 @@ public enum ResourceToClass {
     ATTRIBUTE(Resource.ATTRIBUTE, BaseAttributeV2.class),
     SCHEDULED_JOB(Resource.SCHEDULED_JOB, ScheduledJob.class),
     NOTIFICATION_INSTANCE(Resource.NOTIFICATION_INSTANCE, Notification.class),
+    OID(Resource.OID, CustomOidEntry.class),
 
     // AUTH
     USER(Resource.USER, UserDto.class),
@@ -73,6 +77,7 @@ public enum ResourceToClass {
     LOCATION(Resource.LOCATION, Location.class),
 
     // CBOMS
+    CBOM(Resource.CBOM, Cbom.class),
     CRYPTO_ASSET(Resource.CRYPTO_ASSET, CryptoAsset.class),
 
     // CRYPTOGRAPHY
@@ -86,6 +91,9 @@ public enum ResourceToClass {
 
     // COMMENTS
     COMMENT(Resource.COMMENT, Comment.class),
+
+    // SECRETS
+    SECRET(Resource.SECRET, Secret.class),
 
     // SIGNING
     SIGNING_PROFILE(Resource.SIGNING_PROFILE, SigningProfile.class),

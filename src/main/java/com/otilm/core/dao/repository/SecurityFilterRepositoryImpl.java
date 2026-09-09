@@ -21,6 +21,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.TypedQuery;
+import jakarta.persistence.criteria.CommonAbstractCriteria;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaDelete;
 import jakarta.persistence.criteria.CriteriaQuery;
@@ -135,8 +136,8 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
     public List<T> findUsingSecurityFilter(final SecurityFilter filter, List<String> fetchAssociations,
             final TriFunction<Root<T>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause,
             final Pageable p, final BiFunction<Root<T>, CriteriaBuilder, Order> order, final SortSpecification sort) {
-        if (SortOrderBuilder.traversesJoin(sort)) {
-            return loadInUuidOrder(findUuidsOrderedByJoinedField(filter, additionalWhereClause, p, sort),
+        if (SortOrderBuilder.needsRankedUuidQuery(sort)) {
+            return loadInUuidOrder(findUuidsOrderedBySortKey(filter, additionalWhereClause, p, sort),
                     fetchAssociations);
         }
         final CriteriaQuery<T> cr = createCriteriaBuilder(filter, fetchAssociations, additionalWhereClause, order, sort,
@@ -155,20 +156,27 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
     public List<UUID> findUuidsUsingSecurityFilter(final SecurityFilter filter,
             final TriFunction<Root<T>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause,
             final Pageable p, final BiFunction<Root<T>, CriteriaBuilder, Order> order, final SortSpecification sort) {
-        if (SortOrderBuilder.traversesJoin(sort)) {
-            return findUuidsOrderedByJoinedField(filter, additionalWhereClause, p, sort);
+        if (SortOrderBuilder.needsRankedUuidQuery(sort)) {
+            return findUuidsOrderedBySortKey(filter, additionalWhereClause, p, sort);
         }
         final CriteriaQuery<UUID> cr = createCriteriaBuilderUuid(filter, additionalWhereClause, order, sort, p != null);
         return window(entityManager.createQuery(cr), p).getResultList();
     }
 
     /**
-     * The uuids of a page ordered by a field of a joined entity. The join gives a root as many rows as it has matches,
-     * so a window cut over those rows would underfill the page and let the same root reappear on the next one. The
-     * query therefore groups by the root's uuid and orders by the aggregate the ordering resolves - one row per root,
-     * which is what the window is allowed to cut.
+     * The uuids of a page in the order the request asked for, for the two sorts the entity query cannot carry itself.
+     *
+     * <p>
+     * A sort through a join gives a root as many rows as the join has matches, so a window cut over those rows would
+     * underfill the page and let the same root reappear on the next one. A sort by an attribute resolves to a
+     * correlated scalar subquery, and the entity query selects DISTINCT, which the database will not order by an
+     * expression that is absent from the select list.
+     *
+     * <p>
+     * This query answers both: it selects the sort key alongside the uuid, groups by the uuid and orders by the
+     * aggregate the ordering resolves - one row per root, carrying its key, which is what the window is allowed to cut.
      */
-    private List<UUID> findUuidsOrderedByJoinedField(final SecurityFilter filter,
+    private List<UUID> findUuidsOrderedBySortKey(final SecurityFilter filter,
             final TriFunction<Root<T>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause,
             final Pageable p, final SortSpecification sort) {
         final Class<T> entity = this.entityInformation.getJavaType();
@@ -177,7 +185,7 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
         final Root<T> root = cr.from(entity);
         final Path<?> uuid = root.get(UniquelyIdentified_.UUID);
 
-        final SortOrderBuilder.GroupedOrdering ordering = SortOrderBuilder.resolveGrouped(root, cb, sort);
+        final SortOrderBuilder.GroupedOrdering ordering = SortOrderBuilder.resolveGrouped(root, cb, cr, sort);
         cr.multiselect(uuid, ordering.sortKey());
         cr.groupBy(uuid);
         cr.orderBy(ordering.orders());
@@ -217,10 +225,10 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
     }
 
     private List<Order> resolveOrdering(final Root<T> root, final CriteriaBuilder cb,
-            final BiFunction<Root<T>, CriteriaBuilder, Order> order, final SortSpecification sort,
-            final boolean paged) {
+            final CommonAbstractCriteria query, final BiFunction<Root<T>, CriteriaBuilder, Order> order,
+            final SortSpecification sort, final boolean paged) {
         final Order defaultOrder = order == null ? null : order.apply(root, cb);
-        return SortOrderBuilder.resolve(root, cb, sort, defaultOrder, paged);
+        return SortOrderBuilder.resolve(root, cb, query, sort, defaultOrder, paged);
     }
 
     private void applyPredicates(final CriteriaQuery<?> cr, final SecurityFilter filter,
@@ -243,19 +251,42 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
     public Map<String, Long> countGroupedUsingSecurityFilter(SecurityFilter filter, Attribute<?, ?> join,
             SingularAttribute<?, ?> groupBy, BiFunction<Root<T>, CriteriaBuilder, Expression<?>> groupByExpression,
             TriFunction<Root<T>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause) {
+        BiFunction<Root<T>, CriteriaBuilder, Expression<?>> grouping = groupByExpression != null
+                ? groupByExpression
+                : groupingByAttribute(join, groupBy);
+        return aggregateGroupedUsingSecurityFilter(filter, grouping, (root, cb) -> cb.countDistinct(root),
+                additionalWhereClause);
+    }
+
+    /** Groups by {@code groupBy}, read off the root or off a left join to {@code join} when one is given. */
+    private BiFunction<Root<T>, CriteriaBuilder, Expression<?>> groupingByAttribute(Attribute<?, ?> join,
+            SingularAttribute<?, ?> groupBy) {
+        return (root, cb) -> {
+            From<?, ?> from = join == null ? root : root.join(join.getName(), JoinType.LEFT);
+            return from.get(groupBy.getName());
+        };
+    }
+
+    @Override
+    public Map<String, Long> sumGroupedUsingSecurityFilter(SecurityFilter filter, SingularAttribute<T, Long> sumOf,
+            BiFunction<Root<T>, CriteriaBuilder, Expression<?>> groupByExpression,
+            TriFunction<Root<T>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause) {
+        Objects.requireNonNull(groupByExpression, "groupByExpression");
+        return aggregateGroupedUsingSecurityFilter(filter, groupByExpression, (root, cb) -> cb.sum(root.get(sumOf)),
+                additionalWhereClause);
+    }
+
+    private Map<String, Long> aggregateGroupedUsingSecurityFilter(SecurityFilter filter,
+            BiFunction<Root<T>, CriteriaBuilder, Expression<?>> groupByExpression,
+            BiFunction<Root<T>, CriteriaBuilder, Expression<? extends Number>> aggregation,
+            TriFunction<Root<T>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause) {
         final Class<T> entity = this.entityInformation.getJavaType();
         final CriteriaBuilder cb = entityManager.getCriteriaBuilder();
         CriteriaQuery<AggregateResultDto> cr = cb.createQuery(AggregateResultDto.class);
 
         final Root<T> root = cr.from(entity);
-        Expression<?> groupBySelection;
-        if (groupByExpression != null) {
-            groupBySelection = groupByExpression.apply(root, cb);
-        } else {
-            From from = join == null ? root : root.join(join.getName(), JoinType.LEFT);
-            groupBySelection = from.get(groupBy);
-        }
-        cr.multiselect(groupBySelection, cb.countDistinct(root));
+        Expression<?> groupBySelection = groupByExpression.apply(root, cb);
+        cr.multiselect(groupBySelection, aggregation.apply(root, cb));
         cr.groupBy(groupBySelection);
 
         final List<Predicate> predicates = getPredicates(filter, additionalWhereClause, root, cb, cr);
@@ -458,7 +489,7 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
 
         fetchAssociations(root, fetchAssociations);
 
-        final List<Order> orders = resolveOrdering(root, cb, order, sort, paged);
+        final List<Order> orders = resolveOrdering(root, cb, cr, order, sort, paged);
         if (!orders.isEmpty()) {
             cr.orderBy(orders);
         }
@@ -478,7 +509,7 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
 
         cr.select(root.get("uuid"));
 
-        final List<Order> orders = resolveOrdering(root, cb, order, sort, paged);
+        final List<Order> orders = resolveOrdering(root, cb, cr, order, sort, paged);
         if (!orders.isEmpty()) {
             cr.orderBy(orders);
         }

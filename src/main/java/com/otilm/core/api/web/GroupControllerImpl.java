@@ -5,6 +5,7 @@ import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.core.web.GroupController;
+import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.UuidDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.group.GroupDto;
@@ -14,6 +15,7 @@ import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.auth.AuthEndpoint;
 import com.otilm.core.logging.LogResource;
+import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.GroupExternalService;
@@ -82,5 +84,12 @@ public class GroupControllerImpl implements GroupController {
     @AuditLogged(module = Module.CORE, resource = Resource.GROUP, operation = Operation.DELETE)
     public void bulkDeleteGroup(@LogResource(uuid = true) List<String> groupUuids) {
         groupService.bulkDeleteGroup(SecuredUUID.fromList(groupUuids));
+    }
+
+    @Override
+    @AuditLogged(module = Module.CORE, resource = Resource.GROUP, affiliatedResource = Resource.USER,
+            operation = Operation.LIST)
+    public List<NameAndUuidDto> getGroupUsers(@LogResource(uuid = true) String uuid) throws NotFoundException {
+        return groupService.getGroupUsers(SecuredParentUUID.fromString(uuid));
     }
 }

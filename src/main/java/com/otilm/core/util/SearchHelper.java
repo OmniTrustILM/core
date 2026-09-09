@@ -1,12 +1,16 @@
 package com.otilm.core.util;
 
+import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.content.data.ProtectionLevel;
+import com.otilm.api.model.common.enums.BitMaskEnum;
 import com.otilm.api.model.common.enums.IPlatformEnum;
 import com.otilm.api.model.common.enums.PlatformEnum;
+import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldType;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
+import com.otilm.core.attribute.engine.AttributeColumnProjector;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.enums.SearchFieldTypeEnum;
@@ -16,6 +20,7 @@ import jakarta.persistence.metamodel.Attribute;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -29,21 +34,58 @@ public class SearchHelper {
     private static final String SEARCH_LABEL_TEMPLATE = "%s (%s)";
 
     /**
-     * Fields that share one attribute with another field of the same resource, and so display something drawn out of it
-     * rather than the attribute itself. Derived rather than listed, so a field added later is classified without an
-     * edit here: the certificate validation-check fields are the case that exists today, each reading one serialized
-     * validation result.
+     * The {@link FilterField} sets the flags are decided against.
      *
      * <p>
-     * Held in a nested class so it is computed on first use rather than when {@link SearchHelper} loads. Reading it
+     * Held in a nested class so they are computed on first use rather than when {@link SearchHelper} loads. Reading one
      * initializes {@link FilterField}, whose entries reference the JPA static metamodel, so a caller without a
      * persistence context would otherwise fail on this class rather than on the field it asked about.
      */
-    private static final class SharedAttributeFields {
+    private static final class FilterFieldSets {
 
-        private static final Set<FilterField> VALUES = fieldsSharingAnAttribute();
+        /**
+         * Fields that share one attribute with another field of the same resource, and so display something drawn out
+         * of it rather than the attribute itself. Derived rather than listed, so a field added later is classified
+         * without an edit here: the certificate validation-check fields are the case that exists today, each reading
+         * one serialized validation result.
+         */
+        private static final Set<FilterField> SHARING_AN_ATTRIBUTE = fieldsSharingAnAttribute();
 
-        private SharedAttributeFields() {
+        /**
+         * Fields of a configurable-column listing whose value that listing does not carry. Offering one as a column
+         * publishes a heading whose every cell is empty, whatever the request asks for.
+         *
+         * <p>
+         * A field belongs here when the listing DTO has no property for it, or has one the list mapper leaves unset -
+         * which only reading that mapper answers, so the set is listed rather than derived. Neither having an attribute
+         * nor reaching the value through a join predicts it: {@code CERTIFICATE_PROTOCOL} is joined and absent while
+         * {@code RA_PROFILE_NAME} and {@code GROUP_NAME} are joined and present. A field the DTO does carry stays
+         * displayable even where no frontend renderer draws it yet.
+         */
+        private static final Set<FilterField> ABSENT_FROM_LISTING = EnumSet
+                .of(
+                        // Certificates. The listing builds each CertificateDto from the constructor projection in
+                        // CertificateRepository.findCertificateDtosByUuidsIn, filling groups from a second query;
+                        // CertificateDetailDtoMapper.toListDto serves the protocol-specific listings instead. Neither
+                        // the projection nor the DTO carries any of these.
+                        FilterField.CERT_LOCATION_NAME, FilterField.KEY_USAGE, FilterField.SUBJECT_TYPE,
+                        FilterField.SUBJECT_ALTERNATIVE_NAMES, FilterField.OCSP_VALIDATION, FilterField.CRL_VALIDATION,
+                        FilterField.SIGNATURE_VALIDATION, FilterField.CERTIFICATE_PROTOCOL, FilterField.ACME_PROFILE,
+                        FilterField.SCEP_PROFILE, FilterField.CMP_PROFILE, FilterField.ACME_ACCOUNT,
+                        FilterField.SUCCEEDING_CERTIFICATES, FilterField.PRECEDING_CERTIFICATES,
+
+                        // Connectors. The v2 ConnectorDto the listing returns carries no authentication type; only
+                        // the v1 detail DTO does.
+                        FilterField.CONNECTOR_AUTH_TYPE,
+
+                        // Secrets. Secret.setCommonFields sets the source vault profile and not the sync ones.
+                        FilterField.SECRET_SYNC_VAULT_PROFILE,
+
+                        // Signing records. SigningRecordMapper.toListDto sets the retrieval timestamp on the detail
+                        // DTO only; SigningRecordListDto has no property for it.
+                        FilterField.SIGNING_RECORD_SIGNED_DOCUMENT_RETRIEVED_AT);
+
+        private FilterFieldSets() {
         }
     }
 
@@ -82,8 +124,8 @@ public class SearchHelper {
             values = withoutNull;
         }
         fieldDataDto.setValue(values);
-        fieldDataDto.setDisplayable(true);
-        fieldDataDto.setSortable(isSortable(filterField));
+        fieldDataDto.setDisplayable(isDisplayable(filterField));
+        fieldDataDto.setSortable(isSortableField(filterField));
 
         if (filterField.getEnumClass() != null) {
             fieldDataDto.setPlatformEnum(PlatformEnum.findByClass(filterField.getEnumClass()));
@@ -137,7 +179,7 @@ public class SearchHelper {
     }
 
     public static SearchFieldDataDto prepareSearchForJSON(final SearchFieldObject attributeSearchInfo,
-            final boolean hasDuplicateInList) {
+            final boolean hasDuplicateInList, final Resource resource) {
         final SearchFieldTypeEnum searchFieldTypeEnum = retrieveSearchFieldTypeEnumByContentType(
                 attributeSearchInfo.getAttributeContentType(), attributeSearchInfo.isList());
         final SearchFieldDataDto fieldDataDto = new SearchFieldDataDto();
@@ -153,31 +195,104 @@ public class SearchHelper {
         if (attributeSearchInfo.getAttributeContentType() == AttributeContentType.TIME) {
             conditionOperators.removeAll(List.of(FilterConditionOperator.IN_NEXT, FilterConditionOperator.IN_PAST));
         }
-        if (attributeSearchInfo.getProtectionLevel() == ProtectionLevel.ENCRYPTED) {
+        // Content no response renders answers only whether a value is present: ciphertext no listing can decrypt, and
+        // the content types AttributeColumnProjector withholds outright. Offering a value condition would publish a
+        // filter the listing then refuses.
+        if (attributeSearchInfo.getProtectionLevel() == ProtectionLevel.ENCRYPTED
+                || AttributeColumnProjector.WITHHELD_CONTENT_TYPES
+                        .contains(attributeSearchInfo.getAttributeContentType())
+                || hasNoMatchableContent(attributeSearchInfo)) {
             conditionOperators = List.of(FilterConditionOperator.EMPTY, FilterConditionOperator.NOT_EMPTY);
         }
         fieldDataDto.setConditions(conditionOperators);
         fieldDataDto.setType(searchFieldTypeEnum.getFieldType());
         fieldDataDto.setValue(attributeSearchInfo.getContentItems());
         fieldDataDto.setAttributeContentType(attributeSearchInfo.getAttributeContentType());
-        fieldDataDto.setDisplayable(isDisplayable(attributeSearchInfo));
-        // Ordering by an attribute needs a correlated scalar subquery over JSONB that no index supports, and a
-        // multi-valued attribute leaves the sort key ambiguous, so no attribute-sourced field is sortable.
-        fieldDataDto.setSortable(false);
+        fieldDataDto.setDisplayable(isDisplayable(attributeSearchInfo, resource));
+        fieldDataDto.setSortable(isSortable(attributeSearchInfo, resource));
         return fieldDataDto;
     }
 
     /**
-     * What the catalogue advertises as sortable, which is nothing yet.
+     * The resources whose listing is wired to the configurable-column pipeline: it returns an {@code
+     * AttributeProjectable} DTO and passes the sort a request carries to the repository.
      *
      * <p>
-     * A secured search can be ordered by a field, but no listing service passes the sort a request carries to the
-     * repository, so a catalogue reporting {@code true} would advertise an ordering that does not happen: a client
-     * sorting on such a field would get the default order back and no indication why. {@link #isOrderableField} is the
-     * predicate this becomes once the listings are wired.
+     * Both flags are published per field while the pipeline is wired per listing, so a field of any other resource is
+     * reported neither displayable nor sortable however orderable its path is - a {@code true} there would advertise a
+     * column that listing cannot project and an ordering it discards.
+     *
+     * <p>
+     * Explicit rather than derived: the wiring lives in each listing service and nothing on a {@link FilterField} knows
+     * whether its listing was wired. A listing that gains the pipeline adds itself here, and
+     * {@code RequestValidatorHelper.revalidateSearchRequestDto} refuses a sort on every listing that has not.
      */
-    private static boolean isSortable(final FilterField filterField) {
-        return false;
+    private static final Set<Resource> CONFIGURABLE_COLUMN_RESOURCES = Set
+            .of(Resource.CERTIFICATE, Resource.CRYPTOGRAPHIC_KEY, Resource.DISCOVERY, Resource.CONNECTOR,
+                    Resource.SECRET, Resource.CBOM, Resource.SIGNING_RECORD);
+
+    /**
+     * Content whose column renders a composite identity rather than the value a sort key would read.
+     *
+     * <p>
+     * A sort key extracts the stored {@code reference} for content that is not filtered by data. For most such types
+     * that is exactly what the cell shows - {@code AttributeColumnProjector} reduces CREDENTIAL and OBJECT values to
+     * their reference and nothing else. FILE and RESOURCE are the exceptions: the projector keeps a reduced identity
+     * beside the reference, and the cell labels itself from that - a file by its name and media type, a resource link
+     * by the referenced object's name - so ordering by the reference would order the page by something no cell shows.
+     */
+    private static final Set<AttributeContentType> COMPOSITE_CELL_CONTENT_TYPES = Set
+            .of(AttributeContentType.FILE, AttributeContentType.RESOURCE);
+
+    /**
+     * Whether the listing of this resource applies the sort a request carries.
+     */
+    public static boolean listingAppliesSort(final Resource resource) {
+        return CONFIGURABLE_COLUMN_RESOURCES.contains(resource);
+    }
+
+    /**
+     * What the catalogue advertises as sortable for an attribute field: a field the catalogue offers as a column at
+     * all, whose value is what its cell shows, on a listing that applies the ordering.
+     */
+    private static boolean isSortable(final SearchFieldObject attributeSearchInfo, final Resource resource) {
+        return isDisplayable(attributeSearchInfo, resource)
+                && !COMPOSITE_CELL_CONTENT_TYPES.contains(attributeSearchInfo.getAttributeContentType());
+    }
+
+    /**
+     * What the catalogue advertises as sortable: a field the catalogue offers as a column at all, whose path can be
+     * ordered by. A sort is triggered by clicking a column header, so a field that cannot be shown cannot be ordered on
+     * however orderable its path is.
+     */
+    public static boolean isSortableField(final FilterField filterField) {
+        return CONFIGURABLE_COLUMN_RESOURCES.contains(filterField.getRootResource())
+                && isOrderableOnListing(filterField);
+    }
+
+    /**
+     * Whether a query may be ordered by this field, which is what a sort reaching {@code SortOrderBuilder} is refused
+     * against.
+     *
+     * <p>
+     * Wider than the catalogue's {@code sortable} flag, and deliberately so. On a listing that publishes columns the
+     * two agree, because ordering there is triggered by clicking a column header and a field that listing cannot show
+     * has no header to click. Outside those listings the ordering is not a column's: a caller naming a
+     * {@code SortSpecification} against the repository directly - {@code OID_ENTRY_CODE} on the custom OID entries,
+     * which no column picker ever offered - has no header behind it, so only the path matters there.
+     */
+    public static boolean isOrderableOnListing(final FilterField filterField) {
+        return isOrderableField(filterField) && (isDisplayable(filterField)
+                || !CONFIGURABLE_COLUMN_RESOURCES.contains(filterField.getRootResource()));
+    }
+
+    /**
+     * Whether a property field may be requested as a column: its listing has to be wired to the column pipeline at all,
+     * and has to carry the value the column would show.
+     */
+    public static boolean isDisplayable(final FilterField filterField) {
+        return CONFIGURABLE_COLUMN_RESOURCES.contains(filterField.getRootResource())
+                && !FilterFieldSets.ABSENT_FROM_LISTING.contains(filterField);
     }
 
     /**
@@ -194,28 +309,60 @@ public class SearchHelper {
      * itself - {@code PRIVATE_KEY} shows whether a joined key type is one particular type - and the certificate
      * validation-check fields each name one check inside a single serialized validation result, so ordering by the
      * attribute would order them all by the whole document.
+     *
+     * <p>
+     * A bitmask-backed field is the same case once more: {@code KEY_USAGE} and {@code CKI_USAGE} persist a set of flags
+     * as one integer, and the column renders the decoded set, so ordering by the column would order the page by a
+     * number whose value bears no relation to the list in the cell.
      */
     public static boolean isOrderableField(final FilterField filterField) {
         return filterField.getFieldAttribute() != null && !filterField.isNativeArrayField()
                 && filterField.getJsonPath() == null && filterField.getExpectedValue() == null
-                && !SharedAttributeFields.VALUES.contains(filterField);
+                && !isBitMaskField(filterField) && !FilterFieldSets.SHARING_AN_ATTRIBUTE.contains(filterField);
+    }
+
+    /** Whether the field's column is one integer holding a set of flags rather than the value the cell renders. */
+    private static boolean isBitMaskField(final FilterField filterField) {
+        return filterField.getEnumClass() != null && BitMaskEnum.class.isAssignableFrom(filterField.getEnumClass());
     }
 
     /**
-     * Whether an attribute field may be requested as a column.
+     * Whether an attribute field may be requested as a column: its listing has to be wired to the column pipeline at
+     * all, and the content it holds has to be content a cell may show.
      *
      * <p>
-     * Four kinds of field are withheld. A secret is never rendered anywhere. Encrypted content is stored as ciphertext
-     * that only its own decryption path can read, and a listing does not take that path. A code block is multi-line by
-     * construction - the frontend renders it as a block element - so a single-line table cell cannot hold one without
-     * breaking the row. And an attribute whose definition is marked not visible is one the contract says to hide from
-     * the user, which rules out putting its values in a column of their own.
+     * The listing gate is the one the property path applies: a listing outside the pipeline never invokes {@code
+     * AttributeColumnProjector}, so even an ordinary custom attribute of such a resource has nothing to fill its cells.
+     *
+     * <p>
+     * Four kinds of content are then withheld on a wired listing. A secret is never rendered anywhere. Encrypted
+     * content is ciphertext only its own decryption path can read, which a listing does not take. A code block is
+     * multi-line by construction, so a single-line table cell cannot hold one without breaking the row. And an
+     * attribute marked not visible is one the contract says to hide from the user.
      */
-    private static boolean isDisplayable(final SearchFieldObject attributeSearchInfo) {
-        return attributeSearchInfo.getAttributeContentType() != AttributeContentType.SECRET
-                && attributeSearchInfo.getAttributeContentType() != AttributeContentType.CODEBLOCK
+    private static boolean isDisplayable(final SearchFieldObject attributeSearchInfo, final Resource resource) {
+        return CONFIGURABLE_COLUMN_RESOURCES.contains(resource)
+                && !AttributeColumnProjector.WITHHELD_CONTENT_TYPES
+                        .contains(attributeSearchInfo.getAttributeContentType())
                 && attributeSearchInfo.getProtectionLevel() != ProtectionLevel.ENCRYPTED
                 && attributeSearchInfo.isVisible();
+    }
+
+    /**
+     * Whether no value of this field is matchable, so the conditions published for it are the presence pair alone.
+     *
+     * <p>
+     * A custom definition marked not visible is excluded from every query that reads its content, filters included, so
+     * a value condition on it could only ever return nothing - and a published condition is one a saved list view
+     * accepts, not merely a hint. A presence condition survives because it needs no value to answer: with the content
+     * unreadable the field is empty everywhere, which is what the column beside it renders.
+     *
+     * <p>
+     * A data or metadata definition carries the same flag as a connector's display hint that filtering does not apply,
+     * so its values stay matchable and its conditions stay whole.
+     */
+    private static boolean hasNoMatchableContent(final SearchFieldObject attributeSearchInfo) {
+        return attributeSearchInfo.getAttributeType() == AttributeType.CUSTOM && !attributeSearchInfo.isVisible();
     }
 
     private static SearchFieldTypeEnum retrieveSearchFieldTypeEnumByContentType(
@@ -234,13 +381,18 @@ public class SearchHelper {
         return searchFieldTypeEnum;
     }
 
-    public static List<SearchFieldDataDto> prepareSearchForJSON(final List<SearchFieldObject> searchFieldObjectList) {
+    /**
+     * The catalogue entries for one resource's attribute fields. The resource is what decides {@code sortable}, since
+     * ordering is wired per listing while the flag is published per field.
+     */
+    public static List<SearchFieldDataDto> prepareSearchForJSON(final List<SearchFieldObject> searchFieldObjectList,
+            final Resource resource) {
         final List<SearchFieldObject> mergedFields = mergeFieldsWithSameIdentifier(searchFieldObjectList);
         final Set<String> duplicatesOfNames = filterDuplicity(mergedFields);
         return mergedFields
                 .stream()
                 .map(attribute -> prepareSearchForJSON(attribute,
-                        duplicatesOfNames.contains(attribute.getAttributeName())))
+                        duplicatesOfNames.contains(attribute.getAttributeName()), resource))
                 .sorted(new SearchFieldDataComparator())
                 .toList();
     }
@@ -257,6 +409,7 @@ public class SearchHelper {
             .thenComparing(SearchFieldObject::getLabel, Comparator.nullsLast(Comparator.naturalOrder()))
             .thenComparing(SearchFieldObject::isList)
             .thenComparing(SearchFieldObject::isMultiSelect)
+            .thenComparing(SearchFieldObject::isVisible)
             .thenComparing(SearchFieldObject::getProtectionLevel, Comparator.nullsLast(Comparator.naturalOrder()))
             .thenComparing(field -> field.getContentItems() == null ? null : String.join("\0", field.getContentItems()),
                     Comparator.nullsLast(Comparator.naturalOrder()));
@@ -286,6 +439,11 @@ public class SearchHelper {
         // matchable.
         if (other.getProtectionLevel() != ProtectionLevel.ENCRYPTED) {
             merged.setProtectionLevel(other.getProtectionLevel());
+        }
+        // Projection and the filter predicates keep the content of every visible definition, so the collapsed field is
+        // shown whenever any definition behind it is visible.
+        if (other.isVisible()) {
+            merged.setVisible(true);
         }
         // A fixed-choice list input is only correct if every definition is a list; otherwise free-form input must
         // survive the merge, since a list rendering would make the free-form definitions' values un-enterable.

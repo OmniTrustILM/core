@@ -25,6 +25,7 @@ public class SystemScheduledJobs {
         schedulerService.registerScheduledJob(UpdateCertificateStatusTask.class);
         schedulerService.registerScheduledJob(UpdateIntuneRevocationRequestsTask.class);
         schedulerService.registerScheduledJob(CbomSyncTask.class);
+        schedulerService.registerScheduledJob(CryptoAssetPqcSweepTask.class);
         return null;
     }
 }

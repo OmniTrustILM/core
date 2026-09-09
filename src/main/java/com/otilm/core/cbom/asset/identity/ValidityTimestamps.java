@@ -7,6 +7,7 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.DateTimeParseException;
+import java.time.format.ResolverStyle;
 import java.util.List;
 import java.util.regex.Pattern;
 
@@ -25,7 +26,16 @@ import java.util.regex.Pattern;
  */
 public final class ValidityTimestamps {
 
-    private static final Pattern FRACTION = Pattern.compile("\\.\\d+");
+    /**
+     * A fractional second, and nothing else that happens to contain a dot.
+     *
+     * <p>
+     * Anchored to a time of day so a version-shaped value keeps its own spelling: an unanchored {@code \.\d+} turned
+     * {@code v1.2.3} into {@code v1} and {@code release.1} into {@code release}, merging values that name different
+     * things. Both spellings this class accepts are anchored -- the extended {@code T15:16:00} form and the basic
+     * fourteen-digit one -- because {@code uuuuMMddHHmmss'Z'} is GeneralizedTime, where a fraction is legal.
+     */
+    private static final Pattern FRACTION = Pattern.compile("([Tt]\\d{2}:\\d{2}:\\d{2}|\\d{14})\\.\\d+");
 
     /**
      * Parsed case-insensitively, because the reference's parser is. RFC 3339 permits a lowercase {@code t} separator
@@ -34,21 +44,26 @@ public final class ValidityTimestamps {
      * {@code 2025-01-01t00:00:00z} unparsed, keying it on its spelling instead of on its instant.
      */
     private static final List<DateTimeFormatter> OFFSET_FORMATS = List
-            .of(caseInsensitiveOffset("+HH:MM"), caseInsensitive("yyyy-MM-dd'T'HH:mm:ssZ"));
+            .of(caseInsensitiveOffset("+HH:MM"), caseInsensitive("uuuu-MM-dd'T'HH:mm:ssZ"));
 
     private static final List<DateTimeFormatter> LOCAL_FORMATS = List
-            .of(caseInsensitive("yyyy-MM-dd'T'HH:mm:ss'Z'"), caseInsensitive("yyyyMMddHHmmss'Z'"));
+            .of(caseInsensitive("uuuu-MM-dd'T'HH:mm:ss'Z'"), caseInsensitive("uuuuMMddHHmmss'Z'"));
 
     private static DateTimeFormatter caseInsensitive(String pattern) {
-        return new DateTimeFormatterBuilder().parseCaseInsensitive().appendPattern(pattern).toFormatter();
+        return new DateTimeFormatterBuilder()
+                .parseCaseInsensitive()
+                .appendPattern(pattern)
+                .toFormatter()
+                .withResolverStyle(ResolverStyle.STRICT);
     }
 
     private static DateTimeFormatter caseInsensitiveOffset(String offsetPattern) {
         return new DateTimeFormatterBuilder()
                 .parseCaseInsensitive()
-                .appendPattern("yyyy-MM-dd'T'HH:mm:ss")
+                .appendPattern("uuuu-MM-dd'T'HH:mm:ss")
                 .appendOffset(offsetPattern, "Z")
-                .toFormatter();
+                .toFormatter()
+                .withResolverStyle(ResolverStyle.STRICT);
     }
 
     private ValidityTimestamps() {
@@ -61,15 +76,36 @@ public final class ValidityTimestamps {
      * An unparseable value is returned rather than discarded: it is still a fact the producer stated, and two
      * certificates differing only in an unparseable validity must not merge. The empty string means absent, which is
      * distinct from every present value.
+     *
+     * <p>
+     * <b>An unparseable value is returned exactly as written</b>, stripped of surrounding whitespace and nothing else.
+     * The fraction-stripping and zone-case folding apply only to the parse attempt, so the two guarantees this class
+     * advertises -- that sub-second precision carries no identity, and that a spelling cannot key a value -- hold for
+     * the set of values that parse and not beyond it. {@code 2025-02-30T00:00:00Z}, {@code 2025-02-30T00:00:00.000Z}
+     * and {@code 2025-02-30t00:00:00z} are one calendar-invalid date in three spellings, and they key three ways.
+     *
+     * <p>
+     * Returning {@code parseCandidate} instead would put the unconditional {@code z -> Z} fold back on every
+     * unparseable value: {@code zebra-2025} keys as {@code Zebra-2025} and {@code cert-z-serial} as
+     * {@code cert-Z-serial}, which is the {@code main} defect the previous round closed. The anchored {@link #FRACTION}
+     * already protects {@code release.1} and {@code v1.2.3} -- measured directly at this head, both are returned
+     * untouched -- so it is the zone fold, not the fraction strip, that puts the two arms in tension.
+     *
+     * <p>
+     * A third arm exists: strip the fraction on the fallback and do <em>not</em> fold the zone case. That folds
+     * {@code .000Z} onto {@code Z}, leaves {@code zebra-2025} alone, and leaves only the lowercase spelling keying
+     * apart. It is a real option, declined because "returned exactly as written" is a contract a reader can hold in one
+     * sentence and "fraction stripped, case kept" is not, and because the corpus carries zero rows either way.
      */
     public static String normalize(String raw) {
         if (raw == null || AsciiText.isBlank(raw)) {
             return "";
         }
-        String cleaned = FRACTION.matcher(AsciiText.strip(raw)).replaceAll("").replace("z", "Z");
+        String cleaned = AsciiText.strip(raw);
+        String parseCandidate = FRACTION.matcher(cleaned).replaceAll("$1").replace("z", "Z");
         for (DateTimeFormatter format : OFFSET_FORMATS) {
             try {
-                return Long.toString(OffsetDateTime.parse(cleaned, format).toEpochSecond());
+                return Long.toString(OffsetDateTime.parse(parseCandidate, format).toEpochSecond());
             } catch (DateTimeParseException e) {
                 // Not this offset spelling. The local spellings are tried below, and a value matching none is returned
                 // cleaned rather than dropped.
@@ -77,7 +113,9 @@ public final class ValidityTimestamps {
         }
         for (DateTimeFormatter format : LOCAL_FORMATS) {
             try {
-                return Long.toString(LocalDateTime.parse(cleaned, format).toInstant(ZoneOffset.UTC).getEpochSecond());
+                return Long
+                        .toString(
+                                LocalDateTime.parse(parseCandidate, format).toInstant(ZoneOffset.UTC).getEpochSecond());
             } catch (DateTimeParseException e) {
                 // As above.
             }

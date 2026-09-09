@@ -11,6 +11,7 @@ import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
+import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
@@ -170,6 +171,7 @@ class CertificateRequestIntegrationITest extends BaseSpringBootTest {
         connector2FunctionGroupRepository.save(c2fg);
 
         TokenInstanceReference tokenInstanceReference = new TokenInstanceReference();
+        tokenInstanceReference.setStatus(TokenInstanceStatus.CONNECTED);
         tokenInstanceReference.setName("rendererTokenInstance");
         tokenInstanceReference.setConnector(connector);
         tokenInstanceReference.setConnectorUuid(connector.getUuid());

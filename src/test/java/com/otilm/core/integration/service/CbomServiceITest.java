@@ -14,6 +14,7 @@ import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.cbom.CbomAssetSyncState;
 import com.otilm.api.model.core.cbom.CbomDetailDto;
 import com.otilm.api.model.core.cbom.CbomDto;
 import com.otilm.api.model.core.cbom.CbomUploadRequestDto;
@@ -40,10 +41,12 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CbomExternalService;
 import com.otilm.core.service.CbomInternalService;
+import com.otilm.core.service.writer.cbom.CbomAssetSyncStateWriter;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.tasks.CbomSyncTask;
 import com.otilm.core.util.BaseSpringBootTest;
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
@@ -108,6 +111,9 @@ class CbomServiceITest extends BaseSpringBootTest {
 
     @Autowired
     private CbomRepository cbomRepository;
+
+    @Autowired
+    private CbomAssetSyncStateWriter syncStateWriter;
 
     @Autowired
     private ScheduledJobHistoryRepository scheduledJobHistoryRepository;
@@ -179,6 +185,37 @@ class CbomServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void listServesTheAssetSyncStateFields() {
+        // Given
+        Cbom cbom = new Cbom();
+        cbom.setSerialNumber("urn:uuid:sync-state-list");
+        cbom.setTimestamp(OffsetDateTime.now());
+        cbom.setVersion(1);
+        cbom.setSpecVersion("1.6");
+        cbom = cbomRepository.save(cbom);
+
+        // Truncated to microseconds: the DB column stores microsecond precision, so a nanosecond-precision
+        // `now()` would round on the way back out and break the round-trip equality below.
+        OffsetDateTime syncedAt = OffsetDateTime.now().minusMinutes(5).truncatedTo(ChronoUnit.MICROS);
+
+        SecurityFilter filter = new SecurityFilter();
+        SearchRequestDto search = new SearchRequestDto();
+
+        // When / Then - freshly-seeded row reads as PENDING with no synced timestamp
+        PaginationResponseDto<CbomDto> beforeSync = cbomService.listCboms(filter, search);
+        assertEquals(CbomAssetSyncState.PENDING, beforeSync.getItems().getFirst().getAssetSyncState());
+        assertNull(beforeSync.getItems().getFirst().getAssetSyncedAt());
+
+        // When
+        syncStateWriter.markSynced(cbom.getUuid(), syncedAt);
+
+        // Then
+        PaginationResponseDto<CbomDto> afterSync = cbomService.listCboms(filter, search);
+        assertEquals(CbomAssetSyncState.SYNCED, afterSync.getItems().getFirst().getAssetSyncState());
+        assertEquals(syncedAt.toInstant(), afterSync.getItems().getFirst().getAssetSyncedAt().toInstant());
+    }
+
+    @Test
     void testGetCbomDetail_Success() throws Exception {
         // Given
         SecuredUUID uuid = SecuredUUID.fromString("807d4ff9-8bcf-4dd4-9239-3a8f2a177710");
@@ -231,6 +268,61 @@ class CbomServiceITest extends BaseSpringBootTest {
                 .verify(WireMock
                         .getRequestedFor(WireMock.urlPathMatching("/api/v1/bom/.*"))
                         .withQueryParam("version", WireMock.equalTo(Integer.toString(version))));
+    }
+
+    @Test
+    void detailServesTheAssetSyncStateFields() throws Exception {
+        // Given
+        SecuredUUID uuid = SecuredUUID.fromString("807d4ff9-8bcf-4dd4-9239-3a8f2a177710");
+        String serialNumber = "urn:uuid:3e671687-395b-41f5-a30f-a58921a69b79";
+        int version = 1;
+
+        Cbom cbom = new Cbom();
+        cbom.setUuid(uuid.getValue());
+        cbom.setSerialNumber(serialNumber);
+        cbom.setVersion(version);
+        cbom.setSpecVersion("1.6");
+        cbom.setTimestamp(OffsetDateTime.now());
+        cbomRepository.save(cbom);
+
+        String responseBody = """
+                {
+                "$schema": "https://cyclonedx.org/schema/bom-1.6.schema.json",
+                "bomFormat": "CycloneDX",
+                "specVersion": "1.6",
+                "serialNumber": "urn:uuid:3e671687-395b-41f5-a30f-a58921a69b79",
+                "version": 1,
+                "metadata": {},
+                "components": []
+                }
+                """;
+
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock.urlPathMatching("/api/v1/bom/.*"))
+                        .withQueryParam("version", WireMock.equalTo(Integer.toString(version)))
+                        .willReturn(WireMock
+                                .aResponse()
+                                .withStatus(200)
+                                .withHeader("Content-Type", "application/json")
+                                .withBody(responseBody)));
+
+        // Truncated to microseconds: the DB column stores microsecond precision, so a nanosecond-precision
+        // `now()` would round on the way back out and break the round-trip equality below.
+        OffsetDateTime syncedAt = OffsetDateTime.now().minusMinutes(5).truncatedTo(ChronoUnit.MICROS);
+
+        // When / Then - freshly-seeded row reads as PENDING with no synced timestamp
+        CbomDetailDto beforeSync = cbomService.getCbomDetail(uuid);
+        assertEquals(CbomAssetSyncState.PENDING, beforeSync.getAssetSyncState());
+        assertNull(beforeSync.getAssetSyncedAt());
+
+        // When
+        syncStateWriter.markSynced(uuid.getValue(), syncedAt);
+
+        // Then
+        CbomDetailDto afterSync = cbomService.getCbomDetail(uuid);
+        assertEquals(CbomAssetSyncState.SYNCED, afterSync.getAssetSyncState());
+        assertEquals(syncedAt.toInstant(), afterSync.getAssetSyncedAt().toInstant());
     }
 
     @Test

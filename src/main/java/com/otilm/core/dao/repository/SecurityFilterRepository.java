@@ -70,6 +70,16 @@ public interface SecurityFilterRepository<T, ID> extends JpaRepository<T, ID> {
             SingularAttribute<?, ?> groupBy, BiFunction<Root<T>, CriteriaBuilder, Expression<?>> groupByExpression,
             TriFunction<Root<T>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause);
 
+    /**
+     * Grouped total of an already-aggregated column, for entities whose rows each carry a count rather than being one.
+     * {@code groupByExpression} is required here, where the grouped count above also accepts a join and attribute.
+     * Unlike that count, this sum carries no DISTINCT: correct only where no predicate can duplicate the root row,
+     * since a join that fans one row out multiplies the count that row carries.
+     */
+    Map<String, Long> sumGroupedUsingSecurityFilter(SecurityFilter filter, SingularAttribute<T, Long> sumOf,
+            BiFunction<Root<T>, CriteriaBuilder, Expression<?>> groupByExpression,
+            TriFunction<Root<T>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause);
+
     Long countUsingSecurityFilter(SecurityFilter filter);
 
     Long countUsingSecurityFilter(SecurityFilter filter,

@@ -65,13 +65,13 @@ public interface AttributeDefinitionRepository extends SecurityFilterRepository<
      */
     @Query("""
             SELECT DISTINCT new com.otilm.core.model.SearchFieldObject(
-                ad.name, ad.contentType, ad.type, ad.label, ad.definition)
+                ad.name, ad.contentType, ad.type, ad.label, ad.visible, ad.definition)
                 FROM AttributeDefinition ad
                 LEFT JOIN AttributeRelation ar ON ar.attributeDefinitionUuid = ad.uuid
                 WHERE ad.type IN ?2 AND ar.resource = ?1
             UNION
             SELECT DISTINCT new com.otilm.core.model.SearchFieldObject(
-                ad.name, ad.contentType, ad.type, ad.label, ad.definition)
+                ad.name, ad.contentType, ad.type, ad.label, ad.visible, ad.definition)
                 FROM AttributeDefinition ad
                 WHERE ad.type IN ?2 AND ad.uuid IN (
                     SELECT aci.attributeDefinitionUuid
@@ -92,13 +92,13 @@ public interface AttributeDefinitionRepository extends SecurityFilterRepository<
      */
     @Query("""
             SELECT DISTINCT new com.otilm.core.model.SearchFieldObject(
-                ad.name, ad.contentType, ad.type, ad.label, ad.definition)
+                ad.name, ad.contentType, ad.type, ad.label, ad.visible, ad.definition)
                 FROM AttributeDefinition ad
                 LEFT JOIN AttributeRelation ar ON ar.attributeDefinitionUuid = ad.uuid
                 WHERE ad.type IN ?2 AND ar.resource = ?1 AND ad.contentType IN ?3
             UNION
             SELECT DISTINCT new com.otilm.core.model.SearchFieldObject(
-                ad.name, ad.contentType, ad.type, ad.label, ad.definition)
+                ad.name, ad.contentType, ad.type, ad.label, ad.visible, ad.definition)
                 FROM AttributeDefinition ad
                 WHERE ad.type IN ?2 AND ad.contentType IN ?3 AND ad.uuid IN (
                     SELECT aci.attributeDefinitionUuid

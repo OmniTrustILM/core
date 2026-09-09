@@ -65,7 +65,6 @@ class BrandingServiceImplTest {
         BrandingSettingsDto settings = new BrandingSettingsDto();
         settings.setPrimaryColor("#0073CF");
         settings.setSecondaryColor("#00B0F0");
-        settings.setTertiaryColor("#7030A0");
         settings.setBackgroundColor("#FFFFFF");
         settings.setTextColor("#171717");
         settings.setLightLogo("data:image/png;base64,light");
@@ -77,7 +76,6 @@ class BrandingServiceImplTest {
         Assertions.assertTrue(branding.isConfigured());
         Assertions.assertEquals("#0073CF", branding.getPrimaryColor());
         Assertions.assertEquals("#00B0F0", branding.getSecondaryColor());
-        Assertions.assertEquals("#7030A0", branding.getTertiaryColor());
         Assertions.assertEquals("#FFFFFF", branding.getBackgroundColor());
         Assertions.assertEquals("#171717", branding.getTextColor());
         Assertions.assertEquals("data:image/png;base64,light", branding.getLightLogo());

@@ -9,6 +9,7 @@ import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.DateAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
+import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldType;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
@@ -34,7 +35,8 @@ class SearchHelperITest extends BaseSpringBootTest {
     @Test
     void testPrepareSearchForJSON() {
         SearchFieldObject attributeSearchInfo = new SearchFieldObject(AttributeContentType.TIME);
-        SearchFieldDataDto searchFieldDataDto = SearchHelper.prepareSearchForJSON(attributeSearchInfo, false);
+        SearchFieldDataDto searchFieldDataDto = SearchHelper
+                .prepareSearchForJSON(attributeSearchInfo, false, Resource.DISCOVERY);
         assertThat(searchFieldDataDto.getConditions()).isNotEmpty();
         assertThat(searchFieldDataDto.getConditions())
                 .as("Condition should not contain IN_NEXT operator")
@@ -44,7 +46,7 @@ class SearchHelperITest extends BaseSpringBootTest {
                 .doesNotContain(FilterConditionOperator.IN_PAST);
 
         attributeSearchInfo.setProtectionLevel(ProtectionLevel.ENCRYPTED);
-        searchFieldDataDto = SearchHelper.prepareSearchForJSON(attributeSearchInfo, false);
+        searchFieldDataDto = SearchHelper.prepareSearchForJSON(attributeSearchInfo, false, Resource.DISCOVERY);
         assertThat(searchFieldDataDto.getConditions())
                 .isEqualTo(List.of(FilterConditionOperator.EMPTY, FilterConditionOperator.NOT_EMPTY));
     }
@@ -60,20 +62,20 @@ class SearchHelperITest extends BaseSpringBootTest {
         attributeV3.setContentType(AttributeContentType.DATE);
         attributeV3.setProperties(dataAttributeProperties);
         SearchFieldObject searchFieldObject = new SearchFieldObject(attributeV3.getName(), attributeV3.getContentType(),
-                AttributeType.DATA, "label", attributeV3);
+                AttributeType.DATA, "label", true, attributeV3);
         assertThat(searchFieldObject.getContentItems()).isEqualTo(List.of(now.toString()));
 
         dataAttributeProperties.setList(false);
         attributeV3.setProperties(dataAttributeProperties);
         searchFieldObject = new SearchFieldObject(attributeV3.getName(), attributeV3.getContentType(),
-                AttributeType.DATA, "label", attributeV3);
+                AttributeType.DATA, "label", true, attributeV3);
         assertThat(searchFieldObject.getContentItems()).isNull();
 
         dataAttributeProperties.setList(true);
         dataAttributeProperties.setProtectionLevel(ProtectionLevel.ENCRYPTED);
         attributeV3.setProperties(dataAttributeProperties);
         searchFieldObject = new SearchFieldObject(attributeV3.getName(), attributeV3.getContentType(),
-                AttributeType.DATA, "label", attributeV3);
+                AttributeType.DATA, "label", true, attributeV3);
         assertThat(searchFieldObject.getContentItems()).isNull();
 
         CustomAttributeV3 customAttributeV3 = new CustomAttributeV3();
@@ -84,19 +86,19 @@ class SearchHelperITest extends BaseSpringBootTest {
         customAttributeV3.setContentType(AttributeContentType.DATE);
         customAttributeV3.setProperties(customAttributeProperties);
         searchFieldObject = new SearchFieldObject(customAttributeV3.getName(), customAttributeV3.getContentType(),
-                AttributeType.CUSTOM, "label", customAttributeV3);
+                AttributeType.CUSTOM, "label", true, customAttributeV3);
         assertThat(searchFieldObject.getContentItems()).isEqualTo(List.of("string"));
 
         customAttributeProperties.setList(false);
         customAttributeV3.setProperties(customAttributeProperties);
         searchFieldObject = new SearchFieldObject(customAttributeV3.getName(), customAttributeV3.getContentType(),
-                AttributeType.CUSTOM, "label", customAttributeV3);
+                AttributeType.CUSTOM, "label", true, customAttributeV3);
         assertThat(searchFieldObject.getContentItems()).isNull();
         customAttributeProperties.setList(true);
         customAttributeProperties.setProtectionLevel(ProtectionLevel.ENCRYPTED);
         customAttributeV3.setProperties(customAttributeProperties);
         searchFieldObject = new SearchFieldObject(customAttributeV3.getName(), customAttributeV3.getContentType(),
-                AttributeType.CUSTOM, "label", customAttributeV3);
+                AttributeType.CUSTOM, "label", true, customAttributeV3);
         assertThat(searchFieldObject.getContentItems()).isNull();
 
     }
@@ -110,7 +112,8 @@ class SearchHelperITest extends BaseSpringBootTest {
                 AttributeType.META);
         fromConnectorB.setLabel("Username");
 
-        List<SearchFieldDataDto> fields = SearchHelper.prepareSearchForJSON(List.of(fromConnectorA, fromConnectorB));
+        List<SearchFieldDataDto> fields = SearchHelper
+                .prepareSearchForJSON(List.of(fromConnectorA, fromConnectorB), Resource.DISCOVERY);
 
         assertThat(fields).hasSize(1);
         assertThat(fields.getFirst().getFieldIdentifier()).isEqualTo("username|STRING");
@@ -132,7 +135,7 @@ class SearchHelperITest extends BaseSpringBootTest {
         integerVariant.setLabel("Port");
 
         List<SearchFieldDataDto> fields = SearchHelper
-                .prepareSearchForJSON(List.of(stringVariantA, stringVariantB, integerVariant));
+                .prepareSearchForJSON(List.of(stringVariantA, stringVariantB, integerVariant), Resource.DISCOVERY);
 
         assertThat(fields)
                 .extracting(SearchFieldDataDto::getFieldIdentifier)
@@ -151,7 +154,8 @@ class SearchHelperITest extends BaseSpringBootTest {
         SearchFieldObject plain = new SearchFieldObject("username", AttributeContentType.STRING, AttributeType.META);
         plain.setLabel("Username");
 
-        List<SearchFieldDataDto> fields = SearchHelper.prepareSearchForJSON(List.of(encrypted, plain));
+        List<SearchFieldDataDto> fields = SearchHelper
+                .prepareSearchForJSON(List.of(encrypted, plain), Resource.DISCOVERY);
 
         assertThat(fields).hasSize(1);
         assertThat(fields.getFirst().getConditions())
@@ -169,7 +173,8 @@ class SearchHelperITest extends BaseSpringBootTest {
         encryptedB.setLabel("Username");
         encryptedB.setProtectionLevel(ProtectionLevel.ENCRYPTED);
 
-        List<SearchFieldDataDto> fields = SearchHelper.prepareSearchForJSON(List.of(encryptedA, encryptedB));
+        List<SearchFieldDataDto> fields = SearchHelper
+                .prepareSearchForJSON(List.of(encryptedA, encryptedB), Resource.DISCOVERY);
 
         assertThat(fields).hasSize(1);
         assertThat(fields.getFirst().getConditions())
@@ -187,7 +192,7 @@ class SearchHelperITest extends BaseSpringBootTest {
         listB.setList(true);
         listB.setContentItems(List.of("test", "prod"));
 
-        List<SearchFieldDataDto> fields = SearchHelper.prepareSearchForJSON(List.of(listA, listB));
+        List<SearchFieldDataDto> fields = SearchHelper.prepareSearchForJSON(List.of(listA, listB), Resource.DISCOVERY);
 
         assertThat(fields).hasSize(1);
         assertThat(fields.getFirst().getValue()).isEqualTo(List.of("dev", "test", "prod"));
@@ -205,7 +210,8 @@ class SearchHelperITest extends BaseSpringBootTest {
                 AttributeType.DATA);
         freeFormVariant.setLabel("Environment");
 
-        List<SearchFieldDataDto> fields = SearchHelper.prepareSearchForJSON(List.of(listVariant, freeFormVariant));
+        List<SearchFieldDataDto> fields = SearchHelper
+                .prepareSearchForJSON(List.of(listVariant, freeFormVariant), Resource.DISCOVERY);
 
         assertThat(fields).hasSize(1);
         assertThat(fields.getFirst().getType())
@@ -213,6 +219,41 @@ class SearchHelperITest extends BaseSpringBootTest {
                 .isEqualTo(FilterFieldType.STRING);
         assertThat(fields.getFirst().getValue()).isNull();
         assertThat(fields.getFirst().isMultiValue()).isFalse();
+    }
+
+    @Test
+    void testPrepareSearchForJSONMergedFieldIsVisibleWhenAnyDuplicateIsVisible() {
+        List<SearchFieldDataDto> fields = SearchHelper
+                .prepareSearchForJSON(List.of(visibilityFieldObject(false), visibilityFieldObject(true)),
+                        Resource.DISCOVERY);
+        List<SearchFieldDataDto> fieldsReversed = SearchHelper
+                .prepareSearchForJSON(List.of(visibilityFieldObject(true), visibilityFieldObject(false)),
+                        Resource.DISCOVERY);
+
+        assertThat(fields).hasSize(1);
+        assertThat(fields.getFirst().getDisplayable())
+                .as("projection and filtering keep the visible definition's content, so the field must be offered")
+                .isTrue();
+        assertThat(fieldsReversed.getFirst().getDisplayable())
+                .as("and not depend on the (unordered) query result order")
+                .isTrue();
+    }
+
+    @Test
+    void testPrepareSearchForJSONMergedFieldStaysHiddenWhenEveryDuplicateIsHidden() {
+        List<SearchFieldDataDto> fields = SearchHelper
+                .prepareSearchForJSON(List.of(visibilityFieldObject(false), visibilityFieldObject(false)),
+                        Resource.DISCOVERY);
+
+        assertThat(fields).hasSize(1);
+        assertThat(fields.getFirst().getDisplayable()).isFalse();
+    }
+
+    private static SearchFieldObject visibilityFieldObject(boolean visible) {
+        SearchFieldObject field = new SearchFieldObject("username", AttributeContentType.STRING, AttributeType.META);
+        field.setLabel("Username");
+        field.setVisible(visible);
+        return field;
     }
 
     @Test
@@ -224,9 +265,10 @@ class SearchHelperITest extends BaseSpringBootTest {
                 AttributeType.META);
         labeledUsername.setLabel("Username");
 
-        List<SearchFieldDataDto> fields = SearchHelper.prepareSearchForJSON(List.of(labeledUsername, labeledUser));
+        List<SearchFieldDataDto> fields = SearchHelper
+                .prepareSearchForJSON(List.of(labeledUsername, labeledUser), Resource.DISCOVERY);
         List<SearchFieldDataDto> fieldsReversed = SearchHelper
-                .prepareSearchForJSON(List.of(labeledUser, labeledUsername));
+                .prepareSearchForJSON(List.of(labeledUser, labeledUsername), Resource.DISCOVERY);
 
         assertThat(fields).hasSize(1);
         assertThat(fields.getFirst().getFieldLabel())
@@ -238,10 +280,12 @@ class SearchHelperITest extends BaseSpringBootTest {
     void testPrepareSearchForJSONMergeIsDeterministicWhenDuplicatesShareTheLabel() {
         List<SearchFieldDataDto> fields = SearchHelper
                 .prepareSearchForJSON(
-                        List.of(listFieldObject(List.of("dev", "test")), listFieldObject(List.of("prod"))));
+                        List.of(listFieldObject(List.of("dev", "test")), listFieldObject(List.of("prod"))),
+                        Resource.DISCOVERY);
         List<SearchFieldDataDto> fieldsReversed = SearchHelper
                 .prepareSearchForJSON(
-                        List.of(listFieldObject(List.of("prod")), listFieldObject(List.of("dev", "test"))));
+                        List.of(listFieldObject(List.of("prod")), listFieldObject(List.of("dev", "test"))),
+                        Resource.DISCOVERY);
 
         assertThat(fields).hasSize(1);
         assertThat(fields.getFirst().getValue())

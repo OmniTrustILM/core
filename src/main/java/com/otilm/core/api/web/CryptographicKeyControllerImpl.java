@@ -15,6 +15,8 @@ import com.otilm.api.model.client.cryptography.key.BulkKeyUsageRequestDto;
 import com.otilm.api.model.client.cryptography.key.CompromiseKeyRequestDto;
 import com.otilm.api.model.client.cryptography.key.EditKeyItemDto;
 import com.otilm.api.model.client.cryptography.key.EditKeyRequestDto;
+import com.otilm.api.model.client.cryptography.key.KeyExportRequestDto;
+import com.otilm.api.model.client.cryptography.key.KeyImportRequestDto;
 import com.otilm.api.model.client.cryptography.key.KeyRequestDto;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.client.cryptography.key.UpdateKeyUsageRequestDto;
@@ -34,10 +36,12 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CryptographicKeyExternalService;
 import com.otilm.core.util.converter.KeyRequestTypeConverter;
+import jakarta.validation.Valid;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.WebDataBinder;
 import org.springframework.web.bind.annotation.InitBinder;
 import org.springframework.web.bind.annotation.RestController;
@@ -123,6 +127,36 @@ public class CryptographicKeyControllerImpl implements CryptographicKeyControlle
         return cryptographicKeyService
                 .createKey(UUID.fromString(tokenInstanceUuid), SecuredParentUUID.fromString(tokenProfileUuid), type,
                         request);
+    }
+
+    @Override
+    public List<BaseAttribute> listImportKeyAttributes(String tokenInstanceUuid, String tokenProfileUuid,
+            KeyRequestType type) throws ConnectorException, NotFoundException {
+        return List.of();
+    }
+
+    @Override
+    public List<BaseAttribute> listExportKeyAttributes(String uuid, String keyItemUuid)
+            throws ConnectorException, NotFoundException {
+        return List.of();
+    }
+
+    @Override
+    public KeyDetailDto importKey(String tokenInstanceUuid, String tokenProfileUuid, KeyRequestType type,
+            @Valid KeyImportRequestDto request) throws AlreadyExistException, ValidationException, ConnectorException,
+            AttributeException, NotFoundException {
+        return null;
+    }
+
+    @Override
+    public ResponseEntity<org.springframework.core.io.Resource> exportKey(String uuid, String keyItemUuid,
+            @Valid KeyExportRequestDto request) throws ConnectorException, AttributeException, NotFoundException {
+        return null;
+    }
+
+    @Override
+    public KeyItemDetailDto disableKeyExport(String uuid, String keyItemUuid) throws NotFoundException {
+        return null;
     }
 
     @Override

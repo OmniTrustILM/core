@@ -2,6 +2,7 @@ package com.otilm.core.cbom.asset;
 
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetType;
 import com.otilm.core.cbom.asset.identity.AsciiText;
+import com.otilm.core.cbom.asset.identity.NormalizedAsset;
 import java.text.Normalizer;
 import java.util.Locale;
 
@@ -16,6 +17,17 @@ import java.util.Locale;
 public record CryptoAssetIdentityFields(CryptographicAssetType assetType, String name, String oid,
         String algorithmFamily, String primitive, String parameterSet, String curve, String mode, String padding,
         String variant) {
+
+    /**
+     * The columns a normalized asset becomes, before folding. One place, because ingest and the PQC sweep both depend
+     * on the derivation's shape and the row's shape agreeing -- {@code parameterSet} above all, an {@code Integer} here
+     * and text in the column, where a mismatch would be false for every RSA key while looking correct.
+     */
+    public static CryptoAssetIdentityFields of(CryptographicAssetType assetType, NormalizedAsset asset) {
+        return new CryptoAssetIdentityFields(assetType, asset.name(), asset.oid(), asset.family(), asset.primitive(),
+                asset.parameterSet() == null ? null : String.valueOf(asset.parameterSet()), asset.curve(), asset.mode(),
+                asset.padding(), asset.variant());
+    }
 
     /**
      * The canonical form the platform stores: every producer-text field folded, and a field that is blank after folding

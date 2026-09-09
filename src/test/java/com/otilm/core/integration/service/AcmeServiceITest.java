@@ -28,6 +28,7 @@ import com.otilm.api.model.core.acme.ChallengeType;
 import com.otilm.api.model.core.acme.Directory;
 import com.otilm.api.model.core.acme.Order;
 import com.otilm.api.model.core.acme.OrderStatus;
+import com.otilm.api.model.core.acme.Problem;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
@@ -62,6 +63,8 @@ import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
 import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
 import com.otilm.core.service.acme.AcmeConstants;
 import com.otilm.core.service.acme.AcmeExternalService;
+import com.otilm.core.service.acme.ChallengeValidationResult;
+import com.otilm.core.service.writer.AcmeChallengeWriter;
 import com.otilm.core.util.AcmeCommonHelper;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateTestUtil;
@@ -83,16 +86,17 @@ import java.util.Base64;
 import java.util.Date;
 import java.util.List;
 import java.util.Objects;
-import javax.naming.NamingEnumeration;
-import javax.naming.NamingException;
-import javax.naming.directory.Attribute;
+import java.util.UUID;
 import javax.naming.directory.Attributes;
+import javax.naming.directory.BasicAttribute;
+import javax.naming.directory.BasicAttributes;
 import javax.naming.directory.InitialDirContext;
 import org.bouncycastle.operator.OperatorCreationException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedConstruction;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -100,7 +104,6 @@ import org.springframework.http.ResponseEntity;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.anyString;
 import static org.mockito.Mockito.argThat;
-import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockConstruction;
 import static org.mockito.Mockito.when;
@@ -113,10 +116,12 @@ class AcmeServiceITest extends BaseSpringBootTest {
     private static final String RA_PROFILE_NAME = "testRaProfile1";
     private static final String ACME_PROFILE_NAME_2 = "testAcmeProfile2";
     private static final String RA_PROFILE_NAME_2 = "testRaProfile2";
+    private static final String STALE_DNS_VALIDATION_TOKEN = "f5R9M-KeH3NR4Yqq8J2EUN2ZjkjLWAUxC9gnZgR9B_4";
     private static final String NONCE_HEADER_CUSTOM_PARAM = "nonce";
     private static final String URL_HEADER_CUSTOM_PARAM = "url";
     private static final String ACME_ACCOUNT_ID_VALID = "RMAl70zrRrs";
     private static final String ACME_ACCOUNT_ID_INVALID = "invalidAccountId";
+    private static final String OTHER_ACCOUNT_ID = "otherAccount";
     private static final String AUTHORIZATION_ID_PENDING = "auth123";
     private static final String ORDER_ID_VALID = "order123";
 
@@ -140,6 +145,9 @@ class AcmeServiceITest extends BaseSpringBootTest {
 
     @Autowired
     private AcmeAuthorizationRepository acmeAuthorizationRepository;
+
+    @Autowired
+    private AcmeChallengeWriter acmeChallengeWriter;
 
     @Autowired
     private AcmeChallengeRepository acmeChallengeRepository;
@@ -1142,57 +1150,758 @@ class AcmeServiceITest extends BaseSpringBootTest {
         Assertions.assertNotNull(response.getHeaders().get("Link"));
     }
 
+    /**
+     * The expected record is accepted when the name also carries records left behind by earlier attempts, which a name
+     * under continuous renewal regularly does.
+     */
     @Test
     void testValidateChallenge_Dns01() throws AcmeProblemDocumentException, JOSEException, NotFoundException,
-            NoSuchAlgorithmException, InvalidKeySpecException, NamingException {
-        AcmeAuthorization authorization = new AcmeAuthorization();
-        authorization.setAuthorizationId("authDns01");
-        authorization.setStatus(AuthorizationStatus.PENDING);
-        authorization.setIdentifier("{\"type\":\"dns\",\"value\":\"example.com\"}");
-        authorization.setOrderUuid(order1.getUuid());
-        authorization.setOrder(order1);
-        acmeAuthorizationRepository.save(authorization);
+            NoSuchAlgorithmException, InvalidKeySpecException {
+        AcmeChallenge challenge = pendingDnsChallenge(pendingOrder("orderDns01"), "authDns01", "challengeDns01",
+                "tokenDns01");
 
-        AcmeChallenge challenge = new AcmeChallenge();
-        challenge.setChallengeId("challengeDns01");
-        challenge.setStatus(ChallengeStatus.PENDING);
-        challenge.setType(ChallengeType.DNS01);
-        challenge.setToken("tokenDns01");
-        challenge.setAuthorizationUuid(authorization.getUuid());
-        challenge.setAuthorization(authorization);
-        acmeChallengeRepository.save(challenge);
-
-        String keyAuthorization = AcmeCommonHelper
-                .createKeyAuthorization(challenge.getToken(), rsa2048PublicJWK.toPublicKey());
-        MessageDigest digest = MessageDigest.getInstance("SHA-256");
-        final byte[] encodedHashOfExpectedKeyAuthorization = digest
-                .digest(keyAuthorization.getBytes(StandardCharsets.UTF_8));
-        String expectedDnsValidationToken = Base64URL.encode(encodedHashOfExpectedKeyAuthorization).toString();
-
-        try (var mockedContext = mockConstruction(InitialDirContext.class, (mock, context) -> {
-            Attributes attrs = mock(Attributes.class);
-            Attribute attr = mock(Attribute.class);
-            @SuppressWarnings("unchecked")
-            NamingEnumeration<Attribute> enumeration = (NamingEnumeration<Attribute>) mock(NamingEnumeration.class);
-
-            when(mock.getAttributes(anyString(), any(String[].class))).thenReturn(attrs);
-            doReturn(enumeration).when(attrs).getAll();
-            when(enumeration.hasMore()).thenReturn(true, false);
-            when(enumeration.next()).thenReturn(attr);
-            when(attr.get()).thenReturn(expectedDnsValidationToken);
-        })) {
-            URI requestUri = URI.create(BASE_URI + ACME_PROFILE_NAME + "/chall/" + challenge.getChallengeId());
-            ResponseEntity<Challenge> response = acmeService
-                    .validateChallenge(ACME_PROFILE_NAME, challenge.getChallengeId(), requestUri, false);
+        try (var mockedContext = mockTxtRecords(STALE_DNS_VALIDATION_TOKEN,
+                expectedDnsValidationToken(challenge.getToken()))) {
+            ResponseEntity<Challenge> response = validateChallenge(challenge);
 
             Assertions.assertEquals(HttpStatus.OK, response.getStatusCode());
             Assertions.assertEquals(ChallengeStatus.VALID, Objects.requireNonNull(response.getBody()).getStatus());
+            Assertions.assertNull(response.getBody().getError());
 
-            AcmeChallenge updatedChallenge = acmeChallengeRepository
-                    .findByChallengeId(challenge.getChallengeId())
-                    .orElseThrow();
+            AcmeChallenge updatedChallenge = reload(challenge);
             Assertions.assertEquals(ChallengeStatus.VALID, updatedChallenge.getStatus());
             Assertions.assertNotNull(updatedChallenge.getValidated());
+            Assertions.assertEquals(AuthorizationStatus.VALID, updatedChallenge.getAuthorization().getStatus());
+            Assertions
+                    .assertEquals(OrderStatus.READY,
+                            acmeOrderRepository.findByOrderId("orderDns01").orElseThrow().getStatus());
+            Assertions.assertEquals(1, mockedContext.constructed().size());
         }
+    }
+
+    /**
+     * A challenge whose records do not match invalidates its authorization and order, so a client waiting for the
+     * authorization to settle learns that validation failed instead of polling a permanently pending one.
+     */
+    @Test
+    void testValidateChallenge_Dns01_noMatchingRecord()
+            throws AcmeProblemDocumentException, NotFoundException, NoSuchAlgorithmException, InvalidKeySpecException {
+        AcmeChallenge challenge = pendingDnsChallenge(pendingOrder("orderDns01Invalid"), "authDns01Invalid",
+                "challengeDns01Invalid", "tokenDns01Invalid");
+
+        try (var mockedContext = mockTxtRecords(STALE_DNS_VALIDATION_TOKEN)) {
+            ResponseEntity<Challenge> response = validateChallenge(challenge);
+
+            Assertions.assertEquals(ChallengeStatus.INVALID, Objects.requireNonNull(response.getBody()).getStatus());
+            Assertions.assertEquals(Problem.INCORRECT_RESPONSE.getType(), response.getBody().getError().getType());
+            Assertions
+                    .assertTrue(response
+                            .getBody()
+                            .getError()
+                            .getDetail()
+                            .contains(AcmeConstants.DNS_ACME_PREFIX + "example.com"));
+            Assertions.assertFalse(response.getBody().getError().getDetail().contains(STALE_DNS_VALIDATION_TOKEN));
+
+            AcmeChallenge updatedChallenge = reload(challenge);
+            Assertions.assertEquals(ChallengeStatus.INVALID, updatedChallenge.getStatus());
+            Assertions.assertNull(updatedChallenge.getValidated());
+            Assertions.assertEquals(Problem.INCORRECT_RESPONSE, updatedChallenge.getErrorProblem());
+            Assertions.assertEquals(AuthorizationStatus.INVALID, updatedChallenge.getAuthorization().getStatus());
+            Assertions
+                    .assertEquals(OrderStatus.INVALID,
+                            acmeOrderRepository.findByOrderId("orderDns01Invalid").orElseThrow().getStatus());
+        }
+    }
+
+    /**
+     * A client may accept the same challenge more than once. A challenge that has already settled reports its recorded
+     * state and is not validated again, so a repeated request cannot revive a failed authorization.
+     */
+    @Test
+    void testValidateChallenge_Dns01_settledChallengeIsNotValidatedAgain() throws AcmeProblemDocumentException,
+            JOSEException, NotFoundException, NoSuchAlgorithmException, InvalidKeySpecException {
+        AcmeChallenge challenge = pendingDnsChallenge(pendingOrder("orderDns01Settled"), "authDns01Settled",
+                "challengeDns01Settled", "tokenDns01Settled");
+        challenge.setStatus(ChallengeStatus.INVALID);
+        challenge.setErrorProblem(Problem.DNS);
+        challenge.setErrorDetail("No TXT record found at " + AcmeConstants.DNS_ACME_PREFIX + "example.com");
+        acmeChallengeRepository.save(challenge);
+
+        try (var mockedContext = mockTxtRecords(expectedDnsValidationToken(challenge.getToken()))) {
+            ResponseEntity<Challenge> response = validateChallenge(challenge);
+
+            Assertions.assertEquals(HttpStatus.OK, response.getStatusCode());
+            Assertions.assertEquals(ChallengeStatus.INVALID, Objects.requireNonNull(response.getBody()).getStatus());
+            Assertions.assertEquals(Problem.DNS.getType(), response.getBody().getError().getType());
+            Assertions.assertEquals(ChallengeStatus.INVALID, reload(challenge).getStatus());
+            Assertions.assertTrue(mockedContext.constructed().isEmpty());
+        }
+    }
+
+    /**
+     * An authorization that has already failed is terminal (RFC 8555 section 7.1.6), so the challenge still pending
+     * beside the failed one cannot revive it even once the record it expects is published.
+     */
+    @Test
+    void testValidateChallenge_Dns01_failedAuthorizationIsNotRevived() throws AcmeProblemDocumentException,
+            JOSEException, NotFoundException, NoSuchAlgorithmException, InvalidKeySpecException {
+        AcmeChallenge challenge = pendingDnsChallenge(pendingOrder("orderDns01Failed"), "authDns01Failed",
+                "challengeDns01Failed", "tokenDns01Failed");
+        AcmeAuthorization authorization = challenge.getAuthorization();
+        authorization.setStatus(AuthorizationStatus.INVALID);
+        acmeAuthorizationRepository.save(authorization);
+
+        try (var mockedContext = mockTxtRecords(expectedDnsValidationToken(challenge.getToken()))) {
+            ResponseEntity<Challenge> response = validateChallenge(challenge);
+
+            Assertions.assertEquals(ChallengeStatus.PENDING, Objects.requireNonNull(response.getBody()).getStatus());
+            Assertions.assertEquals(ChallengeStatus.PENDING, reload(challenge).getStatus());
+            Assertions
+                    .assertEquals(AuthorizationStatus.INVALID,
+                            acmeAuthorizationRepository
+                                    .findByAuthorizationId("authDns01Failed")
+                                    .orElseThrow()
+                                    .getStatus());
+            Assertions.assertTrue(mockedContext.constructed().isEmpty());
+        }
+    }
+
+    /**
+     * The recorded reason names the challenge record, so it grows with the identifier and can exceed the width a
+     * generated schema gives a plain string column. It has to persist in full.
+     */
+    @Test
+    void testValidateChallenge_recordedReasonPersistsInFull() {
+        AcmeChallenge challenge = pendingDnsChallenge(pendingOrder("orderDns01Detail"), "authDns01Detail",
+                "challengeDns01Detail", "tokenDns01Detail");
+        String recordName = AcmeConstants.DNS_ACME_PREFIX + "a".repeat(250) + ".example.com";
+        String detail = "No TXT record at " + recordName + " matches the expected key authorization";
+        challenge.setErrorProblem(Problem.DNS);
+        challenge.setErrorDetail(detail);
+
+        acmeChallengeRepository.saveAndFlush(challenge);
+
+        Assertions.assertTrue(detail.length() > 255);
+        Assertions.assertEquals(detail, reload(challenge).getErrorDetail());
+    }
+
+    /**
+     * An instance that does not yet propagate a failure leaves the authorization pending behind the failed challenge. A
+     * client asking for that authorization is answered with the settled state instead of waiting for it to change.
+     */
+    @Test
+    void testGetAuthorization_settlesAuthorizationLeftPendingBehindFailedChallenge() throws Exception {
+        AcmeChallenge challenge = failedChallengeLeftUnpropagated("orderStale", "authStale", "challengeStale");
+        int failedOrdersBefore = failedOrders(challenge);
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/authz/authStale");
+
+        ResponseEntity<Authorization> response = acmeService
+                .getAuthorization(ACME_PROFILE_NAME, "authStale", buildGetAuthorizationRequestJSON(requestUri, baseUri),
+                        requestUri, false);
+
+        Assertions.assertEquals(AuthorizationStatus.INVALID, Objects.requireNonNull(response.getBody()).getStatus());
+        Assertions
+                .assertEquals(AuthorizationStatus.INVALID,
+                        acmeAuthorizationRepository.findByAuthorizationId("authStale").orElseThrow().getStatus());
+        Assertions
+                .assertEquals(OrderStatus.INVALID,
+                        acmeOrderRepository.findByOrderId("orderStale").orElseThrow().getStatus());
+        Assertions.assertEquals(failedOrdersBefore + 1, failedOrders(challenge));
+    }
+
+    @Test
+    void testValidateChallenge_settlesAuthorizationLeftPendingBehindFailedChallenge() throws Exception {
+        AcmeChallenge challenge = failedChallengeLeftUnpropagated("orderStaleChall", "authStaleChall",
+                "challengeStaleChall");
+
+        try (var mockedContext = mockTxtRecords(STALE_DNS_VALIDATION_TOKEN)) {
+            ResponseEntity<Challenge> response = validateChallenge(challenge);
+
+            Assertions.assertEquals(ChallengeStatus.INVALID, Objects.requireNonNull(response.getBody()).getStatus());
+            Assertions
+                    .assertEquals(AuthorizationStatus.INVALID,
+                            acmeAuthorizationRepository
+                                    .findByAuthorizationId("authStaleChall")
+                                    .orElseThrow()
+                                    .getStatus());
+            Assertions
+                    .assertEquals(OrderStatus.INVALID,
+                            acmeOrderRepository.findByOrderId("orderStaleChall").orElseThrow().getStatus());
+            Assertions.assertTrue(mockedContext.constructed().isEmpty());
+        }
+    }
+
+    /**
+     * An order left open behind a failed authorization is settled before it is answered, so it is reported the way an
+     * invalid order is reported.
+     */
+    @Test
+    void testGetOrder_settlesOrderLeftPendingBehindFailedAuthorization() throws Exception {
+        AcmeOrder order = orderLeftOpenBehindFailedAuthorization("orderStaleGet", "authStaleGet", OrderStatus.PENDING);
+        int failedOrdersBefore = failedOrders(order);
+        URI requestUri = new URI(BASE_URI + ACME_PROFILE_NAME + "/order/orderStaleGet");
+
+        ResponseEntity<Order> response = acmeService.getOrder(ACME_PROFILE_NAME, "orderStaleGet", requestUri, false);
+
+        Assertions.assertEquals(OrderStatus.INVALID, Objects.requireNonNull(response.getBody()).getStatus());
+        Assertions
+                .assertEquals(OrderStatus.INVALID,
+                        acmeOrderRepository.findByOrderId("orderStaleGet").orElseThrow().getStatus());
+        Assertions.assertEquals(failedOrdersBefore + 1, failedOrders(order));
+    }
+
+    /**
+     * An order cannot be finalized while one of its authorizations has failed, however it came to be ready.
+     */
+    @Test
+    void testFinalizeOrder_refusesOrderLeftReadyBehindFailedAuthorization() throws Exception {
+        orderLeftOpenBehindFailedAuthorization("orderStaleFin", "authStaleFin", OrderStatus.READY);
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/order/orderStaleFin/finalize");
+
+        AcmeProblemDocumentException refused = Assertions
+                .assertThrows(AcmeProblemDocumentException.class,
+                        () -> acmeService
+                                .finalizeOrder(ACME_PROFILE_NAME, "orderStaleFin",
+                                        buildFinalizeRequestJSON(requestUri, baseUri), requestUri, false));
+
+        Assertions.assertEquals(Problem.ORDER_NOT_READY.getType(), refused.getProblemDocument().getType());
+        Assertions
+                .assertEquals(OrderStatus.INVALID,
+                        acmeOrderRepository.findByOrderId("orderStaleFin").orElseThrow().getStatus());
+    }
+
+    /**
+     * The order is asked for before its authorization ever was: the failed challenge under the still-pending
+     * authorization is what settles it.
+     */
+    @Test
+    void testGetOrder_settlesOrderWhoseAuthorizationIsStillPendingBehindFailedChallenge() throws Exception {
+        failedChallengeLeftUnpropagated("orderStaleChall2", "authStaleChall2", "challengeStaleChall2");
+        URI requestUri = new URI(BASE_URI + ACME_PROFILE_NAME + "/order/orderStaleChall2");
+
+        ResponseEntity<Order> response = acmeService.getOrder(ACME_PROFILE_NAME, "orderStaleChall2", requestUri, false);
+
+        Assertions.assertEquals(OrderStatus.INVALID, Objects.requireNonNull(response.getBody()).getStatus());
+        Assertions
+                .assertEquals(AuthorizationStatus.INVALID,
+                        acmeAuthorizationRepository.findByAuthorizationId("authStaleChall2").orElseThrow().getStatus());
+        Assertions
+                .assertEquals(OrderStatus.INVALID,
+                        acmeOrderRepository.findByOrderId("orderStaleChall2").orElseThrow().getStatus());
+    }
+
+    @Test
+    void testFinalizeOrder_refusesOrderWhoseAuthorizationIsStillPendingBehindFailedChallenge() throws Exception {
+        AcmeChallenge challenge = failedChallengeLeftUnpropagated("orderStaleFin2", "authStaleFin2",
+                "challengeStaleFin2");
+        AcmeOrder order = challenge.getAuthorization().getOrder();
+        order.setStatus(OrderStatus.READY);
+        acmeOrderRepository.save(order);
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/order/orderStaleFin2/finalize");
+
+        AcmeProblemDocumentException refused = Assertions
+                .assertThrows(AcmeProblemDocumentException.class,
+                        () -> acmeService
+                                .finalizeOrder(ACME_PROFILE_NAME, "orderStaleFin2",
+                                        buildFinalizeRequestJSON(requestUri, baseUri), requestUri, false));
+
+        Assertions.assertEquals(Problem.ORDER_NOT_READY.getType(), refused.getProblemDocument().getType());
+        Assertions
+                .assertEquals(AuthorizationStatus.INVALID,
+                        acmeAuthorizationRepository.findByAuthorizationId("authStaleFin2").orElseThrow().getStatus());
+        Assertions
+                .assertEquals(OrderStatus.INVALID,
+                        acmeOrderRepository.findByOrderId("orderStaleFin2").orElseThrow().getStatus());
+    }
+
+    /**
+     * A certificate has already been issued for the order, so a challenge validated afterwards leaves the order and the
+     * account's counts as they are.
+     */
+    @Test
+    void testValidateChallenge_leavesAnOrderWithAnIssuedCertificateAlone() throws Exception {
+        AcmeChallenge challenge = pendingDnsChallenge(order1, "authIssued", "challengeIssued", "tokenIssued");
+        int failedOrdersBefore = failedOrders(challenge);
+
+        try (var mockedContext = mockTxtRecords(expectedDnsValidationToken(challenge.getToken()))) {
+            ResponseEntity<Challenge> response = validateChallenge(challenge);
+
+            Assertions.assertEquals(ChallengeStatus.VALID, Objects.requireNonNull(response.getBody()).getStatus());
+            Assertions
+                    .assertEquals(OrderStatus.VALID,
+                            acmeOrderRepository.findByOrderId(ORDER_ID_VALID).orElseThrow().getStatus());
+            Assertions.assertEquals(failedOrdersBefore, failedOrders(challenge));
+            Assertions.assertEquals(1, mockedContext.constructed().size());
+        }
+    }
+
+    /**
+     * A multi-identifier order has an authorization per identifier and becomes ready only once every one of them has
+     * been proven.
+     */
+    @Test
+    void testValidateChallenge_multiIdentifierOrderBecomesReadyOnlyWhenEveryAuthorizationIsValid() throws Exception {
+        AcmeOrder order = pendingOrder("orderMulti");
+        AcmeChallenge first = pendingDnsChallenge(order, "authMulti1", "challengeMulti1", "tokenMulti1");
+        AcmeChallenge second = pendingDnsChallenge(order, "authMulti2", "challengeMulti2", "tokenMulti2");
+
+        try (var mockedContext = mockTxtRecords(expectedDnsValidationToken(first.getToken()))) {
+            validateChallenge(first);
+        }
+        Assertions
+                .assertEquals(OrderStatus.PENDING,
+                        acmeOrderRepository.findByOrderId("orderMulti").orElseThrow().getStatus());
+
+        try (var mockedContext = mockTxtRecords(expectedDnsValidationToken(second.getToken()))) {
+            validateChallenge(second);
+        }
+        Assertions
+                .assertEquals(OrderStatus.READY,
+                        acmeOrderRepository.findByOrderId("orderMulti").orElseThrow().getStatus());
+    }
+
+    /**
+     * Two accepts of one challenge can overlap: the second finds the challenge settled under the order lock and leaves
+     * the recorded outcome alone instead of applying its own.
+     */
+    @Test
+    void testWriter_leavesAChallengeSettledMeanwhileAlone() {
+        AcmeChallenge challenge = failedChallengeLeftUnpropagated("orderRaced", "authRaced", "challengeRaced");
+        AcmeAuthorization authorization = challenge.getAuthorization();
+        authorization.setStatus(AuthorizationStatus.INVALID);
+        acmeAuthorizationRepository.save(authorization);
+
+        AcmeChallenge outcome = acmeChallengeWriter
+                .applyValidationResult(authorization.getOrder().getUuid(), "challengeRaced",
+                        ChallengeValidationResult.success());
+
+        Assertions.assertEquals(ChallengeStatus.INVALID, outcome.getStatus());
+        Assertions.assertEquals(AuthorizationStatus.INVALID, reload(challenge).getAuthorization().getStatus());
+    }
+
+    /**
+     * The failed-order count is incremented in the database, so counting twice yields two whatever the entity held.
+     */
+    @Test
+    void testWriter_countsFailedOrdersInTheDatabase() {
+        UUID accountUuid = order1.getAcmeAccountUuid();
+        int before = acmeAccountRepository.findByUuid(accountUuid).orElseThrow().getFailedOrders();
+
+        acmeChallengeWriter.countFailedOrder(accountUuid);
+        acmeChallengeWriter.countFailedOrder(accountUuid);
+
+        Assertions
+                .assertEquals(before + 2,
+                        acmeAccountRepository.findByUuid(accountUuid).orElseThrow().getFailedOrders());
+    }
+
+    /**
+     * An authorization left pending behind a failed challenge is settled before its expiry is enforced, so the request
+     * is still refused but the rows no longer stay pending.
+     */
+    @Test
+    void testGetAuthorization_settlesAnExpiredStaleAuthorizationBeforeRefusingIt() throws Exception {
+        AcmeChallenge challenge = failedChallengeLeftUnpropagated("orderStaleExp", "authStaleExp", "challengeStaleExp");
+        AcmeAuthorization authorization = challenge.getAuthorization();
+        authorization.setExpires(new Date(System.currentTimeMillis() - 60_000));
+        acmeAuthorizationRepository.save(authorization);
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/authz/authStaleExp");
+
+        Assertions
+                .assertThrows(AcmeProblemDocumentException.class,
+                        () -> acmeService
+                                .getAuthorization(ACME_PROFILE_NAME, "authStaleExp",
+                                        buildGetAuthorizationRequestJSON(requestUri, baseUri), requestUri, false));
+
+        Assertions
+                .assertEquals(AuthorizationStatus.INVALID,
+                        acmeAuthorizationRepository.findByAuthorizationId("authStaleExp").orElseThrow().getStatus());
+        Assertions
+                .assertEquals(OrderStatus.INVALID,
+                        acmeOrderRepository.findByOrderId("orderStaleExp").orElseThrow().getStatus());
+    }
+
+    /**
+     * An order left open behind a failed authorization is settled before its expiry is enforced, so the request is
+     * still refused but the row no longer stays open.
+     */
+    @Test
+    void testGetOrder_settlesAnExpiredStaleOrderBeforeRefusingIt() throws Exception {
+        AcmeOrder order = orderLeftOpenBehindFailedAuthorization("orderStaleExpired", "authStaleExpired",
+                OrderStatus.READY);
+        order.setExpires(new Date(System.currentTimeMillis() - 60_000));
+        acmeOrderRepository.save(order);
+        URI requestUri = new URI(BASE_URI + ACME_PROFILE_NAME + "/order/orderStaleExpired");
+
+        AcmeProblemDocumentException refused = Assertions
+                .assertThrows(AcmeProblemDocumentException.class,
+                        () -> acmeService.getOrder(ACME_PROFILE_NAME, "orderStaleExpired", requestUri, false));
+
+        Assertions.assertEquals(Problem.MALFORMED.getType(), refused.getProblemDocument().getType());
+        Assertions
+                .assertEquals(OrderStatus.INVALID,
+                        acmeOrderRepository.findByOrderId("orderStaleExpired").orElseThrow().getStatus());
+    }
+
+    /**
+     * A client deactivates an authorization by posting its status (RFC 8555 section 7.5.2).
+     */
+    @Test
+    void testGetAuthorization_deactivatesTheAuthorizationOnRequest() throws Exception {
+        pendingDnsChallenge(pendingOrder("orderDeact"), "authDeact", "challengeDeact", "tokenDeact");
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/authz/authDeact");
+
+        ResponseEntity<Authorization> response = acmeService
+                .getAuthorization(ACME_PROFILE_NAME, "authDeact", buildDeactivateRequestJSON(requestUri, baseUri),
+                        requestUri, false);
+
+        Assertions
+                .assertEquals(AuthorizationStatus.DEACTIVATED, Objects.requireNonNull(response.getBody()).getStatus());
+        Assertions
+                .assertEquals(AuthorizationStatus.DEACTIVATED,
+                        acmeAuthorizationRepository.findByAuthorizationId("authDeact").orElseThrow().getStatus());
+        Assertions
+                .assertEquals(OrderStatus.INVALID,
+                        acmeOrderRepository.findByOrderId("orderDeact").orElseThrow().getStatus());
+    }
+
+    /**
+     * A request that both settles a stale sibling and deactivates the asked-for authorization runs in one transaction;
+     * the settlement of the sibling must survive the second lock on the order.
+     */
+    @Test
+    void testGetAuthorization_deactivationKeepsTheSettlementOfAStaleSibling() throws Exception {
+        AcmeOrder order = pendingOrder("orderDeactSibling");
+        AcmeChallenge stale = pendingDnsChallenge(order, "authDeactStale", "challengeDeactStale", "tokenDeactStale");
+        stale.setStatus(ChallengeStatus.INVALID);
+        acmeChallengeRepository.save(stale);
+        pendingDnsChallenge(order, "authDeactTarget", "challengeDeactTarget", "tokenDeactTarget");
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/authz/authDeactTarget");
+
+        acmeService
+                .getAuthorization(ACME_PROFILE_NAME, "authDeactTarget", buildDeactivateRequestJSON(requestUri, baseUri),
+                        requestUri, false);
+
+        Assertions
+                .assertEquals(AuthorizationStatus.INVALID,
+                        acmeAuthorizationRepository.findByAuthorizationId("authDeactStale").orElseThrow().getStatus());
+        Assertions
+                .assertEquals(AuthorizationStatus.DEACTIVATED,
+                        acmeAuthorizationRepository.findByAuthorizationId("authDeactTarget").orElseThrow().getStatus());
+        Assertions
+                .assertEquals(OrderStatus.INVALID,
+                        acmeOrderRepository.findByOrderId("orderDeactSibling").orElseThrow().getStatus());
+    }
+
+    /**
+     * An authorization can be read or deactivated only by the account that placed its order.
+     */
+    @Test
+    void testGetAuthorization_refusesAnotherAccount() throws Exception {
+        pendingDnsChallenge(pendingOrder("orderForeign"), "authForeign", "challengeForeign", "tokenForeign");
+        otherAccount();
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/authz/authForeign");
+
+        AcmeProblemDocumentException refused = Assertions
+                .assertThrows(AcmeProblemDocumentException.class,
+                        () -> acmeService
+                                .getAuthorization(ACME_PROFILE_NAME, "authForeign",
+                                        signedByOtherAccount("{\"status\":\"deactivated\"}", requestUri, baseUri),
+                                        requestUri, false));
+
+        Assertions.assertEquals(Problem.UNAUTHORIZED.getType(), refused.getProblemDocument().getType());
+        Assertions
+                .assertEquals(AuthorizationStatus.PENDING,
+                        acmeAuthorizationRepository.findByAuthorizationId("authForeign").orElseThrow().getStatus());
+    }
+
+    @Test
+    void testGetAuthorization_refusesAKeySuppliedInline() throws Exception {
+        pendingDnsChallenge(pendingOrder("orderInlineKey"), "authInlineKey", "challengeInlineKey", "tokenInlineKey");
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/authz/authInlineKey");
+        JWSObjectJSON jwsObjectJSON = new JWSObjectJSON(new Payload(""));
+        jwsObjectJSON
+                .sign(new JWSHeader.Builder(JWSAlgorithm.RS256)
+                        .jwk(rsa2048PublicJWK)
+                        .customParam(NONCE_HEADER_CUSTOM_PARAM, acmeValidNonce.getNonce())
+                        .customParam(URL_HEADER_CUSTOM_PARAM, requestUri.toString())
+                        .build(), rsa2048Signer);
+
+        AcmeProblemDocumentException refused = Assertions
+                .assertThrows(AcmeProblemDocumentException.class,
+                        () -> acmeService
+                                .getAuthorization(ACME_PROFILE_NAME, "authInlineKey",
+                                        jwsObjectJSON.serializeFlattened(), requestUri, false));
+
+        Assertions.assertEquals(Problem.MALFORMED.getType(), refused.getProblemDocument().getType());
+    }
+
+    /**
+     * An order can be finalized only by the account that placed it.
+     */
+    @Test
+    void testFinalizeOrder_refusesAnotherAccount() throws Exception {
+        AcmeOrder order = pendingOrder("orderForeignFin");
+        order.setStatus(OrderStatus.READY);
+        acmeOrderRepository.save(order);
+        otherAccount();
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/order/orderForeignFin/finalize");
+
+        AcmeProblemDocumentException refused = Assertions
+                .assertThrows(AcmeProblemDocumentException.class, () -> acmeService
+                        .finalizeOrder(ACME_PROFILE_NAME, "orderForeignFin",
+                                signedByOtherAccount("{\"csr\":\"\"}", requestUri, baseUri), requestUri, false));
+
+        Assertions.assertEquals(Problem.UNAUTHORIZED.getType(), refused.getProblemDocument().getType());
+        Assertions
+                .assertEquals(OrderStatus.READY,
+                        acmeOrderRepository.findByOrderId("orderForeignFin").orElseThrow().getStatus());
+    }
+
+    private AcmeAccount otherAccount() throws JOSEException {
+        AcmeAccount other = new AcmeAccount();
+        other.setStatus(AccountStatus.VALID);
+        other.setEnabled(true);
+        other.setAccountId(OTHER_ACCOUNT_ID);
+        other.setTermsOfServiceAgreed(true);
+        other.setAcmeProfile(order1.getAcmeAccount().getAcmeProfile());
+        other.setRaProfile(order1.getAcmeAccount().getRaProfile());
+        other.setPublicKey(Base64.getEncoder().encodeToString(newRsa2048PublicJWK.toPublicKey().getEncoded()));
+        return acmeAccountRepository.save(other);
+    }
+
+    private String signedByOtherAccount(String payload, URI requestUri, String baseUri) throws JOSEException {
+        JWSObjectJSON jwsObjectJSON = new JWSObjectJSON(new Payload(payload));
+        jwsObjectJSON
+                .sign(new JWSHeader.Builder(JWSAlgorithm.RS256)
+                        .keyID(baseUri + "/acct/" + OTHER_ACCOUNT_ID)
+                        .customParam(NONCE_HEADER_CUSTOM_PARAM, acmeValidNonce.getNonce())
+                        .customParam(URL_HEADER_CUSTOM_PARAM, requestUri.toString())
+                        .build(), newRsa2048Signer);
+        return jwsObjectJSON.serializeFlattened();
+    }
+
+    /**
+     * A request that deactivates whatever it is addressed to: the payload is the same for an account and for an
+     * authorization (RFC 8555 sections 7.3.6 and 7.5.2).
+     */
+    private String buildDeactivateRequestJSON(URI requestUri, String baseUri) throws JOSEException {
+        JWSObjectJSON jwsObjectJSON = new JWSObjectJSON(new Payload("{\"status\":\"deactivated\"}"));
+        jwsObjectJSON
+                .sign(new JWSHeader.Builder(JWSAlgorithm.RS256)
+                        .keyID(baseUri + "/acct/" + ACME_ACCOUNT_ID_VALID)
+                        .customParam(NONCE_HEADER_CUSTOM_PARAM, acmeValidNonce.getNonce())
+                        .customParam(URL_HEADER_CUSTOM_PARAM, requestUri.toString())
+                        .build(), rsa2048Signer);
+        return jwsObjectJSON.serializeFlattened();
+    }
+
+    @Test
+    void testValidateChallenge_refusesAnAuthorizationWithoutAnIdentifier() {
+        AcmeChallenge challenge = pendingDnsChallenge(pendingOrder("orderNoId"), "authNoId", "challengeNoId",
+                "tokenNoId");
+        AcmeAuthorization authorization = challenge.getAuthorization();
+        authorization.setIdentifier(null);
+        acmeAuthorizationRepository.save(authorization);
+
+        AcmeProblemDocumentException refused = Assertions
+                .assertThrows(AcmeProblemDocumentException.class, () -> validateChallenge(challenge));
+
+        Assertions.assertEquals(Problem.SERVER_INTERNAL.getType(), refused.getProblemDocument().getType());
+        Assertions.assertEquals(ChallengeStatus.PENDING, reload(challenge).getStatus());
+    }
+
+    /**
+     * An order the previous behaviour let finalize despite a failed authorization already has its certificate. Polling
+     * that authorization settles it, but the order keeps its status and is not counted as failed.
+     */
+    @Test
+    void testGetAuthorization_doesNotFailAnOrderWhoseCertificateWasIssued() throws Exception {
+        AcmeChallenge challenge = failedChallengeLeftUnpropagated("orderIssuedStale", "authIssuedStale",
+                "challengeIssuedStale");
+        AcmeOrder order = challenge.getAuthorization().getOrder();
+        order.setStatus(OrderStatus.READY);
+        order.setCertificateReference(order1.getCertificateReference());
+        order.setCertificateReferenceUuid(order1.getCertificateReferenceUuid());
+        acmeOrderRepository.save(order);
+        int failedOrdersBefore = failedOrders(order);
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/authz/authIssuedStale");
+
+        ResponseEntity<Authorization> response = acmeService
+                .getAuthorization(ACME_PROFILE_NAME, "authIssuedStale",
+                        buildGetAuthorizationRequestJSON(requestUri, baseUri), requestUri, false);
+
+        Assertions.assertEquals(AuthorizationStatus.INVALID, Objects.requireNonNull(response.getBody()).getStatus());
+        Assertions
+                .assertEquals(OrderStatus.READY,
+                        acmeOrderRepository.findByOrderId("orderIssuedStale").orElseThrow().getStatus());
+        Assertions.assertEquals(failedOrdersBefore, failedOrders(order));
+    }
+
+    /**
+     * An invalid order is a protocol state, so it is reported with that status rather than as a server fault.
+     */
+    @Test
+    void testGetOrder_reportsAnInvalidOrderWithItsStatus() throws Exception {
+        AcmeOrder order = pendingOrder("orderInvalidReport");
+        order.setStatus(OrderStatus.INVALID);
+        acmeOrderRepository.save(order);
+        URI requestUri = new URI(BASE_URI + ACME_PROFILE_NAME + "/order/orderInvalidReport");
+
+        ResponseEntity<Order> response = acmeService
+                .getOrder(ACME_PROFILE_NAME, "orderInvalidReport", requestUri, false);
+
+        Assertions.assertEquals(HttpStatus.OK, response.getStatusCode());
+        Assertions.assertEquals(OrderStatus.INVALID, Objects.requireNonNull(response.getBody()).getStatus());
+    }
+
+    /**
+     * The status an order takes from its certificate is decided under the order lock and counted once, so two requests
+     * polling the same order between them record one transition rather than one each.
+     */
+    @Test
+    void testWriter_countsACertificateDerivedTransitionOnce() {
+        UUID accountUuid = order1.getAcmeAccountUuid();
+        order1.setStatus(OrderStatus.PROCESSING);
+        acmeOrderRepository.save(order1);
+        int validBefore = acmeAccountRepository.findByUuid(accountUuid).orElseThrow().getValidOrders();
+
+        AcmeOrder first = acmeChallengeWriter.reconcileCertificateStatus(order1.getUuid());
+        AcmeOrder second = acmeChallengeWriter.reconcileCertificateStatus(order1.getUuid());
+
+        Assertions.assertEquals(OrderStatus.VALID, first.getStatus());
+        Assertions.assertEquals(OrderStatus.VALID, second.getStatus());
+        Assertions
+                .assertEquals(validBefore + 1,
+                        acmeAccountRepository.findByUuid(accountUuid).orElseThrow().getValidOrders());
+    }
+
+    /**
+     * Deactivating an account counts each order it closes in the database, so a count recorded while the orders were
+     * being locked survives the account being written back.
+     */
+    @Test
+    void testUpdateAccount_deactivationKeepsACountRecordedWhileItRan() throws Exception {
+        AcmeOrder open = pendingOrder("orderDeactCount");
+        UUID accountUuid = open.getAcmeAccountUuid();
+        int failedBefore = acmeAccountRepository.findByUuid(accountUuid).orElseThrow().getFailedOrders();
+        // stands in for a challenge that failed while the deactivation was acquiring its order locks
+        acmeChallengeWriter.countFailedOrder(accountUuid);
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/acct/" + ACME_ACCOUNT_ID_VALID);
+
+        acmeService
+                .updateAccount(ACME_PROFILE_NAME, ACME_ACCOUNT_ID_VALID,
+                        buildDeactivateRequestJSON(requestUri, baseUri), requestUri, false);
+
+        AcmeAccount reloaded = acmeAccountRepository.findByUuid(accountUuid).orElseThrow();
+        Assertions.assertEquals(AccountStatus.DEACTIVATED, reloaded.getStatus());
+        Assertions
+                .assertEquals(OrderStatus.INVALID,
+                        acmeOrderRepository.findByOrderId("orderDeactCount").orElseThrow().getStatus());
+        // the concurrent count, plus every order this deactivation closed
+        Assertions.assertTrue(reloaded.getFailedOrders() >= failedBefore + 2);
+    }
+
+    /**
+     * The state an instance without failure propagation leaves behind: the challenge is invalid, nothing else is.
+     */
+    private AcmeChallenge failedChallengeLeftUnpropagated(String orderId, String authorizationId, String challengeId) {
+        AcmeChallenge challenge = pendingDnsChallenge(pendingOrder(orderId), authorizationId, challengeId,
+                "token-" + challengeId);
+        challenge.setStatus(ChallengeStatus.INVALID);
+        acmeChallengeRepository.save(challenge);
+        return challenge;
+    }
+
+    private AcmeOrder orderLeftOpenBehindFailedAuthorization(String orderId, String authorizationId,
+            OrderStatus orderStatus) {
+        AcmeOrder order = pendingOrder(orderId);
+        order.setStatus(orderStatus);
+        acmeOrderRepository.save(order);
+        AcmeAuthorization authorization = pendingDnsChallenge(order, authorizationId, "challenge-" + authorizationId,
+                "token-" + authorizationId).getAuthorization();
+        authorization.setStatus(AuthorizationStatus.INVALID);
+        acmeAuthorizationRepository.save(authorization);
+        return order;
+    }
+
+    private int failedOrders(AcmeChallenge challenge) {
+        return failedOrders(challenge.getAuthorization().getOrder());
+    }
+
+    private int failedOrders(AcmeOrder order) {
+        return acmeAccountRepository.findByUuid(order.getAcmeAccountUuid()).orElseThrow().getFailedOrders();
+    }
+
+    private AcmeOrder pendingOrder(String orderId) {
+        AcmeOrder order = new AcmeOrder();
+        order.setOrderId(orderId);
+        order.setStatus(OrderStatus.PENDING);
+        order.setAcmeAccount(order1.getAcmeAccount());
+        acmeOrderRepository.save(order);
+        return order;
+    }
+
+    private AcmeChallenge pendingDnsChallenge(AcmeOrder order, String authorizationId, String challengeId,
+            String token) {
+        AcmeAuthorization authorization = new AcmeAuthorization();
+        authorization.setAuthorizationId(authorizationId);
+        authorization.setStatus(AuthorizationStatus.PENDING);
+        authorization.setIdentifier("{\"type\":\"dns\",\"value\":\"example.com\"}");
+        authorization.setOrderUuid(order.getUuid());
+        authorization.setOrder(order);
+        acmeAuthorizationRepository.save(authorization);
+
+        AcmeChallenge challenge = new AcmeChallenge();
+        challenge.setChallengeId(challengeId);
+        challenge.setStatus(ChallengeStatus.PENDING);
+        challenge.setType(ChallengeType.DNS01);
+        challenge.setToken(token);
+        challenge.setAuthorizationUuid(authorization.getUuid());
+        challenge.setAuthorization(authorization);
+        acmeChallengeRepository.save(challenge);
+        return challenge;
+    }
+
+    private ResponseEntity<Challenge> validateChallenge(AcmeChallenge challenge)
+            throws NotFoundException, NoSuchAlgorithmException, InvalidKeySpecException, AcmeProblemDocumentException {
+        URI requestUri = URI.create(BASE_URI + ACME_PROFILE_NAME + "/chall/" + challenge.getChallengeId());
+        return acmeService.validateChallenge(ACME_PROFILE_NAME, challenge.getChallengeId(), requestUri, false);
+    }
+
+    private AcmeChallenge reload(AcmeChallenge challenge) {
+        return acmeChallengeRepository.findByChallengeId(challenge.getChallengeId()).orElseThrow();
+    }
+
+    private String expectedDnsValidationToken(String token) throws JOSEException, NoSuchAlgorithmException {
+        String keyAuthorization = AcmeCommonHelper.createKeyAuthorization(token, rsa2048PublicJWK.toPublicKey());
+        byte[] digest = MessageDigest.getInstance("SHA-256").digest(keyAuthorization.getBytes(StandardCharsets.UTF_8));
+        return Base64URL.encode(digest).toString();
+    }
+
+    /**
+     * Stands in for the DNS provider, which returns every TXT record of a name as a separate value of one {@code TXT}
+     * attribute.
+     */
+    private static MockedConstruction<InitialDirContext> mockTxtRecords(String... txtValues) {
+        BasicAttribute records = new BasicAttribute(AcmeConstants.DNS_RECORD_TYPE);
+        for (String txtValue : txtValues) {
+            records.add(txtValue);
+        }
+        Attributes attributes = new BasicAttributes(true);
+        attributes.put(records);
+        return mockConstruction(InitialDirContext.class,
+                (mock, context) -> when(mock.getAttributes(anyString(), any(String[].class))).thenReturn(attributes));
     }
 }

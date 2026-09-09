@@ -1,0 +1,169 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "serialNumber": "urn:uuid:5b1c2d3e-0000-4000-8000-000000000005",
+  "version": 1,
+  "components": [
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "private-key-with-fingerprint",
+      "name": "private-key-with-fingerprint",
+      "cryptoProperties": {
+        "assetType": "related-crypto-material",
+        "relatedCryptoMaterialProperties": {
+          "type": "private-key",
+          "algorithmRef": "alg-rsa-2048",
+          "fingerprint": {"alg": "SHA-256", "content": "1111111111111111111111111111111111111111111111111111111111111111"},
+          "securedBy": {"mechanism": "Software"}
+        }
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "password-low-entropy",
+      "name": "password-low-entropy",
+      "cryptoProperties": {
+        "assetType": "related-crypto-material",
+        "relatedCryptoMaterialProperties": {"type": "password", "value": "correct-horse-battery-staple"}
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "secret-key-uncontracted-member",
+      "name": "secret-key-uncontracted-member",
+      "cryptoProperties": {
+        "assetType": "related-crypto-material",
+        "relatedCryptoMaterialProperties": {
+          "type": "secret-key",
+          "size": 256,
+          "format": "raw",
+          "pem": "-----BEGIN FENCE CORPUS PLACEHOLDER-----\nbm90IGEgcmVhbCBrZXk=\n-----END FENCE CORPUS PLACEHOLDER-----"
+        }
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "public-key-with-id",
+      "name": "public-key-with-id",
+      "cryptoProperties": {
+        "assetType": "related-crypto-material",
+        "relatedCryptoMaterialProperties": {"type": "public-key", "id": "kid-2026-0001", "state": "active"}
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "seed-at-location",
+      "name": "seed-at-location",
+      "cryptoProperties": {
+        "assetType": "related-crypto-material",
+        "relatedCryptoMaterialProperties": {"type": "seed"}
+      },
+      "evidence": {
+        "occurrences": [
+          {"location": "tcp://svc-user:s3cret@db.example.test:5432/app", "line": 42},
+          {"location": "/etc/example/seed.bin", "line": 1, "offset": 0, "symbol": "SEED"}
+        ]
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "tls-no-version-at-location",
+      "name": "tls-no-version-at-location",
+      "cryptoProperties": {
+        "assetType": "protocol",
+        "protocolProperties": {"type": "tls"}
+      },
+      "evidence": {
+        "occurrences": [
+          {"location": "https://api-user:pw@api.example.test:8443/v1/keys?token=abc#frag", "line": 12}
+        ]
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "tls-versioned-nameless",
+      "cryptoProperties": {
+        "assetType": "protocol",
+        "protocolProperties": {"type": "tls", "version": "1.2"}
+      },
+      "evidence": {
+        "occurrences": [{"location": "src/net/client.c", "line": 88}]
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "alg-rsa-2048",
+      "name": "RSA-2048",
+      "cryptoProperties": {
+        "assetType": "algorithm",
+        "oid": "1.2.840.113549.1.1.1",
+        "algorithmProperties": {"primitive": "pke", "parameterSetIdentifier": "2048", "padding": "oaep"}
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "alg-sha256-with-rsa-by-oid",
+      "name": "sha256WithRSAEncryption",
+      "cryptoProperties": {
+        "assetType": "algorithm",
+        "oid": "1.2.840.113549.1.1.11",
+        "algorithmProperties": {"primitive": "signature"}
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "alg-ecdsa-p256",
+      "name": "ECDSA",
+      "cryptoProperties": {
+        "assetType": "algorithm",
+        "algorithmProperties": {"primitive": "signature", "curve": "P-256", "parameterSetIdentifier": "256"}
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "alg-ecdsa-secp256r1",
+      "name": "ecdsa-with-SHA256",
+      "cryptoProperties": {
+        "assetType": "algorithm",
+        "algorithmProperties": {"primitive": "signature", "curve": "secp256r1"}
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "alg-aes-256-gcm",
+      "name": "AES-256-GCM",
+      "cryptoProperties": {
+        "assetType": "algorithm",
+        "algorithmProperties": {"primitive": "ae", "mode": "gcm", "parameterSetIdentifier": "256"}
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "alg-lms-hss",
+      "name": "HSS-LMS-SHA256-M32-H5",
+      "cryptoProperties": {
+        "assetType": "algorithm",
+        "algorithmProperties": {"primitive": "signature"}
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "alg-unknown-typed",
+      "name": "vendor-proprietary-scheme",
+      "cryptoProperties": {
+        "assetType": "obfuscation-scheme"
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "typed-but-empty",
+      "name": "typed-but-empty"
+    },
+    {
+      "type": "library",
+      "bom-ref": "jackson-databind",
+      "name": "jackson-databind",
+      "version": "2.18.0"
+    }
+  ]
+}

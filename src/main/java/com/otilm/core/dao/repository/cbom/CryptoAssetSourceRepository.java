@@ -27,6 +27,19 @@ public interface CryptoAssetSourceRepository extends SecurityFilterRepository<Cr
     boolean existsByCbomUuid(UUID cbomUuid);
 
     /**
+     * The detail endpoint's source list: every CBOM's contribution with its document header, oldest contribution first,
+     * uuid as the deterministic tiebreak. The fetch join loads the read-only {@link CryptoAssetSource#getCbom()}
+     * association in the same query, so callers can read header fields without a session.
+     */
+    @Query("""
+            SELECT s FROM CryptoAssetSource s
+            JOIN FETCH s.cbom
+            WHERE s.assetUuid = :assetUuid
+            ORDER BY s.firstSeenAt ASC, s.uuid ASC
+            """)
+    List<CryptoAssetSource> findWithCbomByAssetUuid(@Param("assetUuid") UUID assetUuid);
+
+    /**
      * The assets a CBOM contributes to -- the work list for detaching that CBOM before its row is deleted, since the
      * foreign key is {@code RESTRICT}.
      */

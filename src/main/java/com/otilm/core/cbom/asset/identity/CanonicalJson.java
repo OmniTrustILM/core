@@ -8,7 +8,6 @@ import java.math.BigDecimal;
 import java.math.MathContext;
 import java.math.RoundingMode;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -50,22 +49,6 @@ public final class CanonicalJson {
     private static final Set<String> REFERENCE_FIELDS = Set
             .of("algorithmRef", "signatureAlgorithmRef", "subjectPublicKeyRef", "cryptoRefArray",
                     "relatedCryptographicAssets", "relatedCryptographicAsset");
-
-    /** Compares by code point, so an astral character sorts above every basic-plane one, as the reference does. */
-    private static final Comparator<String> BY_CODE_POINT = (left, right) -> {
-        int leftIndex = 0;
-        int rightIndex = 0;
-        while (leftIndex < left.length() && rightIndex < right.length()) {
-            int leftPoint = left.codePointAt(leftIndex);
-            int rightPoint = right.codePointAt(rightIndex);
-            if (leftPoint != rightPoint) {
-                return Integer.compare(leftPoint, rightPoint);
-            }
-            leftIndex += Character.charCount(leftPoint);
-            rightIndex += Character.charCount(rightPoint);
-        }
-        return Integer.compare(left.length() - leftIndex, right.length() - rightIndex);
-    };
 
     private CanonicalJson() {
     }
@@ -142,7 +125,7 @@ public final class CanonicalJson {
         if (node.isObject()) {
             List<String> names = new ArrayList<>(node.properties().size());
             node.properties().forEach(field -> names.add(field.getKey()));
-            names.sort(BY_CODE_POINT);
+            names.sort(AsciiText.BY_CODE_POINT);
             out.append('{');
             for (int index = 0; index < names.size(); index++) {
                 if (index > 0) {

@@ -6,6 +6,7 @@ import com.otilm.api.interfaces.core.tsp.error.TspFailureInfo;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.client.signing.profile.SigningProfileDto;
 import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
+import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.core.connector.v2.ConnectorDetailDto;
@@ -17,6 +18,7 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.repository.signing.TspProfileRepository;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.helpers.TestCertificateAuthority;
+import com.otilm.core.security.authn.PlatformUserDetails;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -47,6 +49,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import static com.otilm.core.signing.tsa.messages.TspRequestBuilder.aTspRequest;
 import static com.otilm.core.util.builders.ConnectorRequestDtoBuilder.aV1ConnectorRequest;
@@ -184,6 +187,12 @@ class TsaServiceImplITest extends BaseSpringBootTest {
      */
     private SigningProfileDto createTimestampingSigningProfile(String name,
             List<DigestAlgorithm> allowedDigestAlgorithms, List<String> allowedPolicyIds) throws Exception {
+        return createTimestampingSigningProfile(name, allowedDigestAlgorithms, allowedPolicyIds, DEFAULT_POLICY_ID);
+    }
+
+    private SigningProfileDto createTimestampingSigningProfile(String name,
+            List<DigestAlgorithm> allowedDigestAlgorithms, List<String> allowedPolicyIds, String defaultPolicyId)
+            throws Exception {
         SigningProfileDto signingProfile = signingProfileService
                 .createSigningProfile(aSigningProfileRequest()
                         .withName(name)
@@ -191,7 +200,7 @@ class TsaServiceImplITest extends BaseSpringBootTest {
                         .withTimestamping(aTimestampingWorkflow()
                                 .withSignatureFormattingConnector(
                                         UUID.fromString(timestampingFormattingConnector.getUuid()))
-                                .withDefaultPolicyId(DEFAULT_POLICY_ID)
+                                .withDefaultPolicyId(defaultPolicyId)
                                 .withValidateTokenSignature(false)
                                 .withQualifiedTimestamp(false)
                                 .withAllowedDigestAlgorithms(allowedDigestAlgorithms)
@@ -216,6 +225,14 @@ class TsaServiceImplITest extends BaseSpringBootTest {
         signingProfileService.activateTsp(signingProfileUuid, tspProfileUuid, "http://localhost");
 
         return signingProfile;
+    }
+
+    private SigningRecordDto theOnlySigningRecord() throws Exception {
+        List<SigningRecordListDto> records = signingRecordService
+                .listSigningRecords(aSearchRequest().build(), SecurityFilter.create())
+                .getItems();
+        assertThat(records).hasSize(1);
+        return signingRecordService.getSigningRecord(SecuredUUID.fromString(records.getFirst().getUuid()));
     }
 
     // ── processTspRequestForTspProfile ────────────────────────────────────────
@@ -317,13 +334,7 @@ class TsaServiceImplITest extends BaseSpringBootTest {
             assertThat(response).isInstanceOf(TspResponse.Granted.class);
             byte[] grantedBytes = ((TspResponse.Granted) response).timestampBytes();
 
-            List<SigningRecordListDto> records = signingRecordService
-                    .listSigningRecords(aSearchRequest().build(), SecurityFilter.create())
-                    .getItems();
-            assertThat(records).hasSize(1);
-
-            SigningRecordDto signingRecord = signingRecordService
-                    .getSigningRecord(SecuredUUID.fromString(records.getFirst().getUuid()));
+            SigningRecordDto signingRecord = theOnlySigningRecord();
             assertThat(signingRecord.getSignedDocument()).isEqualTo(grantedBytes);
             assertThat(signingRecord.getName()).startsWith(profile.getName() + " #");
             assertThat(signingRecord.getSigningTime()).isNotNull();
@@ -334,6 +345,29 @@ class TsaServiceImplITest extends BaseSpringBootTest {
             // The TSP path stores only the self-contained token; signature and dtbs are recoverable from it.
             assertThat(signingRecord.getSignatureValue()).isNull();
             assertThat(signingRecord.getDtbs()).isNull();
+        }
+
+        /**
+         * Without this the operator sees a dash where the requester belongs, and the per-user signing statistics group
+         * the operation under nobody.
+         */
+        @Test
+        void signingRecordNamesTheAuthenticatedCaller_whenTimestampGranted() throws Exception {
+            // given
+            SigningProfileDto profile = createTimestampingSigningProfile("attributed-sp");
+            PlatformUserDetails caller = (PlatformUserDetails) SecurityContextHolder
+                    .getContext()
+                    .getAuthentication()
+                    .getPrincipal();
+
+            // when
+            tsaService.processTspRequestForSigningProfile(profile.getName(), aTspRequest().build());
+
+            // then
+            NameAndUuidDto requestedBy = theOnlySigningRecord().getRequestedBy();
+            assertThat(requestedBy).isNotNull();
+            assertThat(requestedBy.getUuid()).isEqualTo(caller.getUserUuid());
+            assertThat(requestedBy.getName()).isEqualTo("tst-user");
         }
 
         @Test
@@ -366,6 +400,34 @@ class TsaServiceImplITest extends BaseSpringBootTest {
                     .isInstanceOf(TspRequestValidationException.class)
                     .satisfies(ex -> assertThat(((TspRequestValidationException) ex).getFailureInfo())
                             .isEqualTo(TspFailureInfo.UNACCEPTED_POLICY));
+        }
+
+        @Test
+        void throwsValidationException_whenNeitherTheRequestNorTheProfileNamesAPolicy() throws Exception {
+            // given
+            SigningProfileDto profile = createTimestampingSigningProfile("sp-no-default-policy", List.of(), List.of(),
+                    null);
+
+            // when / then
+            assertThatThrownBy(
+                    () -> tsaService.processTspRequestForSigningProfile(profile.getName(), aTspRequest().build()))
+                    .isInstanceOf(TspRequestValidationException.class)
+                    .satisfies(ex -> assertThat(((TspRequestValidationException) ex).getFailureInfo())
+                            .isEqualTo(TspFailureInfo.BAD_REQUEST));
+        }
+
+        @Test
+        void grantsTimestamp_whenTheRequestNamesThePolicyTheProfileHasNoDefaultFor() throws Exception {
+            // given — a profile without a default policy is still usable by a request that names one
+            SigningProfileDto profile = createTimestampingSigningProfile("sp-policy-from-request", List.of(), List.of(),
+                    null);
+
+            // when
+            TspResponse response = tsaService
+                    .processTspRequestForSigningProfile(profile.getName(), aTspRequest().policy("1.2.3").build());
+
+            // then
+            assertThat(response).isInstanceOf(TspResponse.Granted.class);
         }
 
         @Test

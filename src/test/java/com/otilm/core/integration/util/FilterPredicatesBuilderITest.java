@@ -46,6 +46,7 @@ import com.otilm.api.model.core.logging.records.SourceRecord;
 import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
 import com.otilm.core.dao.entity.AuditLog;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateLocation;
@@ -98,9 +99,12 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.hibernate.query.sqm.ComparisonOperator;
 import org.hibernate.query.sqm.function.SelfRenderingSqmFunction;
+import org.hibernate.query.sqm.tree.expression.SqmLiteral;
 import org.hibernate.query.sqm.tree.predicate.SqmComparisonPredicate;
 import org.hibernate.query.sqm.tree.predicate.SqmExistsPredicate;
 import org.hibernate.query.sqm.tree.predicate.SqmJunctionPredicate;
@@ -128,6 +132,10 @@ import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aSearch
  */
 @SpringBootTest
 class FilterPredicatesBuilderITest extends BaseSpringBootTest {
+
+    /** No attribute-content restriction: these cases pin predicate shape, not authorization. */
+    private static final Supplier<CustomAttributeContentFilter> UNRESTRICTED_ATTRIBUTE_CONTENT = () -> new CustomAttributeContentFilter(
+            null, null);
 
     @Autowired
     private EntityManager entityManager;
@@ -266,23 +274,81 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
     }
 
     @Test
+    void aListingWithoutTheCallersAttributePermissionsIsRefused() {
+        final List<SearchFilterRequestDto> filters = List
+                .of(aCustomAttributeFilter("anything", AttributeContentType.TEXT, FilterConditionOperator.EQUALS,
+                        testValue));
+
+        Assertions
+                .assertThrows(ValidationException.class, () -> FilterPredicatesBuilder
+                        .getFiltersPredicate(criteriaBuilder, criteriaQuery, root, filters, null));
+    }
+
+    @Test
+    void aPropertyOnlyFilterDoesNotResolveAttributePermissions() {
+        final AtomicInteger reads = new AtomicInteger();
+
+        FilterPredicatesBuilder
+                .getFiltersPredicate(criteriaBuilder, criteriaQuery, root,
+                        List.of(prepareDummyFilterRequest(FilterConditionOperator.EQUALS)), countingReads(reads));
+
+        Assertions.assertEquals(0, reads.get());
+    }
+
+    @Test
+    void aMetadataFilterDoesNotResolveCustomAttributePermissions() {
+        // Only custom content is gated by them, so a metadata filter must not pay for the authorization call either.
+        final AtomicInteger reads = new AtomicInteger();
+        final List<SearchFilterRequestDto> filters = List
+                .of(aMetaAttributeFilter("meta-only", AttributeContentType.TEXT, FilterConditionOperator.EQUALS,
+                        testValue));
+
+        FilterPredicatesBuilder
+                .getFiltersPredicate(criteriaBuilder, criteriaQuery, root, filters, countingReads(reads));
+
+        Assertions.assertEquals(0, reads.get());
+    }
+
+    @Test
+    void aCustomAttributeFilterResolvesTheCallersAttributePermissions() {
+        final AtomicInteger reads = new AtomicInteger();
+        final List<SearchFilterRequestDto> filters = List
+                .of(aCustomAttributeFilter("first", AttributeContentType.TEXT, FilterConditionOperator.EQUALS,
+                        testValue));
+
+        FilterPredicatesBuilder
+                .getFiltersPredicate(criteriaBuilder, criteriaQuery, root, filters, countingReads(reads));
+
+        Assertions.assertEquals(1, reads.get());
+    }
+
+    private static Supplier<CustomAttributeContentFilter> countingReads(final AtomicInteger reads) {
+        return () -> {
+            reads.incrementAndGet();
+            return new CustomAttributeContentFilter(null, null);
+        };
+    }
+
+    @Test
     void testEqualsPredicate() {
         final Predicate filterPredicate = FilterPredicatesBuilder
                 .getFiltersPredicate(criteriaBuilder, criteriaQuery, root,
-                        List.of(prepareDummyFilterRequest(FilterConditionOperator.EQUALS)));
+                        List.of(prepareDummyFilterRequest(FilterConditionOperator.EQUALS)),
+                        UNRESTRICTED_ATTRIBUTE_CONTENT);
         Predicate predicateTest = ((SqmJunctionPredicate) filterPredicate).getPredicates().getFirst();
         Assertions.assertInstanceOf(SqmComparisonPredicate.class, predicateTest);
         Assertions.assertEquals(ComparisonOperator.EQUAL, ((SqmComparisonPredicate) predicateTest).getSqmOperator());
         Assertions
                 .assertEquals(testValue,
-                        ((SqmComparisonPredicate) predicateTest).getRightHandExpression().toHqlString());
+                        unquoted(((SqmComparisonPredicate) predicateTest).getRightHandExpression().toHqlString()));
     }
 
     @Test
     void testNotEqualsPredicate() {
         final Predicate filterPredicate = FilterPredicatesBuilder
                 .getFiltersPredicate(criteriaBuilder, criteriaQuery, root,
-                        List.of(prepareDummyFilterRequest(FilterConditionOperator.NOT_EQUALS)));
+                        List.of(prepareDummyFilterRequest(FilterConditionOperator.NOT_EQUALS)),
+                        UNRESTRICTED_ATTRIBUTE_CONTENT);
         Predicate predicateTest = ((SqmJunctionPredicate) filterPredicate).getPredicates().getFirst();
         Assertions.assertInstanceOf(SqmJunctionPredicate.class, predicateTest);
 
@@ -297,7 +363,7 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
                                 ((SqmComparisonPredicate) predicate).getSqmOperator());
                 Assertions
                         .assertEquals(testValue,
-                                ((SqmComparisonPredicate) predicate).getRightHandExpression().toHqlString());
+                                unquoted(((SqmComparisonPredicate) predicate).getRightHandExpression().toHqlString()));
             } else {
                 Assertions.assertFalse(predicate.isNull().isNegated());
             }
@@ -308,26 +374,29 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
     void testMatchesPredicate() {
         final Predicate filterPredicate = FilterPredicatesBuilder
                 .getFiltersPredicate(criteriaBuilder, criteriaQuery, root,
-                        List.of(prepareDummyFilterRequest(FilterConditionOperator.MATCHES)));
+                        List.of(prepareDummyFilterRequest(FilterConditionOperator.MATCHES)),
+                        UNRESTRICTED_ATTRIBUTE_CONTENT);
         Predicate predicateTest = ((SqmJunctionPredicate) filterPredicate).getPredicates().getFirst();
         Assertions.assertInstanceOf(SqmComparisonPredicate.class, predicateTest);
         SqmComparisonPredicate comparisonPredicateTest = (SqmComparisonPredicate) predicateTest;
         Assertions.assertEquals(ComparisonOperator.EQUAL, comparisonPredicateTest.getSqmOperator());
-        Assertions.assertEquals("true", comparisonPredicateTest.getRightHandExpression().toHqlString());
+        Assertions.assertEquals("true", unquoted(comparisonPredicateTest.getRightHandExpression().toHqlString()));
         Assertions.assertInstanceOf(SelfRenderingSqmFunction.class, comparisonPredicateTest.getLeftHandExpression());
         SelfRenderingSqmFunction<?> leftHandExpressionHandExpression = (SelfRenderingSqmFunction<?>) comparisonPredicateTest
                 .getLeftHandExpression();
         Assertions.assertEquals("textregexeq", leftHandExpressionHandExpression.getFunctionName());
+        Assertions.assertInstanceOf(SqmLiteral.class, leftHandExpressionHandExpression.getArguments().getLast());
         Assertions
-                .assertEquals("'" + testValue + "'",
-                        leftHandExpressionHandExpression.getArguments().getLast().toHqlString());
+                .assertEquals(testValue,
+                        unquoted(leftHandExpressionHandExpression.getArguments().getLast().toHqlString()));
     }
 
     @Test
     void testContainsPredicate() {
         final Predicate filterPredicate = FilterPredicatesBuilder
                 .getFiltersPredicate(criteriaBuilder, criteriaQuery, root,
-                        List.of(prepareDummyFilterRequest(FilterConditionOperator.CONTAINS)));
+                        List.of(prepareDummyFilterRequest(FilterConditionOperator.CONTAINS)),
+                        UNRESTRICTED_ATTRIBUTE_CONTENT);
         Predicate predicateTest = ((SqmJunctionPredicate) filterPredicate).getPredicates().getFirst();
         testLikePredicate(predicateTest, "%" + testValue + "%");
     }
@@ -336,7 +405,8 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
     void testNotContainsPredicate() {
         final Predicate filterPredicate = FilterPredicatesBuilder
                 .getFiltersPredicate(criteriaBuilder, criteriaQuery, root,
-                        List.of(prepareDummyFilterRequest(FilterConditionOperator.NOT_CONTAINS)));
+                        List.of(prepareDummyFilterRequest(FilterConditionOperator.NOT_CONTAINS)),
+                        UNRESTRICTED_ATTRIBUTE_CONTENT);
         Predicate predicateTest = ((SqmJunctionPredicate) filterPredicate).getPredicates().getFirst();
         Assertions.assertInstanceOf(SqmJunctionPredicate.class, predicateTest);
 
@@ -346,7 +416,8 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
             if (predicate instanceof SqmLikePredicate) {
                 Assertions.assertTrue(predicate.isNegated());
                 Assertions
-                        .assertEquals("%" + testValue + "%", ((SqmLikePredicate) predicate).getPattern().toHqlString());
+                        .assertEquals("%" + testValue + "%",
+                                unquoted(((SqmLikePredicate) predicate).getPattern().toHqlString()));
             } else {
                 Assertions.assertFalse(predicate.isNull().isNegated());
             }
@@ -357,7 +428,8 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
     void testStartWithPredicate() {
         final Predicate filterPredicate = FilterPredicatesBuilder
                 .getFiltersPredicate(criteriaBuilder, criteriaQuery, root,
-                        List.of(prepareDummyFilterRequest(FilterConditionOperator.STARTS_WITH)));
+                        List.of(prepareDummyFilterRequest(FilterConditionOperator.STARTS_WITH)),
+                        UNRESTRICTED_ATTRIBUTE_CONTENT);
         Predicate predicateTest = ((SqmJunctionPredicate) filterPredicate).getPredicates().getFirst();
         testLikePredicate(predicateTest, testValue + "%");
     }
@@ -366,7 +438,8 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
     void testEndWithPredicate() {
         final Predicate filterPredicate = FilterPredicatesBuilder
                 .getFiltersPredicate(criteriaBuilder, criteriaQuery, root,
-                        List.of(prepareDummyFilterRequest(FilterConditionOperator.ENDS_WITH)));
+                        List.of(prepareDummyFilterRequest(FilterConditionOperator.ENDS_WITH)),
+                        UNRESTRICTED_ATTRIBUTE_CONTENT);
         Predicate predicateTest = ((SqmJunctionPredicate) filterPredicate).getPredicates().getFirst();
         testLikePredicate(predicateTest, "%" + testValue);
     }
@@ -375,7 +448,8 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
     void testEmptyPredicate() {
         final Predicate filterPredicate = FilterPredicatesBuilder
                 .getFiltersPredicate(criteriaBuilder, criteriaQuery, root,
-                        List.of(prepareDummyFilterRequest(FilterConditionOperator.EMPTY)));
+                        List.of(prepareDummyFilterRequest(FilterConditionOperator.EMPTY)),
+                        UNRESTRICTED_ATTRIBUTE_CONTENT);
         Predicate predicateTest = ((SqmJunctionPredicate) filterPredicate).getPredicates().getFirst();
         Assertions.assertInstanceOf(SqmNullnessPredicate.class, predicateTest);
         Assertions.assertFalse(predicateTest.isNull().isNegated());
@@ -385,7 +459,8 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
     void testNotEmptyPredicate() {
         final Predicate filterPredicate = FilterPredicatesBuilder
                 .getFiltersPredicate(criteriaBuilder, criteriaQuery, root,
-                        List.of(prepareDummyFilterRequest(FilterConditionOperator.NOT_EMPTY)));
+                        List.of(prepareDummyFilterRequest(FilterConditionOperator.NOT_EMPTY)),
+                        UNRESTRICTED_ATTRIBUTE_CONTENT);
         Predicate predicateTest = ((SqmJunctionPredicate) filterPredicate).getPredicates().getFirst();
         Assertions.assertInstanceOf(SqmNullnessPredicate.class, predicateTest);
         Assertions.assertTrue(predicateTest.isNotNull().isNegated());
@@ -395,27 +470,29 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
     void testGreaterPredicate() {
         final Predicate filterPredicate = FilterPredicatesBuilder
                 .getFiltersPredicate(criteriaBuilder, criteriaQuery, root,
-                        List.of(prepareDummyFilterRequest(FilterConditionOperator.GREATER)));
+                        List.of(prepareDummyFilterRequest(FilterConditionOperator.GREATER)),
+                        UNRESTRICTED_ATTRIBUTE_CONTENT);
         Predicate predicateTest = ((SqmJunctionPredicate) filterPredicate).getPredicates().getFirst();
         Assertions
                 .assertEquals(ComparisonOperator.GREATER_THAN,
                         ((SqmComparisonPredicate) predicateTest).getSqmOperator());
         Assertions
                 .assertEquals(getFormattedDate(),
-                        ((SqmComparisonPredicate) predicateTest).getRightHandExpression().toHqlString());
+                        unquoted(((SqmComparisonPredicate) predicateTest).getRightHandExpression().toHqlString()));
     }
 
     @Test
     void testLesserPredicate() {
         final Predicate filterPredicate = FilterPredicatesBuilder
                 .getFiltersPredicate(criteriaBuilder, criteriaQuery, root,
-                        List.of(prepareDummyFilterRequest(FilterConditionOperator.LESSER)));
+                        List.of(prepareDummyFilterRequest(FilterConditionOperator.LESSER)),
+                        UNRESTRICTED_ATTRIBUTE_CONTENT);
         Predicate predicateTest = ((SqmJunctionPredicate) filterPredicate).getPredicates().getFirst();
         Assertions
                 .assertEquals(ComparisonOperator.LESS_THAN, ((SqmComparisonPredicate) predicateTest).getSqmOperator());
         Assertions
                 .assertEquals(getFormattedDate(),
-                        ((SqmComparisonPredicate) predicateTest).getRightHandExpression().toHqlString());
+                        unquoted(((SqmComparisonPredicate) predicateTest).getRightHandExpression().toHqlString()));
     }
 
     @NotNull
@@ -437,7 +514,7 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
                         FilterConditionOperator.NOT_EQUALS, "123"));
 
         final SqmJunctionPredicate filterPredicate = (SqmJunctionPredicate) FilterPredicatesBuilder
-                .getFiltersPredicate(criteriaBuilder, criteriaQuery, root, testFilters);
+                .getFiltersPredicate(criteriaBuilder, criteriaQuery, root, testFilters, UNRESTRICTED_ATTRIBUTE_CONTENT);
         Assertions.assertEquals(4, (filterPredicate.getPredicates().size()));
 
         Assertions.assertInstanceOf(SqmExistsPredicate.class, filterPredicate.getPredicates().get(2));
@@ -1942,7 +2019,9 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
         List<SearchFilterRequestDto> filters = List.of(filterDto);
         Assertions
                 .assertThrows(ValidationException.class,
-                        () -> FilterPredicatesBuilder.getFiltersPredicate(criteriaBuilder, ckiQuery, ckiRoot, filters));
+                        () -> FilterPredicatesBuilder
+                                .getFiltersPredicate(criteriaBuilder, ckiQuery, ckiRoot, filters,
+                                        UNRESTRICTED_ATTRIBUTE_CONTENT));
     }
 
     @Test
@@ -2071,7 +2150,8 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
 
     @Test
     void testGetFiltersPredicate_nullFilters_doesNotThrowAndReturnsAllRows() {
-        Predicate predicate = FilterPredicatesBuilder.getFiltersPredicate(criteriaBuilder, criteriaQuery, root, null);
+        Predicate predicate = FilterPredicatesBuilder
+                .getFiltersPredicate(criteriaBuilder, criteriaQuery, root, null, UNRESTRICTED_ATTRIBUTE_CONTENT);
         Assertions.assertNotNull(predicate);
         // Functional verification: null filters must not restrict any rows
         CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
@@ -2097,7 +2177,8 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
         Root<AuditLog> alRoot = alQuery.from(AuditLog.class);
 
         Predicate predicate = FilterPredicatesBuilder
-                .getFiltersPredicate(criteriaBuilder, alQuery, alRoot, List.of(filterDto));
+                .getFiltersPredicate(criteriaBuilder, alQuery, alRoot, List.of(filterDto),
+                        UNRESTRICTED_ATTRIBUTE_CONTENT);
 
         // Outer AND → first child is the NOT_CONTAINS OR predicate
         SqmJunctionPredicate outerAnd = (SqmJunctionPredicate) predicate;
@@ -2156,9 +2237,18 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
                 .collect(Collectors.toSet());
     }
 
+    /**
+     * Strips the quoting Hibernate applies inconsistently across versions.
+     */
+    private static String unquoted(final String hqlString) {
+        return hqlString.length() > 1 && hqlString.startsWith("'") && hqlString.endsWith("'")
+                ? hqlString.substring(1, hqlString.length() - 1)
+                : hqlString;
+    }
+
     private void testLikePredicate(final Predicate predicate, final String value) {
         Assertions.assertInstanceOf(SqmLikePredicate.class, predicate);
-        Assertions.assertEquals(value, ((SqmLikePredicate) predicate).getPattern().toHqlString());
+        Assertions.assertEquals(value, unquoted(((SqmLikePredicate) predicate).getPattern().toHqlString()));
     }
 
     private SearchFilterRequestDto prepareDummyFilterRequest(final FilterConditionOperator condition) {

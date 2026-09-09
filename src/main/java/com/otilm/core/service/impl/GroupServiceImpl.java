@@ -8,6 +8,7 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.auth.UserWithPaginationDto;
 import com.otilm.api.model.core.certificate.group.GroupDto;
 import com.otilm.api.model.core.certificate.group.GroupRequestDto;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
@@ -16,13 +17,16 @@ import com.otilm.core.dao.entity.Group;
 import com.otilm.core.dao.entity.Group_;
 import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.security.authn.client.UserManagementApiClient;
 import com.otilm.core.security.authz.ExternalAuthorization;
+import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.GroupExternalService;
 import com.otilm.core.service.GroupInternalService;
 import com.otilm.core.service.ResourceObjectAssociationService;
 import jakarta.transaction.Transactional;
+import jakarta.transaction.Transactional.TxType;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -43,6 +47,8 @@ public class GroupServiceImpl implements GroupExternalService, GroupInternalServ
 
     private AttributeEngine attributeEngine;
 
+    private UserManagementApiClient userManagementApiClient;
+
     @Autowired
     public void setGroupRepository(GroupRepository groupRepository) {
         this.groupRepository = groupRepository;
@@ -56,6 +62,11 @@ public class GroupServiceImpl implements GroupExternalService, GroupInternalServ
     @Autowired
     public void setAttributeEngine(AttributeEngine attributeEngine) {
         this.attributeEngine = attributeEngine;
+    }
+
+    @Autowired
+    public void setUserManagementApiClient(UserManagementApiClient userManagementApiClient) {
+        this.userManagementApiClient = userManagementApiClient;
     }
 
     @Override
@@ -132,6 +143,26 @@ public class GroupServiceImpl implements GroupExternalService, GroupInternalServ
     }
 
     @Override
+    @Transactional(TxType.NOT_SUPPORTED)
+    @ExternalAuthorization(resource = Resource.USER, action = ResourceAction.LIST, parentResource = Resource.GROUP,
+            parentAction = ResourceAction.MEMBERS)
+    public List<NameAndUuidDto> getGroupUsers(SecuredParentUUID uuid) throws NotFoundException {
+        String groupUuid = getGroupEntity(uuid).getUuid().toString();
+        UserWithPaginationDto users = userManagementApiClient.getUsers();
+        if (users.getTotalCount() != null && users.getTotalCount() > users.getData().size()) {
+            logger
+                    .warn("Auth service returned {} of {} users; members of group {} beyond that page are not listed",
+                            users.getData().size(), users.getTotalCount(), groupUuid);
+        }
+        return users
+                .getData()
+                .stream()
+                .filter(user -> user.getGroups().stream().anyMatch(g -> g.getUuid().equals(groupUuid)))
+                .map(user -> new NameAndUuidDto(user.getUuid(), user.getUsername()))
+                .toList();
+    }
+
+    @Override
     @ExternalAuthorization(resource = Resource.GROUP, action = ResourceAction.DELETE)
     public void bulkDeleteGroup(List<SecuredUUID> entityUuids) {
         for (SecuredUUID uuid : entityUuids) {
@@ -176,10 +207,5 @@ public class GroupServiceImpl implements GroupExternalService, GroupInternalServ
 
     private Group getGroupEntity(SecuredUUID uuid) throws NotFoundException {
         return groupRepository.findByUuid(uuid).orElseThrow(() -> new NotFoundException(Group.class, uuid));
-    }
-
-    @ExternalAuthorization(resource = Resource.GROUP, action = ResourceAction.MEMBERS)
-    public void groupMembersDummyMethod() {
-        // Method is used just to sync MEMBERS resource action for GROUP resource with Auth service
     }
 }

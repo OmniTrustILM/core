@@ -42,7 +42,6 @@ public class BrandingServiceImpl implements BrandingExternalService {
 
         publicBranding.setPrimaryColor(branding.getPrimaryColor());
         publicBranding.setSecondaryColor(branding.getSecondaryColor());
-        publicBranding.setTertiaryColor(branding.getTertiaryColor());
         publicBranding.setBackgroundColor(branding.getBackgroundColor());
         publicBranding.setTextColor(branding.getTextColor());
         publicBranding.setLightLogo(branding.getLightLogo());
@@ -58,9 +57,9 @@ public class BrandingServiceImpl implements BrandingExternalService {
      */
     private static boolean isConfigured(BrandingSettingsDto branding) {
         return Stream
-                .of(branding.getPrimaryColor(), branding.getSecondaryColor(), branding.getTertiaryColor(),
-                        branding.getBackgroundColor(), branding.getTextColor(), branding.getLightLogo(),
-                        branding.getDarkLogo(), branding.getDefaultTheme())
+                .of(branding.getPrimaryColor(), branding.getSecondaryColor(), branding.getBackgroundColor(),
+                        branding.getTextColor(), branding.getLightLogo(), branding.getDarkLogo(),
+                        branding.getDefaultTheme())
                 .anyMatch(Objects::nonNull);
     }
 }

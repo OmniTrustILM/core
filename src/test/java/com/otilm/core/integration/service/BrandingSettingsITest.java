@@ -56,6 +56,15 @@ class BrandingSettingsITest extends BaseSpringBootTest {
         return branding;
     }
 
+    private void storeBrandingRow(String name, String value) {
+        Setting setting = new Setting();
+        setting.setSection(SettingsSection.PLATFORM);
+        setting.setCategory(SettingsSectionCategory.PLATFORM_BRANDING.getCode());
+        setting.setName(name);
+        setting.setValue(value);
+        settingRepository.save(setting);
+    }
+
     @Test
     void anUnbrandedPlatformReportsBrandingWithEveryFieldUnset() {
         BrandingSettingsDto branding = settingService.getBrandingSettings();
@@ -180,16 +189,48 @@ class BrandingSettingsITest extends BaseSpringBootTest {
     /** The platform settings read is on the hot path for every page render, so it must not fail over one bad value. */
     @Test
     void anUnknownStoredThemeIsIgnoredRatherThanFailingTheRead() {
-        Setting theme = new Setting();
-        theme.setSection(SettingsSection.PLATFORM);
-        theme.setCategory(SettingsSectionCategory.PLATFORM_BRANDING.getCode());
-        theme.setName("defaultTheme");
-        theme.setValue("midnight");
-        settingRepository.save(theme);
+        storeBrandingRow("defaultTheme", "midnight");
 
         BrandingSettingsDto branding = settingService.getBrandingSettings();
 
         Assertions.assertNull(branding.getDefaultTheme());
+    }
+
+    /**
+     * Branding is stored one field per row, so a platform that was branded before a field was dropped from the contract
+     * keeps a row the mapping no longer has a field for. The read walks the known fields rather than the stored rows,
+     * so the leftover is never looked at and the rest of the brand comes back intact.
+     */
+    @Test
+    void aStoredFieldTheMappingNoLongerKnowsIsIgnoredOnRead() {
+        storeBrandingRow("tertiaryColor", "#FF6900");
+        storeBrandingRow("primaryColor", PRIMARY);
+        storeBrandingRow("defaultTheme", BrandingTheme.DARK.getCode());
+
+        BrandingSettingsDto branding = settingService.getBrandingSettings();
+
+        Assertions.assertEquals(PRIMARY, branding.getPrimaryColor());
+        Assertions.assertEquals(BrandingTheme.DARK, branding.getDefaultTheme());
+        Assertions.assertNull(branding.getSecondaryColor());
+        Assertions.assertEquals(PRIMARY, settingService.getPlatformSettings().getBranding().getPrimaryColor());
+    }
+
+    /**
+     * The write walks the same known fields, so an unrecognised row is neither rewritten nor deleted by an update. It
+     * is left where it is, unread by anything, while the fields the operator did submit are written as usual.
+     */
+    @Test
+    void aStoredFieldTheMappingNoLongerKnowsIsLeftAloneByAnUpdate() {
+        storeBrandingRow("tertiaryColor", "#FF6900");
+
+        settingService.updateBrandingSettings(update(PRIMARY, SECONDARY, BrandingTheme.LIGHT));
+
+        BrandingSettingsDto branding = settingService.getBrandingSettings();
+        Assertions.assertEquals(PRIMARY, branding.getPrimaryColor());
+        Assertions.assertEquals(SECONDARY, branding.getSecondaryColor());
+        Assertions.assertEquals(BrandingTheme.LIGHT, branding.getDefaultTheme());
+        Assertions.assertEquals(4, storedBranding().size());
+        Assertions.assertTrue(storedBranding().stream().anyMatch(setting -> "tertiaryColor".equals(setting.getName())));
     }
 
     /**

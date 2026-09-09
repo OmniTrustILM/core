@@ -10,6 +10,7 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.entry;
 
 class SigningRecordStatisticsCalculatorTest {
 
@@ -55,6 +56,35 @@ class SigningRecordStatisticsCalculatorTest {
         Map<String, Long> all = Map.of("alice", 1L, "bob", 2L);
 
         assertThat(SigningRecordStatisticsCalculator.topRequesters(all, 10)).hasSize(2);
+    }
+
+    @Test
+    void sumByBucket_addsCountsOfBucketsPresentInBothHalves() {
+        Map<String, Long> retained = Map.of("2026-06-11T09:00:00Z", 3L);
+        Map<String, Long> deleted = Map.of("2026-06-11T09:00:00Z", 4L);
+
+        assertThat(SigningRecordStatisticsCalculator.sumByBucket(retained, deleted))
+                .containsExactly(entry("2026-06-11T09:00:00Z", 7L));
+    }
+
+    @Test
+    void sumByBucket_keepsBucketsPresentInOnlyOneHalf() {
+        Map<String, Long> retained = Map.of("2026-06-11T09:00:00Z", 3L);
+        Map<String, Long> deleted = Map.of("2026-06-11T08:00:00Z", 5L);
+
+        assertThat(SigningRecordStatisticsCalculator.sumByBucket(retained, deleted))
+                .containsOnly(entry("2026-06-11T08:00:00Z", 5L), entry("2026-06-11T09:00:00Z", 3L));
+    }
+
+    @Test
+    void sumByBucket_leavesTheHalvesUntouched() {
+        Map<String, Long> retained = new LinkedHashMap<>(Map.of("2026-06-11T09:00:00Z", 3L));
+        Map<String, Long> deleted = new LinkedHashMap<>(Map.of("2026-06-11T09:00:00Z", 4L));
+
+        SigningRecordStatisticsCalculator.sumByBucket(retained, deleted);
+
+        assertThat(retained).containsExactly(entry("2026-06-11T09:00:00Z", 3L));
+        assertThat(deleted).containsExactly(entry("2026-06-11T09:00:00Z", 4L));
     }
 
     @Test

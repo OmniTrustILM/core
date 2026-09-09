@@ -1,19 +1,23 @@
 package com.otilm.core.cbom.asset.identity;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
- * Replaces inlined key material with a digest and a length, in one pass, before anything else reads the payload.
+ * Replaces inlined key material with the contracted redaction envelope, in one pass, before anything else reads the
+ * payload.
  *
  * <p>
  * <b>Ordering is the whole security property.</b> The digest is computed and the plaintext dropped before identity,
  * persistence, logging or metrics can observe the payload. The identity digest is carried out-of-band on the result so
- * the material identity chain can use it without any caller ever holding the plaintext, and the caller's input is never
- * mutated.
+ * the material identity chain can use it without any caller ever holding the plaintext. The stored payload carries no
+ * digest, and the caller's input is never mutated.
  *
  * <p>
  * The value is hashed verbatim -- no base64 decode, no trim. Normalizing first would make identity depend on the
@@ -21,37 +25,65 @@ import java.util.Set;
  */
 public final class MaterialRedaction {
 
-    public static final String REDACTED_MARKER = "urn:otilm:redacted";
-
     /**
-     * Material types whose plaintext is low-entropy enough that publishing {@code sha256(value)} would itself be an
-     * offline dictionary attack served by the platform.
+     * Material types whose plaintext is high-entropy by construction, so that publishing {@code sha256(value)}
+     * discloses nothing: the CycloneDX vocabulary minus every entry a person could have typed, and minus the one whose
+     * entropy is somebody else's.
      *
      * <p>
-     * {@code other} and {@code unknown} are in the set for the same reason an absent type is: the platform cannot know
-     * what a producer put there, and guessing wrong publishes a reversible digest. Withholding is the only protection
-     * available, since the stored digest is deliberately unsalted.
+     * An allowlist, matched exactly on the lookup key, because the type vocabulary is open on the producer's side. The
+     * predecessor was a denylist of five spellings -- {@code password}, {@code token}, {@code credential},
+     * {@code other}, {@code unknown} -- and failed open on every other low-entropy spelling: {@code passphrase},
+     * {@code pin}, {@code api-key}, {@code jwt}, {@code session-token} and {@code secret} each published an unsalted
+     * SHA-256 of the value and kept the producer's own digest of it in the stored payload, with no finding raised. An
+     * unsalted digest of a four-digit PIN is reversible in microseconds. A spelling outside this set is the case the
+     * old set's Javadoc already described for {@code other} and {@code unknown} -- the platform cannot know what the
+     * producer put there -- and it now takes the same branch they did.
+     *
+     * <p>
+     * {@code additional-data} is deliberately absent: authenticated associated data is arbitrary producer content, not
+     * material of any entropy. {@code digest} is absent for the same reason in a different shape: a digest has exactly
+     * the entropy of its input, so {@code sha256(md5(password))} is a password-verification oracle one step removed,
+     * and the platform cannot know what a producer's digest was taken over. The 2026-08-18 corpus carries no
+     * {@code digest} material at all; it does carry {@code symmetric-key} and {@code key-pair} on six rows, spellings
+     * neither schema defines, and they fail closed here, costing a withheld digest nothing reads and a finding.
      */
-    private static final Set<String> LOW_ENTROPY_TYPES = Set.of("password", "token", "credential", "other", "unknown");
+    private static final Set<String> HIGH_ENTROPY_TYPES = Set
+            .of("privatekey", "publickey", "secretkey", "key", "ciphertext", "signature", "initializationvector",
+                    "nonce", "seed", "salt", "sharedsecret", "tag");
 
     /**
-     * Types that should never carry an inlined value at all. A producer that does so has exfiltrated key material into
-     * a document the platform then aggregates estate-wide, so it is raised as an ingest finding rather than silently
-     * redacted.
+     * The publishable types that should nevertheless never carry an inlined value, as lookup keys.
+     *
+     * <p>
+     * Not the whole report gate -- {@link #isSecretType} derives the rest from {@link #HIGH_ENTROPY_TYPES}. A type
+     * outside that allowlist is one the platform cannot vouch for, and the same argument that withholds its digest says
+     * an inlined value on it is worth the loud finding: the predecessor listed eight secret spellings, so
+     * {@code passphrase}, {@code pin}, {@code api-key} and {@code jwt} carrying a private key were redacted quietly
+     * while {@code password} carrying one was reported. What this set adds is the other direction: the types whose
+     * digest is publishable because they are high-entropy, and which are secret all the same.
+     *
+     * <p>
+     * Compared through {@link AsciiText#lookupKey}, like every other producer-type comparison in this package, because
+     * the hyphenated spellings need a separator drop: folding case alone raised the finding on {@code private-key} and
+     * on {@code Private-Key} and lost it on {@code privateKey}, {@code private_key} and {@code PRIVATE KEY} -- the
+     * camel-case and underscore spellings a JCA-call scanner emits. Not key-moving, since no keyed value reads this
+     * set.
      */
-    private static final Set<String> SECRET_TYPES = Set
-            .of("private-key", "secret-key", "shared-secret", "password", "credential", "token", "seed", "key");
+    private static final Set<String> SECRET_TYPES = Set.of("privatekey", "secretkey", "sharedsecret", "seed", "key");
 
-    private final ObjectNode payload;
+    private final ObjectNode keyedPayload;
+    private final ObjectNode storedPayload;
     private final String materialType;
     private final String identityDigest;
     private final String publishedDigest;
     private final Integer valueLength;
     private final List<String> findings;
 
-    private MaterialRedaction(ObjectNode payload, String materialType, String identityDigest, String publishedDigest,
-            Integer valueLength, List<String> findings) {
-        this.payload = payload;
+    private MaterialRedaction(ObjectNode keyedPayload, ObjectNode storedPayload, String materialType,
+            String identityDigest, String publishedDigest, Integer valueLength, List<String> findings) {
+        this.keyedPayload = keyedPayload;
+        this.storedPayload = storedPayload;
         this.materialType = materialType;
         this.identityDigest = identityDigest;
         this.publishedDigest = publishedDigest;
@@ -60,7 +92,15 @@ public final class MaterialRedaction {
     }
 
     /**
-     * Redacts a component's {@code cryptoProperties}, returning a copy. The argument is left untouched.
+     * Redacts a component's {@code cryptoProperties}, returning two copies. The argument is left untouched.
+     *
+     * <p>
+     * <b>Two payloads, because storage and identity answer to different rules.</b> R2 enumerates exactly what is
+     * stripped before any hash -- the five document-internal reference fields -- and R15 fixes the canonical form of
+     * what remains, so a member this class chooses to withhold from storage cannot be allowed to move the key. Dropping
+     * members from the single shared payload did exactly that: the hashed projection lost every uncontracted member,
+     * which moved {@code mat:backstop} away from the reference for any material carrying one. Measured on the
+     * 2026-08-31 corpus, that was 5 low-entropy rows and one ratified vector.
      *
      * @param cryptoProperties the raw properties block, which may be {@code null} for a component that carries none
      */
@@ -70,103 +110,518 @@ public final class MaterialRedaction {
                 : cryptoProperties.deepCopy();
         JsonNode material = payload.get(CbomNames.RELATED_CRYPTO_MATERIAL_PROPERTIES);
         if (material != null && !material.isObject()) {
-            // Dropped, not passed through. A producer emitting the block as an array or a string put key material
-            // somewhere no redaction step reads, and the payload is both stored and hashed into the backstop
-            // pre-image -- so passing it through retained the plaintext this class exists to remove. The non-object
-            // `cryptoProperties` case one line above already failed closed; this one did not.
+            // Dropped from BOTH payloads, not passed through. A producer emitting the block as an array or a string
+            // put key material somewhere no redaction step can reach, so there is no envelope to put in its place --
+            // which is what separates this from an uncontracted member. Retaining it would carry the plaintext into
+            // the stored payload and into the backstop pre-image.
             payload.remove(CbomNames.RELATED_CRYPTO_MATERIAL_PROPERTIES);
-            return new MaterialRedaction(payload, null, null, null, null, List.of("non-object material block dropped"));
+            return new MaterialRedaction(payload, payload.deepCopy(), null, null, null, null,
+                    List.of("non-object material block dropped"));
         }
         if (material == null) {
-            return new MaterialRedaction(payload, null, null, null, null, List.of());
+            return new MaterialRedaction(payload, payload.deepCopy(), null, null, null, null, List.of());
         }
         ObjectNode materialNode = (ObjectNode) material;
         JsonNode typeNode = materialNode.get("type");
         String materialType = typeNode != null && typeNode.isTextual() ? typeNode.textValue() : null;
 
         List<String> findings = new ArrayList<>();
-        // Before the value branch, and independent of it. A scanner that fingerprints a detected secret to dedupe its
-        // findings emits the same unsalted digest the withhold rule below refuses to publish -- and it does so in a
-        // sibling member that the value redaction never touches, on a block that may carry no inlined value at all.
-        withholdFingerprint(materialNode, materialType, findings);
-
-        if (!materialNode.has(CbomNames.VALUE)) {
-            return new MaterialRedaction(payload, materialType, null, null, null, List.copyOf(findings));
-        }
-        JsonNode raw = materialNode.get(CbomNames.VALUE);
-        if (raw == null || !raw.isTextual()) {
-            // A non-string value cannot be hashed meaningfully and must not survive.
-            materialNode.remove(CbomNames.VALUE);
-            findings.add("non-string material value dropped");
-            return new MaterialRedaction(payload, materialType, null, null, null, findings);
-        }
-
-        String value = raw.textValue();
-        // Code points, not UTF-16 units. The reference counts characters, so a material value carrying anything
-        // outside the basic multilingual plane would otherwise be reported one length here and another there -- and
-        // the length is served back in the stored payload.
-        int length = value.codePointCount(0, value.length());
-        // The identity digest exists for EVERY value, including low-entropy ones: the identity key is a hash of the
-        // whole pre-image and is never exposed on any API, so using it costs nothing and keeps two different
-        // passwords at one source coordinate apart. What is withheld for low-entropy material is the digest in the
-        // STORED payload, which is served back and would be a reversible password hash.
-        String identityDigest = IdentityDigests.sha256Hex(value);
-
-        ObjectNode redacted = materialNode.objectNode();
-        redacted.put("$redacted", REDACTED_MARKER);
+        String identityDigest = null;
         String publishedDigest = null;
-        if (digestPublishable(materialType)) {
-            publishedDigest = identityDigest;
-            redacted.put("sha256", publishedDigest);
-            redacted.put("length", length);
-        } else {
-            // No digest at all. An unsalted SHA-256 of a password or a token is rainbow-table reversible, so
-            // publishing it is the same leak one step removed -- and producers really do emit generic-password and
-            // jwt-token material. Identity falls through to the occurrence tier, which the chain already has.
-            redacted.put("length", length);
-            findings.add("digest withheld: " + materialType + " is low-entropy material");
+        Integer valueLength = null;
+
+        if (materialNode.has(CbomNames.VALUE)) {
+            JsonNode raw = materialNode.get(CbomNames.VALUE);
+            if (raw == null || !raw.isTextual()) {
+                // A non-string value cannot be hashed meaningfully and must not survive.
+                materialNode.remove(CbomNames.VALUE);
+                findings.add("non-string material value dropped");
+            } else {
+                String value = raw.textValue();
+                // Code points, not UTF-16 units. The reference counts characters, so a material value carrying
+                // anything outside the basic multilingual plane would otherwise be reported one length here and
+                // another there -- and the length is served back in the stored payload.
+                valueLength = value.codePointCount(0, value.length());
+                // The identity digest exists for EVERY value, including low-entropy ones: the identity key is a hash
+                // of the whole pre-image and is never exposed on any API, so using it costs nothing and keeps two
+                // different passwords at one source coordinate apart. What is withheld for low-entropy material is
+                // the digest in the STORED payload, which is served back and would be a reversible password hash.
+                identityDigest = IdentityDigests.sha256Hex(value);
+                publishedDigest = digestPublishable(materialType) ? identityDigest : null;
+                if (publishedDigest == null) {
+                    // The envelope carries no digest for any type, so this gate no longer decides what is stored --
+                    // it decides what publishedDigest() may hand an internal caller. An unsalted SHA-256 of a
+                    // password or a token is rainbow-table reversible, so a caller that put one on an API would leak
+                    // it one step removed, and producers really do emit generic-password and jwt-token material.
+                    findings.add("digest withheld: " + describe(materialType) + " is not a high-entropy material type");
+                }
+                ObjectNode redacted = materialNode.objectNode();
+                redacted.put("redacted", true);
+                redacted.put("length", valueLength);
+                materialNode.set(CbomNames.VALUE, redacted);
+                inlinedSecretFinding(materialType, CbomNames.VALUE, findings);
+            }
         }
-        materialNode.set(CbomNames.VALUE, redacted);
-        if (materialType != null && SECRET_TYPES.contains(AsciiText.fold(AsciiText.strip(materialType)))) {
-            findings.add("producer inlined a value on material type " + materialType);
-        }
-        return new MaterialRedaction(payload, materialType, identityDigest, publishedDigest, length, findings);
+
+        // The stored payload forks from the keyed one HERE, once the value carries an envelope rather than a
+        // plaintext. Everything above is common to both; the member allowlist below is storage's alone.
+        ObjectNode stored = payload.deepCopy();
+        ObjectNode storedMaterial = (ObjectNode) stored.get(CbomNames.RELATED_CRYPTO_MATERIAL_PROPERTIES);
+        // Read before the drop, because the severe finding needs the VALUE and not the member name. Raising it for
+        // every dropped member reported a producer's benign metadata -- a number, a null, an object -- as confirmed
+        // key-material exfiltration, which is a false positive on the loudest finding this class emits.
+        List<String> inlined = storedMaterial == null ? List.of() : inlinedMemberNames(storedMaterial, materialType);
+        dropUncontractedMembers(storedMaterial, materialType, findings);
+        projectContainers(storedMaterial, findings);
+        inlined.forEach(member -> inlinedSecretFinding(materialType, member, findings));
+        return new MaterialRedaction(payload, stored, materialType, identityDigest, publishedDigest, valueLength,
+                findings);
     }
 
     /**
-     * Fails closed on an absent or blank type, and on every type in {@link #LOW_ENTROPY_TYPES} -- which includes the
-     * two types that say the producer did not know either.
+     * The members storage drops that carry something which could be inlined material: a non-blank textual scalar.
+     *
+     * <p>
+     * A predicate over the value rather than over the name, and deliberately a shape test rather than an entropy or
+     * PEM-header test: the point is to separate "a producer put a string here" from "a producer put a flag, a count or
+     * a nested object here", not to guess whether the string is a key. A digest of a secret is a string too, and is
+     * exactly as worth reporting.
+     *
+     * <p>
+     * Dropped here means dropped by {@link #dropUncontractedMembers}: both ask {@link #storageKeeps}, so the two cannot
+     * disagree. They did, twice, in opposite directions. First the report tested the contracted names alone and raised
+     * the finding on a member the drop kept; then the report took the drop's looser set, and a plaintext under
+     * {@code fingerprint} or {@code relatedCryptoMaterialType} on a {@code private-key} was stored and unreported --
+     * the exfiltration finding switched off for exactly the two members able to hold whatever a producer puts there.
+     */
+    private static List<String> inlinedMemberNames(ObjectNode materialNode, String materialType) {
+        List<String> carrying = new ArrayList<>();
+        materialNode.properties().forEach(member -> {
+            JsonNode value = member.getValue();
+            if (!storageKeeps(member.getKey(), value, materialType) && value.isTextual()
+                    && !AsciiText.isBlank(value.textValue())) {
+                carrying.add(member.getKey());
+            }
+        });
+        carrying.sort(AsciiText.BY_CODE_POINT);
+        return carrying;
+    }
+
+    /**
+     * Raises the exfiltration finding when a type that should never carry an inlined value carried one.
+     *
+     * <p>
+     * Separate from the generic uncontracted-members finding and deliberately louder: this one names the type, so a
+     * consumer can tell "a producer put a private key in a document" from "a producer sent a field we do not contract
+     * for".
+     */
+    private static void inlinedSecretFinding(String materialType, String member, List<String> findings) {
+        if (isSecretType(materialType)) {
+            findings
+                    .add("producer inlined a value on material type " + describe(materialType) + " under member "
+                            + member);
+        }
+    }
+
+    /** The type as a finding names it; an absent type is a real case, not a {@code null} to print. */
+    private static String describe(String materialType) {
+        return materialType == null ? "(absent)" : materialType;
+    }
+
+    /**
+     * Whether an inlined value on this type is exfiltration: every type whose digest is withheld, plus the publishable
+     * types in {@link #SECRET_TYPES}.
+     *
+     * <p>
+     * Derived from the publish gate rather than enumerated beside it, so the two cannot drift apart again. The publish
+     * gate became an allowlist that fails closed on an unknown spelling; the report gate stayed an eight-element
+     * denylist over the same open vocabulary, so the finding that tells an operator a producer shipped a secret in a
+     * CBOM stayed off for every spelling outside the eight. The only types this leaves quiet are the ones the platform
+     * can vouch for as high-entropy and not secret: a public key, a nonce, a salt, an IV, a ciphertext, a signature, a
+     * tag.
+     */
+    private static boolean isSecretType(String materialType) {
+        return !digestPublishable(materialType) || SECRET_TYPES.contains(AsciiText.lookupKey(materialType));
+    }
+
+    /**
+     * True only for an exact match on {@link #HIGH_ENTROPY_TYPES}; an absent, blank or unrecognised type fails closed.
      */
     private static boolean digestPublishable(String materialType) {
         // AsciiText, not the JDK. String.isBlank/strip consult Character.isWhitespace, which does not treat
-        // U+0085, U+00A0 or U+202F as whitespace -- so a type pasted out of a document as "password\u00A0" kept its
-        // trailing no-break space, missed LOW_ENTROPY_TYPES, and published sha256 of the password. A type made only
-        // of those code points was likewise non-blank here and took the publish branch, defeating the fail-closed
-        // rule for a type that is in the set.
-        if (AsciiText.isBlank(materialType)) {
-            return false;
-        }
-        return !LOW_ENTROPY_TYPES.contains(AsciiText.fold(AsciiText.strip(materialType)));
+        // U+0085, U+00A0 or U+202F as whitespace -- so a type pasted out of a document as "password" followed by U+00A0
+        // kept it,
+        // missed the type set, and published sha256 of the password. lookupKey deletes the
+        // reference whitespace set wherever it sits, so the same spelling now resolves to its type.
+        return materialType != null && HIGH_ENTROPY_TYPES.contains(AsciiText.lookupKey(materialType));
     }
 
     /**
-     * Removes a fingerprint digest of low-entropy material. {@code value} is not the only member that can carry the
-     * plaintext's digest: a secret scanner fingerprints what it found so it can dedupe findings across runs, and that
-     * digest is exactly as reversible as the one {@link #digestPublishable} refuses to publish.
+     * The JSON shape storage keeps a member in: the schema's, and nothing outside it.
+     *
+     * <p>
+     * A member is contracted by name <em>and</em> shape. Admitting the name alone kept whatever value sat under it, and
+     * a container can hold a plaintext at any depth under any name: {@code {"type":"private-key","id":{"pem":
+     * "<PEM>"}}} was stored verbatim with no finding, and so was the same PEM under {@code size}, {@code format},
+     * {@code securedBy}, every date member, and -- as an extra member of an otherwise well-formed object --
+     * {@code fingerprint}. Measured before this test existed: of 3 168 documents putting a PEM under every kept member
+     * in nine container and string shapes on 22 types, 2 328 stored it with zero findings. A scalar of the schema's
+     * type cannot do that; a container is kept only through the projection {@link #projectContainers} applies, which
+     * keeps the schema's members and drops the rest by name.
      */
-    private static void withholdFingerprint(ObjectNode materialNode, String materialType, List<String> findings) {
-        JsonNode fingerprint = materialNode.get("fingerprint");
-        if (fingerprint == null || !fingerprint.isObject() || !fingerprint.has("content")
-                || digestPublishable(materialType)) {
-            return;
+    private enum Shape {
+        TEXT,
+        NUMBER,
+        ENVELOPE,
+        HASH,
+        SECURED_BY,
+        REFERENCE_ARRAY;
+
+        boolean admits(JsonNode value) {
+            return switch (this) {
+                case TEXT -> value.isTextual();
+                case NUMBER -> value.isNumber();
+                case ENVELOPE, HASH, SECURED_BY -> value.isObject();
+                case REFERENCE_ARRAY -> value.isArray();
+            };
         }
-        ((ObjectNode) fingerprint).remove("content");
-        findings.add("fingerprint digest withheld: " + materialType + " is low-entropy material");
     }
 
-    /** The redacted properties. This is what may be stored, keyed, logged or served. */
-    public ObjectNode payload() {
-        return payload;
+    /**
+     * The members of {@code relatedCryptoMaterialProperties} this pipeline stores, each in its schema shape.
+     *
+     * <p>
+     * Everything else is a producer extension and is dropped rather than enumerated, because {@code value} is not the
+     * only member that can carry the plaintext -- or the plaintext's digest -- and the set of names that can is open: a
+     * secret scanner fingerprints what it found so it can dedupe findings across runs, and that digest is exactly as
+     * reversible as the one {@link #digestPublishable} refuses to publish.
+     *
+     * <p>
+     * These are the 1.6 schema's members exactly, plus 1.7's {@code relatedCryptographicAssets} -- the rename of
+     * {@code algorithmRef}, whose omission dropped the 1.7 reference array from storage while its 1.6 spelling
+     * survived. That is the parity hazard R2 exists to prevent, inverted onto storage. {@code value} is
+     * {@link Shape#ENVELOPE} because by the time storage reads it, it is the envelope this class built or it is absent:
+     * a non-string value is removed before the fork.
+     *
+     * <p>
+     * {@code relatedCryptoMaterialType} was in this set and is not any more -- {@link #RELATED_CRYPTO_MATERIAL_TYPE}
+     * says why. It was added as a stopgap for a layer error rather than as a statement about the contract: dropping it
+     * re-keyed a ratified row, because the backstop pre-image ends in a projection digest over this payload and vector
+     * {@code gen-068-mat-backstop} expects the member present. Splitting the payloads retired that reason, and a review
+     * pass then showed the exemption was not merely unjustified but unsafe. What this set as a whole still lacks is a
+     * ratified source, which is open on core#2165 item 9.
+     */
+    private static final String RELATED_CRYPTOGRAPHIC_ASSETS = "relatedCryptographicAssets";
+
+    private static final String SECURED_BY = "securedBy";
+
+    private static final Map<String, Shape> CONTRACTED_MEMBERS = Map
+            .ofEntries(Map.entry("type", Shape.TEXT), Map.entry("id", Shape.TEXT), Map.entry("state", Shape.TEXT),
+                    Map.entry("algorithmRef", Shape.TEXT), Map.entry("creationDate", Shape.TEXT),
+                    Map.entry("activationDate", Shape.TEXT), Map.entry("updateDate", Shape.TEXT),
+                    Map.entry("expirationDate", Shape.TEXT), Map.entry("format", Shape.TEXT),
+                    Map.entry("size", Shape.NUMBER), Map.entry(CbomNames.VALUE, Shape.ENVELOPE),
+                    Map.entry(SECURED_BY, Shape.SECURED_BY),
+                    Map.entry(RELATED_CRYPTOGRAPHIC_ASSETS, Shape.REFERENCE_ARRAY));
+
+    /**
+     * The members each {@code relatedCryptographicAssets} entry keeps.
+     *
+     * <p>
+     * The array is admitted by its top-level name and the drop iterates top-level names only, so every entry was
+     * preserved whole: a producer emitting {@code [{"ref":"a1","digest":"<hash of the secret>"}]} kept that digest in
+     * the stored payload. The argument for an allowlist rather than a denylist does not stop at depth one -- the set of
+     * member names able to carry a secret's digest is open at every depth -- so the entries are projected onto this
+     * shape instead of being filtered against a list of names to fear.
+     *
+     * <p>
+     * 724 corpus entries carry {@code ref} (724 of them) and {@code type} (144) and nothing else, so the projection
+     * costs 0 stored payloads today. Whether 1.7 contracts a third member here is open on core#2165 item 9 with the
+     * rest of this set's ratified source; until it is answered a new member fails closed and is reported, which is the
+     * direction this class takes everywhere else.
+     */
+    private static final Set<String> CONTRACTED_RELATED_ASSET_MEMBERS = Set.of("ref", "type");
+
+    /** The members of {@code securedBy} in both schemas: a mechanism name and a bom-ref, both strings. */
+    private static final Set<String> CONTRACTED_SECURED_BY_MEMBERS = Set.of("mechanism", "algorithmRef");
+
+    /**
+     * The fingerprint member, kept in storage only in its schema shape and only while the material's own digest may be
+     * published.
+     *
+     * <p>
+     * A producer fingerprint of high-entropy material is not reversible and is the discriminator the
+     * {@code mat:fingerprint} tier keys on, so storage keeps it. On low-entropy material the same member is an unsalted
+     * digest of a password, which is the thing {@link #digestPublishable} exists to withhold -- so storage drops it
+     * there.
+     *
+     * <p>
+     * <b>Its schema shape is the {@code hash} definition, applied literally.</b> A fingerprint is an object of
+     * {@code alg} and {@code content}, {@code content} is hex of one of five digest lengths, and {@code alg} is one of
+     * {@link #HASH_ALGORITHMS}. Testing {@code isObject()} alone kept the object whole, so a private key sitting beside
+     * a valid {@code alg} and {@code content} under a third member -- or under {@code content} itself, or three levels
+     * down -- was stored with no finding, on all thirteen publishable types, while the same PEM under {@code pem} was
+     * dropped and raised. The shape decides, not the name, because the name is the one thing the producer chose; and
+     * the shape has to be the whole schema shape, because a name a producer chose inside the object is no more
+     * trustworthy than one chosen beside it.
+     *
+     * <p>
+     * <b>Dropping it no longer changes the tier.</b> While one payload served both purposes, a low-entropy asset's
+     * fingerprint was gone before {@code material()} could read it, so the row reached {@code mat:backstop}; now the
+     * keyed payload keeps it and the row keys on {@code mat:fingerprint} instead. That is a key move for that class,
+     * and it is toward the reference: the specification's {@code MAT|<type>|F|...} carries no low-entropy exception and
+     * the kernel keys the tier whatever the type. 0 corpus rows and 0 vectors -- every fingerprint in the 2026-08-18
+     * corpus is exactly {@code {"alg":"SHA-256","content":<64 hex>}} on a {@code private-key} or a {@code public-key},
+     * 453 on the 200-file copy and 447 on the 181-file one, so every one of them stays stored, whole.
+     */
+    private static final String FINGERPRINT = "fingerprint";
+
+    /** The schema's {@code hash-content} pattern: hex of an MD5, SHA-1, SHA-256, SHA-384 or SHA-512 length. */
+    private static final Pattern HASH_CONTENT = Pattern
+            .compile("^([a-fA-F0-9]{32}|[a-fA-F0-9]{40}|[a-fA-F0-9]{64}|[a-fA-F0-9]{96}|[a-fA-F0-9]{128})$");
+
+    /**
+     * The schema's {@code hash-alg} enumeration, as lookup keys so a producer's {@code sha256} is admitted and stored
+     * in the producer's own spelling. A name outside it is dropped and reported; the content survives without it.
+     */
+    private static final Set<String> HASH_ALGORITHMS = Set
+            .of("md5", "sha1", "sha256", "sha384", "sha512", "sha3256", "sha3384", "sha3512", "blake2b256",
+                    "blake2b384", "blake2b512", "blake3", "streebog256", "streebog512");
+
+    /**
+     * The long type spelling, kept in storage only for a publishable type that is not a secret type.
+     *
+     * <p>
+     * It is not in {@link #CONTRACTED_MEMBERS} because it is an <em>unrestricted</em> extension -- absent from both
+     * schemas, read by nothing, and able to hold whatever a producer puts there, including a digest of the very value
+     * the withhold rule protects. Retaining it for every type defeated that rule through the exemption meant to
+     * preserve fidelity: {@code type: "password"} carrying the password's digest under the long spelling was stored and
+     * served. On the secret types that are publishable -- {@code private-key}, {@code secret-key},
+     * {@code shared-secret}, {@code seed}, {@code key} -- it is dropped too: nothing reads it, so nothing is lost, and
+     * keeping it left a plaintext under this one name stored and unreported on exactly the types the exfiltration
+     * finding exists for. The single corpus component carrying the member states no type at all, which fails closed, so
+     * 0 stored payloads move.
+     */
+    private static final String RELATED_CRYPTO_MATERIAL_TYPE = "relatedCryptoMaterialType";
+
+    /**
+     * Whether the stored payload keeps a member of {@code relatedCryptoMaterialProperties}: admitted by name for this
+     * type, and carrying a value of the shape the contract gives that name. The one question both the drop and the
+     * exfiltration report ask, so they cannot disagree about what is uncontracted.
+     */
+    private static boolean storageKeeps(String member, JsonNode value, String materialType) {
+        Shape shape = shapeOf(member, materialType);
+        return shape != null && shape.admits(value);
+    }
+
+    /** The shape storage keeps a member in, or {@code null} when storage does not keep the member on this type. */
+    private static Shape shapeOf(String member, String materialType) {
+        Shape contracted = CONTRACTED_MEMBERS.get(member);
+        if (contracted != null) {
+            return contracted;
+        }
+        if (!digestPublishable(materialType)) {
+            return null;
+        }
+        if (FINGERPRINT.equals(member)) {
+            return Shape.HASH;
+        }
+        return RELATED_CRYPTO_MATERIAL_TYPE.equals(member) && !isSecretType(materialType) ? Shape.TEXT : null;
+    }
+
+    /**
+     * Drops every uncontracted member from the stored payload, and says which.
+     *
+     * <p>
+     * <b>An allowlist, because the hazard is open-ended.</b> The predecessor named {@code fingerprint} and
+     * {@code digest} and withheld those two: {@code hash}, {@code hashes}, {@code sha256}, {@code checksum},
+     * {@code thumbprint}, {@code md5}, {@code fingerprints} and even {@code Fingerprint} -- the match was
+     * case-sensitive -- each carried an unsalted SHA-256 of a password into the served payload with no finding raised.
+     * None of those is a CycloneDX field, which is what makes enumeration the wrong shape of defence: the next scanner
+     * invents the eleventh name and it fails open again, silently, exactly as five of six spellings did before.
+     *
+     * <p>
+     * <b>Every type, not only the low-entropy ones.</b> Gating the allowlist on {@link #digestPublishable} ran the
+     * protection opposite to the severity of the exposure. The value redaction keys on the single exact member name
+     * {@code value}, so for exactly the secret types an inlined plaintext under any other name was stored verbatim with
+     * no finding: {@code {"type":"password","Value":"hunter2"}} was dropped and reported, while
+     * {@code {"type":"private-key","pem":"-----BEGIN PRIVATE KEY-----…"}} was kept -- and this class's own doc calls
+     * that case the one where a producer "has exfiltrated key material into a document the platform then aggregates
+     * estate-wide". The same members {@code fingerprint} and {@code relatedCryptographicAssets} that the corpus
+     * actually carries are allowed by name, so on real data the widening costs nothing and closes the plaintext hole.
+     *
+     * <p>
+     * <b>Uncontracted means the name or the shape.</b> A contracted name carrying a value outside its {@link Shape} is
+     * dropped here exactly as an unknown name is: {@code id} holding an object is not an identifier, and
+     * {@code securedBy} holding a string is not a mechanism. Containers that pass this gate are not yet safe -- they
+     * are projected next, by {@link #projectContainers}.
+     *
+     * <p>
+     * The drops are storage's alone: {@link #keyedPayload()} keeps every member, so nothing here can move an identity
+     * key. What that buys is a retained plaintext reaching the identity pre-image, and how far it reaches is worth
+     * being exact about. A plaintext under an <em>uncontracted</em> member enters only
+     * {@code CanonicalJson.projectionDigest}, so it sits inside a SHA-256 and is never spelled into a slot. The
+     * cleartext case is {@code fingerprint.content}, which the {@code mat:fingerprint} claim spells literally -- a tier
+     * this split newly makes reachable for low-entropy material. Either way it reaches no stored column, no wire
+     * response and no log: the pre-image has no production caller, {@link #keyedPayload()} is package-private, and the
+     * architecture fence covers both spellings. It is the same exposure the value tier already accepts by hashing the
+     * plaintext, and R2/R15 leave no room to strip more before a hash.
+     *
+     * <p>
+     * The finding names every member removed, so nothing disappears without a record.
+     */
+    private static void dropUncontractedMembers(ObjectNode materialNode, String materialType, List<String> findings) {
+        if (materialNode == null) {
+            return;
+        }
+        List<String> dropped = new ArrayList<>();
+        materialNode.properties().forEach(member -> {
+            if (!storageKeeps(member.getKey(), member.getValue(), materialType)) {
+                dropped.add(member.getKey());
+            }
+        });
+        if (dropped.isEmpty()) {
+            return;
+        }
+        dropped.sort(AsciiText.BY_CODE_POINT);
+        dropped.forEach(materialNode::remove);
+        findings
+                .add("uncontracted members dropped from the stored payload, any of which may carry the plaintext or "
+                        + "a reversible digest of it: " + String.join(", ", dropped));
+    }
+
+    /**
+     * Projects every container the stored payload keeps onto its contracted members, and says what went.
+     *
+     * <p>
+     * Storage's alone, like the drop above -- {@link #keyedPayload()} keeps every container whole, so nothing here can
+     * move an identity key. After this pass the only containers in the stored material block are the four this class
+     * knows the shape of, and every member inside them is a schema member holding a scalar of the schema's type. That
+     * is the invariant the storage side rests on: no producer-chosen name below the top level survives, so no plaintext
+     * can be filed under one.
+     */
+    private static void projectContainers(ObjectNode materialNode, List<String> findings) {
+        if (materialNode == null) {
+            return;
+        }
+        List<String> removed = new ArrayList<>();
+        projectFingerprint(materialNode, removed);
+        projectSecuredBy(materialNode, removed);
+        projectRelatedAssets(materialNode, removed);
+        if (removed.isEmpty()) {
+            return;
+        }
+        removed.sort(AsciiText.BY_CODE_POINT);
+        findings
+                .add("members outside the contracted shape dropped from the stored payload, any of which may carry "
+                        + "the plaintext or a reversible digest of it: " + String.join(", ", removed));
+    }
+
+    /**
+     * Keeps a fingerprint only as {@code {alg, content}} with a hex {@code content} of a digest length; without a valid
+     * {@code content} there is no fingerprint, and the whole member goes.
+     */
+    private static void projectFingerprint(ObjectNode materialNode, List<String> removed) {
+        JsonNode fingerprint = materialNode.get(FINGERPRINT);
+        if (fingerprint == null) {
+            return;
+        }
+        ObjectNode projected = materialNode.objectNode();
+        fingerprint.properties().forEach(member -> {
+            String path = FINGERPRINT + "." + member.getKey();
+            JsonNode value = member.getValue();
+            boolean kept = switch (member.getKey()) {
+                case CbomNames.CONTENT -> value.isTextual() && HASH_CONTENT.matcher(value.textValue()).matches();
+                case "alg" -> value.isTextual() && HASH_ALGORITHMS.contains(AsciiText.lookupKey(value.textValue()));
+                default -> false;
+            };
+            if (kept) {
+                projected.set(member.getKey(), value);
+            } else {
+                removed.add(path);
+            }
+        });
+        if (projected.has(CbomNames.CONTENT)) {
+            materialNode.set(FINGERPRINT, projected);
+        } else {
+            materialNode.remove(FINGERPRINT);
+            removed.add(FINGERPRINT);
+        }
+    }
+
+    /**
+     * Keeps {@code securedBy} only as textual {@code mechanism} and {@code algorithmRef}; empty after that, it goes.
+     */
+    private static void projectSecuredBy(ObjectNode materialNode, List<String> removed) {
+        JsonNode securedBy = materialNode.get(SECURED_BY);
+        if (securedBy == null) {
+            return;
+        }
+        ObjectNode projected = materialNode.objectNode();
+        securedBy.properties().forEach(member -> {
+            if (CONTRACTED_SECURED_BY_MEMBERS.contains(member.getKey()) && member.getValue().isTextual()) {
+                projected.set(member.getKey(), member.getValue());
+            } else {
+                removed.add(SECURED_BY + "." + member.getKey());
+            }
+        });
+        if (projected.isEmpty()) {
+            materialNode.remove(SECURED_BY);
+            removed.add(SECURED_BY);
+        } else {
+            materialNode.set(SECURED_BY, projected);
+        }
+    }
+
+    /**
+     * Projects each {@code relatedCryptographicAssets} entry onto {@link #CONTRACTED_RELATED_ASSET_MEMBERS}.
+     *
+     * <p>
+     * An entry that is not an object states no reference and is removed rather than projected; an entry whose
+     * contracted members are all absent stays as an empty object, because how many related assets the producer stated
+     * is itself part of what the row records.
+     */
+    private static void projectRelatedAssets(ObjectNode materialNode, List<String> removed) {
+        JsonNode assets = materialNode.get(RELATED_CRYPTOGRAPHIC_ASSETS);
+        if (assets == null) {
+            return;
+        }
+        ArrayNode projected = materialNode.arrayNode();
+        for (int index = 0; index < assets.size(); index++) {
+            JsonNode entry = assets.get(index);
+            String path = RELATED_CRYPTOGRAPHIC_ASSETS + "[" + index + "]";
+            if (!entry.isObject()) {
+                removed.add(path);
+                continue;
+            }
+            ObjectNode kept = projected.addObject();
+            entry.properties().forEach(member -> {
+                if (CONTRACTED_RELATED_ASSET_MEMBERS.contains(member.getKey()) && member.getValue().isTextual()) {
+                    kept.set(member.getKey(), member.getValue());
+                } else {
+                    removed.add(path + "." + member.getKey());
+                }
+            });
+        }
+        materialNode.set(RELATED_CRYPTOGRAPHIC_ASSETS, projected);
+    }
+
+    /**
+     * The redacted properties as identity reads them: R2/R15's projection, with the value under its envelope.
+     *
+     * <p>
+     * Every member the producer stated is present, because R2 names the five reference fields as the whole of what a
+     * hash may strip. This is not a payload to store, serve or log -- an uncontracted member may carry a plaintext the
+     * storage allowlist removes -- and the architecture fence keeps the identity pre-image built from it off every
+     * client-facing surface.
+     */
+    ObjectNode keyedPayload() {
+        return keyedPayload;
+    }
+
+    /** The redacted properties as storage reads them: contracted members only. This is what may be stored or served. */
+    public ObjectNode storedPayload() {
+        return storedPayload;
     }
 
     /**
@@ -181,7 +636,7 @@ public final class MaterialRedaction {
         return identityDigest;
     }
 
-    /** The digest that may appear in the stored payload, or {@code null} for low-entropy material. */
+    /** The digest that may be used by internal callers, or {@code null} for low-entropy material. */
     public String publishedDigest() {
         return publishedDigest;
     }

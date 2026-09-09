@@ -1272,4 +1272,62 @@ class ProxyClientImplTest {
         connector.setAuthType(AuthType.NONE);
         return connector;
     }
+
+    @Test
+    @Timeout(value = 5, unit = TimeUnit.SECONDS)
+    void sendRequest_withAuthenticationErrorCategory_throwsClientExceptionNamingTheConnector() {
+        ConnectorDto connector = createConnector("proxy-001");
+        CompletableFuture<ProxyMessage> future = new CompletableFuture<>();
+        when(correlator.registerRequest(anyString(), any(Duration.class))).thenReturn(future);
+        future
+                .complete(ProxyMessage
+                        .builder()
+                        .correlationId("test-corr")
+                        .proxyId("proxy-001")
+                        .timestamp(Instant.now())
+                        .connectorResponse(ConnectorResponse
+                                .builder()
+                                .statusCode(401)
+                                .error("upstream refused the credentials")
+                                .errorCategory("authentication")
+                                .build())
+                        .build());
+
+        assertThatThrownBy(() -> proxyClient.sendRequest(connector, "/v1/test", "GET", null, Map.class))
+                .isInstanceOf(ConnectorClientException.class)
+                .satisfies(thrown -> {
+                    ConnectorClientException clientException = (ConnectorClientException) thrown;
+                    assertThat(clientException.getHttpStatus()).isEqualTo(HttpStatus.UNAUTHORIZED);
+                    assertThat(clientException.getConnector()).isNotNull();
+                });
+    }
+
+    @Test
+    @Timeout(value = 5, unit = TimeUnit.SECONDS)
+    void sendRequest_withAuthorizationErrorCategory_throwsClientExceptionNamingTheConnector() {
+        ConnectorDto connector = createConnector("proxy-001");
+        CompletableFuture<ProxyMessage> future = new CompletableFuture<>();
+        when(correlator.registerRequest(anyString(), any(Duration.class))).thenReturn(future);
+        future
+                .complete(ProxyMessage
+                        .builder()
+                        .correlationId("test-corr")
+                        .proxyId("proxy-001")
+                        .timestamp(Instant.now())
+                        .connectorResponse(ConnectorResponse
+                                .builder()
+                                .statusCode(403)
+                                .error("upstream denied the operation")
+                                .errorCategory("authorization")
+                                .build())
+                        .build());
+
+        assertThatThrownBy(() -> proxyClient.sendRequest(connector, "/v1/test", "GET", null, Map.class))
+                .isInstanceOf(ConnectorClientException.class)
+                .satisfies(thrown -> {
+                    ConnectorClientException clientException = (ConnectorClientException) thrown;
+                    assertThat(clientException.getHttpStatus()).isEqualTo(HttpStatus.FORBIDDEN);
+                    assertThat(clientException.getConnector()).isNotNull();
+                });
+    }
 }

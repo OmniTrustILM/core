@@ -1,5 +1,6 @@
 package com.otilm.core.util;
 
+import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.core.logging.enums.ActorType;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.api.model.core.logging.records.ActorRecord;
@@ -8,6 +9,7 @@ import com.otilm.core.security.authn.PlatformAnonymousToken;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
 import com.otilm.core.security.authn.PlatformUserDetails;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
+import com.otilm.core.security.authn.client.PlatformAuthenticationClient;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -27,12 +29,16 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.when;
 
 /**
- * Contract of the scoped {@code runAsSystem} elevation: the action runs under a system principal, and the caller's
- * prior context is restored afterwards — on success, on exception, and (critically) leaving NO system principal on a
- * principal-less thread (the async status-poll listener runs pooled with no {@code SecurityContext}). The remote
- * elevation is stubbed so these assertions test only the save/restore discipline, not the auth-service call.
+ * Two {@link AuthHelper} concerns: the scoped {@code runAsSystem} elevation, and resolving the acting user from — and
+ * installing it into — the {@code SecurityContext}.
+ *
+ * <p>
+ * The elevation tests stub the remote call, so they assert only the save/restore discipline: the action runs under a
+ * system principal, the caller's prior context is restored on success and on exception, and no system principal is left
+ * on a principal-less thread (the async status-poll listener runs pooled with no {@code SecurityContext}).
  */
 class AuthHelperTest {
 
@@ -139,6 +145,61 @@ class AuthHelperTest {
                         new AuthenticationInfo(AuthMethod.USER_PROXY, userUuid.toString(), "operator", List.of()))));
 
         assertEquals(userUuid, AuthHelper.getActingUserUuidOrNull());
+    }
+
+    @Test
+    void getActingUserOrNull_returnsTheAuthenticatedUsersUuidAndUsername() {
+        UUID userUuid = UUID.randomUUID();
+        SecurityContextHolder
+                .getContext()
+                .setAuthentication(new PlatformAuthenticationToken(new PlatformUserDetails(
+                        new AuthenticationInfo(AuthMethod.USER_PROXY, userUuid.toString(), "operator", List.of()))));
+
+        NameAndUuidDto actingUser = AuthHelper.getActingUserOrNull();
+
+        assertNotNull(actingUser);
+        assertEquals(userUuid.toString(), actingUser.getUuid());
+        assertEquals("operator", actingUser.getName());
+    }
+
+    /** "anonymousUser" is a placeholder, not an identity, so it must not be persisted as one. */
+    @Test
+    void getActingUserOrNull_returnsNullForAnonymousPrincipal() {
+        AuthenticationInfo anonymous = AuthenticationInfo.getAnonymousAuthenticationInfo();
+        SecurityContextHolder
+                .getContext()
+                .setAuthentication(new PlatformAnonymousToken(UUID.randomUUID().toString(),
+                        new PlatformUserDetails(anonymous), anonymous.getAuthorities()));
+
+        assertNull(AuthHelper.getActingUserOrNull());
+    }
+
+    @Test
+    void getActingUserOrNull_returnsNullWhenNobodyIsAuthenticated() {
+        SecurityContextHolder.clearContext();
+
+        assertNull(AuthHelper.getActingUserOrNull());
+    }
+
+    /**
+     * The user-proxy step every TSP authenticator ends in — a Basic credential resolves to a mapped user, and this is
+     * what puts that user where {@link AuthHelper#getActingUserOrNull()} reads it from.
+     */
+    @Test
+    void authenticateAsUser_putsTheResolvedUserInTheSecurityContext() {
+        UUID mappedUser = UUID.randomUUID();
+        PlatformAuthenticationClient authenticationClient = mock(PlatformAuthenticationClient.class);
+        when(authenticationClient.authenticateByUserUuid(mappedUser))
+                .thenReturn(
+                        new AuthenticationInfo(AuthMethod.USER_PROXY, mappedUser.toString(), "mapped-user", List.of()));
+        authHelper.setAuthenticationClient(authenticationClient);
+
+        authHelper.authenticateAsUser(mappedUser);
+
+        NameAndUuidDto actingUser = AuthHelper.getActingUserOrNull();
+        assertNotNull(actingUser);
+        assertEquals(mappedUser.toString(), actingUser.getUuid());
+        assertEquals("mapped-user", actingUser.getName());
     }
 
     @Test

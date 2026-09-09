@@ -5,6 +5,7 @@ import com.github.tomakehurst.wiremock.client.WireMock;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
+import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
@@ -141,6 +142,7 @@ class ScepPkiOperationITest extends BaseSpringBootTest {
         raProfile = raProfileRepository.save(raProfile);
 
         TokenInstanceReference tokenInstance = new TokenInstanceReference();
+        tokenInstance.setStatus(TokenInstanceStatus.CONNECTED);
         tokenInstance.setName("scepTestTokenInstance");
         tokenInstance.setConnector(connector);
         tokenInstance.setConnectorUuid(connector.getUuid());

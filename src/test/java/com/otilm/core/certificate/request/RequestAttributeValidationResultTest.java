@@ -35,16 +35,6 @@ class RequestAttributeValidationResultTest {
     }
 
     @Test
-    void lenientPolicy_isNeitherStrictNorWhitelist() {
-        // given / when
-        var policy = RequestAttributePolicy.lenient();
-
-        // then
-        assertThat(policy.strict()).isFalse();
-        assertThat(policy.whitelist()).isFalse();
-    }
-
-    @Test
     void strictWhitelistPolicy_reportsBothFlags() {
         // given / when
         var policy = new RequestAttributePolicy(true, true);

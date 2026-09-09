@@ -3,15 +3,22 @@ package com.otilm.core.signing.contentsigning;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.model.common.signature.SignatureLevel;
+import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.api.model.core.signing.SigningProtocol;
+import com.otilm.core.security.authn.PlatformAuthenticationToken;
+import com.otilm.core.security.authn.PlatformUserDetails;
+import com.otilm.core.security.authn.client.AuthenticationInfo;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.signing.record.SigningRecordInput;
 import com.otilm.core.signing.record.SigningRecordInputSource;
 import java.math.BigInteger;
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import static com.otilm.core.util.builders.ResolvedManagedContentSigningProfileBuilder.aResolvedContentSigningProfile;
 import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
@@ -24,6 +31,45 @@ import static org.mockito.Mockito.when;
 class ContentSigningRecordFactoryTest {
 
     private final ContentSigningRecordFactory factory = new ContentSigningRecordFactory(ObjectMapperFactory.storage());
+
+    @AfterEach
+    void clearRequester() {
+        SecurityContextHolder.clearContext();
+    }
+
+    @Nested
+    class Requester {
+
+        @Test
+        void recordNamesTheUserWhoRequestedTheSignature() {
+            // given
+            UUID requesterUuid = UUID.randomUUID();
+            SecurityContextHolder
+                    .getContext()
+                    .setAuthentication(new PlatformAuthenticationToken(new PlatformUserDetails(new AuthenticationInfo(
+                            AuthMethod.USER_PROXY, requesterUuid.toString(), "operator", List.of()))));
+
+            // when
+            SigningRecordInput input = source(SignatureLevel.SIGNED, List.of()).build();
+
+            // then
+            assertThat(input.getRequestedBy()).isNotNull();
+            assertThat(input.getRequestedBy().getUuid()).isEqualTo(requesterUuid.toString());
+            assertThat(input.getRequestedBy().getName()).isEqualTo("operator");
+        }
+
+        @Test
+        void recordNamesNobodyWhenTheSigningThreadCarriesNoIdentity() {
+            // given
+            SecurityContextHolder.clearContext();
+
+            // when
+            SigningRecordInput input = source(SignatureLevel.SIGNED, List.of()).build();
+
+            // then
+            assertThat(input.getRequestedBy()).isNull();
+        }
+    }
 
     @Nested
     class RecordedArtifacts {

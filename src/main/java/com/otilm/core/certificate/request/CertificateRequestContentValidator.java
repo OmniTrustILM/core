@@ -1,6 +1,5 @@
 package com.otilm.core.certificate.request;
 
-import com.otilm.api.exception.CertificateRequestValidationException;
 import com.otilm.api.exception.ValidationError;
 import com.otilm.api.model.common.attribute.common.AttributeContent;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
@@ -19,7 +18,6 @@ import com.otilm.api.model.connector.v3.certificate.RdnEntry;
 import com.otilm.api.model.connector.v3.certificate.RequestedExtension;
 import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
 import com.otilm.api.model.core.certificate.GeneralNameType;
-import com.otilm.core.model.request.CertificateRequest;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.StructuredExtensionCodec;
@@ -42,28 +40,6 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Component
 public class CertificateRequestContentValidator {
-
-    /**
-     * Parse the supplied CSR, validate against the resolved definitions, and throw on a strict-policy failure.
-     * Whitelist enforcement is driven through {@link #validate(List, X509RequestContent, RequestAttributePolicy)}.
-     */
-    public void validate(CertificateRequest request, List<? extends BaseAttribute> definitions, boolean lenient)
-            throws CertificateRequestValidationException {
-        RequestAttributeValidationResult result;
-        try {
-            ParsedRequestContent parsed = X509RequestContentParser.parse(request);
-            result = validate(definitions, parsed, new RequestAttributePolicy(!lenient, !lenient));
-        } catch (RuntimeException e) {
-            // Malformed ASN.1 surfaces as unchecked BC exceptions whose messages may carry internals; log it only.
-            log.warn("Certificate request could not be parsed for request-attribute validation", e);
-            throw new CertificateRequestValidationException("Certificate request could not be processed for validation",
-                    null);
-        }
-        if (result.hasErrors()) {
-            throw new CertificateRequestValidationException(
-                    "Uploaded certificate request does not satisfy the request-attribute policy", result.getErrors());
-        }
-    }
 
     /**
      * Validates a full parse result.

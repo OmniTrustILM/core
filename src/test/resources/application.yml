@@ -257,3 +257,9 @@ provisioning:
       delay: 500
       max-delay: 1000
       multiplier: 2
+
+crypto-asset:
+  pqc-sweep:
+    # Small on purpose: a batch size the integration test can cross without seeding 500 rows.
+    batch-size: 5
+    max-batches-per-sweep: 20

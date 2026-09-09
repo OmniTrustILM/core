@@ -4,6 +4,7 @@ import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetType;
 import com.otilm.api.model.core.cryptoasset.PqcVerdict;
 import com.otilm.api.model.core.search.FilterConditionOperator;
+import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
 import com.otilm.core.cbom.asset.AssetRowKeys;
 import com.otilm.core.cbom.asset.CryptoAssetIdentityFields;
 import com.otilm.core.dao.entity.Cbom;
@@ -31,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.BiFunction;
+import java.util.function.Supplier;
 import org.apache.commons.lang3.function.TriFunction;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -49,6 +51,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@link #sortedByUuidString}, not {@link UUID#compareTo} -- see that helper's javadoc for why.
  */
 class CryptoAssetListQueryITest extends BaseSpringBootTest {
+
+    /** No attribute-content restriction: these cases pin predicate shape, not authorization. */
+    private static final Supplier<CustomAttributeContentFilter> UNRESTRICTED_ATTRIBUTE_CONTENT = () -> new CustomAttributeContentFilter(
+            null, null);
 
     @Autowired
     private CryptoAssetRepository assetRepository;
@@ -208,7 +214,8 @@ class CryptoAssetListQueryITest extends BaseSpringBootTest {
         SearchFilterRequestDto eitherSerial = aPropertyFilter(FilterField.CBOM_ASSET_SOURCE_CBOM,
                 FilterConditionOperator.EQUALS, (Serializable) List.of("urn:uuid:count-one", "urn:uuid:count-two"));
         TriFunction<Root<CryptoAsset>, CriteriaBuilder, CriteriaQuery<?>, Predicate> where = (root, cb,
-                cr) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cr, root, List.of(eitherSerial));
+                cr) -> FilterPredicatesBuilder
+                        .getFiltersPredicate(cb, cr, root, List.of(eitherSerial), UNRESTRICTED_ATTRIBUTE_CONTENT);
 
         assertThat(assetRepository.countRowsUsingSecurityFilter(SecurityFilter.create(), where))
                 .isEqualTo(assetRepository.countUsingSecurityFilter(SecurityFilter.create(), where))

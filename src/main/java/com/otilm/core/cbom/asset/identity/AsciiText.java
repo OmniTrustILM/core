@@ -1,5 +1,6 @@
 package com.otilm.core.cbom.asset.identity;
 
+import java.util.Comparator;
 import java.util.regex.Pattern;
 
 /**
@@ -30,16 +31,78 @@ import java.util.regex.Pattern;
  */
 public final class AsciiText {
 
-    private static final Pattern LOOKUP_SEPARATORS = Pattern.compile("[\\s_\\-/]+");
+    /**
+     * The whitespace the reference strips and collapses, which is not the whitespace Java strips.
+     *
+     * <p>
+     * Measured over the whole BMP, the two definitions disagree on exactly four code points, all in one direction:
+     * {@code U+0085 NEXT LINE}, {@code U+00A0 NO-BREAK SPACE}, {@code U+2007 FIGURE SPACE} and
+     * {@code U+202F NARROW NO-BREAK SPACE} are whitespace to the reference and are not whitespace to
+     * {@link Character#isWhitespace}, which is what {@link String#strip()} consults. Nothing runs the other way --
+     * every character the JDK calls whitespace is in this set -- so substituting {@link #strip} for the JDK's is always
+     * safe. {@code U+200B ZERO WIDTH SPACE} is correctly whitespace to neither.
+     *
+     * <p>
+     * The no-break spaces are exactly the ones that occur in producer text pasted out of documents. A trailing one
+     * survives {@code String.strip()}, and NFKC then turns it into an ordinary trailing space, keying {@code "RSA "}
+     * apart from {@code "RSA"}: a silent inventory split on a formatting accident.
+     */
+    private static final String PYTHON_WHITESPACE = " \t\n\u000B\f\r\u001C\u001D\u001E\u001F\u0085\u00A0"
+            + "\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200A\u2028\u2029"
+            + "\u202F\u205F\u3000";
+
+    private static final Pattern LOOKUP_SEPARATORS = Pattern.compile("[" + PYTHON_WHITESPACE + "_\\-/]+");
+
+    private static final Pattern WHITESPACE_RUN = Pattern.compile("[" + PYTHON_WHITESPACE + "]+");
+
+    /**
+     * Orders by code point, so an astral character sorts above every basic-plane one, as the reference does.
+     *
+     * <p>
+     * Java's natural {@code String} order compares UTF-16 units, which sorts a supplementary character <em>below</em>
+     * {@code U+E000}-{@code U+FFFF}, because its high surrogate is {@code U+D800}-{@code U+DBFF}. Every sorted sequence
+     * that reaches a pre-image or a canonical rendering has to use this instead of {@code compareTo} or a bare
+     * {@code TreeSet}.
+     *
+     * <p>
+     * It lives here rather than in any one of its callers because all of them are load-bearing for byte-exactness, so a
+     * correction has to land in one place. Three sequences depend on it today: canonical object member order, the
+     * occurrence triples, and the cipher-suite tokens.
+     */
+    public static final Comparator<String> BY_CODE_POINT = (left, right) -> {
+        int leftIndex = 0;
+        int rightIndex = 0;
+        while (leftIndex < left.length() && rightIndex < right.length()) {
+            int leftPoint = left.codePointAt(leftIndex);
+            int rightPoint = right.codePointAt(rightIndex);
+            if (leftPoint != rightPoint) {
+                return Integer.compare(leftPoint, rightPoint);
+            }
+            leftIndex += Character.charCount(leftPoint);
+            rightIndex += Character.charCount(rightPoint);
+        }
+        return Integer.compare(left.length() - leftIndex, right.length() - rightIndex);
+    };
 
     private AsciiText() {
     }
 
     /** Lower-cases ASCII letters only, leaving every other code point untouched. */
     public static String fold(String text) {
-        if (text == null) {
-            return null;
-        }
+        return text == null ? null : foldPresent(text);
+    }
+
+    /**
+     * {@link #fold} for a value whose presence is already established, so the return is not nullable.
+     *
+     * <p>
+     * Identical folding. The split exists because {@code fold}'s null tolerance is right at the producer boundary,
+     * where a missing member and an empty one both arrive as {@code null}, and wrong below it: the nullable return
+     * propagates into the dataflow of every caller that hands it a value it constructed one line earlier, and a
+     * dereference of the result is then unprovable rather than unreachable. Callers that built the string pass it here;
+     * callers reading a producer's member keep {@code fold}.
+     */
+    public static String foldPresent(String text) {
         StringBuilder folded = null;
         for (int index = 0; index < text.length(); index++) {
             char character = text.charAt(index);
@@ -64,6 +127,15 @@ public final class AsciiText {
         if (text == null) {
             return null;
         }
+        return upperPresent(text);
+    }
+
+    /**
+     * {@link #upper} for a string the caller knows is present -- the same split, and for the same reason, as
+     * {@link #foldPresent} against {@link #fold}: a nullable return propagates into the dataflow of every caller that
+     * dereferences it one line later, where the null is unreachable but unprovable.
+     */
+    public static String upperPresent(String text) {
         StringBuilder uppered = null;
         for (int index = 0; index < text.length(); index++) {
             char character = text.charAt(index);
@@ -99,33 +171,20 @@ public final class AsciiText {
         return true;
     }
 
-    /**
-     * The whitespace the reference strips and collapses, which is not the whitespace Java strips.
-     *
-     * <p>
-     * Measured over the whole BMP, the two definitions disagree on exactly four code points, all in one direction:
-     * {@code U+0085 NEXT LINE}, {@code U+00A0 NO-BREAK SPACE}, {@code U+2007 FIGURE SPACE} and
-     * {@code U+202F NARROW NO-BREAK SPACE} are whitespace to the reference and are not whitespace to
-     * {@link Character#isWhitespace}, which is what {@link String#strip()} consults. Nothing runs the other way --
-     * every character the JDK calls whitespace is in this set -- so substituting {@link #strip} for the JDK's is always
-     * safe. {@code U+200B ZERO WIDTH SPACE} is correctly whitespace to neither.
-     *
-     * <p>
-     * Two of the three -- the no-break spaces -- are exactly the ones that occur in producer text pasted out of
-     * documents. A trailing one survives {@code String.strip()}, and NFKC then turns it into an ordinary trailing
-     * space, keying {@code "RSA "} apart from {@code "RSA"}: a silent inventory split on a formatting accident.
-     */
-    private static final String PYTHON_WHITESPACE = " \t\n\u000B\f\r\u001C\u001D\u001E\u001F\u0085\u00A0"
-            + "\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200A\u2028\u2029"
-            + "\u202F\u205F\u3000";
-
-    private static final Pattern WHITESPACE_RUN = Pattern.compile("[" + PYTHON_WHITESPACE + "]+");
-
     /** Strips leading and trailing whitespace as the reference defines it, not as the JDK defines it. */
     public static String strip(String text) {
         if (text == null) {
             return null;
         }
+        return stripPresent(text);
+    }
+
+    /**
+     * {@link #strip} for a string the caller knows is present -- the same split, and for the same reason, as
+     * {@link #foldPresent} against {@link #fold}: a nullable return propagates into the dataflow of every caller that
+     * dereferences it one line later, where the null is unreachable but unprovable.
+     */
+    public static String stripPresent(String text) {
         int start = 0;
         int end = text.length();
         while (start < end && isWhitespace(text.charAt(start))) {

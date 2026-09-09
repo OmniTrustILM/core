@@ -247,9 +247,6 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
                 .put("secondaryColor", new BrandingField(BrandingSettingsUpdateDto::getSecondaryColor,
                         BrandingSettingsDto::setSecondaryColor));
         fields
-                .put("tertiaryColor", new BrandingField(BrandingSettingsUpdateDto::getTertiaryColor,
-                        BrandingSettingsDto::setTertiaryColor));
-        fields
                 .put("backgroundColor", new BrandingField(BrandingSettingsUpdateDto::getBackgroundColor,
                         BrandingSettingsDto::setBackgroundColor));
         fields

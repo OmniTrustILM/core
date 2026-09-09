@@ -8,6 +8,19 @@ package com.otilm.core.cbom.asset.identity;
  * inventory, whereas recording it makes staleness a query. It is bumped whenever a ruling changes a key.
  *
  * <p>
+ * <b>One standing exemption, and it expires.</b> Rulings have changed keys since generation 2 was stamped without the
+ * generation moving, because no environment holds a keyed row: {@code CryptoAssetWriter} has no production caller, so
+ * there is nothing for a bump to make findable. That is the only ground on which the rule above may be skipped, and it
+ * stops holding the moment ingest gains a caller -- after which a row keyed under the old rulings and a row keyed under
+ * the new ones would both read generation 2, and the stamp would no longer separate them. Since a row cannot be
+ * recomputed from its columns (see below), that separation cannot be reconstructed afterwards.
+ *
+ * <p>
+ * The exemption is not left to a reader's diligence: {@code IdentityRulesetStampArchTest} asserts the writer is
+ * unreachable from production, so wiring ingest turns the build red and forces the bump then rather than never. Do not
+ * delete that test to make the build green -- bump this constant, and delete the test in the same commit.
+ *
+ * <p>
  * Note what the stamp can and cannot buy. A row keyed on a certificate's distinguished-name composite cannot be
  * re-keyed from the stored columns, because the composite's inputs -- subject, issuer, validity, public key -- are not
  * columns. A stale row is therefore <em>findable</em> but not recomputable: repairing it means re-ingesting its source

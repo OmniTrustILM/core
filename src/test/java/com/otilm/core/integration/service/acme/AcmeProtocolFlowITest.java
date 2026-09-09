@@ -49,8 +49,9 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.X509Certificate;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.Base64;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -445,7 +446,7 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
         AcmeOrder acmeOrder = acmeOrderRepository.findByUuid(acmeAuthorization.getOrderUuid()).orElseThrow();
 
         acmeChallenge.setStatus(ChallengeStatus.VALID);
-        acmeChallenge.setValidated(new Date());
+        acmeChallenge.setValidated(OffsetDateTime.now(ZoneOffset.UTC));
         acmeAuthorization.setStatus(AuthorizationStatus.VALID);
         acmeOrder.setStatus(OrderStatus.READY);
 

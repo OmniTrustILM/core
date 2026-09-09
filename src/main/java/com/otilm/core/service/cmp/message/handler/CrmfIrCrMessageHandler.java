@@ -162,12 +162,16 @@ public class CrmfIrCrMessageHandler implements MessageHandler<ClientCertificateD
                             raProfile.getSecuredUuid(), matched.getUuid().toString(), dto);
             applyProtocolAssociationBestEffort(matched, configuration);
             return response;
+        } catch (RequestAttributePolicyViolationException e) {
+            // A policy violation concerns CRMF content, not registration identity, so it is not an enumeration
+            // oracle and carries its platform-authored detail — matching the plain ir/cr path above.
+            throw new CmpProcessingException(tid, PKIFailureInfo.badCertTemplate, e.getMessage());
         } catch (ValidationException | NotFoundException e) {
             // Challenge/gate denial, or the registration raced away (cert/RA profile gone mid-flight): both
             // mean "no active registration to complete" — surface the single generic rejection, detail logged.
             throw new CmpProcessingException(tid, PKIFailureInfo.badMessageCheck,
                     CmpRegistrationResolver.REGISTRATION_REJECTION);
-        } catch (IOException e) {
+        } catch (IOException | CertificateException e) {
             throw new CmpProcessingException(tid, PKIFailureInfo.systemFailure,
                     "cannot complete certificate registration", e);
         }

@@ -7,6 +7,7 @@ import com.otilm.api.model.client.auth.UpdateUserRequestDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.core.auth.AuthResourceDto;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.auth.ResourceActionsDto;
 import com.otilm.api.model.core.auth.UserDetailDto;
 import com.otilm.api.model.core.auth.UserProfileDetailDto;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
@@ -22,6 +23,8 @@ import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.WireMockPorts;
 import java.security.cert.CertificateException;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -130,6 +133,120 @@ class AuthServiceITest extends BaseSpringBootTest {
         Assertions
                 .assertEquals(1, allowedListings.stream().filter(r -> r == Resource.DASHBOARD).count(),
                         "DASHBOARD must appear exactly once");
+    }
+
+    @Test
+    void testAuthProfileAllowedActions() {
+        injectLocalhostUserProfileToContext();
+
+        UserProfileDetailDto userProfileDto = authService.getAuthProfile();
+
+        Assertions
+                .assertEquals(List.of(ResourceAction.DETAIL, ResourceAction.LIST, ResourceAction.UPDATE),
+                        allowedActionsFor(userProfileDto, Resource.SETTINGS));
+        Assertions
+                .assertFalse(
+                        allowedActionsFor(userProfileDto, Resource.SETTINGS).contains(ResourceAction.UPDATE_BRANDING),
+                        "SETTINGS granted update must not imply UPDATE_BRANDING");
+        Assertions
+                .assertEquals(List.of(ResourceAction.CREATE, ResourceAction.DETAIL),
+                        allowedActionsFor(userProfileDto, Resource.CERTIFICATE));
+        Assertions
+                .assertTrue(
+                        userProfileDto
+                                .getPermissions()
+                                .getAllowedActions()
+                                .stream()
+                                .noneMatch(entry -> entry.getResource() == Resource.CONNECTOR),
+                        "a resource the role grants nothing on must be omitted, not reported with an empty list");
+    }
+
+    @Test
+    void testAuthProfileAllowedActionsExcludeObjectScopedGrants() {
+        injectLocalhostUserProfileChangedToContext();
+
+        UserProfileDetailDto userProfileDto = authService.getAuthProfile();
+
+        // The profile allows MEMBERS on a single group object; folding that in would report an action the server
+        // refuses on every other group.
+        Assertions
+                .assertEquals(List.of(ResourceAction.CREATE, ResourceAction.DETAIL, ResourceAction.LIST),
+                        allowedActionsFor(userProfileDto, Resource.GROUP));
+        // CERTIFICATE is the contrast between the two fields: it is listed through hasOwner() rather than through a
+        // granted action, so it reaches allowedListings while LIST stays out of its actions.
+        Assertions
+                .assertTrue(userProfileDto.getPermissions().getAllowedListings().contains(Resource.CERTIFICATE),
+                        "CERTIFICATE is listed through the owner rule");
+        Assertions
+                .assertEquals(List.of(ResourceAction.CREATE, ResourceAction.DETAIL),
+                        allowedActionsFor(userProfileDto, Resource.CERTIFICATE));
+    }
+
+    @Test
+    void testAuthProfileAllowedActionsAllowAllResources() {
+        injectAllowAllResourcesUserProfileToContext();
+
+        UserProfileDetailDto userProfileDto = authService.getAuthProfile();
+
+        Assertions
+                .assertEquals(grantableCataloguePairs(), reportedPairs(userProfileDto),
+                        "a role holding every resource must be reported every grantable action in the catalogue");
+        Assertions
+                .assertTrue(
+                        allowedActionsFor(userProfileDto, Resource.SETTINGS).contains(ResourceAction.UPDATE_BRANDING),
+                        "a role holding every resource must hold UPDATE_BRANDING");
+    }
+
+    /**
+     * The authorization service keeps a grant on an action code this build may no longer declare, and findByCode throws
+     * on one, so the profile request has to survive it rather than fail over a permission nobody asked for.
+     */
+    @Test
+    void testAuthProfileAllowedActionsIgnoreUndeclaredActionCodes() {
+        injectUndeclaredActionCodeUserProfileToContext();
+
+        UserProfileDetailDto userProfileDto = authService.getAuthProfile();
+
+        Assertions
+                .assertEquals(List.of(ResourceAction.CREATE, ResourceAction.DETAIL),
+                        allowedActionsFor(userProfileDto, Resource.CERTIFICATE));
+    }
+
+    private static List<ResourceAction> allowedActionsFor(UserProfileDetailDto userProfileDto, Resource resource) {
+        return userProfileDto
+                .getPermissions()
+                .getAllowedActions()
+                .stream()
+                .filter(entry -> entry.getResource() == resource)
+                .map(ResourceActionsDto::getActions)
+                .findFirst()
+                .orElseGet(List::of);
+    }
+
+    /** Every resource/action pair the annotation scan produced, minus the sentinels no grant can name. */
+    private Set<String> grantableCataloguePairs() {
+        return contextRefreshListener
+                .getResources()
+                .stream()
+                .flatMap(syncResource -> syncResource
+                        .getActions()
+                        .stream()
+                        .filter(actionCode -> !ResourceAction.ANY.getCode().equals(actionCode)
+                                && !ResourceAction.NONE.getCode().equals(actionCode))
+                        .map(actionCode -> syncResource.getName().getCode() + ":" + actionCode))
+                .collect(Collectors.toSet());
+    }
+
+    private static Set<String> reportedPairs(UserProfileDetailDto userProfileDto) {
+        return userProfileDto
+                .getPermissions()
+                .getAllowedActions()
+                .stream()
+                .flatMap(entry -> entry
+                        .getActions()
+                        .stream()
+                        .map(action -> entry.getResource().getCode() + ":" + action.getCode()))
+                .collect(Collectors.toSet());
     }
 
     @Test
@@ -259,6 +376,44 @@ class AuthServiceITest extends BaseSpringBootTest {
                 """;
 
         // inject other user profile
+        AuthenticationInfo info = new AuthenticationInfo(AuthMethod.USER_PROXY, "616be97b-0bd0-434c-a582-2d4dee5d0b41",
+                "localhost", List.of(), userProfileData);
+        SecurityContextHolder
+                .getContext()
+                .setAuthentication(new PlatformAuthenticationToken(new PlatformUserDetails(info)));
+    }
+
+    private void injectUndeclaredActionCodeUserProfileToContext() {
+        String userProfileData = """
+                {
+                    "user": {
+                        "uuid": "616be97b-0bd0-434c-a582-2d4dee5d0b41",
+                        "username": "localhost",
+                        "description": "System user for localhost operations",
+                        "groups": [],
+                        "enabled": true,
+                        "systemUser": true,
+                        "createdAt": "2024-12-02T10:52:54.36424+00:00",
+                        "updatedAt": "2024-12-02T10:52:54.364241+00:00"
+                    },
+                    "roles": [{
+                            "uuid": "9db01d1f-fb62-4be8-b344-a852e82edf80",
+                            "name": "localhost"
+                        }
+                    ],
+                    "permissions": {
+                        "allowAllResources": false,
+                        "resources": [{
+                                "name": "certificates",
+                                "allowAllActions": false,
+                                "actions": ["create", "detail", "actionThisBuildNoLongerDeclares"],
+                                "objects": []
+                            }
+                        ]
+                    }
+                }
+                """;
+
         AuthenticationInfo info = new AuthenticationInfo(AuthMethod.USER_PROXY, "616be97b-0bd0-434c-a582-2d4dee5d0b41",
                 "localhost", List.of(), userProfileData);
         SecurityContextHolder

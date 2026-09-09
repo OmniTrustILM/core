@@ -389,9 +389,10 @@ class SecurityFilterRepositoryITest extends BaseSpringBootTest {
     }
 
     @Test
-    void reportsWhetherASortTraversesAJoin() {
-        Assertions.assertFalse(SortOrderBuilder.traversesJoin(propertySort("SUBJECTDN", SortDirection.ASC)));
-        Assertions.assertTrue(SortOrderBuilder.traversesJoin(propertySort("RA_PROFILE_NAME", SortDirection.ASC)));
+    void reportsWhetherASortNeedsTheRankedUuidQuery() {
+        Assertions.assertFalse(SortOrderBuilder.needsRankedUuidQuery(propertySort("SUBJECTDN", SortDirection.ASC)));
+        Assertions
+                .assertTrue(SortOrderBuilder.needsRankedUuidQuery(propertySort("RA_PROFILE_NAME", SortDirection.ASC)));
     }
 
     /**
@@ -415,6 +416,22 @@ class SecurityFilterRepositoryITest extends BaseSpringBootTest {
         Assertions
                 .assertThrows(ValidationException.class,
                         () -> certificateRepository.findUsingSecurityFilter(filter, List.of(), null, null, null, sort));
+    }
+
+    /**
+     * PRIVATE_KEY resolves to a path and would order fine, but what the column displays is a comparison against an
+     * expected value rather than the value that path holds. The catalogue reports it as not sortable, and the request
+     * is refused against that same predicate rather than answered with a silently unordered page.
+     */
+    @Test
+    void rejectsSortFieldTheCatalogueWithholdsFromSorting() {
+        SecurityFilter filter = SecurityFilter.create();
+        SortSpecification sort = propertySort("PRIVATE_KEY", SortDirection.ASC);
+
+        ValidationException e = Assertions
+                .assertThrows(ValidationException.class,
+                        () -> certificateRepository.findUsingSecurityFilter(filter, List.of(), null, null, null, sort));
+        Assertions.assertTrue(e.getMessage().contains("cannot be used to order"));
     }
 
     @Test
@@ -509,6 +526,50 @@ class SecurityFilterRepositoryITest extends BaseSpringBootTest {
         Assertions
                 .assertThrows(ValidationException.class,
                         () -> certificateRepository.findUsingSecurityFilter(filter, List.of(), null, null, null, sort));
+    }
+
+    /**
+     * A row a column has nothing to show for must never lead the page, in either direction. PostgreSQL's own default
+     * would put nulls first descending, so the direct sort path pins them last explicitly - the same placement the
+     * grouped path applies, so a nullable column does not place its blanks differently depending on which path the
+     * ordering happened to take.
+     */
+    @Test
+    void aRowWithoutAValueSortsLastInBothDirectionsOnTheDirectPath() {
+        certificateGroup.setCommonName("alpha");
+        certificateOwner.setCommonName("bravo");
+        certificateRaProfile1.setCommonName("charlie");
+        certificateRepository.saveAllAndFlush(List.of(certificateGroup, certificateOwner, certificateRaProfile1));
+
+        SecurityFilter filter = SecurityFilter.create();
+        List<UUID> ascending = uuidsOf(certificateRepository
+                .findUsingSecurityFilter(filter, List.of(), null, null, null,
+                        propertySort("COMMON_NAME", SortDirection.ASC)));
+        List<UUID> descending = uuidsOf(certificateRepository
+                .findUsingSecurityFilter(filter, List.of(), null, null, null,
+                        propertySort("COMMON_NAME", SortDirection.DESC)));
+
+        Assertions.assertEquals(certificateRaProfile2.getUuid(), ascending.getLast());
+        Assertions.assertEquals(certificateRaProfile2.getUuid(), descending.getLast());
+    }
+
+    /** The same placement through the grouped path, so the two cannot drift apart. */
+    @Test
+    void aRowWithoutAValueSortsLastInBothDirectionsOnTheGroupedPath() {
+        SecurityFilter filter = SecurityFilter.create();
+
+        List<UUID> ascending = certificateRepository
+                .findUuidsUsingSecurityFilter(filter, null, null, null,
+                        propertySort("RA_PROFILE_NAME", SortDirection.ASC));
+        List<UUID> descending = certificateRepository
+                .findUuidsUsingSecurityFilter(filter, null, null, null,
+                        propertySort("RA_PROFILE_NAME", SortDirection.DESC));
+
+        // The two certificates with no RA profile at all are the tail of both pages, whichever way the page is
+        // ordered; which of the two leads that tail is the uuid tie-break's business, not this case's.
+        Set<UUID> withoutRaProfile = Set.of(certificateGroup.getUuid(), certificateOwner.getUuid());
+        Assertions.assertEquals(withoutRaProfile, Set.copyOf(ascending.subList(2, 4)));
+        Assertions.assertEquals(withoutRaProfile, Set.copyOf(descending.subList(2, 4)));
     }
 
     @Test

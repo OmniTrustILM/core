@@ -1,0 +1,144 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.7",
+  "serialNumber": "urn:uuid:5b1c2d3e-0000-4000-8000-000000000003",
+  "version": 1,
+  "components": [
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "cert-shared-hash-alpha",
+      "name": "cert-shared-hash-alpha",
+      "hashes": [{"alg": "SHA-256", "content": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"}],
+      "cryptoProperties": {
+        "assetType": "certificate",
+        "certificateProperties": {
+          "subjectName": "CN=alpha.example.test,O=Fence Corpus",
+          "issuerName": "CN=Fence Corpus Root CA,O=Fence Corpus",
+          "notValidBefore": "2026-01-01T00:00:00Z",
+          "notValidAfter": "2027-01-01T00:00:00Z"
+        }
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "cert-shared-hash-beta",
+      "name": "cert-shared-hash-beta",
+      "hashes": [{"alg": "SHA-256", "content": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"}],
+      "cryptoProperties": {
+        "assetType": "certificate",
+        "certificateProperties": {
+          "subjectName": "CN=beta.example.test,O=Fence Corpus",
+          "issuerName": "CN=Fence Corpus Root CA,O=Fence Corpus",
+          "notValidBefore": "2026-01-01T00:00:00Z",
+          "notValidAfter": "2027-01-01T00:00:00Z"
+        }
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "cert-unique-hash",
+      "name": "cert-unique-hash",
+      "hashes": [
+        {"alg": "SHA-1", "content": "abababababababababababababababababababab"},
+        {"alg": "SHA-256", "content": "abababababababababababababababababababababababababababababababab"}
+      ],
+      "cryptoProperties": {
+        "assetType": "Certificate",
+        "certificateProperties": {
+          "subjectName": "CN=gamma.example.test,O=Fence Corpus",
+          "issuerName": "CN=Fence Corpus Root CA,O=Fence Corpus"
+        }
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "cert-fingerprint-17",
+      "name": "cert-fingerprint-17",
+      "cryptoProperties": {
+        "assetType": "certificate",
+        "certificateProperties": {
+          "subjectName": "CN=delta.example.test,O=Fence Corpus",
+          "issuerName": "CN=Fence Corpus Root CA,O=Fence Corpus",
+          "fingerprint": {"alg": "SHA-256", "content": "EFEFEFEFEFEFEFEFEFEFEFEFEFEFEFEFEFEFEFEFEFEFEFEFEFEFEFEFEFEFEFEF"}
+        }
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "cert-hash-agreeing-with-fingerprint",
+      "name": "cert-hash-agreeing-with-fingerprint",
+      "hashes": [{"alg": "SHA256", "content": "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef"}],
+      "cryptoProperties": {
+        "assetType": "certificate",
+        "certificateProperties": {
+          "subjectName": "CN=delta.example.test,O=Fence Corpus",
+          "issuerName": "CN=Fence Corpus Root CA,O=Fence Corpus",
+          "serialNumber": "0A1B2C3D",
+          "notValidBefore": "2026-01-01T00:00:00Z",
+          "notValidAfter": "2027-01-01T00:00:00Z"
+        }
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "cert-serial-issuer",
+      "name": "cert-serial-issuer",
+      "cryptoProperties": {
+        "assetType": "certificate",
+        "certificateProperties": {
+          "subjectName": "CN=epsilon.example.test,O=Fence Corpus",
+          "issuerName": "CN=Fence Corpus Root CA,O=Fence Corpus",
+          "serialNumber": "00:AA:BB:CC:DD:EE:FF"
+        }
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "cert-sentinel-serial",
+      "name": "cert-sentinel-serial",
+      "cryptoProperties": {
+        "assetType": "certificate",
+        "certificateProperties": {
+          "subjectName": "CN=zeta.example.test,O=Fence Corpus",
+          "issuerName": "CN=Fence Corpus Root CA,O=Fence Corpus",
+          "serialNumber": "unknown",
+          "notValidBefore": "2026-01-01T00:00:00Z",
+          "notValidAfter": "2027-01-01T00:00:00Z"
+        }
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "cert-cn-only",
+      "name": "cert-cn-only",
+      "cryptoProperties": {
+        "assetType": "certificate",
+        "certificateProperties": {
+          "subjectName": "CN=localhost",
+          "notValidBefore": "2026-01-01T00:00:00Z",
+          "notValidAfter": "2027-01-01T00:00:00Z"
+        }
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "cert-subject-only",
+      "name": "cert-subject-only",
+      "cryptoProperties": {
+        "assetType": "certificate",
+        "certificateProperties": {
+          "subjectName": "CN=eta.example.test,O=Fence Corpus,C=XX"
+        }
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "cert-backstop",
+      "name": "server-rsa-2048.pem",
+      "cryptoProperties": {
+        "assetType": "certificate",
+        "certificateProperties": {"certificateFormat": "PEM"}
+      }
+    }
+  ]
+}

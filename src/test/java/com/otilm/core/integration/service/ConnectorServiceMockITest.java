@@ -32,11 +32,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
 import org.springframework.boot.test.context.SpringBootTest;
 
 import static org.mockito.Mockito.any;
@@ -100,8 +102,12 @@ class ConnectorServiceMockITest {
 
     private Endpoint endpoint1, endpoint2, endpoint3;
 
+    private AutoCloseable mocks;
+
     @BeforeEach
     void setUp() {
+        mocks = MockitoAnnotations.openMocks(this);
+
         endpoint1 = new Endpoint();
         endpoint1.setUuid(UUID.fromString("abfbc322-29e1-11ed-a261-0242ac120002"));
         endpoint1.setName("endpoint1");
@@ -141,6 +147,11 @@ class ConnectorServiceMockITest {
 
         when(connectorApiFactory.getConnectorApiClient(any(ApiClientConnectorInfo.class)))
                 .thenReturn(connectorApiClient);
+    }
+
+    @AfterEach
+    void tearDown() throws Exception {
+        mocks.close();
     }
 
     @Test

@@ -41,6 +41,7 @@ import com.otilm.core.messaging.jms.listeners.NotificationListener;
 import com.otilm.core.messaging.model.EventMessage;
 import com.otilm.core.messaging.model.NotificationMessage;
 import com.otilm.core.messaging.model.NotificationRecipient;
+import com.otilm.core.model.notification.NotificationSubject;
 import com.otilm.core.service.ActionExternalService;
 import com.otilm.core.service.NotificationProfileExternalService;
 import com.otilm.core.service.RuleExternalService;
@@ -286,10 +287,11 @@ class CommentEventHandlersITest extends BaseSpringBootTest {
                 .anySatisfy(message -> assertThat(message.getNotificationProfileUuids()).contains(profileUuid));
 
         notificationListener.processMessage(profileMessages.getFirst());
-        // The persisted notification deep-links to the host object, not the comment the trigger evaluated
         assertThat(notificationRepository.findAll()).isNotEmpty().allSatisfy(notification -> {
             assertThat(notification.getTargetObjectType()).isEqualTo(Resource.RA_PROFILE);
             assertThat(notification.getTargetObjectIdentification()).isEqualTo(hostUuid.toString());
+            assertThat(notification.getSubject())
+                    .isEqualTo(new NotificationSubject(Resource.COMMENT, root.getUuid().toString(), null));
         });
     }
 
@@ -322,10 +324,12 @@ class CommentEventHandlersITest extends BaseSpringBootTest {
                 .containsExactlyInAnyOrder(rootAuthor, earlierReplier);
 
         notificationListener.processMessage(followUps.getFirst());
-        assertThat(notificationRepository.findAll())
-                .hasSize(2)
-                .allSatisfy(notification -> assertThat(notification.getTargetObjectIdentification())
-                        .isEqualTo(hostUuid.toString()));
+        assertThat(notificationRepository.findAll()).hasSize(2).allSatisfy(notification -> {
+            assertThat(notification.getTargetObjectIdentification()).isEqualTo(hostUuid.toString());
+            assertThat(notification.getSubject())
+                    .isEqualTo(new NotificationSubject(Resource.COMMENT, reply.getUuid().toString(),
+                            root.getUuid().toString()));
+        });
     }
 
     @Test

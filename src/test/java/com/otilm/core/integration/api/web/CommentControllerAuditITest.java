@@ -14,10 +14,12 @@ import com.otilm.api.model.core.settings.logging.ResourceLoggingSettingsDto;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.messaging.model.AuditLogMessage;
+import com.otilm.core.model.comment.CommentDeletionData;
 import com.otilm.core.service.SettingExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -142,15 +144,47 @@ class CommentControllerAuditITest extends BaseSpringBootTest {
     void deletingARootWithRepliesPreservesTheErasedTextInTheAuditRecord() throws NotFoundException {
         CommentDto root = post("the words being erased", null);
         post("a reply that cascades away", root.getUuid());
+        post("and another one", root.getUuid());
 
         commentController.deleteComment(root.getUuid());
 
         AuditLogMessage message = lastMessageOf(Operation.DELETE);
-        assertThat(message.getLogRecord().operationData())
-                .isInstanceOf(CommentEventData.class)
-                .extracting(data -> ((CommentEventData) data).getBody())
-                .isEqualTo("the words being erased");
+        assertThat(message.getLogRecord().operationData()).isInstanceOf(CommentDeletionData.class);
+        CommentDeletionData data = (CommentDeletionData) message.getLogRecord().operationData();
+        assertThat(data.getBody()).isEqualTo("the words being erased");
+        assertThat(data.getCascadedReplies())
+                .extracting(CommentEventData::getBody)
+                .containsExactly("a reply that cascades away", "and another one");
+        assertThat(data.getCascadedReplies()).allSatisfy(reply -> {
+            assertThat(reply.getParentUuid()).isEqualTo(root.getUuid());
+            assertThat(reply.getAuthorUsername()).isNotBlank();
+        });
         assertAffiliatedHost(message);
+    }
+
+    @Test
+    void deletingAReplyRecordsThatReplyOnly() throws NotFoundException {
+        CommentDto root = post("thread", null);
+        CommentDto reply = post("just me", root.getUuid());
+
+        commentController.deleteComment(reply.getUuid());
+
+        Serializable replyData = lastMessageOf(Operation.DELETE).getLogRecord().operationData();
+        assertThat(replyData).isExactlyInstanceOf(CommentEventData.class);
+        assertThat(((CommentEventData) replyData).getBody()).isEqualTo("just me");
+    }
+
+    @Test
+    void deletingAReplylessRootRecordsAnEmptyCascade() throws NotFoundException {
+        CommentDto root = post("thread", null);
+
+        commentController.deleteComment(root.getUuid());
+
+        CommentDeletionData rootData = (CommentDeletionData) lastMessageOf(Operation.DELETE)
+                .getLogRecord()
+                .operationData();
+        assertThat(rootData.getBody()).isEqualTo("thread");
+        assertThat(rootData.getCascadedReplies()).isEmpty();
     }
 
     private void assertAffiliatedHost(AuditLogMessage message) {

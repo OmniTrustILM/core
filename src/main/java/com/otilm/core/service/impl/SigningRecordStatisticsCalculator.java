@@ -51,6 +51,16 @@ final class SigningRecordStatisticsCalculator {
     }
 
     /**
+     * Adds two sparse bucket→count maps. The signing volume in a bucket is the records still retained plus those
+     * already deleted, and either half may be missing a bucket the other has.
+     */
+    static Map<String, Long> sumByBucket(Map<String, Long> retained, Map<String, Long> deleted) {
+        Map<String, Long> combined = new LinkedHashMap<>(retained);
+        deleted.forEach((bucket, count) -> combined.merge(bucket, count, Long::sum));
+        return combined;
+    }
+
+    /**
      * Expands a sparse bucket→count map into a dense, ordered series covering every bucket from {@code fromInclusive}
      * to {@code toInclusive}, filling gaps with zero. Sparse keys must already be formatted by {@link #bucketKey}.
      */

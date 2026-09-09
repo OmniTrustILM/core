@@ -12,6 +12,7 @@ import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
 import com.otilm.core.attribute.engine.records.ProjectedAttributeContent;
 import com.otilm.core.dao.repository.AttributeContent2ObjectRepository;
+import com.otilm.core.model.AttributeFieldIdentifier;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -22,6 +23,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -41,14 +43,12 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class AttributeColumnProjector {
 
-    private static final String FIELD_IDENTIFIER_SEPARATOR = "|";
-
     /**
      * Content that is never projected, whatever a request asks for. The catalogue already marks these fields
-     * undisplayable, so a well-behaved caller cannot reach them; this is the second lock, because the first one is a
-     * flag on a response the caller is free to ignore.
+     * undisplayable and offers them presence conditions alone, so a well-behaved caller cannot reach a value through
+     * them; this is the second lock, because the first one is a flag on a response the caller is free to ignore.
      */
-    private static final Set<AttributeContentType> WITHHELD_CONTENT_TYPES = Set
+    public static final Set<AttributeContentType> WITHHELD_CONTENT_TYPES = Set
             .of(AttributeContentType.SECRET, AttributeContentType.CODEBLOCK);
 
     /** What a list cell reads out of a file value: a file renders as its name, with its media type behind it. */
@@ -61,7 +61,6 @@ public class AttributeColumnProjector {
     private static final Set<String> RESOURCE_IDENTITY_FIELDS = Set.of("resource", "uuid", "name");
 
     private final AttributeContent2ObjectRepository attributeContent2ObjectRepository;
-    private final AttributeEngine attributeEngine;
 
     private record RequestedColumn(FilterFieldSource source, AttributeType attributeType, String attributeName,
             AttributeContentType contentType, String fieldIdentifier) {
@@ -78,8 +77,8 @@ public class AttributeColumnProjector {
      * cannot be read is left unprojected rather than failing the listing.
      */
     public <T extends AttributeProjectable> void project(Resource resource, List<SearchColumnRequestDto> columns,
-            List<T> entries, Function<T, UUID> uuidOf) {
-        project(resource, columns, entries, uuidOf, uuidOf);
+            List<T> entries, Function<T, UUID> uuidOf, Supplier<CustomAttributeContentFilter> contentFilterSource) {
+        project(resource, columns, entries, uuidOf, uuidOf, contentFilterSource);
     }
 
     /**
@@ -90,7 +89,8 @@ public class AttributeColumnProjector {
      * the overload above does - keeps the whole page in one query.
      */
     public <T extends AttributeProjectable> void project(Resource resource, List<SearchColumnRequestDto> columns,
-            List<T> entries, Function<T, UUID> uuidOf, Function<T, UUID> metadataUuidOf) {
+            List<T> entries, Function<T, UUID> uuidOf, Function<T, UUID> metadataUuidOf,
+            Supplier<CustomAttributeContentFilter> contentFilterSource) {
         if (columns == null || columns.isEmpty() || entries == null || entries.isEmpty()) {
             return;
         }
@@ -106,7 +106,7 @@ public class AttributeColumnProjector {
         byResolver.computeIfAbsent(uuidOf, resolver -> new ArrayList<>()).addAll(columnsOtherThanMetadata(requested));
         byResolver.computeIfAbsent(metadataUuidOf, resolver -> new ArrayList<>()).addAll(metadataColumns(requested));
 
-        CustomAttributeContentFilter contentFilter = attributeEngine.loadCustomAttributeContentFilter();
+        CustomAttributeContentFilter contentFilter = contentFilterSource.get();
 
         // Keyed by identity: a listing DTO may implement equals, and two equal entries are still two rows that each
         // need their own values.
@@ -189,28 +189,19 @@ public class AttributeColumnProjector {
             if (source == null || source.getAttributeType() == null || column.getFieldIdentifier() == null) {
                 continue;
             }
-            int separator = column.getFieldIdentifier().lastIndexOf(FIELD_IDENTIFIER_SEPARATOR);
-            if (separator <= 0) {
+            AttributeFieldIdentifier identifier = AttributeFieldIdentifier.parse(column.getFieldIdentifier());
+            if (identifier == null) {
                 continue;
             }
-            AttributeContentType contentType = contentTypeOf(column.getFieldIdentifier().substring(separator + 1));
+            AttributeContentType contentType = identifier.contentType();
             if (contentType == null || WITHHELD_CONTENT_TYPES.contains(contentType)) {
                 continue;
             }
             requested
-                    .add(new RequestedColumn(source, source.getAttributeType(),
-                            column.getFieldIdentifier().substring(0, separator), contentType,
+                    .add(new RequestedColumn(source, source.getAttributeType(), identifier.attributeName(), contentType,
                             column.getFieldIdentifier()));
         }
         return requested;
-    }
-
-    private static AttributeContentType contentTypeOf(String name) {
-        try {
-            return AttributeContentType.valueOf(name);
-        } catch (IllegalArgumentException e) {
-            return null;
-        }
     }
 
     /**
@@ -224,11 +215,8 @@ public class AttributeColumnProjector {
 
         for (ProjectedAttributeContent content : stored) {
             // Encrypted content is ciphertext that only its own decryption path can read, and a listing does not take
-            // that path. An attribute whose definition says it is not visible is not to be shown to a user, which is
-            // what a column does with it. The catalogue withholds both kinds of field; a row that reaches here anyway
-            // is dropped, because the flag it withheld them with is a hint on a response the caller is free to ignore.
-            if (content.encryptedContent() != null || WITHHELD_CONTENT_TYPES.contains(content.contentType())
-                    || !AttributeDefinitionProperties.isVisible(content.definition())) {
+            // that path. The query already excludes a definition marked not visible.
+            if (content.encryptedContent() != null || WITHHELD_CONTENT_TYPES.contains(content.contentType())) {
                 continue;
             }
             RequestedColumn column = matchRequested(requested, content);

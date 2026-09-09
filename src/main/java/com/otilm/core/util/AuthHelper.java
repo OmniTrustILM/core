@@ -244,8 +244,20 @@ public class AuthHelper {
      * users (acme, scep, cmp, localhost) are ordinary auth-service users and are carried like any other.
      */
     public static UUID getActingUserUuidOrNull() {
+        NameAndUuidDto actingUser = getActingUserOrNull();
+        return actingUser == null ? null : UUID.fromString(actingUser.getUuid());
+    }
+
+    /**
+     * The acting user's uuid and username, or {@code null} when the thread carries no identifiable user — the
+     * {@link NameAndUuidDto} counterpart of {@link #getActingUserUuidOrNull()}, for callers that persist the username
+     * next to the uuid. Absence has the same two shapes described there, and an anonymous caller is reported as no user
+     * rather than as the literal "anonymousUser" its principal carries.
+     */
+    public static NameAndUuidDto getActingUserOrNull() {
         try {
-            return NullUtil.parseUuidOrNull(getUserIdentification().getUuid());
+            NameAndUuidDto actingUser = getUserIdentification();
+            return NullUtil.parseUuidOrNull(actingUser.getUuid()) == null ? null : actingUser;
         } catch (ValidationException | IllegalArgumentException e) {
             return null;
         }

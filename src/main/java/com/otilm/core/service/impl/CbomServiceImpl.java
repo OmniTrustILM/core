@@ -26,6 +26,8 @@ import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
 import com.otilm.core.attribute.engine.AttributeColumnProjector;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
+import com.otilm.core.attribute.engine.ListingSortResolver;
 import com.otilm.core.cbom.client.CbomRepositoryClient;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.dao.CryptoAssetConstraintTranslator;
@@ -66,6 +68,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.function.TriFunction;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -96,6 +99,8 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
 
     private AttributeColumnProjector attributeColumnProjector;
 
+    private ListingSortResolver listingSortResolver;
+
     @Autowired
     public void setCbomRepository(CbomRepository cbomRepository) {
         this.cbomRepository = cbomRepository;
@@ -104,6 +109,11 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
     @Autowired
     public void setAttributeColumnProjector(AttributeColumnProjector attributeColumnProjector) {
         this.attributeColumnProjector = attributeColumnProjector;
+    }
+
+    @Autowired
+    public void setListingSortResolver(ListingSortResolver listingSortResolver) {
+        this.listingSortResolver = listingSortResolver;
     }
 
     @Autowired
@@ -133,15 +143,18 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         RequestValidatorHelper.revalidateSearchRequestDto(request);
         final Pageable p = PageRequest.of(request.getPageNumber() - 1, request.getItemsPerPage());
 
+        final Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
         final TriFunction<Root<Cbom>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause = (root, cb,
-                cr) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cr, root, request.getFilters());
+                cr) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cr, root, request.getFilters(), contentFilter);
         final List<CbomDto> cbomDtos = cbomRepository
                 .findUsingSecurityFilter(filter, List.of(), additionalWhereClause, p,
-                        (root, cb) -> cb.desc(root.get("createdAt")))
+                        (root, cb) -> cb.desc(root.get("createdAt")),
+                        listingSortResolver.resolve(Resource.CBOM, request.getSort(), contentFilter))
                 .stream()
                 .map(Cbom::mapToDto)
                 .toList();
-        attributeColumnProjector.project(Resource.CBOM, request.getColumns(), cbomDtos, CbomDto::getUuid);
+        attributeColumnProjector
+                .project(Resource.CBOM, request.getColumns(), cbomDtos, CbomDto::getUuid, contentFilter);
 
         final Long maxItems = cbomRepository.countUsingSecurityFilter(filter, additionalWhereClause);
 

@@ -61,8 +61,8 @@ class PublicBrandingControllerITest extends BaseSpringBootTestNoAuth {
      * {@code PublicBrandingDto} omits it when unset rather than sending it as null.
      */
     private static final Set<String> ALWAYS_PRESENT_KEYS = Set
-            .of("configured", "primaryColor", "secondaryColor", "tertiaryColor", "backgroundColor", "textColor",
-                    "lightLogo", "darkLogo");
+            .of("configured", "primaryColor", "secondaryColor", "backgroundColor", "textColor", "lightLogo",
+                    "darkLogo");
 
     /** Everything the anonymous response is allowed to carry. A key outside this set is a leak, not a feature. */
     private static final Set<String> PERMITTED_KEYS = Stream

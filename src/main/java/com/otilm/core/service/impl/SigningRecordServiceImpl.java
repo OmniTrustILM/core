@@ -4,6 +4,7 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.client.dashboard.SigningRecordStatisticsDto;
 import com.otilm.api.model.client.dashboard.SigningRecordStatisticsPeriod;
+import com.otilm.api.model.client.dashboard.SigningRecordStatisticsPeriod.Bucket;
 import com.otilm.api.model.client.signing.profile.scheme.ManagedSigningType;
 import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.api.model.common.BulkActionMessageDto;
@@ -16,15 +17,19 @@ import com.otilm.api.model.core.signing.signingrecord.SigningRecordDto;
 import com.otilm.api.model.core.signing.signingrecord.SigningRecordListDto;
 import com.otilm.core.attribute.engine.AttributeColumnProjector;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
+import com.otilm.core.attribute.engine.ListingSortResolver;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.dao.entity.Audited_;
 import com.otilm.core.dao.entity.signing.SigningProfileVersion;
 import com.otilm.core.dao.entity.signing.SigningProfileVersion_;
 import com.otilm.core.dao.entity.signing.SigningProfile_;
 import com.otilm.core.dao.entity.signing.SigningRecord;
+import com.otilm.core.dao.entity.signing.SigningRecordVolume_;
 import com.otilm.core.dao.entity.signing.SigningRecord_;
 import com.otilm.core.dao.repository.signing.SigningProfileRepository;
 import com.otilm.core.dao.repository.signing.SigningRecordRepository;
+import com.otilm.core.dao.repository.signing.SigningRecordVolumeRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.mapper.signing.SigningRecordMapper;
 import com.otilm.core.mapper.workflows.PaginationResponseMapper;
@@ -45,46 +50,46 @@ import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.JoinType;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
+import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Supplier;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.function.TriFunction;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class SigningRecordServiceImpl implements SigningRecordExternalService, SigningRecordInternalService {
 
     private static final String SIGNING_PROFILE_PARENT_REF = "signingProfileUuid";
     private static final int TOP_REQUESTERS = 10;
     private static final String SCHEME_PAIR_SEPARATOR = "::";
 
+    /** Postgres {@code to_char} patterns producing the same key as {@link SigningRecordStatisticsCalculator}. */
+    private static final String BUCKET_HOUR_FORMAT = "YYYY-MM-DD\"T\"HH24:00:00\"Z\"";
+    private static final String BUCKET_DAY_FORMAT = "YYYY-MM-DD\"T\"00:00:00\"Z\"";
+
     private final SigningRecordRepository signingRecordRepository;
+    private final SigningRecordVolumeRepository signingRecordVolumeRepository;
     private final SigningRecordWriter signingRecordWriter;
     private final SigningProfileRepository signingProfileRepository;
     private final AttributeEngine attributeEngine;
     private final AttributeColumnProjector attributeColumnProjector;
+    private final ListingSortResolver listingSortResolver;
     private final AuthorizationEnforcer authorizationEnforcer;
-
-    public SigningRecordServiceImpl(SigningRecordRepository signingRecordRepository,
-            SigningRecordWriter signingRecordWriter, SigningProfileRepository signingProfileRepository,
-            AttributeEngine attributeEngine, AttributeColumnProjector attributeColumnProjector,
-            AuthorizationEnforcer authorizationEnforcer) {
-        this.signingRecordRepository = signingRecordRepository;
-        this.signingRecordWriter = signingRecordWriter;
-        this.signingProfileRepository = signingProfileRepository;
-        this.attributeEngine = attributeEngine;
-        this.attributeColumnProjector = attributeColumnProjector;
-        this.authorizationEnforcer = authorizationEnforcer;
-    }
 
     @Override
     @ExternalAuthorization(resource = Resource.SIGNING_RECORD, action = ResourceAction.LIST)
@@ -125,10 +130,15 @@ public class SigningRecordServiceImpl implements SigningRecordExternalService, S
         return listRecords(request, filter, signingProfileUuid);
     }
 
+    /**
+     * Read under one snapshot: the signing figures are assembled from two tables, and a record deleted between the two
+     * queries would otherwise be counted both as retained and as history. The transaction only reads, so the snapshot
+     * cannot fail to serialize; it does hold the vacuum horizon for the length of the read.
+     */
     @Override
     @ExternalAuthorization(resource = Resource.SIGNING_RECORD, action = ResourceAction.LIST,
             parentResource = Resource.SIGNING_PROFILE, parentAction = ResourceAction.LIST)
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public SigningRecordStatisticsDto getSigningRecordStatistics(SigningRecordStatisticsPeriod period,
             SecurityFilter filter) {
         filter.setParentRefProperty(SIGNING_PROFILE_PARENT_REF);
@@ -136,12 +146,8 @@ public class SigningRecordServiceImpl implements SigningRecordExternalService, S
 
         SigningRecordStatisticsDto dto = new SigningRecordStatisticsDto();
         dto.setTotalRetained(signingRecordRepository.countUsingSecurityFilter(filter));
-        dto
-                .setCountLast24h(signingRecordRepository
-                        .countUsingSecurityFilter(filter, signedSince(now.minus(Duration.ofDays(1)))));
-        dto
-                .setCountLast7d(signingRecordRepository
-                        .countUsingSecurityFilter(filter, signedSince(now.minus(Duration.ofDays(7)))));
+        dto.setCountLast24h(signingsSince(filter, now.minus(Duration.ofDays(1))));
+        dto.setCountLast7d(signingsSince(filter, now.minus(Duration.ofDays(7))));
 
         Map<String, Long> byProfile = signingRecordRepository
                 .countGroupedUsingSecurityFilter(filter, SigningRecord_.signingProfile, SigningProfile_.name, null,
@@ -202,22 +208,78 @@ public class SigningRecordServiceImpl implements SigningRecordExternalService, S
         return cb.concat(cb.concat(scheme, SCHEME_PAIR_SEPARATOR), managedType);
     }
 
+    /**
+     * The signing volume series: records still retained, plus the rolled-up counts of records already deleted. Both
+     * halves are keyed identically, so summing them per bucket reconstructs what was signed regardless of what has
+     * since been removed.
+     */
     private Map<String, Long> volumeOverTime(SecurityFilter filter, SigningRecordStatisticsPeriod period, Instant now) {
-        Instant from = now.minus(period.getWindow());
-        String truncUnit = period.getBucket() == SigningRecordStatisticsPeriod.Bucket.HOUR ? "hour" : "day";
-        String format = period.getBucket() == SigningRecordStatisticsPeriod.Bucket.HOUR
-                ? "YYYY-MM-DD\"T\"HH24:00:00\"Z\""
-                : "YYYY-MM-DD\"T\"00:00:00\"Z\"";
-        Map<String, Long> sparse = signingRecordRepository
-                .countGroupedUsingSecurityFilter(filter, null, null, (root, cb) -> {
-                    Expression<?> atUtc = cb
-                            .function("timezone", java.sql.Timestamp.class, cb.literal("UTC"),
-                                    root.get(SigningRecord_.signingTime));
-                    Expression<?> truncated = cb
-                            .function("date_trunc", java.sql.Timestamp.class, cb.literal(truncUnit), atUtc);
-                    return cb.function("to_char", String.class, truncated, cb.literal(format));
-                }, signedSince(from));
-        return SigningRecordStatisticsCalculator.denseBuckets(from, now, period.getBucket(), sparse);
+        Instant from = windowStart(now.minus(period.getWindow()));
+        Bucket bucket = period.getBucket();
+        Map<String, Long> sparse = SigningRecordStatisticsCalculator
+                .sumByBucket(retainedVolume(filter, bucket, from), deletedVolume(filter, bucket, from));
+        return SigningRecordStatisticsCalculator.denseBuckets(from, now, bucket, sparse);
+    }
+
+    /** Signings performed since {@code cutoff}, whether or not their records still exist. */
+    private Long signingsSince(SecurityFilter filter, Instant cutoff) {
+        Instant from = windowStart(cutoff);
+        long retained = signingRecordRepository.countUsingSecurityFilter(filter, signedSince(from));
+        long deleted = deletedVolume(filter, Bucket.HOUR, from).values().stream().mapToLong(Long::longValue).sum();
+        return retained + deleted;
+    }
+
+    /**
+     * Start of the hour {@code cutoff} falls in. History is bucketed by the hour, so the retained half of a figure has
+     * to start on the same boundary: only then does a signing contribute the same count before and after its record is
+     * deleted. Against the exact cutoff, a signing in that first hour but before the cutoff would count for nothing
+     * while retained and for one once deleted — deletion would raise the number.
+     */
+    private static Instant windowStart(Instant cutoff) {
+        return cutoff.truncatedTo(ChronoUnit.HOURS);
+    }
+
+    private Map<String, Long> retainedVolume(SecurityFilter filter, Bucket bucket, Instant from) {
+        return signingRecordRepository
+                .countGroupedUsingSecurityFilter(filter, null, null,
+                        (root, cb) -> bucketKey(cb, root.get(SigningRecord_.signingTime), bucket), signedSince(from));
+    }
+
+    /**
+     * Bucketed counts of the records that have since been deleted. History is stored hourly, so a daily series sums
+     * whole hours out of it. {@code from} is expected on an hour boundary; see {@link #windowStart}.
+     */
+    private Map<String, Long> deletedVolume(SecurityFilter filter, Bucket bucket, Instant from) {
+        return signingRecordVolumeRepository
+                .sumGroupedUsingSecurityFilter(signingProfileScope(filter), SigningRecordVolume_.signingCount,
+                        (root, cb) -> bucketKey(cb, root.get(SigningRecordVolume_.bucketStart), bucket),
+                        (root, cb, cq) -> cb.greaterThanOrEqualTo(root.get(SigningRecordVolume_.bucketStart), from));
+    }
+
+    /**
+     * {@code to_char(date_trunc(unit, <instant> AT TIME ZONE 'UTC'), format)} — the canonical UTC bucket key of
+     * {@link SigningRecordStatisticsCalculator#bucketKey}, expressed in SQL so both halves of the series key alike.
+     */
+    private static Expression<String> bucketKey(CriteriaBuilder cb, Expression<Instant> instant, Bucket bucket) {
+        Expression<?> atUtc = cb.function("timezone", Timestamp.class, cb.literal("UTC"), instant);
+        Expression<?> truncated = cb
+                .function("date_trunc", Timestamp.class, cb.literal(bucket == Bucket.HOUR ? "hour" : "day"), atUtc);
+        return cb
+                .function("to_char", String.class, truncated,
+                        cb.literal(bucket == Bucket.HOUR ? BUCKET_HOUR_FORMAT : BUCKET_DAY_FORMAT));
+    }
+
+    /**
+     * The signing-profile half of {@code filter}. Signing-record visibility follows signing-profile access, and a
+     * rolled-up bucket has no record identity left for a record-level filter to match on, so only the parent filter
+     * carries over to the history rows. Nothing is lost with it while the authorization policy grants no object-level
+     * access on signing records, which is what {@link Resource#SIGNING_RECORD} declaring none asks of it.
+     */
+    private static SecurityFilter signingProfileScope(SecurityFilter filter) {
+        SecurityFilter scope = SecurityFilter.create();
+        scope.setParentResourceFilter(filter.getParentResourceFilter());
+        scope.setParentRefProperty(SIGNING_PROFILE_PARENT_REF);
+        return scope;
     }
 
     private TriFunction<Root<SigningRecord>, CriteriaBuilder, CriteriaQuery<?>, Predicate> signedSince(Instant cutoff) {
@@ -295,21 +357,24 @@ public class SigningRecordServiceImpl implements SigningRecordExternalService, S
             UUID signingProfileUuid) {
         filter.setParentRefProperty(SIGNING_PROFILE_PARENT_REF);
         Pageable p = PageRequest.of(request.getPageNumber() - 1, request.getItemsPerPage());
+        final Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
         TriFunction<Root<SigningRecord>, CriteriaBuilder, CriteriaQuery<?>, Predicate> predicate = (root, cb, cq) -> {
-            Predicate filters = FilterPredicatesBuilder.getFiltersPredicate(cb, cq, root, request.getFilters());
+            Predicate filters = FilterPredicatesBuilder
+                    .getFiltersPredicate(cb, cq, root, request.getFilters(), contentFilter);
             return signingProfileUuid == null
                     ? filters
                     : cb.and(cb.equal(root.get(SigningRecord_.signingProfileUuid), signingProfileUuid), filters);
         };
         List<SigningRecordListDto> dtos = signingRecordRepository
                 .findUsingSecurityFilter(filter, List.of(), predicate, p,
-                        (root, cb) -> cb.desc(root.get(Audited_.CREATED)))
+                        (root, cb) -> cb.desc(root.get(Audited_.CREATED)),
+                        listingSortResolver.resolve(Resource.SIGNING_RECORD, request.getSort(), contentFilter))
                 .stream()
                 .map(SigningRecordMapper::toListDto)
                 .toList();
         attributeColumnProjector
                 .project(Resource.SIGNING_RECORD, request.getColumns(), dtos,
-                        record -> AttributeColumnProjector.parseUuid(record.getUuid()));
+                        signingRecord -> AttributeColumnProjector.parseUuid(signingRecord.getUuid()), contentFilter);
 
         long totalItems = signingRecordRepository.countUsingSecurityFilter(filter, predicate);
         return PaginationResponseMapper.toDto(dtos, request.getPageNumber(), request.getItemsPerPage(), totalItems);

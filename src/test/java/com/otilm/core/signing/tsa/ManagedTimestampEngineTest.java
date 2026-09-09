@@ -131,9 +131,14 @@ class ManagedTimestampEngineTest {
 
     private static ResolvedManagedTimestampingProfile aResolvedProfile(boolean validateTokenSignature,
             CertificateChain chain) {
+        return aResolvedProfile(validateTokenSignature, chain, "1.2.3.4.5");
+    }
+
+    private static ResolvedManagedTimestampingProfile aResolvedProfile(boolean validateTokenSignature,
+            CertificateChain chain, String defaultPolicyId) {
         return new ResolvedManagedTimestampingProfile(UUID.randomUUID(), "test-profile", null, 1, true,
-                List.of(SigningProtocol.TSP), Boolean.FALSE, "1.2.3.4.5", List.of(), List.of(), validateTokenSignature,
-                List.of(), LocalClockTimeQualityConfiguration.INSTANCE, null,
+                List.of(SigningProtocol.TSP), Boolean.FALSE, defaultPolicyId, List.of(), List.of(),
+                validateTokenSignature, List.of(), LocalClockTimeQualityConfiguration.INSTANCE, null,
                 new ResolvedStaticKeyManagedSigning(SigningCertificateBuilder.valid(), List.of(), chain, List.of()));
     }
 
@@ -155,6 +160,36 @@ class ManagedTimestampEngineTest {
         assertThat(issued.encoded()).isEqualTo(new byte[]{1, 2, 3});
         assertThat(issued.serialNumber()).isEqualTo(BigInteger.TEN);
         assertThat(issued.genTime()).isEqualTo(clock.wallTimeInstant());
+    }
+
+    /** RFC 3161 makes TSTInfo.policy mandatory, so nothing can be assembled without one. */
+    @Test
+    void failsIssuanceAsMisconfigured_whenNeitherTheRequestNorTheProfileNamesAPolicy() throws Exception {
+        // given
+        var profileWithoutDefaultPolicy = aResolvedProfile(false, null, null);
+
+        // when
+        SigningEngineException thrown = catchThrowableOfType(SigningEngineException.class,
+                () -> engine
+                        .issue(aTspRequest().build(), signingProfile, profileWithoutDefaultPolicy,
+                                SigningProtocol.INTERNAL_TSA));
+
+        // then — refused before the formatter is asked to encode a policy that does not exist
+        assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
+        assertThat(thrown.clientMessage()).isEqualTo("No timestamp policy ID is available");
+        verify(tokenGenerator, never()).generate(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void issuesUnderThePolicyTheRequestNames_whenTheProfileConfiguresNoDefault() throws Exception {
+        // given
+        givenIssuanceReaches(aTokenEncodingTo(new byte[]{1}, BigInteger.ONE));
+
+        // when / then
+        assertThat(engine
+                .issue(aTspRequest().policy("1.2.3.4.9").build(), signingProfile, aResolvedProfile(false, null, null),
+                        SigningProtocol.TSP))
+                .isNotNull();
     }
 
     @Test
