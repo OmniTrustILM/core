@@ -321,19 +321,72 @@ class ListViewServiceITest extends BaseSpringBootTest {
      */
     @Test
     void aColumnWhoseFieldNoLongerExistsIsSkippedOnRead() {
-        ListView stored = new ListView();
-        stored.setUserUuid(user);
-        stored.setResource(Resource.CERTIFICATE);
-        stored.setName("Stale");
-        stored
-                .setColumns(List
+        store("Stale",
+                List
                         .of(column("COMMON_NAME"), column("RETIRED_FIELD"),
-                                new ListViewColumnDto(FilterFieldSource.CUSTOM, "deleted|STRING", null)));
-        listViewRepository.save(stored);
+                                new ListViewColumnDto(FilterFieldSource.CUSTOM, "deleted|STRING", null)),
+                null);
 
         ListViewDto read = listViewService.listViews(Resource.CERTIFICATE).getFirst();
 
         Assertions.assertEquals(List.of("COMMON_NAME"), identifiersOf(read));
+    }
+
+    /**
+     * A field can stop being a column after a view has stored it, which is what happens to every view saved before the
+     * listing's own columns were read against its mapper. The column is still returned: the client reads the same
+     * catalogue and can name it as unavailable and offer to take it out, which withholding it silently prevents.
+     */
+    @Test
+    void aColumnTheListingNoLongerShowsIsKeptOnRead() {
+        store("Withdrawn", List.of(column("COMMON_NAME"), column("CERTIFICATE_PROTOCOL")), null);
+
+        ListViewDto read = listViewService.listViews(Resource.CERTIFICATE).getFirst();
+
+        Assertions.assertEquals(List.of("COMMON_NAME", "CERTIFICATE_PROTOCOL"), identifiersOf(read));
+    }
+
+    /**
+     * A view whose every column was withdrawn at once. Filtering them out would answer an empty column list, which no
+     * update request may carry, so the next rename of such a view would be refused for a reason the caller cannot act
+     * on.
+     */
+    @Test
+    void aViewWhoseEveryColumnWasWithdrawnStillReadsBackASaveableShape()
+            throws NotFoundException, AlreadyExistException {
+        store("All withdrawn", List.of(column("CERTIFICATE_PROTOCOL"), column("KEY_USAGE")), null);
+
+        ListViewDto read = listViewService.listViews(Resource.CERTIFICATE).getFirst();
+
+        Assertions.assertEquals(List.of("CERTIFICATE_PROTOCOL", "KEY_USAGE"), identifiersOf(read));
+        ListViewDto renamed = listViewService
+                .editView(read.getUuid(), update("Renamed", column("CERTIFICATE_PROTOCOL"), column("KEY_USAGE")));
+        Assertions.assertEquals("Renamed", renamed.getName());
+    }
+
+    /**
+     * The same for a stored ordering, which the listing now refuses: returning it would make the view unusable rather
+     * than merely unordered.
+     */
+    @Test
+    void anOrderingTheListingNoLongerAppliesIsDroppedOnRead() {
+        store("Stale ordering", List.of(column("COMMON_NAME")),
+                new SearchSortRequestDto(FilterFieldSource.PROPERTY, "CERTIFICATE_PROTOCOL", SortDirection.ASC));
+
+        ListViewDto read = listViewService.listViews(Resource.CERTIFICATE).getFirst();
+
+        Assertions.assertNull(read.getSort());
+        Assertions.assertEquals(List.of("COMMON_NAME"), identifiersOf(read));
+    }
+
+    private void store(String name, List<ListViewColumnDto> columns, SearchSortRequestDto sort) {
+        ListView stored = new ListView();
+        stored.setUserUuid(user);
+        stored.setResource(Resource.CERTIFICATE);
+        stored.setName(name);
+        stored.setColumns(columns);
+        stored.setSort(sort);
+        listViewRepository.save(stored);
     }
 
     @Test
@@ -368,6 +421,86 @@ class ListViewServiceITest extends BaseSpringBootTest {
         ValidationException e = Assertions
                 .assertThrows(ValidationException.class, () -> listViewService.createView(request));
         Assertions.assertTrue(e.getMessage().contains("CKI_NAME"));
+    }
+
+    /**
+     * The certificate listing carries no protocol value, so the field is one to filter on and never one to show.
+     * Accepting it as a column would store a view whose column is empty in every row of every page.
+     */
+    @Test
+    void aColumnTheListingCannotShowIsRejectedOnWrite() {
+        ListViewRequestDto request = request("Blank", column("COMMON_NAME"), column("CERTIFICATE_PROTOCOL"));
+
+        ValidationException e = Assertions
+                .assertThrows(ValidationException.class, () -> listViewService.createView(request));
+        Assertions.assertTrue(e.getMessage().contains("CERTIFICATE_PROTOCOL"));
+    }
+
+    /**
+     * The column gate applies to what a request introduces, not to what the view already holds. A view stored before
+     * the field was withdrawn is read back carrying it, so refusing it on write would leave the view unrenamable over a
+     * column the caller never touched.
+     */
+    @Test
+    void aWithdrawnColumnTheViewAlreadyCarriesSurvivesARename() throws NotFoundException, AlreadyExistException {
+        store("Legacy", List.of(column("COMMON_NAME"), column("CERTIFICATE_PROTOCOL")), null);
+        ListViewDto read = listViewService.listViews(Resource.CERTIFICATE).getFirst();
+
+        ListViewDto renamed = listViewService
+                .editView(read.getUuid(),
+                        update("Legacy renamed", column("COMMON_NAME"), column("CERTIFICATE_PROTOCOL")));
+
+        Assertions.assertEquals("Legacy renamed", renamed.getName());
+        Assertions.assertEquals(List.of("COMMON_NAME", "CERTIFICATE_PROTOCOL"), identifiersOf(renamed));
+    }
+
+    /**
+     * The exemption is for the columns the view carries and nothing wider: a withdrawn column can be kept or taken out,
+     * never introduced, so an edit cannot do what a creation is refused.
+     */
+    @Test
+    void aWithdrawnColumnCannotBeAddedToAnExistingView() throws AlreadyExistException {
+        ListViewDto created = listViewService.createView(request("Clean", column("COMMON_NAME")));
+
+        ValidationException e = Assertions
+                .assertThrows(ValidationException.class,
+                        () -> listViewService
+                                .editView(created.getUuid(),
+                                        update("Clean", column("COMMON_NAME"), column("CERTIFICATE_PROTOCOL"))));
+        Assertions.assertTrue(e.getMessage().contains("CERTIFICATE_PROTOCOL"));
+    }
+
+    /**
+     * A stored ordering is applied by re-issuing the listing request, and the listing refuses a field its catalogue
+     * does not publish as sortable - so a view accepting one would answer an error on every application.
+     */
+    @Test
+    void anOrderingTheListingWouldRefuseIsRejectedOnWrite() {
+        ListViewRequestDto request = request("Unorderable", column("COMMON_NAME"));
+        request
+                .setSort(new SearchSortRequestDto(FilterFieldSource.PROPERTY, "CERTIFICATE_PROTOCOL",
+                        SortDirection.ASC));
+
+        ValidationException e = Assertions
+                .assertThrows(ValidationException.class, () -> listViewService.createView(request));
+        Assertions.assertTrue(e.getMessage().contains("CERTIFICATE_PROTOCOL"));
+    }
+
+    /**
+     * Filtering and showing are separate capabilities: the same field the listing cannot show is one it can be filtered
+     * on, and tightening the columns must not withdraw the filter with them.
+     */
+    @Test
+    void aFilterOnAFieldTheListingCannotShowIsAccepted() throws AlreadyExistException {
+        ListViewRequestDto request = request("Filtered", column("COMMON_NAME"));
+        request
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, "CERTIFICATE_PROTOCOL",
+                                FilterConditionOperator.EQUALS, "acme")));
+
+        ListViewDto created = listViewService.createView(request);
+
+        Assertions.assertEquals("CERTIFICATE_PROTOCOL", created.getFilters().getFirst().getFieldIdentifier());
     }
 
     @Test
