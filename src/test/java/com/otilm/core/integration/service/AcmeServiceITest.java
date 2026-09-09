@@ -82,11 +82,17 @@ import java.security.cert.X509Certificate;
 import java.security.spec.InvalidKeySpecException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Date;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import javax.naming.directory.Attributes;
 import javax.naming.directory.BasicAttribute;
 import javax.naming.directory.BasicAttributes;
@@ -100,6 +106,8 @@ import org.mockito.MockedConstruction;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.anyString;
@@ -1480,6 +1488,71 @@ class AcmeServiceITest extends BaseSpringBootTest {
 
         Assertions.assertEquals(ChallengeStatus.INVALID, outcome.getStatus());
         Assertions.assertEquals(AuthorizationStatus.INVALID, reload(challenge).getAuthorization().getStatus());
+    }
+
+    /**
+     * The same test as above, but with the two accepts actually running at once rather than one after the other. Both
+     * threads are held at a start line and released together, so they contend for the order lock for real. Whichever
+     * takes it first decides the outcome; the other must re-read the settled rows under the same lock and report that
+     * outcome rather than apply its own. The order and its authorization have to agree with the challenge afterwards,
+     * and the account's failed-order count has to move by one at most -- a count of two would mean both accepts wrote.
+     */
+    @Test
+    void testWriter_concurrentAcceptsOfOneChallengeSettleItOnce() throws Exception {
+        AcmeChallenge challenge = pendingDnsChallenge(pendingOrder("orderConcurrent"), "authConcurrent",
+                "challengeConcurrent", "token-challengeConcurrent");
+        UUID orderUuid = challenge.getAuthorization().getOrder().getUuid();
+        UUID accountUuid = challenge.getAuthorization().getOrder().getAcmeAccountUuid();
+        int failedBefore = acmeAccountRepository.findByUuid(accountUuid).orElseThrow().getFailedOrders();
+
+        // The writer opens a transaction per call, so each thread needs the caller's authentication: the security
+        // context is thread-local and the audit path reads it.
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        // Deliberately conflicting verdicts, so a lost lock shows up as a status that disagrees with what was reported.
+        List<ChallengeValidationResult> verdicts = List.of(ChallengeValidationResult.success(),
+                ChallengeValidationResult.failure(Problem.INCORRECT_RESPONSE, "the raced accept"));
+
+        CountDownLatch atStartLine = new CountDownLatch(verdicts.size());
+        CountDownLatch go = new CountDownLatch(1);
+        ExecutorService accepts = Executors.newFixedThreadPool(verdicts.size());
+        try {
+            List<Future<ChallengeStatus>> reported = new ArrayList<>();
+            for (ChallengeValidationResult verdict : verdicts) {
+                reported.add(accepts.submit(() -> {
+                    SecurityContextHolder.getContext().setAuthentication(authentication);
+                    atStartLine.countDown();
+                    Assertions.assertTrue(go.await(30, TimeUnit.SECONDS), "the start line was never released");
+                    return acmeChallengeWriter
+                            .applyValidationResult(orderUuid, "challengeConcurrent", verdict)
+                            .getStatus();
+                }));
+            }
+            Assertions.assertTrue(atStartLine.await(30, TimeUnit.SECONDS), "the accepts never reached the start line");
+            go.countDown();
+
+            List<ChallengeStatus> outcomes = new ArrayList<>();
+            for (Future<ChallengeStatus> accept : reported) {
+                outcomes.add(accept.get(60, TimeUnit.SECONDS));
+            }
+
+            ChallengeStatus settled = reload(challenge).getStatus();
+            Assertions.assertNotEquals(ChallengeStatus.PENDING, settled, "neither accept settled the challenge");
+            Assertions.assertEquals(List.of(settled, settled), outcomes, "an accept reported a status it did not win");
+
+            AcmeOrder order = acmeOrderRepository.findByUuid(orderUuid).orElseThrow();
+            AcmeAuthorization authorization = reload(challenge).getAuthorization();
+            if (settled == ChallengeStatus.INVALID) {
+                Assertions.assertEquals(AuthorizationStatus.INVALID, authorization.getStatus());
+                Assertions.assertEquals(OrderStatus.INVALID, order.getStatus());
+                Assertions.assertEquals(failedBefore + 1, failedOrders(order), "the failed order was counted twice");
+            } else {
+                Assertions.assertEquals(AuthorizationStatus.VALID, authorization.getStatus());
+                Assertions.assertEquals(OrderStatus.READY, order.getStatus());
+                Assertions.assertEquals(failedBefore, failedOrders(order));
+            }
+        } finally {
+            accepts.shutdownNow();
+        }
     }
 
     /**
