@@ -166,6 +166,20 @@ jobs:
           echo "interfaces#$NUM is open - building against $PRV"
           emit "-Dinterfaces.version=$PRV" "pr"
 
+      # sonar.yaml is a separate workflow and cannot read job outputs. Without
+      # this it analyses the compiled classes against a classpath they were not
+      # built with.
+      - name: Publish the resolved argument
+        env:
+          ARG: ${{ steps.resolve.outputs.mvnarg }}
+        run: printf '%s\n' "$ARG" > mvnarg.txt
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: interfaces-mvnarg
+          path: mvnarg.txt
+          retention-days: 1
+
       - name: Summarise
         env:
           MODE: ${{ steps.resolve.outputs.override }}

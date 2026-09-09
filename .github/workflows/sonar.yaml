@@ -5,11 +5,38 @@ on:
     types: [completed]
 
 jobs:
+  # Gated on Package rather than the run conclusion: pin-gate fails by design on
+  # a coupled PR, which would skip Sonar for exactly the PRs that need it most.
+  # Every artifact this workflow downloads comes from Package.
+  gate:
+    name: Sonar precondition
+    if: github.event.workflow_run.conclusion != 'cancelled'
+    runs-on: ubuntu-latest
+    outputs:
+      analyse: ${{ steps.c.outputs.analyse }}
+    steps:
+      - id: c
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          PKG=$(gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/jobs" \
+                  --jq '[.jobs[] | select(.name=="Package")][0].conclusion // "missing"')
+          echo "Package: $PKG"
+          if [ "$PKG" = success ]; then
+            echo "analyse=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "analyse=false" >> "$GITHUB_OUTPUT"
+          fi
+
   sonar:
     name: Sonar
+    needs: gate
+    if: needs.gate.outputs.analyse == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    if: github.event.workflow_run.conclusion == 'success'
     steps:
       # Download the PR number artifact
       - name: Download PR number
@@ -91,6 +118,17 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-sonar-
       # SonarCloud Scan analysis and push
+      # continue-on-error: a run predating this artifact still analyses, just
+      # against the pom value.
+      - name: Download the resolved interfaces argument
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: interfaces-mvnarg
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+          path: .
+
       - name: SonarCloud Scan
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -100,7 +138,9 @@ jobs:
           SONAR_PR_BRANCH: ${{ fromJson(steps.get_pr_data.outputs.data).head.ref }}
           SONAR_PR_BASE: ${{ fromJson(steps.get_pr_data.outputs.data).base.ref }}
         run: |
-          mvn org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
+          MVNARG=$(cat mvnarg.txt 2>/dev/null || true)
+          # Unquoted: empty contributes no argument.
+          mvn org.sonarsource.scanner.maven:sonar-maven-plugin:sonar $MVNARG \
             -Dsonar.scm.revision="$SONAR_REVISION" \
             -Dsonar.pullrequest.key="$SONAR_PR_KEY" \
             -Dsonar.pullrequest.branch="$SONAR_PR_BRANCH" \
