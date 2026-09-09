@@ -4,6 +4,7 @@ import com.otilm.api.model.client.approval.ApprovalStatusEnum;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
+import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.secrets.SecretType;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
@@ -119,6 +120,7 @@ public class CommentableHostObjects {
             }
             case TOKEN -> {
                 TokenInstanceReference token = new TokenInstanceReference();
+                token.setStatus(TokenInstanceStatus.UNKNOWN);
                 token.setName("tst-token-instance");
                 token.setTokenInstanceUuid(UUID.randomUUID().toString());
                 yield context.getBean(TokenInstanceReferenceRepository.class).save(token).getUuid();
@@ -207,6 +209,7 @@ public class CommentableHostObjects {
             }
             case TOKEN_PROFILE -> {
                 TokenInstanceReference tokenInstance = new TokenInstanceReference();
+                tokenInstance.setStatus(TokenInstanceStatus.UNKNOWN);
                 tokenInstance.setName("tst-token-profile-instance");
                 tokenInstance.setTokenInstanceUuid(UUID.randomUUID().toString());
                 context.getBean(TokenInstanceReferenceRepository.class).save(tokenInstance);

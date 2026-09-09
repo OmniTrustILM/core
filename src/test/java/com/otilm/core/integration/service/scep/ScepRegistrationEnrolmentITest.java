@@ -6,6 +6,7 @@ import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
@@ -184,6 +185,7 @@ class ScepRegistrationEnrolmentITest extends BaseSpringBootTest {
         raProfile = raProfileRepository.save(raProfile);
 
         TokenInstanceReference tokenInstance = new TokenInstanceReference();
+        tokenInstance.setStatus(TokenInstanceStatus.CONNECTED);
         tokenInstance.setName("scepRegistrationTestTokenInstance");
         tokenInstance.setConnector(connector);
         tokenInstance.setConnectorUuid(connector.getUuid());

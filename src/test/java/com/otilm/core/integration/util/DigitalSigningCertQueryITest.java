@@ -5,6 +5,7 @@ import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.certificate.CertificateKeyUsage;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateSubjectType;
@@ -102,6 +103,7 @@ class DigitalSigningCertQueryITest extends BaseSpringBootTest {
         connector2FunctionGroupRepository.save(c2fg);
 
         TokenInstanceReference tir = new TokenInstanceReference();
+        tir.setStatus(TokenInstanceStatus.CONNECTED);
         tir.setName("test-token-instance");
         tir.setConnector(connector);
         tir.setConnectorUuid(connector.getUuid());

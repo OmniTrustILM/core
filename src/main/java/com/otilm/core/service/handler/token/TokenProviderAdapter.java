@@ -2,6 +2,7 @@ package com.otilm.core.service.handler.token;
 
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.cryptography.token.TokenInstanceStatusDetailDto;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
 import java.util.List;
@@ -26,4 +27,7 @@ public interface TokenProviderAdapter {
     /** Lists the token-profile attribute schema scoped to the token configuration. */
     List<BaseAttribute> listTokenProfileAttributes(TokenInstanceBasicModel tokenInstanceReference)
             throws ConnectorException;
+
+    /** Lists token-supported key usages; v1 has no connector operation and therefore returns all Core key usages. */
+    List<KeyUsage> listSupportedKeyUsages(TokenInstanceBasicModel tokenInstanceReference) throws ConnectorException;
 }

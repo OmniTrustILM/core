@@ -8,6 +8,7 @@ import java.util.List;
 public class TokenProfileRequestDtoBuilder {
 
     private String name = "test-token-profile";
+    private String description;
     private boolean enabled = true;
     private List<KeyUsage> usage = List.of(KeyUsage.SIGN, KeyUsage.VERIFY);
 
@@ -25,6 +26,11 @@ public class TokenProfileRequestDtoBuilder {
         return this;
     }
 
+    public TokenProfileRequestDtoBuilder withDescription(String description) {
+        this.description = description;
+        return this;
+    }
+
     public TokenProfileRequestDtoBuilder withUsage(KeyUsage... usage) {
         this.usage = List.of(usage);
         return this;
@@ -33,6 +39,7 @@ public class TokenProfileRequestDtoBuilder {
     public AddTokenProfileRequestDto build() {
         AddTokenProfileRequestDto dto = new AddTokenProfileRequestDto();
         dto.setName(name);
+        dto.setDescription(description);
         dto.setEnabled(enabled);
         dto.setAttributes(List.of());
         dto.setCustomAttributes(List.of());

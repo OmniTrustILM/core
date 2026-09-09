@@ -107,14 +107,6 @@ public class TokenInstanceControllerImpl implements TokenInstanceController {
     }
 
     @Override
-    @AuditLogged(module = Module.CRYPTOGRAPHIC_KEYS, resource = Resource.ATTRIBUTE, name = "tokenProfile",
-            affiliatedResource = Resource.TOKEN, operation = Operation.LIST_ATTRIBUTES)
-    public List<BaseAttribute> listTokenProfileAttributes(@LogResource(uuid = true, affiliated = true) String uuid)
-            throws ConnectorException, NotFoundException {
-        return tokenInstanceService.listTokenProfileAttributes(SecuredUUID.fromString(uuid));
-    }
-
-    @Override
     @AuditLogged(module = Module.CRYPTOGRAPHIC_KEYS, resource = Resource.ATTRIBUTE, name = "activate",
             affiliatedResource = Resource.TOKEN, operation = Operation.LIST_ATTRIBUTES)
     public List<BaseAttribute> listTokenInstanceActivationAttributes(

@@ -17,6 +17,7 @@ import com.otilm.api.model.common.attribute.common.callback.RequestAttributeCall
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
+import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.core.attribute.engine.AttributeEngine;
@@ -420,6 +421,7 @@ class AttributesV2CallbackDispatchITest extends BaseSpringBootTest {
         // interface. An NG dispatch on such a route must therefore carry interfaceUuid on the request; absent it the
         // callback fails closed (422) and no connector POST fires. The route's parent is the token INSTANCE.
         TokenInstanceReference tokenInstance = new TokenInstanceReference();
+        tokenInstance.setStatus(TokenInstanceStatus.UNKNOWN);
         tokenInstance.setConnector(connector);
         tokenInstance = tokenInstanceReferenceRepository.save(tokenInstance);
 
@@ -450,6 +452,7 @@ class AttributesV2CallbackDispatchITest extends BaseSpringBootTest {
         // dispatches, and the arm and the scope walker agree the parent UUID is the token instance — the envelope's
         // sole scope step carries that instance UUID. This is the arm/walker agreement that was broken before the fix.
         TokenInstanceReference tokenInstance = new TokenInstanceReference();
+        tokenInstance.setStatus(TokenInstanceStatus.UNKNOWN);
         tokenInstance.setConnector(connector);
         tokenInstance = tokenInstanceReferenceRepository.save(tokenInstance);
 

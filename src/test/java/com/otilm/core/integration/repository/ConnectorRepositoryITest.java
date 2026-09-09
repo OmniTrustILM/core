@@ -4,7 +4,10 @@ import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.core.Application;
 import com.otilm.core.dao.entity.Connector;
+import com.otilm.core.dao.repository.Connector2FunctionGroupRepository;
+import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
+import com.otilm.core.dao.repository.FunctionGroupRepository;
 import com.otilm.core.util.builders.ConnectorBuilder;
 import jakarta.persistence.EntityManager;
 import java.util.UUID;
@@ -24,6 +27,15 @@ class ConnectorRepositoryITest {
 
     @Autowired
     private ConnectorRepository connectorRepository;
+
+    @Autowired
+    private ConnectorInterfaceRepository connectorInterfaceRepository;
+
+    @Autowired
+    private FunctionGroupRepository functionGroupRepository;
+
+    @Autowired
+    private Connector2FunctionGroupRepository connector2FunctionGroupRepository;
 
     @Autowired
     private EntityManager entityManager;
@@ -47,8 +59,9 @@ class ConnectorRepositoryITest {
         var expectedFunctionGroupCount = 1;
         var expectedInterfaceCode = ConnectorInterface.CRYPTOGRAPHY;
         var expectedFunctionGroupCode = FunctionGroupCode.CRYPTOGRAPHY_PROVIDER;
-        UUID persistedConnectorUuid = persistConnectorWithAssociations(expectedInterfaceCode,
+        Connector persistedConnector = persistConnectorWithAssociations(expectedInterfaceCode,
                 expectedFunctionGroupCode);
+        UUID persistedConnectorUuid = persistedConnector.getUuid();
 
         // when
         Connector loadedConnector = connectorRepository
@@ -63,20 +76,24 @@ class ConnectorRepositoryITest {
                 loadedConnector.getFunctionGroups().iterator().next().getFunctionGroup().getCode());
     }
 
-    private UUID persistConnectorWithAssociations(ConnectorInterface interfaceCode,
+    private Connector persistConnectorWithAssociations(ConnectorInterface interfaceCode,
             FunctionGroupCode functionGroupCode) {
         ConnectorBuilder.Fixture fixture = ConnectorBuilder
                 .aConnector()
                 .withInterfaceCode(interfaceCode)
                 .withFunctionGroupCode(functionGroupCode)
                 .buildFixture();
-        entityManager.persist(fixture.connector());
-        entityManager.persist(fixture.functionGroup());
-        entityManager.persist(fixture.connectorInterface());
-        entityManager.persist(fixture.relation());
+        Connector connector = connectorRepository.save(fixture.connector());
+        var functionGroup = functionGroupRepository.save(fixture.functionGroup());
+
+        fixture.connectorInterface().setConnector(connector);
+        connectorInterfaceRepository.save(fixture.connectorInterface());
+
+        fixture.relation().setConnector(connector);
+        fixture.relation().setFunctionGroup(functionGroup);
+        connector2FunctionGroupRepository.save(fixture.relation());
         entityManager.flush();
-        UUID persistedConnectorUuid = fixture.connector().getUuid();
         entityManager.clear();
-        return persistedConnectorUuid;
+        return connector;
     }
 }

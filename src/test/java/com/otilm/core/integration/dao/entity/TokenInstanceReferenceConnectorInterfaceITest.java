@@ -2,6 +2,7 @@ package com.otilm.core.integration.dao.entity;
 
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
@@ -42,6 +43,7 @@ class TokenInstanceReferenceConnectorInterfaceITest extends BaseSpringBootTest {
         ConnectorInterfaceEntity connectorInterface = connectorInterfaceRepository
                 .save(cryptographyInterface(connector, supportedVersion));
         TokenInstanceReference tokenInstance = new TokenInstanceReference();
+        tokenInstance.setStatus(TokenInstanceStatus.UNKNOWN);
         tokenInstance.setName("token-with-interface");
         tokenInstance.setConnector(connector);
         tokenInstance.setConnectorInterface(connectorInterface);

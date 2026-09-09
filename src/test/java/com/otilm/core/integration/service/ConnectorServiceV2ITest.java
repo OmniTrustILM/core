@@ -22,6 +22,7 @@ import com.otilm.api.model.client.connector.v2.InfoResponse;
 import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.PaginationResponseDto;
+import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.connector.AuthType;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.connector.v2.ConnectInfo;
@@ -263,6 +264,7 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
         entityInstanceRepository.save(entity);
 
         TokenInstanceReference token = new TokenInstanceReference();
+        token.setStatus(TokenInstanceStatus.UNKNOWN);
         token.setName("test");
         token.setKind("TST");
         token.setConnectorUuid(connectorUUID.getValue());

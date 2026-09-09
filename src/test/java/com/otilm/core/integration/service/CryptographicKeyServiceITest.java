@@ -530,6 +530,7 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         Assertions.assertEquals(group.getUuid().toString(), keyDetailDto.getGroups().getFirst().getUuid());
 
         TokenInstanceReference tokenInstanceReference2 = new TokenInstanceReference();
+        tokenInstanceReference2.setStatus(TokenInstanceStatus.CONNECTED);
         tokenInstanceReference2.setName("Token2");
         tokenInstanceReference2.setTokenInstanceUuid("2l");
         tokenInstanceReference2.setConnector(connector);

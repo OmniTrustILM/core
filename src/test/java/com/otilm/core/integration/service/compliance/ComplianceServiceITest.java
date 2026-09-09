@@ -8,6 +8,7 @@ import com.otilm.api.model.client.compliance.v2.ComplianceInternalRuleRequestDto
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v3.content.IntegerAttributeContentV3;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.secrets.SecretType;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateDetailDto;
@@ -269,6 +270,7 @@ class ComplianceServiceITest extends BaseComplianceTest {
 
         // check compliance of cryptographic key
         TokenInstanceReference token = new TokenInstanceReference();
+        token.setStatus(TokenInstanceStatus.UNKNOWN);
         token.setName("Token");
         token.setAuthor("John Doe");
         token.setCreated(OffsetDateTime.now());

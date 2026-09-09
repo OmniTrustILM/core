@@ -30,6 +30,7 @@ import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.certificate.CertificateDownloadResponseDto;
@@ -2521,6 +2522,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
         }
         if (withTokenInstanceReference) {
             TokenInstanceReference tokenInstanceReference = new TokenInstanceReference();
+            tokenInstanceReference.setStatus(TokenInstanceStatus.CONNECTED);
             tokenInstanceReference.setName(testCaseName + " Token Instance");
             tokenInstanceReference.setTokenInstanceUuid(UUID.randomUUID().toString());
             tokenInstanceReference = tokenInstanceReferenceRepository.save(tokenInstanceReference);

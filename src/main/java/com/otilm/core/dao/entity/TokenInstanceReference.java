@@ -45,7 +45,7 @@ public class TokenInstanceReference extends UniquelyIdentifiedAndAudited
     @Column(name = "name")
     private String name;
 
-    @Column(name = "status")
+    @Column(name = "status", nullable = false)
     @Enumerated(EnumType.STRING)
     private TokenInstanceStatus status;
 

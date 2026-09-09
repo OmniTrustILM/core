@@ -11,7 +11,7 @@ import java.util.stream.Collectors;
 public record ImmutableTokenInstanceFullModel(UUID uuid, String tokenInstanceUuid, String name,
         TokenInstanceStatus status, String kind, UUID connectorUuid, String connectorName, UUID connectorInterfaceUuid,
         ImmutableConnectorInterface connectorInterface,
-        Set<ImmutableTokenProfileFullModel> tokenProfiles) implements TokenInstanceFullModel {
+        Set<TokenProfileBasicModel> tokenProfiles) implements TokenInstanceFullModel {
 
     public static ImmutableTokenInstanceFullModel from(TokenInstanceReference value) {
         Objects.requireNonNull(value, "Token instance is required.");
@@ -24,7 +24,7 @@ public record ImmutableTokenInstanceFullModel(UUID uuid, String tokenInstanceUui
                 value
                         .getTokenProfiles()
                         .stream()
-                        .map(ImmutableTokenProfileFullModel::from)
+                        .map(ImmutableTokenProfileBasicModel::from)
                         .collect(Collectors.toSet()));
     }
 

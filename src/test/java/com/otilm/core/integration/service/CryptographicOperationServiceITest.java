@@ -24,6 +24,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.enums.cryptography.RsaSignatureScheme;
+import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.api.model.core.cryptography.key.KeyState;
@@ -149,6 +150,7 @@ class CryptographicOperationServiceITest extends BaseSpringBootTest {
         connectorRepository.save(connector);
 
         tokenInstanceReference = new TokenInstanceReference();
+        tokenInstanceReference.setStatus(TokenInstanceStatus.CONNECTED);
         tokenInstanceReference.setName("testInstance");
         tokenInstanceReference.setConnector(connector);
         tokenInstanceReference.setConnectorUuid(connector.getUuid());
