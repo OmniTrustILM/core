@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import org.yaml.snakeyaml.Yaml;
 
@@ -23,10 +24,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@code Depends-On:} or {@code Interfaces-Version:} marker in its body. Two lists in {@code build_pr.yml} keep that
  * safe, and both are silent when they drift.
  * <p>
- * Dropping {@code pin-gate} from the aggregate job's {@code needs} leaves every check green while an override is active
- * — "Interfaces pin" is not itself a required context, so that list is the whole enforcement. Adding a job that
- * compiles the tree without the resolved argument reddens a coupled pull request against the mainline snapshot instead,
- * with diagnostics pointing at the new job rather than at the missing override.
+ * The merge block stands on three legs, and every one of them is a line somebody could remove as a tidy-up.
+ * {@code pin-gate} must stay in the aggregate job's {@code needs}; the aggregate must keep {@code !cancelled()}, or it
+ * is skipped when the gate fails and GitHub counts a skipped required check as passing; and its scan must keep failing
+ * on a non-successful upstream. Any one of them gone and an active override merges with every check green.
+ * <p>
+ * A fourth: a job that compiles the tree without the resolved argument reddens a coupled pull request against the
+ * mainline snapshot, with diagnostics pointing at the new job rather than at the missing override.
  * <p>
  * Neither surfaces anywhere near the edit that caused it; this test fails at the edit instead. It loads no Spring
  * context, so it does not affect {@link ContextSignatureGuardTest#BASELINE}.
@@ -39,9 +43,14 @@ class InterfacesPinGuardTest {
     private static final String AGGREGATE_JOB = "build";
     private static final String OVERRIDE = "$MVNARG";
 
+    /** A Maven call anywhere in the line, so that {@code cd x && mvn ...} and the wrapper are seen too. */
+    private static final Pattern MAVEN_INVOCATION = Pattern
+            .compile("(^|&&\\s*|\\|\\|\\s*|;\\s*|\\|\\s*|\\(\\s*)\\.?/?mvnw?\\s");
+
     /** Maven lifecycle phases that compile the tree, and so resolve {@code com.otilm:interfaces}. */
     private static final Set<String> BUILDING_PHASES = Set
-            .of("compile", "test-compile", "test", "package", "verify", "install", "deploy");
+            .of("compile", "test-compile", "test", "package", "verify", "install", "deploy", "process-classes",
+                    "process-test-classes", "integration-test", "prepare-package");
 
     /**
      * The jobs that compile the tree today. Asserted explicitly so that a detection which silently stops matching
@@ -57,6 +66,24 @@ class InterfacesPinGuardTest {
                                 + "context, so removing it from that list lets an active override merge",
                         GATE_JOB, AGGREGATE_JOB)
                 .contains(GATE_JOB);
+    }
+
+    @Test
+    void aggregateJobRunsEvenWhenAnUpstreamFails() throws IOException {
+        assertThat(String.valueOf(job(AGGREGATE_JOB).get("if")))
+                .describedAs("without !cancelled() the aggregate is skipped whenever '%s' fails, and GitHub counts a "
+                        + "skipped required check as passing - which is the failure this gate exists to prevent",
+                        GATE_JOB)
+                .contains("!cancelled()");
+    }
+
+    @Test
+    void aggregateFailsOnAnyUpstreamThatDidNotSucceed() throws IOException {
+        assertThat(stepSource(job(AGGREGATE_JOB)))
+                .describedAs("the scan over the needs context is what turns a failed '%s' into a red Build; running "
+                        + "on !cancelled() without it would report success instead", GATE_JOB)
+                .contains("toJSON(needs)")
+                .contains("exit 1");
     }
 
     @Test
@@ -101,14 +128,31 @@ class InterfacesPinGuardTest {
     }
 
     @SuppressWarnings("unchecked")
+    private static Map<String, Object> job(String jobName) throws IOException {
+        return (Map<String, Object>) jobs().get(jobName);
+    }
+
+    /** Every step's {@code run} and {@code env} together — an expression can reach a script through either. */
+    @SuppressWarnings("unchecked")
+    private static String stepSource(Object job) {
+        StringBuilder source = new StringBuilder();
+        for (Object step : (List<Object>) ((Map<String, Object>) job).getOrDefault("steps", List.of())) {
+            Map<String, Object> fields = (Map<String, Object>) step;
+            source.append(fields.getOrDefault("run", "")).append('\n');
+            source.append(fields.getOrDefault("env", Map.of())).append('\n');
+        }
+        return source.toString();
+    }
+
+    @SuppressWarnings("unchecked")
     private static List<String> needsOf(String jobName) throws IOException {
         Object needs = ((Map<String, Object>) jobs().get(jobName)).get("needs");
         return needs instanceof String single ? List.of(single) : (List<String>) needs;
     }
 
     /**
-     * The {@code mvn} command lines a job runs, with backslash continuations joined. Matching whole lines rather than
-     * searching the script keeps prose that merely mentions a phase — comments, error messages — out of the result.
+     * The {@code mvn} command lines a job runs, with backslash continuations joined. Only a command position counts:
+     * {@code generated} echoes a {@code mvn} line inside its diff message, and that is prose, not an invocation.
      */
     @SuppressWarnings("unchecked")
     private static List<String> mavenInvocations(Object job) {
@@ -125,7 +169,7 @@ class InterfacesPinGuardTest {
             Arrays
                     .stream(script.replace("\\\n", " ").split("\n"))
                     .map(String::strip)
-                    .filter(line -> line.startsWith("mvn "))
+                    .filter(line -> MAVEN_INVOCATION.matcher(line).find())
                     .forEach(invocations::add);
         }
         return invocations;

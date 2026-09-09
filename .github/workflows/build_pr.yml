@@ -66,8 +66,8 @@ jobs:
           BODY=$(printf '%s\n' "$BODY" | python3 -c 'import re,sys; t=sys.stdin.read(); t=re.sub(r"<!--.*?-->","",t,flags=re.S); t=re.sub(r"^[ \t]*(```|~~~).*?^[ \t]*\1","",t,flags=re.S|re.M); sys.stdout.write(t)')
 
           # head -1 below would otherwise take the earlier line silently.
-          DUPD=$(printf '%s' "$BODY" | grep -ciP '^[[:space:]>*_-]*Depends-On[[:space:]]*:[[:space:]*_]*(https?://github\.com/)?OmniTrustILM/interfaces(?![0-9A-Za-z._-])' || true)
-          DUPV=$(printf '%s' "$BODY" | grep -ciP '^Interfaces-Version[[:space:]]*:' || true)
+          DUPD=$(printf '%s' "$BODY" | grep -ciP '^[[:space:]>*_+#.)0-9-]*Depends-On[[:space:]*_]*:[[:space:]*_]*(https?://github\.com/)?OmniTrustILM/interfaces(?![0-9A-Za-z._-])' || true)
+          DUPV=$(printf '%s' "$BODY" | grep -ciP '^[[:space:]>*_+#.)0-9-]*Interfaces-Version[[:space:]*_]*:' || true)
           [ "${DUPD:-0}" -le 1 ] || fail "The PR body has ${DUPD} Depends-On lines. Keep exactly one."
           [ "${DUPV:-0}" -le 1 ] || fail "The PR body has ${DUPV} Interfaces-Version lines. Keep exactly one."
 
@@ -88,10 +88,10 @@ jobs:
           #
           # The Depends-On probe closes off the repository name, so a marker for
           # another repo - or a sibling starting with the same word - is ignored.
-          if printf '%s' "$BODY" | grep -qiP '^[[:space:]>*_-]*Depends-On[[:space:]]*:[[:space:]*_]*(https?://github\.com/)?OmniTrustILM/interfaces(?![0-9A-Za-z._-])' && [ -z "$NUM" ]; then
+          if printf '%s' "$BODY" | grep -qiP '^[[:space:]>*_+#.)0-9-]*Depends-On[[:space:]*_]*:[[:space:]*_]*(https?://github\.com/)?OmniTrustILM/interfaces(?![0-9A-Za-z._-])' && [ -z "$NUM" ]; then
             fail "A Depends-On: line for interfaces is present but not in the accepted form. It must begin the line and read: Depends-On: OmniTrustILM/interfaces#<number> - a pull-request URL is not accepted."
           fi
-          if printf '%s' "$BODY" | grep -qiP '^[[:space:]>*_-]*Interfaces-Version[[:space:]]*:' && [ -z "$VER" ]; then
+          if printf '%s' "$BODY" | grep -qiP '^[[:space:]>*_+#.)0-9-]*Interfaces-Version[[:space:]*_]*:' && [ -z "$VER" ]; then
             fail "An Interfaces-Version: line is present but not in the accepted form. It must begin the line and name a published version, e.g. Interfaces-Version: 2.20.0-M906-480022e4"
           fi
 
