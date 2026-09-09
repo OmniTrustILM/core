@@ -11,6 +11,7 @@ import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
 import com.otilm.core.attribute.engine.records.ProjectedAttributeContent;
 import com.otilm.core.dao.repository.AttributeContent2ObjectRepository;
+import com.otilm.core.model.AttributeFieldIdentifier;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -36,7 +37,8 @@ class ProjectedContentWithholdingTest {
 
     private static final String ATTRIBUTE_NAME = "environment";
 
-    private static final String FIELD_IDENTIFIER = ATTRIBUTE_NAME + "|STRING";
+    private static final String FIELD_IDENTIFIER = ATTRIBUTE_NAME + AttributeFieldIdentifier.SEPARATOR
+            + AttributeContentType.STRING.name();
 
     private AttributeContent2ObjectRepository attributeContent2ObjectRepository;
 

@@ -1218,9 +1218,10 @@ public class FilterPredicatesBuilder {
      *
      * <p>
      * Ordering reads a value, so it is gated like the projection that renders one: encrypted content is skipped, a
-     * disabled custom definition is skipped, and the caller's custom-attribute permissions narrow which definitions are
-     * readable at all. Whether the field may be ordered on - visible, not secret, not a code block - is settled before
-     * this by {@code ListingSortResolver} against the resource's published catalogue.
+     * definition marked not visible is skipped whatever its attribute type, a disabled custom definition is skipped,
+     * and the caller's custom-attribute permissions narrow which definitions are readable at all. That the field may be
+     * ordered on at all - not secret, not a code block, and visible in at least one of the definitions it collapses -
+     * is settled before this by {@code ListingSortResolver} against the resource's published catalogue.
      */
     public static <T> Expression<?> getAttributeSortKey(final CriteriaBuilder criteriaBuilder,
             final CommonAbstractCriteria query, final Root<T> root, final SortSpecification sort) {
@@ -1281,6 +1282,11 @@ public class FilterPredicatesBuilder {
         predicates
                 .addAll(attributeReadabilityPredicates(criteriaBuilder, joinContentItem, joinDefinition, attributeType,
                         contentFilterSource, true));
+        // A hidden definition must supply no sort key either: the order of a page is part of what it shows, and the
+        // projection filling its cells keeps only visible definitions. Custom is narrowed for every reader already.
+        if (attributeType != AttributeType.CUSTOM) {
+            predicates.add(definitionIsVisible(criteriaBuilder, joinDefinition));
+        }
 
         subquery.select(value).where(predicates.toArray(new Predicate[]{}));
         ((JpaSubQuery) subquery)
@@ -1330,9 +1336,8 @@ public class FilterPredicatesBuilder {
         // metadata definition `visible` is a connector's display hint, and the nullable `enabled` column is unset,
         // so applying either would drop rows a listing is meant to return.
         //
-        // The projection and the catalogue do withhold a hidden data or metadata field, because those decide what is
-        // rendered and a display hint governs that. Filtering is not rendering, so such a value stays answerable here
-        // by design: the split is deliberate, not an oversight the projection predicate was meant to close.
+        // A display hint governs what is rendered, so the projection and the ordering that arranges it withhold a
+        // hidden data or metadata value while a filter still matches it.
         if (attributeType != AttributeType.CUSTOM) {
             return predicates;
         }

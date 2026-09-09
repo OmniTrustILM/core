@@ -274,7 +274,7 @@ class AttributeColumnProjectionITest extends BaseSpringBootTest {
     void aHiddenAttributeColumnProjectsNoValues() throws Exception {
         // The definition says its values are not to be shown to a user, which is what a column does with them. The
         // catalogue withholds such a field, but that flag is a hint on a response the caller is free to ignore, so
-        // the projection drops the values again on the way out.
+        // the projection query excludes the definition and its values are never loaded.
         UUID hiddenUuid = registerCustomAttribute("helper-only", "Helper only", false);
         Discovery hidden = saveDiscovery("discovery-hidden-attribute");
         attributeEngine
