@@ -153,3 +153,38 @@ Example values:
 - `HTTP_PROXY=http://user:password@proxy.example.com:3128`
 - `HTTPS_PROXY=http://user:password@proxy.example.com:3128`
 - `NO_PROXY=localhost,127.0.0.1,0.0.0.0,10.0.0.0/8,cattle-system.svc,.svc,.cluster.local,my-domain.local`
+
+## Building against an unmerged `interfaces` change
+
+A change that needs a not-yet-merged `interfaces` API cannot compile against the
+mainline snapshot. Put one marker in the pull request **body** to redirect the
+build; the pom is never edited.
+
+```
+Depends-On: OmniTrustILM/interfaces#940
+```
+
+CI then builds against that pull request's own snapshot, which it publishes only
+while it carries the `publish-snapshot` label. Fork pull requests never publish,
+because their token is read-only.
+
+Use `Interfaces-Version` instead to pin one already-published build — useful when
+somebody else's merge reddens an unrelated pull request:
+
+```
+Interfaces-Version: 2.20.0-M907-1299756b
+```
+
+Two rules decide whether a marker is read at all. **It must start at column 0** —
+no bullet, no indent, no `>`, no bold — and **nothing may follow the value**. A
+marker breaking either rule fails the build with a message naming the accepted
+form, rather than being silently ignored. Markers inside fenced code blocks or
+HTML comments are skipped, so quoting the syntax is safe.
+
+The `Interfaces pin` check stays red for as long as a marker is active, and it
+feeds the required `Build` check, so neither form can reach `main`:
+
+- `Depends-On` clears itself. Merge the `interfaces` pull request, wait for its
+  publish to finish, then re-run **all** jobs — re-running only the failed job
+  replays the cached resolution and the gate stays red.
+- `Interfaces-Version` does not. Delete the line and re-run before merging.
