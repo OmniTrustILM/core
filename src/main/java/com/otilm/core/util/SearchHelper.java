@@ -55,16 +55,11 @@ public class SearchHelper {
          * publishes a heading whose every cell is empty, whatever the request asks for.
          *
          * <p>
-         * Listed rather than derived. Neither of the two rules that look like they would decide this holds: every field
-         * of these listings has a non-null attribute, so having one excludes nothing, and reaching a value through a
-         * join predicts nothing either - {@code CERTIFICATE_PROTOCOL} is joined and absent from the listing while
-         * {@code RA_PROFILE_NAME} and {@code GROUP_NAME} are joined and present. What decides it is whether the query
-         * the listing runs selects the value, which only reading that query answers.
-         *
-         * <p>
-         * A field is listed here when the listing DTO has no property for it, or has one the list mapper leaves unset.
-         * A field the DTO does carry stays displayable even where no frontend renderer draws it yet: that is a column
-         * waiting for its cell, not a column that can never have one.
+         * A field belongs here when the listing DTO has no property for it, or has one the list mapper leaves unset -
+         * which only reading that mapper answers, so the set is listed rather than derived. Neither having an attribute
+         * nor reaching the value through a join predicts it: {@code CERTIFICATE_PROTOCOL} is joined and absent while
+         * {@code RA_PROFILE_NAME} and {@code GROUP_NAME} are joined and present. A field the DTO does carry stays
+         * displayable even where no frontend renderer draws it yet.
          */
         private static final Set<FilterField> ABSENT_FROM_LISTING = EnumSet
                 .of(
@@ -221,10 +216,9 @@ public class SearchHelper {
      * AttributeProjectable} DTO and passes the sort a request carries to the repository.
      *
      * <p>
-     * Both flags are published per field while the pipeline is wired per listing, and only the listings named here are
-     * wired. A field of any other resource is reported neither displayable nor sortable however orderable its path is,
-     * because a catalogue reporting {@code true} there would advertise a column that listing cannot project and an
-     * ordering it discards: the client asks, receives the default columns in the default order, and is told nothing.
+     * Both flags are published per field while the pipeline is wired per listing, so a field of any other resource is
+     * reported neither displayable nor sortable however orderable its path is - a {@code true} there would advertise a
+     * column that listing cannot project and an ordering it discards.
      *
      * <p>
      * Explicit rather than derived: the wiring lives in each listing service and nothing on a {@link FilterField} knows
@@ -258,10 +252,6 @@ public class SearchHelper {
     /**
      * What the catalogue advertises as sortable for an attribute field: a field the catalogue offers as a column at
      * all, whose value is what its cell shows, on a listing that applies the ordering.
-     *
-     * <p>
-     * Decided here rather than by a pass over the assembled catalogue, so it is answered wherever {@code displayable}
-     * is and no caller can assemble a catalogue that forgets to answer it.
      */
     private static boolean isSortable(final SearchFieldObject attributeSearchInfo, final Resource resource) {
         return isDisplayable(attributeSearchInfo, resource)
@@ -279,13 +269,15 @@ public class SearchHelper {
     }
 
     /**
-     * Whether a listing may be ordered by this field, which is what a requested sort is refused against.
+     * Whether a query may be ordered by this field, which is what a sort reaching {@code SortOrderBuilder} is refused
+     * against.
      *
      * <p>
      * Wider than the catalogue's {@code sortable} flag, and deliberately so. On a listing that publishes columns the
      * two agree, because ordering there is triggered by clicking a column header and a field that listing cannot show
-     * has no header to click. Every other listing orders from its own code rather than from a header - the OID entries
-     * listing orders by {@code OID_ENTRY_CODE}, which no column picker ever offered - so only the path matters there.
+     * has no header to click. Outside those listings the ordering is not a column's: a caller naming a
+     * {@code SortSpecification} against the repository directly - {@code OID_ENTRY_CODE} on the custom OID entries,
+     * which no column picker ever offered - has no header behind it, so only the path matters there.
      */
     public static boolean isOrderableOnListing(final FilterField filterField) {
         return isOrderableField(filterField) && (isDisplayable(filterField)
@@ -295,10 +287,6 @@ public class SearchHelper {
     /**
      * Whether a property field may be requested as a column: its listing has to be wired to the column pipeline at all,
      * and has to carry the value the column would show.
-     *
-     * <p>
-     * Answered here rather than by a pass over the assembled catalogue, so it is decided in the one place {@code
-     * sortable} is and no caller can assemble a catalogue that forgets to answer it.
      */
     public static boolean isDisplayable(final FilterField filterField) {
         return CONFIGURABLE_COLUMN_RESOURCES.contains(filterField.getRootResource())
@@ -341,16 +329,14 @@ public class SearchHelper {
      * all, and the content it holds has to be content a cell may show.
      *
      * <p>
-     * The listing gate is the same one the property path applies. A listing outside the pipeline never invokes {@code
-     * AttributeColumnProjector}, so the values of even an ordinary custom attribute of such a resource have nothing to
-     * fill them in.
+     * The listing gate is the one the property path applies: a listing outside the pipeline never invokes {@code
+     * AttributeColumnProjector}, so even an ordinary custom attribute of such a resource has nothing to fill its cells.
      *
      * <p>
      * Four kinds of content are then withheld on a wired listing. A secret is never rendered anywhere. Encrypted
-     * content is stored as ciphertext that only its own decryption path can read, and a listing does not take that
-     * path. A code block is multi-line by construction - the frontend renders it as a block element - so a single-line
-     * table cell cannot hold one without breaking the row. And an attribute whose definition is marked not visible is
-     * one the contract says to hide from the user, which rules out putting its values in a column of their own.
+     * content is ciphertext only its own decryption path can read, which a listing does not take. A code block is
+     * multi-line by construction, so a single-line table cell cannot hold one without breaking the row. And an
+     * attribute marked not visible is one the contract says to hide from the user.
      */
     private static boolean isDisplayable(final SearchFieldObject attributeSearchInfo, final Resource resource) {
         return CONFIGURABLE_COLUMN_RESOURCES.contains(resource)

@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -89,7 +90,7 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
     public ListViewDto createView(ListViewRequestDto request) throws AlreadyExistException {
         UUID userUuid = loggedUserUuid();
         Resource resource = request.getResource();
-        validateRequest(resource, request);
+        validateRequest(resource, request, Set.of());
 
         serializeWritesFor(userUuid, resource);
         if (listViewRepository.existsByUserUuidAndResourceAndName(userUuid, resource, request.getName())) {
@@ -111,7 +112,7 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
             throws NotFoundException, AlreadyExistException {
         UUID userUuid = loggedUserUuid();
         ListView view = ownView(uuid, userUuid);
-        validateRequest(view.getResource(), request);
+        validateRequest(view.getResource(), request, columnsOf(view));
 
         serializeWritesFor(userUuid, view.getResource());
         if (listViewRepository
@@ -204,11 +205,15 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         dto.setName(view.getName());
         dto.setResource(view.getResource());
         dto.setDefaultView(view.isDefaultView());
+        // A column the listing can no longer show is still returned: the client has the same catalogue this is read
+        // from, so it can mark the column unavailable and offer to remove it, and a view whose every column was
+        // withdrawn still reads back in a shape it can be saved in. Only a field that has left the catalogue outright
+        // is dropped, having nothing left to label it with.
         dto
                 .setColumns(view
                         .getColumns()
                         .stream()
-                        .filter(column -> catalogue.canDisplay(CatalogueField.of(column)))
+                        .filter(column -> catalogue.offers(CatalogueField.of(column)))
                         .toList());
         dto.setFilters(view.getFilters());
         // Returning an ordering the listing would now refuse hands the client a view whose every application answers
@@ -222,10 +227,22 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
 
     /**
      * Rejects anything the resource's catalogue cannot apply, so a view is stored only in a shape the listing can
-     * actually use. A field that afterwards disappears, or stops being one the listing can show or order by, is a
-     * different case and is dropped on read instead.
+     * actually use.
+     *
+     * <p>
+     * {@code carriedAlready} are the columns the stored view holds, which are exempt from the column gate. A field can
+     * stop being one the listing shows after a view stored it, and rejecting it would leave that view unsaveable: the
+     * client reads it back, renames it, and the rename is refused over a column it did not touch. So a withdrawn column
+     * can be kept or removed but not introduced, and a creation - which carries nothing already - is held to the
+     * current catalogue in full.
+     *
+     * <p>
+     * An ordering has no such exemption. It is applied by re-issuing the listing request, which refuses a field that is
+     * not sortable, so keeping one would answer an error on every application rather than show a blank column. Such an
+     * ordering is dropped on read instead.
      */
-    private void validateRequest(Resource resource, ListViewUpdateRequestDto request) {
+    private void validateRequest(Resource resource, ListViewUpdateRequestDto request,
+            Set<CatalogueField> carriedAlready) {
         Catalogue catalogue = catalogueOf(resource);
         if (catalogue.isEmpty()) {
             throw new ValidationException(ValidationError
@@ -233,12 +250,17 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
                             .formatted(resource.getCode())));
         }
 
-        validateColumns(resource, request.getColumns(), catalogue);
+        validateColumns(resource, request.getColumns(), catalogue, carriedAlready);
         validateFilters(resource, request.getFilters(), catalogue);
         validateSort(resource, request.getSort(), catalogue);
     }
 
-    private static void validateColumns(Resource resource, List<ListViewColumnDto> columns, Catalogue catalogue) {
+    private static Set<CatalogueField> columnsOf(ListView view) {
+        return view.getColumns().stream().map(CatalogueField::of).collect(Collectors.toUnmodifiableSet());
+    }
+
+    private static void validateColumns(Resource resource, List<ListViewColumnDto> columns, Catalogue catalogue,
+            Set<CatalogueField> carriedAlready) {
         Set<CatalogueField> seen = new LinkedHashSet<>();
         List<String> duplicated = columns
                 .stream()
@@ -259,6 +281,7 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
 
         List<String> unshowable = columns
                 .stream()
+                .filter(column -> !carriedAlready.contains(CatalogueField.of(column)))
                 .filter(column -> !catalogue.canDisplay(CatalogueField.of(column)))
                 .map(ListViewColumnDto::getFieldIdentifier)
                 .toList();

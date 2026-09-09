@@ -334,16 +334,34 @@ class ListViewServiceITest extends BaseSpringBootTest {
 
     /**
      * A field can stop being a column after a view has stored it, which is what happens to every view saved before the
-     * listing's own columns were read against its mapper. Such a column is dropped on read rather than handed back for
-     * the picker to render as a heading with nothing under it.
+     * listing's own columns were read against its mapper. The column is still returned: the client reads the same
+     * catalogue and can name it as unavailable and offer to take it out, which withholding it silently prevents.
      */
     @Test
-    void aColumnTheListingNoLongerShowsIsSkippedOnRead() {
+    void aColumnTheListingNoLongerShowsIsKeptOnRead() {
         store("Withdrawn", List.of(column("COMMON_NAME"), column("CERTIFICATE_PROTOCOL")), null);
 
         ListViewDto read = listViewService.listViews(Resource.CERTIFICATE).getFirst();
 
-        Assertions.assertEquals(List.of("COMMON_NAME"), identifiersOf(read));
+        Assertions.assertEquals(List.of("COMMON_NAME", "CERTIFICATE_PROTOCOL"), identifiersOf(read));
+    }
+
+    /**
+     * A view whose every column was withdrawn at once. Filtering them out would answer an empty column list, which no
+     * update request may carry, so the next rename of such a view would be refused for a reason the caller cannot act
+     * on.
+     */
+    @Test
+    void aViewWhoseEveryColumnWasWithdrawnStillReadsBackASaveableShape()
+            throws NotFoundException, AlreadyExistException {
+        store("All withdrawn", List.of(column("CERTIFICATE_PROTOCOL"), column("KEY_USAGE")), null);
+
+        ListViewDto read = listViewService.listViews(Resource.CERTIFICATE).getFirst();
+
+        Assertions.assertEquals(List.of("CERTIFICATE_PROTOCOL", "KEY_USAGE"), identifiersOf(read));
+        ListViewDto renamed = listViewService
+                .editView(read.getUuid(), update("Renamed", column("CERTIFICATE_PROTOCOL"), column("KEY_USAGE")));
+        Assertions.assertEquals("Renamed", renamed.getName());
     }
 
     /**
@@ -415,6 +433,40 @@ class ListViewServiceITest extends BaseSpringBootTest {
 
         ValidationException e = Assertions
                 .assertThrows(ValidationException.class, () -> listViewService.createView(request));
+        Assertions.assertTrue(e.getMessage().contains("CERTIFICATE_PROTOCOL"));
+    }
+
+    /**
+     * The column gate applies to what a request introduces, not to what the view already holds. A view stored before
+     * the field was withdrawn is read back carrying it, so refusing it on write would leave the view unrenamable over a
+     * column the caller never touched.
+     */
+    @Test
+    void aWithdrawnColumnTheViewAlreadyCarriesSurvivesARename() throws NotFoundException, AlreadyExistException {
+        store("Legacy", List.of(column("COMMON_NAME"), column("CERTIFICATE_PROTOCOL")), null);
+        ListViewDto read = listViewService.listViews(Resource.CERTIFICATE).getFirst();
+
+        ListViewDto renamed = listViewService
+                .editView(read.getUuid(),
+                        update("Legacy renamed", column("COMMON_NAME"), column("CERTIFICATE_PROTOCOL")));
+
+        Assertions.assertEquals("Legacy renamed", renamed.getName());
+        Assertions.assertEquals(List.of("COMMON_NAME", "CERTIFICATE_PROTOCOL"), identifiersOf(renamed));
+    }
+
+    /**
+     * The exemption is for the columns the view carries and nothing wider: a withdrawn column can be kept or taken out,
+     * never introduced, so an edit cannot do what a creation is refused.
+     */
+    @Test
+    void aWithdrawnColumnCannotBeAddedToAnExistingView() throws AlreadyExistException {
+        ListViewDto created = listViewService.createView(request("Clean", column("COMMON_NAME")));
+
+        ValidationException e = Assertions
+                .assertThrows(ValidationException.class,
+                        () -> listViewService
+                                .editView(created.getUuid(),
+                                        update("Clean", column("COMMON_NAME"), column("CERTIFICATE_PROTOCOL"))));
         Assertions.assertTrue(e.getMessage().contains("CERTIFICATE_PROTOCOL"));
     }
 

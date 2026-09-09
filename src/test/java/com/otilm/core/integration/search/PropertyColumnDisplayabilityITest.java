@@ -15,18 +15,14 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
 /**
- * The property columns each configurable-column listing offers.
+ * The property columns each configurable-column listing offers, written out as a literal and asserted to match the
+ * catalogue exactly.
  *
  * <p>
- * A property field is displayable when its listing carries the value the column would show - a judgement made per field
- * against that listing's mapper, for the reasons the absent-from-listing set in {@link SearchHelper} records. So the
- * decision is written out here as a literal, and the assertion is that the catalogue matches it exactly.
- *
- * <p>
- * That exactness is the point. A field added to one of these listings is displayable by default, so it lands outside
- * this map and turns the test red until someone has read the mapper and either added the field here or added it to the
- * absent-from-listing set in {@link SearchHelper}. Neither a new blank column nor a quietly withdrawn one reaches the
- * picker without that.
+ * The exactness is the point. A field added to one of these listings is displayable by default, so it lands outside
+ * this map and turns the test red until someone has read that listing's mapper and either added the field here or added
+ * it to the absent-from-listing set in {@link SearchHelper}. Neither a new blank column nor a quietly withdrawn one
+ * reaches the picker without that.
  *
  * <p>
  * Property fields resolve their flags against the JPA metamodel, so this runs with a persistence context rather than as
@@ -123,11 +119,11 @@ class PropertyColumnDisplayabilityITest extends BaseSpringBootTest {
     }
 
     /**
-     * A listing outside the pipeline orders from its own code rather than from a column header, so withholding the
-     * column must not withhold the ordering: the OID entries listing orders by a field no picker ever offered.
+     * Outside the pipeline an ordering is not a column's, so withholding the column must not withhold the ordering: a
+     * repository query can be ordered by {@code OID_ENTRY_CODE}, which no picker ever offered.
      */
     @Test
-    void aListingWithoutColumnsStillOrdersByItsOwnFields() {
+    void aFieldNoPickerOffersCanStillOrderARepositoryQuery() {
         Assertions.assertFalse(SearchHelper.isDisplayable(FilterField.OID_ENTRY_CODE));
         Assertions.assertTrue(SearchHelper.isOrderableOnListing(FilterField.OID_ENTRY_CODE));
     }
