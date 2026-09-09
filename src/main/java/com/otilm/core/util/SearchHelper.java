@@ -211,7 +211,7 @@ public class SearchHelper {
         fieldDataDto.setType(searchFieldTypeEnum.getFieldType());
         fieldDataDto.setValue(attributeSearchInfo.getContentItems());
         fieldDataDto.setAttributeContentType(attributeSearchInfo.getAttributeContentType());
-        fieldDataDto.setDisplayable(isDisplayable(attributeSearchInfo));
+        fieldDataDto.setDisplayable(isDisplayable(attributeSearchInfo, resource));
         fieldDataDto.setSortable(isSortable(attributeSearchInfo, resource));
         return fieldDataDto;
     }
@@ -264,7 +264,7 @@ public class SearchHelper {
      * is and no caller can assemble a catalogue that forgets to answer it.
      */
     private static boolean isSortable(final SearchFieldObject attributeSearchInfo, final Resource resource) {
-        return listingAppliesSort(resource) && isDisplayable(attributeSearchInfo)
+        return isDisplayable(attributeSearchInfo, resource)
                 && !COMPOSITE_CELL_CONTENT_TYPES.contains(attributeSearchInfo.getAttributeContentType());
     }
 
@@ -337,17 +337,25 @@ public class SearchHelper {
     }
 
     /**
-     * Whether an attribute field may be requested as a column.
+     * Whether an attribute field may be requested as a column: its listing has to be wired to the column pipeline at
+     * all, and the content it holds has to be content a cell may show.
      *
      * <p>
-     * Four kinds of field are withheld. A secret is never rendered anywhere. Encrypted content is stored as ciphertext
-     * that only its own decryption path can read, and a listing does not take that path. A code block is multi-line by
-     * construction - the frontend renders it as a block element - so a single-line table cell cannot hold one without
-     * breaking the row. And an attribute whose definition is marked not visible is one the contract says to hide from
-     * the user, which rules out putting its values in a column of their own.
+     * The listing gate is the same one the property path applies. A listing outside the pipeline never invokes {@code
+     * AttributeColumnProjector}, so the values of even an ordinary custom attribute of such a resource have nothing to
+     * fill them in.
+     *
+     * <p>
+     * Four kinds of content are then withheld on a wired listing. A secret is never rendered anywhere. Encrypted
+     * content is stored as ciphertext that only its own decryption path can read, and a listing does not take that
+     * path. A code block is multi-line by construction - the frontend renders it as a block element - so a single-line
+     * table cell cannot hold one without breaking the row. And an attribute whose definition is marked not visible is
+     * one the contract says to hide from the user, which rules out putting its values in a column of their own.
      */
-    private static boolean isDisplayable(final SearchFieldObject attributeSearchInfo) {
-        return !AttributeColumnProjector.WITHHELD_CONTENT_TYPES.contains(attributeSearchInfo.getAttributeContentType())
+    private static boolean isDisplayable(final SearchFieldObject attributeSearchInfo, final Resource resource) {
+        return CONFIGURABLE_COLUMN_RESOURCES.contains(resource)
+                && !AttributeColumnProjector.WITHHELD_CONTENT_TYPES
+                        .contains(attributeSearchInfo.getAttributeContentType())
                 && attributeSearchInfo.getProtectionLevel() != ProtectionLevel.ENCRYPTED
                 && attributeSearchInfo.isVisible();
     }

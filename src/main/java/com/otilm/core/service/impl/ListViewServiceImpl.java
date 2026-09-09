@@ -208,16 +208,22 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
                 .setColumns(view
                         .getColumns()
                         .stream()
-                        .filter(column -> catalogue.offers(CatalogueField.of(column)))
+                        .filter(column -> catalogue.canDisplay(CatalogueField.of(column)))
                         .toList());
         dto.setFilters(view.getFilters());
-        dto.setSort(view.getSort());
+        // Returning an ordering the listing would now refuse hands the client a view whose every application answers
+        // an error; dropping it opens the view in the listing's own order instead.
+        dto
+                .setSort(view.getSort() != null && catalogue.canSortBy(CatalogueField.of(view.getSort()))
+                        ? view.getSort()
+                        : null);
         return dto;
     }
 
     /**
      * Rejects anything the resource's catalogue cannot apply, so a view is stored only in a shape the listing can
-     * actually use. A field that disappears afterwards is a different case, and is skipped on read instead.
+     * actually use. A field that afterwards disappears, or stops being one the listing can show or order by, is a
+     * different case and is dropped on read instead.
      */
     private void validateRequest(Resource resource, ListViewUpdateRequestDto request) {
         Catalogue catalogue = catalogueOf(resource);
@@ -250,6 +256,17 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
                         .filter(column -> !catalogue.offers(CatalogueField.of(column)))
                         .map(ListViewColumnDto::getFieldIdentifier)
                         .toList());
+
+        List<String> unshowable = columns
+                .stream()
+                .filter(column -> !catalogue.canDisplay(CatalogueField.of(column)))
+                .map(ListViewColumnDto::getFieldIdentifier)
+                .toList();
+        if (!unshowable.isEmpty()) {
+            throw new ValidationException(ValidationError
+                    .create("Resource %s does not offer these fields as columns: %s."
+                            .formatted(resource.getCode(), String.join(", ", unshowable))));
+        }
     }
 
     /**
@@ -282,8 +299,16 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
     }
 
     private static void validateSort(Resource resource, SearchSortRequestDto sort, Catalogue catalogue) {
-        if (sort != null && !catalogue.offers(CatalogueField.of(sort))) {
+        if (sort == null) {
+            return;
+        }
+        if (!catalogue.offers(CatalogueField.of(sort))) {
             rejectUnknown(resource, List.of(sort.getFieldIdentifier()));
+        }
+        if (!catalogue.canSortBy(CatalogueField.of(sort))) {
+            throw new ValidationException(ValidationError
+                    .create("Resource %s cannot be ordered by %s."
+                            .formatted(resource.getCode(), sort.getFieldIdentifier())));
         }
     }
 
@@ -295,27 +320,42 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
     }
 
     /**
-     * Every field the resource's listing can address, with the conditions each of them accepts. Properties come from
-     * the filter-field enum, everything else from the attribute definitions currently registered for the resource.
+     * Every field the resource's listing can address, with what each of them may be used for. Properties come from the
+     * filter-field enum, everything else from the attribute definitions currently registered for the resource.
+     *
+     * <p>
+     * Read from the published catalogue rather than from a copy of its rules, so the flags the client picked a view out
+     * of and the answer it gets back when it saves one cannot disagree.
      */
     private Catalogue catalogueOf(Resource resource) {
-        Map<CatalogueField, List<FilterConditionOperator>> fields = new HashMap<>();
+        Map<CatalogueField, Capabilities> fields = new HashMap<>();
         FilterField
                 .getEnumsForResource(resource)
                 .forEach(field -> fields
                         .put(new CatalogueField(FilterFieldSource.PROPERTY, field.name()),
-                                SearchHelper.availableConditions(field)));
+                                new Capabilities(SearchHelper.availableConditions(field),
+                                        SearchHelper.isDisplayable(field), SearchHelper.isSortableField(field))));
         attributeEngine
                 .getResourceSearchableFields(resource, false)
                 .forEach(group -> group
                         .getSearchFieldData()
                         .forEach(field -> fields
                                 .put(new CatalogueField(group.getFilterFieldSource(), field.getFieldIdentifier()),
-                                        field.getConditions())));
+                                        new Capabilities(field.getConditions(),
+                                                Boolean.TRUE.equals(field.getDisplayable()),
+                                                Boolean.TRUE.equals(field.getSortable())))));
         return new Catalogue(fields);
     }
 
-    private record Catalogue(Map<CatalogueField, List<FilterConditionOperator>> fields) {
+    /**
+     * What one field of a catalogue may be used for. The three are separate capabilities rather than one membership: a
+     * listing filters on values it does not select - a certificate is found by its protocol without the listing
+     * carrying one - and orders only by the values it shows.
+     */
+    private record Capabilities(List<FilterConditionOperator> conditions, boolean displayable, boolean sortable) {
+    }
+
+    private record Catalogue(Map<CatalogueField, Capabilities> fields) {
 
         boolean isEmpty() {
             return fields.isEmpty();
@@ -325,9 +365,20 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
             return fields.containsKey(field);
         }
 
+        boolean canDisplay(CatalogueField field) {
+            Capabilities capabilities = fields.get(field);
+            return capabilities != null && capabilities.displayable();
+        }
+
+        boolean canSortBy(CatalogueField field) {
+            Capabilities capabilities = fields.get(field);
+            return capabilities != null && capabilities.sortable();
+        }
+
         boolean accepts(CatalogueField field, FilterConditionOperator condition) {
-            List<FilterConditionOperator> conditions = fields.get(field);
-            return conditions != null && conditions.contains(condition);
+            Capabilities capabilities = fields.get(field);
+            return capabilities != null && capabilities.conditions() != null
+                    && capabilities.conditions().contains(condition);
         }
     }
 
