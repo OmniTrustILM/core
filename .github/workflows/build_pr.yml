@@ -119,8 +119,9 @@ jobs:
           # marker stops meaning "override" and starts meaning "nothing to do".
           if [ "$MERGED" = true ]; then
             # Mainline SNAPSHOT carries the change only once the interfaces
-            # publish finishes, 220-367s after the merge. The merge commit's
-            # immutable -M build is the proof that it did.
+            # publish finishes. The merge commit's -M build is evidence that run
+            # reached its pin job, not that the SNAPSHOT deploy in it succeeded -
+            # that job mints the pin even when it did not.
             if ! printf '%s\n' "$VERSIONS" | cut -f2 \
                  | grep -qE "^[0-9][0-9A-Za-z.-]*-M[0-9]+-${MSHA:0:8}\$"; then
               AGE=$(( $(date -u +%s) - $(date -u -d "${MAT:-@0}" +%s) ))
