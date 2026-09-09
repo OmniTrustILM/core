@@ -17,6 +17,7 @@ import com.otilm.api.model.common.attribute.common.properties.CustomAttributePro
 import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
 import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
+import com.otilm.core.attribute.engine.AttributeDefinitionProperties;
 import com.otilm.core.attribute.engine.AttributeVersionHelper;
 import com.otilm.core.util.ObjectAccessControlMapper;
 import jakarta.persistence.Column;
@@ -34,6 +35,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
@@ -87,6 +89,15 @@ public class AttributeDefinition extends UniquelyIdentified implements ObjectAcc
     @Column(name = "read_only")
     private Boolean readOnly;
 
+    /**
+     * Mirrors {@code properties.visible} of the stored definition, so projection, ordering and filtering answer
+     * visibility from one column rather than three readings of the document. Written only by {@link #setDefinition},
+     * which is what keeps the two in step.
+     */
+    @Setter(AccessLevel.NONE)
+    @Column(name = "visible", nullable = false)
+    private boolean visible = true;
+
     @Column(name = "version", nullable = false)
     private int version;
 
@@ -132,6 +143,15 @@ public class AttributeDefinition extends UniquelyIdentified implements ObjectAcc
     @Column(name = "encrypted_data", length = Integer.MAX_VALUE)
     @JdbcTypeCode(SqlTypes.ARRAY)
     private List<String> encryptedData;
+
+    /**
+     * Replaces the definition and re-derives {@link #visible} from it. Overridden rather than left to Lombok because a
+     * definition written without refreshing the column would let a filter read a visibility the projection does not.
+     */
+    public void setDefinition(BaseAttribute definition) {
+        this.definition = definition;
+        this.visible = AttributeDefinitionProperties.isVisible(definition);
+    }
 
     public void setConnector(Connector connector) {
         this.connector = connector;

@@ -1,5 +1,6 @@
 package com.otilm.core.util;
 
+import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.content.data.ProtectionLevel;
 import com.otilm.api.model.common.enums.BitMaskEnum;
@@ -161,7 +162,8 @@ public class SearchHelper {
         // filter the listing then refuses.
         if (attributeSearchInfo.getProtectionLevel() == ProtectionLevel.ENCRYPTED
                 || AttributeColumnProjector.WITHHELD_CONTENT_TYPES
-                        .contains(attributeSearchInfo.getAttributeContentType())) {
+                        .contains(attributeSearchInfo.getAttributeContentType())
+                || hasNoMatchableContent(attributeSearchInfo)) {
             conditionOperators = List.of(FilterConditionOperator.EMPTY, FilterConditionOperator.NOT_EMPTY);
         }
         fieldDataDto.setConditions(conditionOperators);
@@ -279,6 +281,23 @@ public class SearchHelper {
                 && attributeSearchInfo.isVisible();
     }
 
+    /**
+     * Whether no value of this field is matchable, so the conditions published for it are the presence pair alone.
+     *
+     * <p>
+     * A custom definition marked not visible is excluded from every query that reads its content, filters included, so
+     * a value condition on it could only ever return nothing - and a published condition is one a saved list view
+     * accepts, not merely a hint. A presence condition survives because it needs no value to answer: with the content
+     * unreadable the field is empty everywhere, which is what the column beside it renders.
+     *
+     * <p>
+     * A data or metadata definition carries the same flag as a connector's display hint that filtering does not apply,
+     * so its values stay matchable and its conditions stay whole.
+     */
+    private static boolean hasNoMatchableContent(final SearchFieldObject attributeSearchInfo) {
+        return attributeSearchInfo.getAttributeType() == AttributeType.CUSTOM && !attributeSearchInfo.isVisible();
+    }
+
     private static SearchFieldTypeEnum retrieveSearchFieldTypeEnumByContentType(
             AttributeContentType attributeContentType, boolean isList) {
         if (isList) {
@@ -323,6 +342,7 @@ public class SearchHelper {
             .thenComparing(SearchFieldObject::getLabel, Comparator.nullsLast(Comparator.naturalOrder()))
             .thenComparing(SearchFieldObject::isList)
             .thenComparing(SearchFieldObject::isMultiSelect)
+            .thenComparing(SearchFieldObject::isVisible)
             .thenComparing(SearchFieldObject::getProtectionLevel, Comparator.nullsLast(Comparator.naturalOrder()))
             .thenComparing(field -> field.getContentItems() == null ? null : String.join("\0", field.getContentItems()),
                     Comparator.nullsLast(Comparator.naturalOrder()));
@@ -352,6 +372,11 @@ public class SearchHelper {
         // matchable.
         if (other.getProtectionLevel() != ProtectionLevel.ENCRYPTED) {
             merged.setProtectionLevel(other.getProtectionLevel());
+        }
+        // Projection and the filter predicates keep the content of every visible definition, so the collapsed field is
+        // shown whenever any definition behind it is visible.
+        if (other.isVisible()) {
+            merged.setVisible(true);
         }
         // A fixed-choice list input is only correct if every definition is a list; otherwise free-form input must
         // survive the merge, since a list rendering would make the free-form definitions' values un-enterable.

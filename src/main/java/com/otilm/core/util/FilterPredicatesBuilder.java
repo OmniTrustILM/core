@@ -89,11 +89,6 @@ public class FilterPredicatesBuilder {
             .of(AttributeContentType.INTEGER, AttributeContentType.FLOAT, AttributeContentType.DATE,
                     AttributeContentType.TIME, AttributeContentType.DATETIME);
     private static final String JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME = "jsonb_extract_path_text";
-
-    /** The path within a stored attribute definition at which its visibility lives. */
-    private static final String DEFINITION_PROPERTIES_KEY = "properties";
-
-    private static final String VISIBLE_KEY = "visible";
     private static final String TEXTREGEXEQ_FUNCTION_NAME = "textregexeq";
     private static final String ARRAY_CONTAINS_FUNCTION_NAME = PostgresFunctionContributor.ARRAY_CONTAINS;
 
@@ -1223,9 +1218,10 @@ public class FilterPredicatesBuilder {
      *
      * <p>
      * Ordering reads a value, so it is gated like the projection that renders one: encrypted content is skipped, a
-     * disabled custom definition is skipped, and the caller's custom-attribute permissions narrow which definitions are
-     * readable at all. Whether the field may be ordered on - visible, not secret, not a code block - is settled before
-     * this by {@code ListingSortResolver} against the resource's published catalogue.
+     * definition marked not visible is skipped whatever its attribute type, a disabled custom definition is skipped,
+     * and the caller's custom-attribute permissions narrow which definitions are readable at all. That the field may be
+     * ordered on at all - not secret, not a code block, and visible in at least one of the definitions it collapses -
+     * is settled before this by {@code ListingSortResolver} against the resource's published catalogue.
      */
     public static <T> Expression<?> getAttributeSortKey(final CriteriaBuilder criteriaBuilder,
             final CommonAbstractCriteria query, final Root<T> root, final SortSpecification sort) {
@@ -1286,6 +1282,11 @@ public class FilterPredicatesBuilder {
         predicates
                 .addAll(attributeReadabilityPredicates(criteriaBuilder, joinContentItem, joinDefinition, attributeType,
                         contentFilterSource, true));
+        // A hidden definition must supply no sort key either: the order of a page is part of what it shows, and the
+        // projection filling its cells keeps only visible definitions. Custom is narrowed for every reader already.
+        if (attributeType != AttributeType.CUSTOM) {
+            predicates.add(definitionIsVisible(criteriaBuilder, joinDefinition));
+        }
 
         subquery.select(value).where(predicates.toArray(new Predicate[]{}));
         ((JpaSubQuery) subquery)
@@ -1309,17 +1310,11 @@ public class FilterPredicatesBuilder {
     }
 
     /**
-     * Whether the definition behind a content row says its attribute may be shown to a user. Read out of the stored
-     * definition document with {@code jsonb_extract_path_text}, since visibility is a property of the serialized
-     * attribute rather than a column; absent counts as visible, as it does in {@code AttributeDefinitionProperties}.
+     * Whether the definition behind a content row says its attribute may be shown to a user. Reads the mirrored column,
+     * so this cannot fall open on a document whose shape has moved.
      */
     private static Predicate definitionIsVisible(final CriteriaBuilder criteriaBuilder, final Join joinDefinition) {
-        final Expression<String> visible = criteriaBuilder
-                .function(JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME, String.class,
-                        joinDefinition.get(AttributeDefinition_.definition),
-                        criteriaBuilder.literal(DEFINITION_PROPERTIES_KEY), criteriaBuilder.literal(VISIBLE_KEY));
-        return criteriaBuilder
-                .or(criteriaBuilder.isNull(visible), criteriaBuilder.notEqual(visible, Boolean.FALSE.toString()));
+        return criteriaBuilder.isTrue(joinDefinition.get(AttributeDefinition_.visible));
     }
 
     /**
@@ -1340,6 +1335,9 @@ public class FilterPredicatesBuilder {
         // Only custom definitions carry a permission model and a visibility the platform enforces. On a data or
         // metadata definition `visible` is a connector's display hint, and the nullable `enabled` column is unset,
         // so applying either would drop rows a listing is meant to return.
+        //
+        // A display hint governs what is rendered, so the projection and the ordering that arranges it withhold a
+        // hidden data or metadata value while a filter still matches it.
         if (attributeType != AttributeType.CUSTOM) {
             return predicates;
         }

@@ -62,20 +62,20 @@ class SearchHelperITest extends BaseSpringBootTest {
         attributeV3.setContentType(AttributeContentType.DATE);
         attributeV3.setProperties(dataAttributeProperties);
         SearchFieldObject searchFieldObject = new SearchFieldObject(attributeV3.getName(), attributeV3.getContentType(),
-                AttributeType.DATA, "label", attributeV3);
+                AttributeType.DATA, "label", true, attributeV3);
         assertThat(searchFieldObject.getContentItems()).isEqualTo(List.of(now.toString()));
 
         dataAttributeProperties.setList(false);
         attributeV3.setProperties(dataAttributeProperties);
         searchFieldObject = new SearchFieldObject(attributeV3.getName(), attributeV3.getContentType(),
-                AttributeType.DATA, "label", attributeV3);
+                AttributeType.DATA, "label", true, attributeV3);
         assertThat(searchFieldObject.getContentItems()).isNull();
 
         dataAttributeProperties.setList(true);
         dataAttributeProperties.setProtectionLevel(ProtectionLevel.ENCRYPTED);
         attributeV3.setProperties(dataAttributeProperties);
         searchFieldObject = new SearchFieldObject(attributeV3.getName(), attributeV3.getContentType(),
-                AttributeType.DATA, "label", attributeV3);
+                AttributeType.DATA, "label", true, attributeV3);
         assertThat(searchFieldObject.getContentItems()).isNull();
 
         CustomAttributeV3 customAttributeV3 = new CustomAttributeV3();
@@ -86,19 +86,19 @@ class SearchHelperITest extends BaseSpringBootTest {
         customAttributeV3.setContentType(AttributeContentType.DATE);
         customAttributeV3.setProperties(customAttributeProperties);
         searchFieldObject = new SearchFieldObject(customAttributeV3.getName(), customAttributeV3.getContentType(),
-                AttributeType.CUSTOM, "label", customAttributeV3);
+                AttributeType.CUSTOM, "label", true, customAttributeV3);
         assertThat(searchFieldObject.getContentItems()).isEqualTo(List.of("string"));
 
         customAttributeProperties.setList(false);
         customAttributeV3.setProperties(customAttributeProperties);
         searchFieldObject = new SearchFieldObject(customAttributeV3.getName(), customAttributeV3.getContentType(),
-                AttributeType.CUSTOM, "label", customAttributeV3);
+                AttributeType.CUSTOM, "label", true, customAttributeV3);
         assertThat(searchFieldObject.getContentItems()).isNull();
         customAttributeProperties.setList(true);
         customAttributeProperties.setProtectionLevel(ProtectionLevel.ENCRYPTED);
         customAttributeV3.setProperties(customAttributeProperties);
         searchFieldObject = new SearchFieldObject(customAttributeV3.getName(), customAttributeV3.getContentType(),
-                AttributeType.CUSTOM, "label", customAttributeV3);
+                AttributeType.CUSTOM, "label", true, customAttributeV3);
         assertThat(searchFieldObject.getContentItems()).isNull();
 
     }
@@ -219,6 +219,41 @@ class SearchHelperITest extends BaseSpringBootTest {
                 .isEqualTo(FilterFieldType.STRING);
         assertThat(fields.getFirst().getValue()).isNull();
         assertThat(fields.getFirst().isMultiValue()).isFalse();
+    }
+
+    @Test
+    void testPrepareSearchForJSONMergedFieldIsVisibleWhenAnyDuplicateIsVisible() {
+        List<SearchFieldDataDto> fields = SearchHelper
+                .prepareSearchForJSON(List.of(visibilityFieldObject(false), visibilityFieldObject(true)),
+                        Resource.DISCOVERY);
+        List<SearchFieldDataDto> fieldsReversed = SearchHelper
+                .prepareSearchForJSON(List.of(visibilityFieldObject(true), visibilityFieldObject(false)),
+                        Resource.DISCOVERY);
+
+        assertThat(fields).hasSize(1);
+        assertThat(fields.getFirst().getDisplayable())
+                .as("projection and filtering keep the visible definition's content, so the field must be offered")
+                .isTrue();
+        assertThat(fieldsReversed.getFirst().getDisplayable())
+                .as("and not depend on the (unordered) query result order")
+                .isTrue();
+    }
+
+    @Test
+    void testPrepareSearchForJSONMergedFieldStaysHiddenWhenEveryDuplicateIsHidden() {
+        List<SearchFieldDataDto> fields = SearchHelper
+                .prepareSearchForJSON(List.of(visibilityFieldObject(false), visibilityFieldObject(false)),
+                        Resource.DISCOVERY);
+
+        assertThat(fields).hasSize(1);
+        assertThat(fields.getFirst().getDisplayable()).isFalse();
+    }
+
+    private static SearchFieldObject visibilityFieldObject(boolean visible) {
+        SearchFieldObject field = new SearchFieldObject("username", AttributeContentType.STRING, AttributeType.META);
+        field.setLabel("Username");
+        field.setVisible(visible);
+        return field;
     }
 
     @Test
