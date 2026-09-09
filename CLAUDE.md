@@ -34,6 +34,8 @@ A purely line-based local script will systematically over-report. Match the form
 
 When a test passes but JaCoCo (or the coverage report) shows the relevant lines as uncovered, the test is reaching a different code path than expected — usually a `catch (Exception)` upstream is swallowing the actual flow before the asserted code runs. Investigate the trace, don't trust the green. Common signal: the assertion checks the *type* of an exception or response without checking the *origin*; the test passes because *any* exception of that type is thrown, including ones from setup steps.
 
+A mock shaped like the implementation proves nothing either. When a test stubs a collaborator at whatever nesting level the production code happens to read — one `when(attr.get())` because the code calls `get()`, one enumeration entry because the loop reads one — the test passes for every input the code already handles and cannot fail for the input it mishandles. It encodes the bug as the expectation. Prefer a real instance of the collaborator's value type (`BasicAttributes`, a real DTO, a real record) built to look like what the external system actually returns, and mock only the boundary you cannot construct. If a mock's stubbing mirrors the production call sequence line for line, it is asserting that the code does what it does.
+
 For logic deep in private methods or complex Spring contexts, extract a static testable kernel — a pure function that takes inputs and returns outputs — and unit-test it independently. Keep the integration test for the integration concerns (DB, AOP, transactions). The kernel + integration split makes both halves much easier to reason about.
 
 ## Transactions and external calls

@@ -4,7 +4,6 @@ import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.jwk.Curve;
 import com.nimbusds.jose.jwk.ECKey;
 import com.nimbusds.jose.jwk.JWK;
-
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -12,9 +11,14 @@ import java.security.PublicKey;
 import java.security.interfaces.ECPublicKey;
 import java.security.interfaces.RSAPublicKey;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
+import java.util.Base64;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Class contains the common operations and helper functions to process the acme request
@@ -22,6 +26,11 @@ import java.util.*;
 public class AcmeCommonHelper {
 
     private static final Integer COMMON_EXPIRES_IN_SECONDS = 10 * 60 * 60;
+
+    /** The timestamp format the ACME wire objects carry, in UTC. */
+    private static final DateTimeFormatter WIRE_TIMESTAMP_FORMAT = DateTimeFormatter
+            .ofPattern("yyyy-MM-dd'T'HH:mm:ss.SS'Z'")
+            .withZone(ZoneId.of("UTC"));
 
     public static Date getDefaultExpires() {
         return new Date(new Date().getTime() + COMMON_EXPIRES_IN_SECONDS);
@@ -55,20 +64,25 @@ public class AcmeCommonHelper {
         if (date == null) {
             return null;
         }
-        DateTimeFormatter formatter = DateTimeFormatter
-                .ofPattern("yyyy-MM-dd'T'HH:mm:ss.SS'Z'")
-                .withZone(ZoneId.of("UTC"));
-        return formatter.format(date.toInstant());
+        return WIRE_TIMESTAMP_FORMAT.format(date.toInstant());
+    }
+
+    /**
+     * The same wire format as {@link #getStringFromDate(Date)}, for a value already held as a {@code java.time}
+     * instant.
+     */
+    public static String getStringFromDate(OffsetDateTime dateTime) {
+        if (dateTime == null) {
+            return null;
+        }
+        return WIRE_TIMESTAMP_FORMAT.format(dateTime.toInstant());
     }
 
     public static Date getDateFromString(String date) {
         if (date == null || date.isEmpty()) {
             return null;
         }
-        DateTimeFormatter formatter = DateTimeFormatter
-                .ofPattern("yyyy-MM-dd'T'HH:mm:ss.SS'Z'")
-                .withZone(ZoneId.of("UTC"));
-        return new Date(Instant.from(formatter.parse(date)).getEpochSecond());
+        return new Date(Instant.from(WIRE_TIMESTAMP_FORMAT.parse(date)).getEpochSecond());
     }
 
     public static Date addSeconds(Date date, int seconds) {

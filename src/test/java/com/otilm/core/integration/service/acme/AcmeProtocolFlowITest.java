@@ -1,5 +1,8 @@
 package com.otilm.core.integration.service.acme;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.tomakehurst.wiremock.WireMockServer;
+import com.github.tomakehurst.wiremock.client.WireMock;
 import com.otilm.api.model.client.acme.AcmeProfileRequestDto;
 import com.otilm.api.model.client.raprofile.ActivateAcmeForRaProfileRequestDto;
 import com.otilm.api.model.client.raprofile.AddRaProfileRequestDto;
@@ -17,20 +20,20 @@ import com.otilm.core.dao.entity.acme.AcmeAuthorization;
 import com.otilm.core.dao.entity.acme.AcmeChallenge;
 import com.otilm.core.dao.entity.acme.AcmeOrder;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
+import com.otilm.core.dao.repository.AcmeProfileRepository;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.Connector2FunctionGroupRepository;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.FunctionGroupRepository;
-import com.otilm.core.dao.repository.AcmeProfileRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.acme.AcmeAuthorizationRepository;
 import com.otilm.core.dao.repository.acme.AcmeChallengeRepository;
 import com.otilm.core.dao.repository.acme.AcmeNonceRepository;
 import com.otilm.core.dao.repository.acme.AcmeOrderRepository;
-import com.otilm.core.messaging.model.ActionMessage;
 import com.otilm.core.messaging.jms.producers.ActionProducer;
+import com.otilm.core.messaging.model.ActionMessage;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -41,9 +44,21 @@ import com.otilm.core.service.acme.AcmeTestUtil;
 import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.builders.AuthorityFixtures;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.tomakehurst.wiremock.WireMockServer;
-import com.github.tomakehurst.wiremock.client.WireMock;
+import java.net.URI;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.NoSuchAlgorithmException;
+import java.security.cert.X509Certificate;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.util.Base64;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
+import org.awaitility.Awaitility;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -54,45 +69,34 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
-import org.awaitility.Awaitility;
-
-import java.net.URI;
-import java.security.KeyPair;
-import java.security.KeyPairGenerator;
-import java.security.NoSuchAlgorithmException;
-import java.security.cert.X509Certificate;
-import java.util.Base64;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.TimeUnit;
-import java.util.regex.Pattern;
-
-import static com.github.tomakehurst.wiremock.client.WireMock.*;
+import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
+import static com.github.tomakehurst.wiremock.client.WireMock.post;
+import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
+import static com.github.tomakehurst.wiremock.client.WireMock.urlMatching;
 
 /**
  * End-to-end integration test for the ACME (RFC 8555) protocol implementation.
  *
- * <p>Exercises the full certificate lifecycle through the service layer:
+ * <p>
+ * Exercises the full certificate lifecycle through the service layer:
  * <ol>
- *   <li>Infrastructure setup – connector, authority instance, RA profile, ACME profile</li>
- *   <li>Account creation ({@code POST /new-account})</li>
- *   <li>Order creation ({@code POST /new-order})</li>
- *   <li>HTTP-01 challenge authorization ({@code GET /authz/{id}}) – validated via direct DB state update</li>
- *   <li>Order finalization ({@code POST /order/{id}/finalize}) with PKCS#10 CSR</li>
- *   <li>Order status verification ({@code GET /order/{id}})</li>
- *   <li>Certificate download ({@code GET /cert/{id}})</li>
+ * <li>Infrastructure setup – connector, authority instance, RA profile, ACME profile</li>
+ * <li>Account creation ({@code POST /new-account})</li>
+ * <li>Order creation ({@code POST /new-order})</li>
+ * <li>HTTP-01 challenge authorization ({@code GET /authz/{id}}) – validated via direct DB state update</li>
+ * <li>Order finalization ({@code POST /order/{id}/finalize}) with PKCS#10 CSR</li>
+ * <li>Order status verification ({@code GET /order/{id}})</li>
+ * <li>Certificate download ({@code GET /cert/{id}})</li>
  * </ol>
  *
- * <p>The external Authority Provider connector is stubbed with WireMock.
- * Challenge HTTP validation is simulated by directly setting the entity state in the database,
- * which is appropriate for a service-layer integration test.
+ * <p>
+ * The external Authority Provider connector is stubbed with WireMock. Challenge HTTP validation is simulated by
+ * directly setting the entity state in the database, which is appropriate for a service-layer integration test.
  * Certificate issuance via the connector is driven through the real
- * {@link com.otilm.core.service.v2.ClientOperationInternalService} code path: the
- * {@link ActionProducer} is spied on so that each {@code ActionMessage} is dispatched
- * synchronously to {@code issueCertificateAction} instead of being sent over RabbitMQ.
+ * {@link com.otilm.core.service.v2.ClientOperationInternalService} code path: the {@link ActionProducer} is spied on so
+ * that each {@code ActionMessage} is dispatched synchronously to {@code issueCertificateAction} instead of being sent
+ * over RabbitMQ.
  */
 public class AcmeProtocolFlowITest extends BaseSpringBootTest {
 
@@ -159,20 +163,28 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
 
         // Stubs for raProfileService.addRaProfile (mergeAndValidateAttributes calls v1 RA-profile attribute
         // endpoints to validate and list attributes before saving the RA profile).
-        wireMockServer.stubFor(get(urlMatching("/v1/authorityProvider/authorities/[^/]+/raProfile/attributes"))
-                .willReturn(okJson("[]")));
-        wireMockServer.stubFor(post(urlMatching("/v1/authorityProvider/authorities/[^/]+/raProfile/attributes/validate"))
-                .willReturn(okJson("true")));
+        wireMockServer
+                .stubFor(get(urlMatching("/v1/authorityProvider/authorities/[^/]+/raProfile/attributes"))
+                        .willReturn(okJson("[]")));
+        wireMockServer
+                .stubFor(post(urlMatching("/v1/authorityProvider/authorities/[^/]+/raProfile/attributes/validate"))
+                        .willReturn(okJson("true")));
         // Stubs for raProfileService.activateAcmeForRaProfile (mergeAndValidateIssueAttributes /
         // mergeAndValidateRevokeAttributes call the connector to validate and list certificate attributes).
-        wireMockServer.stubFor(get(urlMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue/attributes"))
-                .willReturn(okJson("[]")));
-        wireMockServer.stubFor(get(urlMatching("/v2/authorityProvider/authorities/[^/]+/certificates/revoke/attributes"))
-                .willReturn(okJson("[]")));
-        wireMockServer.stubFor(post(urlMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue/attributes/validate"))
-                .willReturn(okJson("true")));
-        wireMockServer.stubFor(post(urlMatching("/v2/authorityProvider/authorities/[^/]+/certificates/revoke/attributes/validate"))
-                .willReturn(okJson("true")));
+        wireMockServer
+                .stubFor(get(urlMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue/attributes"))
+                        .willReturn(okJson("[]")));
+        wireMockServer
+                .stubFor(get(urlMatching("/v2/authorityProvider/authorities/[^/]+/certificates/revoke/attributes"))
+                        .willReturn(okJson("[]")));
+        wireMockServer
+                .stubFor(post(
+                        urlMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue/attributes/validate"))
+                        .willReturn(okJson("true")));
+        wireMockServer
+                .stubFor(post(
+                        urlMatching("/v2/authorityProvider/authorities/[^/]+/certificates/revoke/attributes/validate"))
+                        .willReturn(okJson("true")));
 
         keyPairGenerator = KeyPairGenerator.getInstance("RSA");
         keyPairGenerator.initialize(2048);
@@ -225,24 +237,23 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
         awaitOrderStatus(order.orderId, OrderStatus.VALID);
 
         // Verify the issue call was routed to the exact authority instance (not just any authority).
-        wireMockServer.verify(postRequestedFor(urlMatching(
-                "/v2/authorityProvider/authorities/"
-                        + Pattern.quote(fixture.authority().getAuthorityInstanceUuid())
-                        + "/certificates/issue")));
+        wireMockServer
+                .verify(postRequestedFor(urlMatching("/v2/authorityProvider/authorities/"
+                        + Pattern.quote(fixture.authority().getAuthorityInstanceUuid()) + "/certificates/issue")));
 
         // ── Step 7: Verify order status ───────────────────────────────────────
-        ResponseEntity<com.otilm.api.model.core.acme.Order> orderResponse = acmeService.getOrder(
-                ACME_PROFILE_NAME, order.orderId,
-                new URI("/acme/" + ACME_PROFILE_NAME + "/order/" + order.orderId), false);
+        ResponseEntity<com.otilm.api.model.core.acme.Order> orderResponse = acmeService
+                .getOrder(ACME_PROFILE_NAME, order.orderId,
+                        new URI("/acme/" + ACME_PROFILE_NAME + "/order/" + order.orderId), false);
         Assertions.assertNotNull(orderResponse.getBody());
         Assertions.assertEquals(OrderStatus.VALID, orderResponse.getBody().getStatus());
 
         // ── Step 8: Certificate download ──────────────────────────────────────
         String certUrl = orderResponse.getBody().getCertificate();
         String certificateId = certUrl.substring(certUrl.lastIndexOf('/') + 1);
-        ResponseEntity<org.springframework.core.io.Resource> downloadResponse = acmeService.downloadCertificate(
-                ACME_PROFILE_NAME, certificateId,
-                new URI("/acme/" + ACME_PROFILE_NAME + "/cert/" + certificateId), false);
+        ResponseEntity<org.springframework.core.io.Resource> downloadResponse = acmeService
+                .downloadCertificate(ACME_PROFILE_NAME, certificateId,
+                        new URI("/acme/" + ACME_PROFILE_NAME + "/cert/" + certificateId), false);
         Assertions.assertEquals(200, downloadResponse.getStatusCode().value());
         Assertions.assertNotNull(downloadResponse.getBody());
     }
@@ -250,14 +261,15 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
     /**
      * Ensure a change to the default RA Profile is reflected in existing ACME accounts.
      *
-     * <p>When an ACME account is created through the ACME-Profile-based flow it is marked with
-     * {@code isDefaultRaProfile = true}. If the ACME Profile is later updated to a different RA Profile
-     * via {@link AcmeProfileExternalService#updateRaProfile}, all such accounts must have their RA profiles updated
-     * so that subsequent certificate operations are issued under the new RA Profile.
+     * <p>
+     * When an ACME account is created through the ACME-Profile-based flow it is marked with
+     * {@code isDefaultRaProfile = true}. If the ACME Profile is later updated to a different RA Profile via
+     * {@link AcmeProfileExternalService#updateRaProfile}, all such accounts must have their RA profiles updated so that
+     * subsequent certificate operations are issued under the new RA Profile.
      *
-     * <p>This test verifies that after switching the ACME Profile from
-     * a second RA profile ({@value #RA_PROFILE_NAME_2}), a new order finalized on the
-     * existing account results in a certificate associated with that updated RA profile.
+     * <p>
+     * This test verifies that after switching the ACME Profile from a second RA profile ({@value #RA_PROFILE_NAME_2}),
+     * a new order finalized on the existing account results in a certificate associated with that updated RA profile.
      */
     @Test
     public void acmeRaProfileChangeReflectedInExistingAccount() throws Exception {
@@ -280,14 +292,15 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
 
         // ── Step 5: Create raProfile2 and update the ACME Profile to use it ──
         RaProfileDto raProfile2 = createSecondRaProfile(fixture);
-        acmeProfileService.updateRaProfile(
-                SecuredUUID.fromString(acmeProfile.getUuid()),
-                raProfile2.getUuid());
+        acmeProfileService.updateRaProfile(SecuredUUID.fromString(acmeProfile.getUuid()), raProfile2.getUuid());
 
         // ── Step 6: Assert that the ACME Profile's RA Profile was persisted correctly ──
-        AcmeProfile reloadedAcmeProfile = acmeProfileRepository.findByUuid(UUID.fromString(acmeProfile.getUuid())).orElseThrow();
-        Assertions.assertEquals(UUID.fromString(raProfile2.getUuid()), reloadedAcmeProfile.getRaProfileUuid(),
-                "ACME Profile ra_profile_uuid must be persisted to the database after updateRaProfile");
+        AcmeProfile reloadedAcmeProfile = acmeProfileRepository
+                .findByUuid(UUID.fromString(acmeProfile.getUuid()))
+                .orElseThrow();
+        Assertions
+                .assertEquals(UUID.fromString(raProfile2.getUuid()), reloadedAcmeProfile.getRaProfileUuid(),
+                        "ACME Profile ra_profile_uuid must be persisted to the database after updateRaProfile");
 
         // ── Step 7: Place a new order on the same ACME account ─────────────────
         OrderAndId order2 = createAcmeOrder(acmeAccountId);
@@ -301,27 +314,28 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
         AcmeOrder acmeOrder = acmeOrderRepository.findByOrderId(order2.orderId).orElseThrow();
         Assertions.assertNotNull(acmeOrder.getCertificateReferenceUuid(), "Issued certificate must not be null");
         Certificate certificate = certificateRepository
-                .findByUuid(acmeOrder.getCertificateReferenceUuid()).orElseThrow();
-        Assertions.assertEquals(
-                UUID.fromString(raProfile2.getUuid()),
-                certificate.getRaProfileUuid(),
-                "Certificate should be issued under the updated RA Profile (" + RA_PROFILE_NAME_2 + ")");
+                .findByUuid(acmeOrder.getCertificateReferenceUuid())
+                .orElseThrow();
+        Assertions
+                .assertEquals(UUID.fromString(raProfile2.getUuid()), certificate.getRaProfileUuid(),
+                        "Certificate should be issued under the updated RA Profile (" + RA_PROFILE_NAME_2 + ")");
     }
 
     // ── Infrastructure setup helpers ──────────────────────────────────────────
 
     /**
-     * Creates the authority fixture (connector + authority reference + RA profile) via
-     * {@link AuthorityFixtures}, bypassing the service layer for faster, stub-free setup.
+     * Creates the authority fixture (connector + authority reference + RA profile) via {@link AuthorityFixtures},
+     * bypassing the service layer for faster, stub-free setup.
      */
     private AuthorityFixtures.Fixture createAuthorityFixture() {
-        AuthorityFixtures.Repos repos = new AuthorityFixtures.Repos(
-                connectorRepository, functionGroupRepository, connector2FunctionGroupRepository,
-                authorityInstanceReferenceRepository, raProfileRepository, connectorInterfaceRepository);
+        AuthorityFixtures.Repos repos = new AuthorityFixtures.Repos(connectorRepository, functionGroupRepository,
+                connector2FunctionGroupRepository, authorityInstanceReferenceRepository, raProfileRepository,
+                connectorInterfaceRepository);
         return AuthorityFixtures.v2Authority(repos, wireMockServer, KIND_NAME);
     }
 
-    private AcmeProfileDto createAcmeProfile(RaProfileDto raProfile, AuthorityFixtures.Fixture fixture) throws Exception {
+    private AcmeProfileDto createAcmeProfile(RaProfileDto raProfile, AuthorityFixtures.Fixture fixture)
+            throws Exception {
         AcmeProfileRequestDto request = new AcmeProfileRequestDto();
         request.setName(ACME_PROFILE_NAME);
         request.setRaProfileUuid(raProfile.getUuid());
@@ -334,11 +348,10 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
         ActivateAcmeForRaProfileRequestDto activateRequest = new ActivateAcmeForRaProfileRequestDto();
         activateRequest.setIssueCertificateAttributes(List.of());
         activateRequest.setRevokeCertificateAttributes(List.of());
-        raProfileService.activateAcmeForRaProfile(
-                SecuredParentUUID.fromUUID(fixture.authority().getUuid()),
-                SecuredUUID.fromString(raProfile.getUuid()),
-                SecuredUUID.fromString(acmeProfileDto.getUuid()),
-                activateRequest);
+        raProfileService
+                .activateAcmeForRaProfile(SecuredParentUUID.fromUUID(fixture.authority().getUuid()),
+                        SecuredUUID.fromString(raProfile.getUuid()), SecuredUUID.fromString(acmeProfileDto.getUuid()),
+                        activateRequest);
 
         return acmeProfileDto;
     }
@@ -347,19 +360,17 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
         AddRaProfileRequestDto request = new AddRaProfileRequestDto();
         request.setName(RA_PROFILE_NAME_2);
         request.setAttributes(List.of());
-        RaProfileDto raProfile = raProfileService.addRaProfile(
-                SecuredParentUUID.fromUUID(fixture.authority().getUuid()), request);
-        raProfileService.enableRaProfile(
-                SecuredParentUUID.fromUUID(fixture.authority().getUuid()),
-                SecuredUUID.fromString(raProfile.getUuid()));
+        RaProfileDto raProfile = raProfileService
+                .addRaProfile(SecuredParentUUID.fromUUID(fixture.authority().getUuid()), request);
+        raProfileService
+                .enableRaProfile(SecuredParentUUID.fromUUID(fixture.authority().getUuid()),
+                        SecuredUUID.fromString(raProfile.getUuid()));
         return raProfile;
     }
 
     // ── ACME flow helpers ─────────────────────────────────────────────────────
 
-    private record OrderAndId(
-            com.otilm.api.model.core.acme.Order order,
-            String orderId) {
+    private record OrderAndId(com.otilm.api.model.core.acme.Order order, String orderId) {
     }
 
     /**
@@ -371,9 +382,8 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
         payload.put("contact", List.of("mailto:admin@example.com"));
 
         String jws = createJws(payload, "/acme/" + ACME_PROFILE_NAME + "/new-account", null);
-        ResponseEntity<Account> response = acmeService.newAccount(
-                ACME_PROFILE_NAME, jws,
-                new URI("/acme/" + ACME_PROFILE_NAME + "/new-account"), false);
+        ResponseEntity<Account> response = acmeService
+                .newAccount(ACME_PROFILE_NAME, jws, new URI("/acme/" + ACME_PROFILE_NAME + "/new-account"), false);
         Assertions.assertEquals(201, response.getStatusCode().value());
         Assertions.assertNotNull(response.getHeaders().getLocation());
 
@@ -392,9 +402,8 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
         payload.put("identifiers", List.of(identifier));
 
         String jws = createJws(payload, "/acme/" + ACME_PROFILE_NAME + "/new-order", accountId);
-        ResponseEntity<com.otilm.api.model.core.acme.Order> response = acmeService.newOrder(
-                ACME_PROFILE_NAME, jws,
-                new URI("/acme/" + ACME_PROFILE_NAME + "/new-order"), false);
+        ResponseEntity<com.otilm.api.model.core.acme.Order> response = acmeService
+                .newOrder(ACME_PROFILE_NAME, jws, new URI("/acme/" + ACME_PROFILE_NAME + "/new-order"), false);
         Assertions.assertEquals(201, response.getStatusCode().value());
 
         com.otilm.api.model.core.acme.Order order = response.getBody();
@@ -406,8 +415,8 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
     }
 
     /**
-     * Retrieves the authorization, finds the HTTP-01 challenge, and simulates validation
-     * by directly updating entity state in the database.
+     * Retrieves the authorization, finds the HTTP-01 challenge, and simulates validation by directly updating entity
+     * state in the database.
      */
     private void validateChallenge(OrderAndId order, String accountId) throws Exception {
         Assertions.assertNotNull(order.order.getAuthorizations());
@@ -415,13 +424,15 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
         String authzId = authzUrl.substring(authzUrl.lastIndexOf('/') + 1);
 
         String jws = createJws(null, "/acme/" + ACME_PROFILE_NAME + "/authz/" + authzId, accountId);
-        ResponseEntity<Authorization> authzResponse = acmeService.getAuthorization(
-                ACME_PROFILE_NAME, authzId, jws,
-                new URI("/acme/" + ACME_PROFILE_NAME + "/authz/" + authzId), false);
+        ResponseEntity<Authorization> authzResponse = acmeService
+                .getAuthorization(ACME_PROFILE_NAME, authzId, jws,
+                        new URI("/acme/" + ACME_PROFILE_NAME + "/authz/" + authzId), false);
         Authorization authz = authzResponse.getBody();
         Assertions.assertNotNull(authz);
 
-        Challenge httpChallenge = authz.getChallenges().stream()
+        Challenge httpChallenge = authz
+                .getChallenges()
+                .stream()
                 .filter(c -> c.getType().equals(ChallengeType.HTTP01))
                 .findFirst()
                 .orElseThrow();
@@ -430,11 +441,12 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
         // Simulate successful HTTP-01 validation by directly setting the entity state.
         AcmeChallenge acmeChallenge = acmeChallengeRepository.findByChallengeId(challengeId).orElseThrow();
         AcmeAuthorization acmeAuthorization = acmeAuthorizationRepository
-                .findByAuthorizationId(acmeChallenge.getAuthorization().getAuthorizationId()).orElseThrow();
+                .findByAuthorizationId(acmeChallenge.getAuthorization().getAuthorizationId())
+                .orElseThrow();
         AcmeOrder acmeOrder = acmeOrderRepository.findByUuid(acmeAuthorization.getOrderUuid()).orElseThrow();
 
         acmeChallenge.setStatus(ChallengeStatus.VALID);
-        acmeChallenge.setValidated(new Date());
+        acmeChallenge.setValidated(OffsetDateTime.now(ZoneOffset.UTC));
         acmeAuthorization.setStatus(AuthorizationStatus.VALID);
         acmeOrder.setStatus(OrderStatus.READY);
 
@@ -442,9 +454,9 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
         acmeAuthorizationRepository.save(acmeAuthorization);
         acmeOrderRepository.save(acmeOrder);
 
-        ResponseEntity<com.otilm.api.model.core.acme.Order> updatedOrder = acmeService.getOrder(
-                ACME_PROFILE_NAME, order.orderId,
-                new URI("/acme/" + ACME_PROFILE_NAME + "/order/" + order.orderId), false);
+        ResponseEntity<com.otilm.api.model.core.acme.Order> updatedOrder = acmeService
+                .getOrder(ACME_PROFILE_NAME, order.orderId,
+                        new URI("/acme/" + ACME_PROFILE_NAME + "/order/" + order.orderId), false);
         Assertions.assertNotNull(updatedOrder.getBody());
         Assertions.assertEquals(OrderStatus.READY, updatedOrder.getBody().getStatus());
     }
@@ -457,8 +469,9 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
         X509Certificate testCert = AcmeTestUtil.createTestCertificate(csrKeyPair, DOMAIN_NAME);
         String certData = Base64.getEncoder().encodeToString(testCert.getEncoded());
         // Mock the actual certificate issuance.
-        wireMockServer.stubFor(post(urlMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue"))
-                .willReturn(okJson("{ \"certificateData\": \"" + certData + "\" }")));
+        wireMockServer
+                .stubFor(post(urlMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue"))
+                        .willReturn(okJson("{ \"certificateData\": \"" + certData + "\" }")));
 
         PKCS10CertificationRequest csr = AcmeTestUtil.createCsr(csrKeyPair, DOMAIN_NAME);
         String base64Csr = Base64.getUrlEncoder().withoutPadding().encodeToString(csr.getEncoded());
@@ -467,33 +480,32 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
         payload.put("csr", base64Csr);
 
         String jws = createJws(payload, "/acme/" + ACME_PROFILE_NAME + "/order/" + orderId + "/finalize", accountId);
-        ResponseEntity<com.otilm.api.model.core.acme.Order> response = acmeService.finalizeOrder(
-                ACME_PROFILE_NAME, orderId, jws,
-                new URI("/acme/" + ACME_PROFILE_NAME + "/order/" + orderId + "/finalize"), false);
+        ResponseEntity<com.otilm.api.model.core.acme.Order> response = acmeService
+                .finalizeOrder(ACME_PROFILE_NAME, orderId, jws,
+                        new URI("/acme/" + ACME_PROFILE_NAME + "/order/" + orderId + "/finalize"), false);
         Assertions.assertEquals(200, response.getStatusCode().value());
     }
 
     /**
-     * Polls via {@link AcmeExternalService#getOrder} (which recomputes order status from the
-     * certificate state on each call) until the expected status is reached or a
-     * terminal failure state is detected, failing the test if the timeout (10 s)
-     * is exceeded.
+     * Polls via {@link AcmeExternalService#getOrder} (which recomputes order status from the certificate state on each
+     * call) until the expected status is reached or a terminal failure state is detected, failing the test if the
+     * timeout (10 s) is exceeded.
      */
     private void awaitOrderStatus(String orderId, OrderStatus expected) throws Exception {
         URI orderUri = new URI("/acme/" + ACME_PROFILE_NAME + "/order/" + orderId);
-        Awaitility.await("Order " + orderId + " reaches " + expected)
+        Awaitility
+                .await("Order " + orderId + " reaches " + expected)
                 .atMost(10, TimeUnit.SECONDS)
                 .pollInterval(200, TimeUnit.MILLISECONDS)
                 .pollInSameThread()
-                .failFast("Order reached INVALID status",
-                        () -> {
-                            ResponseEntity<com.otilm.api.model.core.acme.Order> r =
-                                    acmeService.getOrder(ACME_PROFILE_NAME, orderId, orderUri, false);
-                            return r.getBody() != null && r.getBody().getStatus() == OrderStatus.INVALID;
-                        })
+                .failFast("Order reached INVALID status", () -> {
+                    ResponseEntity<com.otilm.api.model.core.acme.Order> r = acmeService
+                            .getOrder(ACME_PROFILE_NAME, orderId, orderUri, false);
+                    return r.getBody() != null && r.getBody().getStatus() == OrderStatus.INVALID;
+                })
                 .until(() -> {
-                    ResponseEntity<com.otilm.api.model.core.acme.Order> r =
-                            acmeService.getOrder(ACME_PROFILE_NAME, orderId, orderUri, false);
+                    ResponseEntity<com.otilm.api.model.core.acme.Order> r = acmeService
+                            .getOrder(ACME_PROFILE_NAME, orderId, orderUri, false);
                     return r.getBody() != null && r.getBody().getStatus() == expected;
                 });
     }
@@ -504,8 +516,8 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
      * Delegates to {@link AcmeTestUtil#createJwsRequest} with the shared key pair and nonce repository.
      */
     private String createJws(Object payload, String url, String accountId) throws Exception {
-        return AcmeTestUtil.createJwsRequest(
-                objectMapper, acmeKeyPair, acmeNonceRepository,
-                payload, url, accountId, ACME_PROFILE_NAME);
+        return AcmeTestUtil
+                .createJwsRequest(objectMapper, acmeKeyPair, acmeNonceRepository, payload, url, accountId,
+                        ACME_PROFILE_NAME);
     }
 }
