@@ -20,16 +20,29 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
         run: |
           set -euo pipefail
+          # Falls back to the run conclusion when the read fails. SonarCloud Code
+          # Analysis is a required context, so a bad read must not withhold it
+          # from every pull request in the repository.
+          # Keyed on exit status, not emptiness: gh prints an API error body to
+          # stdout, so a failed read would otherwise look like a real answer.
           PKG=$(gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/jobs" \
-                  --jq '[.jobs[] | select(.name=="Package")][0].conclusion // "missing"')
-          echo "Package: $PKG"
-          if [ "$PKG" = success ]; then
-            echo "analyse=true" >> "$GITHUB_OUTPUT"
+                  --jq '[.jobs[] | select(.name=="Package")][0].conclusion // ""' 2>/dev/null) || PKG=""
+          case "$PKG" in
+            success|failure|cancelled|skipped|neutral|timed_out|action_required) ;;
+            *) PKG="" ;;
+          esac
+          echo "Package: ${PKG:-<unreadable>}  run conclusion: $RUN_CONCLUSION"
+          if [ -z "$PKG" ]; then
+            ANALYSE=$([ "$RUN_CONCLUSION" = success ] && echo true || echo false)
+          elif [ "$PKG" = success ]; then
+            ANALYSE=true
           else
-            echo "analyse=false" >> "$GITHUB_OUTPUT"
+            ANALYSE=false
           fi
+          echo "analyse=$ANALYSE" >> "$GITHUB_OUTPUT"
 
   sonar:
     name: Sonar
