@@ -15,6 +15,197 @@ permissions:
   packages: read
 
 jobs:
+  # A marker in the PR body redirects this build at an unmerged interfaces PR's
+  # snapshot. The pom is never touched: core dismisses approvals on push and
+  # forbids self-approval, so a revert commit would cost a second review round.
+  resolve-interfaces:
+    name: Resolve interfaces version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+      pull-requests: read
+    outputs:
+      mvnarg:   ${{ steps.resolve.outputs.mvnarg }}
+      override: ${{ steps.resolve.outputs.override }}
+    steps:
+      # No checkout: nothing here reads the working tree.
+      - id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          emit() { echo "mvnarg=$1" >>"$GITHUB_OUTPUT"; echo "override=$2" >>"$GITHUB_OUTPUT"; }
+          fail() { echo "::error::$1"; exit 1; }
+
+          # merge_group carries no pull_request object. Unreachable under the
+          # current triggers; kept so adding one cannot silently resolve wrong.
+          if [ "$EVENT" != pull_request ]; then
+            echo "Not a pull_request event - using the pom value."
+            emit "" "none"; exit 0
+          fi
+
+          # Live, not github.event.pull_request.body: a re-run replays the original
+          # payload, so an edited marker would be invisible and the override could
+          # never clear without a push, which dismisses the approval.
+          if ! BODY=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/$PR" --jq '.body // ""'); then
+            fail "Could not read the body of ${GITHUB_REPOSITORY}#${PR}."
+          fi
+
+          # Fenced blocks and HTML comments go first: the regexes are line-oriented,
+          # so a body quoting the marker syntax would otherwise pin the build.
+          BODY=$(printf '%s\n' "$BODY" | python3 -c 'import re,sys; t=sys.stdin.read(); t=re.sub(r"<!--.*?-->","",t,flags=re.S); t=re.sub(r"^[ \t]*(```|~~~).*?^[ \t]*\1","",t,flags=re.S|re.M); sys.stdout.write(t)')
+
+          # head -1 below would otherwise take the earlier line silently.
+          DUPD=$(printf '%s' "$BODY" | grep -ciP '^[[:space:]>*_+#.)0-9-]*Depends-On[[:space:]*_]*:[[:space:]*_]*(https?://github\.com/)?OmniTrustILM/interfaces(?![0-9A-Za-z._-])' || true)
+          DUPV=$(printf '%s' "$BODY" | grep -ciP '^[[:space:]>*_+#.)0-9-]*Interfaces-Version[[:space:]*_]*:' || true)
+          [ "${DUPD:-0}" -le 1 ] || fail "The PR body has ${DUPD} Depends-On lines. Keep exactly one."
+          [ "${DUPV:-0}" -le 1 ] || fail "The PR body has ${DUPV} Interfaces-Version lines. Keep exactly one."
+
+          NUM=$(printf '%s' "$BODY" \
+            | grep -oiP '^Depends-On:[[:space:]]*OmniTrustILM/interfaces#\K[0-9]{1,7}(?=[[:space:]]*$)' \
+            | head -1 || true)
+          VER=$(printf '%s' "$BODY" \
+            | grep -oiP '^Interfaces-Version:[[:space:]]*\K[0-9][0-9A-Za-z.\-]{0,60}(?=[[:space:]]*$)' \
+            | head -1 || true)
+          # Strict extractors, loose probes.
+          #
+          # Strict: line start, nothing after the value - `Interfaces-Version:
+          # 2.20.0; rm -rf /` is rejected, not truncated to a pin on 2.20.0.
+          #
+          # Loose: a decorated marker misses the extractor, so the probe catches it
+          # and fails loudly. The Depends-On probe closes off the repository name,
+          # so another repo's marker - or a same-prefix sibling - is ignored.
+          if printf '%s' "$BODY" | grep -qiP '^[[:space:]>*_+#.)0-9-]*Depends-On[[:space:]*_]*:[[:space:]*_]*(https?://github\.com/)?OmniTrustILM/interfaces(?![0-9A-Za-z._-])' && [ -z "$NUM" ]; then
+            fail "A Depends-On: line for interfaces is present but not in the accepted form. It must begin the line and read: Depends-On: OmniTrustILM/interfaces#<number> - a pull-request URL is not accepted."
+          fi
+          if printf '%s' "$BODY" | grep -qiP '^[[:space:]>*_+#.)0-9-]*Interfaces-Version[[:space:]*_]*:' && [ -z "$VER" ]; then
+            fail "An Interfaces-Version: line is present but not in the accepted form. It must begin the line and name a published version, e.g. Interfaces-Version: 2.20.0-M906-480022e4"
+          fi
+
+          # Both markers set: name the loser rather than letting it disappear.
+          if [ -n "$VER" ] && [ -n "$NUM" ]; then
+            echo "::warning::Both markers present - Interfaces-Version wins; ignoring Depends-On: OmniTrustILM/interfaces#${NUM}."
+          fi
+
+          # Reaches the build jobs through the environment, never interpolated into
+          # their run: blocks, so the value is never shell source text.
+          if [ -n "$VER" ]; then
+            echo "Explicit override: $VER"
+            emit "-Dinterfaces.version=$VER" "explicit"; exit 0
+          fi
+
+          if [ -z "$NUM" ]; then
+            emit "" "none"; exit 0
+          fi
+
+          # Captured, not tested inline: a substitution inside an `if` does not trip
+          # `set -e`, so a 404 or rate limit would read as "not merged".
+          if ! IPR=$(gh api "repos/OmniTrustILM/interfaces/pulls/$NUM" --jq '[.merged, .state, (.merge_commit_sha // ""), (.merged_at // "")] | @tsv'); then
+            fail "Cannot read OmniTrustILM/interfaces#${NUM} - check that the number names an existing pull request."
+          fi
+          read -r MERGED ISTATE MSHA MAT <<<"$IPR"
+
+          if ! VERSIONS=$(gh api --paginate \
+                  "/orgs/OmniTrustILM/packages/maven/com.otilm.interfaces/versions?per_page=100" \
+                  --jq '.[] | [.created_at, .name] | @tsv'); then
+            fail "Could not list the published interfaces package versions."
+          fi
+
+          # Self-clearing: once the interfaces PR merges, the same unchanged
+          # marker stops meaning "override" and starts meaning "nothing to do".
+          if [ "$MERGED" = true ]; then
+            # Mainline SNAPSHOT carries the change only once the interfaces
+            # publish finishes. The merge commit's -M build is evidence that run
+            # reached its pin job, not that the SNAPSHOT deploy in it succeeded -
+            # that job mints the pin even when it did not.
+            if ! printf '%s\n' "$VERSIONS" | cut -f2 \
+                 | grep -qE "^[0-9][0-9A-Za-z.-]*-M[0-9]+-${MSHA:0:8}\$"; then
+              AGE=$(( $(date -u +%s) - $(date -u -d "${MAT:-@0}" +%s) ))
+              if [ "$AGE" -lt 900 ]; then
+                fail "interfaces#${NUM} merged ${AGE}s ago but its build has not published yet. Wait for it, then re-run all jobs."
+              fi
+              echo "::warning::interfaces#${NUM} merged ${AGE}s ago with no -M build; a release-cut merge produces none. Proceeding against mainline."
+            fi
+            echo "interfaces#$NUM is merged - using the mainline pom value."
+            emit "" "none"; exit 0
+          fi
+
+          # A PR closed without merging would otherwise read as "still open" and keep
+          # this build pinned to an abandoned branch; its snapshot outlives it.
+          if [ "$ISTATE" = closed ]; then
+            fail "OmniTrustILM/interfaces#${NUM} was closed without merging. Remove the Depends-On line, or repoint it at whatever superseded it."
+          fi
+
+          # Looked up, not derived from core's own property: across a release cut
+          # interfaces publishes 2.21.0-alpha-PR<n>-SNAPSHOT while this pom still
+          # reads 2.20.0.
+          #
+          # The whole name is anchored, not just the suffix - the prefix comes from
+          # the interfaces PR's own pom, so it would otherwise carry PR-controlled
+          # text into the mvn argument. Newest by created_at, not API order, which
+          # is not contractual and matters when a PR spans a release cut.
+          PRV=$(printf '%s\n' "$VERSIONS" \
+            | awk -F'\t' -v n="$NUM" '$2 ~ "^[0-9][0-9A-Za-z.-]*-alpha-PR" n "-SNAPSHOT$"' \
+            | sort -r | head -1 | cut -f2)
+
+          if [ -z "$PRV" ]; then
+            fail "No published snapshot for interfaces#${NUM}. It needs the publish-snapshot label and a finished build. Fork PRs never publish - their token is read-only."
+          fi
+
+          echo "interfaces#$NUM is open - building against $PRV"
+          emit "-Dinterfaces.version=$PRV" "pr"
+
+      # sonar.yaml is a separate workflow and cannot read job outputs; without this
+      # it analyses the compiled classes against a classpath they were not built with.
+      - name: Publish the resolved argument
+        env:
+          ARG: ${{ steps.resolve.outputs.mvnarg }}
+        run: printf '%s\n' "$ARG" > mvnarg.txt
+
+      - name: Upload the resolved interfaces argument
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: interfaces-mvnarg
+          path: mvnarg.txt
+
+      - name: Summarise
+        env:
+          MODE: ${{ steps.resolve.outputs.override }}
+          ARG: ${{ steps.resolve.outputs.mvnarg }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Interfaces resolution"
+            echo ""
+            echo "- mode: \`$MODE\`"
+            echo "- mvn arg: \`${ARG:-(none)}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Reached transitively by the required `Build` job's `needs` - "Interfaces pin"
+  # is not itself a required context, so do not drop it from that list.
+  # Red on both override modes; `pr` clears itself once the interfaces PR
+  # merges and the workflow is re-run, `explicit` only when the line is deleted.
+  pin-gate:
+    name: Interfaces pin
+    needs: resolve-interfaces
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject an active interfaces override
+        env:
+          MODE: ${{ needs.resolve-interfaces.outputs.override }}
+        run: |
+          set -euo pipefail
+          case "$MODE" in
+            none) echo "No override active." ;;
+            pr)   echo "::error::Building against an unmerged interfaces PR. Merge it, wait for the publish, then re-run all jobs."; exit 1 ;;
+            explicit) echo "::error::An explicit Interfaces-Version override is active. Remove the marker from the PR body, then re-run all jobs - re-running only the failed job replays the cached resolution."; exit 1 ;;
+            *) echo "::error::Unknown resolver mode '$MODE'"; exit 1 ;;
+          esac
+
   formatting:
     name: Formatting and lint
     runs-on: ubuntu-latest
@@ -38,6 +229,7 @@ jobs:
 
   compile:
     name: Compile
+    needs: resolve-interfaces
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -52,7 +244,9 @@ jobs:
       - name: Compile
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
-        run: mvn -B -U -ntp test-compile -Dmaven.compiler.proc=full
+          MVNARG: ${{ needs.resolve-interfaces.outputs.mvnarg }}
+        # $MVNARG unquoted on purpose: empty contributes no argument.
+        run: mvn -B -U -ntp test-compile -Dmaven.compiler.proc=full $MVNARG
 
       - name: Package compiled output
         run: tar -czf compiled.tar.gz target/classes target/test-classes
@@ -66,7 +260,7 @@ jobs:
 
   test:
     name: Test (${{ matrix.group }})
-    needs: compile
+    needs: [compile, resolve-interfaces]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -93,7 +287,8 @@ jobs:
       - name: Run ${{ matrix.group }} tests
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
-        run: mvn -B -U -ntp test -Ptest-${{ matrix.group }} -Dmaven.compiler.skip=true
+          MVNARG: ${{ needs.resolve-interfaces.outputs.mvnarg }}
+        run: mvn -B -U -ntp test -Ptest-${{ matrix.group }} -Dmaven.compiler.skip=true $MVNARG
 
       - name: Upload coverage exec
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -104,7 +299,7 @@ jobs:
 
   package:
     name: Package
-    needs: test
+    needs: [test, resolve-interfaces]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -158,7 +353,8 @@ jobs:
       - name: Merge coverage, generate report, and package
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
-        run: mvn -B -U -ntp package -DskipTests -Pmerge-coverage -Dmaven.compiler.skip=true
+          MVNARG: ${{ needs.resolve-interfaces.outputs.mvnarg }}
+        run: mvn -B -U -ntp package -DskipTests -Pmerge-coverage -Dmaven.compiler.skip=true $MVNARG
 
       # Write PR number to file
       - name: Write PR number to file
@@ -187,6 +383,9 @@ jobs:
 
   generated:
     name: Generated artifacts
+    # `mvn test` runs the compile and test-compile phases, so this job builds the
+    # whole tree and needs the override as much as compile/test/package do.
+    needs: resolve-interfaces
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -256,9 +455,10 @@ jobs:
       - name: Key the miniature CBOM corpus
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # resolves com.otilm parent and build-tools from GitHub Packages
+          MVNARG: ${{ needs.resolve-interfaces.outputs.mvnarg }}
         run: |
           mvn -B -U -ntp test -Dtest=CorpusKeySnapshotTest#snapshot -Dsurefire.failIfNoSpecifiedTests=false \
-            -Dcorpus.dir=src/test/resources/cbom/corpus -Dcorpus.out=target/corpus-keys.tsv
+            -Dcorpus.dir=src/test/resources/cbom/corpus -Dcorpus.out=target/corpus-keys.tsv $MVNARG
 
       - name: Fail if the committed corpus keys are not the instrument's output
         run: |
@@ -276,7 +476,7 @@ jobs:
 
   build:
     name: Build
-    needs: [package, formatting, generated]
+    needs: [package, formatting, generated, pin-gate]
     # Runs when an upstream job failed or was skipped, not only when all of them succeeded. With
     # the default condition this job is skipped whenever a dependency fails, and GitHub counts a
     # skipped required check as passing -- so a red `generated` or `formatting` job blocked the
