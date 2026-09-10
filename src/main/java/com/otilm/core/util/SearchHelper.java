@@ -115,8 +115,9 @@ public class SearchHelper {
         fieldDataDto.setConditions(availableConditions(filterField));
         fieldDataDto.setType(filterField.getType().getFieldType());
         // Do not add null value to List filter. A NATIVE_ARRAY field reports FilterFieldType.LIST but is not
-        // SearchFieldTypeEnum.LIST, so its caller takes the single-value path and supplies no values at all --
-        // there is then nothing to strip, and casting the absent value to a List throws.
+        // SearchFieldTypeEnum.LIST, and it may supply a value list (the crypto-asset curve field does, from the
+        // members its rows hold) or none at all (the NTP servers field). The instanceof guard covers both: an
+        // absent value is left alone rather than cast to a List.
         if (filterField.getType().getFieldType() == FilterFieldType.LIST && filterField.getEnumClass() == null
                 && values instanceof List<?> suppliedValues) {
             List<Object> withoutNull = new ArrayList<>(suppliedValues);

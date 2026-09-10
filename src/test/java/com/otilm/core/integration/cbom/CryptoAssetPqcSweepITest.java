@@ -261,6 +261,23 @@ class CryptoAssetPqcSweepITest extends BaseSpringBootTest {
         assertThat(asset(uuid).getPqcEvaluatedFields()).containsEntry("materialSize", 64);
     }
 
+    /**
+     * The column holds a hybrid's curves split, one per element; the work list has to hand the sweep the joined
+     * spelling the identity and the rules were written against, and the row must be swept like any other.
+     */
+    @Test
+    void aRowWithAHybridCurveIsReadBackJoinedAndSwept() {
+        UUID hybrid = upsertHybridCurve();
+
+        assertThat(staleRow(hybrid).curve()).isEqualTo("other/curve25519+other/curve448");
+
+        PqcVerdictSweeper.SweepOutcome outcome = sweeper.sweep();
+
+        assertThat(outcome.ran()).isTrue();
+        assertThat(asset(hybrid).getPqcRulesetVersion()).isEqualTo(PqcRuleset.VERSION);
+        assertThat(asset(hybrid).getPqcEvaluatedAt()).isNotNull();
+    }
+
     /** The advisory lock admits one sweeper; a contended run skips rather than blocking or double-writing. */
     @Test
     void aContendedSweepSkipsRatherThanWaiting() throws Exception {
@@ -320,6 +337,13 @@ class CryptoAssetPqcSweepITest extends BaseSpringBootTest {
     private UUID upsertMaterial(String name) {
         CryptoAssetIdentityFields fields = new CryptoAssetIdentityFields(CryptographicAssetType.RELATED_CRYPTO_MATERIAL,
                 name, null, null, null, null, null, null, null, null);
+        return assetWriter.upsertIdentity(AssetRowKeys.forFields(fields), fields, null);
+    }
+
+    private UUID upsertHybridCurve() {
+        CryptoAssetIdentityFields fields = new CryptoAssetIdentityFields(CryptographicAssetType.ALGORITHM,
+                "X25519/X448", "1.3.101.110", "ecdh", "key-agree", null, "other/curve25519+other/curve448", null, null,
+                null);
         return assetWriter.upsertIdentity(AssetRowKeys.forFields(fields), fields, null);
     }
 

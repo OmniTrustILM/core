@@ -64,6 +64,11 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
      * reconciling a genuine disagreement is an explicit decision rather than a side effect of sync order.
      *
      * <p>
+     * <b>Curve:</b> bound as the normalized composite and stored split on {@code +}, so a hybrid scheme's members can
+     * each be matched on their own. The caller keeps passing the joined spelling because that is what the identity
+     * preimage hashes; the split is a storage projection, and {@code CompositeCurve} is its inverse on the read side.
+     *
+     * <p>
      * <b>Identity guard:</b> an existing guard survives, because it is a safety refusal rather than a field. A guard
      * says this row was deliberately kept separate — a refuted certificate digest, a bare common name facing a full
      * subject DN — and {@code CryptoAssetAliasWriter} refuses an alias by reading the guard that is on the row now.
@@ -81,7 +86,7 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
                     algorithm_family, primitive, parameter_set, curve, mode, padding, variant, identity_guard,
                     properties_leaf_count, source_count, i_cre, i_upd)
             VALUES (:uuid, :key, :rulesetVersion, :assetType, :name, :oid, :algorithmFamily, :primitive,
-                    :parameterSet, :curve, :mode, :padding, :variant, :identityGuard,
+                    :parameterSet, string_to_array(CAST(:curve AS TEXT), '+'), :mode, :padding, :variant, :identityGuard,
                     0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ON CONFLICT (identity_key) DO UPDATE SET
                 ruleset_version = EXCLUDED.ruleset_version,
@@ -97,7 +102,8 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
                 variant = COALESCE(crypto_asset.variant, EXCLUDED.variant),
                 identity_guard = COALESCE(crypto_asset.identity_guard, EXCLUDED.identity_guard),
                 i_upd = CURRENT_TIMESTAMP
-            """, nativeQuery = true)
+            """,
+            nativeQuery = true)
     void upsertIdentity(@Param("uuid") UUID uuid, @Param("key") String key, @Param("rulesetVersion") int rulesetVersion,
             @Param("assetType") String assetType, @Param("name") String name, @Param("oid") String oid,
             @Param("algorithmFamily") String algorithmFamily, @Param("primitive") String primitive,
@@ -194,7 +200,8 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
      * from -- the sweep's transaction is {@code READ COMMITTED}, so a second statement would see a later snapshot and a
      * write landing between the two would be invisible to the guard. {@code merged_crypto_properties} comes back as
      * text because the evaluator wants a {@code JsonNode}: the entity converter would build a {@code Map} only for the
-     * sweep to serialize it again.
+     * sweep to serialize it again. {@code curve} comes back joined on {@code +} because the record and the rules read
+     * the identity spelling, which the column stores split.
      *
      * <p>
      * <b>Stale</b> is either half of the contract: a verdict from an older generation of the rules, or a verdict older
@@ -215,7 +222,7 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
                    algorithm_family,
                    primitive,
                    parameter_set,
-                   curve,
+                   array_to_string(curve, '+') AS curve,
                    mode,
                    padding,
                    variant,
@@ -335,14 +342,17 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
             """, nativeQuery = true)
     List<String> findDistinctParameterSet();
 
+    /**
+     * Every curve any asset touches, once each -- not every combination once.
+     *
+     * <p>
+     * The sibling finders skip along a btree with a recursive loose index scan. That cannot work here: the distinct
+     * values are the array's elements, and no index orders them. The unnest is a sequential scan, which is what the
+     * value list for a membership filter costs.
+     */
     @Query(value = """
-            WITH RECURSIVE vals AS (
-                SELECT min(curve) AS v FROM {h-schema}crypto_asset
-                UNION ALL
-                SELECT (SELECT min(curve) FROM {h-schema}crypto_asset WHERE curve > vals.v)
-                FROM vals WHERE vals.v IS NOT NULL
-            )
-            SELECT v FROM vals WHERE v IS NOT NULL ORDER BY v
+            SELECT DISTINCT member FROM {h-schema}crypto_asset a, unnest(a.curve) AS member
+            WHERE member IS NOT NULL ORDER BY member
             """, nativeQuery = true)
     List<String> findDistinctCurve();
 

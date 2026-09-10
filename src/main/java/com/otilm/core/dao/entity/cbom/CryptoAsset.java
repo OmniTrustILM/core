@@ -15,6 +15,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import lombok.Getter;
@@ -86,8 +87,13 @@ public class CryptoAsset extends UniquelyIdentifiedAndAudited {
     @Column(name = "parameter_set", columnDefinition = "TEXT")
     private String parameterSet;
 
-    @Column(name = "curve", columnDefinition = "TEXT")
-    private String curve;
+    /**
+     * The curve members, one per element. A hybrid scheme reports its members joined on {@code +} and is stored split,
+     * so an asset can be found by any curve it touches; the identity preimage keeps the joined spelling.
+     */
+    @Column(name = "curve", columnDefinition = "TEXT[]")
+    @JdbcTypeCode(SqlTypes.ARRAY)
+    private List<String> curve;
 
     @Column(name = "mode", columnDefinition = "TEXT")
     private String mode;

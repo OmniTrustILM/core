@@ -65,6 +65,10 @@ class CryptographicAssetSearchableFieldsITest extends BaseSpringBootTest {
                 "ecdsa", "signature", "P-256", " secp256r1 ", null, null, null), null);
         upsert(new CryptoAssetIdentityFields(CryptographicAssetType.ALGORITHM, "ML-KEM-768", "2.16.840.1.101.3.4.4.2",
                 "ml-kem", "kem", null, null, null, null, null), CryptoAssetIdentityGuard.REFUTED_OID);
+        // A hybrid scheme: one asset naming two curves. Its members are what the value list must offer, so that
+        // selecting either one reaches this row -- the composite itself is not a curve anyone can pick.
+        upsert(new CryptoAssetIdentityFields(CryptographicAssetType.ALGORITHM, "X25519/X448", "1.3.101.110", "ecdh",
+                "key-agree", null, "other/curve25519+other/curve448", null, null, null), null);
 
         newCbom(SEEDED_SERIAL, 1);
         // A second version of the same serial plus an earlier-sorting one: the value list must collapse the
@@ -102,10 +106,24 @@ class CryptographicAssetSearchableFieldsITest extends BaseSpringBootTest {
     }
 
     @Test
-    void theCurveFieldOffersTheStoredNormalizedSpellingOnlyOnce() {
+    void theCurveFieldOffersEachCurveMemberOnceAndNeverACompositeOfThem() {
         assertThat((List<String>) fieldFor(FilterField.CBOM_ASSET_CURVE).getValue())
-                .containsExactly("secp256r1")
+                .containsExactly("other/curve25519", "other/curve448", "secp256r1")
                 .doesNotContainNull();
+    }
+
+    /**
+     * The curve column is a native array, so it gains membership conditions; the wire type it reports must not move,
+     * because the interfaces contract knows this field as a LIST.
+     */
+    @Test
+    void theCurveFieldOffersMembershipConditionsAndStillReportsAListType() {
+        SearchFieldDataDto curve = fieldFor(FilterField.CBOM_ASSET_CURVE);
+        assertThat(curve.getType()).isEqualTo(FilterFieldType.LIST);
+        assertThat(curve.getConditions())
+                .containsExactlyInAnyOrder(FilterConditionOperator.CONTAINS, FilterConditionOperator.NOT_CONTAINS,
+                        FilterConditionOperator.EQUALS, FilterConditionOperator.NOT_EQUALS,
+                        FilterConditionOperator.EMPTY, FilterConditionOperator.NOT_EMPTY);
     }
 
     @Test

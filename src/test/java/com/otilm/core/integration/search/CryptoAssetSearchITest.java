@@ -188,6 +188,32 @@ class CryptoAssetSearchITest extends BaseSpringBootTest {
                 .isEmpty();
     }
 
+    /**
+     * The reason the column is an array. A hybrid scheme names two curves in one asset, and the query this inventory
+     * exists to answer -- every asset that touches curve X -- has to reach it from either member. The composite itself
+     * is deliberately not selectable: it is a spelling of the pair, not a curve, and it is not offered as a value.
+     */
+    @Test
+    void aHybridAssetIsFoundByEitherOfItsCurvesAndNotByTheirCompositeSpelling() {
+        UUID hybrid = upsert(new CryptoAssetIdentityFields(CryptographicAssetType.ALGORITHM, "X25519/X448",
+                "1.3.101.110", "ecdh", "key-agree", null, "other/curve25519+other/curve448", null, null, null), null);
+
+        assertThat(search(aPropertyEqualsFilter(FilterField.CBOM_ASSET_CURVE, "other/curve25519")))
+                .containsExactly(hybrid);
+        assertThat(search(aPropertyEqualsFilter(FilterField.CBOM_ASSET_CURVE, "other/curve448")))
+                .containsExactly(hybrid);
+        assertThat(search(aPropertyEqualsFilter(FilterField.CBOM_ASSET_CURVE, "other/curve25519+other/curve448")))
+                .describedAs("the composite matches no member, so it selects nothing")
+                .isEmpty();
+        assertThat(search(aPropertyNotEmptyFilter(FilterField.CBOM_ASSET_CURVE)))
+                .describedAs("a hybrid has curves like any other asset")
+                .containsExactlyInAnyOrder(populated, hybrid);
+        assertThat(search(
+                aPropertyFilter(FilterField.CBOM_ASSET_CURVE, FilterConditionOperator.NOT_EQUALS, "other/curve25519")))
+                .describedAs("excluding a member excludes every asset that touches it")
+                .doesNotContain(hybrid);
+    }
+
     // ---- free text, refuted-OID and source-CBOM filters ----
 
     @Test
