@@ -579,8 +579,8 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
 
     private static CryptographicAssetNormalizedFieldsDto toNormalizedFieldsDto(CryptoAsset asset) {
         if (asset.getAlgorithmFamily() == null && asset.getPrimitive() == null && asset.getParameterSet() == null
-                && CompositeCurve.join(asset.getCurve()) == null && asset.getMode() == null
-                && asset.getPadding() == null && asset.getVariant() == null) {
+                && asset.getCurve() == null && asset.getMode() == null && asset.getPadding() == null
+                && asset.getVariant() == null) {
             return null;
         }
         CryptographicAssetNormalizedFieldsDto dto = new CryptographicAssetNormalizedFieldsDto();
