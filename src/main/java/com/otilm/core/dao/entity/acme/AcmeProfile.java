@@ -2,6 +2,8 @@ package com.otilm.core.dao.entity.acme;
 
 import com.fasterxml.jackson.annotation.JsonBackReference;
 import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.core.acme.AcmeIdentifierAuthorizationMode;
+import com.otilm.api.model.core.acme.AcmePreauthorizedIdentifierDto;
 import com.otilm.api.model.core.acme.AcmeProfileDto;
 import com.otilm.api.model.core.acme.AcmeProfileListDto;
 import com.otilm.core.dao.entity.ProtocolCertificateAssociations;
@@ -12,18 +14,24 @@ import com.otilm.core.util.DtoMapper;
 import com.otilm.core.util.ObjectAccessControlMapper;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.proxy.HibernateProxy;
+import org.hibernate.type.SqlTypes;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 @Getter
@@ -95,6 +103,29 @@ public class AcmeProfile extends UniquelyIdentifiedAndAudited
     @ToString.Exclude
     private ProtocolCertificateAssociations certificateAssociations;
 
+    // S1948: the entity is Serializable through its supertype, but nothing Java-serializes it - Jackson owns the
+    // persistence shape of this JSONB column.
+    @SuppressWarnings("java:S1948")
+    @Column(name = "preauthorized_identifiers", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
+    private List<AcmePreauthorizedIdentifierDto> preauthorizedIdentifiers = new ArrayList<>();
+
+    @Column(name = "identifier_authorization_mode")
+    @Enumerated(EnumType.STRING)
+    private AcmeIdentifierAuthorizationMode identifierAuthorizationMode = AcmeIdentifierAuthorizationMode.PREAUTHORIZED_OR_CHALLENGE;
+
+    /** The policy as a list that is never null, so callers need not repeat the check. */
+    public List<AcmePreauthorizedIdentifierDto> preauthorizedIdentifierList() {
+        return preauthorizedIdentifiers == null ? List.of() : preauthorizedIdentifiers;
+    }
+
+    /** The mode, defaulting to the permissive one for a row written before the column existed. */
+    public AcmeIdentifierAuthorizationMode effectiveIdentifierAuthorizationMode() {
+        return identifierAuthorizationMode == null
+                ? AcmeIdentifierAuthorizationMode.PREAUTHORIZED_OR_CHALLENGE
+                : identifierAuthorizationMode;
+    }
+
     @Override
     public AcmeProfileDto mapToDto() {
         AcmeProfileDto acmeProfileDto = new AcmeProfileDto();
@@ -115,6 +146,8 @@ public class AcmeProfile extends UniquelyIdentifiedAndAudited
         acmeProfileDto.setRequireTermsOfService(requireTermsOfService);
         acmeProfileDto.setWebsiteUrl(website);
         acmeProfileDto.setTermsOfServiceChangeUrl(termsOfServiceChangeUrl);
+        acmeProfileDto.setPreauthorizedIdentifiers(List.copyOf(preauthorizedIdentifierList()));
+        acmeProfileDto.setIdentifierAuthorizationMode(effectiveIdentifierAuthorizationMode());
         if (raProfile != null) {
             acmeProfileDto
                     .setDirectoryUrl(ServletUriComponentsBuilder.fromCurrentContextPath().build().toUriString()

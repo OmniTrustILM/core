@@ -45,14 +45,7 @@ public final class AcmeChallengeStateMachine {
             challenge.setValidated(OffsetDateTime.now(ZoneOffset.UTC));
             challenge.setStatus(ChallengeStatus.VALID);
             authorization.setStatus(AuthorizationStatus.VALID);
-            // An order carries an authorization per identifier and is ready to finalize only once all of them
-            // have been proven (RFC 8555 section 7.1.6).
-            if (order.getStatus() == OrderStatus.PENDING && order
-                    .getAuthorizations()
-                    .stream()
-                    .allMatch(candidate -> candidate.getStatus() == AuthorizationStatus.VALID)) {
-                order.setStatus(OrderStatus.READY);
-            }
+            readyWhenEveryAuthorizationIsValid(order);
             return;
         }
 
@@ -61,6 +54,21 @@ public final class AcmeChallengeStateMachine {
         challenge.setErrorDetail(result.detail());
         authorization.setStatus(AuthorizationStatus.INVALID);
         invalidateOrder(order);
+    }
+
+    /**
+     * An order carries an authorization per identifier and is ready to finalize only once all of them have been proven
+     * (RFC 8555 section 7.1.6). An order whose identifiers were all pre-authorized meets that at creation, without any
+     * challenge being validated, so both paths ask the question here rather than each deciding it.
+     */
+    public static void readyWhenEveryAuthorizationIsValid(AcmeOrder order) {
+        if (order.getStatus() == OrderStatus.PENDING && !order.getAuthorizations().isEmpty()
+                && order
+                        .getAuthorizations()
+                        .stream()
+                        .allMatch(candidate -> candidate.getStatus() == AuthorizationStatus.VALID)) {
+            order.setStatus(OrderStatus.READY);
+        }
     }
 
     /**
