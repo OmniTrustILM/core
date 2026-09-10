@@ -1153,14 +1153,17 @@ public class AcmeServiceImpl implements AcmeExternalService {
                             uncovered.stream().map(AcmeServiceImpl::singleLine).toList());
             throw new AcmeProblemDocumentException(HttpStatus.FORBIDDEN, Problem.REJECTED_IDENTIFIER,
                     "The profile issues only for pre-authorized identifiers, and does not pre-authorize: "
-                            + String.join(", ", uncovered));
+                            + uncovered.stream().map(AcmeServiceImpl::singleLine).collect(Collectors.joining(", ")));
         }
         return preauthorized;
     }
 
-    /** Line breaks removed: the value is the caller's, and a log line it can split is a log line it can forge. */
+    /**
+     * Line separators removed: the value is the caller's, and a log line it can split is a log line it can forge. The
+     * problem document needs this too, not only the log statement, because the exception advice logs the document.
+     */
     private static String singleLine(String value) {
-        return value == null ? "" : value.replaceAll("[\\r\\n]", " ");
+        return value == null ? "" : value.replaceAll("[\\r\\n\\u000B\\f\\u0085\\u2028\\u2029]", " ");
     }
 
     private Set<AcmeAuthorization> generateValidations(AcmeOrder acmeOrder, List<Identifier> identifiers,

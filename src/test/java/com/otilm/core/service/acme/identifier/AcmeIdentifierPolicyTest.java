@@ -120,6 +120,79 @@ class AcmeIdentifierPolicyTest {
                 "an address entry must not cover a name presented as an ip identifier");
     }
 
+    /**
+     * A hostname containing a colon must never be treated as an address. These reached the resolver when the IPv6 shape
+     * was expressed as a character class that admitted letters.
+     */
+    @ParameterizedTest
+    @CsvSource({
+            "victim:1.example.com",
+            "zzz:1.example.com",
+            "www.example.com:80",
+            "guest:0.example.com",
+            "abc:def.example.com",
+            "_x:1.example.com",
+            "-x:1.example.com",
+            "foo%bar:1",
+            "fe80::1%eth0"})
+    void aColonDoesNotMakeAHostnameAnAddress(String value) {
+        assertFalse(AcmeIdentifierPolicy
+                .covers(List.of(entry("192.0.2.1", AcmeIdentifierMatchType.EXACT, false)), ip(value)));
+        assertFalse(AcmeIdentifierPolicy
+                .covers(List.of(entry(value, AcmeIdentifierMatchType.EXACT, false)), ip("192.0.2.1")));
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "::1, 0:0:0:0:0:0:0:1",
+            "2001:db8::1, 2001:0db8:0000:0000:0000:0000:0000:0001",
+            "::, 0:0:0:0:0:0:0:0",
+            "::ffff:192.0.2.1, 0:0:0:0:0:ffff:c000:0201",
+            "2001:DB8::1, 2001:db8:0:0:0:0:0:1"})
+    void anAddressWrittenTwoWaysIsTheSameAddress(String left, String right) {
+        assertTrue(AcmeIdentifierPolicy.covers(List.of(entry(left, AcmeIdentifierMatchType.EXACT, false)), ip(right)));
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "1::2::3",
+            ":::",
+            "2001:db8:::1",
+            "1:2:3:4:5:6:7:8:9",
+            "2001:db8:0:0:0:0:0:0:1",
+            "12345::1",
+            "2001:db8::g",
+            "1.2.3.4::1",
+            "::1.2.3.4.5",
+            "1:2",
+            "'  ::1'"})
+    void aMalformedIpv6ValueIsNotAnAddress(String value) {
+        assertFalse(
+                AcmeIdentifierPolicy.covers(List.of(entry("::1", AcmeIdentifierMatchType.EXACT, false)), ip(value)));
+    }
+
+    @Test
+    void aNameThatCaseFoldsOntoAnAsciiLetterIsNotThatName() {
+        // U+212A KELVIN SIGN lowercases to 'k', so folding before validating would admit a name never listed.
+        assertFalse(AcmeIdentifierPolicy
+                .covers(List.of(entry("bank.example.com", AcmeIdentifierMatchType.EXACT, false)),
+                        dns("ban\u212A.example.com")));
+        assertFalse(AcmeIdentifierPolicy
+                .covers(List.of(entry("example.com", AcmeIdentifierMatchType.SUBDOMAIN, false)),
+                        dns("a\u212A.example.com")));
+    }
+
+    @Test
+    void theNameLengthCapCountsTheWholePresentedName() {
+        String longName = "a".repeat(49) + "." + "b".repeat(49) + "." + "c".repeat(49) + "." + "d".repeat(49) + "."
+                + "e".repeat(53);
+        assertEquals(253, longName.length());
+        AcmePreauthorizedIdentifierDto suffix = entry(longName, AcmeIdentifierMatchType.SUBDOMAIN, true);
+
+        assertFalse(AcmeIdentifierPolicy.covers(List.of(suffix), dns("*." + longName)),
+                "the wildcard form is longer than a name may be, and no name it stands for could exist");
+    }
+
     @Test
     void anIpIdentifierWhoseValueIsNotALiteralIsNotCovered() {
         assertFalse(AcmeIdentifierPolicy
