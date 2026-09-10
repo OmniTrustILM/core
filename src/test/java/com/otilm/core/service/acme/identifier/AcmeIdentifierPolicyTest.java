@@ -153,6 +153,10 @@ class AcmeIdentifierPolicyTest {
         assertTrue(AcmeIdentifierPolicy.covers(List.of(entry(left, AcmeIdentifierMatchType.EXACT, false)), ip(right)));
     }
 
+    /**
+     * Asserted against an entry holding the very same text, so a value the parser wrongly accepts cannot pass by merely
+     * differing from some other address. A malformed value must not even match itself.
+     */
     @ParameterizedTest
     @CsvSource({
             "1::2::3",
@@ -162,13 +166,40 @@ class AcmeIdentifierPolicyTest {
             "2001:db8:0:0:0:0:0:0:1",
             "12345::1",
             "2001:db8::g",
-            "1.2.3.4::1",
             "::1.2.3.4.5",
             "1:2",
-            "'  ::1'"})
+            "'  ::1'",
+            "1.2.3.4::",
+            "1.2.3.4::5",
+            "0:1.2.3.4::",
+            "1:2:3:4:5:1.2.3.4::",
+            "1.2.3.4:5::6"})
     void aMalformedIpv6ValueIsNotAnAddress(String value) {
         assertFalse(
-                AcmeIdentifierPolicy.covers(List.of(entry("::1", AcmeIdentifierMatchType.EXACT, false)), ip(value)));
+                AcmeIdentifierPolicy.covers(List.of(entry(value, AcmeIdentifierMatchType.EXACT, false)), ip(value)));
+    }
+
+    /**
+     * The dotted quad is the address-final 32 bits. Accepting it earlier gave every entry a second spelling: the head
+     * of a compressed address rewritten as a quad parses to the same bytes.
+     */
+    @ParameterizedTest
+    @CsvSource({
+            "2001:db8::1, 32.1.13.184::1",
+            "fe80::1, 254.128.0.0::1",
+            "2001:db8:1:2::1, 2001:db8:0.1.0.2::1",
+            "2001:db8:abcd:ef01::9, 2001:db8:171.205.239.1::9"})
+    void aQuadBeforeTheElisionIsNotAnAliasForAnEntry(String entryValue, String orderedValue) {
+        assertFalse(AcmeIdentifierPolicy
+                .covers(List.of(entry(entryValue, AcmeIdentifierMatchType.EXACT, false)), ip(orderedValue)));
+    }
+
+    @Test
+    void anAddressValueLongerThanAnyLiteralIsRefusedBeforeParsing() {
+        String oversized = "1:".repeat(5000) + "1";
+
+        assertFalse(AcmeIdentifierPolicy
+                .covers(List.of(entry("::1", AcmeIdentifierMatchType.EXACT, false)), ip(oversized)));
     }
 
     @Test

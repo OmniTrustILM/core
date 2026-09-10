@@ -39,47 +39,51 @@ public final class AcmeIdentifierPolicy {
     private static final int MAX_NAME_LENGTH = 253;
     private static final int IPV6_BYTES = 16;
 
+    /** The longest an address literal can be, so an oversized value is refused before it is parsed. */
+    private static final int MAX_ADDRESS_LENGTH = 45;
+
     private AcmeIdentifierPolicy() {
     }
 
-    /** Whether any entry of the policy covers this identifier. */
+    /**
+     * Whether any entry of the policy covers this identifier. The ordered value is parsed once rather than once per
+     * entry: it is caller-supplied and a policy may hold many entries.
+     */
     public static boolean covers(List<AcmePreauthorizedIdentifierDto> policy, Identifier identifier) {
         if (policy == null || policy.isEmpty() || !isSupportedType(identifier) || identifier.getValue() == null) {
             return false;
         }
-        return policy.stream().anyMatch(entry -> coveredBy(entry, identifier));
+        if (isIp(identifier)) {
+            Optional<byte[]> ordered = addressBytes(identifier.getValue());
+            return ordered.isPresent() && policy.stream().anyMatch(entry -> coversAddress(entry, ordered.get()));
+        }
+        String ordered = normalizeName(identifier.getValue());
+        return ordered != null && policy.stream().anyMatch(entry -> coversName(entry, ordered));
     }
 
-    private static boolean coveredBy(AcmePreauthorizedIdentifierDto entry, Identifier identifier) {
-        if (entry == null || entry.getValue() == null || entry.getMatchType() == null) {
-            return false;
-        }
-        return isIp(identifier)
-                ? coversAddress(entry, identifier.getValue())
-                : coversName(entry, identifier.getValue());
+    private static boolean usable(AcmePreauthorizedIdentifierDto entry) {
+        return entry != null && entry.getValue() != null && entry.getMatchType() != null;
     }
 
     /**
      * RFC 8738 addresses have no hierarchy to descend, so only an exact entry can cover one, and both sides must parse
      * as literals.
      */
-    private static boolean coversAddress(AcmePreauthorizedIdentifierDto entry, String orderedValue) {
-        if (entry.getMatchType() != AcmeIdentifierMatchType.EXACT) {
+    private static boolean coversAddress(AcmePreauthorizedIdentifierDto entry, byte[] ordered) {
+        if (!usable(entry) || entry.getMatchType() != AcmeIdentifierMatchType.EXACT) {
             return false;
         }
-        Optional<byte[]> ordered = addressBytes(orderedValue);
         Optional<byte[]> pattern = addressBytes(entry.getValue());
-        return ordered.isPresent() && pattern.isPresent() && Arrays.equals(ordered.get(), pattern.get());
+        return pattern.isPresent() && Arrays.equals(ordered, pattern.get());
     }
 
-    private static boolean coversName(AcmePreauthorizedIdentifierDto entry, String orderedValue) {
+    private static boolean coversName(AcmePreauthorizedIdentifierDto entry, String ordered) {
+        if (!usable(entry)) {
+            return false;
+        }
         String pattern = normalizeName(entry.getValue());
         if (pattern == null || pattern.startsWith(WILDCARD_PREFIX)) {
             // An entry is a name, never a pattern: the match type is what widens it.
-            return false;
-        }
-        String ordered = normalizeName(orderedValue);
-        if (ordered == null) {
             return false;
         }
         if (ordered.startsWith(WILDCARD_PREFIX)) {
@@ -150,6 +154,9 @@ public final class AcmeIdentifierPolicy {
 
     /** The bytes of an IP literal, or empty when the value is not one. */
     private static Optional<byte[]> addressBytes(String value) {
+        if (value.length() > MAX_ADDRESS_LENGTH) {
+            return Optional.empty();
+        }
         return value.indexOf(':') >= 0 ? ipv6Bytes(value) : ipv4Bytes(value);
     }
 
@@ -184,8 +191,14 @@ public final class AcmeIdentifierPolicy {
             return Optional.empty();
         }
         int compression = value.indexOf("::");
-        Optional<byte[]> head = hextets(compression < 0 ? value : value.substring(0, compression));
-        Optional<byte[]> tail = hextets(compression < 0 ? "" : value.substring(compression + 2));
+        // RFC 4291 section 2.2 form 3 puts the dotted quad at the end of the whole address, so it belongs to
+        // whichever segment ends it: the tail when the address is compressed, otherwise the only segment there is.
+        Optional<byte[]> head = compression < 0
+                ? hextets(value, true)
+                : hextets(value.substring(0, compression), false);
+        Optional<byte[]> tail = compression < 0
+                ? Optional.of(new byte[0])
+                : hextets(value.substring(compression + 2), true);
         if (head.isEmpty() || tail.isEmpty()) {
             return Optional.empty();
         }
@@ -204,8 +217,8 @@ public final class AcmeIdentifierPolicy {
         return Optional.of(address);
     }
 
-    /** One colon-separated run of hextets, optionally ending in a dotted quad. Empty text is an empty run. */
-    private static Optional<byte[]> hextets(String text) {
+    /** One colon-separated run of hextets, ending in a dotted quad only where the address allows one. */
+    private static Optional<byte[]> hextets(String text, boolean quadAllowed) {
         if (text.isEmpty()) {
             return Optional.of(new byte[0]);
         }
@@ -214,7 +227,7 @@ public final class AcmeIdentifierPolicy {
         for (int i = 0; i < parts.length; i++) {
             String part = parts[i];
             if (part.indexOf('.') >= 0) {
-                if (i != parts.length - 1) {
+                if (!quadAllowed || i != parts.length - 1) {
                     return Optional.empty();
                 }
                 Optional<byte[]> quad = ipv4Bytes(part);
