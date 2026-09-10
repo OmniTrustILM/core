@@ -1134,6 +1134,12 @@ public class AcmeServiceImpl implements AcmeExternalService {
         Set<Identifier> preauthorized = Collections.newSetFromMap(new IdentityHashMap<>());
         List<String> uncovered = new ArrayList<>();
         for (Identifier identifier : identifiers) {
+            if (!AcmeIdentifierPolicy.isSupportedType(identifier)) {
+                // Nothing downstream knows how to prove control of a type the platform does not model, and an
+                // authorization it can never validate would sit pending until the order expired.
+                throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.UNSUPPORTED_IDENTIFIER,
+                        "The order names an identifier of a type this server does not issue for");
+            }
             if (AcmeIdentifierPolicy.covers(acmeProfile.preauthorizedIdentifierList(), identifier)) {
                 preauthorized.add(identifier);
             } else {

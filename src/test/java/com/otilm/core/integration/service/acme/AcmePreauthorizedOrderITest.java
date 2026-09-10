@@ -195,6 +195,23 @@ class AcmePreauthorizedOrderITest extends BaseSpringBootTest {
     }
 
     @Test
+    void anIdentifierTypeTheServerDoesNotIssueForIsRefused() throws Exception {
+        // It could never be proven, so an authorization for it would sit pending until the order expired.
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("identifiers", List.of(Map.of("type", "email", "value", "someone@example.com")));
+        String jws = AcmeTestUtil
+                .createJwsRequest(objectMapper, accountKeyPair, acmeNonceRepository, payload, NEW_ORDER_PATH, accountId,
+                        PROFILE_NAME);
+
+        AcmeProblemDocumentException e = Assertions
+                .assertThrows(AcmeProblemDocumentException.class,
+                        () -> acmeService.newOrder(PROFILE_NAME, jws, URI.create(NEW_ORDER_PATH), false));
+
+        Assertions.assertEquals("urn:ietf:params:acme:error:unsupportedIdentifier", e.getProblemDocument().getType());
+        Assertions.assertTrue(acmeOrderRepository.findAll().isEmpty());
+    }
+
+    @Test
     void anOrderNamingNoIdentifierIsMalformedRatherThanAnInternalError() throws Exception {
         String jws = AcmeTestUtil
                 .createJwsRequest(objectMapper, accountKeyPair, acmeNonceRepository, Map.of(), NEW_ORDER_PATH,

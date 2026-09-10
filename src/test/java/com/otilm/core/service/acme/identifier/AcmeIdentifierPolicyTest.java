@@ -98,11 +98,74 @@ class AcmeIdentifierPolicyTest {
                 "an address has no hierarchy to descend");
     }
 
+    /**
+     * Resolving either side would let whoever controls DNS decide what a policy covers: an entry naming a host would
+     * pre-authorize whatever address it resolves to, and an address entry would pre-authorize every name pointing at
+     * it. The values here start with characters a first-character test would wave through, which is how this went
+     * unnoticed once.
+     */
+    @ParameterizedTest
+    @CsvSource({
+            "example.com, 172.66.147.243",
+            "api.example.com, 10.0.0.5",
+            "db.internal, 192.0.2.7",
+            "beef.example.com, 1.2.3.4",
+            "cafe.test, 203.0.113.9"})
+    void neitherSideOfAnAddressComparisonIsEverResolved(String name, String address) {
+        assertFalse(
+                AcmeIdentifierPolicy.covers(List.of(entry(name, AcmeIdentifierMatchType.EXACT, false)), ip(address)),
+                "a name entry must not cover an address");
+        assertFalse(
+                AcmeIdentifierPolicy.covers(List.of(entry(address, AcmeIdentifierMatchType.EXACT, false)), ip(name)),
+                "an address entry must not cover a name presented as an ip identifier");
+    }
+
     @Test
-    void aNameIsNeverResolvedToDecideCoverage() {
-        // Were the value passed to the resolver, an entry naming a host would silently cover whatever it resolves to.
+    void anIpIdentifierWhoseValueIsNotALiteralIsNotCovered() {
         assertFalse(AcmeIdentifierPolicy
-                .covers(List.of(entry("localhost", AcmeIdentifierMatchType.EXACT, false)), ip("127.0.0.1")));
+                .covers(List.of(entry("192.0.2.1", AcmeIdentifierMatchType.EXACT, false)), ip("localhost")));
+        assertFalse(AcmeIdentifierPolicy
+                .covers(List.of(entry("192.0.2.1", AcmeIdentifierMatchType.EXACT, false)), ip("999.0.2.1")));
+        assertFalse(
+                AcmeIdentifierPolicy
+                        .covers(List.of(entry("192.0.2.1", AcmeIdentifierMatchType.EXACT, false)), ip("010.0.0.1")),
+                "a leading zero reads as octal to some parsers and decimal to others");
+    }
+
+    @Test
+    void aValueThatIsNotAWellFormedNameIsNotCovered() {
+        AcmePreauthorizedIdentifierDto apps = entry("apps.example.com", AcmeIdentifierMatchType.SUBDOMAIN, false);
+
+        assertFalse(AcmeIdentifierPolicy.covers(List.of(apps), dns("..apps.example.com")), "empty label");
+        assertFalse(AcmeIdentifierPolicy.covers(List.of(apps), dns("x*.apps.example.com")), "asterisk mid-label");
+        assertFalse(AcmeIdentifierPolicy.covers(List.of(apps), dns("web.apps.example.com\u0000")), "control character");
+        assertFalse(AcmeIdentifierPolicy.covers(List.of(apps), dns("  web.apps.example.com ")), "whitespace");
+        assertFalse(AcmeIdentifierPolicy.covers(List.of(apps), dns("web.apps.example.com..")), "doubled root dot");
+        assertFalse(
+                AcmeIdentifierPolicy
+                        .covers(List.of(entry("server01.example.com", AcmeIdentifierMatchType.EXACT, false)),
+                                dns("\u212Aey.example.com")),
+                "a character that case-folds onto an ASCII letter is not that letter");
+    }
+
+    @Test
+    void aDegenerateEntryCoversNothing() {
+        assertFalse(
+                AcmeIdentifierPolicy
+                        .covers(List.of(entry(".", AcmeIdentifierMatchType.SUBDOMAIN, false)), dns("evil.example.net")),
+                "a root-only entry must not become a policy covering everything");
+        assertFalse(AcmeIdentifierPolicy
+                .covers(List.of(entry("*.apps.example.com", AcmeIdentifierMatchType.SUBDOMAIN, true)),
+                        dns("web.apps.example.com")),
+                "an entry is a name; the match type is what widens it");
+    }
+
+    @Test
+    void anIdentifierTypeThePolicyDoesNotKnowIsNeverCovered() {
+        AcmePreauthorizedIdentifierDto server = entry("server01.example.com", AcmeIdentifierMatchType.EXACT, false);
+
+        assertFalse(AcmeIdentifierPolicy.covers(List.of(server), identifier("email", "server01.example.com")));
+        assertFalse(AcmeIdentifierPolicy.covers(List.of(server), identifier(null, "server01.example.com")));
     }
 
     @Test
