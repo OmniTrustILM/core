@@ -103,9 +103,6 @@ public class AcmeProfile extends UniquelyIdentifiedAndAudited
     @ToString.Exclude
     private ProtocolCertificateAssociations certificateAssociations;
 
-    // S1948: the entity is Serializable through its supertype, but nothing Java-serializes it - Jackson owns the
-    // persistence shape of this JSONB column.
-    @SuppressWarnings("java:S1948")
     @Column(name = "preauthorized_identifiers", columnDefinition = "jsonb")
     @JdbcTypeCode(SqlTypes.JSON)
     private List<AcmePreauthorizedIdentifierDto> preauthorizedIdentifiers = new ArrayList<>();
