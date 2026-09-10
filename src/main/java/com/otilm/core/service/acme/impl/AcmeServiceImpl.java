@@ -1150,12 +1150,17 @@ public class AcmeServiceImpl implements AcmeExternalService {
                 .effectiveIdentifierAuthorizationMode() == AcmeIdentifierAuthorizationMode.PREAUTHORIZED_ONLY) {
             logger
                     .info("ACME profile '{}': order refused, identifiers not pre-authorized: {}", acmeProfile.getName(),
-                            uncovered);
+                            uncovered.stream().map(AcmeServiceImpl::singleLine).toList());
             throw new AcmeProblemDocumentException(HttpStatus.FORBIDDEN, Problem.REJECTED_IDENTIFIER,
                     "The profile issues only for pre-authorized identifiers, and does not pre-authorize: "
                             + String.join(", ", uncovered));
         }
         return preauthorized;
+    }
+
+    /** Line breaks removed: the value is the caller's, and a log line it can split is a log line it can forge. */
+    private static String singleLine(String value) {
+        return value == null ? "" : value.replaceAll("[\\r\\n]", " ");
     }
 
     private Set<AcmeAuthorization> generateValidations(AcmeOrder acmeOrder, List<Identifier> identifiers,
