@@ -12,6 +12,7 @@ import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.core.acme.Account;
 import com.otilm.api.model.core.acme.AccountStatus;
+import com.otilm.api.model.core.acme.AcmeIdentifierAuthorizationMode;
 import com.otilm.api.model.core.acme.Authorization;
 import com.otilm.api.model.core.acme.AuthorizationStatus;
 import com.otilm.api.model.core.acme.CertificateFinalizeRequest;
@@ -69,6 +70,7 @@ import com.otilm.core.service.acme.AcmeConstants;
 import com.otilm.core.service.acme.AcmeDnsChallengeValidator;
 import com.otilm.core.service.acme.AcmeExternalService;
 import com.otilm.core.service.acme.ChallengeValidationResult;
+import com.otilm.core.service.acme.identifier.AcmeIdentifierPolicy;
 import com.otilm.core.service.acme.message.AcmeJwsRequest;
 import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.service.writer.AcmeChallengeWriter;
@@ -102,10 +104,12 @@ import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -139,6 +143,12 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 public class AcmeServiceImpl implements AcmeExternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(AcmeServiceImpl.class);
+
+    /** How many refused identifiers are named before the rest are counted instead. */
+    private static final int MAX_LISTED_IDENTIFIERS = 5;
+
+    /** Longer than any DNS name or address literal, so a well-formed identifier is never the one that gets cut. */
+    private static final int MAX_LISTED_IDENTIFIER_LENGTH = 255;
 
     private AcmeNonceRepository acmeNonceRepository;
     private RaProfileRepository raProfileRepository;
@@ -1077,17 +1087,22 @@ public class AcmeServiceImpl implements AcmeExternalService {
         }
     }
 
-    private AcmeOrder generateOrder(AcmeAccount acmeAccount, AcmeJwsRequest jwsRequest) {
+    private AcmeOrder generateOrder(AcmeAccount acmeAccount, AcmeJwsRequest jwsRequest)
+            throws AcmeProblemDocumentException {
         logger.debug("Generating new Order for Account: {}", acmeAccount.toString());
         Order orderRequest = AcmeJsonProcessor.getPayloadAsRequestObject(jwsRequest.getJwsObject(), Order.class);
         logger.debug("Order requested: {}", orderRequest.toString());
+        AcmeProfile acmeProfile = acmeAccount.getAcmeProfile();
+        List<Identifier> identifiers = requireIdentifiers(orderRequest);
+        // Decided before the first row is written, so an order the profile refuses leaves nothing behind.
+        Set<Identifier> preauthorized = resolvePreauthorized(acmeProfile, identifiers);
         AcmeOrder order = new AcmeOrder();
         order.setAcmeAccount(acmeAccount);
         order.setOrderId(AcmeRandomGeneratorAndValidator.generateRandomId());
         order.setStatus(OrderStatus.PENDING);
         order.setNotAfter(AcmeCommonHelper.getDateFromString(orderRequest.getNotAfter()));
         order.setNotBefore(AcmeCommonHelper.getDateFromString(orderRequest.getNotBefore()));
-        order.setIdentifiers(SerializationUtil.serializeIdentifiers(orderRequest.getIdentifiers()));
+        order.setIdentifiers(SerializationUtil.serializeIdentifiers(identifiers));
         if (acmeAccount.getAcmeProfile().getValidity() != null) {
             order.setExpires(AcmeCommonHelper.addSeconds(new Date(), acmeAccount.getAcmeProfile().getValidity()));
         } else {
@@ -1096,24 +1111,102 @@ public class AcmeServiceImpl implements AcmeExternalService {
         acmeOrderRepository.save(order);
         logger.debug("Order created: {}", order);
 
-        Set<AcmeAuthorization> authorizations = generateValidations(order, orderRequest.getIdentifiers());
+        Set<AcmeAuthorization> authorizations = generateValidations(order, identifiers, preauthorized);
         order.setAuthorizations(authorizations);
+        AcmeChallengeStateMachine.readyWhenEveryAuthorizationIsValid(order);
         logger.debug("Challenges created for Order: {}", order);
         return order;
     }
 
-    private Set<AcmeAuthorization> generateValidations(AcmeOrder acmeOrder, List<Identifier> identifiers) {
+    /**
+     * The ordered identifiers, or a malformed problem. RFC 8555 section 7.4 requires the member, and every step below
+     * assumes at least one identifier to authorize.
+     */
+    private static List<Identifier> requireIdentifiers(Order orderRequest) throws AcmeProblemDocumentException {
+        List<Identifier> identifiers = orderRequest.getIdentifiers();
+        if (identifiers == null || identifiers.isEmpty()) {
+            throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED,
+                    "The order must name at least one identifier");
+        }
+        return identifiers;
+    }
+
+    /**
+     * Which of the ordered identifiers the profile pre-authorizes. Under PREAUTHORIZED_ONLY the rest are refused, so
+     * the whole order is decided here rather than identifier by identifier as rows are written.
+     */
+    private Set<Identifier> resolvePreauthorized(AcmeProfile acmeProfile, List<Identifier> identifiers)
+            throws AcmeProblemDocumentException {
+        Set<Identifier> preauthorized = Collections.newSetFromMap(new IdentityHashMap<>());
+        List<String> uncovered = new ArrayList<>();
+        for (Identifier identifier : identifiers) {
+            if (!AcmeIdentifierPolicy.isSupportedType(identifier)) {
+                // Nothing downstream knows how to prove control of a type the platform does not model, and an
+                // authorization it can never validate would sit pending until the order expired.
+                throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.UNSUPPORTED_IDENTIFIER,
+                        "The order names an identifier of a type this server does not issue for");
+            }
+            if (AcmeIdentifierPolicy.covers(acmeProfile.preauthorizedIdentifierList(), identifier)) {
+                preauthorized.add(identifier);
+            } else {
+                uncovered.add(identifier.getValue());
+            }
+        }
+        if (!uncovered.isEmpty() && acmeProfile
+                .effectiveIdentifierAuthorizationMode() == AcmeIdentifierAuthorizationMode.PREAUTHORIZED_ONLY) {
+            String refused = summarize(uncovered);
+            logger
+                    .info("ACME profile '{}': order refused, identifiers not pre-authorized: {}", acmeProfile.getName(),
+                            refused);
+            throw new AcmeProblemDocumentException(HttpStatus.FORBIDDEN, Problem.REJECTED_IDENTIFIER,
+                    "The profile issues only for pre-authorized identifiers, and does not pre-authorize: " + refused);
+        }
+        return preauthorized;
+    }
+
+    /**
+     * The refused identifiers as one bounded line. An order names as many identifiers as its body holds and each as
+     * long as it likes, so listing them all would let one request size both the problem document and the log entry. A
+     * few truncated values say which entry the policy is missing without handing the caller that choice.
+     */
+    private static String summarize(List<String> values) {
+        String listed = values
+                .stream()
+                .limit(MAX_LISTED_IDENTIFIERS)
+                .map(AcmeServiceImpl::singleLine)
+                .map(AcmeServiceImpl::truncate)
+                .collect(Collectors.joining(", "));
+        int remaining = values.size() - MAX_LISTED_IDENTIFIERS;
+        return remaining > 0 ? listed + " (and " + remaining + " more)" : listed;
+    }
+
+    private static String truncate(String value) {
+        return value.length() <= MAX_LISTED_IDENTIFIER_LENGTH
+                ? value
+                : value.substring(0, MAX_LISTED_IDENTIFIER_LENGTH) + "...";
+    }
+
+    /**
+     * Line separators removed: the value is the caller's, and a log line it can split is a log line it can forge. The
+     * problem document needs this too, not only the log statement, because the exception advice logs the document.
+     */
+    private static String singleLine(String value) {
+        return value == null ? "" : value.replaceAll("[\\r\\n\\u000B\\f\\u0085\\u2028\\u2029]", " ");
+    }
+
+    private Set<AcmeAuthorization> generateValidations(AcmeOrder acmeOrder, List<Identifier> identifiers,
+            Set<Identifier> preauthorized) {
         Set<AcmeAuthorization> authorizations = new HashSet<>();
         for (Identifier identifier : identifiers) {
-            authorizations.add(authorization(acmeOrder, identifier));
+            authorizations.add(authorization(acmeOrder, identifier, preauthorized.contains(identifier)));
         }
         return authorizations;
     }
 
-    private AcmeAuthorization authorization(AcmeOrder acmeOrder, Identifier identifier) {
+    private AcmeAuthorization authorization(AcmeOrder acmeOrder, Identifier identifier, boolean preauthorized) {
         AcmeAuthorization authorization = new AcmeAuthorization();
         authorization.setAuthorizationId(AcmeRandomGeneratorAndValidator.generateRandomId());
-        authorization.setStatus(AuthorizationStatus.PENDING);
+        authorization.setStatus(preauthorized ? AuthorizationStatus.VALID : AuthorizationStatus.PENDING);
         authorization.setOrder(acmeOrder);
         if (acmeOrder.getAcmeAccount().getAcmeProfile().getValidity() != null) {
             authorization
@@ -1125,6 +1218,12 @@ public class AcmeServiceImpl implements AcmeExternalService {
         authorization.setWildcard(checkWildcard(identifier));
         authorization.setIdentifier(SerializationUtil.serialize(identifier));
         acmeAuthorizationRepository.save(authorization);
+        if (preauthorized) {
+            // Nothing is left to prove, and RFC 8555 section 7.1.4 gives a valid authorization no challenge to
+            // respond to, so the client goes straight to finalize.
+            authorization.setChallenges(Set.of());
+            return authorization;
+        }
         AcmeChallenge dnsChallenge = generateChallenge(ChallengeType.DNS01, authorization);
         AcmeChallenge httpChallenge = generateChallenge(ChallengeType.HTTP01, authorization);
         authorization.setChallenges(Set.of(dnsChallenge, httpChallenge));

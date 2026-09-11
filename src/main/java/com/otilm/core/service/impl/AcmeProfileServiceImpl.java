@@ -13,6 +13,7 @@ import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.core.acme.AcmeIdentifierAuthorizationMode;
 import com.otilm.api.model.core.acme.AcmeProfileDto;
 import com.otilm.api.model.core.acme.AcmeProfileListDto;
 import com.otilm.api.model.core.auth.Resource;
@@ -173,6 +174,14 @@ public class AcmeProfileServiceImpl implements AcmeProfileExternalService, AcmeP
         acmeProfile.setRequireTermsOfService(request.isRequireTermsOfService());
         acmeProfile.setDisableNewOrders(false);
         acmeProfile.setRaProfile(raProfile);
+        acmeProfile
+                .setPreauthorizedIdentifiers(new ArrayList<>(request.getPreauthorizedIdentifiers() == null
+                        ? List.of()
+                        : request.getPreauthorizedIdentifiers()));
+        if (request.getIdentifierAuthorizationMode() != null) {
+            acmeProfile.setIdentifierAuthorizationMode(request.getIdentifierAuthorizationMode());
+        }
+        requirePolicyWhenPreauthorizedOnly(acmeProfile);
         if (request.getCertificateAssociations() != null && !request.getCertificateAssociations().isEmpty()) {
             ProtocolCertificateAssociations certificateAssociation = new ProtocolCertificateAssociations();
             certificateAssociation.setOwnerUuid(request.getCertificateAssociations().getOwnerUuid());
@@ -274,6 +283,13 @@ public class AcmeProfileServiceImpl implements AcmeProfileExternalService, AcmeP
         acmeProfile.setWebsite(request.getWebsiteUrl());
         acmeProfile.setDisableNewOrders(request.isTermsOfServiceChangeDisable());
         acmeProfile.setTermsOfServiceChangeUrl(request.getTermsOfServiceChangeUrl());
+        if (request.getPreauthorizedIdentifiers() != null) {
+            acmeProfile.setPreauthorizedIdentifiers(new ArrayList<>(request.getPreauthorizedIdentifiers()));
+        }
+        if (request.getIdentifierAuthorizationMode() != null) {
+            acmeProfile.setIdentifierAuthorizationMode(request.getIdentifierAuthorizationMode());
+        }
+        requirePolicyWhenPreauthorizedOnly(acmeProfile);
 
         UUID certificateAssociationUuid = null;
         ProtocolCertificateAssociations certificateAssociation = null;
@@ -294,6 +310,20 @@ public class AcmeProfileServiceImpl implements AcmeProfileExternalService, AcmeP
 
         return updateAndMapDtoAttributes(acmeProfile, raProfile, request.getIssueCertificateAttributes(),
                 request.getRevokeCertificateAttributes(), request.getCustomAttributes());
+    }
+
+    /**
+     * PREAUTHORIZED_ONLY refuses every identifier the policy does not cover, so with no entries it refuses every order
+     * the profile could receive. Checked on the merged profile, since an edit can supply the mode alone or empty the
+     * policy alone and neither request sees the other half.
+     */
+    private static void requirePolicyWhenPreauthorizedOnly(AcmeProfile acmeProfile) {
+        if (acmeProfile.effectiveIdentifierAuthorizationMode() == AcmeIdentifierAuthorizationMode.PREAUTHORIZED_ONLY
+                && acmeProfile.preauthorizedIdentifierList().isEmpty()) {
+            throw new ValidationException(ValidationError
+                    .create("preauthorizedOnly needs at least one pre-authorized identifier; to stop the profile "
+                            + "accepting orders, disable new orders instead"));
+        }
     }
 
     private AcmeProfileDto mapToDetailDto(AcmeProfile acmeProfile) {
