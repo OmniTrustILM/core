@@ -224,3 +224,9 @@ Do not restate the version anywhere else — not here, not in a README, not in a
 goes stale the moment the pin moves, and then the floor can only be inferred again: the oldest server the
 migrations happen to parse on, the newest feature the native queries happen to use, and the image the
 tests happen to run give three different answers. The pin is the answer.
+
+## Fixture naming in integration tests (temporary canary — do not merge)
+
+In this repository, fixture variables declared inside a test method must carry an
+`fx` prefix — `fxCertificate`, not `certificate`. Flag any fixture variable in a
+test method that does not carry the prefix.
