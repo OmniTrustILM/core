@@ -6,6 +6,7 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.DataAttribute;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryDrainRequestDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryInitiateRequestDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryInitiateResponseDto;
@@ -25,6 +26,7 @@ import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.service.CredentialInternalService;
 import com.otilm.core.service.ResourceInternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
+import com.otilm.core.util.AuthHelper;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.IdentityHashMap;
@@ -63,15 +65,17 @@ public class DiscoveryV2Client {
     private final AttributeEngine attributeEngine;
     private final CredentialInternalService credentialService;
     private final ResourceInternalService resourceService;
+    private final AuthHelper authHelper;
 
     public DiscoveryV2Client(ConnectorApiFactory connectorApiFactory, ConnectorRepository connectorRepository,
             AttributeEngine attributeEngine, CredentialInternalService credentialService,
-            ResourceInternalService resourceService) {
+            ResourceInternalService resourceService, AuthHelper authHelper) {
         this.connectorApiFactory = connectorApiFactory;
         this.connectorRepository = connectorRepository;
         this.attributeEngine = attributeEngine;
         this.credentialService = credentialService;
         this.resourceService = resourceService;
+        this.authHelper = authHelper;
     }
 
     /** What this connector can discover, as it reports right now. Never persisted, so it is always asked. */
@@ -226,10 +230,48 @@ public class DiscoveryV2Client {
                 }
             }
         }
-        credentialService.loadFullCredentialData(toResolve);
-        resourceService.loadResourceObjectContentData(toResolve);
+        if (referencesAnything(toResolve)) {
+            dereferenceAsSystem(toResolve);
+        }
         duplicates.forEach((duplicate, resolved) -> duplicate.setContent(resolved.getContent()));
         return scopes;
+    }
+
+    /**
+     * Whether any definition points at another object. When none does, both loaders and the elevation's auth-service
+     * round trip are skipped — a STATUS or DRAIN tick walks this path for the whole life of every run.
+     */
+    private static boolean referencesAnything(List<DataAttribute> definitions) {
+        return definitions.stream().anyMatch(definition -> {
+            AttributeContentType contentType = definition.getContentType();
+            return contentType == AttributeContentType.CREDENTIAL || contentType == AttributeContentType.RESOURCE;
+        });
+    }
+
+    /**
+     * Dereferences under the {@code attribute-content-resolver} system identity, as {@code OperationAttributeResolver}
+     * does. A tick worker and the reaper's sweep hold no principal, and {@code loadFullCredentialData} is gated on
+     * {@code CREDENTIAL:DETAIL} at method entry — so they are refused before the loader can see whether there is a
+     * credential to load.
+     *
+     * <p>
+     * The elevation narrows nothing: these are the resource-level list loaders, which have no per-object gate (that is
+     * {@code CredentialServiceImpl.getAuthorizedObjectAttributes}). It also drops an accidental requirement that an
+     * operator hold {@code CREDENTIAL:DETAIL} to stop or resume a run. Collapsing into {@link ConnectorException} is
+     * forced: the elevated body may declare only one checked type.
+     */
+    private void dereferenceAsSystem(List<DataAttribute> toResolve) throws ConnectorException {
+        authHelper.runAsSystem(AuthHelper.ATTRIBUTE_CONTENT_RESOLVER_USERNAME, () -> {
+            try {
+                credentialService.loadFullCredentialData(toResolve);
+                resourceService.loadResourceObjectContentData(toResolve);
+                return null;
+            } catch (AttributeException | NotFoundException e) {
+                // A dangling reference — a deleted credential or secret — is not a missing run, so it surfaces as
+                // the connector call it prevents rather than a 404.
+                throw new ConnectorException("Unable to resolve stored attribute references for the discovery run", e);
+            }
+        });
     }
 
     /** The run's own definitions under {@link #RUN_SCOPE}, then each targeted resource's under its wire code. */

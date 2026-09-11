@@ -23,6 +23,7 @@ import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.service.CredentialInternalService;
 import com.otilm.core.service.ResourceInternalService;
+import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.DiscoveryRunMetaFixture;
 import java.util.List;
 import java.util.Optional;
@@ -43,6 +44,7 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -67,6 +69,8 @@ class DiscoveryV2ClientTest {
     @Mock
     private ResourceInternalService resourceService;
     @Mock
+    private AuthHelper authHelper;
+    @Mock
     private DiscoverySyncApiClient apiClient;
 
     private DiscoveryV2Client client;
@@ -75,7 +79,12 @@ class DiscoveryV2ClientTest {
     @BeforeEach
     void setUp() {
         client = new DiscoveryV2Client(connectorApiFactory, connectorRepository, attributeEngine, credentialService,
-                resourceService);
+                resourceService, authHelper);
+        // Runs the elevated body inline: the bare mock returns null without invoking it, so every assertion about
+        // what the loaders received would pass while resolving nothing.
+        lenient()
+                .when(authHelper.runAsSystem(eq(AuthHelper.ATTRIBUTE_CONTENT_RESOLVER_USERNAME), any()))
+                .thenAnswer(invocation -> invocation.<AuthHelper.ThrowingSupplier<?, ?>>getArgument(1).get());
 
         run = new Discovery();
         run.setUuid(UUID.randomUUID());
@@ -178,9 +187,9 @@ class DiscoveryV2ClientTest {
         run.setResources(List.of(Resource.CERTIFICATE));
         // The same credential declared at run level and again on the resource: two definitions, one referent.
         when(attributeEngine.getDefinitionObjectAttributeContent(any(), any(), isNull(), any(), any()))
-                .thenReturn(List.of(definition("credential", "reference-only")));
+                .thenReturn(List.of(definition("credential", "reference-only", AttributeContentType.CREDENTIAL)));
         when(attributeEngine.getDefinitionObjectAttributeContent(any(), any(), eq("certificates"), any(), any()))
-                .thenReturn(List.of(definition("credential", "reference-only")));
+                .thenReturn(List.of(definition("credential", "reference-only", AttributeContentType.CREDENTIAL)));
         when(apiClient.status(any(), any())).thenReturn(new DiscoveryStatusResponseDto());
 
         client.status(run);
@@ -201,9 +210,9 @@ class DiscoveryV2ClientTest {
     void resolvedContent_reachesEveryScopeThatDeclaredTheDefinition() throws Exception {
         run.setResources(List.of(Resource.CERTIFICATE));
         when(attributeEngine.getDefinitionObjectAttributeContent(any(), any(), isNull(), any(), any()))
-                .thenReturn(List.of(definition("credential", "reference-only")));
+                .thenReturn(List.of(definition("credential", "reference-only", AttributeContentType.CREDENTIAL)));
         when(attributeEngine.getDefinitionObjectAttributeContent(any(), any(), eq("certificates"), any(), any()))
-                .thenReturn(List.of(definition("credential", "reference-only")));
+                .thenReturn(List.of(definition("credential", "reference-only", AttributeContentType.CREDENTIAL)));
         doAnswer(invocation -> {
             List<DataAttribute> resolving = invocation.getArgument(0);
             resolving.forEach(attribute -> attribute.setContent(List.of(new StringAttributeContentV3("s3cret"))));
@@ -221,18 +230,54 @@ class DiscoveryV2ClientTest {
     }
 
     @Test
+    void aReferenceToDereference_isResolvedUnderTheSystemIdentity() throws Exception {
+        run.setResources(List.of(Resource.CERTIFICATE));
+        when(attributeEngine.getDefinitionObjectAttributeContent(any(), any(), isNull(), any(), any()))
+                .thenReturn(List.of(definition("credential", "reference-only", AttributeContentType.CREDENTIAL)));
+        when(apiClient.status(any(), any())).thenReturn(new DiscoveryStatusResponseDto());
+
+        client.status(run);
+
+        // Tick workers and the reaper's sweep hold no principal, and the credential loader is gated on
+        // CREDENTIAL:DETAIL at method entry.
+        verify(authHelper).runAsSystem(eq(AuthHelper.ATTRIBUTE_CONTENT_RESOLVER_USERNAME), any());
+        verify(credentialService).loadFullCredentialData(anyList());
+    }
+
+    @Test
+    void nothingToDereference_skipsTheLoadersAndTheElevation() throws Exception {
+        run.setResources(List.of(Resource.CERTIFICATE));
+        when(attributeEngine.getDefinitionObjectAttributeContent(any(), any(), any(), any(), any()))
+                .thenReturn(List.of(definition("host", "10.0.0.0/24", AttributeContentType.STRING)));
+        when(apiClient.status(any(), any())).thenReturn(new DiscoveryStatusResponseDto());
+
+        client.status(run);
+
+        // Nothing for either loader to do, and this path runs on every tick for the whole life of the run — so it
+        // must not spend an auth-service round trip proving that.
+        verifyNoInteractions(authHelper);
+        verifyNoInteractions(credentialService);
+        verifyNoInteractions(resourceService);
+        assertThat(capturedStatus().getAttributes())
+                .as("the definition still reaches the connector, just unresolved")
+                .singleElement()
+                .extracting(RequestAttribute::getName)
+                .isEqualTo("host");
+    }
+
+    @Test
     void missingConnectorRow_failsRatherThanCallingSomethingElse() {
         when(connectorRepository.findByUuid(run.getConnectorUuid())).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> client.status(run)).isInstanceOf(NotFoundException.class);
     }
 
-    private static DataAttribute definition(String name, String value) {
+    private static DataAttribute definition(String name, String value, AttributeContentType contentType) {
         DataAttributeV3 attribute = new DataAttributeV3();
         attribute.setUuid("11111111-1111-1111-1111-111111111111");
         attribute.setName(name);
         attribute.setType(AttributeType.DATA);
-        attribute.setContentType(AttributeContentType.STRING);
+        attribute.setContentType(contentType);
         attribute.setContent(List.of(new StringAttributeContentV3(value)));
         return attribute;
     }
