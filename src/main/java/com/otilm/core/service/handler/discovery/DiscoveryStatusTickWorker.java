@@ -10,6 +10,7 @@ import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.messaging.jms.configuration.DiscoveryWorkProperties;
+import com.otilm.core.model.discovery.DiscoveryProgressSnapshot;
 import com.otilm.core.model.discovery.DiscoveryRunLifecycle;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
@@ -93,7 +94,7 @@ public class DiscoveryStatusTickWorker {
             return;
         }
 
-        if (apply(discoveryUuid, status)) {
+        if (apply(discoveryUuid, status, run.getStatus())) {
             // A clear answer refreshes the budget without restarting the backoff ramp: the counter drops to
             // the rung where the ladder already reached its slowest delay.
             workWriter
@@ -136,7 +137,7 @@ public class DiscoveryStatusTickWorker {
      * @return whether the run is still live and its budget should be refreshed — false once the answer was itself
      * terminal, where there is no longer an agenda row to refresh
      */
-    private boolean apply(UUID discoveryUuid, DiscoveryStatusResponseDto status) {
+    private boolean apply(UUID discoveryUuid, DiscoveryStatusResponseDto status, DiscoveryStatus polledAs) {
         DiscoveryRunState state = status.getState();
         return Boolean.TRUE.equals(transactionHandler.runInNewTransaction(() -> {
             Discovery locked = discoveryRepository.findWithLockByUuid(discoveryUuid).orElse(null);
@@ -146,19 +147,29 @@ public class DiscoveryStatusTickWorker {
             if (locked == null || DiscoveryRunLifecycle.hasLeftTheConnector(locked.getStatus())) {
                 return false;
             }
+            // A stop or a resume can land while the poll is in flight, and neither leaves the connector, so the
+            // check above lets it through. What came back describes the run before that transition, so applying it
+            // would undo the newer one -- a stop answered by an in-flight RUNNING would restart the run and clear
+            // the resume window the reaper bounds. The agenda row survives, so the next tick polls the run as it is.
+            if (locked.getStatus() != polledAs) {
+                logger
+                        .debug("Dropping status tick for discovery {}: it moved from {} to {} during the poll",
+                                discoveryUuid, polledAs, locked.getStatus());
+                return false;
+            }
             // What the connector reported is recorded whatever it was, including on the endings: connector_state
             // and connector_status are its view of the run, and losing them on the one answer that matters most
             // leaves the operator without the reason.
             String previousConnectorState = locked.getConnectorState();
             locked.setConnectorState(state.getCode());
             locked.setConnectorStatus(connectorStatusFor(state));
-            if (status.getProgress() != null) {
+            if (DiscoveryProgressSnapshot.reportsSomething(status.getProgress())) {
                 locked.setProgress(status.getProgress());
             }
             if (state == DiscoveryRunState.FAILED || state == DiscoveryRunState.CANCELLED) {
                 terminator
                         .applyTerminalState(locked, terminalStatusFor(state),
-                                "The connector reported the run " + state.getCode());
+                                "The connector reported the run as " + state.getLabel());
                 workWriter.deleteForRun(discoveryUuid);
                 return false;
             }
@@ -170,8 +181,13 @@ public class DiscoveryStatusTickWorker {
     private void applyLiveState(Discovery run, DiscoveryRunState state, String previousConnectorState) {
         switch (state) {
             case RUNNING -> {
-                run.setStatus(DiscoveryStatus.IN_PROGRESS);
-                clearResumeWindow(run);
+                // Only an explicit resume moves a stopped run. A connector that keeps answering RUNNING after
+                // acknowledging a stop is a divergence, recorded in connector_status above and visible there,
+                // rather than grounds to restart a run the user paused.
+                if (run.getStatus() != DiscoveryStatus.STOPPED) {
+                    run.setStatus(DiscoveryStatus.IN_PROGRESS);
+                    clearResumeWindow(run);
+                }
             }
             case STOPPED -> {
                 run.setStatus(DiscoveryStatus.STOPPED);

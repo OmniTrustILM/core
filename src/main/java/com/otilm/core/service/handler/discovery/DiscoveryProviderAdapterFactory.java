@@ -4,6 +4,7 @@ import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.exception.UnsupportedDiscoveryVersionException;
+import java.util.UUID;
 import org.springframework.stereotype.Component;
 
 /**
@@ -35,22 +36,40 @@ public class DiscoveryProviderAdapterFactory {
      * not to routing.
      */
     public DiscoveryProviderAdapter forDiscovery(Discovery discovery) {
-        if (discovery == null || discovery.getConnectorInterfaceUuid() == null) {
+        return discovery == null
+                ? v1Adapter
+                : forConnectorInterface(discovery.getConnectorInterfaceUuid(), discovery.getUuid());
+    }
+
+    /**
+     * Selects the adapter from the association alone, for a caller that has no reason to load the run — dispatch only
+     * needs to know which generation to hand it to.
+     *
+     * <p>
+     * Kept scalar: dispatch runs in a {@code NOT_SUPPORTED} scope whose reads share one {@code EntityManager}, so
+     * loading the run there parks it in a first-level cache that a later read in the same scope answers from, long
+     * after another transaction has changed the row.
+     *
+     * @param connectorInterfaceUuid the run's association, or {@code null} for a v1 run
+     * @param discoveryUuid names the run in a refusal; it is not read
+     */
+    public DiscoveryProviderAdapter forConnectorInterface(UUID connectorInterfaceUuid, UUID discoveryUuid) {
+        if (connectorInterfaceUuid == null) {
             return v1Adapter;
         }
         ConnectorInterfaceEntity iface = connectorInterfaceRepository
-                .findById(discovery.getConnectorInterfaceUuid())
+                .findById(connectorInterfaceUuid)
                 .orElseThrow(() -> new UnsupportedDiscoveryVersionException(
-                        "Discovery connector interface not found (discovery " + discovery.getUuid() + ")"));
+                        "Discovery connector interface not found (discovery " + discoveryUuid + ")"));
         String version = iface.getVersion();
         if (version == null) {
             throw new UnsupportedDiscoveryVersionException(
-                    "Discovery connector interface has no version (discovery " + discovery.getUuid() + ")");
+                    "Discovery connector interface has no version (discovery " + discoveryUuid + ")");
         }
         if ("v2".equals(version)) {
             return v2Adapter;
         }
-        throw new UnsupportedDiscoveryVersionException("Unsupported discovery connector interface version: " + version
-                + " (discovery " + discovery.getUuid() + ")");
+        throw new UnsupportedDiscoveryVersionException(
+                "Unsupported discovery connector interface version: " + version + " (discovery " + discoveryUuid + ")");
     }
 }

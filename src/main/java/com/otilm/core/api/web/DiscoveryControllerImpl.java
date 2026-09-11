@@ -4,7 +4,6 @@ import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
-import com.otilm.api.exception.NotSupportedException;
 import com.otilm.api.exception.SchedulerException;
 import com.otilm.api.interfaces.core.web.DiscoveryController;
 import com.otilm.api.model.client.certificate.DiscoveryResponseDto;
@@ -94,6 +93,13 @@ public class DiscoveryControllerImpl implements DiscoveryController {
     }
 
     @Override
+    @AuditLogged(module = Module.DISCOVERY, resource = Resource.DISCOVERY, operation = Operation.LIST)
+    public PaginationResponseDto<DiscoveryMessageDto> getDiscoveryRunMessages(@LogResource(uuid = true) String uuid,
+            int itemsPerPage, int pageNumber) throws NotFoundException {
+        return discoveryService.getDiscoveryRunMessages(SecuredUUID.fromString(uuid), itemsPerPage, pageNumber);
+    }
+
+    @Override
     @AuditLogged(module = Module.DISCOVERY, resource = Resource.DISCOVERY, operation = Operation.CREATE)
     public ResponseEntity<?> createDiscovery(@RequestBody DiscoveryDto request)
             throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException {
@@ -160,69 +166,56 @@ public class DiscoveryControllerImpl implements DiscoveryController {
         return discoveryService.getSearchableFieldInformationByGroup();
     }
 
-    /*
-     * Discovery v2, not implemented yet: the stubs below exist because DiscoveryController declares them abstract, so
-     * this class does not compile without them.
-     *
-     * Stub response: 501, so a caller reaching one gets an answer it can act on.
-     *
-     * Authorization: deliberately neither @AuditLogged nor authorization annotations — no operation to audit and no
-     * resource to check while the body does nothing; resource-level gating arrives with the real implementations.
-     * Authentication is unaffected.
-     *
-     * Compatibility: the checked exceptions stay on the signatures so filling them in later does not change the
-     * contract.
-     */
-
     @Override
-    public PaginationResponseDto<DiscoveryItemDto> getDiscoveryItems(String uuid, Resource resource,
-            Boolean newlyDiscovered, int itemsPerPage, int pageNumber) throws NotFoundException {
-        throw notImplemented();
-    }
-
-    @Override
-    public PaginationResponseDto<DiscoveryMessageDto> getDiscoveryRunMessages(String uuid, int itemsPerPage,
-            int pageNumber) throws NotFoundException {
-        throw notImplemented();
-    }
-
-    @Override
-    public void stopDiscovery(String uuid) throws NotFoundException, ConnectorException {
-        throw notImplemented();
-    }
-
-    @Override
-    public void resumeDiscovery(String uuid) throws NotFoundException, ConnectorException {
-        throw notImplemented();
-    }
-
-    @Override
-    public void cancelDiscovery(String uuid) throws NotFoundException, ConnectorException {
-        throw notImplemented();
-    }
-
-    @Override
-    public List<DiscoverySupportedResourceDto> listDiscoveryResources(String connectorUuid) throws NotFoundException {
-        throw notImplemented();
-    }
-
-    @Override
-    public List<BaseAttribute> getDiscoveryAttributes(String connectorUuid)
+    @AuditLogged(module = Module.DISCOVERY, resource = Resource.CONNECTOR, affiliatedResource = Resource.DISCOVERY,
+            operation = Operation.LIST_RESOURCES)
+    public List<DiscoverySupportedResourceDto> listDiscoveryResources(@LogResource(uuid = true) String connectorUuid)
             throws NotFoundException, ConnectorException {
-        throw notImplemented();
+        return discoveryService.listDiscoveryResources(SecuredUUID.fromString(connectorUuid));
     }
 
     @Override
-    public List<BaseAttribute> getDiscoveryResourceAttributes(String connectorUuid, Resource resource)
+    @AuditLogged(module = Module.DISCOVERY, resource = Resource.ATTRIBUTE, name = "discovery",
+            affiliatedResource = Resource.CONNECTOR, operation = Operation.LIST_ATTRIBUTES)
+    public List<BaseAttribute> getDiscoveryAttributes(@LogResource(uuid = true, affiliated = true) String connectorUuid)
             throws NotFoundException, ConnectorException {
-        throw notImplemented();
+        return discoveryService.getDiscoveryAttributes(SecuredUUID.fromString(connectorUuid));
     }
 
-    // NotSupportedException, not ResponseStatusException: the global ExceptionHandlingAdvice catches every
-    // Exception into a 500 before Spring's response-status resolver runs, so only an exception with its own
-    // dedicated handler reaches the wire with the intended status -- NotSupportedException maps to 501 there.
-    private static NotSupportedException notImplemented() {
-        return new NotSupportedException("Discovery v2 is not implemented by this deployment yet");
+    @Override
+    @AuditLogged(module = Module.DISCOVERY, resource = Resource.ATTRIBUTE, name = "discovery",
+            affiliatedResource = Resource.CONNECTOR, operation = Operation.LIST_ATTRIBUTES)
+    public List<BaseAttribute> getDiscoveryResourceAttributes(
+            @LogResource(uuid = true, affiliated = true) String connectorUuid,
+            @LogResource(name = true) Resource resource) throws NotFoundException, ConnectorException {
+        return discoveryService.getDiscoveryResourceAttributes(SecuredUUID.fromString(connectorUuid), resource);
+    }
+
+    @Override
+    @AuditLogged(module = Module.DISCOVERY, resource = Resource.DISCOVERY, operation = Operation.LIST)
+    public PaginationResponseDto<DiscoveryItemDto> getDiscoveryItems(@LogResource(uuid = true) String uuid,
+            @LogResource(resource = true, affiliated = true) Resource resource, Boolean newlyDiscovered,
+            int itemsPerPage, int pageNumber) throws NotFoundException {
+        return discoveryService
+                .getDiscoveryItems(SecuredUUID.fromString(uuid), resource, newlyDiscovered, itemsPerPage, pageNumber);
+    }
+
+    @Override
+    @AuditLogged(module = Module.DISCOVERY, resource = Resource.DISCOVERY, operation = Operation.STOP)
+    public void stopDiscovery(@LogResource(uuid = true) String uuid) throws NotFoundException, ConnectorException {
+        discoveryService.stopDiscovery(SecuredUUID.fromString(uuid));
+    }
+
+    @Override
+    @AuditLogged(module = Module.DISCOVERY, resource = Resource.DISCOVERY, operation = Operation.RESUME)
+    public void resumeDiscovery(@LogResource(uuid = true) String uuid) throws NotFoundException, ConnectorException {
+        discoveryService.resumeDiscovery(SecuredUUID.fromString(uuid));
+    }
+
+    @Override
+    @AuditLogged(module = Module.DISCOVERY, resource = Resource.DISCOVERY, operation = Operation.CANCEL)
+    public void cancelDiscovery(@LogResource(uuid = true) String uuid) throws NotFoundException, ConnectorException {
+        discoveryService.cancelDiscovery(SecuredUUID.fromString(uuid));
     }
 
 }

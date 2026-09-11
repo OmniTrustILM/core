@@ -6,6 +6,7 @@ import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
+import com.otilm.core.dao.repository.DiscoveryMessageRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.service.CredentialInternalService;
@@ -25,7 +26,8 @@ class DiscoveryProviderV1AdapterTest {
             mock(PlatformTransactionManager.class), mock(DiscoveryRepository.class), mock(ConnectorRepository.class),
             mock(CertificateRepository.class), mock(DiscoveryCertificateRepository.class), mock(AttributeEngine.class),
             mock(CertificateHandler.class), mock(CredentialInternalService.class), mock(ResourceInternalService.class),
-            mock(ConnectorApiFactory.class), mock(EventProducer.class));
+            mock(ConnectorApiFactory.class), mock(EventProducer.class), mock(DiscoveryMessageRepository.class),
+            mock(DiscoveryDetailCounts.class));
 
     private final Discovery run = new Discovery();
 

@@ -87,7 +87,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         armStatusRow(run, 0);
         DiscoveryStatusResponseDto response = statusResponse(DiscoveryRunState.RUNNING);
         DiscoveryProgressDto progress = new DiscoveryProgressDto();
-        progress.setProcessed(31L);
+        progress.setTargetsProcessed(31L);
         progress.setPhase("scanning");
         response.setProgress(progress);
         answers(response);
@@ -95,8 +95,57 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         worker.tick(run.getUuid(), 0);
 
         Discovery reloaded = reload(run);
-        assertThat(reloaded.getProgress().getProcessed()).isEqualTo(31L);
+        assertThat(reloaded.getProgress().getTargetsProcessed()).isEqualTo(31L);
         assertThat(reloaded.getProgress().getPhase()).isEqualTo("scanning");
+    }
+
+    /**
+     * Kept apart from the omitted-progress case because the two arrive as different JSON and only this one passes a
+     * null check.
+     */
+    @Test
+    void emptyProgressAnswer_keepsTheSnapshotTheRunAlreadyHas() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        DiscoveryStatusResponseDto reporting = statusResponse(DiscoveryRunState.RUNNING);
+        DiscoveryProgressDto progress = new DiscoveryProgressDto();
+        progress.setTargetsProcessed(31L);
+        progress.setTargetsFailed(12L);
+        reporting.setProgress(progress);
+        answers(reporting);
+        worker.tick(run.getUuid(), 0);
+
+        armStatusRow(run, 0);
+        DiscoveryStatusResponseDto silent = statusResponse(DiscoveryRunState.RUNNING);
+        silent.setProgress(new DiscoveryProgressDto());
+        answers(silent);
+
+        worker.tick(run.getUuid(), 0);
+
+        Discovery reloaded = reload(run);
+        assertThat(reloaded.getProgress()).isNotNull();
+        assertThat(reloaded.getProgress().getTargetsProcessed())
+                .as("an empty report must not blank out what the run already knows")
+                .isEqualTo(31L);
+        assertThat(reloaded.getProgress().getTargetsFailed()).isEqualTo(12L);
+    }
+
+    @Test
+    void runningAnswer_storesTheFailedTargetCount() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        DiscoveryStatusResponseDto response = statusResponse(DiscoveryRunState.RUNNING);
+        DiscoveryProgressDto progress = new DiscoveryProgressDto();
+        progress.setTargetsProcessed(42L);
+        progress.setTargetsFailed(65_492L);
+        response.setProgress(progress);
+        answers(response);
+
+        worker.tick(run.getUuid(), 0);
+
+        // A sweep of address space fails most of what it attempts; without this the run detail cannot tell
+        // "examined 42 of 65534" from "found 42, nothing else to look at".
+        assertThat(reload(run).getProgress().getTargetsFailed()).isEqualTo(65_492L);
     }
 
     @Test
@@ -129,9 +178,10 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
     }
 
     @Test
-    void runningAnswerAfterAStop_clearsTheResumeWindow() throws Exception {
+    void runningAnswerForAStoppedRun_doesNotRestartIt() throws Exception {
         Discovery run = v2Run(DiscoveryStatus.STOPPED);
-        run.setStoppedAt(OffsetDateTime.now(ZoneOffset.UTC).minusDays(6));
+        OffsetDateTime stoppedAt = OffsetDateTime.now(ZoneOffset.UTC).minusDays(6);
+        run.setStoppedAt(stoppedAt);
         discoveryRepository.saveAndFlush(run);
         armStatusRow(run, 0);
         answers(statusResponse(DiscoveryRunState.RUNNING));
@@ -139,10 +189,40 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         worker.tick(run.getUuid(), 0);
 
         Discovery reloaded = reload(run);
-        assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
+        assertThat(reloaded.getStatus())
+                .as("Core writes STOPPED only once the connector has acknowledged the stop, so a later RUNNING is "
+                        + "the connector contradicting itself -- not grounds to restart a run the user paused")
+                .isEqualTo(DiscoveryStatus.STOPPED);
         assertThat(reloaded.getStoppedAt())
-                .as("a resumed run carries no resume deadline; a stale one would expire its next pause on arrival")
-                .isNull();
+                .as("the resume window the reaper bounds survives; clearing it would hand the run an unbounded pause, "
+                        + "and re-stamping it would push the deadline out on every poll")
+                .isCloseTo(stoppedAt, within(1, ChronoUnit.SECONDS));
+        assertThat(reloaded.getConnectorStatus())
+                .as("the divergence is recorded rather than hidden: this is the connector's view, not Core's")
+                .isEqualTo(DiscoveryStatus.IN_PROGRESS);
+    }
+
+    @Test
+    void answerThatArrivesAfterAStop_isDiscardedRatherThanApplied() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        // The stop lands while the poll is in flight: the connector was asked about a running run and answers
+        // truthfully, but by the time the answer arrives it describes a state the run has already left.
+        when(client.status(any())).thenAnswer(invocation -> {
+            Discovery stopped = discoveryRepository.findByUuid(run.getUuid()).orElseThrow();
+            stopped.setStatus(DiscoveryStatus.STOPPED);
+            stopped.setStoppedAt(OffsetDateTime.now(ZoneOffset.UTC));
+            discoveryRepository.saveAndFlush(stopped);
+            return statusResponse(DiscoveryRunState.RUNNING);
+        });
+
+        worker.tick(run.getUuid(), 0);
+
+        Discovery reloaded = reload(run);
+        assertThat(reloaded.getStatus())
+                .as("applying an answer the run has outrun would undo the newer transition")
+                .isEqualTo(DiscoveryStatus.STOPPED);
+        assertThat(reloaded.getStoppedAt()).as("and would clear the resume window with it").isNotNull();
     }
 
     @Test

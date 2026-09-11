@@ -211,17 +211,21 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
     void progressEvent_storesTheSnapshotAndNothingElse() {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
         DiscoveryProgressEvent event = new DiscoveryProgressEvent();
-        event.setProcessed(12L);
-        event.setTotalEstimate(40L);
+        event.setTargetsProcessed(12L);
+        event.setTargetsTotal(40L);
         event.setPhase("scanning");
+        event.setTargetsFailed(28L);
 
         ingestor.applyAdvisoryEvent(run.getUuid(), event);
 
         Discovery reloaded = reload(run);
         assertThat(reloaded.getProgress()).isNotNull();
-        assertThat(reloaded.getProgress().getProcessed()).isEqualTo(12L);
-        assertThat(reloaded.getProgress().getTotalEstimate()).isEqualTo(40L);
+        assertThat(reloaded.getProgress().getTargetsProcessed()).isEqualTo(12L);
+        assertThat(reloaded.getProgress().getTargetsTotal()).isEqualTo(40L);
         assertThat(reloaded.getProgress().getPhase()).isEqualTo("scanning");
+        // The snapshot is copied field by field rather than mapped, so a counter added to the contract is
+        // dropped here silently until someone remembers to copy it too.
+        assertThat(reloaded.getProgress().getTargetsFailed()).isEqualTo(28L);
         assertThat(agenda(run)).isEmpty();
     }
 

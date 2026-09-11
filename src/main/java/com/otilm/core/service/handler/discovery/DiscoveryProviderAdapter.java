@@ -1,5 +1,6 @@
 package com.otilm.core.service.handler.discovery;
 
+import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.model.client.discovery.DiscoveryDetailDto;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.exception.UnsupportedDiscoveryVersionException;
@@ -34,15 +35,15 @@ public interface DiscoveryProviderAdapter {
     /**
      * @throws UnsupportedOperationException when the connector version can never suspend a run (v1 cannot)
      */
-    void stop(Discovery discovery);
+    void stop(Discovery discovery) throws ConnectorException;
 
     /**
      * @throws UnsupportedOperationException when the connector version can never resume a run (v1 cannot)
      */
-    void resume(Discovery discovery);
+    void resume(Discovery discovery) throws ConnectorException;
 
     /**
      * @throws UnsupportedOperationException when the connector version can never cancel a run (v1 cannot)
      */
-    void cancel(Discovery discovery);
+    void cancel(Discovery discovery) throws ConnectorException;
 }

@@ -7,6 +7,7 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
 import com.otilm.core.model.ScheduledTaskResult;
+import com.otilm.core.model.discovery.DiscoveryRunLifecycle;
 import com.otilm.core.service.DiscoveryExternalService;
 import com.otilm.core.service.DiscoveryInternalService;
 import java.text.SimpleDateFormat;
@@ -104,11 +105,15 @@ public class DiscoveryCertificateTask implements ScheduledJobTask {
 
         // After the discovery is created and commited, run discovery
         discovery = discoveryInternalService.runDiscovery(UUID.fromString(discovery.getUuid()), scheduledJobInfo);
-        if (discovery.getStatus() != DiscoveryStatus.PROCESSING) {
+        // Only a run that has already finished reports here. Anything still running -- v1 post-processing, or a v2
+        // run that has just been handed to its tick workers -- reports when it ends, through DISCOVERY_FINISHED.
+        // Returning a result now would close the job as succeeded before the run had discovered anything.
+        if (DiscoveryRunLifecycle.isTerminal(discovery.getStatus())) {
             return new ScheduledTaskResult(
                     discovery.getStatus() == DiscoveryStatus.FAILED
-                            ? SchedulerJobExecutionStatus.FAILED
-                            : SchedulerJobExecutionStatus.SUCCESS,
+                            || discovery.getStatus() == DiscoveryStatus.CANCELLED
+                                    ? SchedulerJobExecutionStatus.FAILED
+                                    : SchedulerJobExecutionStatus.SUCCESS,
                     discovery.getMessage(), Resource.DISCOVERY, discovery.getUuid());
         }
 

@@ -80,6 +80,12 @@ discovery:
     # How far out a worker parks the agenda row when it direct-publishes the next tick itself, so a due-now
     # row cannot let the sweep publish a competing tick. Must comfortably exceed one tick's duration.
     continuation-backstop: ${DISCOVERY_WORK_CONTINUATION_BACKSTOP:PT1M}
+    # Least time a claimed row waits before the sweep may publish it again -- what stops a tick slower than
+    # its own backoff rung being published twice while it runs. Above the connector timeouts, and so above
+    # any rung shorter than one: STATUS keeps its 5m ceiling, but DRAIN and PROCESS idle at this value
+    # rather than the 30s their own ladders end on. Only an idle tick waits on it, since a drain with more
+    # to fetch direct-publishes its continuation. A tick outliving it is still published twice.
+    claim-floor: ${DISCOVERY_WORK_CLAIM_FLOOR:PT35S}
     defaults:
       delays:
         - PT1S

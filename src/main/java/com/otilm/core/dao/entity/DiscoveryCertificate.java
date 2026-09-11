@@ -13,6 +13,7 @@ import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.io.Serial;
 import java.io.Serializable;
+import java.time.OffsetDateTime;
 import java.util.Date;
 import java.util.List;
 import java.util.Objects;
@@ -76,6 +77,16 @@ public class DiscoveryCertificate extends UniquelyIdentifiedAndAudited
     // The connector's per-occurrence dedupe key. Null on v1 rows.
     @Column(name = "unique_ref")
     private String uniqueRef;
+
+    // The run-wide item number the connector assigned. Null on v1 rows, whose provider numbered nothing; the
+    // items listing synthesizes one from staging order so every row can be ordered against the run's other
+    // resources.
+    @Column(name = "sequence")
+    private Long sequence;
+
+    // When the connector saw it, which is not when Core staged it. Null on v1 rows.
+    @Column(name = "discovered_at")
+    private OffsetDateTime discoveredAt;
 
     @Column(name = "newly_discovered", nullable = false)
     private boolean newlyDiscovered;

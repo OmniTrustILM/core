@@ -200,6 +200,10 @@ public class CertificateHandler {
                 discoveryCertificate.setMeta(certificate.getMeta());
                 if (refsDedupeWithinRun) {
                     discoveryCertificate.setUniqueRef(certificate.getUuid());
+                    // The v2 path alone carries these; a v1 provider numbers and timestamps nothing, and the
+                    // items listing synthesizes both for such a row at read time.
+                    discoveryCertificate.setSequence(certificate.getSequence());
+                    discoveryCertificate.setDiscoveredAt(certificate.getDiscoveredAt());
                 }
 
                 if (existingCertificate == null) {

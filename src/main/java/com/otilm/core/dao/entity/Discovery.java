@@ -1,14 +1,11 @@
 package com.otilm.core.dao.entity;
 
 import com.fasterxml.jackson.annotation.JsonBackReference;
-import com.otilm.api.model.client.discovery.DiscoveryDetailDto;
-import com.otilm.api.model.client.discovery.DiscoveryListDto;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryProgressDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.dao.entity.workflows.Trigger;
-import com.otilm.core.util.DtoMapper;
 import jakarta.persistence.Column;
 import jakarta.persistence.ConstraintMode;
 import jakarta.persistence.Entity;
@@ -19,6 +16,7 @@ import jakarta.persistence.ForeignKey;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.JoinTable;
 import jakarta.persistence.ManyToMany;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import java.io.Serial;
@@ -45,7 +43,7 @@ import org.hibernate.type.SqlTypes;
 @RequiredArgsConstructor
 @Entity
 @Table(name = "discovery")
-public class Discovery extends UniquelyIdentifiedAndAudited implements Serializable, DtoMapper<DiscoveryDetailDto> {
+public class Discovery extends UniquelyIdentifiedAndAudited implements Serializable {
 
     @Serial
     private static final long serialVersionUID = 571684590427678474L;
@@ -67,7 +65,9 @@ public class Discovery extends UniquelyIdentifiedAndAudited implements Serializa
     @Enumerated(EnumType.STRING)
     private DiscoveryStatus connectorStatus;
 
-    @Column(name = "message")
+    // TEXT, as the migration declares it: a failure reason carries a connector's own words and outgrows the 255
+    // characters Hibernate would otherwise generate for tests, which build their schema from the entities.
+    @Column(name = "message", columnDefinition = "TEXT")
     private String message;
 
     @Column(name = "start_time")
@@ -93,6 +93,19 @@ public class Discovery extends UniquelyIdentifiedAndAudited implements Serializa
     // NULL = v1 legacy run; set = the connector interface this run was initiated against.
     @Column(name = "connector_interface_uuid")
     private UUID connectorInterfaceUuid;
+
+    // The same association as an object, for reads that publish which interface drives the run. Written through
+    // setConnectorInterface so the scalar above, which every write and the dispatch projection use, stays in step.
+    //
+    // NO_CONSTRAINT because the migration declared this column without a foreign key -- unlike
+    // authority_instance_reference, whose own migration does declare one. Left as the schema really is: mapping a
+    // constraint here would only add it to the schema tests build from the entities, so they would enforce something
+    // production does not and fail on fixtures production would accept.
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "connector_interface_uuid", insertable = false, updatable = false,
+            foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))
+    @ToString.Exclude
+    private ConnectorInterfaceEntity connectorInterface;
 
     // The connector's opaque run handle, nulled on every terminal transition.
     // S1948: every entity is Serializable via UniquelyIdentifiedObject, but nothing Java-serializes them
@@ -127,6 +140,16 @@ public class Discovery extends UniquelyIdentifiedAndAudited implements Serializa
     @Column(name = "started_by_user_uuid")
     private UUID startedByUserUuid;
 
+    // The scheduled job execution that started the run, replayed when it ends so the scheduler learns the outcome.
+    // Null for a run a user started. A v1 run never stores it: its whole flow is one call chain that still holds it.
+    // The job itself is not stored -- the history row already points at it.
+    @Column(name = "scheduled_job_history_uuid")
+    private UUID scheduledJobHistoryUuid;
+
+    // What the connector declared at initiate, refreshed by each resume. Null for a v1 run, which cannot stop.
+    @Column(name = "stoppable")
+    private Boolean stoppable;
+
     @Column(name = "stopped_at")
     private OffsetDateTime stoppedAt;
 
@@ -151,41 +174,10 @@ public class Discovery extends UniquelyIdentifiedAndAudited implements Serializa
     @ToString.Exclude
     private List<Trigger> triggers = new ArrayList<>();
 
-    @Override
-    public DiscoveryDetailDto mapToDto() {
-        DiscoveryDetailDto dto = new DiscoveryDetailDto();
-        dto.setUuid(uuid.toString());
-        dto.setName(name);
-        dto.setEndTime(endTime);
-        dto.setStartTime(startTime);
-        dto.setTotalCertificatesDiscovered(totalCertificatesDiscovered);
-        dto.setStatus(status);
-        dto.setConnectorUuid(connectorUuid.toString());
-        dto.setKind(kind);
-        dto.setMessage(message);
-        dto.setConnectorName(connectorName);
-        dto.setTriggers(triggers.stream().map(Trigger::mapToDto).toList());
-        dto.setConnectorStatus(connectorStatus);
-        dto.setConnectorTotalCertificatesDiscovered(connectorTotalCertificatesDiscovered);
-        // The contract publishes both fields as always present. Every run this Core can hold ran against a
-        // v1 discovery connector, so the v1 synthesis is exact: certificates only, never stoppable.
-        dto.setResources(List.of(Resource.CERTIFICATE));
-        dto.setStoppable(false);
-        return dto;
-    }
-
-    public DiscoveryListDto mapToListDto() {
-        DiscoveryListDto dto = new DiscoveryListDto();
-        dto.setUuid(uuid.toString());
-        dto.setName(name);
-        dto.setEndTime(endTime);
-        dto.setStartTime(startTime);
-        dto.setTotalCertificatesDiscovered(totalCertificatesDiscovered);
-        dto.setStatus(status);
-        dto.setConnectorUuid(connectorUuid.toString());
-        dto.setKind(kind);
-        dto.setConnectorName(connectorName);
-        return dto;
+    /** Keeps the scalar in step with the association, as {@code AuthorityInstanceReference} does with its own. */
+    public void setConnectorInterface(ConnectorInterfaceEntity connectorInterface) {
+        this.connectorInterface = connectorInterface;
+        this.connectorInterfaceUuid = connectorInterface == null ? null : connectorInterface.getUuid();
     }
 
     @Override

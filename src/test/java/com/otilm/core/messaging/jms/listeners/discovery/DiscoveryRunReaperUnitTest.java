@@ -3,13 +3,16 @@ package com.otilm.core.messaging.jms.listeners.discovery;
 import com.otilm.api.model.core.discovery.DiscoveryMessageSeverity;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.cluster.ClusterOperationSynchronizer;
+import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.Discovery;
+import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
+import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.DiscoveryWorkRepository;
+import com.otilm.core.dao.repository.ScheduledJobHistoryRepository;
 import com.otilm.core.events.transaction.TransactionHandler;
-import com.otilm.core.service.handler.discovery.DiscoveryProviderAdapter;
-import com.otilm.core.service.handler.discovery.DiscoveryProviderAdapterFactory;
 import com.otilm.core.service.handler.discovery.DiscoveryRunTerminator;
+import com.otilm.core.service.handler.discovery.DiscoveryV2Client;
 import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.util.DiscoveryRunMetaFixture;
@@ -25,6 +28,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -59,13 +63,19 @@ class DiscoveryRunReaperUnitTest {
     @Mock
     private DiscoveryMessageWriter messageWriter;
     @Mock
-    private DiscoveryProviderAdapterFactory adapterFactory;
+    private DiscoveryV2Client discoveryV2Client;
     @Mock
-    private DiscoveryProviderAdapter adapter;
+    private ConnectorInterfaceRepository connectorInterfaceRepository;
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
+    @Mock
+    private ScheduledJobHistoryRepository scheduledJobHistoryRepository;
     @Mock
     private TransactionHandler transactionHandler;
     @Mock
     private ClusterOperationSynchronizer clusterSynchronizer;
+    @Mock
+    private DiscoveryCertificateRepository certificateRepository;
 
     private DiscoveryRunReaper reaper;
 
@@ -73,10 +83,12 @@ class DiscoveryRunReaperUnitTest {
     @BeforeEach
     void setUp() {
         // A real terminator, not a mock: the reaper delegates the terminal mutation to it, and that mutation
-        // is what these tests assert on. Its collaborators are unused by applyTerminalState.
-        reaper = new DiscoveryRunReaper(discoveryRepository, workRepository, workWriter, adapterFactory,
-                transactionHandler, clusterSynchronizer,
-                new DiscoveryRunTerminator(discoveryRepository, workWriter, messageWriter, transactionHandler),
+        // is what these tests assert on. Of its collaborators, applyTerminalState reaches the message writer,
+        // the event publisher and the certificate repository it counts staged rows with.
+        reaper = new DiscoveryRunReaper(discoveryRepository, workRepository, workWriter, discoveryV2Client,
+                connectorInterfaceRepository, transactionHandler, clusterSynchronizer,
+                new DiscoveryRunTerminator(discoveryRepository, workWriter, messageWriter, transactionHandler,
+                        eventPublisher, scheduledJobHistoryRepository, certificateRepository),
                 Duration.ofMinutes(5), Duration.ofDays(7));
         // Execute the transactional lambdas inline so the real selection/reap logic runs under the test.
         lenient()
@@ -85,7 +97,10 @@ class DiscoveryRunReaperUnitTest {
         lenient()
                 .when(clusterSynchronizer.tryLock(ClusterOperationSynchronizer.Operation.DISCOVERY_WORK_SWEEP))
                 .thenReturn(true);
-        lenient().when(adapterFactory.forDiscovery(any())).thenReturn(adapter);
+        // Every fixture run is a v2 run, which is what makes it eligible for the connector-side cancel.
+        ConnectorInterfaceEntity v2Interface = new ConnectorInterfaceEntity();
+        v2Interface.setVersion("v2");
+        lenient().when(connectorInterfaceRepository.findById(any())).thenReturn(Optional.of(v2Interface));
     }
 
     @Test
@@ -133,7 +148,7 @@ class DiscoveryRunReaperUnitTest {
     }
 
     @Test
-    void workLost_cancelsOnTheConnectorOnlyWhenRunContextExists() {
+    void workLost_tellsTheConnectorEvenWithNoHandleToReplay() throws Exception {
         Discovery withContext = run(DiscoveryStatus.IN_PROGRESS);
         withContext.setRunMeta(DiscoveryRunMetaFixture.runMeta("cursor", "abc"));
         Discovery withoutContext = run(DiscoveryStatus.IN_PROGRESS);
@@ -145,13 +160,14 @@ class DiscoveryRunReaperUnitTest {
 
         assertThat(withContext.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
         assertThat(withoutContext.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
-        // Only the run with a persisted connector context has anything the connector could drop.
-        verify(adapter).cancel(withContext);
-        verify(adapter, never()).cancel(withoutContext);
+        // Both are told. A control call is addressed by runId with meta optional, so a run whose handle was
+        // never persisted can still be scanning and can still be stopped -- skipping it would leave that scan running.
+        verify(discoveryV2Client).cancel(withContext);
+        verify(discoveryV2Client).cancel(withoutContext);
     }
 
     @Test
-    void stopExpired_skipsResumedRunAndCancelsNothingOnTheConnector() {
+    void stopExpired_skipsResumedRunAndCancelsNothingOnTheConnector() throws Exception {
         // The run escaped its stop between selection and action: status moved off STOPPED, stoppedAt stale.
         Discovery resumed = run(DiscoveryStatus.IN_PROGRESS);
         resumed.setStoppedAt(OffsetDateTime.now(ZoneOffset.UTC).minusDays(30));
@@ -161,13 +177,13 @@ class DiscoveryRunReaperUnitTest {
         reaper.reap();
 
         // No terminal transition committed, so nothing may reach the connector.
-        verifyNoInteractions(adapterFactory);
+        verifyNoInteractions(discoveryV2Client);
         assertThat(resumed.getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
         verify(workWriter, never()).deleteForRun(any());
     }
 
     @Test
-    void stopExpired_oneRunFailureDoesNotAbortTheBatch() {
+    void stopExpired_oneRunFailureDoesNotAbortTheBatch() throws Exception {
         Discovery healthy = expiredStoppedRun();
         UUID failing = UUID.randomUUID();
         selections(List.of(), List.of(failing, healthy.getUuid()));
@@ -179,16 +195,16 @@ class DiscoveryRunReaperUnitTest {
         assertThat(healthy.getStatus()).isEqualTo(DiscoveryStatus.CANCELLED);
         verify(workWriter).deleteForRun(healthy.getUuid());
         // The cancel fired only after the terminal transition, replaying the pre-wipe run context.
-        verify(adapter).cancel(healthy);
+        verify(discoveryV2Client).cancel(healthy);
         assertThat(healthy.getRunMeta()).isNotNull();
     }
 
     @Test
-    void stopExpired_connectorCancelFailureDoesNotBlockTheLocalCancel() {
+    void stopExpired_connectorCancelFailureDoesNotBlockTheLocalCancel() throws Exception {
         Discovery expired = expiredStoppedRun();
         selections(List.of(), List.of(expired.getUuid()));
         when(discoveryRepository.findWithLockByUuid(expired.getUuid())).thenReturn(Optional.of(expired));
-        when(adapterFactory.forDiscovery(any())).thenThrow(new IllegalStateException("not implemented"));
+        when(discoveryV2Client.cancel(any())).thenThrow(new IllegalStateException("connector unreachable"));
 
         assertThatCode(() -> reaper.reap()).doesNotThrowAnyException();
 
@@ -198,6 +214,21 @@ class DiscoveryRunReaperUnitTest {
     private void selections(List<UUID> workLost, List<UUID> stopExpired) {
         when(discoveryRepository.findWorkLostRunUuids(any(), any(), any())).thenReturn(workLost);
         when(discoveryRepository.findExpiredStoppedRunUuids(any(), any())).thenReturn(stopExpired);
+    }
+
+    @Test
+    void workLost_sendsNothingForAV1Run() throws Exception {
+        Discovery v1 = run(DiscoveryStatus.IN_PROGRESS);
+        v1.setConnectorInterfaceUuid(null);
+        selections(List.of(v1.getUuid()), List.of());
+        when(discoveryRepository.findWithLockByUuid(v1.getUuid())).thenReturn(Optional.of(v1));
+
+        reaper.reap();
+
+        // A v1 run's provider call is synchronous and already over, so there is no scan to stop and no v2
+        // endpoint to ask -- reaching for one would only produce a warning on every reap.
+        assertThat(v1.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
+        verifyNoInteractions(discoveryV2Client);
     }
 
     private static Discovery run(DiscoveryStatus status) {
