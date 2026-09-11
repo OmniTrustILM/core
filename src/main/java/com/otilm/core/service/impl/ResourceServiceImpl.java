@@ -218,9 +218,7 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
             } else {
                 // Filter field has values of an Enum
                 if (filterField.getEnumClass() != null) {
-                    fieldDataDtos
-                            .add(SearchHelper
-                                    .prepareSearch(filterField, filterField.getEnumClass().getEnumConstants()));
+                    fieldDataDtos.add(SearchHelper.prepareSearch(filterField, filterField.getEnumValues()));
                     // Filter field has values of all objects of another entity
                 } else if (filterField.getFieldResource() != null) {
                     fieldDataDtos

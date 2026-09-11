@@ -35,6 +35,7 @@ import com.otilm.api.model.core.other.ResourceDto;
 import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.api.model.core.other.ResourceEventDto;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.otilm.core.dao.entity.AttributeContent2Object;
 import com.otilm.core.dao.entity.AttributeContentItem;
 import com.otilm.core.dao.entity.AttributeDefinition;
@@ -79,6 +80,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authorization.AuthorizationDeniedException;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.when;
@@ -363,6 +365,39 @@ class ResourceServiceITest extends BaseSpringBootTest {
      * this mismatch, a missing {@code ResourceToClass} constant, or the next one -- into a build failure, which is why
      * this asserts nothing about the cause.
      */
+    @Test
+    void commentHostResourceOffersOnlyTheCommentableResources() throws NotFoundException {
+        Object[] offered = offeredValues(Resource.COMMENT, FilterField.COMMENT_HOST_RESOURCE);
+
+        assertThat(offered).containsExactlyInAnyOrder(Resource.getCommentableResources().toArray());
+        assertThat(offered).doesNotContain(Resource.NONE, Resource.ANY, Resource.COMMENT, Resource.CERTIFICATE_REQUEST);
+    }
+
+    @Test
+    void resourceFieldsOfferNoWildcardsARecordCannotCarry() throws NotFoundException {
+        // Module-level operations are audited with resource NONE, so that one stays; ANY scopes grants only
+        assertThat(offeredValues(Resource.AUDIT_LOG, FilterField.AUDIT_LOG_RESOURCE))
+                .contains(Resource.NONE, Resource.CERTIFICATE)
+                .doesNotContain(Resource.ANY);
+        assertThat(offeredValues(Resource.AUDIT_LOG, FilterField.AUDIT_LOG_AFFILIATED_RESOURCE))
+                .contains(Resource.CERTIFICATE)
+                .doesNotContain(Resource.NONE, Resource.ANY);
+        assertThat(offeredValues(Resource.APPROVAL, FilterField.APPROVAL_RESOURCE))
+                .contains(Resource.CERTIFICATE)
+                .doesNotContain(Resource.NONE, Resource.ANY);
+    }
+
+    private Object[] offeredValues(Resource resource, FilterField field) throws NotFoundException {
+        SearchFieldDataDto data = resourceService
+                .listResourceRuleFilterFields(resource, false)
+                .stream()
+                .flatMap(group -> group.getSearchFieldData().stream())
+                .filter(candidate -> field.name().equals(candidate.getFieldIdentifier()))
+                .findFirst()
+                .orElseThrow();
+        return (Object[]) data.getValue();
+    }
+
     @Test
     void everyResourceWithFilterFieldsCanBeListed() {
         List<Resource> declared = Arrays

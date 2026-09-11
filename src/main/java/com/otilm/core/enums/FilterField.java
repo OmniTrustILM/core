@@ -83,7 +83,10 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.cbom.CryptoAssetIdentityGuard;
 import jakarta.persistence.metamodel.Attribute;
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import lombok.Getter;
 
 @Getter
@@ -282,10 +285,11 @@ public enum FilterField {
     AUDIT_LOG_ACTOR_NAME(Resource.AUDIT_LOG, null, null, AuditLog_.actorName, "Actor name", SearchFieldTypeEnum.STRING),
     AUDIT_LOG_ACTOR_AUTH_METHOD(Resource.AUDIT_LOG, null, null, AuditLog_.actorAuthMethod, "Actor Auth method",
             SearchFieldTypeEnum.LIST, AuthMethod.class),
+    // NONE is a recorded resource for module-level operations; an absent affiliated resource is stored as no value
     AUDIT_LOG_RESOURCE(Resource.AUDIT_LOG, null, null, AuditLog_.resource, "Resource", SearchFieldTypeEnum.LIST,
-            Resource.class),
+            Resource.class, resourcesExcept(Resource.ANY)),
     AUDIT_LOG_AFFILIATED_RESOURCE(Resource.AUDIT_LOG, null, null, AuditLog_.affiliatedResource, "Affiliated resource",
-            SearchFieldTypeEnum.LIST, Resource.class),
+            SearchFieldTypeEnum.LIST, Resource.class, resourcesExcept(Resource.NONE, Resource.ANY)),
     AUDIT_LOG_OPERATION(Resource.AUDIT_LOG, null, null, AuditLog_.operation, "Operation", SearchFieldTypeEnum.LIST,
             Operation.class),
     AUDIT_LOG_OPERATION_RESULT(Resource.AUDIT_LOG, null, null, AuditLog_.operationResult, "Operation result",
@@ -316,7 +320,7 @@ public enum FilterField {
 
     // Approval
     APPROVAL_RESOURCE(Resource.APPROVAL, null, null, Approval_.resource, "Resource", SearchFieldTypeEnum.LIST,
-            Resource.class),
+            Resource.class, resourcesExcept(Resource.NONE, Resource.ANY)),
     APPROVAL_ACTION(Resource.APPROVAL, null, null, Approval_.action, "Action", SearchFieldTypeEnum.LIST,
             ResourceAction.class),
     APPROVAL_STATUS(Resource.APPROVAL, null, null, Approval_.status, Constants.STATUS, SearchFieldTypeEnum.LIST,
@@ -328,7 +332,7 @@ public enum FilterField {
 
     // Comment
     COMMENT_HOST_RESOURCE(Resource.COMMENT, null, null, ResourceObjectAssociation_.resource, "Host Resource",
-            SearchFieldTypeEnum.LIST, Resource.class),
+            SearchFieldTypeEnum.LIST, Resource.class, Resource.getCommentableResources()),
     COMMENT_PARENT(Resource.COMMENT, null, null, Comment_.parentUuid, "Parent Comment", SearchFieldTypeEnum.PRESENCE),
     COMMENT_AUTHOR(Resource.COMMENT, Resource.USER, null, Comment_.authorUsername, "Author", SearchFieldTypeEnum.LIST),
     COMMENT_BODY(Resource.COMMENT, null, null, Comment_.body, "Body", SearchFieldTypeEnum.STRING),
@@ -496,6 +500,7 @@ public enum FilterField {
     private final String label;
     private final String[] jsonPath;
     private final Class<? extends IPlatformEnum> enumClass;
+    private final IPlatformEnum[] enumValues;
     private final boolean settable;
     private final Object expectedValue;
 
@@ -515,10 +520,29 @@ public enum FilterField {
         this(rootResource, fieldResource, joinAttributes, fieldAttribute, label, type, enumClass, null, false, null);
     }
 
+    /**
+     * A list field that offers only some constants of its enum: the rest could never match anything, and a condition
+     * built on one of them would save and then silently never fire.
+     */
+    FilterField(final Resource rootResource, final Resource fieldResource, final List<Attribute> joinAttributes,
+            final Attribute fieldAttribute, final String label, final SearchFieldTypeEnum type,
+            final Class<? extends IPlatformEnum> enumClass, final Collection<? extends IPlatformEnum> enumValues) {
+        this(rootResource, fieldResource, joinAttributes, fieldAttribute, label, type, enumClass, null, false, null,
+                enumValues.toArray(IPlatformEnum[]::new));
+    }
+
     FilterField(final Resource rootResource, final Resource fieldResource, final List<Attribute> joinAttributes,
             final Attribute fieldAttribute, final String label, final SearchFieldTypeEnum type,
             final Class<? extends IPlatformEnum> enumClass, final Object expectedValue, final boolean settable,
             final String[] jsonPath) {
+        this(rootResource, fieldResource, joinAttributes, fieldAttribute, label, type, enumClass, expectedValue,
+                settable, jsonPath, null);
+    }
+
+    FilterField(final Resource rootResource, final Resource fieldResource, final List<Attribute> joinAttributes,
+            final Attribute fieldAttribute, final String label, final SearchFieldTypeEnum type,
+            final Class<? extends IPlatformEnum> enumClass, final Object expectedValue, final boolean settable,
+            final String[] jsonPath, final IPlatformEnum[] enumValues) {
         this.rootResource = rootResource;
         this.fieldResource = fieldResource;
         this.joinAttributes = joinAttributes == null ? List.of() : joinAttributes;
@@ -527,8 +551,19 @@ public enum FilterField {
         this.type = type;
         this.jsonPath = jsonPath;
         this.enumClass = enumClass;
+        this.enumValues = enumValues;
         this.settable = settable;
         this.expectedValue = expectedValue;
+    }
+
+    /** The values a list field backed by an enum offers: the subset it declares, or every constant otherwise. */
+    public IPlatformEnum[] getEnumValues() {
+        return enumValues != null ? enumValues : enumClass.getEnumConstants();
+    }
+
+    /** Every resource but the given wildcards, which scope a grant and are never the resource of a stored record. */
+    private static Set<Resource> resourcesExcept(Resource first, Resource... rest) {
+        return EnumSet.complementOf(EnumSet.of(first, rest));
     }
 
     public boolean isNativeArrayField() {

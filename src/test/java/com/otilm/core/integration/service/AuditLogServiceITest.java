@@ -17,6 +17,7 @@ import com.otilm.api.model.core.logging.records.ResourceObjectIdentity;
 import com.otilm.api.model.core.logging.records.ResourceRecord;
 import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.otilm.api.model.core.settings.logging.AuditLoggingSettingsDto;
 import com.otilm.api.model.core.settings.logging.LoggingSettingsDto;
 import com.otilm.api.model.core.settings.logging.ResourceLoggingSettingsDto;
@@ -41,6 +42,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
 class AuditLogServiceITest extends BaseSpringBootTest {
@@ -88,6 +91,33 @@ class AuditLogServiceITest extends BaseSpringBootTest {
         loggingSettingsDto.setEventLogs(eventLoggingSettingsDto);
 
         settingService.updateLoggingSettings(loggingSettingsDto);
+    }
+
+    @Test
+    void searchableResourceFieldsOfferNoWildcardsARecordCannotCarry() {
+        List<SearchFieldDataDto> fields = auditLogService
+                .getSearchableFieldInformationByGroup()
+                .stream()
+                .flatMap(group -> group.getSearchFieldData().stream())
+                .toList();
+
+        // Module-level operations are audited with resource NONE, so that one stays; ANY scopes grants only
+        assertThat(codesOffered(fields, FilterField.AUDIT_LOG_RESOURCE))
+                .contains("NONE", "certificates")
+                .doesNotContain("ANY");
+        assertThat(codesOffered(fields, FilterField.AUDIT_LOG_AFFILIATED_RESOURCE))
+                .contains("certificates")
+                .doesNotContain("NONE", "ANY");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<String> codesOffered(List<SearchFieldDataDto> fields, FilterField field) {
+        return (List<String>) fields
+                .stream()
+                .filter(candidate -> field.name().equals(candidate.getFieldIdentifier()))
+                .findFirst()
+                .orElseThrow()
+                .getValue();
     }
 
     @Test
