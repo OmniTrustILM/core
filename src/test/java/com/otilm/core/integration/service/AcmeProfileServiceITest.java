@@ -258,10 +258,11 @@ class AcmeProfileServiceITest extends BaseSpringBootTest {
         // request.
         AcmeProfileEditRequestDto modeOnly = new AcmeProfileEditRequestDto();
         modeOnly.setIdentifierAuthorizationMode(AcmeIdentifierAuthorizationMode.PREAUTHORIZED_ONLY);
+        SecuredUUID acmeProfileUuid = acmeProfile.getSecuredUuid();
 
         Assertions
                 .assertThrows(ValidationException.class,
-                        () -> acmeProfileService.editAcmeProfile(acmeProfile.getSecuredUuid(), modeOnly));
+                        () -> acmeProfileService.editAcmeProfile(acmeProfileUuid, modeOnly));
     }
 
     @Test
@@ -272,10 +273,11 @@ class AcmeProfileServiceITest extends BaseSpringBootTest {
 
         AcmeProfileEditRequestDto clearing = new AcmeProfileEditRequestDto();
         clearing.setPreauthorizedIdentifiers(List.of());
+        SecuredUUID acmeProfileUuid = acmeProfile.getSecuredUuid();
 
         Assertions
                 .assertThrows(ValidationException.class,
-                        () -> acmeProfileService.editAcmeProfile(acmeProfile.getSecuredUuid(), clearing));
+                        () -> acmeProfileService.editAcmeProfile(acmeProfileUuid, clearing));
     }
 
     @Test
