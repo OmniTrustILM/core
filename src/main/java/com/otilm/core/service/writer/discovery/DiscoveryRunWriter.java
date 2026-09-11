@@ -104,6 +104,7 @@ public class DiscoveryRunWriter {
             saved = discoveryRepository.findWithTriggersByUuid(saved.getUuid());
         }
         // Zero without asking: the run was inserted in this transaction and nothing since then writes a message.
-        return DiscoveryDtoMapper.toDetailDto(saved, 0);
+        // A run this new has staged nothing yet, so both counts are 0 by construction rather than by default.
+        return DiscoveryDtoMapper.toDetailDto(saved, new DiscoveryDtoMapper.DetailCounts(0, 0));
     }
 }

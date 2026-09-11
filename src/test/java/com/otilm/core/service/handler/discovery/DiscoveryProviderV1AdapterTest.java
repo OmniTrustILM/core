@@ -26,7 +26,8 @@ class DiscoveryProviderV1AdapterTest {
             mock(PlatformTransactionManager.class), mock(DiscoveryRepository.class), mock(ConnectorRepository.class),
             mock(CertificateRepository.class), mock(DiscoveryCertificateRepository.class), mock(AttributeEngine.class),
             mock(CertificateHandler.class), mock(CredentialInternalService.class), mock(ResourceInternalService.class),
-            mock(ConnectorApiFactory.class), mock(EventProducer.class), mock(DiscoveryMessageRepository.class));
+            mock(ConnectorApiFactory.class), mock(EventProducer.class), mock(DiscoveryMessageRepository.class),
+            mock(DiscoveryDetailCounts.class));
 
     private final Discovery run = new Discovery();
 

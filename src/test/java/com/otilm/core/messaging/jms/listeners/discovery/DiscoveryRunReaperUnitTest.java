@@ -6,6 +6,7 @@ import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
+import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.DiscoveryWorkRepository;
 import com.otilm.core.dao.repository.ScheduledJobHistoryRepository;
@@ -73,6 +74,8 @@ class DiscoveryRunReaperUnitTest {
     private TransactionHandler transactionHandler;
     @Mock
     private ClusterOperationSynchronizer clusterSynchronizer;
+    @Mock
+    private DiscoveryCertificateRepository certificateRepository;
 
     private DiscoveryRunReaper reaper;
 
@@ -80,11 +83,12 @@ class DiscoveryRunReaperUnitTest {
     @BeforeEach
     void setUp() {
         // A real terminator, not a mock: the reaper delegates the terminal mutation to it, and that mutation
-        // is what these tests assert on. Its collaborators are unused by applyTerminalState.
-        reaper = new DiscoveryRunReaper(
-                discoveryRepository, workRepository, workWriter, discoveryV2Client, connectorInterfaceRepository,
-                transactionHandler, clusterSynchronizer, new DiscoveryRunTerminator(discoveryRepository, workWriter,
-                        messageWriter, transactionHandler, eventPublisher, scheduledJobHistoryRepository),
+        // is what these tests assert on. Of its collaborators, applyTerminalState reaches the message writer,
+        // the event publisher and the certificate repository it counts staged rows with.
+        reaper = new DiscoveryRunReaper(discoveryRepository, workRepository, workWriter, discoveryV2Client,
+                connectorInterfaceRepository, transactionHandler, clusterSynchronizer,
+                new DiscoveryRunTerminator(discoveryRepository, workWriter, messageWriter, transactionHandler,
+                        eventPublisher, scheduledJobHistoryRepository, certificateRepository),
                 Duration.ofMinutes(5), Duration.ofDays(7));
         // Execute the transactional lambdas inline so the real selection/reap logic runs under the test.
         lenient()

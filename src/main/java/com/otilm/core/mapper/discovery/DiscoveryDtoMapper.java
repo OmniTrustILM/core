@@ -33,10 +33,16 @@ public class DiscoveryDtoMapper {
     }
 
     /**
-     * @param runMessageCount how many kinds of problem the run collected, which the entity cannot reach — the log is a
-     * table of its own, and the field is REQUIRED on the wire, so callers read it rather than assume it
+     * Counts a detail response carries that the run row does not hold — each lives in a table of its own. Passed as a
+     * record rather than two bare longs: both are counts of the same type, and a swapped pair would still compile.
+     *
+     * @param runMessages kinds of problem the run collected, as the message listing would count them
+     * @param newlyDiscoveredItems staged items that were not already in the inventory, counted per item
      */
-    public static DiscoveryDetailDto toDetailDto(Discovery discovery, long runMessageCount) {
+    public record DetailCounts(long runMessages, long newlyDiscoveredItems) {
+    }
+
+    public static DiscoveryDetailDto toDetailDto(Discovery discovery, DetailCounts counts) {
         DiscoveryDetailDto dto = new DiscoveryDetailDto();
         dto.setUuid(discovery.getUuid().toString());
         dto.setName(discovery.getName());
@@ -51,9 +57,10 @@ public class DiscoveryDtoMapper {
         dto.setTriggers(discovery.getTriggers().stream().map(Trigger::mapToDto).toList());
         dto.setConnectorStatus(discovery.getConnectorStatus());
         dto.setConnectorTotalCertificatesDiscovered(discovery.getConnectorTotalCertificatesDiscovered());
-        // Counted rather than carried: a client polls this detail while a run is live, and the log is read from
-        // its own endpoint. Kinds of problem, not occurrences -- the count is what the listing would return.
-        dto.setRunMessageCount(runMessageCount);
+        // Counted rather than carried: a client polls this detail while a run is live, and both tables are read
+        // from their own endpoints. Message kinds, not occurrences -- the count is what the listing would return.
+        dto.setRunMessageCount(counts.runMessages());
+        dto.setItemsNewlyDiscovered(counts.newlyDiscoveredItems());
         // Both are REQUIRED on the wire, and a v1 run stores neither: it targets certificates by definition and
         // cannot be stopped at all, so the synthesis below is exact rather than a default.
         dto

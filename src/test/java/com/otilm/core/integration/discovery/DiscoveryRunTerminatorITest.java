@@ -1,7 +1,14 @@
 package com.otilm.core.integration.discovery;
 
+import com.otilm.api.model.connector.discovery.v2.DiscoveryProgressDto;
+import com.otilm.api.model.connector.discovery.v2.DiscoveryResourceProgressDto;
+import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
+import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.Discovery;
+import com.otilm.core.dao.entity.DiscoveryCertificate;
+import com.otilm.core.dao.repository.CertificateContentRepository;
+import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.service.handler.discovery.DiscoveryRunTerminator;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -9,6 +16,7 @@ import com.otilm.core.util.DiscoveryRunMetaFixture;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.PersistenceContext;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,6 +45,10 @@ class DiscoveryRunTerminatorITest extends BaseSpringBootTest {
     private DiscoveryRepository discoveryRepository;
     @Autowired
     private PlatformTransactionManager transactionManager;
+    @Autowired
+    private DiscoveryCertificateRepository certificateRepository;
+    @Autowired
+    private CertificateContentRepository certificateContentRepository;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -75,6 +87,67 @@ class DiscoveryRunTerminatorITest extends BaseSpringBootTest {
         assertThat(discoveryRepository.findByUuid(uuid).orElseThrow().getStatus())
                 .as("the first ending stands")
                 .isEqualTo(DiscoveryStatus.FAILED);
+    }
+
+    @Test
+    void endingARun_recordsWhatItStagedAndWhatTheConnectorReported() {
+        Discovery run = v2Run();
+        stageCertificates(run, 4);
+        run.setProgress(certificateYield(7L));
+        discoveryRepository.saveAndFlush(run);
+
+        terminator.endWith(run.getUuid(), r -> new DiscoveryRunTerminator.Ending(DiscoveryStatus.COMPLETED, "done"));
+
+        Discovery ended = discoveryRepository.findByUuid(run.getUuid()).orElseThrow();
+        assertThat(ended.getTotalCertificatesDiscovered())
+                .as("what Core staged, which is what the certificate listing returns")
+                .isEqualTo(4);
+        assertThat(ended.getConnectorTotalCertificatesDiscovered())
+                .as("what the connector reported producing, which a run that ended early leaves above the staged "
+                        + "count")
+                .isEqualTo(7);
+    }
+
+    @Test
+    void aConnectorThatAttributesNoYieldByResource_leavesItsOwnCounterUnset() {
+        Discovery run = v2Run();
+        stageCertificates(run, 2);
+        // Reports work but no per-resource yield, which byResource explicitly permits.
+        DiscoveryProgressDto progress = new DiscoveryProgressDto();
+        progress.setTargetsProcessed(1L);
+        run.setProgress(progress);
+        discoveryRepository.saveAndFlush(run);
+
+        terminator.endWith(run.getUuid(), r -> new DiscoveryRunTerminator.Ending(DiscoveryStatus.COMPLETED, "done"));
+
+        Discovery ended = discoveryRepository.findByUuid(run.getUuid()).orElseThrow();
+        assertThat(ended.getTotalCertificatesDiscovered()).isEqualTo(2);
+        assertThat(ended.getConnectorTotalCertificatesDiscovered())
+                .as("Core never learned the connector's own count, and zero would claim it reported nothing")
+                .isNull();
+    }
+
+    private static DiscoveryProgressDto certificateYield(long produced) {
+        DiscoveryResourceProgressDto certificates = new DiscoveryResourceProgressDto();
+        certificates.setProduced(produced);
+        DiscoveryProgressDto progress = new DiscoveryProgressDto();
+        progress.setByResource(Map.of(Resource.CERTIFICATE, certificates));
+        return progress;
+    }
+
+    private void stageCertificates(Discovery run, int count) {
+        for (int i = 0; i < count; i++) {
+            // Each row needs its own content: the column is NOT NULL.
+            CertificateContent content = new CertificateContent();
+            content.setFingerprint(UUID.randomUUID().toString());
+            content.setContent("staged-" + i);
+            DiscoveryCertificate staged = new DiscoveryCertificate();
+            staged.setCertificateContent(certificateContentRepository.saveAndFlush(content));
+            staged.setDiscovery(run);
+            staged.setNewlyDiscovered(true);
+            staged.setProcessed(false);
+            certificateRepository.saveAndFlush(staged);
+        }
     }
 
     private void endItBehindTheCaller(UUID uuid) {

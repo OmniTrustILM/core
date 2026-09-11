@@ -70,6 +70,7 @@ import com.otilm.core.service.ConnectorInternalService;
 import com.otilm.core.service.DiscoveryExternalService;
 import com.otilm.core.service.DiscoveryInternalService;
 import com.otilm.core.service.TriggerInternalService;
+import com.otilm.core.service.handler.discovery.DiscoveryDetailCounts;
 import com.otilm.core.service.handler.discovery.DiscoveryProviderAdapter;
 import com.otilm.core.service.handler.discovery.DiscoveryProviderAdapterFactory;
 import com.otilm.core.service.writer.DiscoveryWriter;
@@ -133,6 +134,7 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     private ConnectorApiFactory connectorApiFactory;
     private ConnectorInternalService connectorService;
     private DiscoveryCertificateRepository discoveryCertificateRepository;
+    private DiscoveryDetailCounts detailCounts;
     private CertificateContentRepository certificateContentRepository;
 
     private DiscoveryProviderAdapterFactory discoveryProviderAdapterFactory;
@@ -235,6 +237,11 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     @Autowired
     public void setDiscoveryCertificateRepository(DiscoveryCertificateRepository discoveryCertificateRepository) {
         this.discoveryCertificateRepository = discoveryCertificateRepository;
+    }
+
+    @Autowired
+    public void setDetailCounts(DiscoveryDetailCounts detailCounts) {
+        this.detailCounts = detailCounts;
     }
 
     @Autowired
@@ -520,8 +527,7 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     @ExternalAuthorization(resource = Resource.DISCOVERY, action = ResourceAction.DETAIL)
     public DiscoveryDetailDto getDiscovery(SecuredUUID uuid) throws NotFoundException {
         Discovery discovery = getDiscoveryEntity(uuid);
-        DiscoveryDetailDto dto = DiscoveryDtoMapper
-                .toDetailDto(discovery, discoveryMessageRepository.countByDiscoveryUuid(discovery.getUuid()));
+        DiscoveryDetailDto dto = DiscoveryDtoMapper.toDetailDto(discovery, detailCounts.forRun(discovery));
         dto
                 .setMetadata(attributeEngine
                         .getMappedMetadataContent(
@@ -893,4 +899,5 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
         logger.debug("Searchable Fields by Groups: {}", searchFieldDataByGroupDtos);
         return searchFieldDataByGroupDtos;
     }
+
 }

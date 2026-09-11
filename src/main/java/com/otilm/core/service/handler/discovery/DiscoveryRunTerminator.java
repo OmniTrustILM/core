@@ -1,7 +1,11 @@
 package com.otilm.core.service.handler.discovery;
 
+import com.otilm.api.model.connector.discovery.v2.DiscoveryProgressDto;
+import com.otilm.api.model.connector.discovery.v2.DiscoveryResourceProgressDto;
+import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.dao.entity.Discovery;
+import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.ScheduledJobHistoryRepository;
 import com.otilm.core.events.data.DiscoveryResult;
@@ -15,6 +19,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -38,19 +43,22 @@ public class DiscoveryRunTerminator {
     private final TransactionHandler transactionHandler;
     private final ApplicationEventPublisher eventPublisher;
     private final ScheduledJobHistoryRepository scheduledJobHistoryRepository;
+    private final DiscoveryCertificateRepository certificateRepository;
 
     @PersistenceContext
     private EntityManager entityManager;
 
     public DiscoveryRunTerminator(DiscoveryRepository discoveryRepository, DiscoveryWorkWriter workWriter,
             DiscoveryMessageWriter messageWriter, TransactionHandler transactionHandler,
-            ApplicationEventPublisher eventPublisher, ScheduledJobHistoryRepository scheduledJobHistoryRepository) {
+            ApplicationEventPublisher eventPublisher, ScheduledJobHistoryRepository scheduledJobHistoryRepository,
+            DiscoveryCertificateRepository certificateRepository) {
         this.discoveryRepository = discoveryRepository;
         this.workWriter = workWriter;
         this.messageWriter = messageWriter;
         this.transactionHandler = transactionHandler;
         this.eventPublisher = eventPublisher;
         this.scheduledJobHistoryRepository = scheduledJobHistoryRepository;
+        this.certificateRepository = certificateRepository;
     }
 
     /**
@@ -121,10 +129,34 @@ public class DiscoveryRunTerminator {
         run.setStatus(status);
         run.setMessage(reason);
         run.setEndTime(OffsetDateTime.now(ZoneOffset.UTC));
+        recordCertificateCounts(run);
         run.setRunMeta(null);
         messageWriter.appendRunEnded(run.getUuid(), DiscoveryRunLifecycle.severityOf(status), reason);
         logger.info("Discovery {} ended as {}: {}", run.getUuid(), status, reason);
         announceEnding(run, status, reason);
+    }
+
+    /**
+     * Fills the two certificate counters the v1 adapter fills at the end of its own run, so both generations report the
+     * same numbers to the same clients. Counted from the staging rows at the end rather than accumulated as the ticks
+     * go, so a retried tick needs no reconciliation.
+     */
+    private void recordCertificateCounts(Discovery run) {
+        run.setTotalCertificatesDiscovered(certificateRepository.countByDiscovery(run).intValue());
+        connectorCertificateYield(run).ifPresent(run::setConnectorTotalCertificatesDiscovered);
+    }
+
+    /**
+     * Certificates the connector said it produced, from its last progress report. Absent when it does not attribute
+     * yield by resource, in which case the counter is left alone rather than zeroed: Core never learned the number.
+     */
+    private static Optional<Integer> connectorCertificateYield(Discovery run) {
+        return Optional
+                .ofNullable(run.getProgress())
+                .map(DiscoveryProgressDto::getByResource)
+                .map(byResource -> byResource.get(Resource.CERTIFICATE))
+                .map(DiscoveryResourceProgressDto::getProduced)
+                .map(Long::intValue);
     }
 
     /**

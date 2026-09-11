@@ -6,6 +6,7 @@ import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
 import com.otilm.core.dao.repository.DiscoveryMessageRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.mapper.discovery.DiscoveryDtoMapper;
+import com.otilm.core.service.handler.discovery.DiscoveryDetailCounts;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Collection;
@@ -30,12 +31,15 @@ public class DiscoveryWriter {
     private final DiscoveryCertificateRepository discoveryCertificateRepository;
     private final DiscoveryRepository discoveryRepository;
     private final DiscoveryMessageRepository discoveryMessageRepository;
+    private final DiscoveryDetailCounts detailCounts;
 
     public DiscoveryWriter(DiscoveryCertificateRepository discoveryCertificateRepository,
-            DiscoveryRepository discoveryRepository, DiscoveryMessageRepository discoveryMessageRepository) {
+            DiscoveryRepository discoveryRepository, DiscoveryMessageRepository discoveryMessageRepository,
+            DiscoveryDetailCounts detailCounts) {
         this.discoveryCertificateRepository = discoveryCertificateRepository;
         this.discoveryRepository = discoveryRepository;
         this.discoveryMessageRepository = discoveryMessageRepository;
+        this.detailCounts = detailCounts;
     }
 
     /**
@@ -99,8 +103,8 @@ public class DiscoveryWriter {
             discovery.setConnectorStatus(DiscoveryStatus.FAILED);
             discovery.setMessage(message);
             discovery.setEndTime(OffsetDateTime.now(ZoneOffset.UTC));
-            return DiscoveryDtoMapper
-                    .toDetailDto(discovery, discoveryMessageRepository.countByDiscoveryUuid(discovery.getUuid()));
+            return DiscoveryDtoMapper.toDetailDto(discovery, detailCounts.forRun(discovery));
         });
     }
+
 }

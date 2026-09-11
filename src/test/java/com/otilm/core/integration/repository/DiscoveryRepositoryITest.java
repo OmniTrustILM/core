@@ -39,7 +39,7 @@ class DiscoveryRepositoryITest extends BaseSpringBootTest {
     @Test
     void v2RunColumnsRoundTrip() {
         DiscoveryResourceProgressDto keyProgress = new DiscoveryResourceProgressDto();
-        keyProgress.setProcessed(3L);
+        keyProgress.setProduced(3L);
         DiscoveryProgressDto progress = new DiscoveryProgressDto();
         progress.setTargetsProcessed(11L);
         progress.setTargetsTotal(40L);
@@ -79,7 +79,7 @@ class DiscoveryRepositoryITest extends BaseSpringBootTest {
         assertThat(back.getProgress().getTargetsTotal()).isEqualTo(40L);
         assertThat(back.getProgress().getPhase()).isEqualTo("scanning");
         assertThat(back.getProgress().getByResource()).containsOnlyKeys(Resource.CRYPTOGRAPHIC_KEY);
-        assertThat(back.getProgress().getByResource().get(Resource.CRYPTOGRAPHIC_KEY).getProcessed()).isEqualTo(3L);
+        assertThat(back.getProgress().getByResource().get(Resource.CRYPTOGRAPHIC_KEY).getProduced()).isEqualTo(3L);
         assertThat(back.getConnectorState()).isEqualTo("running");
         assertThat(back.getStoppable()).isTrue();
         // Compared as instants: the driver may hand the timestamptz back under a different zone offset.

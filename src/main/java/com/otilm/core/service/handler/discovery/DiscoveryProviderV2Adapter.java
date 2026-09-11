@@ -65,6 +65,7 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
 
     private final DiscoveryRepository discoveryRepository;
     private final DiscoveryMessageRepository messageRepository;
+    private final DiscoveryDetailCounts detailCounts;
     private final ConnectorInterfaceRepository connectorInterfaceRepository;
     private final DiscoveryV2Client client;
     private final DiscoveryWorkWriter workWriter;
@@ -78,12 +79,14 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
 
     @SuppressWarnings("java:S107")
     public DiscoveryProviderV2Adapter(DiscoveryRepository discoveryRepository,
-            DiscoveryMessageRepository messageRepository, ConnectorInterfaceRepository connectorInterfaceRepository,
-            DiscoveryV2Client client, DiscoveryWorkWriter workWriter, DiscoveryRunTerminator terminator,
+            DiscoveryMessageRepository messageRepository, DiscoveryDetailCounts detailCounts,
+            ConnectorInterfaceRepository connectorInterfaceRepository, DiscoveryV2Client client,
+            DiscoveryWorkWriter workWriter, DiscoveryRunTerminator terminator,
             ConnectorCapabilityService capabilityService, TransactionHandler transactionHandler,
             DiscoveryWorkProperties workProperties) {
         this.discoveryRepository = discoveryRepository;
         this.messageRepository = messageRepository;
+        this.detailCounts = detailCounts;
         this.connectorInterfaceRepository = connectorInterfaceRepository;
         this.client = client;
         this.workWriter = workWriter;
@@ -317,8 +320,7 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
         return transactionHandler
                 .runInNewTransaction(() -> discoveryRepository
                         .findByUuid(discoveryUuid)
-                        .map(run -> DiscoveryDtoMapper
-                                .toDetailDto(run, messageRepository.countByDiscoveryUuid(discoveryUuid)))
+                        .map(run -> DiscoveryDtoMapper.toDetailDto(run, detailCounts.forRun(run)))
                         .orElse(null));
     }
 
