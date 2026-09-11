@@ -144,6 +144,12 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(AcmeServiceImpl.class);
 
+    /** How many refused identifiers are named before the rest are counted instead. */
+    private static final int MAX_LISTED_IDENTIFIERS = 5;
+
+    /** Longer than any DNS name or address literal, so a well-formed identifier is never the one that gets cut. */
+    private static final int MAX_LISTED_IDENTIFIER_LENGTH = 255;
+
     private AcmeNonceRepository acmeNonceRepository;
     private RaProfileRepository raProfileRepository;
     private AcmeProfileRepository acmeProfileRepository;
@@ -1148,14 +1154,36 @@ public class AcmeServiceImpl implements AcmeExternalService {
         }
         if (!uncovered.isEmpty() && acmeProfile
                 .effectiveIdentifierAuthorizationMode() == AcmeIdentifierAuthorizationMode.PREAUTHORIZED_ONLY) {
+            String refused = summarize(uncovered);
             logger
                     .info("ACME profile '{}': order refused, identifiers not pre-authorized: {}", acmeProfile.getName(),
-                            uncovered.stream().map(AcmeServiceImpl::singleLine).toList());
+                            refused);
             throw new AcmeProblemDocumentException(HttpStatus.FORBIDDEN, Problem.REJECTED_IDENTIFIER,
-                    "The profile issues only for pre-authorized identifiers, and does not pre-authorize: "
-                            + uncovered.stream().map(AcmeServiceImpl::singleLine).collect(Collectors.joining(", ")));
+                    "The profile issues only for pre-authorized identifiers, and does not pre-authorize: " + refused);
         }
         return preauthorized;
+    }
+
+    /**
+     * The refused identifiers as one bounded line. An order names as many identifiers as its body holds and each as
+     * long as it likes, so listing them all would let one request size both the problem document and the log entry. A
+     * few truncated values say which entry the policy is missing without handing the caller that choice.
+     */
+    private static String summarize(List<String> values) {
+        String listed = values
+                .stream()
+                .limit(MAX_LISTED_IDENTIFIERS)
+                .map(AcmeServiceImpl::singleLine)
+                .map(AcmeServiceImpl::truncate)
+                .collect(Collectors.joining(", "));
+        int remaining = values.size() - MAX_LISTED_IDENTIFIERS;
+        return remaining > 0 ? listed + " (and " + remaining + " more)" : listed;
+    }
+
+    private static String truncate(String value) {
+        return value.length() <= MAX_LISTED_IDENTIFIER_LENGTH
+                ? value
+                : value.substring(0, MAX_LISTED_IDENTIFIER_LENGTH) + "...";
     }
 
     /**

@@ -33,6 +33,8 @@ import java.security.KeyPairGenerator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -192,6 +194,28 @@ class AcmePreauthorizedOrderITest extends BaseSpringBootTest {
 
         Assertions.assertEquals(403, e.getHttpStatusCode());
         Assertions.assertTrue(acmeOrderRepository.findAll().isEmpty());
+    }
+
+    @Test
+    void aRefusalNamesAFewIdentifiersRatherThanEveryOneItWasSent() throws Exception {
+        // The problem document and the log line both carry this text, and the order is what decides how many
+        // identifiers it names and how long each one is.
+        policy(AcmeIdentifierAuthorizationMode.PREAUTHORIZED_ONLY,
+                entry("apps.example.com", AcmeIdentifierMatchType.SUBDOMAIN, false));
+        String overlong = "a".repeat(300) + ".example.com";
+        String[] ordered = Stream
+                .concat(Stream.of(overlong), IntStream.range(0, 7).mapToObj(i -> "host" + i + ".example.com"))
+                .toArray(String[]::new);
+
+        AcmeProblemDocumentException e = Assertions
+                .assertThrows(AcmeProblemDocumentException.class, () -> newOrder(ordered));
+
+        String detail = e.getProblemDocument().getDetail();
+        Assertions.assertTrue(detail.contains("(and 3 more)"), detail);
+        Assertions.assertTrue(detail.contains("host3.example.com"), "the first few are named");
+        Assertions.assertFalse(detail.contains("host4.example.com"), "the rest are only counted");
+        Assertions.assertTrue(detail.contains("a".repeat(255) + "..."), "an overlong value is cut");
+        Assertions.assertFalse(detail.contains("a".repeat(256)), "and cut at the bound rather than merely shortened");
     }
 
     @Test
