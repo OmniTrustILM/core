@@ -5,6 +5,7 @@ import com.otilm.core.dao.repository.SecurityFilterRepository;
 import java.time.OffsetDateTime;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -16,6 +17,11 @@ public interface AcmeAccountRepository extends SecurityFilterRepository<AcmeAcco
 
     Optional<AcmeAccount> findByAccountId(String accountId);
 
+    /**
+     * The profile comes with it: the account is read outside a transaction on the newAccount path, where a lazy
+     * association would only resolve while open-in-view happened to be on.
+     */
+    @EntityGraph(attributePaths = {"acmeProfile"})
     AcmeAccount findByPublicKey(String publicKey);
 
     boolean existsByAcmeProfileUuidAndIsDefaultRaProfileTrue(UUID acmeProfileUuid);

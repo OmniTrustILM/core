@@ -10,6 +10,7 @@ import com.otilm.api.model.client.acme.AcmeProfileEditRequestDto;
 import com.otilm.api.model.client.acme.AcmeProfileRequestDto;
 import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.common.UuidDto;
+import com.otilm.api.model.core.acme.AcmeEabKeyDto;
 import com.otilm.api.model.core.acme.AcmeProfileDto;
 import com.otilm.api.model.core.acme.AcmeProfileListDto;
 import com.otilm.api.model.core.auth.Resource;
@@ -43,6 +44,12 @@ public class AcmeProfileControllerImpl implements AcmeProfileController {
     @AuditLogged(module = Module.PROTOCOLS, resource = Resource.ACME_PROFILE, operation = Operation.LIST)
     public List<AcmeProfileListDto> listAcmeProfiles() {
         return acmeProfileService.listAcmeProfile(SecurityFilter.create());
+    }
+
+    @Override
+    @AuditLogged(module = Module.PROTOCOLS, resource = Resource.ACME_PROFILE, operation = Operation.RANDOM_DATA)
+    public AcmeEabKeyDto generateEabKey() {
+        return acmeProfileService.generateEabKey();
     }
 
     @Override

@@ -13,6 +13,7 @@ import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.core.acme.AcmeEabKeyDto;
 import com.otilm.api.model.core.acme.AcmeProfileDto;
 import com.otilm.api.model.core.acme.AcmeProfileListDto;
 import com.otilm.api.model.core.auth.Resource;
@@ -22,13 +23,16 @@ import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.ProtocolCertificateAssociations;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.Secret;
 import com.otilm.core.dao.entity.UniquelyIdentifiedAndAudited;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
 import com.otilm.core.dao.entity.acme.AcmeProfile_;
 import com.otilm.core.dao.repository.AcmeProfileRepository;
 import com.otilm.core.dao.repository.ProtocolCertificateAssociationsRepository;
+import com.otilm.core.dao.repository.SecretRepository;
 import com.otilm.core.dao.repository.acme.AcmeAccountRepository;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -36,12 +40,15 @@ import com.otilm.core.service.AcmeProfileExternalService;
 import com.otilm.core.service.AcmeProfileInternalService;
 import com.otilm.core.service.CommentInternalService;
 import com.otilm.core.service.RaProfileInternalService;
+import com.otilm.core.service.acme.eab.AcmeEabKeys;
 import com.otilm.core.service.model.SecuredList;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import com.otilm.core.util.ValidatorUtil;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
@@ -63,10 +70,22 @@ public class AcmeProfileServiceImpl implements AcmeProfileExternalService, AcmeP
     private ProtocolCertificateAssociationsRepository certificateAssociationRepository;
 
     private CommentInternalService commentService;
+    private SecretRepository secretRepository;
+    private AuthorizationEnforcer authorizationEnforcer;
 
     @Autowired
     public void setCommentService(CommentInternalService commentService) {
         this.commentService = commentService;
+    }
+
+    @Autowired
+    public void setSecretRepository(SecretRepository secretRepository) {
+        this.secretRepository = secretRepository;
+    }
+
+    @Autowired
+    public void setAuthorizationEnforcer(AuthorizationEnforcer authorizationEnforcer) {
+        this.authorizationEnforcer = authorizationEnforcer;
     }
 
     @Autowired
@@ -173,6 +192,8 @@ public class AcmeProfileServiceImpl implements AcmeProfileExternalService, AcmeP
         acmeProfile.setRequireTermsOfService(request.isRequireTermsOfService());
         acmeProfile.setDisableNewOrders(false);
         acmeProfile.setRaProfile(raProfile);
+        acmeProfile.setEabSecretUuids(resolveEabSecrets(request.getEabSecretUuids()));
+        requireTermsUrlWhenAgreementIsRequired(acmeProfile);
         if (request.getCertificateAssociations() != null && !request.getCertificateAssociations().isEmpty()) {
             ProtocolCertificateAssociations certificateAssociation = new ProtocolCertificateAssociations();
             certificateAssociation.setOwnerUuid(request.getCertificateAssociations().getOwnerUuid());
@@ -272,8 +293,11 @@ public class AcmeProfileServiceImpl implements AcmeProfileExternalService, AcmeP
         }
         acmeProfile.setTermsOfServiceUrl(request.getTermsOfServiceUrl());
         acmeProfile.setWebsite(request.getWebsiteUrl());
-        acmeProfile.setDisableNewOrders(request.isTermsOfServiceChangeDisable());
         acmeProfile.setTermsOfServiceChangeUrl(request.getTermsOfServiceChangeUrl());
+        if (request.getEabSecretUuids() != null) {
+            acmeProfile.setEabSecretUuids(resolveEabSecrets(request.getEabSecretUuids()));
+        }
+        requireTermsUrlWhenAgreementIsRequired(acmeProfile);
 
         UUID certificateAssociationUuid = null;
         ProtocolCertificateAssociations certificateAssociation = null;
@@ -294,6 +318,72 @@ public class AcmeProfileServiceImpl implements AcmeProfileExternalService, AcmeP
 
         return updateAndMapDtoAttributes(acmeProfile, raProfile, request.getIssueCertificateAttributes(),
                 request.getRevokeCertificateAttributes(), request.getCustomAttributes());
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.ACME_PROFILE, action = ResourceAction.CREATE)
+    public AcmeEabKeyDto generateEabKey() {
+        AcmeEabKeyDto dto = new AcmeEabKeyDto();
+        dto.setKey(AcmeEabKeys.generate());
+        return dto;
+    }
+
+    /**
+     * Registering a secret as a binding key delegates a read of its content to the platform, which then performs that
+     * read on every newAccount without a caller to authorize. The operator doing the registering must therefore be able
+     * to perform that read themselves, which takes both of the permissions the read is gated on: the content permission
+     * on the secret, and membership of the vault profile it is sourced from. Checking only the first would let an
+     * operator who cannot read a secret still put it in charge of a profile.
+     * <p>
+     * Every UUID must also name a secret that exists, so a profile cannot advertise externalAccountRequired against a
+     * key the platform could never read. Duplicates are folded away; order is not meaningful.
+     */
+    private List<UUID> resolveEabSecrets(List<UUID> requested) {
+        if (requested == null || requested.isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<UUID> distinct = requested.stream().filter(Objects::nonNull).distinct().toList();
+        // Before the lookup, so a caller who may not read secrets at all learns nothing about which UUIDs exist.
+        authorizationEnforcer
+                .enforce(Resource.SECRET, ResourceAction.GET_SECRET_CONTENT,
+                        distinct.stream().map(SecuredUUID::fromUUID).toList());
+
+        List<Secret> secrets = secretRepository.findByUuidIn(distinct);
+        Set<UUID> found = secrets.stream().map(UniquelyIdentifiedAndAudited::getUuid).collect(Collectors.toSet());
+        String missing = distinct
+                .stream()
+                .filter(secretUuid -> !found.contains(secretUuid))
+                .map(UUID::toString)
+                .collect(Collectors.joining(", "));
+        if (!missing.isEmpty()) {
+            throw new ValidationException(
+                    ValidationError.create("External Account Binding secrets not found: %s".formatted(missing)));
+        }
+
+        authorizationEnforcer
+                .enforce(Resource.VAULT_PROFILE, ResourceAction.MEMBERS,
+                        secrets
+                                .stream()
+                                .map(Secret::getSourceVaultProfileUuid)
+                                .filter(Objects::nonNull)
+                                .distinct()
+                                .map(SecuredUUID::fromUUID)
+                                .toList());
+        return new ArrayList<>(distinct);
+    }
+
+    /**
+     * ACME clients agree to terms only when the directory advertises them, so a profile that requires agreement without
+     * a terms URL would require nothing; checked on the merged profile so create and partial edit are held to the same
+     * rule.
+     */
+    private static void requireTermsUrlWhenAgreementIsRequired(AcmeProfile acmeProfile) {
+        boolean required = Boolean.TRUE.equals(acmeProfile.isRequireTermsOfService());
+        boolean hasUrl = acmeProfile.getTermsOfServiceUrl() != null && !acmeProfile.getTermsOfServiceUrl().isBlank();
+        if (required && !hasUrl) {
+            throw new ValidationException(
+                    ValidationError.create("Requiring agreement to the Terms of Service needs a Terms of Service URL"));
+        }
     }
 
     private AcmeProfileDto mapToDetailDto(AcmeProfile acmeProfile) {

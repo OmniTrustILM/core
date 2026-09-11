@@ -8,6 +8,7 @@ import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ConnectorProblemException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.SecretOperationException;
+import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
@@ -61,6 +62,7 @@ import com.otilm.core.dao.entity.Secret_;
 import com.otilm.core.dao.entity.VaultInstance;
 import com.otilm.core.dao.entity.VaultProfile;
 import com.otilm.core.dao.entity.VaultProfile_;
+import com.otilm.core.dao.repository.AcmeProfileRepository;
 import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.Secret2SyncVaultProfileRepository;
 import com.otilm.core.dao.repository.SecretRepository;
@@ -139,6 +141,7 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     private VaultProfileRepository vaultProfileRepository;
     private VaultInstanceRepository vaultInstanceRepository;
     private SecretRepository secretRepository;
+    private AcmeProfileRepository acmeProfileRepository;
     private SecretVersionRepository secretVersionRepository;
     private Secret2SyncVaultProfileRepository secret2SyncVaultProfileRepository;
 
@@ -162,6 +165,11 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     @Autowired
     public void setActionProducer(ActionProducer actionProducer) {
         this.actionProducer = actionProducer;
+    }
+
+    @Autowired
+    public void setAcmeProfileRepository(AcmeProfileRepository acmeProfileRepository) {
+        this.acmeProfileRepository = acmeProfileRepository;
     }
 
     @Autowired
@@ -622,12 +630,27 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
         authorizationEnforcer
                 .enforce(Resource.VAULT_PROFILE, ResourceAction.MEMBERS,
                         SecuredUUID.fromUUID(secret.getSourceVaultProfile().getUuid()));
+        refuseWhenBoundToAcmeProfile(uuid, secret.getName());
         SecretActionData actionData = SecretActionData
                 .builder()
                 .deleteInVault(deleteInVaults)
                 .originalState(secret.getState())
                 .build();
         produceActionMessage(actionData, secret.getSourceVaultProfile(), secret, ResourceAction.DELETE);
+    }
+
+    /**
+     * An ACME profile holding this secret as an External Account Binding key would keep advertising
+     * externalAccountRequired against a key that no longer exists, locking every client out of account registration.
+     * Disabling the secret is the reversible way to take a key out of service.
+     */
+    private void refuseWhenBoundToAcmeProfile(UUID uuid, String secretName) {
+        List<String> acmeProfiles = acmeProfileRepository.findNamesByEabSecretUuid(uuid);
+        if (!acmeProfiles.isEmpty()) {
+            throw new ValidationException(ValidationError
+                    .create("Cannot delete secret %s: used as an External Account Binding key by ACME Profiles (%d): %s"
+                            .formatted(secretName, acmeProfiles.size(), String.join(", ", acmeProfiles))));
+        }
     }
 
     @ExternalAuthorization(resource = Resource.SECRET, action = ResourceAction.DELETE)
@@ -641,6 +664,9 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
         if (!isApproved) {
             checkDeleteSecretPermissions();
         }
+        // Repeated here, not only where the delete was requested: the two are separated by the queue and possibly
+        // by an approval, and a profile can claim the secret in between.
+        refuseWhenBoundToAcmeProfile(secretUuid, secret.getName());
         // Delete secret from vaults
         if (!invalidSecretState(secret) && deleteInVaults) {
             List<VaultProfile> vaultProfiles = new ArrayList<>(

@@ -17,13 +17,17 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.proxy.HibernateProxy;
+import org.hibernate.type.SqlTypes;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 @Getter
@@ -95,6 +99,18 @@ public class AcmeProfile extends UniquelyIdentifiedAndAudited
     @ToString.Exclude
     private ProtocolCertificateAssociations certificateAssociations;
 
+    @Column(name = "eab_secret_uuids")
+    @JdbcTypeCode(SqlTypes.ARRAY)
+    private List<UUID> eabSecretUuids = new ArrayList<>();
+
+    /**
+     * Whether a newAccount request must carry an External Account Binding. Derived from the configured keys rather than
+     * stored, so a profile can never advertise the requirement with nothing to verify a binding against.
+     */
+    public boolean isExternalAccountRequired() {
+        return eabSecretUuids != null && !eabSecretUuids.isEmpty();
+    }
+
     @Override
     public AcmeProfileDto mapToDto() {
         AcmeProfileDto acmeProfileDto = new AcmeProfileDto();
@@ -115,6 +131,7 @@ public class AcmeProfile extends UniquelyIdentifiedAndAudited
         acmeProfileDto.setRequireTermsOfService(requireTermsOfService);
         acmeProfileDto.setWebsiteUrl(website);
         acmeProfileDto.setTermsOfServiceChangeUrl(termsOfServiceChangeUrl);
+        acmeProfileDto.setEabSecretUuids(eabSecretUuids == null ? new ArrayList<>() : List.copyOf(eabSecretUuids));
         if (raProfile != null) {
             acmeProfileDto
                     .setDirectoryUrl(ServletUriComponentsBuilder.fromCurrentContextPath().build().toUriString()

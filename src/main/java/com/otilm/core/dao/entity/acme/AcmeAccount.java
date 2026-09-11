@@ -84,6 +84,9 @@ public class AcmeAccount extends UniquelyIdentifiedAndAudited implements Seriali
     @ToString.Exclude
     private AcmeProfile acmeProfile;
 
+    @Column(name = "eab_secret_uuid")
+    private UUID eabSecretUuid;
+
     @Column(name = "acme_profile_uuid", nullable = false)
     private UUID acmeProfileUuid;
 

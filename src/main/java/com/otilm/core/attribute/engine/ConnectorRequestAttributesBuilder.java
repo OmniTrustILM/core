@@ -6,6 +6,7 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.DataAttribute;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.core.service.CredentialInternalService;
 import com.otilm.core.service.ResourceInternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
@@ -74,8 +75,22 @@ public class ConnectorRequestAttributesBuilder {
             throws AttributeException, NotFoundException, ConnectorException {
         List<DataAttribute> dataAttributes = attributeEngine
                 .getDataAttributesByContent(connectorUuid, requestAttributes);
-        credentialService.loadFullCredentialData(dataAttributes);
+        if (referencesACredential(dataAttributes)) {
+            credentialService.loadFullCredentialData(dataAttributes);
+        }
         resourceService.loadResourceObjectContentData(dataAttributes);
         return AttributeDefinitionUtils.getClientAttributes(dataAttributes);
+    }
+
+    /**
+     * The credential loader authorizes CREDENTIAL:DETAIL at method entry, so calling it costs that permission even for
+     * a request whose attributes name no credential and which the loader would walk past. Asking first keeps the
+     * permission a cost only of requests that actually dereference one. The resource loader needs no such guard: it
+     * gates per object, inside, once it has found a reference.
+     */
+    private static boolean referencesACredential(List<DataAttribute> dataAttributes) {
+        return dataAttributes != null && dataAttributes
+                .stream()
+                .anyMatch(attribute -> AttributeContentType.CREDENTIAL.equals(attribute.getContentType()));
     }
 }
