@@ -408,7 +408,10 @@ public enum FilterField {
             SearchFieldTypeEnum.LIST),
     CBOM_ASSET_PARAMETER_SET(Resource.CRYPTO_ASSET, null, null, CryptoAsset_.parameterSet, "Parameter Set",
             SearchFieldTypeEnum.LIST),
-    CBOM_ASSET_CURVE(Resource.CRYPTO_ASSET, null, null, CryptoAsset_.curve, "Elliptic Curve", SearchFieldTypeEnum.LIST),
+    // A hybrid scheme's curve is stored as its members, so EQUALS asks whether the asset touches the curve rather
+    // than whether its whole composite is that curve. NATIVE_ARRAY still reports FilterFieldType.LIST on the wire.
+    CBOM_ASSET_CURVE(Resource.CRYPTO_ASSET, null, null, CryptoAsset_.curve, "Elliptic Curve",
+            SearchFieldTypeEnum.NATIVE_ARRAY),
     CBOM_ASSET_MODE(Resource.CRYPTO_ASSET, null, null, CryptoAsset_.mode, "Mode", SearchFieldTypeEnum.LIST),
     CBOM_ASSET_PADDING(Resource.CRYPTO_ASSET, null, null, CryptoAsset_.padding, "Padding", SearchFieldTypeEnum.LIST),
     CBOM_ASSET_VARIANT(Resource.CRYPTO_ASSET, null, null, CryptoAsset_.variant, "Variant", SearchFieldTypeEnum.LIST),

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.model.core.cryptoasset.PqcVerdict;
+import com.otilm.core.cbom.asset.CompositeCurve;
 import com.otilm.core.cbom.asset.CryptoAssetIdentityFields;
 import com.otilm.core.cbom.asset.identity.AssetNormalizer;
 import com.otilm.core.cbom.asset.identity.CryptoAssetIdentity;
@@ -192,8 +193,8 @@ class PqcStoredRowRoundTripITest extends BaseSpringBootTest {
 
     private static CryptoAssetIdentityFields storedFields(CryptoAsset row) {
         return new CryptoAssetIdentityFields(row.getAssetType(), row.getName(), row.getOid(), row.getAlgorithmFamily(),
-                row.getPrimitive(), row.getParameterSet(), row.getCurve(), row.getMode(), row.getPadding(),
-                row.getVariant());
+                row.getPrimitive(), row.getParameterSet(), CompositeCurve.join(row.getCurve()), row.getMode(),
+                row.getPadding(), row.getVariant());
     }
 
     private static CryptoAssetIdentityFields derivedFields(NormalizedAsset asset) {

@@ -22,6 +22,7 @@ import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
+import com.otilm.core.cbom.asset.CompositeCurve;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.dao.entity.Cbom;
 import com.otilm.core.dao.entity.Cbom_;
@@ -586,7 +587,7 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
         dto.setAlgorithmFamily(asset.getAlgorithmFamily());
         dto.setPrimitive(asset.getPrimitive());
         dto.setParameterSet(asset.getParameterSet());
-        dto.setCurve(asset.getCurve());
+        dto.setCurve(CompositeCurve.join(asset.getCurve()));
         dto.setMode(asset.getMode());
         dto.setPadding(asset.getPadding());
         dto.setVariant(asset.getVariant());

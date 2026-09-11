@@ -123,15 +123,17 @@ class CryptoAssetListQueryITest extends BaseSpringBootTest {
                 null, null, "P-256", null, null, null), null);
         upsert(new CryptoAssetIdentityFields(CryptographicAssetType.CERTIFICATE, "bare", "oid-4", null, null, null,
                 null, null, null, null), null);
+        upsert(new CryptoAssetIdentityFields(CryptographicAssetType.ALGORITHM, "x25519-x448", "oid-5", "ecdh", null,
+                null, "other/curve25519+other/curve448", null, null, null), null);
 
         assertThat(assetRepository.findDistinctCurve())
                 .describedAs(
-                        "distinct stored normalized values, sorted, no null; class folding (p-256 = secp256r1) is core#2072 ingest scope, not this query's")
-                .containsExactly("p-256", "secp256r1");
+                        "each curve any asset touches, once, sorted, no null -- a hybrid contributes its members and never the composite; class folding (p-256 = secp256r1) is core#2072 ingest scope, not this query's")
+                .containsExactly("other/curve25519", "other/curve448", "p-256", "secp256r1");
         assertThat(assetRepository.findDistinctAlgorithmFamily())
                 .describedAs(
                         "distinct stored normalized values, sorted, no null; class folding (p-256 = secp256r1) is core#2072 ingest scope, not this query's")
-                .containsExactly("ecdsa", "rsa");
+                .containsExactly("ecdh", "ecdsa", "rsa");
     }
 
     @Test
