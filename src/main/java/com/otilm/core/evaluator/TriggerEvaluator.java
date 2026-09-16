@@ -259,12 +259,12 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
             boolean anyCollection = nonNestedJoinAttributes != null && !nonNestedJoinAttributes.isEmpty()
                     && nonNestedJoinAttributes.getLast().isCollection();
             Attribute fieldAttribute = isNested && anyCollection ? null : filterField.getFieldAttribute();
-            objectValue = getPropertyValue(object, nonNestedJoinAttributes, fieldAttribute);
+            objectValue = getPropertyValue(object, nonNestedJoinAttributes, fieldAttribute, filterField);
         } catch (IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {
             throw new RuleException("Cannot get property " + fieldIdentifier + " from resource " + resource + ".");
         } catch (RuntimeException e) {
-            // A null link in a nested path throws unchecked, before any operator applies. Must not leave the
-            // class -- see the boundary catch below.
+            // An absent link resolves to an absent value; anything else unchecked during resolution must not leave
+            // the class -- see the boundary catch below.
             throw new RuleException("Cannot resolve property " + fieldIdentifier + " on resource " + resource
                     + "; the object does not hold the association the condition reads through.");
         }
@@ -275,10 +275,14 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         // whether the condition is satisfied
         try {
             if (!(objectValue instanceof Collection<?> objectValues)) {
-                if (objectValue != null && filterField.getEnumClass() != null) {
+                BiPredicate<Object, Object> comparison = comparisonFor(fieldType, operator, filterField.getLabel());
+                if (objectValue == null) {
+                    return evaluateAbsentValue(operator);
+                }
+                if (filterField.getEnumClass() != null) {
                     objectValue = ((IPlatformEnum) objectValue).getCode();
                 }
-                return fieldTypeToOperatorActionMap.get(fieldType).get(operator).test(objectValue, conditionValue);
+                return comparison.test(objectValue, conditionValue);
             }
 
             if (listSpecificOperatorsFunctionMap.get(operator) != null) {
@@ -287,23 +291,34 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
 
             return evaluateItemsInCollection(operator, conditionValue, objectValues, nestedJoinAttributes, filterField,
                     fieldType);
+        } catch (RuleException e) {
+            throw e;
         } catch (Exception e) {
-            throw new RuleException("Condition is not set properly: " + e.getMessage());
+            // The operator itself failed on the condition's value: a date that does not parse, a number that is not
+            // one. The operator can act on the value named here; the Java detail belongs in the log, not the reason.
+            logger
+                    .debug("Condition on field {} with operator {} failed on value '{}'", fieldIdentifier, operator,
+                            conditionValue, e);
+            throw new RuleException(
+                    "Condition on field '%s' is not set properly: value '%s' cannot be used with operator '%s'"
+                            .formatted(filterField.getLabel(), conditionValue, operator.getLabel()));
         }
     }
 
     private boolean evaluateItemsInCollection(FilterConditionOperator operator, Object conditionValue,
             Collection<?> objectValues, List<Attribute> nestedJoinAttributes, FilterField filterField,
-            FilterFieldType fieldType) throws InvocationTargetException, IllegalAccessException, NoSuchMethodException {
+            FilterFieldType fieldType)
+            throws InvocationTargetException, IllegalAccessException, NoSuchMethodException, RuleException {
         // For EQUALS, if no true evaluation during loop, result stays false, for NOT_EQUALS, if there is no false
         // evaluation during loop, result stays true
         boolean result = (operator == FilterConditionOperator.NOT_EQUALS);
+        BiPredicate<Object, Object> comparison = comparisonFor(fieldType, operator, filterField.getLabel());
         for (Object item : objectValues) {
             if (nestedJoinAttributes != null) {
-                item = getPropertyValue(item, nestedJoinAttributes, filterField.getFieldAttribute());
+                item = getPropertyValue(item, nestedJoinAttributes, filterField.getFieldAttribute(), filterField);
             }
 
-            boolean eval = fieldTypeToOperatorActionMap.get(fieldType).get(operator).test(item, conditionValue);
+            boolean eval = item == null ? evaluateAbsentValue(operator) : comparison.test(item, conditionValue);
 
             // For EQUALS: succeed if any true
             // For NOT_EQUALS: fail if any false
@@ -315,6 +330,31 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         }
 
         return result;
+    }
+
+    private static BiPredicate<Object, Object> comparisonFor(FilterFieldType fieldType,
+            FilterConditionOperator operator, String fieldLabel) throws RuleException {
+        BiPredicate<Object, Object> comparison = fieldTypeToOperatorActionMap.get(fieldType).get(operator);
+        if (comparison == null) {
+            throw new RuleException("Condition on field '%s' is not set properly: operator '%s' cannot be applied to it"
+                    .formatted(fieldLabel, operator.getLabel()));
+        }
+        return comparison;
+    }
+
+    /**
+     * The answer a condition gives for a value the object does not have.
+     *
+     * <p>
+     * <b>Null semantics:</b> an absent value is empty and equals nothing, so {@code EMPTY} and {@code NOT_EQUALS} are
+     * met and every other operator is not; a comparison has nothing to compare.
+     *
+     * <p>
+     * <b>Error boundary:</b> a null must never reach an operator lambda, which would fail inside it and be reported as
+     * a misconfigured condition.
+     */
+    private static boolean evaluateAbsentValue(FilterConditionOperator operator) {
+        return operator == FilterConditionOperator.EMPTY || operator == FilterConditionOperator.NOT_EQUALS;
     }
 
     private boolean evaluateMetaAttributeConditionItem(Resource resource, String fieldIdentifier, UUID objectUuid,
@@ -578,10 +618,28 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         applicationEventPublisher.publishEvent(message);
     }
 
-    private Object getPropertyValue(Object object, List<Attribute> joinAttributes, Attribute fieldAttribute)
-            throws InvocationTargetException, IllegalAccessException, NoSuchMethodException {
+    /**
+     * The value a condition reads, or null when the object does not hold the association the path leads through.
+     *
+     * @throws RuleException when the field names no property of its own: a free-text field searches several columns at
+     * once and only a query can answer it, so there is nothing here to read
+     */
+    private Object getPropertyValue(Object object, List<Attribute> joinAttributes, Attribute fieldAttribute,
+            FilterField filterField)
+            throws InvocationTargetException, IllegalAccessException, NoSuchMethodException, RuleException {
         String pathToProperty = FilterPredicatesBuilder.buildPathToProperty(joinAttributes, fieldAttribute);
-        return PropertyUtils.getProperty(object, pathToProperty);
+        if (pathToProperty.isEmpty()) {
+            throw new RuleException("Condition on field '%s' is not set properly: the field names no single property, "
+                    .formatted(filterField.getLabel()) + "so it cannot be evaluated on one object");
+        }
+        Object current = object;
+        for (String link : pathToProperty.split("\\.")) {
+            if (current == null) {
+                return null;
+            }
+            current = PropertyUtils.getProperty(current, link);
+        }
+        return current;
     }
 
     private boolean getConditionEvaluationResult(ConditionItem conditionItem, T object, TriggerHistory triggerHistory,
