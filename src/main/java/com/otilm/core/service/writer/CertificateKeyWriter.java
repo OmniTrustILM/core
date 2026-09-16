@@ -11,6 +11,7 @@ import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.CryptographyUtil;
 import java.security.PublicKey;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Base64;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -60,7 +61,7 @@ public class CertificateKeyWriter {
 
     private CryptographicKeyItem publicKeyItem(CryptographicKey parent, PublicKey publicKey, int keyLength,
             String fingerprint) {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
         byte[] encodedKey = publicKey.getEncoded();
         CryptographicKeyItem item = new CryptographicKeyItem();
         item.setUuid(UUID.randomUUID());

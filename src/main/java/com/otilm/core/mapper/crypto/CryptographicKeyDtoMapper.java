@@ -21,6 +21,7 @@ import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.group.GroupModel;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 import org.springframework.data.domain.Page;
 
 public final class CryptographicKeyDtoMapper {
@@ -178,8 +179,8 @@ public final class CryptographicKeyDtoMapper {
         KeyItemDetailDto dto = new KeyItemDetailDto();
         dto.setUuid(item.uuid().toString());
         dto.setName(item.name());
-        if (item.reference() instanceof RemoteKeyReference.UuidReference reference && reference.uuid() != null) {
-            dto.setKeyReferenceUuid(reference.uuid().toString());
+        if (item.reference() instanceof RemoteKeyReference.UuidReference(UUID uuid) && uuid != null) {
+            dto.setKeyReferenceUuid(uuid.toString());
         }
         dto.setKeyAlgorithm(item.algorithm());
         dto.setType(item.type());
@@ -198,8 +199,8 @@ public final class CryptographicKeyDtoMapper {
         KeyItemDto dto = new KeyItemDto();
         dto.setUuid(item.uuid().toString());
         dto.setName(item.name());
-        if (item.reference() instanceof RemoteKeyReference.UuidReference reference && reference.uuid() != null) {
-            dto.setKeyReferenceUuid(reference.uuid().toString());
+        if (item.reference() instanceof RemoteKeyReference.UuidReference(UUID uuid) && uuid != null) {
+            dto.setKeyReferenceUuid(uuid.toString());
         }
         dto.setKeyAlgorithm(item.algorithm());
         dto.setType(item.type());

@@ -542,8 +542,8 @@ public class CryptographicOperationServiceImpl
     }
 
     private static String requireV1KeyReference(CryptographicKeyItemOperationModel key) throws ConnectorException {
-        if (key.reference() instanceof RemoteKeyReference.UuidReference reference && reference.uuid() != null) {
-            return reference.uuid().toString();
+        if (key.reference() instanceof RemoteKeyReference.UuidReference(UUID uuid) && uuid != null) {
+            return uuid.toString();
         }
         throw new ConnectorException(
                 "This cryptographic operation requires a v1 remote key UUID; metadata references are not supported.");

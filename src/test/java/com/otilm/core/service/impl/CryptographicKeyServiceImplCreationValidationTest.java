@@ -233,9 +233,7 @@ class CryptographicKeyServiceImplCreationValidationTest {
         List<ProviderKeyItem> nonExportableItems = List.of(aProviderKeyItem().withMaterial(null).build());
         stubCreatedItems(nonExportableItems);
         AttributeException persistenceReached = new AttributeException("Persistence reached");
-        when(writer
-                .createKeyWithItems(eq(request), eq(profile), eq(profile.tokenInstance()), eq(nonExportableItems),
-                        eq(false), eq(false)))
+        when(writer.createKeyWithItems(request, profile, profile.tokenInstance(), nonExportableItems, false, false))
                 .thenThrow(persistenceReached);
 
         // when

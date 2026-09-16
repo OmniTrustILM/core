@@ -376,7 +376,7 @@ public class CryptographicKeyWriter {
      * @param keyItemUuid non-null UUID of the key item to finalize
      * @throws NotFoundException if the item no longer exists
      */
-    @Transactional
+    @Transactional(rollbackFor = NotFoundException.class)
     public void finalizeKeyItemDestruction(UUID keyItemUuid) throws NotFoundException {
         if (cryptographicKeyItemRepository.finalizeKeyItemDestruction(keyItemUuid) == 0) {
             throw new NotFoundException(CryptographicKeyItem.class, keyItemUuid);

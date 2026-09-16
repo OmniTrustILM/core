@@ -82,6 +82,7 @@ import com.otilm.core.model.crypto.ImmutableTokenInstanceBasicModel;
 import com.otilm.core.model.crypto.ImmutableTokenProfileBasicModel;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.RemoteKeyReference;
+import com.otilm.core.model.group.GroupModel;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -104,6 +105,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.Month;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashSet;
@@ -411,7 +413,7 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
                                 .collect(Collectors.toSet()));
         Assertions
                 .assertEquals(Set.of(group.getUuid()),
-                        model.groups().stream().map(value -> value.uuid()).collect(Collectors.toSet()));
+                        model.groups().stream().map(GroupModel::uuid).collect(Collectors.toSet()));
         Assertions.assertEquals(expectedOwnerUuid, model.ownerUuid());
         Assertions
                 .assertEquals(Set.of(privateKeyItem.getUuid(), publicKeyItem.getUuid()),
@@ -2025,7 +2027,7 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
             throws NotFoundException {
         // given
         UUID itemUuid = privateKeyItem.getUuid();
-        LocalDateTime previousUpdate = LocalDateTime.of(2020, 1, 1, 0, 0);
+        LocalDateTime previousUpdate = LocalDateTime.of(2020, Month.JANUARY, 1, 0, 0);
         jdbcTemplate
                 .update("UPDATE " + dbSchema + ".cryptographic_key_item SET state = ?, updated_at = ? WHERE uuid = ?",
                         entryState.name(), previousUpdate, itemUuid);
@@ -2445,7 +2447,7 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         // then
         Assertions
                 .assertEquals(requestedGroups,
-                        updated.groups().stream().map(groupModel -> groupModel.uuid()).collect(Collectors.toSet()));
+                        updated.groups().stream().map(GroupModel::uuid).collect(Collectors.toSet()));
         Assertions
                 .assertEquals(requestedGroups,
                         cryptographicKeyRepository
@@ -2453,7 +2455,7 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
                                 .orElseThrow()
                                 .groups()
                                 .stream()
-                                .map(groupModel -> groupModel.uuid())
+                                .map(GroupModel::uuid)
                                 .collect(Collectors.toSet()));
     }
 

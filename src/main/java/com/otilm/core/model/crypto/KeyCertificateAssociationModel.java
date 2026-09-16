@@ -7,8 +7,6 @@ import java.util.UUID;
 public record KeyCertificateAssociationModel(UUID uuid, String name) {
 
     public static KeyCertificateAssociationModel from(Certificate certificate) {
-        KeyCertificateAssociationModel model = new KeyCertificateAssociationModel(certificate.getUuid(),
-                certificate.getCommonName());
-        return model;
+        return new KeyCertificateAssociationModel(certificate.getUuid(), certificate.getCommonName());
     }
 }

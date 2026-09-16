@@ -145,6 +145,9 @@ import static java.util.function.Predicate.not;
 public class CryptographicKeyServiceImpl implements CryptographicKeyExternalService, CryptographicKeyInternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(CryptographicKeyServiceImpl.class);
+    private static final String ENABLE_OPERATION = "enable";
+    private static final String ENABLED_STATE = "enabled";
+    private static final String DISABLED_STATE = "disabled";
 
     @Value("${spring.jpa.properties.hibernate.jdbc.batch_size:500}")
     private int bulkDeleteBatchSize;
@@ -499,7 +502,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.ENABLE)
     public void enableKey(UUID uuid, List<String> keyItemUuids) throws NotFoundException, ValidationException {
         CryptographicKeyFullModel key = getCryptographicKeyFullModel(uuid);
-        verifyPermissionsForAssociatedToken(key, "enable", ResourceAction.DETAIL);
+        verifyPermissionsForAssociatedToken(key, ENABLE_OPERATION, ResourceAction.DETAIL);
         List<CryptographicKeyItemBasicModel> items = resolveKeyItems(key, parseKeyItemUuids(keyItemUuids));
         setKeyItemsEnabled(itemUuidsAsStrings(items), true);
     }
@@ -513,7 +516,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
             try {
                 CryptographicKeyFullModel key = getCryptographicKeyFullModel(UUID.fromString(keyUuid));
                 List<String> keyItemUuids = key.items().stream().map(keyItem -> keyItem.uuid().toString()).toList();
-                verifyPermissionsForAssociatedToken(key, "enable", ResourceAction.DETAIL);
+                verifyPermissionsForAssociatedToken(key, ENABLE_OPERATION, ResourceAction.DETAIL);
                 setKeyItemsEnabled(keyItemUuids, false);
             } catch (NotFoundException e) {
                 logger.error("Key items of the key '{}' could not be disabled.", keyUuid, e);
@@ -530,7 +533,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
         for (String keyUuid : new LinkedHashSet<>(uuids)) {
             try {
                 CryptographicKeyFullModel key = getCryptographicKeyFullModel(UUID.fromString(keyUuid));
-                verifyPermissionsForAssociatedToken(key, "enable", ResourceAction.DETAIL);
+                verifyPermissionsForAssociatedToken(key, ENABLE_OPERATION, ResourceAction.DETAIL);
                 List<String> keyItemUuids = key.items().stream().map(keyItem -> keyItem.uuid().toString()).toList();
                 setKeyItemsEnabled(keyItemUuids, true);
             } catch (NotFoundException e) {
@@ -948,15 +951,13 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                 .findBasicModelsByUuidIn(permittedUuids);
 
         logger.debug("Going to delete key items with UUIDs {}", permittedUuids);
-        Map<UUID, CryptographicKeyFullModel> keys = new HashMap<>();
+        Map<UUID, Optional<CryptographicKeyFullModel>> keys = new HashMap<>();
         int deletedCount = 0;
         for (CryptographicKeyItemBasicModel keyItem : keyItems) {
             UUID parentKeyUuid = keyItem.parentKeyUuid();
-            CryptographicKeyFullModel key = keys.get(parentKeyUuid);
-            if (key == null) {
-                key = getCryptographicKeyFullModel(parentKeyUuid);
-                keys.put(parentKeyUuid, key);
-            }
+            CryptographicKeyFullModel key = keys
+                    .computeIfAbsent(parentKeyUuid, cryptographicKeyRepository::findFullModelByUuid)
+                    .orElseThrow(() -> new NotFoundException(CryptographicKey.class, parentKeyUuid));
             if (key.tokenInstance() != null) {
                 keyProviderAdapterFactory.forToken(key.tokenInstance()).destroyKeyItem(key, keyItem.reference());
             }
@@ -1000,12 +1001,6 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
             filter.setParentRefProperty(parentRefProperty);
         }
         return filter;
-    }
-
-    private void throwIfTokenProfileNotEnabled(TokenProfile tokenProfile) {
-        if (!Boolean.TRUE.equals(tokenProfile.getEnabled())) {
-            throw new ValidationException(ValidationError.create("Token Profile is disabled"));
-        }
     }
 
     private void throwIfTokenProfileNotEnabled(TokenProfileBasicModel tokenProfile) {
@@ -1163,10 +1158,9 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
         for (ProviderKeyItem item : items) {
             // check if the item with the reference uuid already exists in the database
             // Assumption - Content of the key from earlier does not change
-            if (item.reference() instanceof RemoteKeyReference.UuidReference(UUID uuid)) {
-                if (existingReferenceUuids.contains(uuid)) {
-                    return true;
-                }
+            if (item.reference() instanceof RemoteKeyReference.UuidReference(UUID uuid)
+                    && existingReferenceUuids.contains(uuid)) {
+                return true;
             }
         }
         return false;
@@ -1335,17 +1329,15 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
      * @param keyItemsUuids UUIDs of the Key Items
      */
     private void setKeyItemsEnabled(List<String> keyItemsUuids, boolean enabled) {
-        logger.debug("Request to set the key items with UUIDs {} {}", keyItemsUuids, enabled ? "enabled" : "disabled");
+        logger
+                .debug("Request to set the key items with UUIDs {} {}", keyItemsUuids,
+                        enabled ? ENABLED_STATE : DISABLED_STATE);
         if (keyItemsUuids != null && !keyItemsUuids.isEmpty()) {
             for (String keyItemUuid : new LinkedHashSet<>(keyItemsUuids)) {
-                try {
-                    setKeyItemEnabled(UUID.fromString(keyItemUuid), enabled);
-                } catch (NotFoundException e) {
-                    logger.warn("The key item '{}' was not found and can't be disabled", keyItemUuid);
-                }
+                setKeyItemEnabled(UUID.fromString(keyItemUuid), enabled);
             }
         }
-        logger.info("Key items {}: {}", enabled ? "enabled" : "disabled", keyItemsUuids);
+        logger.info("Key items {}: {}", enabled ? ENABLED_STATE : DISABLED_STATE, keyItemsUuids);
     }
 
     /**
@@ -1353,11 +1345,11 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
      *
      * @param uuid UUID of the Key Item
      */
-    private void setKeyItemEnabled(UUID uuid, boolean enabled) throws NotFoundException {
+    private void setKeyItemEnabled(UUID uuid, boolean enabled) {
         if (!cryptographicKeyWriter.setKeyItemEnabled(uuid, enabled)) {
             logger
                     .debug("Skipping update for key item {}: already {} or no longer exists", uuid,
-                            enabled ? "enabled" : "disabled");
+                            enabled ? ENABLED_STATE : DISABLED_STATE);
             return;
         }
         evictKeyItemCache(uuid);
