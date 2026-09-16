@@ -118,6 +118,22 @@ class CryptographicKeyServiceImplEnableDisableTest {
 
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
+    void setEnabled_doesNotEvictCache_whenWriterReportsNoChange(boolean enabled) throws NotFoundException {
+        // given
+        List<String> requestedUuids = List.of(selectedItem.uuid().toString());
+        boolean stateChanged = false;
+        when(writer.setKeyItemEnabled(selectedItem.uuid(), enabled)).thenReturn(stateChanged);
+
+        // when
+        setEnabled(requestedUuids, enabled);
+
+        // then
+        verify(writer).setKeyItemEnabled(selectedItem.uuid(), enabled);
+        verifyNoInteractions(cacheEvictor);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
     void setEnabled_updatesItemOnce_whenSelectionContainsDuplicates(boolean enabled) throws NotFoundException {
         // given
         String selectedUuid = selectedItem.uuid().toString();
