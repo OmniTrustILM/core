@@ -96,7 +96,7 @@ class CryptographicKeyServiceImplBulkDeleteTest {
         when(keys.findFullModelByUuid(key.uuid())).thenReturn(Optional.of(key));
         when(adapters.forToken(key.tokenInstance())).thenReturn(adapter);
         for (UUID itemUuid : selectedUuids) {
-            when(writer.deleteKeyItemsWithAssociations(List.of(itemUuid))).thenReturn(1);
+            when(writer.deleteKeyItemsWithAssociations(List.of(itemUuid), List.of(key.uuid()))).thenReturn(1);
         }
     }
 
@@ -119,7 +119,7 @@ class CryptographicKeyServiceImplBulkDeleteTest {
         InOrder deletion = inOrder(adapter, writer, cache);
         for (CryptographicKeyItemBasicModel item : selectedItems) {
             deletion.verify(adapter).destroyKeyItem(key, item.reference());
-            deletion.verify(writer).deleteKeyItemsWithAssociations(List.of(item.uuid()));
+            deletion.verify(writer).deleteKeyItemsWithAssociations(List.of(item.uuid()), List.of(item.parentKeyUuid()));
             deletion.verify(cache).evict(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE, item.uuid());
         }
         deletion.verifyNoMoreInteractions();
@@ -135,7 +135,7 @@ class CryptographicKeyServiceImplBulkDeleteTest {
         CryptographicKeyItemBasicModel failingItem = key.items().get(failingItemIndex);
         doThrow(new IllegalStateException(sensitiveFailure))
                 .when(writer)
-                .deleteKeyItemsWithAssociations(List.of(failingItem.uuid()));
+                .deleteKeyItemsWithAssociations(List.of(failingItem.uuid()), List.of(failingItem.parentKeyUuid()));
 
         // when
         service.deleteKeyItems(tokenFilter, selectedUuidStrings);
@@ -143,11 +143,12 @@ class CryptographicKeyServiceImplBulkDeleteTest {
         // then
         for (CryptographicKeyItemBasicModel item : key.items().subList(0, failingItemIndex)) {
             verify(adapter).destroyKeyItem(key, item.reference());
-            verify(writer).deleteKeyItemsWithAssociations(List.of(item.uuid()));
+            verify(writer).deleteKeyItemsWithAssociations(List.of(item.uuid()), List.of(item.parentKeyUuid()));
             verify(cache).evict(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE, item.uuid());
         }
         verify(adapter).destroyKeyItem(key, failingItem.reference());
-        verify(writer).deleteKeyItemsWithAssociations(List.of(failingItem.uuid()));
+        verify(writer)
+                .deleteKeyItemsWithAssociations(List.of(failingItem.uuid()), List.of(failingItem.parentKeyUuid()));
         verifyNoMoreInteractions(adapter, writer, cache);
         assertSafeBatchFailure(sensitiveFailure);
     }
@@ -182,7 +183,9 @@ class CryptographicKeyServiceImplBulkDeleteTest {
         // then
         InOrder deletion = inOrder(adapter, writer, cache);
         deletion.verify(adapter).destroyKeyItem(key, deletedItem.reference());
-        deletion.verify(writer).deleteKeyItemsWithAssociations(List.of(deletedItem.uuid()));
+        deletion
+                .verify(writer)
+                .deleteKeyItemsWithAssociations(List.of(deletedItem.uuid()), List.of(deletedItem.parentKeyUuid()));
         deletion.verify(cache).evict(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE, deletedItem.uuid());
         deletion.verify(adapter).destroyKeyItem(key, failingItem.reference());
         deletion.verifyNoMoreInteractions();

@@ -215,13 +215,20 @@ public class CryptographicKeyWriter {
     /**
      * Deletes selected local key items and their attributes and history. Parents left without items are deleted with
      * their certificate references, attributes, owner/group associations, and comments. All changes commit or roll back
-     * together; parents with remaining items are preserved.
+     * together; parents with remaining items are preserved. Parent rows are locked in UUID order before loading items
+     * so concurrent sibling deletions cannot both leave the parent behind.
      *
      * @param keyItemUuids non-null list of item UUIDs to delete; missing items are ignored
+     * @param parentKeyUuids parent UUIDs supplied for locking to serialize concurrent sibling deletions; must contain
+     * the parent UUID of every selected item
      * @return number of existing items deleted, counting duplicate UUIDs only once
      */
     @Transactional
-    public int deleteKeyItemsWithAssociations(List<UUID> keyItemUuids) {
+    public int deleteKeyItemsWithAssociations(List<UUID> keyItemUuids, List<UUID> parentKeyUuids) {
+        if (keyItemUuids.isEmpty()) {
+            return 0;
+        }
+        parentKeyUuids.stream().distinct().sorted().forEach(cryptographicKeyRepository::findForUpdateByUuid);
         List<CryptographicKeyItem> keyItems = cryptographicKeyItemRepository.findByUuidIn(keyItemUuids);
         if (keyItems.isEmpty()) {
             return 0;

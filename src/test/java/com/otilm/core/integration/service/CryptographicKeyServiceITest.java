@@ -1730,7 +1730,8 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         UUID remainingItemUuid = publicKeyItem.getUuid();
 
         // when
-        int deletedCount = cryptographicKeyWriter.deleteKeyItemsWithAssociations(List.of(selectedItemUuid));
+        int deletedCount = cryptographicKeyWriter
+                .deleteKeyItemsWithAssociations(List.of(selectedItemUuid), List.of(key.getUuid()));
 
         // then
         Assertions.assertEquals(1, deletedCount);
@@ -1752,7 +1753,8 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         UUID deletedKeyUuid = key.getUuid();
 
         // when
-        int deletedCount = cryptographicKeyWriter.deleteKeyItemsWithAssociations(selectedItemUuids);
+        int deletedCount = cryptographicKeyWriter
+                .deleteKeyItemsWithAssociations(selectedItemUuids, List.of(deletedKeyUuid));
 
         // then
         Assertions.assertEquals(selectedItemUuids.size(), deletedCount);
@@ -1783,6 +1785,58 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void deleteKeyItemsWithAssociations_waitsForSiblingDeletionAndRemovesEmptyParent() throws Exception {
+        // given
+        UUID certificateUuid = prepareBatchDeletionAssociations();
+        UUID parentUuid = key.getUuid();
+        UUID firstItemUuid = privateKeyItem.getUuid();
+        UUID finalItemUuid = publicKeyItem.getUuid();
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        try (ExecutorService contender = Executors.newSingleThreadExecutor()) {
+            // when
+            Future<Integer> outcome = transaction.execute(status -> {
+                Assertions
+                        .assertEquals(1, cryptographicKeyWriter
+                                .deleteKeyItemsWithAssociations(List.of(firstItemUuid), List.of(parentUuid)));
+                int lockHolderPid = jdbcTemplate.queryForObject("SELECT pg_backend_pid()", Integer.class);
+                Future<Integer> waitingWriter = contender
+                        .submit(() -> cryptographicKeyWriter
+                                .deleteKeyItemsWithAssociations(List.of(finalItemUuid), List.of(parentUuid)));
+                Awaitility
+                        .await()
+                        .atMost(Duration.ofSeconds(10))
+                        .until(() -> jdbcTemplate
+                                .queryForObject(
+                                        "SELECT count(*) FROM pg_stat_activity WHERE ? = ANY(pg_blocking_pids(pid))",
+                                        Long.class, lockHolderPid) > 0);
+                return waitingWriter;
+            });
+
+            // then
+            Assertions.assertEquals(1, outcome.get(10, TimeUnit.SECONDS));
+            Assertions.assertFalse(cryptographicKeyRepository.existsById(parentUuid));
+            Assertions
+                    .assertTrue(cryptographicKeyItemRepository
+                            .findByUuidIn(List.of(firstItemUuid, finalItemUuid))
+                            .isEmpty());
+            Certificate certificate = certificateRepository.findById(certificateUuid).orElseThrow();
+            Assertions.assertNull(certificate.getKeyUuid());
+            Assertions.assertNull(certificate.getAltKeyUuid());
+            Assertions
+                    .assertNull(ownerAssociationRepository
+                            .findByResourceAndObjectUuid(Resource.CRYPTOGRAPHIC_KEY, parentUuid));
+            Assertions
+                    .assertTrue(groupAssociationRepository
+                            .findByResourceAndObjectUuid(Resource.CRYPTOGRAPHIC_KEY, parentUuid)
+                            .isEmpty());
+            Assertions
+                    .assertFalse(
+                            commentRepository.existsByResourceAndObjectUuid(Resource.CRYPTOGRAPHIC_KEY, parentUuid));
+            Assertions.assertEquals(0, attributeLinkCount(parentUuid));
+        }
+    }
+
+    @Test
     void deleteKeyItemsWithAssociations_rollsBackAllCleanupWhenParentDeletionFails() throws Exception {
         // given
         UUID certificateUuid = prepareBatchDeletionAssociations();
@@ -1796,7 +1850,8 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
             jdbcTemplate.update("INSERT INTO " + guardTable + " (key_uuid) VALUES (?)", key.getUuid());
 
             // when
-            Executable delete = () -> cryptographicKeyWriter.deleteKeyItemsWithAssociations(selectedItemUuids);
+            Executable delete = () -> cryptographicKeyWriter
+                    .deleteKeyItemsWithAssociations(selectedItemUuids, List.of(key.getUuid()));
 
             // then
             DataIntegrityViolationException failure = Assertions

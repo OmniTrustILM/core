@@ -944,7 +944,8 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
             if (key.tokenInstance() != null) {
                 keyProviderAdapterFactory.forToken(key.tokenInstance()).destroyKeyItem(key, keyItem.reference());
             }
-            deletedCount += cryptographicKeyWriter.deleteKeyItemsWithAssociations(List.of(keyItem.uuid()));
+            deletedCount += cryptographicKeyWriter
+                    .deleteKeyItemsWithAssociations(List.of(keyItem.uuid()), List.of(parentKeyUuid));
             evictKeyItemCache(keyItem.uuid());
         }
 
