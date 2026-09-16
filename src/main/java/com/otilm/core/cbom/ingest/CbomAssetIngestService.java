@@ -19,6 +19,7 @@ import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.model.cbom.PqcStaleVerdictRow;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.writer.cbom.CbomAssetSyncStateWriter;
+import com.otilm.core.service.writer.cbom.CbomIngestFindingWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetAliasWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetSourceWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetWriter;
@@ -92,6 +93,7 @@ public class CbomAssetIngestService {
     private final CryptoAssetSourceWriter sourceWriter;
     private final CbomAssetDetachService detachService;
     private final CbomAssetSyncStateWriter stateWriter;
+    private final CbomIngestFindingWriter findingWriter;
     private final CbomRepository cbomRepository;
     private final CryptoAssetRepository assetRepository;
     private final PqcEvaluator evaluator;
@@ -103,14 +105,16 @@ public class CbomAssetIngestService {
 
     public CbomAssetIngestService(CbomAssetExtractor extractor, CryptoAssetWriter assetWriter,
             CryptoAssetSourceWriter sourceWriter, CbomAssetDetachService detachService,
-            CbomAssetSyncStateWriter stateWriter, CbomRepository cbomRepository, CryptoAssetRepository assetRepository,
-            PqcEvaluator evaluator, ClusterOperationSynchronizer clusterSynchronizer,
-            TransactionHandler transactionHandler, MeterRegistry meterRegistry, CbomSyncProperties properties) {
+            CbomAssetSyncStateWriter stateWriter, CbomIngestFindingWriter findingWriter, CbomRepository cbomRepository,
+            CryptoAssetRepository assetRepository, PqcEvaluator evaluator,
+            ClusterOperationSynchronizer clusterSynchronizer, TransactionHandler transactionHandler,
+            MeterRegistry meterRegistry, CbomSyncProperties properties) {
         this.extractor = extractor;
         this.assetWriter = assetWriter;
         this.sourceWriter = sourceWriter;
         this.detachService = detachService;
         this.stateWriter = stateWriter;
+        this.findingWriter = findingWriter;
         this.cbomRepository = cbomRepository;
         this.assetRepository = assetRepository;
         this.evaluator = evaluator;
@@ -231,7 +235,31 @@ public class CbomAssetIngestService {
             extraction = extractor.extract(document);
         } catch (RuntimeException e) {
             log.warn("CBOM asset ingest: extracting the document failed for CBOM {}", cbomUuid, e);
+            // The only refusal that reaches no recordReport, so it is the only one that has to drop the last
+            // attempt's report itself. Leaving it would put findings from a read that worked beside a state saying
+            // the document could not be read at all.
+            clearReport(cbomUuid);
             return refuse(cbomUuid, "the document could not be read for cryptographic assets (see the Core log)");
+        }
+
+        try {
+            recordReport(cbomUuid, extraction);
+        } catch (RuntimeException e) {
+            // One document's report must not cost the run. Nothing above CbomServiceImpl.store or ingestOnePending
+            // wraps this call, so an escaping exception would abandon the remaining feed pages, the skip retries and
+            // the backlog pass, and strand this CBOM at IN_PROGRESS until the retry window expires.
+            log.warn("CBOM asset ingest: recording the ingest report failed for CBOM {}", cbomUuid, e);
+            return fail(cbomUuid, "the cryptographic asset ingest report could not be stored (see the Core log)");
+        }
+
+        if (!extraction.ambiguousRefs().isEmpty()) {
+            // CycloneDX requires bom-ref to be unique, so a document that repeats one is invalid input rather than a
+            // shape to resolve -- and both readings of a repeat are wrong in a way that moves keys. The refused
+            // document keeps its row and its reason; the producer's fix is a new version.
+            return refuse(cbomUuid,
+                    "the document defines %d bom-ref value%s more than once, which CycloneDX requires to be unique; the ingest findings name them"
+                            .formatted(extraction.ambiguousRefs().size(),
+                                    extraction.ambiguousRefs().size() == 1 ? "" : "s"));
         }
 
         if (extraction.documentScopeUnavailable()) {
@@ -278,6 +306,40 @@ public class CbomAssetIngestService {
                 .debug("CBOM asset ingest: CBOM {} ingested {} assets, {} components skipped", cbomUuid, assets.size(),
                         extraction.skips().size());
         return IngestOutcome.INGESTED;
+    }
+
+    /**
+     * Replaces this CBOM's ingest report with what the current extraction has to say.
+     *
+     * <p>
+     * In its own transaction, and before any refusal: a document refused for what the report names owes the operator
+     * that report most of all, and enrolling it in the asset writes would roll it back with them.
+     */
+    private void recordReport(UUID cbomUuid, CbomAssetExtractor.Extraction extraction) {
+        final IngestFindingRollup.Rollup report = IngestFindingRollup.of(extraction);
+        transactionHandler.runInNewTransaction(() -> {
+            findingWriter.clear(cbomUuid);
+            for (IngestFindingRollup.Row row : report.rows()) {
+                findingWriter
+                        .record(cbomUuid, row.kind().name(), row.componentName(), row.detail(), row.occurrences(),
+                                OffsetDateTime.now());
+            }
+        });
+        if (report.dropped() > 0) {
+            log
+                    .warn("CBOM asset ingest: CBOM {} raised more distinct messages than a report holds; {} were counted and not stored",
+                            cbomUuid, report.dropped());
+        }
+    }
+
+    /** Drops this CBOM's ingest report, for an attempt that produces none of its own. */
+    private void clearReport(UUID cbomUuid) {
+        try {
+            transactionHandler.runInNewTransaction(() -> findingWriter.clear(cbomUuid));
+        } catch (RuntimeException e) {
+            // Stale rows beside a correct state are worth less than the outcome they would cost; see recordReport.
+            log.warn("CBOM asset ingest: clearing the ingest report failed for CBOM {}", cbomUuid, e);
+        }
     }
 
     /**
@@ -397,6 +459,11 @@ public class CbomAssetIngestService {
      * <p>
      * An incomplete withdrawal leaves the row owing the unit rather than marking it synced, so the next run finishes
      * what this one started.
+     *
+     * <p>
+     * The ingest report goes with the contribution. A revision refused for a repeated bom-ref carries findings saying
+     * so; once a later version owns the URN this row reports {@code SYNCED}, and findings left beside that state
+     * describe an attempt whose outcome no longer stands.
      */
     private IngestOutcome supersede(UUID cbomUuid, CbomAssetSyncState entryState) {
         final CbomAssetDetachService.Withdrawal withdrawn = detachService.withdraw(cbomUuid);
@@ -408,6 +475,7 @@ public class CbomAssetIngestService {
                     .debug("CBOM asset ingest: CBOM {} is superseded; withdrew the {} links it had already contributed",
                             cbomUuid, withdrawn.detached());
         }
+        clearReport(cbomUuid);
         runInOwnTransaction(() -> stateWriter.markSuperseded(cbomUuid));
         return IngestOutcome.SUPERSEDED;
     }

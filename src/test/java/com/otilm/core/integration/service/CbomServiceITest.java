@@ -1663,6 +1663,76 @@ class CbomServiceITest extends BaseSpringBootTest {
         assertTrue(cbomRepository.findAll().isEmpty());
     }
 
+    /**
+     * The reach the hourly pass does not have. {@code cbom.sync.overlap} and the skip retry cover an entry the feed
+     * offered and Core then failed on; neither covers one the feed only ever offered behind the watermark. The
+     * repository is stubbed for {@code after=0} alone, so a run that asked for the hourly window would get no answer at
+     * all.
+     */
+    @Test
+    void reconcile_listsTheWholeListingRatherThanTheWatermarkWindow() throws Exception {
+        recordASuccessfulHourlySync();
+
+        BomEntryDto entry = entry("serial-behind-the-watermark", "1", OffsetDateTime.now().minusDays(30));
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock.urlPathEqualTo("/api/v1/bom"))
+                        .withQueryParam("after", WireMock.equalTo("0"))
+                        .willReturn(WireMock
+                                .aResponse()
+                                .withStatus(200)
+                                .withHeader("Content-Type", "application/json")
+                                .withBody(objectMapper.writeValueAsString(List.of(entry)))));
+        mockEntrySpecVersionSource(entry, "1.6", "source");
+
+        String result = cbomInternalService.reconcile();
+
+        assertTrue(result.startsWith("Reconciled against the whole listing."));
+        assertTrue(result.contains("stored 1 new entries"));
+        assertEquals(1, cbomRepository.findAll().size());
+    }
+
+    /**
+     * What makes a full re-list safe to run at all: deletion in Core is not deletion in the repository, so the whole
+     * listing still offers every document an operator removed.
+     */
+    @Test
+    void reconcile_doesNotStoreAgainWhatAnOperatorDeleted() throws Exception {
+        String serialNumber = "serial-tombstoned-reconcile";
+        Cbom deleted = new Cbom();
+        deleted.setSerialNumber(serialNumber);
+        deleted.setVersion(1);
+        deleted.setSpecVersion("1.6");
+        cbomService.deleteCbom(cbomRepository.save(deleted).getUuid());
+
+        BomEntryDto entry = entry(serialNumber, "1", OffsetDateTime.now().minusDays(30));
+        mockSearchResponse(List.of(entry));
+        mockEntrySpecVersionSource(entry, "1.6", "source");
+
+        String result = cbomInternalService.reconcile();
+
+        assertTrue(result.contains("stored 0 new entries"));
+        assertTrue(result.contains("1 entries an operator had deleted were not stored again"));
+        assertTrue(cbomRepository.findAll().isEmpty());
+    }
+
+    /** A successful hourly run an hour ago, which is what the watermark is read from. */
+    private void recordASuccessfulHourlySync() {
+        ScheduledJob scheduledJob = new ScheduledJob();
+        scheduledJob.setJobName(CbomSyncTask.NAME);
+        scheduledJob.setJobClassName(CbomSyncTask.class.getName());
+        scheduledJob.setEnabled(true);
+        scheduledJob = scheduledJobsRepository.save(scheduledJob);
+
+        Date anHourAgo = new Date(System.currentTimeMillis() - 3600 * 1000);
+        ScheduledJobHistory history = new ScheduledJobHistory();
+        history.setScheduledJobUuid(scheduledJob.getUuid());
+        history.setJobExecution(anHourAgo);
+        history.setJobEndTime(anHourAgo);
+        history.setSchedulerExecutionStatus(SchedulerJobExecutionStatus.SUCCESS);
+        scheduledJobHistoryRepository.save(history);
+    }
+
     @Test
     void sync_shouldHandleDataIntegrityViolation_asAlreadyExist() throws Exception {
         // Race condition fallback: both existence checks pass (false),

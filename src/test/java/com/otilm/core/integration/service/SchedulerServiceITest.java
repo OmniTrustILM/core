@@ -81,6 +81,7 @@ import com.otilm.core.service.RuleExternalService;
 import com.otilm.core.service.SchedulerExternalService;
 import com.otilm.core.service.SchedulerInternalService;
 import com.otilm.core.service.TriggerExternalService;
+import com.otilm.core.tasks.CbomReconcileTask;
 import com.otilm.core.tasks.CbomSyncTask;
 import com.otilm.core.tasks.CryptoAssetPqcSweepTask;
 import com.otilm.core.tasks.DiscoveryCertificateTask;
@@ -462,11 +463,12 @@ class SchedulerServiceITest extends BaseSpringBootTest {
         ScheduledJobsResponseDto jobs = schedulerService
                 .listScheduledJobs(SecurityFilter.create(), new PaginationRequestDto());
 
-        Assertions.assertEquals(4, jobs.getScheduledJobs().size());
+        Assertions.assertEquals(5, jobs.getScheduledJobs().size());
 
         List<String> jobClassNames = jobs.getScheduledJobs().stream().map(ScheduledJobDto::getJobName).toList();
 
         Assertions.assertTrue(jobClassNames.stream().anyMatch(name -> name.contains(CbomSyncTask.NAME)));
+        Assertions.assertTrue(jobClassNames.stream().anyMatch(name -> name.contains(CbomReconcileTask.NAME)));
         Assertions.assertTrue(jobClassNames.stream().anyMatch(name -> name.contains(CryptoAssetPqcSweepTask.NAME)));
     }
 

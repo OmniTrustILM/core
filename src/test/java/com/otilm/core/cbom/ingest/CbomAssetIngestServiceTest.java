@@ -16,6 +16,7 @@ import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
 import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.model.cbom.PqcStaleVerdictRow;
 import com.otilm.core.service.writer.cbom.CbomAssetSyncStateWriter;
+import com.otilm.core.service.writer.cbom.CbomIngestFindingWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetAliasWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetSourceWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetWriter;
@@ -34,8 +35,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -65,6 +68,7 @@ class CbomAssetIngestServiceTest {
     private final CryptoAssetRepository assetRepository = mock(CryptoAssetRepository.class);
     private final ClusterOperationSynchronizer synchronizer = mock(ClusterOperationSynchronizer.class);
     private final CbomAssetDetachService detachService = mock(CbomAssetDetachService.class);
+    private final CbomIngestFindingWriter findingWriter = mock(CbomIngestFindingWriter.class);
 
     @Test
     void everyAssetIsStoredWithItsSourceAndTheCbomReadsSynced() {
@@ -152,7 +156,7 @@ class CbomAssetIngestServiceTest {
     void aDocumentWhoseScopeCouldNotBeBuiltIsRefusedWithoutWritingAnything() {
         CbomAssetExtractor extractor = mock(CbomAssetExtractor.class);
         when(extractor.extract(any(JsonNode.class)))
-                .thenReturn(new CbomAssetExtractor.Extraction(List.of(), List.of(), false, true));
+                .thenReturn(new CbomAssetExtractor.Extraction(List.of(), List.of(), false, true, List.of()));
 
         CbomAssetIngestService.IngestOutcome outcome = service(extractor, 100).ingest(CBOM, twoAlgorithms(), SEEN_AT);
 
@@ -319,7 +323,7 @@ class CbomAssetIngestServiceTest {
     @Test
     void ingestWritesNothingWhenTheKillSwitchIsOff() {
         CbomAssetIngestService.IngestOutcome outcome = new CbomAssetIngestService(realExtractor(), assetWriter,
-                sourceWriter, detachService, stateWriter, cbomRepository, assetRepository,
+                sourceWriter, detachService, stateWriter, findingWriter, cbomRepository, assetRepository,
                 new PqcEvaluator(new AssetNormalizer(IdentityTables.load())), synchronizer, new TransactionHandler(),
                 new SimpleMeterRegistry(), CbomIngestTestFixtures.propertiesWithIngestDisabled())
                 .ingest(CBOM, twoAlgorithms(), SEEN_AT);
@@ -431,6 +435,110 @@ class CbomAssetIngestServiceTest {
         verify(stateWriter, never()).markSynced(any(), any());
     }
 
+    /**
+     * CycloneDX requires {@code bom-ref} to be unique, so a document that repeats one is invalid input. Neither reading
+     * of a repeat is safe -- first-one-wins lets document order decide a key, and resolving to nothing empties a slot
+     * -- so the document is refused whole, with the repeat named for its producer.
+     */
+    @Test
+    void aDocumentThatRepeatsABomRefIsRefusedAndTheRepeatIsNamed() {
+        CbomAssetIngestService.IngestOutcome outcome = ingest(twoAlgorithmsSharingARef(), 100);
+
+        assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.REFUSED);
+        verify(assetWriter, never()).upsertIdentity(anyString(), any(), any());
+        ArgumentCaptor<String> reason = ArgumentCaptor.forClass(String.class);
+        verify(stateWriter).markFailed(eq(CBOM), reason.capture());
+        assertThat(reason.getValue()).contains("1 bom-ref value more than once");
+        verify(findingWriter)
+                .record(eq(CBOM), eq("FINDING"), eq(null), contains("bom-ref dup is defined more than once"), eq(1),
+                        any());
+    }
+
+    /**
+     * The report is replaced, not appended to: a re-ingest read the whole document again, so a finding the current
+     * document no longer raises must not survive as a complaint about it.
+     */
+    @Test
+    void theReportReplacesWhatThePreviousRunSaid() {
+        when(synchronizer.tryLock(anyString())).thenReturn(true);
+        whenUpsertReturnsAFreshUuid();
+
+        ingest(twoAlgorithms(), 100);
+
+        verify(findingWriter).clear(CBOM);
+    }
+
+    /**
+     * Nothing above this service wraps its call -- neither {@code CbomServiceImpl.store} nor {@code ingestOnePending}
+     * -- so a report write that escaped would abandon the rest of the run and strand this CBOM at IN_PROGRESS until its
+     * retry window expired. One document's report costs one document.
+     */
+    @Test
+    void aReportThatCannotBeStoredCostsTheDocumentAndNotTheRun() {
+        doThrow(new DataIntegrityViolationException("ERROR: index row size 3000 exceeds btree version 4 maximum 2704"))
+                .when(findingWriter)
+                .clear(CBOM);
+
+        CbomAssetIngestService.IngestOutcome outcome = ingest(twoAlgorithms(), 100);
+
+        assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.FAILED);
+        verify(assetWriter, never()).upsertIdentity(anyString(), any(), any());
+        ArgumentCaptor<String> reason = ArgumentCaptor.forClass(String.class);
+        verify(stateWriter).markFailed(eq(CBOM), reason.capture());
+        assertThat(reason.getValue()).doesNotContain("btree").doesNotContain("index row size");
+    }
+
+    /**
+     * A version refused for a repeated bom-ref carries findings saying so. Once a later version owns the URN this row
+     * reports SYNCED, and findings left beside that state describe an attempt whose outcome no longer stands.
+     */
+    @Test
+    void aSupersededVersionsReportGoesWithIt() {
+        when(cbomRepository.hasIngestedLaterVersion(CBOM)).thenReturn(true);
+        when(detachService.withdraw(CBOM)).thenReturn(CbomAssetDetachService.Withdrawal.NOTHING);
+
+        CbomAssetIngestService.IngestOutcome outcome = service(mock(CbomAssetExtractor.class), 100)
+                .ingest(CBOM, twoAlgorithms(), SEEN_AT);
+
+        assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.SUPERSEDED);
+        verify(findingWriter).clear(CBOM);
+        verify(findingWriter, never()).record(any(), anyString(), any(), anyString(), anyInt(), any());
+    }
+
+    /**
+     * Dropping the report must not cost the outcome. The row's state is the answer the run was called for; stale
+     * findings beside a correct state are worth less than losing it, so the clear swallows its own failure.
+     */
+    @Test
+    void aReportThatCannotBeClearedStillLeavesTheVersionSuperseded() {
+        when(cbomRepository.hasIngestedLaterVersion(CBOM)).thenReturn(true);
+        when(detachService.withdraw(CBOM)).thenReturn(CbomAssetDetachService.Withdrawal.NOTHING);
+        doThrow(new IllegalStateException("the report could not be cleared")).when(findingWriter).clear(CBOM);
+
+        CbomAssetIngestService.IngestOutcome outcome = service(mock(CbomAssetExtractor.class), 100)
+                .ingest(CBOM, twoAlgorithms(), SEEN_AT);
+
+        assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.SUPERSEDED);
+        verify(stateWriter).markSuperseded(CBOM);
+    }
+
+    /**
+     * A document that could not be extracted at all produces no report of its own, so it has to drop the last
+     * attempt's: findings from a read that worked would otherwise stand beside a state saying the document could not be
+     * read.
+     */
+    @Test
+    void aDocumentThatCannotBeExtractedDropsTheLastAttemptsReport() {
+        CbomAssetExtractor extractor = mock(CbomAssetExtractor.class);
+        when(extractor.extract(any(JsonNode.class))).thenThrow(new IllegalStateException("unreadable"));
+
+        CbomAssetIngestService.IngestOutcome outcome = service(extractor, 100).ingest(CBOM, twoAlgorithms(), SEEN_AT);
+
+        assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.REFUSED);
+        verify(findingWriter).clear(CBOM);
+        verify(findingWriter, never()).record(any(), anyString(), any(), anyString(), anyInt(), any());
+    }
+
     // ---------------------------------------------------------------- fixtures
 
     private CbomAssetIngestService.IngestOutcome ingest(JsonNode document, int batchSize) {
@@ -442,9 +550,9 @@ class CbomAssetIngestServiceTest {
         // can remove it in the gap between two batch commits.
         when(cbomRepository.existsById(CBOM)).thenReturn(true);
         return new CbomAssetIngestService(extractor, assetWriter, sourceWriter, detachService, stateWriter,
-                cbomRepository, assetRepository, new PqcEvaluator(new AssetNormalizer(IdentityTables.load())),
-                synchronizer, new TransactionHandler(), new SimpleMeterRegistry(),
-                CbomIngestTestFixtures.properties(batchSize));
+                findingWriter, cbomRepository, assetRepository,
+                new PqcEvaluator(new AssetNormalizer(IdentityTables.load())), synchronizer, new TransactionHandler(),
+                new SimpleMeterRegistry(), CbomIngestTestFixtures.properties(batchSize));
     }
 
     private void doThrowFromVerdictStamp() {
@@ -471,6 +579,14 @@ class CbomAssetIngestServiceTest {
 
     private static JsonNode oneAlgorithm() {
         return CbomIngestTestFixtures.algorithmDocument("RSA-2048");
+    }
+
+    private static JsonNode twoAlgorithmsSharingARef() {
+        return CbomIngestTestFixtures
+                .read("{\"components\":[{\"type\":\"cryptographic-asset\",\"bom-ref\":\"dup\",\"name\":\"AES-256\","
+                        + "\"cryptoProperties\":{\"assetType\":\"algorithm\",\"algorithmProperties\":{}}},"
+                        + "{\"type\":\"cryptographic-asset\",\"bom-ref\":\"dup\",\"name\":\"RSA-2048\","
+                        + "\"cryptoProperties\":{\"assetType\":\"algorithm\",\"algorithmProperties\":{}}}]}");
     }
 
     private static JsonNode twoAlgorithms() {

@@ -67,6 +67,18 @@ public final class DocumentScope {
      * Indexes the document's components by {@code bom-ref}, treating a duplicated ref as naming nothing.
      *
      * <p>
+     * <b>A document that duplicates a ref is invalid input, and ingest refuses it.</b> CycloneDX requires
+     * {@code bom-ref} to be unique within a document, so a repeat is not a shape to resolve -- it is a document no
+     * reading of which can be trusted. {@link #ambiguousRefs()} is what the refusal names, and
+     * {@code CbomAssetIngestService} is where it happens: the rule belongs to the pipeline that has somewhere to report
+     * it, not to a pure function a caller may run over one component.
+     *
+     * <p>
+     * <b>The index still resolves nothing for such a ref, and that is not redundant.</b> This class is also how a
+     * component is keyed outside ingest -- the identity vector runner, the corpus measurements -- where there is no
+     * document to refuse, and the rule below is what keeps document order out of a key on those paths.
+     *
+     * <p>
      * <b>Ambiguity is unresolved, not first-one-wins.</b> {@code bom-ref} is producer-assigned and nothing in either
      * schema version makes it unique, and real producer output duplicates it: 6 corpus documents carry 27 duplicated
      * ref instances, one of them emitting {@code crypto/protocol/tls@TLSv1.3} three times in five documents.
@@ -82,10 +94,6 @@ public final class DocumentScope {
      * string, so first-one-wins hands them the same target and merges them too. What differs between the arms is only
      * whether document order can move a key. 0 corpus rows move either way, because no duplicated ref is currently
      * pointed at.
-     *
-     * <p>
-     * Both arms owe the producer an ingest finding, and neither can raise one yet: {@link #ambiguousRefs()} carries
-     * what a finding would name, and core#2073 owns the channel that reports it.
      */
     public static DocumentScope of(JsonNode document, AssetNormalizer normalizer) {
         if (document == null) {
@@ -185,12 +193,11 @@ public final class DocumentScope {
     }
 
     /**
-     * Refs this document defines more than once, which resolve to nothing.
+     * Refs this document defines more than once, which resolve to nothing and which cost the document its ingest.
      *
      * <p>
-     * Exposed for the ingest finding that both arms of the ambiguity rule require and that no channel in
-     * {@code src/main} can yet report -- see {@link #of}. A caller that resolves nothing cannot otherwise tell an
-     * ambiguous ref from an absent one, and the producer needs to hear which of the two it emitted.
+     * A caller that resolves nothing cannot otherwise tell an ambiguous ref from an absent one, and the producer needs
+     * to hear which of the two it emitted -- so this is both the refusal's reason and the finding's subject.
      */
     public Set<String> ambiguousRefs() {
         return ambiguousRefs;

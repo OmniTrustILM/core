@@ -430,6 +430,53 @@ class CbomSyncITest extends BaseSpringBootTest {
         assertThat(cbomRepository.count()).isZero();
     }
 
+    /**
+     * The whole-listing pass reads no document for an entry it already holds, so "not one read answered" is what a
+     * healthy reconciliation looks like rather than evidence of an outage. Charging the two that failed is the only
+     * reading that terminates: abandoning the run here would abandon it every Sunday, since the next pass reads exactly
+     * as little -- and it would abandon it before the ingest pass, in the case the weekly pass exists for.
+     */
+    @Test
+    void aReconcileOverAnEstateItAlreadyHoldsChargesTheUnreadableRatherThanFailing() throws Exception {
+        Cbom held = new Cbom();
+        held.setSerialNumber("urn:uuid:held");
+        held.setVersion(1);
+        held.setSpecVersion("1.6");
+        held.setAssetSyncState(CbomAssetSyncState.SYNCED);
+        cbomRepository.save(held);
+        stubPage(
+                "after", "0", "[" + entry("urn:uuid:held", "1", STATS, null) + ","
+                        + entry("urn:uuid:a", "1", STATS, null) + "," + entry("urn:uuid:b", "1", STATS, null) + "]",
+                null);
+        stubDocumentFailure("urn:uuid:a", 1, 503);
+        stubDocumentFailure("urn:uuid:b", 1, 503);
+
+        String result = cbomInternalService.reconcile();
+
+        assertThat(result)
+                .startsWith("Reconciled against the whole listing.")
+                .contains("skipped duplicates 1")
+                .contains("2 entries could not be stored and were recorded for retry");
+        assertThat(skipRepository.count()).isEqualTo(2);
+    }
+
+    /**
+     * The other half of that rule. A listing in which Core recognised nothing and no document answered is the same
+     * evidence the hourly pass acts on, so the weekly pass fails too rather than charging a budget for an outage.
+     */
+    @Test
+    void aReconcileThatRecognisesNothingInTheListingStillFailsAsAnOutage() {
+        stubPage("after", "0",
+                "[" + entry("urn:uuid:a", "1", STATS, null) + "," + entry("urn:uuid:b", "1", STATS, null) + "]", null);
+        stubDocumentFailure("urn:uuid:a", 1, 503);
+        stubDocumentFailure("urn:uuid:b", 1, 503);
+
+        assertThatThrownBy(() -> cbomInternalService.reconcile()).isInstanceOf(CbomRepositoryException.class);
+
+        assertThat(skipRepository.count()).isZero();
+        assertThat(cbomRepository.count()).isZero();
+    }
+
     @Test
     void aServerSideReadFailureIsChargedToThatDocumentWhenOtherReadsSucceed() throws Exception {
         // One document Core never got an answer for, while the repository served the other: that is the document's
