@@ -64,10 +64,9 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         this.keyManagementSyncApiClient = connectorApiFactory.getKeyManagementApiClientV2(connectorInfo);
     }
 
-    /** Placeholder until stateless provider key listing is implemented. */
     @Override
     public List<ProviderKeyItem> listKeys(TokenInstanceBasicModel tokenInstance) {
-        return List.of();
+        throw new UnsupportedOperationException("Stateless provider key listing is not implemented.");
     }
 
     @Override

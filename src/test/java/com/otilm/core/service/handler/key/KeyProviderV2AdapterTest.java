@@ -113,15 +113,15 @@ class KeyProviderV2AdapterTest {
     }
 
     @Test
-    void listKeys_returnsEmpty_withoutCallingConnector() {
+    void listKeys_throwsUnsupportedOperationException_withoutCallingConnector() {
         // given
         TokenInstanceBasicModel token = mock(TokenInstanceBasicModel.class);
 
         // when
-        List<ProviderKeyItem> items = adapter.listKeys(token);
+        Executable listKeys = () -> adapter.listKeys(token);
 
         // then
-        assertTrue(items.isEmpty());
+        assertThrows(UnsupportedOperationException.class, listKeys);
         verifyNoInteractions(client, attributes, resolver, token);
     }
 
