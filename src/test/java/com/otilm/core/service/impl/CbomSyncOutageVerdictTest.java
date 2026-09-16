@@ -62,20 +62,40 @@ class CbomSyncOutageVerdictTest {
     }
 
     /**
-     * The cap, which the other arms cannot reach. Beyond this many failed reads in one run the shared cause is the
-     * repository, not that many individually broken documents -- and here every other arm says "charge them": reads
-     * answered, so the run looks healthy by the original rule.
+     * The cap, which only the whole-listing arm can reach. The listing proved the repository is serving and no document
+     * read succeeded, so the question is how many entries failed: a few are the stuck documents this pass exists to
+     * charge, and an estate's worth of them is the document store.
      */
     @Test
-    void aRunThatWouldChargeMoreThanTheCapIsAnOutageWhateverElseItSaw() {
-        assertThat(verdict(1_000, 1_000, 5, 50, true)).isTrue();
-        assertThat(verdict(1_000, 1_000, 5, 50, false)).isTrue();
+    void aWholeListingRunThatWouldChargeMoreThanTheCapIsAnOutageAfterAll() {
+        assertThat(verdict(1_000, 1_000, 0, 50, true)).isTrue();
     }
 
     /** One below it is charged, so the bound is the bound and not an approximation of one. */
     @Test
-    void aRunOneBelowTheCapIsStillCharged() {
-        assertThat(verdict(999, 999, 5, 50, true)).isFalse();
+    void aWholeListingRunOneBelowTheCapIsStillCharged() {
+        assertThat(verdict(999, 999, 0, 50, true)).isFalse();
+    }
+
+    /**
+     * And the cap does not sit ahead of the evidence of health. A run in which reads succeeded has watched the
+     * repository serve documents, so its failures are those documents' own however many there are -- put first, the cap
+     * would call a healthy run an outage, skip it, and hold the watermark for ever.
+     */
+    @Test
+    void aRunWhoseReadsSucceededIsChargedHoweverManyFailedWithIt() {
+        assertThat(verdict(1_000, 1_000, 5, 50, true)).isFalse();
+        assertThat(verdict(1_000, 1_000, 5, 50, false)).isFalse();
+    }
+
+    /**
+     * Nor ahead of the hourly pass's own rule, which already answers this case: no read succeeded, so the run is an
+     * outage on the original evidence and charges nothing, well before any count of entries comes into it.
+     */
+    @Test
+    void anHourlyRunIsDecidedByTheOriginalRuleRatherThanByTheCap() {
+        assertThat(verdict(1_000, 1_000, 0, 0, false)).isTrue();
+        assertThat(verdict(2, 2, 0, 0, false)).isTrue();
     }
 
     private static boolean verdict(int deferred, int feedDeferred, int successfulReads, int alreadyStored,

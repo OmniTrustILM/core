@@ -1224,11 +1224,25 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      * One such repeat would otherwise flip the verdict for the entire run, in the direction that costs the most.
      *
      * <p>
-     * <b>And no run charges more than {@link #MAX_CHARGED_READ_FAILURES_PER_RUN} entries, whatever else it saw.</b>
-     * Beyond that many failed reads in one run the shared cause is the repository, not that many individually broken
-     * documents -- and the cost of being wrong is asymmetric. Charging is all-or-nothing by design, so the cap raises
-     * the outage verdict rather than truncating the charges: an uncharged entry that got no skip row would never be
-     * offered by the retry pass either, and the hourly watermark would have moved past it.
+     * <b>And that arm is bounded by {@link #MAX_CHARGED_READ_FAILURES_PER_RUN}</b>, which is the only place a bound
+     * belongs. Reaching it means the listing proved the repository is serving while <em>no</em> document read
+     * succeeded, and the question is then only how many entries failed: a few are the stuck documents this pass exists
+     * to charge, and an estate's worth of them is the document store. Nothing else bounds that -- {@code deferred}
+     * grows with the listing, and this pass lists the estate -- so a repository serving its listing but not its
+     * documents would charge every entry Core does not hold, once a Sunday, and write the estate off in as few as
+     * {@code cbom.sync.skipped-retry-runs + 1} of them.
+     *
+     * <p>
+     * <b>The cap does not sit ahead of the other arms</b>, and that ordering is the rule rather than an accident. A run
+     * in which reads <em>did</em> succeed has watched the repository serve documents, so its failures are those
+     * documents' own however many there are, and charging them is what the budget is for. Put first, the cap would call
+     * a healthy hourly run with a thousand genuinely broken documents an outage, skip it, and hold the watermark for
+     * ever -- the mirror image of the self-skipping the scope-aware arm above exists to prevent.
+     *
+     * <p>
+     * It raises the verdict rather than truncating the charges, because charging is all-or-nothing by construction: an
+     * entry charged nothing has no skip row, so the retry pass never offers it again, and the hourly watermark has
+     * moved past it.
      */
     private static boolean looksLikeOutage(SyncRun run, SyncScope scope) {
         return looksLikeOutage(run.deferred.size(), run.feedDeferred, run.successfulReads, run.alreadyStored,
@@ -1242,13 +1256,13 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      */
     static boolean looksLikeOutage(int deferred, int feedDeferred, int successfulReads, int alreadyStored,
             boolean wholeListing) {
-        if (deferred >= MAX_CHARGED_READ_FAILURES_PER_RUN) {
-            return true;
-        }
         if (successfulReads > 0 || feedDeferred < 2) {
             return false;
         }
-        return !wholeListing || alreadyStored == 0;
+        if (!wholeListing || alreadyStored == 0) {
+            return true;
+        }
+        return deferred >= MAX_CHARGED_READ_FAILURES_PER_RUN;
     }
 
     /**

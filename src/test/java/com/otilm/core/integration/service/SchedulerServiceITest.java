@@ -99,6 +99,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
 
@@ -401,6 +402,32 @@ class SchedulerServiceITest extends BaseSpringBootTest {
         Assertions.assertTrue(matchedHybrid);
 
         mockServer.stop();
+    }
+
+    /**
+     * The premise the registration race handling rests on: the database refuses a second row for one job name, and the
+     * refusal reaches the caller as a {@code DataIntegrityViolationException} out of {@code save} rather than at some
+     * later flush. `SchedulerJobRegistrationRaceTest` stubs that exception to cover what the service does with it;
+     * without this, nothing would have failed if the premise were wrong.
+     */
+    @Test
+    void theDatabaseRefusesASecondRowForOneJobName() {
+        scheduledJobsRepository.save(scheduledJobNamed("RaceCheckTask"));
+
+        Assertions
+                .assertThrows(DataIntegrityViolationException.class,
+                        () -> scheduledJobsRepository.saveAndFlush(scheduledJobNamed("RaceCheckTask")));
+    }
+
+    private static ScheduledJob scheduledJobNamed(String jobName) {
+        ScheduledJob job = new ScheduledJob();
+        job.setJobName(jobName);
+        job.setCronExpression("0 0 * * * ?");
+        job.setJobClassName("com.otilm.core.tasks.CbomReconcileTask");
+        job.setEnabled(true);
+        job.setOneTime(false);
+        job.setSystem(true);
+        return job;
     }
 
     @Test
