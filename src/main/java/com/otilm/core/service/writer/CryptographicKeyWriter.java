@@ -503,16 +503,4 @@ public class CryptographicKeyWriter {
         CryptographicKeyItem savedItem = cryptographicKeyItemRepository.save(keyItem);
         return CryptographicKeyItemBasicModel.from(savedItem);
     }
-
-    /**
-     * Persists the supplied key entity and returns its basic model.
-     *
-     * @param key key entity containing the changes to persist
-     * @return immutable basic model of the saved key
-     */
-    @Transactional
-    public CryptographicKeyBasicModel update(CryptographicKey key) {
-        CryptographicKey savedKey = cryptographicKeyRepository.save(key);
-        return ImmutableCryptographicKeyBasicModel.from(savedKey);
-    }
 }
