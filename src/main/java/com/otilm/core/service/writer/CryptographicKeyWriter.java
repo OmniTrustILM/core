@@ -115,7 +115,7 @@ public class CryptographicKeyWriter {
     private void createKeyContent(TokenProfileBasicModel tokenProfile, TokenInstanceBasicModel tokenInstance,
             ProviderKeyItem item, CryptographicKeyBasicModel cryptographicKey, boolean isDiscovered, boolean enabled)
             throws AttributeException {
-        logger.debug("Creating the Key Content for {}", cryptographicKey.toIdentifierString());
+        logger.atDebug().addArgument(cryptographicKey::toIdentifierString).log("Creating the Key Content for {}");
         CryptographicKeyItem keyItem = new CryptographicKeyItem();
         keyItem.setName(item.name());
         keyItem.setKeyUuid(cryptographicKey.uuid());
@@ -402,7 +402,7 @@ public class CryptographicKeyWriter {
         key.setTokenInstanceReferenceUuid(tokenInstanceReferenceUuid);
 
         CryptographicKey savedKey = cryptographicKeyRepository.save(key);
-        logger.debug("Cryptographic Key saved: {}", savedKey.toIdentifierString());
+        logger.atDebug().addArgument(savedKey::toIdentifierString).log("Cryptographic Key saved: {}");
         return ImmutableCryptographicKeyBasicModel.from(savedKey);
     }
 

@@ -394,7 +394,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                                 .getMappedMetadataContent(ObjectAttributeContentInfo
                                         .builder(Resource.CRYPTOGRAPHIC_KEY, UUID.fromString(k.getUuid()))
                                         .build())));
-        logger.debug("Key details retrieved: {}", key.toIdentifierString());
+        logger.atDebug().addArgument(key::toIdentifierString).log("Key details retrieved: {}");
         return dto;
     }
 
@@ -408,13 +408,13 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                 .findByUuidAndKeyUuid(UUID.fromString(keyItemUuid), key.uuid())
                 .orElseThrow(() -> new NotFoundException(CryptographicKeyItem.class, keyItemUuid));
         KeyItemDetailDto dto = item.mapToDto();
-        logger.debug("Key item retrieved: {}", item.toIdentifierString());
+        logger.atDebug().addArgument(item::toIdentifierString).log("Key item retrieved: {}");
         dto
                 .setMetadata(attributeEngine
                         .getMappedMetadataContent(ObjectAttributeContentInfo
                                 .builder(Resource.CRYPTOGRAPHIC_KEY, item.getUuid())
                                 .build()));
-        logger.debug("Key item attributes retrieved: {}", item.toIdentifierString());
+        logger.atDebug().addArgument(item::toIdentifierString).log("Key item attributes retrieved: {}");
         return dto;
     }
 
@@ -432,7 +432,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
         }
 
         TokenProfileFullModel tokenProfile = getTokenProfile(tokenInstanceUuid, tokenProfileUuid);
-        logger.debug("Token Profile: {}", tokenProfile.toIdentifierString());
+        logger.atDebug().addArgument(tokenProfile::toIdentifierString).log("Token Profile: {}");
         throwIfTokenProfileNotEnabled(tokenProfile);
 
         attributeEngine.validateCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, request.getCustomAttributes());
@@ -445,7 +445,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
         CryptographicKeyFullModel key = persistCreatedKey(tokenProfile, request, remotelyCreatedKeyItems);
         key = updateOwnerAndGroups(request, key);
 
-        logger.debug("Key creation is successful: {}", key.toIdentifierString());
+        logger.atDebug().addArgument(key::toIdentifierString).log("Key creation is successful: {}");
 
         return assembleKeyDetailDto(request, key, tokenProfile);
     }
@@ -485,7 +485,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                 .update(key.uuid(), request, owner, customAttributeResourceFilter);
         updatedKey.items().forEach(item -> evictKeyItemCache(item.uuid()));
 
-        logger.debug("Key details updated. Key: {}", updatedKey.toIdentifierString());
+        logger.atDebug().addArgument(updatedKey::toIdentifierString).log("Key details updated. Key: {}");
         return getKey(uuid);
     }
 
@@ -562,7 +562,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
             }
             cryptographicKeyWriter.deleteKeyIfEmpty(key);
         }
-        logger.info("Key deleted: {}", key.toIdentifierString());
+        logger.atInfo().addArgument(key::toIdentifierString).log("Key deleted: {}");
     }
 
     @Override
@@ -632,7 +632,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
         List<CryptographicKeyItemBasicModel> items = resolveKeyItems(key, parseKeyItemUuids(keyItemUuids));
         KeyDestructionResult result = destroyKeyItemsInternal(key, items);
         result.throwIfFailed();
-        logger.info("Key destroyed: {}", key.toIdentifierString());
+        logger.atInfo().addArgument(key::toIdentifierString).log("Key destroyed: {}");
     }
 
     @Override
@@ -669,7 +669,10 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                 .forToken(tokenProfile.tokenInstance())
                 .listCreateKeyAttributes(tokenProfile, type);
 
-        logger.debug("Key creation attributes retrieved for Token profile: {}", tokenProfile.toIdentifierString());
+        logger
+                .atDebug()
+                .addArgument(tokenProfile::toIdentifierString)
+                .log("Key creation attributes retrieved for Token profile: {}");
         return attributes;
     }
 
@@ -730,7 +733,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
 
         List<CryptographicKeyItemBasicModel> items = resolveKeyItems(key, request.getUuids());
         compromiseKeyItems(itemUuids(items), request.getReason());
-        logger.info("Key marked as compromised: {}", key.toIdentifierString());
+        logger.atInfo().addArgument(key::toIdentifierString).log("Key marked as compromised: {}");
     }
 
     @Override
@@ -778,7 +781,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
 
         List<CryptographicKeyItemBasicModel> items = resolveKeyItems(key, request.getUuids());
         setKeyItemsUsages(itemUuids(items), request.getUsage());
-        logger.info("Key usages updated: {}", key.toIdentifierString());
+        logger.atInfo().addArgument(key::toIdentifierString).log("Key usages updated: {}");
     }
 
     @Override
@@ -924,7 +927,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                                 .connector(tokenProfile.tokenInstance().connectorUuid())
                                 .build(), request.getAttributes()));
 
-        logger.debug("Key details assembled: {}", key.toIdentifierString());
+        logger.atDebug().addArgument(key::toIdentifierString).log("Key details assembled: {}");
         return keyDetailDto;
     }
 
@@ -1103,7 +1106,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                 .findFullModelByUuidAndTokenInstanceReferenceUuid(tokenProfileUuid.getValue(), tokenInstanceUuid)
                 .orElseThrow(() -> new NotFoundException("Token profile (" + tokenProfileUuid.getValue()
                         + ") connected to token instance (" + tokenInstanceUuid + ") was not found."));
-        logger.trace("Token profile: {}", tokenProfile.toIdentifierString());
+        logger.atTrace().addArgument(tokenProfile::toIdentifierString).log("Token profile: {}");
         return tokenProfile;
     }
 
@@ -1199,7 +1202,10 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     private void mergeAndValidateAttributes(KeyRequestType keyType, TokenProfileFullModel tokenProfile,
             List<RequestAttribute> attributes) throws ConnectorException, AttributeException, NotFoundException {
         TokenInstanceFullModel tokenInstance = tokenProfile.tokenInstance();
-        logger.debug("Merging and validating attributes on token instance {}", tokenInstance.toIdentifierString());
+        logger
+                .atDebug()
+                .addArgument(tokenInstance::toIdentifierString)
+                .log("Merging and validating attributes on token instance {}");
         if (tokenProfile.tokenInstance().connectorUuid() == null) {
             throw new ValidationException(ValidationError.create("Connector of the Token is not available / deleted"));
         }
@@ -1558,8 +1564,11 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
             tokenInstanceMessage = " in token instance " + key.tokenInstanceReferenceUuid();
         }
         logger
-                .debug("Allowed request to '{}' of key '{}'{}", operation, key.toIdentifierString(),
-                        tokenInstanceMessage);
+                .atDebug()
+                .addArgument(operation)
+                .addArgument(key::toIdentifierString)
+                .addArgument(tokenInstanceMessage)
+                .log("Allowed request to '{}' of key '{}'{}");
     }
 
     private static final class KeyDestructionResult {
