@@ -98,7 +98,7 @@ public interface CryptographicKeyItemRepository extends SecurityFilterRepository
      * in the rank of that list, and an ORDER BY here would replace it. Callers rank the result with
      * {@code SortOrderBuilder.rankBy}.
      */
-    @EntityGraph(attributePaths = {"key", "key.tokenProfile", "key.groups", "key.owner"})
+    @EntityGraph(attributePaths = {"key", "key.tokenProfile", "key.tokenInstanceReference", "key.groups", "key.owner"})
     List<CryptographicKeyItem> findFullByUuidIn(List<UUID> uuids);
 
     List<CryptographicKeyItem> findByKeyUuidIn(List<UUID> keyUuids);
