@@ -1,6 +1,7 @@
 package com.otilm.core.service.impl;
 
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.cryptography.key.BulkCompromiseKeyItemRequestDto;
 import com.otilm.api.model.client.cryptography.key.BulkKeyItemUsageRequestDto;
@@ -151,7 +152,9 @@ class CryptographicKeyServiceImplParentAccessTest {
 
         // then
         ValidationException failure = assertThrows(ValidationException.class, mutate);
-        assertThat(failure.getMessage()).contains(missingUuid.toString(), "No key items were updated");
+        assertThat(failure.getErrors())
+                .extracting(ValidationError::getErrorDescription)
+                .containsExactly("Key items were not found or are not authorized. No key items were updated.");
         verifyNoInteractions(writer, history);
     }
 
@@ -194,7 +197,10 @@ class CryptographicKeyServiceImplParentAccessTest {
         Executable mutate = () -> mutate(operation, selectedUuids);
 
         // then
-        assertThrows(AccessDeniedException.class, mutate);
+        ValidationException failure = assertThrows(ValidationException.class, mutate);
+        assertThat(failure.getErrors())
+                .extracting(ValidationError::getErrorDescription)
+                .containsExactly("Key items were not found or are not authorized. No key items were updated.");
         verifyNoInteractions(writer, history);
     }
 

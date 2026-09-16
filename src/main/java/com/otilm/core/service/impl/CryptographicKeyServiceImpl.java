@@ -133,6 +133,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.lang.NonNull;
 import org.springframework.lang.Nullable;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -834,7 +835,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
         Map<CryptographicKeyFullModel, List<CryptographicKeyItemBasicModel>> selections = new LinkedHashMap<>();
         for (UUID parentKeyUuid : keyItemParentUuids(keyItems)) {
             CryptographicKeyFullModel key = getCryptographicKeyFullModel(parentKeyUuid);
-            verifyPermissionsForAssociatedToken(key, "destroy key item", ResourceAction.DETAIL);
+            verifyBulkKeyItemTokenPermission(key, "destroy key item");
             List<UUID> selectedUuids = keyItems
                     .stream()
                     .filter(item -> key.uuid().equals(item.parentKeyUuid()))
@@ -1286,15 +1287,8 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                 .findBasicModelsByUuidIn(requestedUuids)
                 .stream()
                 .collect(Collectors.toMap(CryptographicKeyItemBasicModel::uuid, item -> item));
-        List<String> missingUuids = requestedUuids
-                .stream()
-                .filter(not(items::containsKey))
-                .map(String::valueOf)
-                .toList();
-        if (!missingUuids.isEmpty()) {
-            String message = "Key items do not exist: %s. No key items were updated."
-                    .formatted(String.join(", ", missingUuids));
-            throw new ValidationException(ValidationError.create(message));
+        if (requestedUuids.stream().anyMatch(not(items::containsKey))) {
+            throw bulkKeyItemSelectionFailure();
         }
         return requestedUuids.stream().map(items::get).toList();
     }
@@ -1318,8 +1312,21 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
             throws NotFoundException {
         for (UUID parentKeyUuid : keyItemParentUuids(items)) {
             CryptographicKeyBasicModel key = getCryptographicKeyBasicModel(parentKeyUuid);
-            verifyPermissionsForAssociatedToken(key, operation, ResourceAction.DETAIL);
+            verifyBulkKeyItemTokenPermission(key, operation);
         }
+    }
+
+    private void verifyBulkKeyItemTokenPermission(CryptographicKeyBasicModel key, String operation) {
+        try {
+            verifyPermissionsForAssociatedToken(key, operation, ResourceAction.DETAIL);
+        } catch (AccessDeniedException e) {
+            throw bulkKeyItemSelectionFailure();
+        }
+    }
+
+    private ValidationException bulkKeyItemSelectionFailure() {
+        return new ValidationException(
+                ValidationError.create("Key items were not found or are not authorized. No key items were updated."));
     }
 
     /**
