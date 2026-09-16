@@ -936,6 +936,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
 
         logger.debug("Going to delete key items with UUIDs {}", permittedUuids);
         Map<UUID, CryptographicKeyFullModel> keys = new HashMap<>();
+        int deletedCount = 0;
         for (CryptographicKeyItemBasicModel keyItem : keyItems) {
             UUID parentKeyUuid = keyItem.parentKeyUuid();
             CryptographicKeyFullModel key = keys.get(parentKeyUuid);
@@ -946,10 +947,10 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
             if (key.tokenInstance() != null) {
                 keyProviderAdapterFactory.forToken(key.tokenInstance()).destroyKeyItem(key, keyItem.reference());
             }
+            deletedCount += cryptographicKeyWriter.deleteKeyItemsWithAssociations(List.of(keyItem.uuid()));
+            evictKeyItemCache(keyItem.uuid());
         }
 
-        int deletedCount = cryptographicKeyWriter.deleteKeyItemsWithAssociations(permittedUuids);
-        permittedUuids.forEach(this::evictKeyItemCache);
         return deletedCount;
     }
 

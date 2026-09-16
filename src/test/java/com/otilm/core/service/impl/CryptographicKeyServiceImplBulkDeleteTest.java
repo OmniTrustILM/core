@@ -32,6 +32,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -49,6 +51,7 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 class CryptographicKeyServiceImplBulkDeleteTest {
@@ -92,7 +95,9 @@ class CryptographicKeyServiceImplBulkDeleteTest {
         when(items.findBasicModelsByUuidIn(selectedUuids)).thenReturn(key.items());
         when(keys.findFullModelByUuid(key.uuid())).thenReturn(Optional.of(key));
         when(adapters.forToken(key.tokenInstance())).thenReturn(adapter);
-        when(writer.deleteKeyItemsWithAssociations(selectedUuids)).thenReturn(selectedUuids.size());
+        for (UUID itemUuid : selectedUuids) {
+            when(writer.deleteKeyItemsWithAssociations(List.of(itemUuid))).thenReturn(1);
+        }
     }
 
     @AfterEach
@@ -103,7 +108,7 @@ class CryptographicKeyServiceImplBulkDeleteTest {
     }
 
     @Test
-    void deleteKeyItems_success_evictsCachesAfterWholeBatchCleanup() throws Exception {
+    void deleteKeyItems_success_cleansAndEvictsEachItemBeforeDestroyingNext() throws Exception {
         // given
         List<CryptographicKeyItemBasicModel> selectedItems = key.items();
 
@@ -114,30 +119,36 @@ class CryptographicKeyServiceImplBulkDeleteTest {
         InOrder deletion = inOrder(adapter, writer, cache);
         for (CryptographicKeyItemBasicModel item : selectedItems) {
             deletion.verify(adapter).destroyKeyItem(key, item.reference());
-        }
-        deletion.verify(writer).deleteKeyItemsWithAssociations(selectedUuids);
-        for (UUID itemUuid : selectedUuids) {
-            deletion.verify(cache).evict(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE, itemUuid);
+            deletion.verify(writer).deleteKeyItemsWithAssociations(List.of(item.uuid()));
+            deletion.verify(cache).evict(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE, item.uuid());
         }
         deletion.verifyNoMoreInteractions();
         verifyNoInteractions(notifications);
     }
 
-    @Test
-    void deleteKeyItems_writerFailure_reportsSafeFailureWithoutEvictingCaches() throws Exception {
+    @ParameterizedTest
+    @ValueSource(ints = {0, 1})
+    void deleteKeyItems_writerFailure_preservesEarlierCleanupWithoutEvictingFailedItem(int failingItemIndex)
+            throws Exception {
         // given
         String sensitiveFailure = "SQL delete from cryptographic_key_item failed for internal_column";
-        doThrow(new IllegalStateException(sensitiveFailure)).when(writer).deleteKeyItemsWithAssociations(selectedUuids);
+        CryptographicKeyItemBasicModel failingItem = key.items().get(failingItemIndex);
+        doThrow(new IllegalStateException(sensitiveFailure))
+                .when(writer)
+                .deleteKeyItemsWithAssociations(List.of(failingItem.uuid()));
 
         // when
         service.deleteKeyItems(tokenFilter, selectedUuidStrings);
 
         // then
-        for (CryptographicKeyItemBasicModel item : key.items()) {
+        for (CryptographicKeyItemBasicModel item : key.items().subList(0, failingItemIndex)) {
             verify(adapter).destroyKeyItem(key, item.reference());
+            verify(writer).deleteKeyItemsWithAssociations(List.of(item.uuid()));
+            verify(cache).evict(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE, item.uuid());
         }
-        verify(writer).deleteKeyItemsWithAssociations(selectedUuids);
-        verifyNoInteractions(cache);
+        verify(adapter).destroyKeyItem(key, failingItem.reference());
+        verify(writer).deleteKeyItemsWithAssociations(List.of(failingItem.uuid()));
+        verifyNoMoreInteractions(adapter, writer, cache);
         assertSafeBatchFailure(sensitiveFailure);
     }
 
@@ -154,6 +165,27 @@ class CryptographicKeyServiceImplBulkDeleteTest {
         // then
         verify(adapter).destroyKeyItem(key, failingItem.reference());
         verifyNoInteractions(writer, cache);
+        assertSafeBatchFailure(sensitiveFailure);
+    }
+
+    @Test
+    void deleteKeyItems_laterConnectorFailure_preservesEarlierCleanupAndEviction() throws Exception {
+        // given
+        String sensitiveFailure = "Connector credential secret-token at private-host";
+        CryptographicKeyItemBasicModel deletedItem = key.items().getFirst();
+        CryptographicKeyItemBasicModel failingItem = key.items().getLast();
+        doThrow(new ConnectorException(sensitiveFailure)).when(adapter).destroyKeyItem(key, failingItem.reference());
+
+        // when
+        service.deleteKeyItems(tokenFilter, selectedUuidStrings);
+
+        // then
+        InOrder deletion = inOrder(adapter, writer, cache);
+        deletion.verify(adapter).destroyKeyItem(key, deletedItem.reference());
+        deletion.verify(writer).deleteKeyItemsWithAssociations(List.of(deletedItem.uuid()));
+        deletion.verify(cache).evict(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE, deletedItem.uuid());
+        deletion.verify(adapter).destroyKeyItem(key, failingItem.reference());
+        deletion.verifyNoMoreInteractions();
         assertSafeBatchFailure(sensitiveFailure);
     }
 
