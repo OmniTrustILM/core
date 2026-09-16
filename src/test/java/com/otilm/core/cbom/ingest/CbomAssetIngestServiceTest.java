@@ -163,7 +163,7 @@ class CbomAssetIngestServiceTest {
         assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.REFUSED);
         verify(assetWriter, never()).upsertIdentity(anyString(), any(), any());
         ArgumentCaptor<String> reason = ArgumentCaptor.forClass(String.class);
-        verify(stateWriter).markFailed(eq(CBOM), reason.capture());
+        verify(stateWriter).markRefusedForContent(eq(CBOM), reason.capture());
         assertThat(reason.getValue()).contains("cross-component scope");
     }
 
@@ -484,11 +484,39 @@ class CbomAssetIngestServiceTest {
         assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.REFUSED);
         verify(assetWriter, never()).upsertIdentity(anyString(), any(), any());
         ArgumentCaptor<String> reason = ArgumentCaptor.forClass(String.class);
-        verify(stateWriter).markFailed(eq(CBOM), reason.capture());
+        verify(stateWriter).markRefusedForContent(eq(CBOM), reason.capture());
         assertThat(reason.getValue()).contains("1 bom-ref value more than once");
         verify(findingWriter)
                 .record(eq(CBOM), eq("FINDING"), eq(null), contains("bom-ref dup is defined more than once"), eq(1),
                         any());
+    }
+
+    /**
+     * And the refusal is counted, which is what eventually takes the row off the retry list. The extraction is a pure
+     * function of the document, so without a count the backlog re-read it over HTTP, re-extracted it and re-refused it
+     * every run for ever, spending one of {@code cbom.sync.max-ingest-documents} slots each time.
+     */
+    @Test
+    void aRefusalTheDocumentEarnedIsCountedAgainstTheIngestsBound() {
+        ingest(twoAlgorithmsSharingARef(), 100);
+
+        verify(stateWriter).markRefusedForContent(eq(CBOM), anyString());
+        verify(stateWriter, never()).markFailed(any(), anyString());
+    }
+
+    /**
+     * The other half of that rule. A document the extractor could not read at all may have failed for a reason of the
+     * moment -- a connection, a lock, memory -- so it keeps being retried exactly as it always was.
+     */
+    @Test
+    void aFailureThatIsNotTheDocumentsFaultIsNotCountedAgainstTheBound() {
+        CbomAssetExtractor extractor = mock(CbomAssetExtractor.class);
+        when(extractor.extract(any(JsonNode.class))).thenThrow(new IllegalStateException("unreadable"));
+
+        service(extractor, 100).ingest(CBOM, twoAlgorithms(), SEEN_AT);
+
+        verify(stateWriter).markFailed(eq(CBOM), anyString());
+        verify(stateWriter, never()).markRefusedForContent(any(), anyString());
     }
 
     /** Two repeats, so the reason's plural arm is read rather than assumed. */
@@ -498,7 +526,7 @@ class CbomAssetIngestServiceTest {
 
         assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.REFUSED);
         ArgumentCaptor<String> reason = ArgumentCaptor.forClass(String.class);
-        verify(stateWriter).markFailed(eq(CBOM), reason.capture());
+        verify(stateWriter).markRefusedForContent(eq(CBOM), reason.capture());
         assertThat(reason.getValue()).contains("2 bom-ref values more than once");
     }
 

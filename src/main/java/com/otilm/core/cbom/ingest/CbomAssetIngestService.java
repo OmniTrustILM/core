@@ -88,6 +88,24 @@ public class CbomAssetIngestService {
     /** Shared: building one per document is measurable on a large inventory. */
     private static final ObjectMapper JSON_COLUMN = ObjectMapperFactory.jsonColumn();
 
+    /**
+     * How many refusals earned by the document's own content a CBOM is offered before the backlog gives up on it.
+     *
+     * <p>
+     * Not a deployment tunable, and not in {@code cbom.sync.*}: it is not a judgement about an estate but about the two
+     * refusals it bounds, both of which are verdicts on bytes that do not change between attempts. A repeated
+     * {@code bom-ref} is a pure function of the document and one attempt would do; an unavailable document scope is
+     * raised by an extraction that <em>threw</em>, which could have been the moment rather than the document, so the
+     * bound is the smallest number that gives that one a second and third chance rather than the smallest number that
+     * is correct for the other.
+     *
+     * <p>
+     * Reaching it is not a state: the row stays {@code FAILED}, carrying the reason an operator can read and filter on,
+     * and a run that ingests the CBOM by any other route settles it normally. Nothing re-opens it otherwise -- the
+     * producer's fix is a new version, which arrives as its own row and its own ingest.
+     */
+    public static final int MAX_CONTENT_REFUSALS = 3;
+
     private final CbomAssetExtractor extractor;
     private final CryptoAssetWriter assetWriter;
     private final CryptoAssetSourceWriter sourceWriter;
@@ -256,7 +274,7 @@ public class CbomAssetIngestService {
             // CycloneDX requires bom-ref to be unique, so a document that repeats one is invalid input rather than a
             // shape to resolve -- and both readings of a repeat are wrong in a way that moves keys. The refused
             // document keeps its row and its reason; the producer's fix is a new version.
-            return refuse(cbomUuid,
+            return refuseForContent(cbomUuid,
                     "the document defines %d bom-ref value%s more than once, which CycloneDX requires to be unique; the ingest findings name them"
                             .formatted(extraction.ambiguousRefs().size(),
                                     extraction.ambiguousRefs().size() == 1 ? "" : "s"));
@@ -266,7 +284,7 @@ public class CbomAssetIngestService {
             // Refused rather than ingested: without the whole-document scope a fabricated placeholder digest is
             // trusted and every certificate's public-key slot empties, which merges rows that are not the same asset.
             // An over-merge cannot be undone without re-keying the inventory; not ingesting can be retried.
-            return refuse(cbomUuid,
+            return refuseForContent(cbomUuid,
                     "the document's cross-component scope could not be built, so its assets cannot be keyed safely");
         }
 
@@ -547,6 +565,21 @@ public class CbomAssetIngestService {
 
     private IngestOutcome refuse(UUID cbomUuid, String reason) {
         runInOwnTransaction(() -> stateWriter.markFailed(cbomUuid, reason));
+        return IngestOutcome.REFUSED;
+    }
+
+    /**
+     * Refuses the document for what the document says, and counts the refusal towards {@link #MAX_CONTENT_REFUSALS}.
+     *
+     * <p>
+     * Both callers are verdicts on the document rather than on the moment -- a repeated {@code bom-ref}, a
+     * cross-component scope that could not be built -- and the backlog would otherwise re-read, re-extract and
+     * re-refuse them every run for ever, because the asset ingest has no terminal state to settle at. The retry list
+     * stops offering a row at the bound; every transient failure still goes through {@link #refuse} and is retried as
+     * it always was.
+     */
+    private IngestOutcome refuseForContent(UUID cbomUuid, String reason) {
+        runInOwnTransaction(() -> stateWriter.markRefusedForContent(cbomUuid, reason));
         return IngestOutcome.REFUSED;
     }
 

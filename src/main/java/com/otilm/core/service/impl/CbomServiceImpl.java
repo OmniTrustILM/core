@@ -1502,7 +1502,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
             workList
                     .addAll(cbomRepository
                             .findAssetIngestRetries(INGEST_RETRY_STATES, retryBefore,
-                                    Limit.of(budget - workList.size())));
+                                    CbomAssetIngestService.MAX_CONTENT_REFUSALS, Limit.of(budget - workList.size())));
         }
         final List<DeferredIngest> deferred = new ArrayList<>();
         final int readsBefore = run.ingestReads;

@@ -423,7 +423,7 @@ class CbomSyncITest extends BaseSpringBootTest {
                 .satisfies(e -> {
                     assertThat(((CbomRepositoryException) e).getProblemDetail().getStatus()).isEqualTo(503);
                     assertThat(((CbomRepositoryException) e).getProblemDetail().getDetail())
-                            .startsWith("CBOM Repository failed every document read of this run (2 documents)");
+                            .startsWith("CBOM Repository failed 2 document reads of this run, every one it attempted");
                 });
 
         assertThat(skipRepository.count()).isZero();

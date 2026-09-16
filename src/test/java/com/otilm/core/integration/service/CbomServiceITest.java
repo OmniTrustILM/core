@@ -29,6 +29,7 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.cbom.asset.AssetRowKeys;
 import com.otilm.core.cbom.asset.CryptoAssetIdentityFields;
 import com.otilm.core.cbom.ingest.CbomAssetDetachService;
+import com.otilm.core.cbom.ingest.CbomAssetIngestService;
 import com.otilm.core.dao.entity.Cbom;
 import com.otilm.core.dao.entity.ScheduledJob;
 import com.otilm.core.dao.entity.ScheduledJobHistory;
@@ -1195,6 +1196,43 @@ class CbomServiceITest extends BaseSpringBootTest {
         // a column", and it is what stops the registered field being offered as one -- not an alternative to
         // registering it.
         assertTrue(fieldNames.contains(FilterField.CBOM_ASSET_SYNC_ERROR.name()));
+    }
+
+    /**
+     * A refusal the document earned is deterministic -- the same bytes produce the same verdict -- so the backlog gives
+     * up on it once it has been reached {@link CbomAssetIngestService#MAX_CONTENT_REFUSALS} times. Before the count
+     * existed, such a document was re-read over HTTP, re-extracted and re-refused every run for ever, taking one of
+     * {@code cbom.sync.max-ingest-documents} slots each time.
+     */
+    @Test
+    void theRetryListStopsOfferingADocumentThatKeepsEarningItsRefusal() {
+        Cbom exhausted = failedIngest("urn:uuid:refused", CbomAssetIngestService.MAX_CONTENT_REFUSALS);
+        Cbom oneLeft = failedIngest("urn:uuid:nearly", CbomAssetIngestService.MAX_CONTENT_REFUSALS - 1);
+        Cbom transientFailure = failedIngest("urn:uuid:transient", 0);
+
+        List<UUID> offered = cbomRepository
+                .findAssetIngestRetries(List.of(CbomAssetSyncState.FAILED), OffsetDateTime.now().plusDays(1),
+                        CbomAssetIngestService.MAX_CONTENT_REFUSALS, Limit.of(10))
+                .stream()
+                .map(Cbom::getUuid)
+                .toList();
+
+        // A transient failure is still retried for ever; only the refusals the document earned are bounded.
+        assertEquals(2, offered.size());
+        assertTrue(offered.contains(oneLeft.getUuid()));
+        assertTrue(offered.contains(transientFailure.getUuid()));
+        assertFalse(offered.contains(exhausted.getUuid()));
+    }
+
+    private Cbom failedIngest(String serialNumber, int contentRefusals) {
+        Cbom cbom = new Cbom();
+        cbom.setSerialNumber(serialNumber);
+        cbom.setVersion(1);
+        cbom.setSpecVersion("1.6");
+        cbom.setAssetSyncState(CbomAssetSyncState.FAILED);
+        cbom.setAssetSyncAttemptedAt(OffsetDateTime.now().minusHours(1));
+        cbom.setAssetSyncContentRefusals(contentRefusals);
+        return cbomRepository.save(cbom);
     }
 
     @Test
