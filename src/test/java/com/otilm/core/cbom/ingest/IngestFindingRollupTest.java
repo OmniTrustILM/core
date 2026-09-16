@@ -3,7 +3,9 @@ package com.otilm.core.cbom.ingest;
 import com.otilm.core.cbom.asset.identity.CbomAssetExtractor;
 import com.otilm.core.model.cbom.CbomIngestFindingKind;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -117,9 +119,42 @@ class IngestFindingRollupTest {
         IngestFindingRollup.Rollup report = IngestFindingRollup
                 .of(extraction(List.of(asset("c", astral)), List.of(), List.of()));
 
-        assertThat(isWellPaired(report.rows().getFirst().detail()))
-                .describedAs("no half of a pair survives alone")
-                .isTrue();
+        String detail = report.rows().getFirst().detail();
+        assertThat(isWellPaired(detail)).describedAs("no half of a pair survives alone").isTrue();
+        assertThat(detail.codePointCount(0, detail.length()))
+                .describedAs("the bound is in code points, which is what the column's CHECK counts")
+                .isEqualTo(IngestFindingRollup.MAX_DETAIL_LENGTH);
+    }
+
+    /**
+     * The bound is a bound, not a halving. Measuring it in UTF-16 units cut a message of astral characters to about
+     * half the content the column would have taken; this fails under that, where well-pairedness alone does not.
+     */
+    @Test
+    void anAstralMessageIsKeptToItsFullAllowanceOfCodePoints() {
+        String astral = "\uD83D\uDD10".repeat(IngestFindingRollup.MAX_DETAIL_LENGTH + 1);
+
+        IngestFindingRollup.Rollup report = IngestFindingRollup
+                .of(extraction(List.of(asset("c", astral)), List.of(), List.of()));
+
+        String detail = report.rows().getFirst().detail();
+        assertThat(detail.codePointCount(0, detail.length())).isEqualTo(IngestFindingRollup.MAX_DETAIL_LENGTH);
+        assertThat(detail).describedAs("all but the marker is content").endsWith(IngestFindingRollup.TRUNCATION_MARKER);
+    }
+
+    /**
+     * A message of exactly the bound is not touched, so the marker never claims a cut that did not happen. The guard is
+     * on code points, so an astral string of that many code points passes it too.
+     */
+    @Test
+    void aMessageOfExactlyTheBoundIsLeftAlone() {
+        String astral = "\uD83D\uDD10".repeat(IngestFindingRollup.MAX_DETAIL_LENGTH);
+        String exact = astral.substring(0, astral.offsetByCodePoints(0, IngestFindingRollup.MAX_DETAIL_LENGTH));
+
+        IngestFindingRollup.Rollup report = IngestFindingRollup
+                .of(extraction(List.of(asset("c", exact)), List.of(), List.of()));
+
+        assertThat(report.rows().getFirst().detail()).isEqualTo(exact);
     }
 
     @Test
@@ -130,6 +165,73 @@ class IngestFindingRollupTest {
         assertThat(report.rows().getFirst().componentName())
                 .hasSize(IngestFindingRollup.MAX_COMPONENT_NAME_LENGTH)
                 .endsWith(IngestFindingRollup.TRUNCATION_MARKER);
+    }
+
+    /**
+     * The tie-break is the convergence property the report rests on: with more messages at one occurrence count than
+     * the bound has room for, {@code thenComparing(Row::detail)} is the only thing deciding which survive. The document
+     * offers them in descending order, so insertion order and message order disagree -- which is what makes this fail
+     * if the tie-break is dropped (the sort is stable, so insertion order would decide) and fail under the mis-chain
+     * {@code comparingInt(...).thenComparing(...).reversed()}, which reverses both keys.
+     */
+    @Test
+    void whichOfTheTiedMessagesSurviveIsDecidedByTheMessage() {
+        IngestFindingRollup.Rollup report = IngestFindingRollup
+                .of(extraction(droppedMemberFindings(false), List.of(), List.of()));
+
+        assertThat(report.rows())
+                .extracting(IngestFindingRollup.Row::detail)
+                .describedAs("the 100 lowest messages in ascending order, not the 100 the document offered first")
+                .containsExactlyElementsOf(IntStream
+                        .range(0, IngestFindingRollup.MAX_ROWS_PER_KIND)
+                        .mapToObj("member %03d was dropped"::formatted)
+                        .toList());
+    }
+
+    /**
+     * What "replaces the previous attempt's rows" means: the report is a function of the findings and not of the order
+     * the document happened to present them in, so a re-ingest of a re-serialized document writes the identical rows
+     * and the report converges rather than oscillating between two readings of one document.
+     */
+    @Test
+    void theOrderTheDocumentOffersItsFindingsInDoesNotMoveTheReport() {
+        IngestFindingRollup.Rollup ascending = IngestFindingRollup
+                .of(extraction(droppedMemberFindings(true), List.of(), List.of()));
+        IngestFindingRollup.Rollup descending = IngestFindingRollup
+                .of(extraction(droppedMemberFindings(false), List.of(), List.of()));
+
+        assertThat(descending).isEqualTo(ascending);
+    }
+
+    /** More distinct messages than the bound has room for, all at one occurrence, in either document order. */
+    private static List<CbomAssetExtractor.ExtractedAsset> droppedMemberFindings(boolean ascending) {
+        List<CbomAssetExtractor.ExtractedAsset> assets = new ArrayList<>();
+        for (int index = 0; index < IngestFindingRollup.MAX_ROWS_PER_KIND + 5; index++) {
+            assets.add(asset("component-" + index, "member %03d was dropped".formatted(index)));
+        }
+        if (!ascending) {
+            Collections.reverse(assets);
+        }
+        return assets;
+    }
+
+    /**
+     * Truncation happens before grouping, so two over-long messages agreeing to the cut become one row with a summed
+     * count rather than two rows the unique index would refuse. Moving the cut into the writer would make that a
+     * {@code uq_cbom_ingest_finding} violation with nothing failing here.
+     */
+    @Test
+    void twoOverlongMessagesThatAgreeToTheCutBecomeOneRow() {
+        String shared = "m".repeat(IngestFindingRollup.MAX_DETAIL_LENGTH);
+
+        IngestFindingRollup.Rollup report = IngestFindingRollup
+                .of(extraction(List.of(asset("first", shared + "-one"), asset("second", shared + "-two")), List.of(),
+                        List.of()));
+
+        assertThat(report.rows()).singleElement().satisfies(row -> {
+            assertThat(row.occurrences()).isEqualTo(2);
+            assertThat(row.componentName()).isEqualTo("first");
+        });
     }
 
     private static boolean isWellPaired(String text) {

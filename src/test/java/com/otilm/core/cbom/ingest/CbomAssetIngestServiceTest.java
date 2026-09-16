@@ -272,6 +272,43 @@ class CbomAssetIngestServiceTest {
     }
 
     /**
+     * The ordinary supersession path, which is the one that actually runs: v1 was ingested and reads SYNCED, so it is
+     * on neither work list and {@code supersede(v1)} never runs for it. Nothing else would ever clear its report, and a
+     * report left beside a revision that now sources nothing describes assets it no longer contributes.
+     */
+    @Test
+    void theSupersededVersionsReportGoesWithTheLinksItDescribed() {
+        when(synchronizer.tryLock(anyString())).thenReturn(true);
+        whenUpsertReturnsAFreshUuid();
+        UUID earlier = UUID.randomUUID();
+        when(cbomRepository.findSupersededVersionUuids(CBOM)).thenReturn(List.of(earlier));
+        when(detachService.withdraw(earlier)).thenReturn(new CbomAssetDetachService.Withdrawal(2, 1, 0, true));
+
+        CbomAssetIngestService.IngestOutcome outcome = ingest(twoAlgorithms(), 100);
+
+        assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
+        verify(findingWriter).clear(earlier);
+    }
+
+    /**
+     * And not before the withdrawal is complete: a withdrawal another node took the lock for leaves the earlier
+     * revision's links in place, so its report still describes them.
+     */
+    @Test
+    void aContendedWithdrawalLeavesTheSupersededVersionsReportAlone() {
+        when(cbomRepository.findAssetSyncState(CBOM)).thenReturn(Optional.of(CbomAssetSyncState.PENDING));
+        when(synchronizer.tryLock(anyString())).thenReturn(true);
+        whenUpsertReturnsAFreshUuid();
+        UUID earlier = UUID.randomUUID();
+        when(cbomRepository.findSupersededVersionUuids(CBOM)).thenReturn(List.of(earlier));
+        when(detachService.withdraw(earlier)).thenReturn(new CbomAssetDetachService.Withdrawal(0, 0, 0, false));
+
+        ingest(twoAlgorithms(), 100);
+
+        verify(findingWriter, never()).clear(earlier);
+    }
+
+    /**
      * A withdrawal another node took the lock for leaves the whole unit owed: the CBOM is not marked synced, so the
      * next run redoes it -- upserts included, which are idempotent -- rather than leaving one asset sourced by two
      * revisions of the same document.
@@ -454,6 +491,33 @@ class CbomAssetIngestServiceTest {
                         any());
     }
 
+    /** Two repeats, so the reason's plural arm is read rather than assumed. */
+    @Test
+    void aDocumentThatRepeatsTwoBomRefsSaysSoInThePlural() {
+        CbomAssetIngestService.IngestOutcome outcome = ingest(twoAlgorithmsSharingTwoRefs(), 100);
+
+        assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.REFUSED);
+        ArgumentCaptor<String> reason = ArgumentCaptor.forClass(String.class);
+        verify(stateWriter).markFailed(eq(CBOM), reason.capture());
+        assertThat(reason.getValue()).contains("2 bom-ref values more than once");
+    }
+
+    /**
+     * CycloneDX scopes {@code bom-ref} uniqueness to the whole document, and {@code metadata.component} defines one.
+     * The component index is built from {@code components[]} alone, so this repeat resolves perfectly well -- and was
+     * ingested in silence until the refusal took its own, wider reading.
+     */
+    @Test
+    void aBomRefRepeatedBetweenMetadataAndAComponentIsRefusedToo() {
+        CbomAssetIngestService.IngestOutcome outcome = ingest(anAlgorithmSharingTheMetadataRef(), 100);
+
+        assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.REFUSED);
+        verify(assetWriter, never()).upsertIdentity(anyString(), any(), any());
+        verify(findingWriter)
+                .record(eq(CBOM), eq("FINDING"), eq(null), contains("bom-ref app is defined more than once"), eq(1),
+                        any());
+    }
+
     /**
      * The report is replaced, not appended to: a re-ingest read the whole document again, so a finding the current
      * document no longer raises must not survive as a complaint about it.
@@ -586,6 +650,26 @@ class CbomAssetIngestServiceTest {
                 .read("{\"components\":[{\"type\":\"cryptographic-asset\",\"bom-ref\":\"dup\",\"name\":\"AES-256\","
                         + "\"cryptoProperties\":{\"assetType\":\"algorithm\",\"algorithmProperties\":{}}},"
                         + "{\"type\":\"cryptographic-asset\",\"bom-ref\":\"dup\",\"name\":\"RSA-2048\","
+                        + "\"cryptoProperties\":{\"assetType\":\"algorithm\",\"algorithmProperties\":{}}}]}");
+    }
+
+    private static JsonNode twoAlgorithmsSharingTwoRefs() {
+        return CbomIngestTestFixtures
+                .read("{\"components\":[{\"type\":\"cryptographic-asset\",\"bom-ref\":\"one\",\"name\":\"AES-256\","
+                        + "\"cryptoProperties\":{\"assetType\":\"algorithm\",\"algorithmProperties\":{}}},"
+                        + "{\"type\":\"cryptographic-asset\",\"bom-ref\":\"one\",\"name\":\"RSA-2048\","
+                        + "\"cryptoProperties\":{\"assetType\":\"algorithm\",\"algorithmProperties\":{}}},"
+                        + "{\"type\":\"cryptographic-asset\",\"bom-ref\":\"two\",\"name\":\"AES-128\","
+                        + "\"cryptoProperties\":{\"assetType\":\"algorithm\",\"algorithmProperties\":{}}},"
+                        + "{\"type\":\"cryptographic-asset\",\"bom-ref\":\"two\",\"name\":\"RSA-4096\","
+                        + "\"cryptoProperties\":{\"assetType\":\"algorithm\",\"algorithmProperties\":{}}}]}");
+    }
+
+    /** The repeat is between {@code metadata.component} and a component, so the component index still resolves it. */
+    private static JsonNode anAlgorithmSharingTheMetadataRef() {
+        return CbomIngestTestFixtures
+                .read("{\"metadata\":{\"component\":{\"type\":\"application\",\"bom-ref\":\"app\",\"name\":\"app\"}},"
+                        + "\"components\":[{\"type\":\"cryptographic-asset\",\"bom-ref\":\"app\",\"name\":\"AES-256\","
                         + "\"cryptoProperties\":{\"assetType\":\"algorithm\",\"algorithmProperties\":{}}}]}");
     }
 

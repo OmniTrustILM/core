@@ -126,14 +126,19 @@ public final class IngestFindingRollup {
      * UTF-8 encoding, which the column refuses outright: the cure would be the disease. Two distinct messages that
      * agree for their first {@link #MAX_DETAIL_LENGTH} code points roll up as one, which is the right answer for text
      * whose tail an operator will not see anyway.
+     *
+     * <p>
+     * Measured in code points throughout, because that is the unit PostgreSQL's {@code length()} counts and so the unit
+     * the CHECK constraints are written in. Measuring the guard in UTF-16 units instead would still never fail an
+     * insert -- code points never outnumber units -- but it would cut a message of astral characters to half the
+     * content the column would have taken.
      */
     private static String bounded(String text, int maxLength) {
-        if (text == null || text.length() <= maxLength) {
+        if (text == null || text.codePointCount(0, text.length()) <= maxLength) {
             return text;
         }
         final int keep = maxLength - TRUNCATION_MARKER.length();
-        final int end = text.offsetByCodePoints(0, text.codePointCount(0, keep));
-        return text.substring(0, end) + TRUNCATION_MARKER;
+        return text.substring(0, text.offsetByCodePoints(0, keep)) + TRUNCATION_MARKER;
     }
 
     /** Adds this kind's most frequent messages to the report and answers how many were left out. */

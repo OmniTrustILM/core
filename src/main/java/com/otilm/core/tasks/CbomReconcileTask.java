@@ -20,10 +20,11 @@ import org.springframework.stereotype.Component;
  * which is what makes a full re-list safe to run at all.
  *
  * <p>
- * <b>Sunday 02:30, and it occupies the same listener as every other scheduled job</b> -- a full listing over a large
- * estate is the longest CBOM job a deployment runs, and while it holds that thread the jobs behind it wait. The hour is
- * chosen to miss the hourly sync (:00) and the PQC sweep (:30 hourly is the same minute, but this fires on one day of
- * the week and the sweep's work is bounded by its batch budget).
+ * <b>Sunday 02:30.</b> A full listing over a large estate is the longest CBOM job a deployment runs, and the scheduler
+ * listener is concurrent ({@code messaging.concurrency.scheduler}), so it does not hold the jobs behind it -- which is
+ * also why a reconcile and an hourly sync can be in flight at once, and why every rule the two share has to hold under
+ * that. The hour is chosen to miss the hourly sync (:00) and the PQC sweep (:30 hourly is the same minute, but this
+ * fires on one day of the week and the sweep's work is bounded by its batch budget).
  */
 @Component
 public class CbomReconcileTask extends AbstractCbomFeedTask {

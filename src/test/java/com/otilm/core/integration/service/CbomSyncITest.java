@@ -464,6 +464,23 @@ class CbomSyncITest extends BaseSpringBootTest {
      * The other half of that rule. A listing in which Core recognised nothing and no document answered is the same
      * evidence the hourly pass acts on, so the weekly pass fails too rather than charging a budget for an outage.
      */
+    /**
+     * The evidence is {@code alreadyStored}, not the aggregate duplicate count: a listing that repeats one identity --
+     * which its own overlapping cursors do -- says nothing about what Core holds. Reading the aggregate instead let a
+     * single repeat flip an outage into "charge every deferred entry in the estate".
+     */
+    @Test
+    void aListingThatRepeatsAnEntryDoesNotMakeAnOutageLookHealthy() {
+        stubPage("after", "0", "[" + entry("urn:uuid:a", "1", STATS, null) + "," + entry("urn:uuid:a", "1", STATS, null)
+                + "," + entry("urn:uuid:b", "1", STATS, null) + "]", null);
+        stubDocumentFailure("urn:uuid:a", 1, 503);
+        stubDocumentFailure("urn:uuid:b", 1, 503);
+
+        assertThatThrownBy(() -> cbomInternalService.reconcile()).isInstanceOf(CbomRepositoryException.class);
+
+        assertThat(skipRepository.count()).describedAs("nothing was charged to the retry budget").isZero();
+    }
+
     @Test
     void aReconcileThatRecognisesNothingInTheListingStillFailsAsAnOutage() {
         stubPage("after", "0",

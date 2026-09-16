@@ -1171,7 +1171,7 @@ class CbomServiceITest extends BaseSpringBootTest {
         SearchFieldDataByGroupDto propertyGroup = result.get(result.size() - 1);
 
         assertNotNull(propertyGroup);
-        assertEquals(11, propertyGroup.getSearchFieldData().size());
+        assertEquals(12, propertyGroup.getSearchFieldData().size());
 
         // Verify all expected fields are present
         List<String> fieldNames = propertyGroup
@@ -1191,6 +1191,10 @@ class CbomServiceITest extends BaseSpringBootTest {
         assertTrue(fieldNames.contains(FilterField.CBOM_TOTAL_ASSETS_COUNT.name()));
         assertTrue(fieldNames.contains(FilterField.CBOM_ASSET_SYNC_STATE.name()));
         assertTrue(fieldNames.contains(FilterField.CBOM_ASSETS_SYNCED_AT.name()));
+        // Advertised like every other member of SearchHelper.ABSENT_FROM_LISTING: that set means "filterable but not
+        // a column", and it is what stops the registered field being offered as one -- not an alternative to
+        // registering it.
+        assertTrue(fieldNames.contains(FilterField.CBOM_ASSET_SYNC_ERROR.name()));
     }
 
     @Test

@@ -351,6 +351,10 @@ public class CbomAssetIngestService {
      * by two revisions of one document -- a count too high, which the next run corrects -- where the other order would
      * leave the inventory saying nothing about a document that still exists.
      *
+     * <p>
+     * Each superseded revision's ingest report goes with its links, for the reason {@link #supersede} gives: findings
+     * describe a contribution, and a revision that contributes nothing has nothing for them to describe.
+     *
      * @return false when another node holds the cluster lock, which leaves the CBOM owing the whole unit: it is not
      * marked synced, and the next run redoes it idempotently
      */
@@ -365,6 +369,10 @@ public class CbomAssetIngestService {
             if (!withdrawn.complete()) {
                 return false;
             }
+            // After the completeness check, so an abandoned withdrawal keeps the report beside the links it still
+            // describes. This is the ordinary supersession path -- an earlier revision reading SYNCED from its own
+            // ingest is on neither work list, so supersede() never runs for it and nothing else would clear it.
+            clearReport(superseded);
         }
         return true;
     }
