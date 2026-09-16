@@ -1,5 +1,6 @@
 package com.otilm.core.mapper.crypto;
 
+import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.cryptography.key.KeyDetailDto;
@@ -38,6 +39,55 @@ import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 
 class CryptographicKeyDtoMapperTest {
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("keyMaterialResponses")
+    void mapItemToDetailDto_describesMissingMaterialAndPreservesExistingMaterial(CryptographicKeyItemBasicModel item,
+            KeyFormat expectedFormat, String expectedData) {
+        // given
+        var model = aKeySnapshot().withItems(List.of(item)).build();
+
+        // when
+        var dto = CryptographicKeyDtoMapper.mapItemToDetailDto(item);
+        var nestedItems = CryptographicKeyDtoMapper.getKeyItems(model);
+
+        // then
+        assertEquals(expectedFormat, dto.getFormat());
+        assertEquals(expectedData, dto.getKeyData());
+        assertThat(nestedItems).singleElement().satisfies(nested -> {
+            assertEquals(expectedFormat, nested.getFormat());
+            assertEquals(expectedData, nested.getKeyData());
+        });
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("keyMaterialResponses")
+    void getKeyItemsSummary_matchesDetailFormat(CryptographicKeyItemBasicModel item, KeyFormat expectedFormat) {
+        // given
+        var model = aKeySnapshot().withItems(List.of(item)).build();
+
+        // when
+        var items = CryptographicKeyDtoMapper.getKeyItemsSummary(model);
+
+        // then
+        assertThat(items).singleElement().satisfies(dto -> assertEquals(expectedFormat, dto.getFormat()));
+    }
+
+    private static Stream<Arguments> keyMaterialResponses() {
+        String providerMessage = "Key material is managed by the cryptography provider and is not available in Core.";
+        String encodedMaterial = "cHJpdmF0ZS1rZXktbWF0ZXJpYWw=";
+        String customMaterial = "provider-specific key representation";
+        return Stream
+                .of(arguments(named("missing material and format", aKeyItemSnapshot().withFormat(null).build()),
+                        KeyFormat.CUSTOM, providerMessage),
+                        arguments(named("missing material with known format", aKeyItemSnapshot().build()),
+                                KeyFormat.CUSTOM, providerMessage),
+                        arguments(named("encoded material", aKeyItemSnapshot().withKeyData(encodedMaterial).build()),
+                                KeyFormat.PRKI, encodedMaterial),
+                        arguments(named("custom material",
+                                aKeyItemSnapshot().withFormat(KeyFormat.CUSTOM).withKeyData(customMaterial).build()),
+                                KeyFormat.CUSTOM, customMaterial));
+    }
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("keyMappers")

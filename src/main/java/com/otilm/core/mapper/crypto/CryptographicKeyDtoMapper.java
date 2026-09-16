@@ -2,6 +2,7 @@ package com.otilm.core.mapper.crypto;
 
 import com.otilm.api.model.client.cryptography.CryptographicKeyResponseDto;
 import com.otilm.api.model.common.PaginationResponseDto;
+import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.group.GroupDto;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
@@ -21,6 +22,8 @@ import java.util.Objects;
 import org.springframework.data.domain.Page;
 
 public final class CryptographicKeyDtoMapper {
+
+    private static final String PROVIDER_MANAGED_KEY_DATA = "Key material is managed by the cryptography provider and is not available in Core.";
 
     private CryptographicKeyDtoMapper() {
     }
@@ -159,12 +162,12 @@ public final class CryptographicKeyDtoMapper {
         dto.setKeyAlgorithm(item.algorithm());
         dto.setType(item.type());
         dto.setLength(item.length());
-        dto.setFormat(item.format());
+        dto.setFormat(responseFormat(item));
         dto.setState(item.state());
         dto.setEnabled(item.enabled());
         dto.setUsage(item.usages());
         dto.setReason(item.reason());
-        dto.setKeyData(item.keyData());
+        dto.setKeyData(item.keyData() == null ? PROVIDER_MANAGED_KEY_DATA : item.keyData());
         dto.setComplianceStatus(item.complianceStatus());
         return dto;
     }
@@ -179,7 +182,7 @@ public final class CryptographicKeyDtoMapper {
         dto.setKeyAlgorithm(item.algorithm());
         dto.setType(item.type());
         dto.setLength(item.length());
-        dto.setFormat(item.format());
+        dto.setFormat(responseFormat(item));
         dto.setState(item.state());
         dto.setEnabled(item.enabled());
         dto.setUsage(item.usages());
@@ -202,6 +205,11 @@ public final class CryptographicKeyDtoMapper {
             dto.setTokenInstanceName(key.tokenInstance().name());
         }
         return dto;
+    }
+
+    /** Uses a custom display value when Core has no encoded key material. */
+    private static KeyFormat responseFormat(CryptographicKeyItemBasicModel item) {
+        return item.keyData() == null ? KeyFormat.CUSTOM : item.format();
     }
 
     private static GroupDto mapGroup(GroupModel group) {
