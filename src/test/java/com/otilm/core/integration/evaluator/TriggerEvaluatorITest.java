@@ -472,6 +472,15 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
                 .assertFalse(certificateTriggerEvaluator
                         .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
 
+        // A field that names no property of its own has nothing to read, and says so
+        condition.setFieldIdentifier(FilterField.CBOM_ASSET_FREE_TEXT.name());
+        condition.setOperator(FilterConditionOperator.CONTAINS);
+        condition.setValue("anything");
+        RuleException noProperty = Assertions
+                .assertThrows(RuleException.class, () -> certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        Assertions.assertTrue(noProperty.getMessage().contains("Text Search"), noProperty.getMessage());
+
         // An association the object does not hold leaves the property absent too
         certificate.setRaProfile(null);
         condition.setFieldIdentifier(FilterField.RA_PROFILE_NAME.name());

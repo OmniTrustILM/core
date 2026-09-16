@@ -259,7 +259,7 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
             boolean anyCollection = nonNestedJoinAttributes != null && !nonNestedJoinAttributes.isEmpty()
                     && nonNestedJoinAttributes.getLast().isCollection();
             Attribute fieldAttribute = isNested && anyCollection ? null : filterField.getFieldAttribute();
-            objectValue = getPropertyValue(object, nonNestedJoinAttributes, fieldAttribute);
+            objectValue = getPropertyValue(object, nonNestedJoinAttributes, fieldAttribute, filterField);
         } catch (IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {
             throw new RuleException("Cannot get property " + fieldIdentifier + " from resource " + resource + ".");
         } catch (RuntimeException e) {
@@ -315,7 +315,7 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         BiPredicate<Object, Object> comparison = comparisonFor(fieldType, operator, filterField.getLabel());
         for (Object item : objectValues) {
             if (nestedJoinAttributes != null) {
-                item = getPropertyValue(item, nestedJoinAttributes, filterField.getFieldAttribute());
+                item = getPropertyValue(item, nestedJoinAttributes, filterField.getFieldAttribute(), filterField);
             }
 
             boolean eval = item == null ? evaluateAbsentValue(operator) : comparison.test(item, conditionValue);
@@ -618,13 +618,20 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         applicationEventPublisher.publishEvent(message);
     }
 
-    private Object getPropertyValue(Object object, List<Attribute> joinAttributes, Attribute fieldAttribute)
-            throws InvocationTargetException, IllegalAccessException, NoSuchMethodException {
+    /**
+     * The value a condition reads, or null when the object does not hold the association the path leads through.
+     *
+     * @throws RuleException when the field names no property of its own: a free-text field searches several columns at
+     * once and only a query can answer it, so there is nothing here to read
+     */
+    private Object getPropertyValue(Object object, List<Attribute> joinAttributes, Attribute fieldAttribute,
+            FilterField filterField)
+            throws InvocationTargetException, IllegalAccessException, NoSuchMethodException, RuleException {
         String pathToProperty = FilterPredicatesBuilder.buildPathToProperty(joinAttributes, fieldAttribute);
         if (pathToProperty.isEmpty()) {
-            return object;
+            throw new RuleException("Condition on field '%s' is not set properly: the field names no single property, "
+                    .formatted(filterField.getLabel()) + "so it cannot be evaluated on one object");
         }
-        // Walked one link at a time: an association the object does not hold leaves the property absent
         Object current = object;
         for (String link : pathToProperty.split("\\.")) {
             if (current == null) {
