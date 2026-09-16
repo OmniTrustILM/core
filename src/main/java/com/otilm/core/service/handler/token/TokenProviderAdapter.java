@@ -65,5 +65,4 @@ public interface TokenProviderAdapter {
      */
     List<KeyRequestType> listSupportedKeyRequestTypes(TokenProfileBasicModel tokenProfile) throws ConnectorException;
 
-    ;
 }
