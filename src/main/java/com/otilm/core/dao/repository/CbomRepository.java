@@ -29,6 +29,58 @@ public interface CbomRepository extends SecurityFilterRepository<Cbom, UUID> {
 
     boolean existsBySerialNumberAndVersion(String serialNumber, int version);
 
+    /**
+     * The earlier versions of the same serial number that still source something, oldest first -- the rows whose
+     * cryptographic asset links the version identified by {@code uuid} supersedes. Every version keeps its own row, so
+     * without this an asset a document stopped naming would go on being sourced by the revision that last named it.
+     *
+     * <p>
+     * Narrowed to revisions that still have links, because a serial number accumulates revisions for ever and each one
+     * returned here costs the withdrawal a {@code findAssetUuidsByCbomUuid} of its own. A revision withdrawn the first
+     * time it was superseded has nothing left to give back, and on a serial's fortieth ingest that would be thirty-nine
+     * queries guaranteed to answer nothing, repeated on every re-ingest and every retry. The {@code EXISTS} is one
+     * indexed probe served by {@code idx_crypto_asset_source_cbom}, which leads with {@code cbom_uuid}.
+     */
+    @Query("""
+            SELECT older.uuid
+            FROM Cbom self
+            JOIN Cbom older
+                ON older.serialNumber = self.serialNumber
+            WHERE self.uuid = :uuid AND older.version < self.version
+              AND EXISTS (SELECT 1 FROM CryptoAssetSource s WHERE s.cbomUuid = older.uuid)
+            ORDER BY older.version
+            """)
+    List<UUID> findSupersededVersionUuids(@Param("uuid") UUID uuid);
+
+    /**
+     * Whether a later version of the same serial number has itself been ingested. Such a document is obsolete on
+     * arrival: ingesting it would attach the inventory to a revision another row already speaks for, and that row's own
+     * ingest withdrew this one's links when it ran.
+     *
+     * <p>
+     * <b>Ingested, not merely stored.</b> The write-off this answers is irreversible -- nothing in this application
+     * ever moves a row from {@code SYNCED} back to {@code PENDING} -- so it has to be earned by the newer revision
+     * actually contributing, not by its header row existing. After the upgrade that introduced the column every
+     * pre-existing row defaults to {@code PENDING}, which means a serial's revisions are commonly all unsynced at once:
+     * writing the older ones off against a newer row whose document turns out to be unreadable would leave the serial
+     * number contributing nothing at all, where before it contributed a stale-but-present inventory. The withdrawal
+     * half of supersession is already driven by a successful ingest, and this is the same test on the other half.
+     */
+    @Query("""
+            SELECT COUNT(newer) > 0
+            FROM Cbom self
+            JOIN Cbom newer
+                ON newer.serialNumber = self.serialNumber
+            WHERE self.uuid = :uuid AND newer.version > self.version
+              AND newer.assetSyncState = :ingested
+            """)
+    boolean hasIngestedLaterVersion(@Param("uuid") UUID uuid, @Param("ingested") CbomAssetSyncState ingested);
+
+    /** {@link #hasIngestedLaterVersion(UUID, CbomAssetSyncState)}, with the one state that counts as ingested. */
+    default boolean hasIngestedLaterVersion(UUID uuid) {
+        return hasIngestedLaterVersion(uuid, CbomAssetSyncState.SYNCED);
+    }
+
     @Query("SELECT c.uuid FROM Cbom c WHERE c.uuid IN :uuids")
     Set<UUID> findExistingUuids(@Param("uuids") List<UUID> uuids);
 
@@ -190,4 +242,59 @@ public interface CbomRepository extends SecurityFilterRepository<Cbom, UUID> {
     int updateAssetSyncState(@Param("uuid") UUID uuid, @Param("state") CbomAssetSyncState state,
             @Param("error") String error, @Param("syncedAt") OffsetDateTime syncedAt,
             @Param("expectedStates") Collection<CbomAssetSyncState> expectedStates);
+
+    /**
+     * Records a success, unless the row is carrying the one error a success must not overwrite.
+     *
+     * <p>
+     * A state guard cannot express this. Success is written unconditionally on purpose -- the run that ingested the
+     * assets is the one entitled to say so -- but a deletion that withdrew the inventory and then failed to remove the
+     * header writes {@code FAILED} from outside any ingest, and an ingest run already past its last batch when that
+     * happened would put the row straight back to {@code SYNCED} with the error cleared. The row would then claim an
+     * inventory contribution that has been deleted, and sit on neither work list.
+     *
+     * <p>
+     * It does not deadlock the row into {@code FAILED}: the next backlog pass claims it through {@code markInProgress},
+     * which clears the error, so the re-ingest that follows records its success normally.
+     *
+     * @param notOverError the error text this write refuses to displace
+     * @return 1 if the success was recorded, 0 if the row was carrying that error
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE Cbom c
+               SET c.assetSyncState = :state,
+                   c.assetSyncError = null,
+                   c.assetSyncAttemptedAt = CURRENT_TIMESTAMP,
+                   c.assetsSyncedAt = COALESCE(:syncedAt, c.assetsSyncedAt)
+             WHERE c.uuid = :uuid
+               AND (c.assetSyncError IS NULL OR c.assetSyncError <> :notOverError)
+            """)
+    int updateAssetSyncStateUnlessError(@Param("uuid") UUID uuid, @Param("state") CbomAssetSyncState state,
+            @Param("syncedAt") OffsetDateTime syncedAt, @Param("notOverError") String notOverError);
+
+    /**
+     * Records a failure that is not an ingest attempt, so it leaves the attempt clock alone.
+     *
+     * <p>
+     * {@link #updateAssetSyncState} stamps {@code assetSyncAttemptedAt} on every write, because that column is what the
+     * retry list reads to tell a live claim from an abandoned one. A deletion that withdrew the inventory and then
+     * failed attempted no ingest, and stamping it would exclude the row from the retry list for a whole
+     * {@code cbom.sync.ingest-retry-after} window and then sort it behind every older candidate -- the row that most
+     * urgently owes a rebuild made to wait the longest. So this write sets the state and the error and nothing else.
+     *
+     * @param expectedStates the states this failure may be written over; never null here, because a row that owes no
+     * ingest yet must not be moved off the fast pending list onto the slow retry one
+     * @return 1 if the failure was recorded, 0 if the row was in none of {@code expectedStates}
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE Cbom c
+               SET c.assetSyncState = :state,
+                   c.assetSyncError = :error
+             WHERE c.uuid = :uuid
+               AND c.assetSyncState IN :expectedStates
+            """)
+    int updateAssetSyncStateKeepingAttempt(@Param("uuid") UUID uuid, @Param("state") CbomAssetSyncState state,
+            @Param("error") String error, @Param("expectedStates") Collection<CbomAssetSyncState> expectedStates);
 }

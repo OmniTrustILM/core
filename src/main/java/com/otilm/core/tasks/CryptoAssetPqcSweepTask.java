@@ -19,7 +19,8 @@ import org.springframework.stereotype.Component;
  * yes, re-tune no. It needs the external scheduler, which {@code CbomSyncTask} already needs.
  *
  * <p>
- * Not {@code @Transactional}: {@code SchedulerListener} already opens one, and the sweeper's own is the second.
+ * Not {@code @Transactional}: {@code SchedulerListener} runs a job with no transaction, and
+ * {@code PqcVerdictSweeper.sweep()} opens its own ({@code REQUIRES_NEW}).
  */
 @Slf4j
 @Component
@@ -75,9 +76,10 @@ public class CryptoAssetPqcSweepTask implements ScheduledJobTask {
      * as recorded: the sweep counts the stamps that committed, not the ones it built.
      *
      * <p>
-     * The catch is what stops a failure of the sweep's own connection -- a failover, a pooler restart, an
-     * {@code idle_in_transaction_session_timeout} -- from leaving no history row at all. It runs on the listener's
-     * transaction, which is still live, and its text is fixed: an exception message here reaches the scheduler API.
+     * The catch names the failure. Without it the scheduler would still record a generic FAILED row -- its writer runs
+     * in a transaction of its own, so a failure of the sweep's connection (a failover, a pooler restart, an
+     * {@code idle_in_transaction_session_timeout}) cannot take the row with it -- but this way the row carries the
+     * sweep's own message and its resource tag. The text is fixed: an exception message here reaches the scheduler API.
      */
     @Override
     public ScheduledTaskResult performJob(final ScheduledJobInfo scheduledJobInfo, final Object taskData) {

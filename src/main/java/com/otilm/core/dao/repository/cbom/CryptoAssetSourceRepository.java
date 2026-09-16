@@ -6,6 +6,7 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -45,6 +46,18 @@ public interface CryptoAssetSourceRepository extends SecurityFilterRepository<Cr
      */
     @Query("SELECT DISTINCT s.assetUuid FROM CryptoAssetSource s WHERE s.cbomUuid = :cbomUuid ORDER BY s.assetUuid")
     List<UUID> findAssetUuidsByCbomUuid(@Param("cbomUuid") UUID cbomUuid);
+
+    /**
+     * The same work list, one page of it, for a withdrawal that reads under the cluster lock it withdraws under.
+     *
+     * <p>
+     * A withdrawal cannot read the whole list once and then work through it: the lock is transaction-scoped and
+     * released at every batch commit, so a list read before the lock -- or before the previous batch's commit -- misses
+     * every source an ingest of the same document attached in the gap. Re-reading a page under the lock is what makes
+     * the emptiness the withdrawal finishes on true rather than remembered.
+     */
+    @Query("SELECT DISTINCT s.assetUuid FROM CryptoAssetSource s WHERE s.cbomUuid = :cbomUuid ORDER BY s.assetUuid")
+    List<UUID> findAssetUuidsByCbomUuid(@Param("cbomUuid") UUID cbomUuid, Limit limit);
 
     /**
      * Records what one CBOM says about one asset, or refreshes it.

@@ -1,7 +1,6 @@
 package com.otilm.core.cbom.ingest;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.core.cbom.CbomAssetSyncState;
@@ -12,7 +11,6 @@ import com.otilm.core.cbom.asset.identity.CryptoAssetIdentity;
 import com.otilm.core.cbom.asset.identity.IdentityTables;
 import com.otilm.core.cbom.pqc.PqcEvaluator;
 import com.otilm.core.cluster.ClusterOperationSynchronizer;
-import com.otilm.core.config.CbomSyncProperties;
 import com.otilm.core.dao.repository.CbomRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
 import com.otilm.core.events.transaction.TransactionHandler;
@@ -22,7 +20,6 @@ import com.otilm.core.service.writer.cbom.CryptoAssetAliasWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetSourceWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetWriter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
@@ -57,7 +54,6 @@ import static org.mockito.Mockito.when;
  */
 class CbomAssetIngestServiceTest {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final UUID CBOM = UUID.randomUUID();
     private static final OffsetDateTime SEEN_AT = OffsetDateTime.parse("2026-09-14T10:00:00Z");
     private static final String LOCK_KEY = CbomAssetIngestService.assetSyncLockKey(CBOM);
@@ -68,6 +64,7 @@ class CbomAssetIngestServiceTest {
     private final CbomRepository cbomRepository = mock(CbomRepository.class);
     private final CryptoAssetRepository assetRepository = mock(CryptoAssetRepository.class);
     private final ClusterOperationSynchronizer synchronizer = mock(ClusterOperationSynchronizer.class);
+    private final CbomAssetDetachService detachService = mock(CbomAssetDetachService.class);
 
     @Test
     void everyAssetIsStoredWithItsSourceAndTheCbomReadsSynced() {
@@ -249,6 +246,51 @@ class CbomAssetIngestServiceTest {
     }
 
     /**
+     * Supersede is what makes the inventory say what the newest version of each URN says. Every version keeps its own
+     * {@code cbom} row, so the earlier one has to be withdrawn explicitly -- and after the new version's sources are
+     * written, so that a run dying in between overstates a count rather than losing the asset.
+     */
+    @Test
+    void theEarlierVersionsOfTheUrnAreWithdrawnAfterTheNewOneIsWritten() {
+        when(synchronizer.tryLock(anyString())).thenReturn(true);
+        whenUpsertReturnsAFreshUuid();
+        UUID earlier = UUID.randomUUID();
+        when(cbomRepository.findSupersededVersionUuids(CBOM)).thenReturn(List.of(earlier));
+        when(detachService.withdraw(earlier)).thenReturn(new CbomAssetDetachService.Withdrawal(2, 1, 0, true));
+
+        CbomAssetIngestService.IngestOutcome outcome = ingest(twoAlgorithms(), 100);
+
+        assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
+        InOrder order = inOrder(sourceWriter, detachService, stateWriter);
+        order.verify(sourceWriter, atLeastOnce()).upsertSource(any(), eq(CBOM), any(), any(), anyInt(), any());
+        order.verify(detachService).withdraw(earlier);
+        order.verify(stateWriter).markSynced(CBOM, SEEN_AT);
+    }
+
+    /**
+     * A withdrawal another node took the lock for leaves the whole unit owed: the CBOM is not marked synced, so the
+     * next run redoes it -- upserts included, which are idempotent -- rather than leaving one asset sourced by two
+     * revisions of the same document.
+     */
+    @Test
+    void aContendedWithdrawalLeavesTheCbomOwingTheWholeUnit() {
+        when(cbomRepository.findAssetSyncState(CBOM)).thenReturn(Optional.of(CbomAssetSyncState.PENDING));
+        when(synchronizer.tryLock(anyString())).thenReturn(true);
+        whenUpsertReturnsAFreshUuid();
+        UUID earlier = UUID.randomUUID();
+        when(cbomRepository.findSupersededVersionUuids(CBOM)).thenReturn(List.of(earlier));
+        when(detachService.withdraw(earlier)).thenReturn(new CbomAssetDetachService.Withdrawal(0, 0, 0, false));
+
+        CbomAssetIngestService.IngestOutcome outcome = ingest(twoAlgorithms(), 100);
+
+        assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.LOCKED_ELSEWHERE);
+        verify(stateWriter, never()).markSynced(any(), any());
+        verify(stateWriter, never()).markFailed(any(), anyString());
+        // The claim goes back, as it does when a batch finds the lock taken: the whole unit is owed again.
+        verify(stateWriter).releaseClaim(CBOM, CbomAssetSyncState.PENDING);
+    }
+
+    /**
      * Two components reporting the same algorithm are one source row, and the arbiter's {@code DO UPDATE} assigns
      * rather than accumulates on a {@code last_seen_at} tie -- which every component of one document is. Written one at
      * a time the last component would replace the first's payload and count; folded here they add up.
@@ -277,14 +319,116 @@ class CbomAssetIngestServiceTest {
     @Test
     void ingestWritesNothingWhenTheKillSwitchIsOff() {
         CbomAssetIngestService.IngestOutcome outcome = new CbomAssetIngestService(realExtractor(), assetWriter,
-                sourceWriter, stateWriter, cbomRepository, assetRepository,
+                sourceWriter, detachService, stateWriter, cbomRepository, assetRepository,
                 new PqcEvaluator(new AssetNormalizer(IdentityTables.load())), synchronizer, new TransactionHandler(),
-                new SimpleMeterRegistry(), ingestDisabled()).ingest(CBOM, twoAlgorithms(), SEEN_AT);
+                new SimpleMeterRegistry(), CbomIngestTestFixtures.propertiesWithIngestDisabled())
+                .ingest(CBOM, twoAlgorithms(), SEEN_AT);
 
         assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.DISABLED);
         verify(stateWriter, never()).markInProgress(any());
         verify(assetWriter, never()).upsertIdentity(anyString(), any(), any());
         verify(synchronizer, never()).tryLock(anyString());
+    }
+
+    /**
+     * A revision an <em>ingested</em> later one supersedes is never extracted, takes no claim, and is settled without a
+     * sync time of its own.
+     */
+    @Test
+    void aSupersededVersionIsNotExtracted() {
+        when(cbomRepository.hasIngestedLaterVersion(CBOM)).thenReturn(true);
+        when(detachService.withdraw(CBOM)).thenReturn(CbomAssetDetachService.Withdrawal.NOTHING);
+        CbomAssetExtractor extractor = mock(CbomAssetExtractor.class);
+
+        CbomAssetIngestService.IngestOutcome outcome = service(extractor, 100).ingest(CBOM, twoAlgorithms(), SEEN_AT);
+
+        assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.SUPERSEDED);
+        verify(extractor, never()).extract(any(JsonNode.class));
+        verify(assetWriter, never()).upsertIdentity(anyString(), any(), any());
+        verify(stateWriter, never()).markInProgress(any());
+        verify(stateWriter).markSuperseded(CBOM);
+        verify(stateWriter, never()).markSynced(any(), any());
+    }
+
+    /**
+     * A later row that has not itself been ingested is not a supersession. After the upgrade that introduced the state
+     * column every pre-existing row is PENDING, so a serial's revisions are commonly all unsynced at once; writing the
+     * older one off against a newer row whose document may never be readable would leave the URN contributing nothing
+     * at all, and nothing ever moves a SYNCED row back onto a work list.
+     */
+    @Test
+    void aLaterVersionThatHasNotItselfBeenIngestedSupersedesNothing() {
+        when(cbomRepository.hasIngestedLaterVersion(CBOM)).thenReturn(false);
+        when(synchronizer.tryLock(anyString())).thenReturn(true);
+        whenUpsertReturnsAFreshUuid();
+
+        CbomAssetIngestService.IngestOutcome outcome = ingest(twoAlgorithms(), 100);
+
+        assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
+        verify(assetWriter, atLeastOnce()).upsertIdentity(anyString(), any(), any());
+    }
+
+    /**
+     * The supersede check is re-read under the cluster lock, because that lock is released at every batch commit. In
+     * the gap a newer revision can be stored, ingested, and withdraw everything written so far; resuming would
+     * re-attach a superseded revision's links to assets the newer one now owns, permanently -- the newer row is SYNCED
+     * and never looks again.
+     */
+    @Test
+    void aVersionOvertakenBetweenBatchesAbandonsTheRestAndGivesBackWhatItWrote() {
+        when(cbomRepository.findAssetSyncState(CBOM)).thenReturn(Optional.of(CbomAssetSyncState.PENDING));
+        when(synchronizer.tryLock(anyString())).thenReturn(true);
+        whenUpsertReturnsAFreshUuid();
+        // False at entry, true by the second batch: a newer revision landed in the gap between the two commits.
+        when(cbomRepository.hasIngestedLaterVersion(CBOM)).thenReturn(false, false, true);
+        when(detachService.withdraw(CBOM)).thenReturn(new CbomAssetDetachService.Withdrawal(1, 1, 0, true));
+
+        CbomAssetIngestService.IngestOutcome outcome = ingest(twoAlgorithms(), 1);
+
+        assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.SUPERSEDED);
+        // What the first batch wrote is given back rather than stranded: nothing else would ever withdraw it, since
+        // the withdrawal half of supersession only runs from the ingesting version.
+        verify(detachService).withdraw(CBOM);
+        verify(stateWriter).markSuperseded(CBOM);
+        verify(stateWriter, never()).markSynced(any(), any());
+    }
+
+    /** A withdrawal of its own contribution that another node holds the lock for leaves the row owing the unit. */
+    @Test
+    void aSupersededVersionWhoseOwnWithdrawalIsContendedIsNotWrittenOff() {
+        when(cbomRepository.hasIngestedLaterVersion(CBOM)).thenReturn(true);
+        when(cbomRepository.findAssetSyncState(CBOM)).thenReturn(Optional.of(CbomAssetSyncState.FAILED));
+        when(detachService.withdraw(CBOM)).thenReturn(new CbomAssetDetachService.Withdrawal(1, 0, 0, false));
+
+        CbomAssetIngestService.IngestOutcome outcome = service(mock(CbomAssetExtractor.class), 100)
+                .ingest(CBOM, twoAlgorithms(), SEEN_AT);
+
+        assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.LOCKED_ELSEWHERE);
+        verify(stateWriter, never()).markSuperseded(any());
+        verify(stateWriter).releaseClaim(CBOM, CbomAssetSyncState.FAILED);
+    }
+
+    /**
+     * A CBOM deleted while its assets were being ingested stops the ingest instead of sourcing a header that is gone.
+     *
+     * <p>
+     * The lock is released at every batch commit, and the deletion takes it to withdraw the inventory and remove the
+     * header. Resuming would insert {@code crypto_asset_source} rows against a {@code cbom_uuid} that no longer exists:
+     * a foreign-key violation, a noisy failed document, and a {@code markFailed} that updates no row because there is
+     * no row. The probe sits next to the supersession re-read, which is there for the same reason.
+     */
+    @Test
+    void aCbomDeletedBetweenTwoBatchesStopsTheIngestRatherThanSourcingAMissingHeader() {
+        when(cbomRepository.hasIngestedLaterVersion(CBOM)).thenReturn(false);
+        when(synchronizer.tryLock(anyString())).thenReturn(true);
+        whenUpsertReturnsAFreshUuid();
+        CbomAssetIngestService service = service(realExtractor(), 1);
+        when(cbomRepository.existsById(CBOM)).thenReturn(true, false);
+
+        CbomAssetIngestService.IngestOutcome outcome = service.ingest(CBOM, twoAlgorithms(), SEEN_AT);
+
+        assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.DELETED);
+        verify(stateWriter, never()).markSynced(any(), any());
     }
 
     // ---------------------------------------------------------------- fixtures
@@ -294,9 +438,13 @@ class CbomAssetIngestServiceTest {
     }
 
     private CbomAssetIngestService service(CbomAssetExtractor extractor, int batchSize) {
-        return new CbomAssetIngestService(extractor, assetWriter, sourceWriter, stateWriter, cbomRepository,
-                assetRepository, new PqcEvaluator(new AssetNormalizer(IdentityTables.load())), synchronizer,
-                new TransactionHandler(), new SimpleMeterRegistry(), properties(batchSize));
+        // The header is there unless a test says otherwise: every batch re-reads it under the lock, because a deletion
+        // can remove it in the gap between two batch commits.
+        when(cbomRepository.existsById(CBOM)).thenReturn(true);
+        return new CbomAssetIngestService(extractor, assetWriter, sourceWriter, detachService, stateWriter,
+                cbomRepository, assetRepository, new PqcEvaluator(new AssetNormalizer(IdentityTables.load())),
+                synchronizer, new TransactionHandler(), new SimpleMeterRegistry(),
+                CbomIngestTestFixtures.properties(batchSize));
     }
 
     private void doThrowFromVerdictStamp() {
@@ -308,15 +456,6 @@ class CbomAssetIngestServiceTest {
 
     private static CbomAssetExtractor realExtractor() {
         return new CbomAssetExtractor(new CryptoAssetIdentity(new AssetNormalizer(IdentityTables.load())));
-    }
-
-    private static CbomSyncProperties ingestDisabled() {
-        return new CbomSyncProperties(1000, Duration.ofSeconds(60), 3, false, 100, 50, Duration.ofMinutes(30));
-    }
-
-    private static CbomSyncProperties properties(int assetBatchSize) {
-        return new CbomSyncProperties(1000, Duration.ofSeconds(60), 3, true, assetBatchSize, 50,
-                Duration.ofMinutes(30));
     }
 
     private void whenUpsertReturnsAFreshUuid() {
@@ -331,34 +470,23 @@ class CbomAssetIngestServiceTest {
     }
 
     private static JsonNode oneAlgorithm() {
-        return read("{\"components\":[" + algorithm("RSA-2048") + "]}");
+        return CbomIngestTestFixtures.algorithmDocument("RSA-2048");
     }
 
     private static JsonNode twoAlgorithms() {
-        return read("{\"components\":[" + algorithm("AES-256") + "," + algorithm("RSA-2048") + "]}");
+        return CbomIngestTestFixtures.algorithmDocument("AES-256", "RSA-2048");
     }
 
     /** Two components reporting the same algorithm, each with its own occurrence evidence. */
     private static JsonNode theSameAlgorithmTwice() {
-        return read("{\"components\":[" + algorithmSeenAt("/one") + "," + algorithmSeenAt("/two") + "]}");
+        return CbomIngestTestFixtures
+                .read("{\"components\":["
+                        + "{\"type\":\"cryptographic-asset\",\"name\":\"RSA-2048\",\"cryptoProperties\":"
+                        + "{\"assetType\":\"algorithm\",\"algorithmProperties\":{}},"
+                        + "\"evidence\":{\"occurrences\":[{\"location\":\"/one\"}]}},"
+                        + "{\"type\":\"cryptographic-asset\",\"name\":\"RSA-2048\",\"cryptoProperties\":"
+                        + "{\"assetType\":\"algorithm\",\"algorithmProperties\":{}},"
+                        + "\"evidence\":{\"occurrences\":[{\"location\":\"/two\"}]}}]}");
     }
 
-    private static String algorithmSeenAt(String location) {
-        return "{\"type\":\"cryptographic-asset\",\"name\":\"RSA-2048\",\"cryptoProperties\":"
-                + "{\"assetType\":\"algorithm\",\"algorithmProperties\":{}},"
-                + "\"evidence\":{\"occurrences\":[{\"location\":\"" + location + "\"}]}}";
-    }
-
-    private static String algorithm(String name) {
-        return "{\"type\":\"cryptographic-asset\",\"name\":\"" + name + "\",\"cryptoProperties\":"
-                + "{\"assetType\":\"algorithm\",\"algorithmProperties\":{}}}";
-    }
-
-    private static JsonNode read(String json) {
-        try {
-            return MAPPER.readTree(json);
-        } catch (Exception e) {
-            throw new IllegalStateException(e);
-        }
-    }
 }

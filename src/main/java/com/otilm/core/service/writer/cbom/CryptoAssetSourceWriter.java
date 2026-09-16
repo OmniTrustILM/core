@@ -109,17 +109,19 @@ public class CryptoAssetSourceWriter {
      * Removes one CBOM's contribution to one asset and re-elects the asset's merged payload from what is left.
      *
      * <p>
-     * An asset left with no sources is retained, with {@code source_count} at zero and its payload cleared, rather than
-     * deleted: retention is reversible by a later sweep and deletion is not, and the epic's re-sync semantics have not
-     * ratified which one applies.
+     * This method leaves an asset with no sources behind, cleared and counted at zero; it does not decide what happens
+     * to it. That decision is the orphan rule, it belongs to the caller that knows why the source went away, and
+     * {@code CbomAssetDetachService} is where it lives: the row is deleted unless an alias points at it as its
+     * canonical key, in which case it is kept so that the cascade from {@code crypto_asset_alias} does not collect the
+     * operator's merge decision along with it.
      *
      * <p>
-     * <b>No production caller yet, and that is now reachable.</b> The delete path in {@code CbomServiceImpl} must call
-     * this for every asset a CBOM contributes to before deleting the row, because
-     * {@code crypto_asset_source_to_cbom_key} is RESTRICT; until then a CBOM that has acquired a source cannot be
-     * deleted through the API at all. Ingest is what first writes those rows, so from core#2073 the exposure is live
-     * and {@code cbom.sync.asset-ingest-enabled} is what bounds it: turning ingest off stops any further CBOM acquiring
-     * sources, and is the operator's answer until the deletion lifecycle lands with the withdrawal and the tombstone.
+     * <b>The API's delete path still does not call this.</b> {@code CbomServiceImpl} must withdraw every asset a CBOM
+     * contributes to before deleting the row, because {@code crypto_asset_source_to_cbom_key} is RESTRICT; until it
+     * does, a CBOM that has acquired a source cannot be deleted through the API at all. Ingest is what writes those
+     * rows, so the exposure is live from core#2073 and {@code cbom.sync.asset-ingest-enabled} is what bounds it:
+     * turning ingest off stops any further CBOM acquiring sources. The supersede path here is the first caller of this
+     * unit of work, not the deletion lifecycle.
      *
      * @return 1 if a source row was removed, 0 if there was none
      */

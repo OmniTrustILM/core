@@ -30,6 +30,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
@@ -68,9 +69,16 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>
  * <b>Lock ranking, third rank included.</b> The asset-sync lock is taken above {@code ALIAS_DECISION_LOCK}, which is
- * above every {@code crypto_asset} row lock. The asset-sync lock is only ever acquired with a non-blocking
- * {@code tryLock}, so a node that cannot get it abandons the batch rather than joining a wait chain; acquiring it with
- * a blocking call would close a cycle against any path that takes the two in the other order.
+ * above every {@code crypto_asset} row lock. On this path it is acquired with a non-blocking {@code tryLock}, so a node
+ * that cannot get it abandons the batch rather than joining a wait chain.
+ *
+ * <p>
+ * It may also be acquired <b>blocking</b> -- {@link CbomAssetDetachService#withdrawWaiting(UUID)} does, for a caller
+ * that was promised the outcome, and so does the header delete that follows it -- and what keeps that safe is the
+ * ranking, not the non-blocking call: the blocking acquisition is the <b>first</b> lock of its transaction, so the
+ * waiter holds nothing any holder could go on to want, and no cycle can close. A path that took
+ * {@code ALIAS_DECISION_LOCK} or a {@code crypto_asset} row lock and then waited on the asset-sync lock would close
+ * one; that is the thing this ranking forbids.
  */
 @Slf4j
 @Service
@@ -82,6 +90,7 @@ public class CbomAssetIngestService {
     private final CbomAssetExtractor extractor;
     private final CryptoAssetWriter assetWriter;
     private final CryptoAssetSourceWriter sourceWriter;
+    private final CbomAssetDetachService detachService;
     private final CbomAssetSyncStateWriter stateWriter;
     private final CbomRepository cbomRepository;
     private final CryptoAssetRepository assetRepository;
@@ -93,13 +102,14 @@ public class CbomAssetIngestService {
     private final int batchSize;
 
     public CbomAssetIngestService(CbomAssetExtractor extractor, CryptoAssetWriter assetWriter,
-            CryptoAssetSourceWriter sourceWriter, CbomAssetSyncStateWriter stateWriter, CbomRepository cbomRepository,
-            CryptoAssetRepository assetRepository, PqcEvaluator evaluator,
-            ClusterOperationSynchronizer clusterSynchronizer, TransactionHandler transactionHandler,
-            MeterRegistry meterRegistry, CbomSyncProperties properties) {
+            CryptoAssetSourceWriter sourceWriter, CbomAssetDetachService detachService,
+            CbomAssetSyncStateWriter stateWriter, CbomRepository cbomRepository, CryptoAssetRepository assetRepository,
+            PqcEvaluator evaluator, ClusterOperationSynchronizer clusterSynchronizer,
+            TransactionHandler transactionHandler, MeterRegistry meterRegistry, CbomSyncProperties properties) {
         this.extractor = extractor;
         this.assetWriter = assetWriter;
         this.sourceWriter = sourceWriter;
+        this.detachService = detachService;
         this.stateWriter = stateWriter;
         this.cbomRepository = cbomRepository;
         this.assetRepository = assetRepository;
@@ -139,7 +149,23 @@ public class CbomAssetIngestService {
          * {@code cbom.sync.asset-ingest-enabled} is off. Nothing was read and nothing was written, and the CBOM is left
          * exactly as it was found -- so turning the switch back on resumes rather than repairs.
          */
-        DISABLED
+        DISABLED,
+        /**
+         * A later version of the same serial number has itself been ingested, so this document no longer speaks for its
+         * URN. Anything this revision had already contributed is withdrawn and the CBOM reads {@code SYNCED}: it owes
+         * no ingest, because the version that supersedes it owns the inventory.
+         *
+         * <p>
+         * {@code assets_synced_at} is deliberately <b>not</b> stamped -- see
+         * {@link CbomAssetSyncStateWriter#markSuperseded}.
+         */
+        SUPERSEDED,
+        /**
+         * The CBOM header was deleted while this document was being ingested, so there is nothing left to source. The
+         * row is gone, so nothing is written and nothing is owed: the tombstone is what keeps the next run from storing
+         * the document again.
+         */
+        DELETED
     }
 
     /**
@@ -152,20 +178,50 @@ public class CbomAssetIngestService {
      */
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public IngestOutcome ingest(UUID cbomUuid, Map<String, Object> document, OffsetDateTime seenAt) {
-        final JsonNode tree = JSON_COLUMN.valueToTree(document);
-        return ingest(cbomUuid, tree, seenAt);
+        // Ahead of valueToTree, which is the whole reason the check is its own method: both production callers reach
+        // this overload -- the inline pass with a Map, the backlog pass with a BomResponseDto, which extends
+        // LinkedHashMap -- so a check made only in the JsonNode overload would build the tree of every disabled and
+        // every superseded document first.
+        return settleWithoutReading(cbomUuid)
+                .orElseGet(() -> ingestExtracted(cbomUuid, JSON_COLUMN.valueToTree(document), seenAt));
     }
 
     /** As {@link #ingest(UUID, Map, OffsetDateTime)}, for a document already parsed into a tree. */
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public IngestOutcome ingest(UUID cbomUuid, JsonNode document, OffsetDateTime seenAt) {
+        return settleWithoutReading(cbomUuid).orElseGet(() -> ingestExtracted(cbomUuid, document, seenAt));
+    }
+
+    /**
+     * What this CBOM's ingest is settled as without its document, if anything -- the kill switch, and supersession.
+     *
+     * <p>
+     * Public because a caller that has still to <em>fetch</em> the document should ask first: {@link #ingest} calls it
+     * too, as the backstop that makes the answer true of every caller, but by then the HTTP read has been paid for.
+     * Calling it changes state (a superseded revision is withdrawn and settled), so its answer is an outcome to count,
+     * not a question to ask idly.
+     *
+     * @return the outcome when there is nothing to read the document for, empty when the ingest should proceed
+     */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public Optional<IngestOutcome> settleWithoutReading(UUID cbomUuid) {
         // The authoritative half of the kill switch. Its callers check it too, so that a disabled run does not select
         // a work list or spend a document read; this is what makes "nothing is written" true of every caller, present
         // and future, rather than of the two that remember to ask.
         if (!enabled) {
-            return IngestOutcome.DISABLED;
+            return Optional.of(IngestOutcome.DISABLED);
         }
-        // Captured before the claim overwrites it, so a batch that finds the lock taken can put the row back in the
+        if (cbomRepository.hasIngestedLaterVersion(cbomUuid)) {
+            // Ahead of the claim as well, so a revision nothing will extract never takes one. The callers test it
+            // earlier still, before spending the document read; this is the backstop that makes it true of every
+            // caller.
+            return Optional.of(supersede(cbomUuid, cbomRepository.findAssetSyncState(cbomUuid).orElse(null)));
+        }
+        return Optional.empty();
+    }
+
+    private IngestOutcome ingestExtracted(UUID cbomUuid, JsonNode document, OffsetDateTime seenAt) {
+        // Captured before the claim overwrites it, so a unit that finds the lock taken can put the row back in the
         // list it came from rather than leaving it IN_PROGRESS for work no node is doing.
         final CbomAssetSyncState entryState = cbomRepository.findAssetSyncState(cbomUuid).orElse(null);
         runInOwnTransaction(() -> stateWriter.markInProgress(cbomUuid));
@@ -190,11 +246,27 @@ public class CbomAssetIngestService {
                 .coalesceByIdentity(extraction.assets(), CbomAssetIngestService::leafCountOf);
         try {
             for (List<CbomAssetExtractor.ExtractedAsset> batch : batches(assets)) {
-                final boolean locked = transactionHandler
+                final BatchOutcome outcome = transactionHandler
                         .runInNewTransaction(() -> writeBatchUnderClusterLock(cbomUuid, batch, seenAt));
-                if (!locked) {
+                if (outcome == BatchOutcome.LOCKED_ELSEWHERE) {
                     return lockedElsewhere(cbomUuid, entryState);
                 }
+                if (outcome == BatchOutcome.SUPERSEDED) {
+                    return supersede(cbomUuid, entryState);
+                }
+                if (outcome == BatchOutcome.DELETED) {
+                    log.debug("CBOM asset ingest: CBOM {} was deleted while its assets were being ingested", cbomUuid);
+                    return IngestOutcome.DELETED;
+                }
+            }
+            // Once more before the row is called synced, for the version that was on its last batch when a newer one
+            // took the URN: nothing after the loop would otherwise look again, and this revision would be recorded as
+            // the one speaking for a URN it no longer speaks for.
+            if (cbomRepository.hasIngestedLaterVersion(cbomUuid)) {
+                return supersede(cbomUuid, entryState);
+            }
+            if (!withdrawSupersededVersions(cbomUuid)) {
+                return lockedElsewhere(cbomUuid, entryState);
             }
         } catch (RuntimeException e) {
             log.warn("CBOM asset ingest: storing the assets failed for CBOM {}", cbomUuid, e);
@@ -209,14 +281,65 @@ public class CbomAssetIngestService {
     }
 
     /**
-     * One batch, inside the transaction that holds the cluster lock. Returns false when another node is ingesting the
-     * same CBOM, which is a skip rather than a failure: the CBOM keeps owing an ingest and the next run offers it
-     * again.
+     * Hands the URN to this version: every earlier version's links are withdrawn, and the assets they leave without a
+     * source are settled by {@link CbomAssetDetachService}'s orphan rule.
+     *
+     * <p>
+     * After the new version's own sources are written, not before. A run that dies in between leaves an asset sourced
+     * by two revisions of one document -- a count too high, which the next run corrects -- where the other order would
+     * leave the inventory saying nothing about a document that still exists.
+     *
+     * @return false when another node holds the cluster lock, which leaves the CBOM owing the whole unit: it is not
+     * marked synced, and the next run redoes it idempotently
      */
-    private boolean writeBatchUnderClusterLock(UUID cbomUuid, List<CbomAssetExtractor.ExtractedAsset> batch,
+    private boolean withdrawSupersededVersions(UUID cbomUuid) {
+        for (UUID superseded : cbomRepository.findSupersededVersionUuids(cbomUuid)) {
+            final CbomAssetDetachService.Withdrawal withdrawn = detachService.withdraw(superseded);
+            if (withdrawn.detached() > 0) {
+                log
+                        .debug("CBOM asset ingest: CBOM {} superseded version {}, withdrawing {} links ({} assets deleted, {} kept for an alias)",
+                                cbomUuid, superseded, withdrawn.detached(), withdrawn.deleted(), withdrawn.kept());
+            }
+            if (!withdrawn.complete()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** What one batch of asset writes did, for the loop that drives them. */
+    private enum BatchOutcome {
+        WRITTEN,
+        /** Another node is ingesting the same CBOM: a skip, not a failure. The CBOM keeps owing an ingest. */
+        LOCKED_ELSEWHERE,
+        /** A newer revision took the URN while this document was being written. */
+        SUPERSEDED,
+        /** An operator deleted the CBOM header while this document was being written. */
+        DELETED
+    }
+
+    /**
+     * One batch, inside the transaction that holds the cluster lock.
+     */
+    private BatchOutcome writeBatchUnderClusterLock(UUID cbomUuid, List<CbomAssetExtractor.ExtractedAsset> batch,
             OffsetDateTime seenAt) {
         if (!clusterSynchronizer.tryLock(assetSyncLockKey(cbomUuid))) {
-            return false;
+            return BatchOutcome.LOCKED_ELSEWHERE;
+        }
+        // Re-read under the lock, not once at entry. The lock is transaction-scoped, so it is released at every batch
+        // commit -- and in that gap a newer revision can be stored, ingested, and withdraw everything this document has
+        // written so far. Resuming would then re-attach a superseded revision's links to assets the newer revision now
+        // owns, permanently: the newer row is SYNCED and never looks again, and the withdrawal is only ever driven by
+        // the ingesting version. One indexed lookup per batch closes it.
+        if (cbomRepository.hasIngestedLaterVersion(cbomUuid)) {
+            return BatchOutcome.SUPERSEDED;
+        }
+        // The same reasoning as the supersession re-read, for the other thing that can happen to this CBOM in the gap:
+        // a deletion withdraws the inventory and removes the header under this very lock. Writing a source row against
+        // a cbom_uuid that is gone violates crypto_asset_source_to_cbom_key -- a noisy failed document whose markFailed
+        // then updates no row, because there is no row. One indexed lookup, next to the one already here.
+        if (!cbomRepository.existsById(cbomUuid)) {
+            return BatchOutcome.DELETED;
         }
         // Before the first crypto_asset row lock any writer below will take. Re-entrant within the transaction, so
         // taking it here costs the writers' own acquisitions nothing.
@@ -257,7 +380,36 @@ public class CbomAssetIngestService {
             written.add(assetUuid);
         }
         stampVerdicts(written);
-        return true;
+        return BatchOutcome.WRITTEN;
+    }
+
+    /**
+     * Hands this revision's place to the version that supersedes it: whatever it had already written is withdrawn, and
+     * the row is settled as synced without claiming a sync of its own.
+     *
+     * <p>
+     * The withdrawal is what makes the write-off safe. A revision can reach this point with part of an inventory
+     * already attached -- a run that failed partway, or one a newer revision overtook between batches -- and marking it
+     * synced without giving those links back would strand that partial contribution for ever: nothing moves a
+     * {@code SYNCED} row back onto a work list, and the withdrawal half of supersession only ever runs from the
+     * <em>ingesting</em> version, which has already been and gone.
+     *
+     * <p>
+     * An incomplete withdrawal leaves the row owing the unit rather than marking it synced, so the next run finishes
+     * what this one started.
+     */
+    private IngestOutcome supersede(UUID cbomUuid, CbomAssetSyncState entryState) {
+        final CbomAssetDetachService.Withdrawal withdrawn = detachService.withdraw(cbomUuid);
+        if (!withdrawn.complete()) {
+            return lockedElsewhere(cbomUuid, entryState);
+        }
+        if (withdrawn.detached() > 0) {
+            log
+                    .debug("CBOM asset ingest: CBOM {} is superseded; withdrew the {} links it had already contributed",
+                            cbomUuid, withdrawn.detached());
+        }
+        runInOwnTransaction(() -> stateWriter.markSuperseded(cbomUuid));
+        return IngestOutcome.SUPERSEDED;
     }
 
     /**

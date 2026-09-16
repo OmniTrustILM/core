@@ -38,6 +38,61 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
     List<UUID> findUuidsKeyedBefore(@Param("version") int version);
 
     /**
+     * Which of the given assets no CBOM sources any more, and which of those an operator decision points at -- the
+     * orphan rule's two questions, answered together for a whole batch.
+     *
+     * <p>
+     * <b>One round trip for the batch, not two per asset.</b> The caller runs inside the transaction holding
+     * {@code ALIAS_DECISION_LOCK}, which every ingest batch on every node also blocks on, and it already pays three
+     * statements per asset to detach it. Asking both questions per asset would make that five, all serialized behind a
+     * cluster-wide lock; on a document with a few thousand assets that is the whole cluster's ingest throughput.
+     *
+     * <p>
+     * <b>The absence of a source row, not {@code source_count}.</b> The counter is bookkeeping only
+     * {@code recomputeMergeFromSources} maintains, while {@code crypto_asset_source} is the fact it is derived from --
+     * and what this answer authorizes is an irreversible {@code DELETE} whose
+     * {@code crypto_asset_source_to_crypto_asset_key} cascade takes every other CBOM's provenance with it. Gating that
+     * on a derived counter turns any divergence into data loss instead of a stale number. The predicate is served by
+     * {@code uq_crypto_asset_source}, which leads with {@code asset_uuid}, so it costs what the counter read cost.
+     *
+     * <p>
+     * <b>Only the canonical side of a merge.</b> {@code crypto_asset_alias} has exactly one foreign key --
+     * {@code canonical_key}, {@code ON DELETE CASCADE} -- so deleting an orphan is capable of destroying an operator's
+     * merge decision on that side alone. An orphan whose key is only some alias's {@code absorbed_key} can be collected
+     * without touching the alias at all, and per the migration's own comment an absorbed row that no longer exists is
+     * the alias table's normal state. Retaining those would keep rows the documents no longer mention, for a risk that
+     * is not present on that side.
+     *
+     * <p>
+     * Native, so it reads the rows the detachment just wrote rather than entities the persistence context cached before
+     * it: {@code recomputeMergeFromSources} is a {@code @Modifying} native statement, which leaves any managed copy
+     * stale. An asset with no {@code crypto_asset} row is simply not returned, which is the same answer as "nothing to
+     * collect". The alias join stays inside the repository rather than the key being handed to a caller: the key is a
+     * hash over a low-entropy preimage, and the fewer sources that name it the narrower the disclosure surface stays.
+     */
+    @Query(value = """
+            SELECT a.uuid,
+                   EXISTS (SELECT 1 FROM {h-schema}crypto_asset_alias al
+                           WHERE al.canonical_key = a.identity_key) AS aliased
+            FROM {h-schema}crypto_asset a
+            WHERE a.uuid IN (:uuids)
+              AND NOT EXISTS (SELECT 1 FROM {h-schema}crypto_asset_source s WHERE s.asset_uuid = a.uuid)
+            """, nativeQuery = true)
+    List<Object[]> findOrphanRows(@Param("uuids") Collection<UUID> uuids);
+
+    /** One orphaned asset of a withdrawn batch, and whether an operator's merge decision points at it. */
+    record OrphanRow(UUID uuid, boolean namedByAnAlias) {
+    }
+
+    /** {@link #findOrphanRows}, mapped. Empty for an empty batch: {@code IN ()} is not valid SQL. */
+    default List<OrphanRow> orphansAmong(Collection<UUID> uuids) {
+        if (uuids.isEmpty()) {
+            return List.of();
+        }
+        return findOrphanRows(uuids).stream().map(row -> new OrphanRow((UUID) row[0], (Boolean) row[1])).toList();
+    }
+
+    /**
      * Inserts the asset for an identity key, or refreshes the identity columns of the row already keyed under it.
      *
      * <p>

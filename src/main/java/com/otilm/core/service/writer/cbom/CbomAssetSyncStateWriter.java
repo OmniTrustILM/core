@@ -97,9 +97,88 @@ public class CbomAssetSyncStateWriter {
         return cbomRepository.releaseAssetIngestClaim(cbomUuid, CbomAssetSyncState.IN_PROGRESS, previousState);
     }
 
+    /**
+     * The sentence a deletion leaves on a CBOM it withdrew from the inventory but could not remove.
+     *
+     * <p>
+     * It lives here rather than on the delete path because two writers on this class read it: the one that writes it,
+     * and {@link #markSynced} -- which must not overwrite it. Operator-visible text, so it says what to do.
+     */
+    public static final String DELETION_WITHDREW_THE_INVENTORY = "A deletion withdrew this CBOM's cryptographic assets and then failed; they will be ingested again.";
+
+    /**
+     * Records a successful ingest -- over any state, but not over a deletion's withdrawal.
+     *
+     * <p>
+     * Unconditional on the state on purpose: the run that actually ingested the assets is the one entitled to say so,
+     * and {@link #markInProgress}/{@link #markFailed} carry the guards that stop a stale run from overruling it. The
+     * one write it must not overrule is not a state but a fact about the inventory -- see
+     * {@link CbomRepository#updateAssetSyncStateUnlessError}.
+     *
+     * @return 1 if the success was recorded, 0 if a deletion had withdrawn the inventory in the meantime
+     */
     @Transactional
     public int markSynced(UUID cbomUuid, OffsetDateTime syncedAt) {
-        return cbomRepository.updateAssetSyncState(cbomUuid, CbomAssetSyncState.SYNCED, null, syncedAt, null);
+        return cbomRepository
+                .updateAssetSyncStateUnlessError(cbomUuid, CbomAssetSyncState.SYNCED, syncedAt,
+                        DELETION_WITHDREW_THE_INVENTORY);
+    }
+
+    /**
+     * Settles a revision a later one has taken the URN from: it owes no ingest, but it did not perform one either.
+     *
+     * <p>
+     * {@code SYNCED} with <b>no</b> {@code assets_synced_at} of its own, which is the difference from
+     * {@link #markSynced} and the point of having a second method. That column is not private bookkeeping: the
+     * cryptographic asset dashboard serves its maximum over every CBOM as "last completed sync at", the CBOM DTO serves
+     * it per row, and {@code CBOM_ASSETS_SYNCED_AT} offers it as a user-facing filter. Stamping it here would let a run
+     * that ingested nothing at all advance the dashboard's completion time, and would present a document sourcing no
+     * assets as one whose assets were just synced. A null parameter leaves the stored value alone (see
+     * {@link CbomRepository#updateAssetSyncState}), so a row that never synced keeps none and one that synced under an
+     * earlier revision keeps the time it really did.
+     *
+     * <p>
+     * What this state does <em>not</em> distinguish is a revision that contributed and one that was written off, both
+     * of which now read {@code SYNCED} while sourcing nothing. Telling them apart needs a state constant, and
+     * {@code CbomAssetSyncState} lives in the {@code interfaces} artifact -- recorded as open work on core#2073.
+     */
+    @Transactional
+    public int markSuperseded(UUID cbomUuid) {
+        return cbomRepository.updateAssetSyncState(cbomUuid, CbomAssetSyncState.SYNCED, null, null, null);
+    }
+
+    /**
+     * The states a withdrawal's failure may be written over: everything except {@code PENDING}.
+     *
+     * <p>
+     * {@code SYNCED} is the point of the method -- see {@link #markWithdrawnButNotDeleted}. {@code PENDING} is the
+     * exclusion: a CBOM whose assets were never ingested has nothing to withdraw, so nothing was withdrawn from it, and
+     * flipping it to {@code FAILED} would move it off the fast pending list onto the 30-minute retry list under a
+     * sentence that is untrue of it.
+     */
+    private static final Set<CbomAssetSyncState> WITHDRAWABLE = EnumSet
+            .of(CbomAssetSyncState.IN_PROGRESS, CbomAssetSyncState.SYNCED, CbomAssetSyncState.FAILED);
+
+    /**
+     * Records that a deletion withdrew this CBOM's contribution to the inventory and then failed to remove the record.
+     *
+     * <p>
+     * For the one caller entitled to overrule a success: the withdrawal commits before the header delete, so a deletion
+     * that fails in between leaves a row that says SYNCED and sources nothing. The guard {@link #markFailed} applies is
+     * there to stop a stale run from overwriting another node's success; here the row genuinely is no longer ingested,
+     * and leaving it SYNCED would keep the backlog pass from ever rebuilding it.
+     *
+     * <p>
+     * It is not an ingest attempt, so it leaves the attempt clock alone and is bounded below by {@link #WITHDRAWABLE}.
+     * Both are explained on {@link CbomRepository#updateAssetSyncStateKeepingAttempt}.
+     *
+     * @return 1 if the failure was recorded, 0 if the CBOM owed an ingest it had not started
+     */
+    @Transactional
+    public int markWithdrawnButNotDeleted(UUID cbomUuid) {
+        return cbomRepository
+                .updateAssetSyncStateKeepingAttempt(cbomUuid, CbomAssetSyncState.FAILED,
+                        DELETION_WITHDREW_THE_INVENTORY, WITHDRAWABLE);
     }
 
     /**
