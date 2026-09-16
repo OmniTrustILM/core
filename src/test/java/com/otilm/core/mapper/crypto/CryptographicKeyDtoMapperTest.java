@@ -31,7 +31,6 @@ import org.junit.jupiter.params.provider.MethodSource;
 import static com.otilm.core.util.builders.CryptographicKeyFullModelBuilder.aKeySnapshot;
 import static com.otilm.core.util.builders.CryptographicKeyItemBasicModelBuilder.aKeyItemSnapshot;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Named.named;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
 import static org.mockito.Mockito.never;
@@ -52,11 +51,11 @@ class CryptographicKeyDtoMapperTest {
         var nestedItems = CryptographicKeyDtoMapper.getKeyItems(model);
 
         // then
-        assertEquals(expectedFormat, dto.getFormat());
-        assertEquals(expectedData, dto.getKeyData());
+        assertThat(dto.getFormat()).isEqualTo(expectedFormat);
+        assertThat(dto.getKeyData()).isEqualTo(expectedData);
         assertThat(nestedItems).singleElement().satisfies(nested -> {
-            assertEquals(expectedFormat, nested.getFormat());
-            assertEquals(expectedData, nested.getKeyData());
+            assertThat(nested.getFormat()).isEqualTo(expectedFormat);
+            assertThat(nested.getKeyData()).isEqualTo(expectedData);
         });
     }
 
@@ -70,7 +69,7 @@ class CryptographicKeyDtoMapperTest {
         var items = CryptographicKeyDtoMapper.getKeyItemsSummary(model);
 
         // then
-        assertThat(items).singleElement().satisfies(dto -> assertEquals(expectedFormat, dto.getFormat()));
+        assertThat(items).singleElement().satisfies(dto -> assertThat(dto.getFormat()).isEqualTo(expectedFormat));
     }
 
     private static Stream<Arguments> keyMaterialResponses() {
@@ -105,15 +104,15 @@ class CryptographicKeyDtoMapperTest {
         KeyDto dto = mapper.apply(model);
 
         // then
-        assertEquals(context.tokenProfile().uuid().toString(), dto.getTokenProfileUuid());
-        assertEquals(context.tokenProfile().name(), dto.getTokenProfileName());
-        assertEquals(context.tokenInstance().uuid().toString(), dto.getTokenInstanceUuid());
-        assertEquals(context.tokenInstance().name(), dto.getTokenInstanceName());
-        assertEquals(context.ownerUuid().toString(), dto.getOwnerUuid());
-        assertEquals(context.ownerName(), dto.getOwner());
+        assertThat(dto.getTokenProfileUuid()).isEqualTo(context.tokenProfile().uuid().toString());
+        assertThat(dto.getTokenProfileName()).isEqualTo(context.tokenProfile().name());
+        assertThat(dto.getTokenInstanceUuid()).isEqualTo(context.tokenInstance().uuid().toString());
+        assertThat(dto.getTokenInstanceName()).isEqualTo(context.tokenInstance().name());
+        assertThat(dto.getOwnerUuid()).isEqualTo(context.ownerUuid().toString());
+        assertThat(dto.getOwner()).isEqualTo(context.ownerName());
         assertThat(dto.getGroups()).singleElement().satisfies(group -> {
-            assertEquals(context.groups().iterator().next().uuid().toString(), group.getUuid());
-            assertEquals(context.groups().iterator().next().name(), group.getName());
+            assertThat(group.getUuid()).isEqualTo(context.groups().iterator().next().uuid().toString());
+            assertThat(group.getName()).isEqualTo(context.groups().iterator().next().name());
         });
     }
 
@@ -127,7 +126,7 @@ class CryptographicKeyDtoMapperTest {
         KeyDto dto = CryptographicKeyDtoMapper.mapToDto(model);
 
         // then
-        assertEquals(expected, dto.getComplianceStatus());
+        assertThat(dto.getComplianceStatus()).isEqualTo(expected);
     }
 
     @ParameterizedTest(name = "{0}")
@@ -141,7 +140,7 @@ class CryptographicKeyDtoMapperTest {
         KeyDetailDto dto = CryptographicKeyDtoMapper.mapToDetailDto(model);
 
         // then
-        assertEquals(expected, dto.getComplianceStatus());
+        assertThat(dto.getComplianceStatus()).isEqualTo(expected);
     }
 
     @ParameterizedTest(name = "{0}")
@@ -154,7 +153,7 @@ class CryptographicKeyDtoMapperTest {
         KeyDto dto = CryptographicKeyDtoMapper.mapToChainDto(model);
 
         // then
-        assertEquals(expected, dto.getComplianceStatus());
+        assertThat(dto.getComplianceStatus()).isEqualTo(expected);
     }
 
     @ParameterizedTest(name = "{0}")
@@ -167,7 +166,7 @@ class CryptographicKeyDtoMapperTest {
         var dto = CryptographicKeyDtoMapper.mapItemToDetailDto(item);
 
         // then
-        assertEquals(expectedUuid, dto.getKeyReferenceUuid());
+        assertThat(dto.getKeyReferenceUuid()).isEqualTo(expectedUuid);
     }
 
     @ParameterizedTest(name = "{0}")
@@ -181,7 +180,9 @@ class CryptographicKeyDtoMapperTest {
         var items = CryptographicKeyDtoMapper.getKeyItems(model);
 
         // then
-        assertThat(items).singleElement().satisfies(dto -> assertEquals(expectedUuid, dto.getKeyReferenceUuid()));
+        assertThat(items)
+                .singleElement()
+                .satisfies(dto -> assertThat(dto.getKeyReferenceUuid()).isEqualTo(expectedUuid));
     }
 
     @ParameterizedTest(name = "{0}")
@@ -195,7 +196,9 @@ class CryptographicKeyDtoMapperTest {
         var items = CryptographicKeyDtoMapper.getKeyItemsSummary(model);
 
         // then
-        assertThat(items).singleElement().satisfies(dto -> assertEquals(expectedUuid, dto.getKeyReferenceUuid()));
+        assertThat(items)
+                .singleElement()
+                .satisfies(dto -> assertThat(dto.getKeyReferenceUuid()).isEqualTo(expectedUuid));
     }
 
     @Test
@@ -229,14 +232,15 @@ class CryptographicKeyDtoMapperTest {
 
         // then
         assertThat(items).singleElement().satisfies(dto -> {
-            assertEquals(key.getUuid().toString(), dto.getKeyWrapperUuid());
-            assertEquals(key.getOwner().getOwnerUuid().toString(), dto.getOwnerUuid());
-            assertEquals(key.getOwner().getOwnerUsername(), dto.getOwner());
-            assertEquals(key.getTokenProfileUuid().toString(), dto.getTokenProfileUuid());
-            assertEquals(key.getTokenProfile().getName(), dto.getTokenProfileName());
-            assertEquals(key.getTokenInstanceReferenceUuid().toString(), dto.getTokenInstanceUuid());
-            assertEquals(key.getTokenInstanceReference().getName(), dto.getTokenInstanceName());
-            assertEquals(key.getGroups().iterator().next().getUuid().toString(), dto.getGroups().getFirst().getUuid());
+            assertThat(dto.getKeyWrapperUuid()).isEqualTo(key.getUuid().toString());
+            assertThat(dto.getOwnerUuid()).isEqualTo(key.getOwner().getOwnerUuid().toString());
+            assertThat(dto.getOwner()).isEqualTo(key.getOwner().getOwnerUsername());
+            assertThat(dto.getTokenProfileUuid()).isEqualTo(key.getTokenProfileUuid().toString());
+            assertThat(dto.getTokenProfileName()).isEqualTo(key.getTokenProfile().getName());
+            assertThat(dto.getTokenInstanceUuid()).isEqualTo(key.getTokenInstanceReferenceUuid().toString());
+            assertThat(dto.getTokenInstanceName()).isEqualTo(key.getTokenInstanceReference().getName());
+            assertThat(dto.getGroups().getFirst().getUuid())
+                    .isEqualTo(key.getGroups().iterator().next().getUuid().toString());
         });
     }
 
@@ -256,15 +260,15 @@ class CryptographicKeyDtoMapperTest {
         KeyDetailDto dto = CryptographicKeyDtoMapper.mapToDetailDto(model);
 
         // then
-        assertEquals(key.getUuid().toString(), dto.getUuid());
-        assertEquals(key.getName(), dto.getName());
-        assertEquals(key.getDescription(), dto.getDescription());
-        assertEquals(key.getCreated(), dto.getCreationTime());
-        assertEquals(1, dto.getItems().size());
-        assertEquals(1, dto.getAssociations().size());
-        assertEquals(certificateUuid.toString(), dto.getAssociations().getFirst().getUuid());
-        assertEquals(certificateName, dto.getAssociations().getFirst().getName());
-        assertEquals(Resource.CERTIFICATE, dto.getAssociations().getFirst().getResource());
+        assertThat(dto.getUuid()).isEqualTo(key.getUuid().toString());
+        assertThat(dto.getName()).isEqualTo(key.getName());
+        assertThat(dto.getDescription()).isEqualTo(key.getDescription());
+        assertThat(dto.getCreationTime()).isEqualTo(key.getCreated());
+        assertThat(dto.getItems().size()).isEqualTo(1);
+        assertThat(dto.getAssociations().size()).isEqualTo(1);
+        assertThat(dto.getAssociations().getFirst().getUuid()).isEqualTo(certificateUuid.toString());
+        assertThat(dto.getAssociations().getFirst().getName()).isEqualTo(certificateName);
+        assertThat(dto.getAssociations().getFirst().getResource()).isEqualTo(Resource.CERTIFICATE);
     }
 
     @Test
@@ -280,9 +284,9 @@ class CryptographicKeyDtoMapperTest {
         KeyDto dto = CryptographicKeyDtoMapper.mapToDto(model);
 
         // then
-        assertEquals(ComplianceStatus.NOK, dto.getComplianceStatus());
-        assertEquals(1, dto.getAssociations());
-        assertEquals(2, dto.getItems().size());
+        assertThat(dto.getComplianceStatus()).isEqualTo(ComplianceStatus.NOK);
+        assertThat(dto.getAssociations()).isEqualTo(1);
+        assertThat(dto.getItems().size()).isEqualTo(2);
     }
 
     @Test
@@ -295,8 +299,8 @@ class CryptographicKeyDtoMapperTest {
         KeyDto dto = CryptographicKeyDtoMapper.mapToChainDto(model);
 
         // then
-        assertEquals(key.getUuid().toString(), dto.getUuid());
-        assertEquals(1, dto.getItems().size());
+        assertThat(dto.getUuid()).isEqualTo(key.getUuid().toString());
+        assertThat(dto.getItems().size()).isEqualTo(1);
         verify(key, never()).getCertificates();
         verify(key, never()).getAltCertificates();
     }
@@ -326,10 +330,10 @@ class CryptographicKeyDtoMapperTest {
         KeyDetailDto dto = CryptographicKeyDtoMapper.mapToDetailDto(model);
 
         // then
-        assertEquals(originalName, dto.getName());
-        assertEquals(groupName, dto.getGroups().getFirst().getName());
-        assertEquals(ownerName, dto.getOwner());
-        assertEquals(ComplianceStatus.OK, dto.getItems().getFirst().getComplianceStatus());
+        assertThat(dto.getName()).isEqualTo(originalName);
+        assertThat(dto.getGroups().getFirst().getName()).isEqualTo(groupName);
+        assertThat(dto.getOwner()).isEqualTo(ownerName);
+        assertThat(dto.getItems().getFirst().getComplianceStatus()).isEqualTo(ComplianceStatus.OK);
     }
 
     private static CryptographicKey key() {
