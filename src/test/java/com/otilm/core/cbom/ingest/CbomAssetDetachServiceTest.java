@@ -12,8 +12,10 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
+import org.springframework.data.domain.Limit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.inOrder;
@@ -74,7 +76,7 @@ class CbomAssetDetachServiceTest {
         UUID first = UUID.randomUUID();
         UUID second = UUID.randomUUID();
         UUID third = UUID.randomUUID();
-        when(sourceRepository.findAssetUuidsByCbomUuid(CBOM)).thenReturn(List.of(first, second, third));
+        pages(2, List.of(first, second), List.of(third));
         when(synchronizer.tryLock(anyString())).thenReturn(true);
         when(assetRepository.orphansAmong(any())).thenReturn(List.of());
 
@@ -84,7 +86,8 @@ class CbomAssetDetachServiceTest {
         verify(sourceWriter).detachCbom(second, CBOM);
         verify(sourceWriter).detachCbom(third, CBOM);
         verify(sourceWriter, times(3)).detachCbom(any(), any());
-        // One lock acquisition per batch transaction: three links at a batch size of two is two transactions.
+        // One lock acquisition per batch transaction: three links at a batch size of two is two transactions, and the
+        // second page is short, so no third pass is needed to learn that the list is empty.
         verify(synchronizer, times(2)).tryLock(CbomAssetIngestService.assetSyncLockKey(CBOM));
 
         // And the orphan question is asked about each batch's own assets: over the whole list, or over the wrong
@@ -103,7 +106,7 @@ class CbomAssetDetachServiceTest {
     void theCountsOfEveryBatchAreAddedUp() {
         UUID first = UUID.randomUUID();
         UUID second = UUID.randomUUID();
-        when(sourceRepository.findAssetUuidsByCbomUuid(CBOM)).thenReturn(List.of(first, second));
+        pages(1, List.of(first), List.of(second), List.of());
         when(sourceWriter.detachCbom(any(), any())).thenReturn(1);
         when(synchronizer.tryLock(anyString())).thenReturn(true);
         when(assetRepository.orphansAmong(List.of(first)))
@@ -125,7 +128,7 @@ class CbomAssetDetachServiceTest {
     void anAbandonedUnitStillReportsWhatTheCommittedBatchesDid() {
         UUID first = UUID.randomUUID();
         UUID second = UUID.randomUUID();
-        when(sourceRepository.findAssetUuidsByCbomUuid(CBOM)).thenReturn(List.of(first, second));
+        pages(1, List.of(first), List.of(second));
         when(sourceWriter.detachCbom(first, CBOM)).thenReturn(1);
         when(synchronizer.tryLock(anyString())).thenReturn(true, false);
         when(assetRepository.orphansAmong(List.of(first)))
@@ -178,11 +181,123 @@ class CbomAssetDetachServiceTest {
         verify(assetWriter, never()).delete(any());
     }
 
+    /** The keyed caller waits instead of skipping, or another node's sync would read as a refused deletion. */
+    @Test
+    void anOperatorsDeleteWaitsForTheClusterLockRatherThanSkippingTheWithdrawal() {
+        UUID asset = sourcedAsset();
+
+        service(100).withdrawWaiting(CBOM);
+
+        verify(synchronizer).lock(CbomAssetIngestService.assetSyncLockKey(CBOM));
+        verify(synchronizer, never()).tryLock(anyString());
+        verify(sourceWriter).detachCbom(asset, CBOM);
+        // The blocking acquisition must be the FIRST lock of the transaction: a waiter that already held
+        // ALIAS_DECISION_LOCK would close a cycle against any ingest holding the asset-sync lock. Verifying only that
+        // the wait happens would not fail if someone moved the alias lock above it.
+        InOrder ranked = inOrder(synchronizer);
+        ranked.verify(synchronizer).lock(CbomAssetIngestService.assetSyncLockKey(CBOM));
+        ranked.verify(synchronizer).lock(CryptoAssetAliasWriter.ALIAS_DECISION_LOCK);
+    }
+
+    /**
+     * The work list is read under the lock, so a CBOM that sources nothing still takes it.
+     *
+     * <p>
+     * Read before the lock, the emptiness is a snapshot: an ingest writing that document's first sources is invisible
+     * to it, and the withdrawal reports a complete withdrawal of an inventory it never excluded anything from. The
+     * delete that follows then meets the RESTRICT foreign key.
+     */
+    @Test
+    void aCbomThatSourcesNothingIsStillWithdrawnUnderTheLock() {
+        pages(100, List.of());
+
+        CbomAssetDetachService.Withdrawal withdrawal = service(100).withdrawWaiting(CBOM);
+
+        assertThat(withdrawal).isEqualTo(new CbomAssetDetachService.Withdrawal(0, 0, 0, true));
+        InOrder ranked = inOrder(synchronizer, sourceRepository);
+        ranked.verify(synchronizer).lock(CbomAssetIngestService.assetSyncLockKey(CBOM));
+        ranked.verify(sourceRepository).findAssetUuidsByCbomUuid(CBOM, Limit.of(100));
+    }
+
+    /**
+     * A page is re-read after every commit, so sources attached in the gap are withdrawn too.
+     *
+     * <p>
+     * The lock is transaction-scoped and released at each batch commit. A withdrawal working through a list it read
+     * once would leave every source an ingest of the same document attached after that read -- and still return
+     * {@code complete()}, which is the claim the keyed delete rests on.
+     */
+    @Test
+    void aSourceAttachedBetweenTwoBatchesIsWithdrawnTooRatherThanMissed() {
+        UUID known = UUID.randomUUID();
+        UUID attachedInTheGap = UUID.randomUUID();
+        pages(1, List.of(known), List.of(attachedInTheGap), List.of());
+        when(sourceWriter.detachCbom(any(), any())).thenReturn(1);
+        when(assetRepository.orphansAmong(any())).thenReturn(List.of());
+
+        CbomAssetDetachService.Withdrawal withdrawal = service(1).withdrawWaiting(CBOM);
+
+        assertThat(withdrawal).isEqualTo(new CbomAssetDetachService.Withdrawal(2, 0, 0, true));
+        verify(sourceWriter).detachCbom(attachedInTheGap, CBOM);
+    }
+
+    /**
+     * A failure partway carries what the committed batches did, because "threw" and "withdrew nothing" are not the same
+     * thing.
+     *
+     * <p>
+     * The caller uses this to decide whether the CBOM now owes a rebuild. Told only that the call threw, a delete path
+     * leaves a row reading {@code SYNCED} that sources part of an inventory already deleted -- on no work list, and
+     * rebuilt by nothing.
+     */
+    @Test
+    void aFailurePartwayThroughCarriesWhatTheCommittedBatchesWithdrew() {
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        pages(1, List.of(first), List.of(second));
+        when(sourceWriter.detachCbom(first, CBOM)).thenReturn(1);
+        when(sourceWriter.detachCbom(second, CBOM)).thenThrow(new IllegalStateException("deadlock victim"));
+        when(assetRepository.orphansAmong(List.of(first)))
+                .thenReturn(List.of(new CryptoAssetRepository.OrphanRow(first, false)));
+
+        assertThatThrownBy(() -> service(1).withdrawWaiting(CBOM))
+                .isInstanceOf(CbomAssetDetachService.WithdrawalFailedException.class)
+                .hasCauseInstanceOf(IllegalStateException.class)
+                .extracting(e -> ((CbomAssetDetachService.WithdrawalFailedException) e).committed())
+                .isEqualTo(new CbomAssetDetachService.Withdrawal(1, 1, 0, true));
+    }
+
+    /** A failure before the first commit withdrew nothing, and says so -- the case the carve-out is for. */
+    @Test
+    void aFailureBeforeTheFirstCommitReportsAnUntouchedInventory() {
+        UUID asset = UUID.randomUUID();
+        pages(1, List.of(asset));
+        when(sourceWriter.detachCbom(asset, CBOM)).thenThrow(new IllegalStateException("connection lost"));
+
+        assertThatThrownBy(() -> service(1).withdrawWaiting(CBOM))
+                .isInstanceOf(CbomAssetDetachService.WithdrawalFailedException.class)
+                .matches(e -> !((CbomAssetDetachService.WithdrawalFailedException) e).withdrewSomething());
+    }
+
     private UUID sourcedAsset() {
         UUID asset = UUID.randomUUID();
-        when(sourceRepository.findAssetUuidsByCbomUuid(CBOM)).thenReturn(List.of(asset));
+        pages(100, List.of(asset));
         when(sourceWriter.detachCbom(asset, CBOM)).thenReturn(1);
         return asset;
+    }
+
+    /**
+     * The work list as the withdrawal actually reads it: one page per batch, under the lock that batch holds.
+     *
+     * <p>
+     * Successive stubbed returns rather than one list, because the loop asks again after every commit -- a stub that
+     * answered the same page for ever would hang the test, which is the honest shape of the thing being pinned.
+     */
+    @SafeVarargs
+    private void pages(int batchSize, List<UUID>... pages) {
+        final List<UUID> first = pages[0];
+        final List<UUID>[] rest = java.util.Arrays.copyOfRange(pages, 1, pages.length);
+        when(sourceRepository.findAssetUuidsByCbomUuid(CBOM, Limit.of(batchSize))).thenReturn(first, rest);
     }
 
     private CbomAssetDetachService service(int batchSize) {

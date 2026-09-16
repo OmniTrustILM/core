@@ -21,6 +21,7 @@ import com.otilm.core.model.ScheduledTaskResult;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.impl.SchedulerServiceImpl;
+import com.otilm.core.service.writer.scheduler.ScheduledJobHistoryWriter;
 import com.otilm.core.tasks.ScheduledJobInfo;
 import com.otilm.core.tasks.ScheduledJobTask;
 import com.otilm.core.util.AuthHelper;
@@ -49,9 +50,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
-import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
@@ -69,6 +71,9 @@ class SchedulerServiceMockedTest {
 
     @Mock
     private ScheduledJobHistoryRepository scheduledJobHistoryRepository;
+
+    @Mock
+    private ScheduledJobHistoryWriter historyWriter;
 
     @Mock
     private ApplicationContext applicationContext;
@@ -376,34 +381,24 @@ class SchedulerServiceMockedTest {
     void testRunScheduledJob_WhenTaskClassNotFound_RegistersFailedHistory() throws Exception {
         scheduledJob.setJobClassName("com.nonexistent.UnknownTask");
         when(scheduledJobsRepository.findByJobName(JOB_NAME)).thenReturn(Optional.of(scheduledJob));
-        when(scheduledJobHistoryRepository.save(any(ScheduledJobHistory.class))).thenReturn(scheduledJobHistory);
 
         schedulerService.runScheduledJob(JOB_NAME);
 
-        ArgumentCaptor<ScheduledJobHistory> historyCaptor = ArgumentCaptor.forClass(ScheduledJobHistory.class);
-        verify(scheduledJobHistoryRepository).save(historyCaptor.capture());
-
-        ScheduledJobHistory savedHistory = historyCaptor.getValue();
-        assertEquals(SchedulerJobExecutionStatus.FAILED, savedHistory.getSchedulerExecutionStatus());
-        assertTrue(savedHistory.getResultMessage().contains("Unknown scheduled task"));
+        verify(historyWriter).recordUnknownTask(eq(scheduledJob), contains("Unknown scheduled task"));
+        verify(historyWriter, never()).recordStarted(any());
     }
 
     @Test
     void testRunScheduledJob_WhenTaskIsNotScheduledJobTask_RegistersFailedHistory() throws Exception {
         when(scheduledJobsRepository.findByJobName(JOB_NAME)).thenReturn(Optional.of(scheduledJob));
-        when(scheduledJobHistoryRepository.save(any(ScheduledJobHistory.class))).thenReturn(scheduledJobHistory);
 
         Object notATask = new Object();
         doReturn(notATask).when(applicationContext).getBean(eq(TestTask.class));
 
         schedulerService.runScheduledJob(JOB_NAME);
 
-        ArgumentCaptor<ScheduledJobHistory> historyCaptor = ArgumentCaptor.forClass(ScheduledJobHistory.class);
-        verify(scheduledJobHistoryRepository).save(historyCaptor.capture());
-
-        ScheduledJobHistory savedHistory = historyCaptor.getValue();
-        assertEquals(SchedulerJobExecutionStatus.FAILED, savedHistory.getSchedulerExecutionStatus());
-        assertTrue(savedHistory.getResultMessage().contains("Unknown scheduled task"));
+        verify(historyWriter).recordUnknownTask(eq(scheduledJob), contains("Unknown scheduled task"));
+        verify(historyWriter, never()).recordStarted(any());
     }
 
     @Test
@@ -412,20 +407,17 @@ class SchedulerServiceMockedTest {
                 new ScheduledTaskResult(SchedulerJobExecutionStatus.SUCCESS, "Job completed successfully")));
 
         when(scheduledJobsRepository.findByJobName(JOB_NAME)).thenReturn(Optional.of(scheduledJob));
-        when(scheduledJobHistoryRepository.save(any(ScheduledJobHistory.class))).thenReturn(scheduledJobHistory);
+        when(historyWriter.recordStarted(scheduledJob)).thenReturn(scheduledJobHistory);
         when(applicationContext.getBean(eq(TestTask.class))).thenReturn(testTask);
 
         schedulerService.runScheduledJob(JOB_NAME);
 
         verify(testTask).performJob(any(ScheduledJobInfo.class), any());
 
-        ArgumentCaptor<ScheduledJobHistory> historyCaptor = ArgumentCaptor.forClass(ScheduledJobHistory.class);
-        verify(scheduledJobHistoryRepository, atLeast(2)).save(historyCaptor.capture());
-
-        ScheduledJobHistory finalHistory = historyCaptor.getAllValues().getLast();
-        assertEquals(SchedulerJobExecutionStatus.SUCCESS, finalHistory.getSchedulerExecutionStatus());
-        assertEquals("Job completed successfully", finalHistory.getResultMessage());
-        assertNotNull(finalHistory.getJobEndTime());
+        ArgumentCaptor<ScheduledTaskResult> resultCaptor = ArgumentCaptor.forClass(ScheduledTaskResult.class);
+        verify(historyWriter).recordFinished(eq(HISTORY_UUID), resultCaptor.capture());
+        assertEquals(SchedulerJobExecutionStatus.SUCCESS, resultCaptor.getValue().getStatus());
+        assertEquals("Job completed successfully", resultCaptor.getValue().getResultMessage());
 
         verify(eventProducer).produceMessage(any());
     }
@@ -436,17 +428,15 @@ class SchedulerServiceMockedTest {
                 new TestTask(new ScheduledTaskResult(SchedulerJobExecutionStatus.FAILED, "Job failed with error")));
 
         when(scheduledJobsRepository.findByJobName(JOB_NAME)).thenReturn(Optional.of(scheduledJob));
-        when(scheduledJobHistoryRepository.save(any(ScheduledJobHistory.class))).thenReturn(scheduledJobHistory);
+        when(historyWriter.recordStarted(scheduledJob)).thenReturn(scheduledJobHistory);
         when(applicationContext.getBean(eq(TestTask.class))).thenReturn(testTask);
 
         schedulerService.runScheduledJob(JOB_NAME);
 
-        ArgumentCaptor<ScheduledJobHistory> historyCaptor = ArgumentCaptor.forClass(ScheduledJobHistory.class);
-        verify(scheduledJobHistoryRepository, atLeast(2)).save(historyCaptor.capture());
-
-        ScheduledJobHistory finalHistory = historyCaptor.getAllValues().getLast();
-        assertEquals(SchedulerJobExecutionStatus.FAILED, finalHistory.getSchedulerExecutionStatus());
-        assertEquals("Job failed with error", finalHistory.getResultMessage());
+        ArgumentCaptor<ScheduledTaskResult> resultCaptor = ArgumentCaptor.forClass(ScheduledTaskResult.class);
+        verify(historyWriter).recordFinished(eq(HISTORY_UUID), resultCaptor.capture());
+        assertEquals(SchedulerJobExecutionStatus.FAILED, resultCaptor.getValue().getStatus());
+        assertEquals("Job failed with error", resultCaptor.getValue().getResultMessage());
 
         verify(eventProducer).produceMessage(any());
     }
@@ -456,13 +446,14 @@ class SchedulerServiceMockedTest {
         TestTask testTask = spy(new TestTask(new ScheduledJobSkippedException()));
 
         when(scheduledJobsRepository.findByJobName(JOB_NAME)).thenReturn(Optional.of(scheduledJob));
-        when(scheduledJobHistoryRepository.save(any(ScheduledJobHistory.class))).thenReturn(scheduledJobHistory);
+        when(historyWriter.recordStarted(scheduledJob)).thenReturn(scheduledJobHistory);
         when(applicationContext.getBean(eq(TestTask.class))).thenReturn(testTask);
 
         schedulerService.runScheduledJob(JOB_NAME);
 
         verify(testTask).performJob(any(ScheduledJobInfo.class), any());
-        verify(scheduledJobHistoryRepository).delete(scheduledJobHistory);
+        verify(historyWriter).removeSkipped(HISTORY_UUID);
+        verify(historyWriter, never()).recordFinished(any(), any());
         verify(eventProducer, never()).produceMessage(any());
     }
 
@@ -475,7 +466,7 @@ class SchedulerServiceMockedTest {
                 new ScheduledTaskResult(SchedulerJobExecutionStatus.SUCCESS, "Job completed successfully")));
 
         when(scheduledJobsRepository.findByJobName(JOB_NAME)).thenReturn(Optional.of(scheduledJob));
-        when(scheduledJobHistoryRepository.save(any(ScheduledJobHistory.class))).thenReturn(scheduledJobHistory);
+        when(historyWriter.recordStarted(scheduledJob)).thenReturn(scheduledJobHistory);
         when(applicationContext.getBean(eq(TestTask.class))).thenReturn(testTask);
 
         schedulerService.runScheduledJob(JOB_NAME);
@@ -492,7 +483,7 @@ class SchedulerServiceMockedTest {
                 new ScheduledTaskResult(SchedulerJobExecutionStatus.SUCCESS, "Job completed successfully")));
 
         when(scheduledJobsRepository.findByJobName(JOB_NAME)).thenReturn(Optional.of(scheduledJob));
-        when(scheduledJobHistoryRepository.save(any(ScheduledJobHistory.class))).thenReturn(scheduledJobHistory);
+        when(historyWriter.recordStarted(scheduledJob)).thenReturn(scheduledJobHistory);
         when(applicationContext.getBean(eq(TestTask.class))).thenReturn(testTask);
 
         schedulerService.runScheduledJob(JOB_NAME);
@@ -508,7 +499,7 @@ class SchedulerServiceMockedTest {
                 new ScheduledTaskResult(SchedulerJobExecutionStatus.SUCCESS, "Job completed successfully")));
 
         when(scheduledJobsRepository.findByJobName(JOB_NAME)).thenReturn(Optional.of(scheduledJob));
-        when(scheduledJobHistoryRepository.save(any(ScheduledJobHistory.class))).thenReturn(scheduledJobHistory);
+        when(historyWriter.recordStarted(scheduledJob)).thenReturn(scheduledJobHistory);
         when(applicationContext.getBean(eq(TestTask.class))).thenReturn(testTask);
 
         schedulerService.runScheduledJob(JOB_NAME);
@@ -529,7 +520,7 @@ class SchedulerServiceMockedTest {
         TestTask testTask = spy(new TestTask(new ScheduledTaskResult(SchedulerJobExecutionStatus.SUCCESS, "done")));
 
         when(scheduledJobsRepository.findByJobName(JOB_NAME)).thenReturn(Optional.of(scheduledJob));
-        when(scheduledJobHistoryRepository.save(any(ScheduledJobHistory.class))).thenReturn(scheduledJobHistory);
+        when(historyWriter.recordStarted(scheduledJob)).thenReturn(scheduledJobHistory);
         when(applicationContext.getBean(eq(TestTask.class))).thenReturn(testTask);
 
         schedulerService.runScheduledJob(JOB_NAME);
@@ -544,7 +535,7 @@ class SchedulerServiceMockedTest {
         TestTask testTask = spy(new TestTask(new ScheduledTaskResult(SchedulerJobExecutionStatus.SUCCESS, "done")));
 
         when(scheduledJobsRepository.findByJobName(JOB_NAME)).thenReturn(Optional.of(scheduledJob));
-        when(scheduledJobHistoryRepository.save(any(ScheduledJobHistory.class))).thenReturn(scheduledJobHistory);
+        when(historyWriter.recordStarted(scheduledJob)).thenReturn(scheduledJobHistory);
         when(applicationContext.getBean(eq(TestTask.class))).thenReturn(testTask);
         doThrow(new SchedulerException("boom")).when(schedulerApiClient).deleteScheduledJob(JOB_NAME);
 
@@ -560,7 +551,7 @@ class SchedulerServiceMockedTest {
         TestTask testTask = spy(new TestTask(new ScheduledTaskResult(SchedulerJobExecutionStatus.SUCCESS, "done")));
 
         when(scheduledJobsRepository.findByJobName(JOB_NAME)).thenReturn(Optional.of(scheduledJob));
-        when(scheduledJobHistoryRepository.save(any(ScheduledJobHistory.class))).thenReturn(scheduledJobHistory);
+        when(historyWriter.recordStarted(scheduledJob)).thenReturn(scheduledJobHistory);
         when(applicationContext.getBean(eq(TestTask.class))).thenReturn(testTask);
 
         schedulerService.runScheduledJob(JOB_NAME);
@@ -575,14 +566,13 @@ class SchedulerServiceMockedTest {
                 new ScheduledJobInfo(JOB_NAME, JOB_UUID, HISTORY_UUID), result);
 
         when(scheduledJobsRepository.findByUuid(any(SecuredUUID.class))).thenReturn(Optional.of(scheduledJob));
-        when(scheduledJobHistoryRepository.findByUuid(any(SecuredUUID.class)))
-                .thenReturn(Optional.of(scheduledJobHistory));
 
         schedulerService.handleScheduledJobFinishedEvent(event);
 
-        verify(scheduledJobHistoryRepository).save(scheduledJobHistory);
-        assertEquals(SchedulerJobExecutionStatus.SUCCESS, scheduledJobHistory.getSchedulerExecutionStatus());
-        assertEquals("event-finished", scheduledJobHistory.getResultMessage());
+        ArgumentCaptor<ScheduledTaskResult> resultCaptor = ArgumentCaptor.forClass(ScheduledTaskResult.class);
+        verify(historyWriter).recordFinished(eq(HISTORY_UUID), resultCaptor.capture());
+        assertEquals(SchedulerJobExecutionStatus.SUCCESS, resultCaptor.getValue().getStatus());
+        assertEquals("event-finished", resultCaptor.getValue().getResultMessage());
         verify(eventProducer).produceMessage(any());
     }
 
@@ -598,15 +588,120 @@ class SchedulerServiceMockedTest {
     }
 
     @Test
-    void testHandleScheduledJobFinishedEvent_WhenHistoryNotFound_ThrowsNotFoundException() {
-        ScheduledJobFinishedEvent event = new ScheduledJobFinishedEvent(
-                new ScheduledJobInfo(JOB_NAME, JOB_UUID, HISTORY_UUID),
-                new ScheduledTaskResult(SchedulerJobExecutionStatus.SUCCESS, "done"));
+    void testRunScheduledJob_WhenTaskThrowsRuntimeException_RecordsFailedAndRethrows() throws Exception {
+        TestTask testTask = spy(new TestTask(new ScheduledTaskResult(SchedulerJobExecutionStatus.SUCCESS, "never")));
+        doThrow(new IllegalStateException("boom")).when(testTask).performJob(any(ScheduledJobInfo.class), any());
 
-        when(scheduledJobsRepository.findByUuid(any(SecuredUUID.class))).thenReturn(Optional.of(scheduledJob));
-        when(scheduledJobHistoryRepository.findByUuid(any(SecuredUUID.class))).thenReturn(Optional.empty());
+        when(scheduledJobsRepository.findByJobName(JOB_NAME)).thenReturn(Optional.of(scheduledJob));
+        when(historyWriter.recordStarted(scheduledJob)).thenReturn(scheduledJobHistory);
+        when(applicationContext.getBean(eq(TestTask.class))).thenReturn(testTask);
 
-        assertThrows(NotFoundException.class, () -> schedulerService.handleScheduledJobFinishedEvent(event));
+        assertThrows(IllegalStateException.class, () -> schedulerService.runScheduledJob(JOB_NAME));
+
+        // Threw, so the row is closed as FAILED -- with a shaped message, never the exception's own text.
+        verify(historyWriter).recordFailed(eq(HISTORY_UUID), argThat(message -> !message.contains("boom")));
+        verify(historyWriter, never()).recordFinished(any(), any());
+        verify(eventProducer, never()).produceMessage(any());
+    }
+
+    @Test
+    void testRunScheduledJob_WhenTaskReturnsNull_LeavesTheStartedRowOpen() throws Exception {
+        TestTask testTask = spy(new TestTask((ScheduledTaskResult) null));
+
+        when(scheduledJobsRepository.findByJobName(JOB_NAME)).thenReturn(Optional.of(scheduledJob));
+        when(historyWriter.recordStarted(scheduledJob)).thenReturn(scheduledJobHistory);
+        when(applicationContext.getBean(eq(TestTask.class))).thenReturn(testTask);
+
+        schedulerService.runScheduledJob(JOB_NAME);
+
+        // Returned null, so it finishes later through handleScheduledJobFinishedEvent: the STARTED row stays open.
+        verify(historyWriter, never()).recordFinished(any(), any());
+        verify(historyWriter, never()).recordFailed(any(), any());
+        verify(eventProducer, never()).produceMessage(any());
+    }
+
+    @Test
+    void testRunScheduledJob_WhenTaskThrowsError_RecordsFailedAndRethrows() throws Exception {
+        TestTask testTask = spy(new TestTask(new ScheduledTaskResult(SchedulerJobExecutionStatus.SUCCESS, "never")));
+        doThrow(new AssertionError("optional class missing"))
+                .when(testTask)
+                .performJob(any(ScheduledJobInfo.class), any());
+
+        when(scheduledJobsRepository.findByJobName(JOB_NAME)).thenReturn(Optional.of(scheduledJob));
+        when(historyWriter.recordStarted(scheduledJob)).thenReturn(scheduledJobHistory);
+        when(applicationContext.getBean(eq(TestTask.class))).thenReturn(testTask);
+
+        assertThrows(AssertionError.class, () -> schedulerService.runScheduledJob(JOB_NAME));
+
+        // An Error closes the row as well; otherwise it would stay STARTED and block deleting the job.
+        verify(historyWriter).recordFailed(eq(HISTORY_UUID), any());
+    }
+
+    @Test
+    void testRunScheduledJob_WhenRecordingTheFailureFails_StillThrowsTheTasksOwnException() throws Exception {
+        TestTask testTask = spy(new TestTask(new ScheduledTaskResult(SchedulerJobExecutionStatus.SUCCESS, "never")));
+        doThrow(new IllegalStateException("task broke")).when(testTask).performJob(any(ScheduledJobInfo.class), any());
+
+        when(scheduledJobsRepository.findByJobName(JOB_NAME)).thenReturn(Optional.of(scheduledJob));
+        when(historyWriter.recordStarted(scheduledJob)).thenReturn(scheduledJobHistory);
+        when(applicationContext.getBean(eq(TestTask.class))).thenReturn(testTask);
+        doThrow(new IllegalStateException("database gone")).when(historyWriter).recordFailed(any(), any());
+
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+                () -> schedulerService.runScheduledJob(JOB_NAME));
+
+        assertEquals("task broke", thrown.getMessage());
+        assertEquals(1, thrown.getSuppressed().length);
+        assertEquals("database gone", thrown.getSuppressed()[0].getMessage());
+    }
+
+    @Test
+    void testRunScheduledJob_WhenTheFinishedEventCannotBeSent_TheRunStillCountsAsFinished() throws Exception {
+        TestTask testTask = spy(new TestTask(new ScheduledTaskResult(SchedulerJobExecutionStatus.SUCCESS, "done")));
+
+        when(scheduledJobsRepository.findByJobName(JOB_NAME)).thenReturn(Optional.of(scheduledJob));
+        when(historyWriter.recordStarted(scheduledJob)).thenReturn(scheduledJobHistory);
+        when(applicationContext.getBean(eq(TestTask.class))).thenReturn(testTask);
+        doThrow(new IllegalStateException("broker down")).when(eventProducer).produceMessage(any());
+
+        assertDoesNotThrow(() -> schedulerService.runScheduledJob(JOB_NAME));
+
+        verify(historyWriter).recordFinished(eq(HISTORY_UUID), any());
+    }
+
+    @Test
+    void testRunScheduledJob_WhenOneTimeDeregistrationFailsUnchecked_TheFinishedEventIsStillSent() throws Exception {
+        scheduledJob.setOneTime(true);
+        TestTask testTask = spy(new TestTask(new ScheduledTaskResult(SchedulerJobExecutionStatus.SUCCESS, "done")));
+
+        when(scheduledJobsRepository.findByJobName(JOB_NAME)).thenReturn(Optional.of(scheduledJob));
+        when(historyWriter.recordStarted(scheduledJob)).thenReturn(scheduledJobHistory);
+        when(applicationContext.getBean(eq(TestTask.class))).thenReturn(testTask);
+        // The scheduler client surfaces transport and status failures unchecked, not as SchedulerException.
+        doThrow(new IllegalStateException("scheduler returned 500"))
+                .when(schedulerApiClient)
+                .deleteScheduledJob(JOB_NAME);
+
+        assertDoesNotThrow(() -> schedulerService.runScheduledJob(JOB_NAME));
+
+        verify(historyWriter).recordFinished(eq(HISTORY_UUID), any());
+        verify(eventProducer).produceMessage(any());
+    }
+
+    @Test
+    void testRunScheduledJob_WhenTheCloseWriteFails_ClosesTheRowAsFailedAndRethrows() throws Exception {
+        TestTask testTask = spy(new TestTask(new ScheduledTaskResult(SchedulerJobExecutionStatus.SUCCESS, "done")));
+
+        when(scheduledJobsRepository.findByJobName(JOB_NAME)).thenReturn(Optional.of(scheduledJob));
+        when(historyWriter.recordStarted(scheduledJob)).thenReturn(scheduledJobHistory);
+        when(applicationContext.getBean(eq(TestTask.class))).thenReturn(testTask);
+        doThrow(new IllegalStateException("pooler restarted")).when(historyWriter).recordFinished(any(), any());
+
+        assertThrows(IllegalStateException.class, () -> schedulerService.runScheduledJob(JOB_NAME));
+
+        // The row must not stay STARTED: a second close marks it FAILED and names the real outcome.
+        verify(historyWriter).recordFailed(eq(HISTORY_UUID), contains("SUCCESS"));
+        verify(eventProducer, never()).produceMessage(any());
     }
 
     // Inner test class to simulate a ScheduledJobTask

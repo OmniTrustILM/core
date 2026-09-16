@@ -69,9 +69,16 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>
  * <b>Lock ranking, third rank included.</b> The asset-sync lock is taken above {@code ALIAS_DECISION_LOCK}, which is
- * above every {@code crypto_asset} row lock. The asset-sync lock is only ever acquired with a non-blocking
- * {@code tryLock}, so a node that cannot get it abandons the batch rather than joining a wait chain; acquiring it with
- * a blocking call would close a cycle against any path that takes the two in the other order.
+ * above every {@code crypto_asset} row lock. On this path it is acquired with a non-blocking {@code tryLock}, so a node
+ * that cannot get it abandons the batch rather than joining a wait chain.
+ *
+ * <p>
+ * It may also be acquired <b>blocking</b> -- {@link CbomAssetDetachService#withdrawWaiting(UUID)} does, for a caller
+ * that was promised the outcome, and so does the header delete that follows it -- and what keeps that safe is the
+ * ranking, not the non-blocking call: the blocking acquisition is the <b>first</b> lock of its transaction, so the
+ * waiter holds nothing any holder could go on to want, and no cycle can close. A path that took
+ * {@code ALIAS_DECISION_LOCK} or a {@code crypto_asset} row lock and then waited on the asset-sync lock would close
+ * one; that is the thing this ranking forbids.
  */
 @Slf4j
 @Service
@@ -152,7 +159,13 @@ public class CbomAssetIngestService {
          * {@code assets_synced_at} is deliberately <b>not</b> stamped -- see
          * {@link CbomAssetSyncStateWriter#markSuperseded}.
          */
-        SUPERSEDED
+        SUPERSEDED,
+        /**
+         * The CBOM header was deleted while this document was being ingested, so there is nothing left to source. The
+         * row is gone, so nothing is written and nothing is owed: the tombstone is what keeps the next run from storing
+         * the document again.
+         */
+        DELETED
     }
 
     /**
@@ -241,6 +254,10 @@ public class CbomAssetIngestService {
                 if (outcome == BatchOutcome.SUPERSEDED) {
                     return supersede(cbomUuid, entryState);
                 }
+                if (outcome == BatchOutcome.DELETED) {
+                    log.debug("CBOM asset ingest: CBOM {} was deleted while its assets were being ingested", cbomUuid);
+                    return IngestOutcome.DELETED;
+                }
             }
             // Once more before the row is called synced, for the version that was on its last batch when a newer one
             // took the URN: nothing after the loop would otherwise look again, and this revision would be recorded as
@@ -296,7 +313,9 @@ public class CbomAssetIngestService {
         /** Another node is ingesting the same CBOM: a skip, not a failure. The CBOM keeps owing an ingest. */
         LOCKED_ELSEWHERE,
         /** A newer revision took the URN while this document was being written. */
-        SUPERSEDED
+        SUPERSEDED,
+        /** An operator deleted the CBOM header while this document was being written. */
+        DELETED
     }
 
     /**
@@ -314,6 +333,13 @@ public class CbomAssetIngestService {
         // the ingesting version. One indexed lookup per batch closes it.
         if (cbomRepository.hasIngestedLaterVersion(cbomUuid)) {
             return BatchOutcome.SUPERSEDED;
+        }
+        // The same reasoning as the supersession re-read, for the other thing that can happen to this CBOM in the gap:
+        // a deletion withdraws the inventory and removes the header under this very lock. Writing a source row against
+        // a cbom_uuid that is gone violates crypto_asset_source_to_cbom_key -- a noisy failed document whose markFailed
+        // then updates no row, because there is no row. One indexed lookup, next to the one already here.
+        if (!cbomRepository.existsById(cbomUuid)) {
+            return BatchOutcome.DELETED;
         }
         // Before the first crypto_asset row lock any writer below will take. Re-entrant within the transaction, so
         // taking it here costs the writers' own acquisitions nothing.

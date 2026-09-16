@@ -30,7 +30,9 @@ import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFil
 import com.otilm.core.attribute.engine.ListingSortResolver;
 import com.otilm.core.cbom.client.BomSearchPage;
 import com.otilm.core.cbom.client.CbomRepositoryClient;
+import com.otilm.core.cbom.ingest.CbomAssetDetachService;
 import com.otilm.core.cbom.ingest.CbomAssetIngestService;
+import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.config.CbomSyncProperties;
 import com.otilm.core.dao.CryptoAssetConstraintTranslator;
@@ -41,6 +43,7 @@ import com.otilm.core.dao.entity.cbom.CbomSyncSkip;
 import com.otilm.core.dao.repository.CbomRepository;
 import com.otilm.core.dao.repository.ScheduledJobHistoryRepository;
 import com.otilm.core.dao.repository.cbom.CbomSyncSkipRepository;
+import com.otilm.core.dao.repository.cbom.CbomTombstoneRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.logging.LoggerWrapper;
@@ -60,6 +63,7 @@ import com.otilm.core.service.CbomExternalService;
 import com.otilm.core.service.CbomInternalService;
 import com.otilm.core.service.writer.cbom.CbomAssetSyncStateWriter;
 import com.otilm.core.service.writer.cbom.CbomSyncSkipWriter;
+import com.otilm.core.service.writer.cbom.CbomTombstoneWriter;
 import com.otilm.core.tasks.CbomSyncTask;
 import com.otilm.core.util.CbomUtil;
 import com.otilm.core.util.FilterPredicatesBuilder;
@@ -89,6 +93,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.function.TriFunction;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.AuditorAware;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -124,6 +129,14 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      */
     private static final String DEDUP_CONSTRAINT = "cbom_serial_version_unique";
 
+    /**
+     * The cryptographic asset inventory's reference to a CBOM header, {@code ON DELETE RESTRICT}. It is today the only
+     * foreign key in the schema that names {@code cbom(uuid)}, which is why a deletion refused by it is the one failure
+     * that leaves the row {@code SYNCED} -- and why that decision is keyed on the constraint rather than on the
+     * exception type. See {@link #deleteWithdrawnRow}.
+     */
+    private static final String INVENTORY_SOURCE_CONSTRAINT = "crypto_asset_source_to_cbom_key";
+
     private CbomRepository cbomRepository;
 
     private CbomRepositoryClient cbomRepositoryClient;
@@ -147,6 +160,16 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
     private CbomAssetIngestService assetIngestService;
 
     private CbomAssetSyncStateWriter assetSyncStateWriter;
+
+    private CbomAssetDetachService assetDetachService;
+
+    private CbomTombstoneWriter tombstoneWriter;
+
+    private CbomTombstoneRepository tombstoneRepository;
+
+    private ClusterOperationSynchronizer clusterSynchronizer;
+
+    private AuditorAware<String> auditorAware;
 
     @Autowired
     public void setCbomRepository(CbomRepository cbomRepository) {
@@ -206,6 +229,31 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
     @Autowired
     public void setSyncSkipRepository(CbomSyncSkipRepository syncSkipRepository) {
         this.syncSkipRepository = syncSkipRepository;
+    }
+
+    @Autowired
+    public void setAssetDetachService(CbomAssetDetachService assetDetachService) {
+        this.assetDetachService = assetDetachService;
+    }
+
+    @Autowired
+    public void setTombstoneWriter(CbomTombstoneWriter tombstoneWriter) {
+        this.tombstoneWriter = tombstoneWriter;
+    }
+
+    @Autowired
+    public void setTombstoneRepository(CbomTombstoneRepository tombstoneRepository) {
+        this.tombstoneRepository = tombstoneRepository;
+    }
+
+    @Autowired
+    public void setClusterSynchronizer(ClusterOperationSynchronizer clusterSynchronizer) {
+        this.clusterSynchronizer = clusterSynchronizer;
+    }
+
+    @Autowired
+    public void setAuditorAware(AuditorAware<String> auditorAware) {
+        this.auditorAware = auditorAware;
     }
 
     @Override
@@ -380,11 +428,21 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         return cbom.mapToDto();
     }
 
+    /**
+     * Deletes one CBOM, taking its contribution to the cryptographic asset inventory with it.
+     *
+     * <p>
+     * {@code NOT_SUPPORTED}, because the withdrawal runs a transaction per batch of assets and must not be nested in
+     * one long-lived transaction holding every row it touched. It waits for the cluster lock rather than skipping --
+     * see {@link CbomAssetDetachService#withdrawWaiting}.
+     */
     @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @ExternalAuthorization(resource = Resource.CBOM, action = ResourceAction.DELETE)
     public void deleteCbom(UUID uuid) throws NotFoundException {
         Cbom cbom = getEntity(SecuredUUID.fromUUID(uuid));
-        deleteRow(cbom);
+        withdrawForDeletion(uuid);
+        deleteWithdrawnRow(uuid);
         logger
                 .logEvent(Operation.DELETE, OperationResult.SUCCESS, null,
                         List.of(new ResourceObjectIdentity(cbom.getSerialNumber(), cbom.getUuid())),
@@ -393,18 +451,152 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
     }
 
     /**
-     * Deletes the row, flushing inside this method so that a refusal from the cryptographic asset inventory -- whose
-     * foreign key is RESTRICT -- can be shaped here. Left to the ambient transaction's commit, the violation would
-     * surface after the method returns, with only the driver's own text to describe it, and that text quotes the
-     * failing row.
+     * Withdraws the CBOM's contribution to the inventory for a keyed delete, and settles what a failure leaves behind.
+     *
+     * <p>
+     * A withdrawal that threw did not necessarily withdraw nothing: every batch commits on its own, so a failure on
+     * batch <i>k</i> leaves <i>1..k-1</i> withdrawn and their orphan assets irreversibly deleted. Left unguarded the
+     * exception propagates out of this method and the row keeps saying {@code SYNCED} while sourcing part of an
+     * inventory that is gone -- on neither work list, rebuilt by nothing.
+     * {@link CbomAssetDetachService.WithdrawalFailedException} is what tells the two cases apart, and the failure is
+     * recorded only for the one that changed the inventory.
+     *
+     * <p>
+     * The bulk path does the same thing for each entry, differing only in that it reports the failure per entry rather
+     * than raising it.
      */
-    private void deleteRow(Cbom cbom) {
+    private void withdrawForDeletion(UUID uuid) {
         try {
-            cbomRepository.delete(cbom);
-            cbomRepository.flush();
-        } catch (DataIntegrityViolationException e) {
-            throw new ValidationException(ValidationError.create(CryptoAssetConstraintTranslator.describe(e)));
+            assetDetachService.withdrawWaiting(uuid);
+        } catch (RuntimeException e) {
+            recordPartialWithdrawal(uuid, e);
+            final String safeMessage = safeDeleteFailureMessage(e);
+            logger
+                    .logEvent(Operation.DELETE, OperationResult.FAILURE, null,
+                            List.of(new ResourceObjectIdentity(null, uuid)), safeMessage);
+            throw causeOf(e) instanceof DataIntegrityViolationException
+                    ? new ValidationException(ValidationError.create(safeMessage))
+                    : e;
         }
+    }
+
+    /** What a withdrawal left behind, recorded only when it left something behind. */
+    private void recordPartialWithdrawal(UUID uuid, RuntimeException failure) {
+        if (failure instanceof CbomAssetDetachService.WithdrawalFailedException withdrawal
+                && withdrawal.withdrewSomething()) {
+            recordWithdrawnButNotDeleted(uuid);
+        }
+    }
+
+    /**
+     * One delete failure, in text this platform shaped.
+     *
+     * <p>
+     * The inventory's foreign key is RESTRICT, so a constraint violation is the expected refusal and its translation is
+     * the actionable sentence. Anything else is infrastructure, and its message quotes rows.
+     */
+    private static String safeDeleteFailureMessage(RuntimeException failure) {
+        final Throwable cause = causeOf(failure);
+        return cause instanceof DataIntegrityViolationException
+                ? CryptoAssetConstraintTranslator.describe(cause)
+                : "Error deleting CBOM entry";
+    }
+
+    /** A withdrawal failure is a wrapper carrying what committed; every other failure speaks for itself. */
+    private static Throwable causeOf(RuntimeException failure) {
+        return failure instanceof CbomAssetDetachService.WithdrawalFailedException ? failure.getCause() : failure;
+    }
+
+    /**
+     * Deletes the withdrawn row and tombstones it in one transaction, flushing inside it so that a refusal from the
+     * cryptographic asset inventory -- whose foreign key is RESTRICT -- can be shaped here. Left to the commit, the
+     * violation would surface after the method returns, with only the driver's own text to describe it, and that text
+     * quotes the failing row.
+     *
+     * <p>
+     * That refusal is also the one failure the CBOM is <b>not</b> marked failed for: the row is genuinely sourced
+     * again, so {@code SYNCED} is true of it, and recording
+     * {@link CbomAssetSyncStateWriter#DELETION_WITHDREW_THE_INVENTORY} would force a needless re-ingest of a document
+     * nothing is wrong with. The operator is told to retry instead. Every other failure leaves a row that says SYNCED
+     * and sources nothing, which is what that state exists for.
+     *
+     * <p>
+     * Narrowed to the one constraint that expresses that: {@code crypto_asset_source_to_cbom_key} is today the only
+     * foreign key in the schema referencing {@code cbom(uuid)}, and the tombstone insert cannot conflict, so every
+     * violation reaching here is the inventory's. Resting the carve-out on the constraint name rather than on the
+     * exception type is what keeps that an argument about this code rather than about the schema it happens to sit in
+     * -- the next foreign key added to {@code cbom} would otherwise silently join it.
+     */
+    private void deleteWithdrawnRow(UUID uuid) {
+        try {
+            transactionHandler.runInNewTransaction(() -> deleteAndTombstone(uuid));
+        } catch (DataIntegrityViolationException e) {
+            if (!theInventoryRefused(e)) {
+                recordWithdrawnButNotDeleted(uuid);
+            }
+            throw new ValidationException(ValidationError.create(CryptoAssetConstraintTranslator.describe(e)));
+        } catch (RuntimeException e) {
+            recordWithdrawnButNotDeleted(uuid);
+            throw e;
+        }
+    }
+
+    /** Whether the cryptographic asset inventory is what refused the deletion -- see {@link #deleteWithdrawnRow}. */
+    private static boolean theInventoryRefused(Throwable failure) {
+        return CryptoAssetConstraintTranslator
+                .constraintNameOf(failure)
+                .filter(INVENTORY_SOURCE_CONSTRAINT::equalsIgnoreCase)
+                .isPresent();
+    }
+
+    /**
+     * Records that the row is withdrawn but still here, without letting that record displace the failure it describes.
+     *
+     * <p>
+     * The write is a transaction of its own against a database that has just failed, so the failures that reach it are
+     * the ones most likely to make it fail too -- a lost connection, a lock timeout, a deadlock victim, an exhausted
+     * pool. Left unguarded it would replace the caller's outcome: the operator's shaped refusal becomes a bare 500, and
+     * one entry's failure in {@link #bulkDeleteCbom} throws out of the loop, abandoning every uuid after it and
+     * reporting none of the deletions already committed. The row then reads SYNCED while sourcing nothing and no
+     * backlog pass will rebuild it, which is why the log line says so.
+     */
+    private void recordWithdrawnButNotDeleted(UUID uuid) {
+        try {
+            assetSyncStateWriter.markWithdrawnButNotDeleted(uuid);
+        } catch (RuntimeException e) {
+            logger
+                    .getLogger()
+                    .error("CBOM {}: its cryptographic assets were withdrawn, the deletion then failed, and recording that failed too. The row still reads SYNCED and sources nothing; no backlog pass will rebuild it until its state is corrected.",
+                            uuid, e);
+        }
+    }
+
+    /**
+     * The tombstone commits with the deletion or with neither. Without it the next sync finds the document still
+     * offered by the repository, sees nothing in the live table, and re-ingests exactly what the operator removed.
+     *
+     * <p>
+     * Under the CBOM's asset-sync lock, which the withdrawal has by now released: it is transaction-scoped, so it went
+     * with the last batch's commit, and the gap between that commit and this delete is the last window in which an
+     * ingest of the same document can re-attach sources. Closing it makes the withdrawal's emptiness hold until the
+     * header is gone, in both directions -- the RESTRICT refusal on this side, and on the other an ingest writing
+     * {@code crypto_asset_source} rows against a header that has just been deleted.
+     *
+     * <p>
+     * First lock of the transaction, as the ranking on {@link CbomAssetIngestService} requires of every blocking
+     * acquisition of this key.
+     */
+    private void deleteAndTombstone(UUID uuid) {
+        clusterSynchronizer.lock(CbomAssetIngestService.assetSyncLockKey(uuid));
+        final Cbom cbom = cbomRepository.findById(uuid).orElse(null);
+        if (cbom == null) {
+            return;
+        }
+        cbomRepository.delete(cbom);
+        cbomRepository.flush();
+        tombstoneWriter
+                .record(cbom.getUuid(), cbom.getSerialNumber(), cbom.getVersion(), OffsetDateTime.now(),
+                        auditorAware.getCurrentAuditor().orElse(null));
     }
 
     @Override
@@ -424,18 +616,26 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
                 continue;
             }
             try {
-                transactionHandler.runInNewTransaction(() -> cbomRepository.deleteById(uuid));
-            } catch (Exception ex) {
-                // The cryptographic asset inventory's foreign key is RESTRICT, so this is now a reachable failure with
-                // a driver message that quotes the failing row. Both the response and the audit entry carry text we
-                // shaped instead.
-                String safeMessage = ex instanceof DataIntegrityViolationException
-                        ? CryptoAssetConstraintTranslator.describe(ex)
-                        : "Error deleting CBOM entry";
-                messages.add(BulkActionMessageDto.failureWithMessage(uuid.toString(), "", safeMessage));
-                logger
-                        .logEvent(Operation.DELETE, OperationResult.FAILURE, null,
-                                List.of(new ResourceObjectIdentity(null, uuid)), safeMessage);
+                assetDetachService.withdrawWaiting(uuid);
+            } catch (RuntimeException ex) {
+                // Only if it withdrew something. Every batch commits on its own, so a withdrawal that threw may have
+                // emptied part of the inventory -- but one that threw before its first commit did not, and recording
+                // the sentence for that would flip a genuinely SYNCED row to FAILED under a statement untrue of it.
+                recordPartialWithdrawal(uuid, ex);
+                recordBulkDeleteFailure(uuid, ex, messages);
+                continue;
+            }
+            try {
+                transactionHandler.runInNewTransaction(() -> deleteAndTombstone(uuid));
+            } catch (RuntimeException ex) {
+                // The withdrawal committed and the header did not, so the row says SYNCED and sources nothing. The
+                // backlog pass rebuilds it, but only if the state says so -- and markFailed will not overwrite
+                // SYNCED. The inventory's own refusal is the exception, for the reason deleteWithdrawnRow gives:
+                // something re-attached sources, so the row really is synced and only the delete failed.
+                if (!theInventoryRefused(ex)) {
+                    recordWithdrawnButNotDeleted(uuid);
+                }
+                recordBulkDeleteFailure(uuid, ex, messages);
                 continue;
             }
             logger
@@ -444,6 +644,21 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         }
 
         return messages;
+    }
+
+    /**
+     * One entry's failure, in text this platform shaped.
+     *
+     * <p>
+     * The cryptographic asset inventory's foreign key is RESTRICT, so a constraint violation here is reachable and its
+     * driver message quotes the failing row. Both the response and the audit entry carry the translation.
+     */
+    private void recordBulkDeleteFailure(UUID uuid, RuntimeException ex, List<BulkActionMessageDto> messages) {
+        final String safeMessage = safeDeleteFailureMessage(ex);
+        messages.add(BulkActionMessageDto.failureWithMessage(uuid.toString(), "", safeMessage));
+        logger
+                .logEvent(Operation.DELETE, OperationResult.FAILURE, null,
+                        List.of(new ResourceObjectIdentity(null, uuid)), safeMessage);
     }
 
     @Override
@@ -680,7 +895,14 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
                     .debug("CBOM Sync: CBOM serialNumber {} and version {}: already exists. Skipping the sync",
                             identity.serialNumber(), identity.version());
             run.duplicates++;
-            resolveSkipIfRecorded(identity, skips, run);
+            resolveSkipIfRecorded(identity, skips, run, "is stored");
+            return;
+        }
+        if (isTombstoned(identity, run)) {
+            // The skip row is resolved here, not left to retrySkipped: the identity is in run.attempted by now, so the
+            // retry pass returns before reaching its own tombstone branch. The repository goes on offering a deleted
+            // document every run, so a skip left here is never resolved by anything.
+            resolveSkipIfRecorded(identity, skips, run, "was deleted by an operator");
             return;
         }
 
@@ -698,12 +920,13 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
                                             ? "are left at zero until the asset ingest recounts them"
                                             : "were taken from the feed as reported");
                 }
-                resolveSkipIfRecorded(identity, skips, run);
+                resolveSkipIfRecorded(identity, skips, run, "is stored");
             }
             case DUPLICATE -> {
                 run.duplicates++;
-                resolveSkipIfRecorded(identity, skips, run);
+                resolveSkipIfRecorded(identity, skips, run, "is stored");
             }
+            case TOMBSTONED -> resolveSkipIfRecorded(identity, skips, run, "was deleted by an operator");
             case FAILED -> recordFailure(identity, outcome.reason(), counts, run, previousSkip(identity, skips));
             case UNAVAILABLE -> {
                 run.feedDeferred++;
@@ -730,14 +953,19 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         }
         run.retried++;
         if (cbomRepository.existsBySerialNumberAndVersion(identity.serialNumber(), identity.version())) {
-            resolveSkipIfRecorded(identity, skips, run);
+            resolveSkipIfRecorded(identity, skips, run, "is stored");
+            return;
+        }
+        if (isTombstoned(identity, run)) {
+            resolveSkipIfRecorded(identity, skips, run, "was deleted by an operator");
             return;
         }
         final StoreOutcome outcome = store(identity, skip.counts(), run);
         switch (outcome.kind()) {
             case FAILED -> recordFailure(identity, outcome.reason(), skip.counts(), run, skip);
             case UNAVAILABLE -> run.deferred.add(new DeferredSkip(identity, skip.counts(), outcome.reason(), skip));
-            default -> resolveSkipIfRecorded(identity, skips, run);
+            case TOMBSTONED -> resolveSkipIfRecorded(identity, skips, run, "was deleted by an operator");
+            default -> resolveSkipIfRecorded(identity, skips, run, "is stored");
         }
     }
 
@@ -775,9 +1003,19 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         }
 
         final AtomicBoolean isDuplicate = new AtomicBoolean(false);
+        final AtomicBoolean wasDeleted = new AtomicBoolean(false);
         final AtomicReference<UUID> storedUuid = new AtomicReference<>();
         try {
             transactionHandler.runInNewTransaction(() -> {
+                // Tested again here, and not only before the read above: the read is an HTTP call, and an operator
+                // deleting the document during it would otherwise have it stored back seconds later under a new uuid,
+                // which is the one thing this table exists to prevent. createCbomEntry's own pre-check looks at the
+                // live table only, and the delete gives the replacement row a uuid of its own, so nothing else
+                // notices.
+                if (tombstoneRepository.existsBySerialNumberAndVersion(identity.serialNumber(), identity.version())) {
+                    wasDeleted.set(true);
+                    return;
+                }
                 try {
                     storedUuid.set(createCbomEntry(identity, counts, document));
                 } catch (AlreadyExistException e) {
@@ -815,6 +1053,14 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
                     .warn("CBOM Sync: CBOM serialNumber {} and version {}: storing the CBOM row failed",
                             identity.serialNumber(), identity.version(), e);
             return StoreOutcome.failed("storing the CBOM row failed unexpectedly (see the Core log)");
+        }
+        if (wasDeleted.get()) {
+            logger
+                    .getLogger()
+                    .debug("CBOM Sync: CBOM serialNumber {} version {} was deleted by an operator while its document was being read; not storing it",
+                            identity.serialNumber(), identity.version());
+            run.tombstoned++;
+            return StoreOutcome.TOMBSTONED;
         }
         if (isDuplicate.get()) {
             return StoreOutcome.DUPLICATE;
@@ -938,10 +1184,32 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
     }
 
     /**
-     * Deletes the entry's skip row, if it has one, now that the document is stored. The live retry set answers for
-     * {@code RETRYING} rows; a written-off row is looked up, so it too is resolved when its document finally arrives.
+     * Whether an operator deleted this identity. The repository goes on offering the document -- deletion here is not
+     * deletion there -- so without this test every run would re-store what the operator removed, and the next ingest
+     * would rebuild the inventory behind it.
      */
-    private void resolveSkipIfRecorded(SyncIdentity identity, Map<SyncIdentity, CbomSyncSkip> skips, SyncRun run) {
+    private boolean isTombstoned(SyncIdentity identity, SyncRun run) {
+        if (!tombstoneRepository.existsBySerialNumberAndVersion(identity.serialNumber(), identity.version())) {
+            return false;
+        }
+        logger
+                .getLogger()
+                .debug("CBOM Sync: CBOM serialNumber {} version {} was deleted by an operator; not storing it again",
+                        identity.serialNumber(), identity.version());
+        run.tombstoned++;
+        return true;
+    }
+
+    /**
+     * Deletes the entry's skip row, if it has one, now that nothing is owed for it -- the document is stored, or an
+     * operator deleted it. The live retry set answers for {@code RETRYING} rows; a written-off row is looked up, so it
+     * too is resolved when its document finally arrives.
+     *
+     * @param reason what to say on the log line, in the voice of the identity: "is stored", "was deleted by an
+     * operator"
+     */
+    private void resolveSkipIfRecorded(SyncIdentity identity, Map<SyncIdentity, CbomSyncSkip> skips, SyncRun run,
+            String reason) {
         if (skips.remove(identity) == null && syncSkipRepository
                 .findBySerialNumberAndVersion(identity.serialNumber(), identity.version())
                 .isEmpty()) {
@@ -951,8 +1219,8 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         run.resolved++;
         logger
                 .getLogger()
-                .info("CBOM Sync: CBOM serialNumber {} version {} is stored; its skip record is resolved",
-                        identity.serialNumber(), identity.version());
+                .info("CBOM Sync: CBOM serialNumber {} version {} {}; its skip record is resolved",
+                        identity.serialNumber(), identity.version(), reason);
     }
 
     private SyncIdentity identityOf(BomEntryDto entry) throws ValidationException {
@@ -1056,6 +1324,8 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         enum Kind {
             STORED,
             DUPLICATE,
+            /** An operator deleted the document between the tombstone pre-check and the insert. */
+            TOMBSTONED,
             FAILED,
             /** The document read got no answer; whose failure that was is decided for the run as a whole. */
             UNAVAILABLE
@@ -1063,6 +1333,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
 
         static final StoreOutcome STORED = new StoreOutcome(Kind.STORED, null);
         static final StoreOutcome DUPLICATE = new StoreOutcome(Kind.DUPLICATE, null);
+        static final StoreOutcome TOMBSTONED = new StoreOutcome(Kind.TOMBSTONED, null);
 
         static StoreOutcome failed(String reason) {
             return new StoreOutcome(Kind.FAILED, reason);
@@ -1284,6 +1555,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
             case FAILED -> run.ingestFailed++;
             case LOCKED_ELSEWHERE -> run.ingestLockedElsewhere++;
             case SUPERSEDED -> run.ingestSuperseded++;
+            case DELETED -> run.ingestDeleted++;
             // Nothing happened and nothing was left owing, so there is nothing for the run report to say. Both passes
             // return before reaching the ingest when the switch is off; this arm is what keeps a future caller that
             // does not from being counted as a failure.
@@ -1310,12 +1582,16 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         int resolved;
         int permanentlySkipped;
         int alreadyPermanent;
+        /** Feed entries an operator had deleted, which this run left deleted. */
+        int tombstoned;
         int successfulReads;
         int ingested;
         int ingestRefused;
         int ingestFailed;
         int ingestLockedElsewhere;
         int ingestSuperseded;
+        /** CBOMs an operator deleted while the run was ingesting their assets. */
+        int ingestDeleted;
         int ingestUnavailable;
         /**
          * Document reads of the ingest pass that the repository answered, which is what tells an outage from a
@@ -1332,12 +1608,12 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
             return ("Read %d entries in %d pages: stored %d new entries, skipped duplicates %d, ignored %d original documents, "
                     + "%d invalid entries; %d entries could not be stored and were recorded for retry; "
                     + "retried %d previously skipped entries, %d skip records resolved; %d entries are now permanently skipped; "
-                    + "%d offers of permanently skipped entries failed again")
+                    + "%d offers of permanently skipped entries failed again; %d entries an operator had deleted were not stored again")
                     .formatted(read, pages, stored, duplicates, originals, invalid, recordedForRetry, retried, resolved,
-                            permanentlySkipped, alreadyPermanent)
-                    + "; ingested the cryptographic assets of %d CBOMs, refused %d documents, %d ingests failed, %d were left to another node, %d were superseded by a later version, %d documents could not be re-read"
+                            permanentlySkipped, alreadyPermanent, tombstoned)
+                    + "; ingested the cryptographic assets of %d CBOMs, refused %d documents, %d ingests failed, %d were left to another node, %d were superseded by a later version, %d were deleted mid-ingest, %d documents could not be re-read"
                             .formatted(ingested, ingestRefused, ingestFailed, ingestLockedElsewhere, ingestSuperseded,
-                                    ingestUnavailable);
+                                    ingestDeleted, ingestUnavailable);
         }
     }
 }

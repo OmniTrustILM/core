@@ -133,7 +133,7 @@ public class SearchHelper {
             if (values == null) {
                 fieldDataDto
                         .setValue(Arrays
-                                .stream(fieldDataDto.getPlatformEnum().getEnumClass().getEnumConstants())
+                                .stream(filterField.getEnumValues())
                                 .map(IPlatformEnum::getCode)
                                 .sorted()
                                 .toList());

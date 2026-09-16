@@ -445,41 +445,70 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
         assertThat(cbomRepository.findById(leanCbom.getUuid())).isEmpty();
     }
 
+    /**
+     * What the RESTRICT foreign key used to refuse. The delete path withdraws the CBOM's contribution first, so the
+     * deletion goes through and takes the asset nothing sources any more with it.
+     */
     @Test
-    void theCbomDeleteServicePathRefusesWhileTheInventoryReferencesItAndForwardsNoDriverText() throws Exception {
+    void theCbomDeleteServicePathWithdrawsTheInventoryAndTombstonesTheDocument() throws Exception {
         UUID assetUuid = upsert(rsa2048(), null);
         sourceWriter
                 .upsertSource(assetUuid, leanCbom.getUuid(), Map.of("primitive", "signature"), List.of(),
                         OffsetDateTime.now());
-        String identityKey = asset(assetUuid).getIdentityKey();
 
-        ValidationException refusal = org.junit.jupiter.api.Assertions
-                .assertThrows(ValidationException.class, () -> cbomService.deleteCbom(leanCbom.getUuid()));
+        cbomService.deleteCbom(leanCbom.getUuid());
 
-        assertThat(refusal.getMessage()).contains("still referenced by the cryptographic asset inventory");
-        assertLeaksNothing(refusal.getMessage(), identityKey);
-
-        List<BulkActionMessageDto> messages = cbomService.bulkDeleteCbom(List.of(leanCbom.getUuid()));
-
-        assertThat(messages).singleElement().satisfies(message -> {
-            assertThat(message.getMessage()).contains("still referenced by the cryptographic asset inventory");
-            assertLeaksNothing(message.getMessage(), identityKey);
-        });
-        assertThat(cbomRepository.findById(leanCbom.getUuid()))
-                .describedAs("a refused deletion leaves the row where it was")
+        assertThat(cbomRepository.findById(leanCbom.getUuid())).isEmpty();
+        assertThat(assetRepository.findById(assetUuid)).describedAs("its last source went with the document").isEmpty();
+        assertThat(tombstoneRepository.findById(leanCbom.getUuid()))
+                .describedAs("the next sync is told not to store it again")
                 .isPresent();
     }
 
-    private void assertLeaksNothing(String text, String identityKey) {
-        assertThat(text)
-                .describedAs("the driver's DETAIL line quotes the failing row, and for crypto_asset that row carries "
-                        + "the identity key")
-                .doesNotContain("Detail")
-                .doesNotContain("DETAIL")
-                .doesNotContain("detail")
-                .doesNotContain(identityKey)
-                .doesNotContain(leanCbom.getUuid().toString())
-                .doesNotContain("crypto_asset_source");
+    @Test
+    void theBulkDeletePathWithdrawsTheInventoryTheSameWay() {
+        UUID assetUuid = upsert(rsa2048(), null);
+        sourceWriter
+                .upsertSource(assetUuid, leanCbom.getUuid(), Map.of("primitive", "signature"), List.of(),
+                        OffsetDateTime.now());
+
+        List<BulkActionMessageDto> messages = cbomService.bulkDeleteCbom(List.of(leanCbom.getUuid()));
+
+        assertThat(messages).isEmpty();
+        assertThat(cbomRepository.findById(leanCbom.getUuid())).isEmpty();
+        assertThat(assetRepository.findById(assetUuid)).isEmpty();
+        assertThat(tombstoneRepository.existsBySerialNumberAndVersion("urn:uuid:lean", 1)).isTrue();
+    }
+
+    /**
+     * An asset another CBOM still names outlives the deletion, with the deleted document's contribution gone from its
+     * merged payload.
+     *
+     * <p>
+     * The deleted document is the one whose payload was elected, which is the case worth pinning: re-election has to
+     * happen for the survivor's payload to be served. The {@code crypto_asset_to_properties_source_key} foreign key is
+     * {@code ON DELETE SET NULL}, so a withdrawal that did not re-elect would leave the pointer null and the stale
+     * payload in place -- a row whose merged properties are a deleted document's, attributable to nothing.
+     */
+    @Test
+    void anAssetAnotherCbomSourcesOutlivesTheDeletedOne() throws Exception {
+        UUID assetUuid = upsert(rsa2048(), null);
+        Map<String, Object> deleted = Map.of("primitive", "signature", "padding", "pkcs1v15", "parameterSet", "2048");
+        Map<String, Object> surviving = Map.of("primitive", "keyAgreement");
+        sourceWriter.upsertSource(assetUuid, leanCbom.getUuid(), deleted, List.of(), OffsetDateTime.now());
+        sourceWriter.upsertSource(assetUuid, richCbom.getUuid(), surviving, List.of(), OffsetDateTime.now());
+        assertThat(asset(assetUuid).getMergedCryptoProperties())
+                .describedAs("the richer payload is elected first, so the deletion has something to re-elect from")
+                .isEqualTo(deleted);
+
+        cbomService.deleteCbom(leanCbom.getUuid());
+
+        CryptoAsset survivor = asset(assetUuid);
+        assertThat(survivor.getSourceCount()).isEqualTo(1);
+        assertThat(survivor.getMergedCryptoProperties()).isEqualTo(surviving);
+        assertThat(survivor.getPropertiesSourceUuid())
+                .describedAs("re-elected from what is left, not left pointing at nothing by the ON DELETE SET NULL")
+                .isEqualTo(source(assetUuid, richCbom.getUuid()).getUuid());
     }
 
     // ---- the alias table is invisible to identity ----

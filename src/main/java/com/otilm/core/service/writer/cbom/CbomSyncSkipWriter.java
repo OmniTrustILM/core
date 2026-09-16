@@ -44,7 +44,7 @@ public class CbomSyncSkipWriter {
                                 + version));
     }
 
-    /** Forgets the record: the document is stored. Returns 0 when there was none. */
+    /** Forgets the record: the document is stored, or an operator deleted it. Returns 0 when there was none. */
     @Transactional
     public int resolve(String serialNumber, int version) {
         return repository.deleteBySerialNumberAndVersion(serialNumber, version);

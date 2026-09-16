@@ -242,4 +242,59 @@ public interface CbomRepository extends SecurityFilterRepository<Cbom, UUID> {
     int updateAssetSyncState(@Param("uuid") UUID uuid, @Param("state") CbomAssetSyncState state,
             @Param("error") String error, @Param("syncedAt") OffsetDateTime syncedAt,
             @Param("expectedStates") Collection<CbomAssetSyncState> expectedStates);
+
+    /**
+     * Records a success, unless the row is carrying the one error a success must not overwrite.
+     *
+     * <p>
+     * A state guard cannot express this. Success is written unconditionally on purpose -- the run that ingested the
+     * assets is the one entitled to say so -- but a deletion that withdrew the inventory and then failed to remove the
+     * header writes {@code FAILED} from outside any ingest, and an ingest run already past its last batch when that
+     * happened would put the row straight back to {@code SYNCED} with the error cleared. The row would then claim an
+     * inventory contribution that has been deleted, and sit on neither work list.
+     *
+     * <p>
+     * It does not deadlock the row into {@code FAILED}: the next backlog pass claims it through {@code markInProgress},
+     * which clears the error, so the re-ingest that follows records its success normally.
+     *
+     * @param notOverError the error text this write refuses to displace
+     * @return 1 if the success was recorded, 0 if the row was carrying that error
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE Cbom c
+               SET c.assetSyncState = :state,
+                   c.assetSyncError = null,
+                   c.assetSyncAttemptedAt = CURRENT_TIMESTAMP,
+                   c.assetsSyncedAt = COALESCE(:syncedAt, c.assetsSyncedAt)
+             WHERE c.uuid = :uuid
+               AND (c.assetSyncError IS NULL OR c.assetSyncError <> :notOverError)
+            """)
+    int updateAssetSyncStateUnlessError(@Param("uuid") UUID uuid, @Param("state") CbomAssetSyncState state,
+            @Param("syncedAt") OffsetDateTime syncedAt, @Param("notOverError") String notOverError);
+
+    /**
+     * Records a failure that is not an ingest attempt, so it leaves the attempt clock alone.
+     *
+     * <p>
+     * {@link #updateAssetSyncState} stamps {@code assetSyncAttemptedAt} on every write, because that column is what the
+     * retry list reads to tell a live claim from an abandoned one. A deletion that withdrew the inventory and then
+     * failed attempted no ingest, and stamping it would exclude the row from the retry list for a whole
+     * {@code cbom.sync.ingest-retry-after} window and then sort it behind every older candidate -- the row that most
+     * urgently owes a rebuild made to wait the longest. So this write sets the state and the error and nothing else.
+     *
+     * @param expectedStates the states this failure may be written over; never null here, because a row that owes no
+     * ingest yet must not be moved off the fast pending list onto the slow retry one
+     * @return 1 if the failure was recorded, 0 if the row was in none of {@code expectedStates}
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE Cbom c
+               SET c.assetSyncState = :state,
+                   c.assetSyncError = :error
+             WHERE c.uuid = :uuid
+               AND c.assetSyncState IN :expectedStates
+            """)
+    int updateAssetSyncStateKeepingAttempt(@Param("uuid") UUID uuid, @Param("state") CbomAssetSyncState state,
+            @Param("error") String error, @Param("expectedStates") Collection<CbomAssetSyncState> expectedStates);
 }

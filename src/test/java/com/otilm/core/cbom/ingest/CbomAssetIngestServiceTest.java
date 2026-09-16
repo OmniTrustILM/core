@@ -408,6 +408,29 @@ class CbomAssetIngestServiceTest {
         verify(stateWriter).releaseClaim(CBOM, CbomAssetSyncState.FAILED);
     }
 
+    /**
+     * A CBOM deleted while its assets were being ingested stops the ingest instead of sourcing a header that is gone.
+     *
+     * <p>
+     * The lock is released at every batch commit, and the deletion takes it to withdraw the inventory and remove the
+     * header. Resuming would insert {@code crypto_asset_source} rows against a {@code cbom_uuid} that no longer exists:
+     * a foreign-key violation, a noisy failed document, and a {@code markFailed} that updates no row because there is
+     * no row. The probe sits next to the supersession re-read, which is there for the same reason.
+     */
+    @Test
+    void aCbomDeletedBetweenTwoBatchesStopsTheIngestRatherThanSourcingAMissingHeader() {
+        when(cbomRepository.hasIngestedLaterVersion(CBOM)).thenReturn(false);
+        when(synchronizer.tryLock(anyString())).thenReturn(true);
+        whenUpsertReturnsAFreshUuid();
+        CbomAssetIngestService service = service(realExtractor(), 1);
+        when(cbomRepository.existsById(CBOM)).thenReturn(true, false);
+
+        CbomAssetIngestService.IngestOutcome outcome = service.ingest(CBOM, twoAlgorithms(), SEEN_AT);
+
+        assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.DELETED);
+        verify(stateWriter, never()).markSynced(any(), any());
+    }
+
     // ---------------------------------------------------------------- fixtures
 
     private CbomAssetIngestService.IngestOutcome ingest(JsonNode document, int batchSize) {
@@ -415,6 +438,9 @@ class CbomAssetIngestServiceTest {
     }
 
     private CbomAssetIngestService service(CbomAssetExtractor extractor, int batchSize) {
+        // The header is there unless a test says otherwise: every batch re-reads it under the lock, because a deletion
+        // can remove it in the gap between two batch commits.
+        when(cbomRepository.existsById(CBOM)).thenReturn(true);
         return new CbomAssetIngestService(extractor, assetWriter, sourceWriter, detachService, stateWriter,
                 cbomRepository, assetRepository, new PqcEvaluator(new AssetNormalizer(IdentityTables.load())),
                 synchronizer, new TransactionHandler(), new SimpleMeterRegistry(),

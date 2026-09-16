@@ -2,6 +2,7 @@ package com.otilm.core.service.impl;
 
 import com.otilm.api.clients.SchedulerApiClient;
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.PlatformException;
 import com.otilm.api.exception.SchedulerException;
 import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
@@ -29,6 +30,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.SchedulerExternalService;
 import com.otilm.core.service.SchedulerInternalService;
+import com.otilm.core.service.writer.scheduler.ScheduledJobHistoryWriter;
 import com.otilm.core.tasks.ScheduledJobInfo;
 import com.otilm.core.tasks.ScheduledJobTask;
 import com.otilm.core.util.AuthHelper;
@@ -38,8 +40,8 @@ import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
-import java.util.Date;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import org.apache.commons.lang3.function.TriFunction;
@@ -50,7 +52,6 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.event.TransactionPhase;
@@ -72,6 +73,8 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
     private ScheduledJobsRepository scheduledJobsRepository;
 
     private ScheduledJobHistoryRepository scheduledJobHistoryRepository;
+
+    private ScheduledJobHistoryWriter historyWriter;
 
     @Autowired
     public void setAuthHelper(AuthHelper authHelper) {
@@ -101,6 +104,11 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
     @Autowired
     public void setScheduledJobHistoryRepository(ScheduledJobHistoryRepository scheduledJobHistoryRepository) {
         this.scheduledJobHistoryRepository = scheduledJobHistoryRepository;
+    }
+
+    @Autowired
+    public void setHistoryWriter(ScheduledJobHistoryWriter historyWriter) {
+        this.historyWriter = historyWriter;
     }
 
     @Override
@@ -271,7 +279,13 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
         return registerScheduler(scheduledJobTask, jobName, cronExpression, oneTime, taskData);
     }
 
+    /**
+     * Runs with no transaction of its own, whoever calls it: a caller's transaction would put the job back under
+     * {@code spring.transaction.default-timeout} (core#2251). Every history write is the writer's own short
+     * transaction; the only repository call made here directly is a read.
+     */
     @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void runScheduledJob(final String jobName) throws NotFoundException {
         final ScheduledJob scheduledJob = scheduledJobsRepository
                 .findByJobName(jobName)
@@ -293,82 +307,144 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
         if (scheduledJobTask == null) {
             String errorMessage = "Unknown scheduled task '%s' for job '%s'"
                     .formatted(scheduledJob.getJobClassName(), scheduledJob.getJobName());
-            registerJobHistory(scheduledJob, SchedulerJobExecutionStatus.FAILED, errorMessage);
+            historyWriter.recordUnknownTask(scheduledJob, errorMessage);
             logger.error(errorMessage);
             return;
         }
 
-        final ScheduledJobHistory scheduledJobHistory = registerJobHistory(scheduledJob,
-                SchedulerJobExecutionStatus.STARTED, null);
+        // Committed before the task runs: the history shows the run while it runs, and nothing the task does --
+        // however long it takes -- can roll this row back. Runs with no transaction of its own (see
+        // SchedulerListener); every write below is the writer's own short transaction.
+        final ScheduledJobHistory history = historyWriter.recordStarted(scheduledJob);
+        final ScheduledJobInfo jobInfo = new ScheduledJobInfo(scheduledJob.getJobName(), scheduledJob.getUuid(),
+                history.getUuid());
 
-        if (scheduledJob.getUserUuid() != null) {
-            authHelper.authenticateAsUser(scheduledJob.getUserUuid());
-        }
-
-        boolean skipped = false;
-        ScheduledTaskResult result = null;
+        final ScheduledTaskResult result;
+        boolean outcomeHandled = false;
         try {
-            result = scheduledJobTask
-                    .performJob(new ScheduledJobInfo(scheduledJob.getJobName(), scheduledJob.getUuid(),
-                            scheduledJobHistory.getUuid()), scheduledJob.getObjectData());
+            if (scheduledJob.getUserUuid() != null) {
+                authHelper.authenticateAsUser(scheduledJob.getUserUuid());
+            }
+            result = scheduledJobTask.performJob(jobInfo, scheduledJob.getObjectData());
+            outcomeHandled = true;
         } catch (ScheduledJobSkippedException e) {
-            skipped = true;
+            outcomeHandled = true;
+            logger.debug("Skipping scheduled job '{}', removing history entry", scheduledJob.getJobName());
+            try {
+                historyWriter.removeSkipped(history.getUuid());
+            } catch (RuntimeException bookkeeping) {
+                // A skip is not a failure; the row that should have gone is named so an operator can remove it.
+                logger
+                        .error("Scheduled job '{}' was skipped but its history row {} could not be removed",
+                                scheduledJob.getJobName(), history.getUuid(), bookkeeping);
+            }
+            return;
+        } catch (RuntimeException e) {
+            outcomeHandled = true;
+            // Threw, as opposed to returned null: without this the row would stay STARTED forever and
+            // deleteScheduledJob would refuse the job as "executing". The text is shaped: an exception's own message
+            // can quote driver or framework internals, and this one reaches the scheduler API.
+            try {
+                historyWriter
+                        .recordFailed(history.getUuid(),
+                                PlatformException.safeMessage(e, "The job failed unexpectedly; see the Core log"));
+            } catch (RuntimeException bookkeeping) {
+                // The task's own failure is the one to surface; the bookkeeping failure rides along.
+                e.addSuppressed(bookkeeping);
+            }
+            throw e;
         } finally {
-            if (skipped || result != null) {
-                finalizeFinishedScheduledJob(scheduledJob, scheduledJobHistory, result, skipped);
+            if (!outcomeHandled) {
+                // Only an Error gets here (performJob declares no checked exception). It is not caught -- whether the
+                // message is redelivered is the JMS retry policy's call -- but the row it would leave behind is closed,
+                // or deleteScheduledJob would refuse the job as "executing" forever.
+                try {
+                    historyWriter.recordFailed(history.getUuid(), "The job failed with an error; see the Core log");
+                } catch (RuntimeException bookkeeping) {
+                    logger
+                            .error("Scheduled job '{}' failed with an error and its history row {} could not be closed",
+                                    scheduledJob.getJobName(), history.getUuid(), bookkeeping);
+                }
             }
         }
+
+        if (result == null) {
+            // Finishes asynchronously (DiscoveryCertificateTask while the discovery is PROCESSING);
+            // handleScheduledJobFinishedEvent closes the row later.
+            return;
+        }
+        finalizeFinishedScheduledJob(scheduledJob, history.getUuid(), result);
     }
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW, isolation = Isolation.DEFAULT)
+    /**
+     * {@code NOT_SUPPORTED}: this runs in the {@code AFTER_COMMIT} phase of the publishing transaction, which is
+     * committed but still registered, so a {@code REQUIRED} write made here would join it and be lost. Suspending it
+     * lets the writer's {@code REQUIRED} methods start transactions of their own, and keeps the deregistration call to
+     * the scheduler and the finished-job event outside any database transaction. The status commits first, then the
+     * outside is told: the order the history has to be able to vouch for.
+     */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void handleScheduledJobFinishedEvent(ScheduledJobFinishedEvent event) throws NotFoundException {
         logger.debug("ScheduledJobFinished event handler: {}", event.scheduledJobInfo().jobUuid());
+        final ScheduledTaskResult result = Objects
+                .requireNonNull(event.result(), "a ScheduledJobFinishedEvent carries the run's result");
         final ScheduledJob scheduledJob = scheduledJobsRepository
                 .findByUuid(SecuredUUID.fromUUID(event.scheduledJobInfo().jobUuid()))
                 .orElseThrow(() -> new NotFoundException(ScheduledJob.class, event.scheduledJobInfo().jobUuid()));
-        final ScheduledJobHistory scheduledJobHistory = scheduledJobHistoryRepository
-                .findByUuid(SecuredUUID.fromUUID(event.scheduledJobInfo().jobHistoryUuid()))
-                .orElseThrow(() -> new NotFoundException(ScheduledJobHistory.class,
-                        event.scheduledJobInfo().jobHistoryUuid()));
-        finalizeFinishedScheduledJob(scheduledJob, scheduledJobHistory, event.result(), false);
+        finalizeFinishedScheduledJob(scheduledJob, event.scheduledJobInfo().jobHistoryUuid(), result);
     }
 
-    private void finalizeFinishedScheduledJob(ScheduledJob scheduledJob, ScheduledJobHistory scheduledJobHistory,
-            ScheduledTaskResult result, boolean skipped) {
+    /**
+     * Closes the run: the final status is committed first, and only then are the outside parties told -- the scheduler
+     * for a one-time job, the event consumers for a non-system one -- so nothing is ever reported that the history
+     * cannot confirm.
+     */
+    private void finalizeFinishedScheduledJob(ScheduledJob scheduledJob, UUID historyUuid, ScheduledTaskResult result) {
         logger.debug("Finalizing finished scheduled job '{}'", scheduledJob.getJobName());
 
-        // update job history
-        if (result != null) {
-            scheduledJobHistory.setJobEndTime(new Date());
-            scheduledJobHistory.setSchedulerExecutionStatus(result.getStatus());
-            scheduledJobHistory.setResultMessage(result.getResultMessage());
-            scheduledJobHistory.setResultObjectType(result.getResultObjectType());
-            scheduledJobHistory.setResultObjectIdentification(result.getResultObjectIdentification());
-            scheduledJobHistoryRepository.save(scheduledJobHistory);
-        } else if (skipped) {
-            logger.debug("Skipping scheduled job '{}', removing history entry", scheduledJob.getJobName());
-            scheduledJobHistoryRepository.delete(scheduledJobHistory);
+        try {
+            historyWriter.recordFinished(historyUuid, result);
+        } catch (RuntimeException e) {
+            // The close write failed -- a failover, a pooler restart. The row must not stay STARTED, so a second close
+            // marks it FAILED and names the real outcome; the outside is told nothing the history cannot confirm, and
+            // a missing SUCCESS row only makes the next sync re-list, which is safe.
+            try {
+                historyWriter
+                        .recordFailed(historyUuid, "The run finished with " + result.getStatus()
+                                + " but its history could not be closed; see the Core log");
+            } catch (RuntimeException again) {
+                e.addSuppressed(again);
+            }
+            throw e;
         }
 
         // deregister one-time job
-        if (result != null && SchedulerJobExecutionStatus.SUCCESS.equals(result.getStatus())
-                && scheduledJob.isOneTime()) {
+        if (SchedulerJobExecutionStatus.SUCCESS.equals(result.getStatus()) && scheduledJob.isOneTime()) {
             try {
                 schedulerApiClient.deleteScheduledJob(scheduledJob.getJobName());
                 logger
                         .info("Scheduled job '{}' was deleted/unscheduled because it was one-time job only.",
                                 scheduledJob.getJobName());
-            } catch (SchedulerException e) {
-                logger.error("Failed to delete/unschedule finished one-time job '{}'", scheduledJob.getJobName());
+            } catch (SchedulerException | RuntimeException e) {
+                // The client surfaces transport and status failures unchecked; either way the status is committed
+                // and the finished-job event below must still go out.
+                logger.error("Failed to delete/unschedule finished one-time job '{}'", scheduledJob.getJobName(), e);
             }
         }
 
         // raise event for non-system job
-        if (!scheduledJob.isSystem() && result != null) {
-            eventProducer
-                    .produceMessage(
-                            ScheduledJobFinishedEventHandler.constructEventMessage(scheduledJob.getUuid(), result));
+        if (!scheduledJob.isSystem()) {
+            try {
+                eventProducer
+                        .produceMessage(
+                                ScheduledJobFinishedEventHandler.constructEventMessage(scheduledJob.getUuid(), result));
+            } catch (RuntimeException e) {
+                // The status is committed and a redelivery would run the job again, so the event is what is lost.
+                logger
+                        .error("Scheduled job '{}' finished with {}, but its finished-job event could not be sent",
+                                scheduledJob.getJobName(), result.getStatus(), e);
+            }
         }
 
         logger.info("Scheduled job '{}' has finished", scheduledJob.getJobName());
@@ -409,16 +485,6 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
 
         logger.info("Scheduled job '{}' was registered.", jobName);
         return scheduledJobEntity.mapToDetailDto(null);
-    }
-
-    private ScheduledJobHistory registerJobHistory(final ScheduledJob scheduledJob, SchedulerJobExecutionStatus status,
-            String message) {
-        final ScheduledJobHistory scheduledJobHistory = new ScheduledJobHistory();
-        scheduledJobHistory.setScheduledJobUuid(scheduledJob.getUuid());
-        scheduledJobHistory.setJobExecution(new Date());
-        scheduledJobHistory.setSchedulerExecutionStatus(status);
-        scheduledJobHistory.setResultMessage(message);
-        return scheduledJobHistoryRepository.save(scheduledJobHistory);
     }
 
 }

@@ -1,6 +1,7 @@
 package com.otilm.core.tasks;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.otilm.api.exception.PlatformException;
 import com.otilm.api.model.client.discovery.DiscoveryDetailDto;
 import com.otilm.api.model.client.discovery.DiscoveryDto;
 import com.otilm.api.model.core.auth.Resource;
@@ -94,10 +95,13 @@ public class DiscoveryCertificateTask implements ScheduledJobTask {
             transactionManager.commit(status);
         } catch (Exception e) {
             transactionManager.rollback(status);
+            // Shaped, not raw: this text becomes the history row's result_message, which the scheduler API serves. Only
+            // a platform exception's own message is operator-safe; a driver or constraint message stays in the log.
             final String errorMessage = String
                     .format("Unable to create discovery %s for job %s. Error: %s", discoveryDto.getName(),
-                            scheduledJobInfo == null ? "" : scheduledJobInfo.jobName(), e.getMessage());
-            logger.error(errorMessage);
+                            scheduledJobInfo == null ? "" : scheduledJobInfo.jobName(),
+                            PlatformException.safeMessage(e, "unexpected error, see the Core log"));
+            logger.error(errorMessage, e);
             return new ScheduledTaskResult(SchedulerJobExecutionStatus.FAILED, errorMessage,
                     discovery != null ? Resource.DISCOVERY : null, discovery != null ? discovery.getUuid() : null);
         }
