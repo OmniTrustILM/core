@@ -4,7 +4,9 @@ import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.model.crypto.ImmutableTokenProfileFullModel;
+import com.otilm.core.model.crypto.ImmutableTokenProfileListModel;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
+import com.otilm.core.model.crypto.TokenProfileListModel;
 import java.util.UUID;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -18,7 +20,7 @@ class TokenProfileDtoMapperTest {
     void mapToDto_usesTokenStatusCapturedInSnapshot(TokenInstanceStatus status) {
         // given
         TokenProfile profile = profileWithTokenStatus(status);
-        TokenProfileFullModel snapshot = ImmutableTokenProfileFullModel.from(profile);
+        TokenProfileListModel snapshot = ImmutableTokenProfileListModel.from(profile);
         profile.getTokenInstanceReference().setStatus(null);
 
         // when

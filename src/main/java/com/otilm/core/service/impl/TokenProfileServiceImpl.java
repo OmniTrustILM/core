@@ -28,6 +28,7 @@ import com.otilm.core.mapper.crypto.TokenProfileDtoMapper;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.crypto.ImmutableTokenProfileBasicModel;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
+import com.otilm.core.model.crypto.TokenProfileListModel;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredParentUUID;
@@ -113,9 +114,9 @@ public class TokenProfileServiceImpl implements TokenProfileExternalService, Tok
     public List<TokenProfileDto> listTokenProfiles(Optional<Boolean> enabled, SecurityFilter filter) {
         logger.info("Listing token profiles");
         filter.setParentRefProperty("tokenInstanceReferenceUuid");
-        List<TokenProfileFullModel> tokenProfiles = enabled
-                .map(value -> tokenProfileRepository.findFullModelsUsingSecurityFilter(filter, value))
-                .orElseGet(() -> tokenProfileRepository.findFullModelsUsingSecurityFilter(filter));
+        List<TokenProfileListModel> tokenProfiles = enabled
+                .map(value -> tokenProfileRepository.findListModelsUsingSecurityFilter(filter, value))
+                .orElseGet(() -> tokenProfileRepository.findListModelsUsingSecurityFilter(filter));
         return tokenProfiles.stream().map(TokenProfileDtoMapper::mapToDto).toList();
     }
 

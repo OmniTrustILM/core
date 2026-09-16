@@ -3,7 +3,9 @@ package com.otilm.core.dao.repository;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.model.crypto.ImmutableTokenProfileBasicModel;
 import com.otilm.core.model.crypto.ImmutableTokenProfileFullModel;
+import com.otilm.core.model.crypto.ImmutableTokenProfileListModel;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
+import com.otilm.core.model.crypto.TokenProfileListModel;
 import com.otilm.core.security.authz.SecurityFilter;
 import jakarta.persistence.LockModeType;
 import jakarta.persistence.criteria.CriteriaBuilder;
@@ -56,21 +58,19 @@ public interface TokenProfileRepository extends SecurityFilterRepository<TokenPr
                 .map(ImmutableTokenProfileFullModel::from);
     }
 
-    default List<TokenProfileFullModel> findFullModelsUsingSecurityFilter(SecurityFilter filter) {
-        return findUsingSecurityFilter(filter,
-                List.of("tokenInstanceReference.connectorInterface", "tokenInstanceReference.tokenProfiles"), null)
+    default List<TokenProfileListModel> findListModelsUsingSecurityFilter(SecurityFilter filter) {
+        return findUsingSecurityFilter(filter, List.of("tokenInstanceReference"), null)
                 .stream()
-                .<TokenProfileFullModel>map(ImmutableTokenProfileFullModel::from)
+                .<TokenProfileListModel>map(ImmutableTokenProfileListModel::from)
                 .toList();
     }
 
-    default List<TokenProfileFullModel> findFullModelsUsingSecurityFilter(SecurityFilter filter, boolean enabled) {
-        return findUsingSecurityFilter(filter,
-                List.of("tokenInstanceReference.connectorInterface", "tokenInstanceReference.tokenProfiles"),
+    default List<TokenProfileListModel> findListModelsUsingSecurityFilter(SecurityFilter filter, boolean enabled) {
+        return findUsingSecurityFilter(filter, List.of("tokenInstanceReference"),
                 (Root<TokenProfile> root, CriteriaBuilder cb, CriteriaQuery<?> query) -> cb
                         .equal(root.get("enabled"), enabled))
                 .stream()
-                .<TokenProfileFullModel>map(ImmutableTokenProfileFullModel::from)
+                .<TokenProfileListModel>map(ImmutableTokenProfileListModel::from)
                 .toList();
     }
 
