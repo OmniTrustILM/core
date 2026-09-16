@@ -49,15 +49,14 @@ public final class CbomIngestTestFixtures {
                 + "{\"assetType\":\"algorithm\",\"algorithmProperties\":{}}}";
     }
 
-    /** The seven-arg record, with ingest enabled and everything but the batch size at its production default. */
+    /** The four-arg record, with ingest enabled and everything but the batch size at its production default. */
     public static CbomSyncProperties properties(int assetBatchSize) {
-        return new CbomSyncProperties(1000, Duration.ofSeconds(60), 3, true, assetBatchSize, 50,
-                Duration.ofMinutes(30));
+        return new CbomSyncProperties(1000, true, assetBatchSize, Duration.ofMinutes(30));
     }
 
     /** As {@link #properties(int)}, with {@code cbom.sync.asset-ingest-enabled} off. */
     public static CbomSyncProperties propertiesWithIngestDisabled() {
-        return new CbomSyncProperties(1000, Duration.ofSeconds(60), 3, false, 100, 50, Duration.ofMinutes(30));
+        return new CbomSyncProperties(1000, false, 100, Duration.ofMinutes(30));
     }
 
     public static JsonNode read(String json) {

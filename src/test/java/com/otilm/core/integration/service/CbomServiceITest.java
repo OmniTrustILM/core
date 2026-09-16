@@ -2253,7 +2253,7 @@ class CbomServiceITest extends BaseSpringBootTest {
 
     /**
      * A revision a later one has already ingested costs no document read at all. The check has to come before the read
-     * because the read is the expense: it spends one of the run's {@code max-ingest-documents} slots and one of the
+     * because the read is the expense: it spends one of the run's ingest-budget slots and one of the
      * {@code ingestReads} that {@code settleUnreadable} weighs its outage verdict on, and a repository carrying many
      * historical revisions is exactly the population this backlog pass exists for. It also settles a superseded
      * revision whose old document has since been removed upstream, which the read would report as a 404 retried for

@@ -23,6 +23,9 @@ import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
+import com.otilm.api.model.core.settings.PlatformSettingsDto;
+import com.otilm.api.model.core.settings.SettingsSection;
+import com.otilm.api.model.core.settings.UtilsSettingsDto;
 import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
 import com.otilm.core.attribute.engine.AttributeColumnProjector;
 import com.otilm.core.attribute.engine.AttributeEngine;
@@ -32,6 +35,7 @@ import com.otilm.core.cbom.client.BomSearchPage;
 import com.otilm.core.cbom.client.CbomRepositoryClient;
 import com.otilm.core.cbom.ingest.CbomAssetDetachService;
 import com.otilm.core.cbom.ingest.CbomAssetIngestService;
+import com.otilm.core.cbom.sync.CbomSyncPolicy;
 import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.config.CbomSyncProperties;
@@ -64,6 +68,7 @@ import com.otilm.core.service.CbomInternalService;
 import com.otilm.core.service.writer.cbom.CbomAssetSyncStateWriter;
 import com.otilm.core.service.writer.cbom.CbomSyncSkipWriter;
 import com.otilm.core.service.writer.cbom.CbomTombstoneWriter;
+import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.tasks.CbomSyncTask;
 import com.otilm.core.util.CbomUtil;
 import com.otilm.core.util.FilterPredicatesBuilder;
@@ -738,16 +743,16 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      * {@code Link rel="next"} header until a page carries none; the absence of the header, not the page size, ends the
      * run. Every entry is deduplicated on {@code (serialNumber, version)} and stored in its own transaction; an entry
      * with {@code cryptoStats: null} is stored with zero counts, left for the asset ingest recount. An entry that could
-     * not be stored is recorded in {@code cbom_sync_skip} and retried at the end of the next
-     * {@code cbom.sync.skipped-retry-runs} runs, then kept as permanently skipped -- so one failing document can never
-     * hold the watermark back, and no entry is lost silently. Any non-2xx answer to a page request fails the run
-     * instead: the watermark does not advance and the whole run is repeated. A document read that reaches the sync as
-     * HTTP 503 -- the repository declaring itself unavailable, or the client's own refused connection or response
-     * timeout -- is charged to that document like any other failure, one hanging document among no other new documents
-     * included. Only a run that shows a repository-wide outage -- no read succeeded at all and at least two of the feed
-     * pass's documents failed that way -- fails without charging those failures to the retry budget. A retry's failure
-     * never counts towards that verdict: the page requests of the same run just succeeded, so the repository is up, and
-     * a retry that is exempt from being charged would never spend its budget.
+     * not be stored is recorded in {@code cbom_sync_skip} and retried at the end of as many later runs as the retry
+     * budget from the platform settings ({@code cbomSyncSkippedRetryRuns}) allows, then kept as permanently skipped --
+     * so one failing document can never hold the watermark back, and no entry is lost silently. Any non-2xx answer to a
+     * page request fails the run instead: the watermark does not advance and the whole run is repeated. A document read
+     * that reaches the sync as HTTP 503 -- the repository declaring itself unavailable, or the client's own refused
+     * connection or response timeout -- is charged to that document like any other failure, one hanging document among
+     * no other new documents included. Only a run that shows a repository-wide outage -- no read succeeded at all and
+     * at least two of the feed pass's documents failed that way -- fails without charging those failures to the retry
+     * budget. A retry's failure never counts towards that verdict: the page requests of the same run just succeeded, so
+     * the repository is up, and a retry that is exempt from being charged would never spend its budget.
      *
      * <p>
      * Runs without an ambient transaction, and so does the scheduler task calling it: the run pages an external service
@@ -767,7 +772,13 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      * a self-invocation would run the boundary of whichever caller it came from.
      */
     private String runSync() throws CbomRepositoryException {
-        final SyncRun run = new SyncRun(OffsetDateTime.now(), syncProperties.maxAttempts());
+        // Read once, here: a policy changed in the Settings UI applies to the next run, never to half of this one.
+        final CbomSyncPolicy policy = CbomSyncPolicy.fromSettings(platformUtilsSettings());
+        final SyncRun run = new SyncRun(OffsetDateTime.now(), policy);
+        logger
+                .getLogger()
+                .info("CBOM Sync: started with an overlap of {} seconds, a retry budget of {} runs and an ingest budget of {} documents",
+                        policy.overlap().toSeconds(), policy.skippedRetryRuns(), policy.maxIngestDocuments());
         final Map<SyncIdentity, CbomSyncSkip> skips = loadSkipRecords();
 
         readFeed(run, skips);
@@ -778,6 +789,15 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         final String syncResultMessage = run.summary();
         logger.getLogger().info("CBOM Sync: finished. {}", syncResultMessage);
         return syncResultMessage;
+    }
+
+    /**
+     * The operator's half of the sync tunables as the settings cache holds it -- null before the platform settings were
+     * ever read, which {@link CbomSyncPolicy#fromSettings} treats as "all defaults".
+     */
+    private static UtilsSettingsDto platformUtilsSettings() {
+        PlatformSettingsDto platform = SettingsCache.getSettings(SettingsSection.PLATFORM);
+        return platform == null ? null : platform.getUtils();
     }
 
     /**
@@ -807,7 +827,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
 
     private void readFeed(SyncRun run, Map<SyncIdentity, CbomSyncSkip> skips) throws CbomRepositoryException {
         final BomSearchRequestDto query = new BomSearchRequestDto();
-        query.setAfter(getLastSyncTimestamp());
+        query.setAfter(getLastSyncTimestamp(run.policy.overlap()));
         query.setLimit(syncProperties.pageSize());
         logger.getLogger().debug("CBOM sync: listing entries created after {}", query.getAfter());
 
@@ -1160,13 +1180,13 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
             CbomSyncSkip previous) {
         final CbomSyncSkip attempted = syncSkipWriter
                 .recordAttempt(identity.serialNumber(), identity.version(), reason, counts, run.startedAt,
-                        run.maxAttempts);
+                        run.policy.maxAttempts());
         if (attempted.getState() != CbomSyncSkipState.PERMANENTLY_SKIPPED) {
             logger
                     .getLogger()
                     .warn("CBOM Sync: CBOM serialNumber {} version {} could not be stored (attempt {} of {}): {}. It is retried on the next run",
-                            identity.serialNumber(), identity.version(), attempted.getAttempts(), run.maxAttempts,
-                            reason);
+                            identity.serialNumber(), identity.version(), attempted.getAttempts(),
+                            run.policy.maxAttempts(), reason);
             return SkipOutcome.RETRYING;
         }
         if (previous != null && previous.getState() == CbomSyncSkipState.PERMANENTLY_SKIPPED) {
@@ -1236,7 +1256,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         }
     }
 
-    private long getLastSyncTimestamp() {
+    private long getLastSyncTimestamp(Duration overlap) {
         Optional<ScheduledJobHistory> lastSync = scheduledJobHistoryRepository
                 .findFirstByScheduledJobJobNameAndSchedulerExecutionStatusOrderByJobExecutionDesc(CbomSyncTask.NAME,
                         SchedulerJobExecutionStatus.SUCCESS);
@@ -1252,7 +1272,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
             logger.getLogger().debug("CBOM sync: last sync job has no execution start time, performing initial sync.");
             return 0L;
         }
-        return watermarkSeconds(jobExecution, syncProperties.overlap());
+        return watermarkSeconds(jobExecution, overlap);
     }
 
     /**
@@ -1362,8 +1382,8 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
     /** Counters of one run and the identities it has already tried, so the retry phase does not try them twice. */
 
     /**
-     * Ingests the cryptographic assets of the CBOMs that still owe one, bounded by
-     * {@code cbom.sync.max-ingest-documents}.
+     * Ingests the cryptographic assets of the CBOMs that still owe one, bounded by the run's ingest budget (the
+     * platform setting {@code cbomSyncMaxIngestDocuments}).
      *
      * <p>
      * The feed pass cannot do this on its own. It skips every entry whose header row already exists, which is exactly
@@ -1376,10 +1396,10 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      * holds must never span an HTTP call.
      */
     private void ingestPending(SyncRun run) {
-        if (!syncProperties.assetIngestEnabled() || syncProperties.maxIngestDocuments() == 0) {
+        if (!syncProperties.assetIngestEnabled() || run.policy.maxIngestDocuments() == 0) {
             return;
         }
-        final int budget = syncProperties.maxIngestDocuments();
+        final int budget = run.policy.maxIngestDocuments();
         final List<Cbom> workList = new ArrayList<>(
                 cbomRepository.findPendingAssetIngests(CbomAssetSyncState.PENDING, Limit.of(budget)));
         if (workList.size() < budget) {
@@ -1497,7 +1517,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
     private void ingestOnePending(Cbom cbom, SyncRun run, List<DeferredIngest> deferred,
             CbomAssetSyncState claimedFrom) {
         // Before the document read, not after it. A revision a later one has already ingested has nothing to
-        // contribute, and paying an HTTP read to find that out spends one of the run's max-ingest-documents slots and
+        // contribute, and paying an HTTP read to find that out spends one of the run's ingest-budget slots and
         // one of its ingestReads -- the figure settleUnreadable weighs its outage verdict on. A repository carrying
         // many historical revisions is exactly the population this backlog pass exists for, so the budget would go on
         // documents discarded on arrival. It also settles a superseded revision whose old document has since been
@@ -1565,7 +1585,8 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
 
     private static final class SyncRun {
         final OffsetDateTime startedAt;
-        final int maxAttempts;
+        /** The operator policy this run was started with; a setting changed mid-run waits for the next one. */
+        final CbomSyncPolicy policy;
         final Set<SyncIdentity> attempted = new HashSet<>();
         /** Entries whose document read got no answer, awaiting the run's verdict. */
         final List<DeferredSkip> deferred = new ArrayList<>();
@@ -1599,9 +1620,9 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
          */
         int ingestReads;
 
-        SyncRun(OffsetDateTime startedAt, int maxAttempts) {
+        SyncRun(OffsetDateTime startedAt, CbomSyncPolicy policy) {
             this.startedAt = startedAt;
-            this.maxAttempts = maxAttempts;
+            this.policy = policy;
         }
 
         String summary() {
