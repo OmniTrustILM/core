@@ -63,4 +63,22 @@ public interface CryptographicKeyRepository extends SecurityFilterRepository<Cry
     List<CryptographicKey> findByUuidIn(List<UUID> uuids);
 
     long countByTokenProfileUuid(UUID tokenProfileUuid);
+
+    /** Counts links, including both roles when the same certificate references a key twice. */
+    @Query("""
+            SELECT key.uuid AS uuid,
+                SUM(CASE WHEN certificate.keyUuid = key.uuid THEN 1 ELSE 0 END
+                    + CASE WHEN certificate.altKeyUuid = key.uuid THEN 1 ELSE 0 END) AS associations
+            FROM CryptographicKey key
+            LEFT JOIN Certificate certificate ON certificate.keyUuid = key.uuid OR certificate.altKeyUuid = key.uuid
+            WHERE key.uuid IN :uuids
+            GROUP BY key.uuid
+            """)
+    List<KeyCertificateAssociationCount> getCertificateAssociationCounts(@Param("uuids") List<UUID> uuids);
+
+    interface KeyCertificateAssociationCount {
+        UUID getUuid();
+
+        long getAssociations();
+    }
 }

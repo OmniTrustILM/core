@@ -15,6 +15,7 @@ import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.model.crypto.CryptographicKeyFullModel;
 import com.otilm.core.model.crypto.CryptographicKeyItemBasicModel;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
+import com.otilm.core.model.crypto.ImmutableCryptographicKeyListModel;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import java.time.OffsetDateTime;
 import java.util.Arrays;
@@ -38,6 +39,65 @@ import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 
 class CryptographicKeyDtoMapperTest {
+
+    @Test
+    void mapToDto_preservesListingFieldsWithoutReadingDetailAssociations() {
+        // given
+        CryptographicKey key = spy(keyWithOwnerAndToken());
+        TokenInstanceReference token = spy(key.getTokenInstanceReference());
+        key.setTokenInstanceReference(token);
+        long certificateCount = 3;
+        int expectedAssociationCount = 4;
+        key.setItems(Set.of(item(key, ComplianceStatus.OK), item(key, ComplianceStatus.NOK)));
+
+        // when
+        var model = ImmutableCryptographicKeyListModel.from(key, certificateCount);
+        KeyDto dto = CryptographicKeyDtoMapper.mapToDto(model);
+
+        // then
+        assertThat(dto.getUuid()).isEqualTo(key.getUuid().toString());
+        assertThat(dto.getName()).isEqualTo(key.getName());
+        assertThat(dto.getDescription()).isEqualTo(key.getDescription());
+        assertThat(dto.getCreationTime()).isEqualTo(key.getCreated());
+        assertThat(dto.getOwnerUuid()).isEqualTo(key.getOwner().getOwnerUuid().toString());
+        assertThat(dto.getOwner()).isEqualTo(key.getOwner().getOwnerUsername());
+        assertThat(dto.getTokenProfileUuid()).isEqualTo(key.getTokenProfileUuid().toString());
+        assertThat(dto.getTokenProfileName()).isEqualTo(key.getTokenProfile().getName());
+        assertThat(dto.getTokenInstanceUuid()).isEqualTo(token.getUuid().toString());
+        assertThat(dto.getTokenInstanceName()).isEqualTo(token.getName());
+        assertThat(dto.getGroups())
+                .singleElement()
+                .satisfies(group -> assertThat(group.getUuid())
+                        .isEqualTo(key.getGroups().iterator().next().getUuid().toString()));
+        assertThat(dto.getAssociations()).isEqualTo(expectedAssociationCount);
+        assertThat(dto.getComplianceStatus()).isEqualTo(ComplianceStatus.NOK);
+        assertThat(dto.getItems()).hasSize(model.items().size()).allSatisfy(item -> {
+            assertThat(item.getKeyWrapperUuid()).isEqualTo(dto.getUuid());
+            assertThat(item.getOwnerUuid()).isEqualTo(dto.getOwnerUuid());
+            assertThat(item.getTokenProfileName()).isEqualTo(dto.getTokenProfileName());
+            assertThat(item.getTokenInstanceName()).isEqualTo(dto.getTokenInstanceName());
+        });
+        verify(key, never()).getCertificates();
+        verify(key, never()).getAltCertificates();
+        verify(token, never()).getTokenProfiles();
+        verify(token, never()).getConnectorInterface();
+    }
+
+    @Test
+    void mapToDto_supportsListingWithoutOwnerOrToken() {
+        // given
+        CryptographicKey key = key();
+        long noCertificates = 0;
+
+        // when
+        KeyDto dto = CryptographicKeyDtoMapper.mapToDto(ImmutableCryptographicKeyListModel.from(key, noCertificates));
+
+        // then
+        assertThat(dto.getOwnerUuid()).isNull();
+        assertThat(dto.getTokenProfileUuid()).isNull();
+        assertThat(dto.getTokenInstanceUuid()).isNull();
+        assertThat(dto.getAssociations()).isZero();
+    }
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("keyMaterialResponses")
@@ -293,7 +353,7 @@ class CryptographicKeyDtoMapperTest {
     void mapToChainDto_doesNotReadCertificateCollections() {
         // given
         CryptographicKey key = spy(key());
-        CryptographicKeyFullModel model = ImmutableCryptographicKeyFullModel.fromForChain(key);
+        var model = ImmutableCryptographicKeyListModel.from(key, 0);
 
         // when
         KeyDto dto = CryptographicKeyDtoMapper.mapToChainDto(model);

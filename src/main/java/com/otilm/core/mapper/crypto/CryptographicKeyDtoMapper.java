@@ -14,6 +14,8 @@ import com.otilm.api.model.core.cryptography.key.KeyItemDto;
 import com.otilm.core.mapper.workflows.PaginationResponseMapper;
 import com.otilm.core.model.crypto.CryptographicKeyFullModel;
 import com.otilm.core.model.crypto.CryptographicKeyItemBasicModel;
+import com.otilm.core.model.crypto.CryptographicKeyListModel;
+import com.otilm.core.model.crypto.ImmutableCryptographicKeyListModel;
 import com.otilm.core.model.crypto.KeyCertificateAssociationModel;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.group.GroupModel;
@@ -44,36 +46,57 @@ public final class CryptographicKeyDtoMapper {
         return key.items().stream().map(CryptographicKeyDtoMapper::mapItemToDetailDto).toList();
     }
 
-    public static List<KeyItemDto> getKeyItemsSummary(CryptographicKeyFullModel key) {
+    public static List<KeyItemDto> getKeyItemsSummary(CryptographicKeyListModel key) {
         return key.items().stream().map(item -> mapItemToSummaryDto(item, key)).toList();
     }
 
+    public static List<KeyItemDto> getKeyItemsSummary(CryptographicKeyFullModel key) {
+        return getKeyItemsSummary(summaryOf(key, 0));
+    }
+
     public static KeyDto mapToDto(CryptographicKeyFullModel key) {
+        int associationCount = key.items().size() - 1 + key.certificateAssociations().size();
+        return mapToDto(summaryOf(key, associationCount));
+    }
+
+    public static KeyDto mapToDto(CryptographicKeyListModel key) {
         KeyDto dto = buildKeyDto(key);
-        dto.setAssociations((key.items().size() - 1) + key.certificateAssociations().size());
+        dto.setAssociations(key.associationCount());
         return dto;
     }
 
     /** Omits association counts so chain responses do not initialize certificate collections. */
     public static KeyDto mapToChainDto(CryptographicKeyFullModel key) {
+        return mapToChainDto(summaryOf(key, 0));
+    }
+
+    public static KeyDto mapToChainDto(CryptographicKeyListModel key) {
         return buildKeyDto(key);
+    }
+
+    private static CryptographicKeyListModel summaryOf(CryptographicKeyFullModel key, int associationCount) {
+        String profileName = key.tokenProfile() == null ? null : key.tokenProfile().name();
+        String tokenName = key.tokenInstance() == null ? null : key.tokenInstance().name();
+        return new ImmutableCryptographicKeyListModel(key.uuid(), key.name(), key.description(), key.tokenProfileUuid(),
+                key.tokenInstanceReferenceUuid(), key.groups(), profileName, tokenName, key.created(), key.ownerUuid(),
+                key.ownerName(), key.items(), associationCount);
     }
 
     /**
      * Populates a {@link KeyDto} with all fields except {@code associations}.
      */
-    private static KeyDto buildKeyDto(CryptographicKeyFullModel key) {
+    private static KeyDto buildKeyDto(CryptographicKeyListModel key) {
         KeyDto dto = new KeyDto();
         dto.setName(key.name());
         dto.setUuid(key.uuid().toString());
         dto.setDescription(key.description());
         dto.setCreationTime(key.created());
-        if (key.tokenProfile() != null) {
-            dto.setTokenProfileName(key.tokenProfile().name());
-            dto.setTokenProfileUuid(key.tokenProfile().uuid().toString());
+        if (key.tokenProfileUuid() != null) {
+            dto.setTokenProfileName(key.tokenProfileName());
+            dto.setTokenProfileUuid(key.tokenProfileUuid().toString());
         }
-        if (key.tokenInstance() != null) {
-            dto.setTokenInstanceName(key.tokenInstance().name());
+        if (key.tokenInstanceReferenceUuid() != null) {
+            dto.setTokenInstanceName(key.tokenInstanceName());
             dto.setTokenInstanceUuid(key.tokenInstanceReferenceUuid().toString());
         }
         if (key.groups() != null) {
@@ -84,16 +107,15 @@ public final class CryptographicKeyDtoMapper {
             dto.setOwner(key.ownerName());
         }
         dto.setItems(getKeyItemsSummary(key));
-        dto.setComplianceStatus(getComplianceStatus(key));
+        dto.setComplianceStatus(getComplianceStatus(key.items()));
         return dto;
     }
 
-    private static ComplianceStatus getComplianceStatus(CryptographicKeyFullModel key) {
-        if (key.items().isEmpty()) {
+    private static ComplianceStatus getComplianceStatus(List<CryptographicKeyItemBasicModel> items) {
+        if (items.isEmpty()) {
             return ComplianceStatus.NOT_CHECKED;
         }
-        List<ComplianceStatus> statuses = key
-                .items()
+        List<ComplianceStatus> statuses = items
                 .stream()
                 .map(CryptographicKeyItemBasicModel::complianceStatus)
                 .filter(Objects::nonNull)
@@ -120,7 +142,7 @@ public final class CryptographicKeyDtoMapper {
         dto.setUuid(key.uuid().toString());
         dto.setDescription(key.description());
         dto.setCreationTime(key.created());
-        dto.setComplianceStatus(getComplianceStatus(key));
+        dto.setComplianceStatus(getComplianceStatus(key.items()));
         if (key.tokenProfile() != null) {
             dto.setTokenProfileName(key.tokenProfile().name());
             dto.setTokenProfileUuid(key.tokenProfile().uuid().toString());
@@ -172,7 +194,7 @@ public final class CryptographicKeyDtoMapper {
         return dto;
     }
 
-    private static KeyItemDto mapItemToSummaryDto(CryptographicKeyItemBasicModel item, CryptographicKeyFullModel key) {
+    private static KeyItemDto mapItemToSummaryDto(CryptographicKeyItemBasicModel item, CryptographicKeyListModel key) {
         KeyItemDto dto = new KeyItemDto();
         dto.setUuid(item.uuid().toString());
         dto.setName(item.name());
@@ -196,13 +218,13 @@ public final class CryptographicKeyDtoMapper {
             dto.setOwnerUuid(key.ownerUuid().toString());
             dto.setOwner(key.ownerName());
         }
-        if (key.tokenProfile() != null) {
-            dto.setTokenProfileUuid(key.tokenProfile().uuid().toString());
-            dto.setTokenProfileName(key.tokenProfile().name());
+        if (key.tokenProfileUuid() != null) {
+            dto.setTokenProfileUuid(key.tokenProfileUuid().toString());
+            dto.setTokenProfileName(key.tokenProfileName());
         }
-        if (key.tokenInstance() != null) {
+        if (key.tokenInstanceReferenceUuid() != null) {
             dto.setTokenInstanceUuid(key.tokenInstanceReferenceUuid().toString());
-            dto.setTokenInstanceName(key.tokenInstance().name());
+            dto.setTokenInstanceName(key.tokenInstanceName());
         }
         return dto;
     }

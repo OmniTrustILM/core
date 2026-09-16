@@ -23,19 +23,10 @@ public record ImmutableCryptographicKeyFullModel(UUID uuid, String name, String 
     public ImmutableCryptographicKeyFullModel {
         groups = Set.copyOf(groups);
         items = List.copyOf(items);
-        certificateAssociations = certificateAssociations == null ? null : List.copyOf(certificateAssociations);
+        certificateAssociations = List.copyOf(certificateAssociations);
     }
 
     public static ImmutableCryptographicKeyFullModel from(CryptographicKey key) {
-        return from(key, true);
-    }
-
-    /** Builds a snapshot for chain responses without touching certificate association collections. */
-    public static ImmutableCryptographicKeyFullModel fromForChain(CryptographicKey key) {
-        return from(key, false);
-    }
-
-    private static ImmutableCryptographicKeyFullModel from(CryptographicKey key, boolean includeCertificates) {
         Objects.requireNonNull(key, "Cryptographic key is required.");
         TokenProfile profileEntity = key.getTokenProfile();
         TokenProfileBasicModel profile = profileEntity == null
@@ -52,11 +43,10 @@ public record ImmutableCryptographicKeyFullModel(UUID uuid, String name, String 
                 .stream()
                 .map(CryptographicKeyItemBasicModel::from)
                 .toList();
-        List<KeyCertificateAssociationModel> certificates = includeCertificates ? certificateAssociations(key) : null;
-        ImmutableCryptographicKeyFullModel model = new ImmutableCryptographicKeyFullModel(key.getUuid(), key.getName(),
-                key.getDescription(), key.getTokenProfileUuid(), key.getTokenInstanceReferenceUuid(), profile, token,
-                groups, key.getCreated(), ownerUuid, ownerName, items, certificates);
-        return model;
+        List<KeyCertificateAssociationModel> certificates = certificateAssociations(key);
+        return new ImmutableCryptographicKeyFullModel(key.getUuid(), key.getName(), key.getDescription(),
+                key.getTokenProfileUuid(), key.getTokenInstanceReferenceUuid(), profile, token, groups,
+                key.getCreated(), ownerUuid, ownerName, items, certificates);
     }
 
     private static List<KeyCertificateAssociationModel> certificateAssociations(CryptographicKey key) {

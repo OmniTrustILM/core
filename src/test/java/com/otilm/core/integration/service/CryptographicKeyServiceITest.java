@@ -1573,6 +1573,40 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void listKeyPairs_countsPrimaryAndAlternativeCertificateLinks() {
+        // given
+        certificateRepository
+                .saveAllAndFlush(List
+                        .of(aCertificate().withKey(key).build(), aCertificate().withAltKeyUuid(key.getUuid()).build(),
+                                aCertificate().withKey(key).withAltKeyUuid(key.getUuid()).build(),
+                                aCertificate().withKey(keyWithoutToken).build()));
+        int certificateLinks = 4;
+        int siblingItem = 1;
+
+        // when
+        List<KeyDto> pairs = cryptographicKeyService.listKeyPairs(Optional.empty(), SecurityFilter.create());
+
+        // then
+        Assertions.assertEquals(1, pairs.size());
+        Assertions.assertEquals(key.getUuid().toString(), pairs.getFirst().getUuid());
+        Assertions.assertEquals(certificateLinks + siblingItem, pairs.getFirst().getAssociations());
+    }
+
+    @Test
+    void getCertificateAssociationCounts_returnsZeroForUnassociatedKey() {
+        // given
+        List<UUID> keyUuids = List.of(key.getUuid());
+
+        // when
+        var counts = cryptographicKeyRepository.getCertificateAssociationCounts(keyUuids);
+
+        // then
+        Assertions.assertEquals(1, counts.size());
+        Assertions.assertEquals(key.getUuid(), counts.getFirst().getUuid());
+        Assertions.assertEquals(0L, counts.getFirst().getAssociations());
+    }
+
+    @Test
     void testDeleteKey() throws ConnectorException, NotFoundException {
         cryptographicKeyService.deleteKey(key.getUuid(), List.of(publicKeyItem.getUuid().toString()));
 

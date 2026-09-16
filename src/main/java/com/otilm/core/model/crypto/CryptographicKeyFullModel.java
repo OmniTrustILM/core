@@ -19,6 +19,6 @@ public interface CryptographicKeyFullModel extends CryptographicKeyBasicModel {
 
     List<CryptographicKeyItemBasicModel> items();
 
-    /** Null only for chain snapshots, where certificate associations are deliberately not loaded. */
+    /** All certificate links; empty when there are none. */
     List<KeyCertificateAssociationModel> certificateAssociations();
 }

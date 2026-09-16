@@ -14,6 +14,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -23,10 +24,35 @@ import static com.otilm.core.util.builders.CryptographicKeyFullModelBuilder.aKey
 import static com.otilm.core.util.builders.CryptographicKeyItemBasicModelBuilder.aKeyItemSnapshot;
 import static com.otilm.core.util.builders.CryptographicKeyItemBuilder.aKeyItem;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Named.named;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
 
 class CryptographicKeySnapshotsTest {
+
+    @Test
+    void from_returnsEmptyCertificateAssociationsForUnassociatedKey() {
+        // given
+        CryptographicKey key = aCryptographicKey().build();
+
+        // when
+        var snapshot = ImmutableCryptographicKeyFullModel.from(key);
+
+        // then
+        assertThat(snapshot.certificateAssociations()).isEmpty();
+    }
+
+    @Test
+    void constructor_rejectsMissingCertificateAssociations() {
+        // given
+        var builder = aKeySnapshot().withAssociations(null);
+
+        // when
+        Executable construct = builder::build;
+
+        // then
+        assertThrows(NullPointerException.class, construct);
+    }
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("metadataReferences")

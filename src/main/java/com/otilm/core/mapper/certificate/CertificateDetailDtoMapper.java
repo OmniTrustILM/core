@@ -10,13 +10,14 @@ import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateRequestDto;
 import com.otilm.api.model.core.certificate.CertificateSimpleDto;
 import com.otilm.api.model.core.certificate.QcType;
+import com.otilm.api.model.core.cryptography.key.KeyDto;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.Group;
 import com.otilm.core.mapper.crypto.CryptographicKeyDtoMapper;
-import com.otilm.core.model.crypto.CryptographicKeyFullModel;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
+import com.otilm.core.model.crypto.ImmutableCryptographicKeyListModel;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.MetaDefinitions;
 
@@ -33,9 +34,18 @@ public class CertificateDetailDtoMapper {
         return buildDetailDto(certificate, true);
     }
 
+    private static KeyDto mapKey(CryptographicKey key, boolean chainContext) {
+        if (chainContext) {
+            // Chain responses omit counts, so certificate links need not be queried.
+            var summary = ImmutableCryptographicKeyListModel.from(key, 0);
+            return CryptographicKeyDtoMapper.mapToChainDto(summary);
+        }
+        var fullModel = ImmutableCryptographicKeyFullModel.from(key);
+        return CryptographicKeyDtoMapper.mapToDto(fullModel);
+    }
+
     /**
-     * @param chainContext when {@code true}, key associations are mapped with {@link CryptographicKey#mapToChainDto()}
-     * (omits the {@code associations} count); when {@code false}, the full {@link CryptographicKey#mapToDto()} is used.
+     * @param chainContext whether to omit key association counts and avoid loading their certificate collections
      */
     private static CertificateDetailDto buildDetailDto(Certificate certificate, boolean chainContext) {
         final CertificateDetailDto dto = new CertificateDetailDto();
@@ -170,23 +180,11 @@ public class CertificateDetailDtoMapper {
         }
 
         if (certificate.getKey() != null) {
-            CryptographicKeyFullModel keyModel = chainContext
-                    ? ImmutableCryptographicKeyFullModel.fromForChain(certificate.getKey())
-                    : ImmutableCryptographicKeyFullModel.from(certificate.getKey());
-            dto
-                    .setKey(chainContext
-                            ? CryptographicKeyDtoMapper.mapToChainDto(keyModel)
-                            : CryptographicKeyDtoMapper.mapToDto(keyModel));
+            dto.setKey(mapKey(certificate.getKey(), chainContext));
         }
 
         if (certificate.getAltKey() != null) {
-            CryptographicKeyFullModel altKeyModel = chainContext
-                    ? ImmutableCryptographicKeyFullModel.fromForChain(certificate.getAltKey())
-                    : ImmutableCryptographicKeyFullModel.from(certificate.getAltKey());
-            dto
-                    .setAltKey(chainContext
-                            ? CryptographicKeyDtoMapper.mapToChainDto(altKeyModel)
-                            : CryptographicKeyDtoMapper.mapToDto(altKeyModel));
+            dto.setAltKey(mapKey(certificate.getAltKey(), chainContext));
         }
 
         if (certificate.getProtocolAssociation() != null) {

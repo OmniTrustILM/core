@@ -73,7 +73,7 @@ import com.otilm.core.model.crypto.CryptographicKeyBasicModel;
 import com.otilm.core.model.crypto.CryptographicKeyFullModel;
 import com.otilm.core.model.crypto.CryptographicKeyItemBasicModel;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
-import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
+import com.otilm.core.model.crypto.ImmutableCryptographicKeyListModel;
 import com.otilm.core.model.crypto.KeyMaterial;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.RemoteKeyReference;
@@ -324,13 +324,15 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                     .equal(root.get(CryptographicKey_.tokenProfileUuid), UUID.fromString(tokenProfileUuid.get()));
         }
 
-        List<KeyDto> response = cryptographicKeyRepository
-                .findUsingSecurityFilter(filter, List
-                        .of("groups", "owner", "items", "certificates", "altCertificates", "tokenProfile",
-                                "tokenInstanceReference.connectorInterface", "tokenInstanceReference.tokenProfiles"),
-                        additionalWhereClause, null, (root, cb) -> cb.desc(root.get("created")))
+        List<CryptographicKey> keys = cryptographicKeyRepository
+                .findUsingSecurityFilter(filter,
+                        List.of("groups", "owner", "items", "tokenProfile", "tokenInstanceReference"),
+                        additionalWhereClause, null, (root, cb) -> cb.desc(root.get("created")));
+        Map<UUID, Long> certificateCounts = getKeyCertificateCounts(keys);
+        List<KeyDto> response = keys
                 .stream()
-                .map(ImmutableCryptographicKeyFullModel::from)
+                .map(key -> ImmutableCryptographicKeyListModel
+                        .from(key, certificateCounts.getOrDefault(key.getUuid(), 0L)))
                 .map(CryptographicKeyDtoMapper::mapToDto)
                 .toList();
 
@@ -349,6 +351,19 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                 })
                 .toList();
         return response;
+    }
+
+    private Map<UUID, Long> getKeyCertificateCounts(List<CryptographicKey> keys) {
+        List<UUID> uuids = keys.stream().map(CryptographicKey::getUuid).toList();
+        Map<UUID, Long> counts = new HashMap<>();
+        final int batchSize = 500;
+        for (int start = 0; start < uuids.size(); start += batchSize) {
+            List<UUID> batch = uuids.subList(start, Math.min(start + batchSize, uuids.size()));
+            cryptographicKeyRepository
+                    .getCertificateAssociationCounts(batch)
+                    .forEach(count -> counts.put(count.getUuid(), count.getAssociations()));
+        }
+        return counts;
     }
 
     @Override
