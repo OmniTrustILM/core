@@ -423,9 +423,6 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                 .forToken(tokenProfile.tokenInstance())
                 .createKey(tokenProfile, type, request.getAttributes(), request.getName());
 
-        List<KeyMaterial> keyMaterials = remotelyCreatedKeyItems.stream().map(ProviderKeyItem::material).toList();
-        validateForDuplicateKeyFingerprints(keyMaterials);
-
         CryptographicKeyFullModel key = persistCreatedKey(tokenProfile, request, remotelyCreatedKeyItems);
         key = updateOwnerAndGroups(request, key);
 
@@ -1210,9 +1207,25 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     private CryptographicKeyFullModel persistCreatedKey(TokenProfileFullModel tokenProfile, KeyRequestDto request,
             List<ProviderKeyItem> remotelyCreatedItems) throws AttributeException, NotFoundException {
 
-        CryptographicKeyBasicModel savedKey = cryptographicKeyWriter
-                .createKeyWithItems(request, tokenProfile, tokenProfile.tokenInstance(), remotelyCreatedItems, false,
-                        Boolean.TRUE.equals(request.getEnabled()));
+        CryptographicKeyBasicModel savedKey;
+        try {
+            List<KeyMaterial> keyMaterials = remotelyCreatedItems.stream().map(ProviderKeyItem::material).toList();
+            validateForDuplicateKeyFingerprints(keyMaterials);
+            savedKey = cryptographicKeyWriter
+                    .createKeyWithItems(request, tokenProfile, tokenProfile.tokenInstance(), remotelyCreatedItems,
+                            false, Boolean.TRUE.equals(request.getEnabled()));
+        } catch (Exception e) {
+            List<RemoteKeyReference> remoteKeyReferences = remotelyCreatedItems
+                    .stream()
+                    .map(ProviderKeyItem::reference)
+                    .toList();
+            logger
+                    .error("Provider created key '{}' for token {} and token profile {}, but Core validation or persistence failed. "
+                            + "The remote key may be orphaned and requires manual reconciliation. Provider key references: {}",
+                            request.getName(), tokenProfile.tokenInstanceReferenceUuid(), tokenProfile.uuid(),
+                            remoteKeyReferences, e);
+            throw e;
+        }
 
         CryptographicKeyFullModel createdKey = getCryptographicKeyFullModel(savedKey.uuid());
         createdKey.items().forEach(item -> evictKeyItemCache(item.uuid()));
