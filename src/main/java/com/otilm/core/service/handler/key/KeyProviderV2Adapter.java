@@ -93,12 +93,14 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
                 throw new ConnectorException("Connector did not confirm synchronous key destruction.");
             }
         } catch (ConnectorEntityNotFoundException e) {
-            log.info("Key item was not found on the remote token; treating destruction as successful");
+            log
+                    .info("Key item '{}' for key {} was not found on the remote token; treating destruction as successful",
+                            reference.toIdentifierString(), cryptographicKey.toIdentifierString());
         } catch (ConnectorException e) {
             if (TokenInstanceStatus.DEACTIVATED.equals(cryptographicKey.tokenInstance().status())) {
                 log
-                        .warn("Key item destruction failed; allowing local cleanup because Token '{}' is DEACTIVATED.",
-                                cryptographicKey.tokenInstance().name());
+                        .warn("Key item '{}' destruction failed; allowing local cleanup because Token '{}' is DEACTIVATED.",
+                                reference.toIdentifierString(), cryptographicKey.tokenInstance().toIdentifierString());
             } else {
                 throw e;
             }
@@ -117,14 +119,24 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         }
 
         if (body instanceof KeyPairDataResponseV2Dto keyPair) {
-            return toCreatedKeyPair(keyPair, keyName);
+            List<ProviderKeyItem> keyItems = toCreatedKeyPair(keyPair, keyName);
+            List<String> keyReferences = keyItems
+                    .stream()
+                    .map(ProviderKeyItem::reference)
+                    .map(RemoteKeyReference::toIdentifierString)
+                    .toList();
+            log
+                    .info("A key pair has been created for token profile {} through connector {}; Key references: {}",
+                            tokenProfile.toIdentifierString(), connectorInfo.getUuid(), keyReferences);
+            return keyItems;
         }
         if (body instanceof SecretKeyDataResponseV2Dto secretKey) {
-            log
-                    .info("A secret key has been created on remote device through connector {} ({}); KeyMeta: {}",
-                            connectorInfo.getName(), connectorInfo.getUuid(), secretKey.getKeyMeta());
             ProviderKeyItem secretKeyItem = toCreatedKeyItem(keyName, secretKey.getKeyData(), secretKey.getKeyMeta(),
                     null);
+            log
+                    .info("A secret key has been created for token profile {} through connector {}; Key reference: {}",
+                            tokenProfile.toIdentifierString(), connectorInfo.getUuid(),
+                            secretKeyItem.reference().toIdentifierString());
             return List.of(secretKeyItem);
         }
         throw new ConnectorException("Connector returned an unsupported key creation result.");
@@ -146,10 +158,6 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
     }
 
     private List<ProviderKeyItem> toCreatedKeyPair(KeyPairDataResponseV2Dto response, String keyName) {
-        log
-                .info("A key pair has been created on remote device through connector {} ({}); PrivateKeyMeta: {}; PublicKeyMeta: {}",
-                        connectorInfo.getName(), connectorInfo.getUuid(), response.getPrivateKeyData().getKeyMeta(),
-                        response.getPublicKeyData().getKeyMeta());
         PublicKeyDataResponseV2Dto publicKey = response.getPublicKeyData();
         byte[] publicKeySpki = publicKey.getKeyData().getPublicKeySpki();
         String serializedPublicKeyValue = Base64.getEncoder().encodeToString(publicKeySpki);

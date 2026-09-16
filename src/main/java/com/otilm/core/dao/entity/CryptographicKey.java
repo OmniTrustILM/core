@@ -1,6 +1,7 @@
 package com.otilm.core.dao.entity;
 
 import com.fasterxml.jackson.annotation.JsonBackReference;
+import com.otilm.core.model.NamedModel;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.ConstraintMode;
@@ -32,7 +33,17 @@ import org.hibernate.proxy.HibernateProxy;
 @RequiredArgsConstructor
 @Entity
 @Table(name = "cryptographic_key")
-public class CryptographicKey extends UniquelyIdentifiedAndAudited implements Serializable {
+public class CryptographicKey extends UniquelyIdentifiedAndAudited implements Serializable, NamedModel {
+
+    @Override
+    public UUID uuid() {
+        return getUuid();
+    }
+
+    @Override
+    public String name() {
+        return getName();
+    }
 
     @Column(name = "name")
     private String name;

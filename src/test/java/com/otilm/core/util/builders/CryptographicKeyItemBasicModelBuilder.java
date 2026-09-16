@@ -16,6 +16,7 @@ public class CryptographicKeyItemBasicModelBuilder {
     private RemoteKeyReference reference = new RemoteKeyReference.UuidReference(UUID.randomUUID());
     private List<KeyUsage> usages = List.of(KeyUsage.SIGN);
     private ComplianceStatus complianceStatus = ComplianceStatus.OK;
+    private String keyData;
 
     public static CryptographicKeyItemBasicModelBuilder aKeyItemSnapshot() {
         return new CryptographicKeyItemBasicModelBuilder();
@@ -38,7 +39,12 @@ public class CryptographicKeyItemBasicModelBuilder {
 
     public CryptographicKeyItemBasicModel build() {
         return new CryptographicKeyItemBasicModel(UUID.randomUUID(), UUID.randomUUID(), "signing-key", reference,
-                KeyType.PRIVATE_KEY, KeyAlgorithm.RSA, KeyFormat.PRKI, null, 2048, KeyState.ACTIVE, true, usages, null,
-                complianceStatus);
+                KeyType.PRIVATE_KEY, KeyAlgorithm.RSA, KeyFormat.PRKI, keyData, 2048, KeyState.ACTIVE, true, usages,
+                null, complianceStatus);
+    }
+
+    public CryptographicKeyItemBasicModelBuilder withKeyData(String keyData) {
+        this.keyData = keyData;
+        return this;
     }
 }

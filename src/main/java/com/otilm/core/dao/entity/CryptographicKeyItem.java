@@ -12,6 +12,7 @@ import com.otilm.api.model.core.cryptography.key.KeyItemDetailDto;
 import com.otilm.api.model.core.cryptography.key.KeyItemDto;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
+import com.otilm.core.model.NamedModel;
 import com.otilm.core.model.compliance.ComplianceResultDto;
 import com.otilm.core.util.DtoMapper;
 import jakarta.persistence.CascadeType;
@@ -50,7 +51,21 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 @Entity
 @Table(name = "cryptographic_key_item")
 @EntityListeners(AuditingEntityListener.class)
-public class CryptographicKeyItem extends UniquelyIdentified implements ComplianceSubject, DtoMapper<KeyItemDetailDto> {
+public class CryptographicKeyItem extends UniquelyIdentified
+        implements
+            ComplianceSubject,
+            DtoMapper<KeyItemDetailDto>,
+            NamedModel {
+
+    @Override
+    public UUID uuid() {
+        return getUuid();
+    }
+
+    @Override
+    public String name() {
+        return getName();
+    }
 
     @Column(name = "name")
     private String name;

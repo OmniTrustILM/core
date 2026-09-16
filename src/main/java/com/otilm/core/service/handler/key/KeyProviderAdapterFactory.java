@@ -50,7 +50,7 @@ public class KeyProviderAdapterFactory {
         if (iface == null) {
             return new KeyProviderV1Adapter(connectorApiFactory, connector, attributeEngine);
         }
-        return forInterface(iface, connector, "token instance " + tokenInstance.uuid());
+        return forInterface(iface, connector, "token instance " + tokenInstance.toIdentifierString());
     }
 
     private KeyProviderAdapter forInterface(ImmutableConnectorInterface iface, ImmutableConnectorFullModel connector,

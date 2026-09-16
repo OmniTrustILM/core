@@ -59,12 +59,14 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
             keyManagementSyncApiClient
                     .destroyKey(connectorInfo, cryptographicKey.tokenInstance().tokenInstanceUuid(), uuid.toString());
         } catch (ConnectorEntityNotFoundException e) {
-            log.info("Key item '{}' was not found on the remote token; treating destruction as successful", uuid);
+            log
+                    .info("Key item '{}' was not found on the remote token; treating destruction as successful",
+                            reference.toIdentifierString());
         } catch (ConnectorException e) {
             if (cryptographicKey.tokenInstance().status().equals(TokenInstanceStatus.DEACTIVATED)) {
                 log
-                        .warn("Key item '{}' could not be deleted. The associated Token '{}' is DEACTIVATED.", uuid,
-                                cryptographicKey.tokenInstance().name());
+                        .warn("Key item '{}' could not be deleted. The associated Token '{}' is DEACTIVATED.",
+                                reference.toIdentifierString(), cryptographicKey.tokenInstance().toIdentifierString());
             } else {
                 throw e;
             }
@@ -94,12 +96,13 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
             throws ConnectorException {
         KeyPairDataResponseDto response = keyManagementSyncApiClient
                 .createKeyPair(connectorInfo, tokenInstanceUuid, request);
-        log
-                .info("A key pair has been created on remote device through connector {} ({}); PrivateKeyId: {}; PublicKeyId: {}",
-                        connectorInfo.getName(), connectorInfo.getUuid(), response.getPrivateKeyData().getUuid(),
-                        response.getPublicKeyData().getUuid());
         ProviderKeyItem publicKeyItem = toCreatedKeyItem(response.getPublicKeyData());
         ProviderKeyItem privateKeyItem = toCreatedKeyItem(response.getPrivateKeyData());
+        log
+                .info("A key pair has been created on remote device through connector {} ({}); Private key reference: {}; Public key reference: {}",
+                        connectorInfo.getName(), connectorInfo.getUuid(),
+                        privateKeyItem.reference().toIdentifierString(),
+                        publicKeyItem.reference().toIdentifierString());
         return List.of(publicKeyItem, privateKeyItem);
     }
 
@@ -107,10 +110,12 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
             throws ConnectorException {
         KeyDataResponseDto response = keyManagementSyncApiClient
                 .createSecretKey(connectorInfo, tokenInstanceUuid, request);
+        ProviderKeyItem secretKeyItem = toCreatedKeyItem(response);
         log
-                .info("A secret key has been created on remote device through connector {} ({}); KeyId: {}",
-                        connectorInfo.getName(), connectorInfo.getUuid(), response.getUuid());
-        return toCreatedKeyItem(response);
+                .info("A secret key has been created on remote device through connector {} ({}); Key reference: {}",
+                        connectorInfo.getName(), connectorInfo.getUuid(),
+                        secretKeyItem.reference().toIdentifierString());
+        return secretKeyItem;
     }
 
     private ProviderKeyItem toCreatedKeyItem(KeyDataResponseDto response) {

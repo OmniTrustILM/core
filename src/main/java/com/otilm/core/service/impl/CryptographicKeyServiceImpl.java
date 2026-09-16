@@ -375,7 +375,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                                 .getMappedMetadataContent(ObjectAttributeContentInfo
                                         .builder(Resource.CRYPTOGRAPHIC_KEY, UUID.fromString(k.getUuid()))
                                         .build())));
-        logger.debug("Key details with attributes {}", dto);
+        logger.debug("Key details retrieved: {}", key.toIdentifierString());
         return dto;
     }
 
@@ -389,13 +389,13 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                 .findByUuidAndKeyUuid(UUID.fromString(keyItemUuid), key.uuid())
                 .orElseThrow(() -> new NotFoundException(CryptographicKeyItem.class, keyItemUuid));
         KeyItemDetailDto dto = item.mapToDto();
-        logger.debug("Key details: {}", dto);
+        logger.debug("Key item retrieved: {}", item.toIdentifierString());
         dto
                 .setMetadata(attributeEngine
                         .getMappedMetadataContent(ObjectAttributeContentInfo
                                 .builder(Resource.CRYPTOGRAPHIC_KEY, item.getUuid())
                                 .build()));
-        logger.debug("Key details with attributes {}", dto);
+        logger.debug("Key item attributes retrieved: {}", item.toIdentifierString());
         return dto;
     }
 
@@ -405,7 +405,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     public KeyDetailDto createKey(UUID tokenInstanceUuid, SecuredParentUUID tokenProfileUuid, KeyRequestType type,
             KeyRequestDto request) throws AlreadyExistException, ValidationException, ConnectorException,
             AttributeException, NotFoundException {
-        logger.debug("Creating a new key for Token profile {}. Input: {}", tokenProfileUuid, request);
+        logger.debug("Creating a new key for Token profile {}", tokenProfileUuid);
 
         if (cryptographicKeyRepository.findByName(request.getName()).isPresent()) {
             logger.error("Key with same name already exists");
@@ -413,7 +413,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
         }
 
         TokenProfileFullModel tokenProfile = getTokenProfile(tokenInstanceUuid, tokenProfileUuid);
-        logger.debug("Token Profile detail: {}", tokenProfile);
+        logger.debug("Token Profile: {}", tokenProfile.toIdentifierString());
         throwIfTokenProfileNotEnabled(tokenProfile);
 
         attributeEngine.validateCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, request.getCustomAttributes());
@@ -426,7 +426,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
         CryptographicKeyFullModel key = persistCreatedKey(tokenProfile, request, remotelyCreatedKeyItems);
         key = updateOwnerAndGroups(request, key);
 
-        logger.debug("Key creation is successful. UUID is {}", key.uuid());
+        logger.debug("Key creation is successful: {}", key.toIdentifierString());
 
         return assembleKeyDetailDto(request, key, tokenProfile);
     }
@@ -435,7 +435,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.UPDATE)
     public KeyDetailDto editKey(SecuredUUID uuid, EditKeyRequestDto request)
             throws NotFoundException, AttributeException {
-        logger.debug("Updating the key with UUID {}. Request: {}", uuid, request);
+        logger.debug("Updating the key with UUID {}", uuid);
         CryptographicKeyBasicModel key = getCryptographicKeyBasicModel(uuid.getValue());
 
         UUID tokenInstanceUuid = key.tokenInstanceReferenceUuid();
@@ -466,7 +466,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                 .update(key.uuid(), request, owner, customAttributeResourceFilter);
         updatedKey.items().forEach(item -> evictKeyItemCache(item.uuid()));
 
-        logger.debug("Key details updated. Key: {}", updatedKey);
+        logger.debug("Key details updated. Key: {}", updatedKey.toIdentifierString());
         return getKey(uuid);
     }
 
@@ -543,7 +543,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
             }
             cryptographicKeyWriter.deleteKeyIfEmpty(key);
         }
-        logger.info("Key deleted: {}", parentKeyUuid);
+        logger.info("Key deleted: {}", key.toIdentifierString());
     }
 
     @Override
@@ -613,7 +613,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
         List<CryptographicKeyItemBasicModel> items = resolveKeyItems(key, parseKeyItemUuids(keyItemUuids));
         KeyDestructionResult result = destroyKeyItemsInternal(key, items);
         result.throwIfFailed();
-        logger.info("Key destroyed: {}", uuid);
+        logger.info("Key destroyed: {}", key.toIdentifierString());
     }
 
     @Override
@@ -633,7 +633,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
             result.merge(destroyKeyItemsInternal(key, key.items()));
         }
         result.throwIfFailed();
-        logger.info("Key destroyed: {}", uuids);
+        logger.info("Keys destroyed: {}", keys.stream().map(CryptographicKeyFullModel::toIdentifierString).toList());
     }
 
     @Override
@@ -650,7 +650,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                 .forToken(tokenProfile.tokenInstance())
                 .listCreateKeyAttributes(tokenProfile, type);
 
-        logger.debug("Attributes for the new creation: {}", attributes);
+        logger.debug("Key creation attributes retrieved for Token profile: {}", tokenProfile.toIdentifierString());
         return attributes;
     }
 
@@ -711,7 +711,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
 
         List<CryptographicKeyItemBasicModel> items = resolveKeyItems(key, request.getUuids());
         compromiseKeyItems(itemUuids(items), request.getReason());
-        logger.info("Key marked as compromised: {}", uuid);
+        logger.info("Key marked as compromised: {}", key.toIdentifierString());
     }
 
     @Override
@@ -759,7 +759,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
 
         List<CryptographicKeyItemBasicModel> items = resolveKeyItems(key, request.getUuids());
         setKeyItemsUsages(itemUuids(items), request.getUsage());
-        logger.info("Key usages updated: {}", uuid);
+        logger.info("Key usages updated: {}", key.toIdentifierString());
     }
 
     @Override
@@ -905,7 +905,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                                 .connector(tokenProfile.tokenInstance().connectorUuid())
                                 .build(), request.getAttributes()));
 
-        logger.debug("Key details: {}", keyDetailDto);
+        logger.debug("Key details assembled: {}", key.toIdentifierString());
         return keyDetailDto;
     }
 
@@ -1092,7 +1092,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                 .findFullModelByUuidAndTokenInstanceReferenceUuid(tokenProfileUuid.getValue(), tokenInstanceUuid)
                 .orElseThrow(() -> new NotFoundException("Token profile (" + tokenProfileUuid.getValue()
                         + ") connected to token instance (" + tokenInstanceUuid + ") was not found."));
-        logger.trace("Token profile details: {}", tokenProfile);
+        logger.trace("Token profile: {}", tokenProfile.toIdentifierString());
         return tokenProfile;
     }
 
@@ -1189,9 +1189,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     private void mergeAndValidateAttributes(KeyRequestType keyType, TokenProfileFullModel tokenProfile,
             List<RequestAttribute> attributes) throws ConnectorException, AttributeException, NotFoundException {
         TokenInstanceFullModel tokenInstance = tokenProfile.tokenInstance();
-        logger
-                .debug("Merging and validating attributes on token instance {}. Request Attributes are: {}",
-                        tokenInstance, attributes);
+        logger.debug("Merging and validating attributes on token instance {}", tokenInstance.toIdentifierString());
         if (tokenProfile.tokenInstance().connectorUuid() == null) {
             throw new ValidationException(ValidationError.create("Connector of the Token is not available / deleted"));
         }
@@ -1216,15 +1214,16 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                     .createKeyWithItems(request, tokenProfile, tokenProfile.tokenInstance(), remotelyCreatedItems,
                             false, Boolean.TRUE.equals(request.getEnabled()));
         } catch (Exception e) {
-            List<RemoteKeyReference> remoteKeyReferences = remotelyCreatedItems
+            List<String> remoteKeyIdentifiers = remotelyCreatedItems
                     .stream()
                     .map(ProviderKeyItem::reference)
+                    .map(RemoteKeyReference::toIdentifierString)
                     .toList();
             logger
-                    .error("Provider created key '{}' for token {} and token profile {}, but Core validation or persistence failed. "
+                    .error("Provider created key for token {} and token profile {}, but Core validation or persistence failed. "
                             + "The remote key may be orphaned and requires manual reconciliation. Provider key references: {}",
-                            request.getName(), tokenProfile.tokenInstanceReferenceUuid(), tokenProfile.uuid(),
-                            remoteKeyReferences, e);
+                            tokenProfile.tokenInstance().toIdentifierString(), tokenProfile.toIdentifierString(),
+                            remoteKeyIdentifiers, e);
             throw e;
         }
 
@@ -1438,8 +1437,10 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                     result.invalidStateItems.add("%s (%s)".formatted(item.uuid(), item.state().getLabel()));
                 }
             } catch (Exception e) {
-                logger.warn("Key item {} destruction failed ({})", item.uuid(), e.getClass().getSimpleName());
-                logger.debug("Key item {} destruction failure details", item.uuid(), e);
+                logger
+                        .warn("Key item {} destruction failed ({})", item.toIdentifierString(),
+                                e.getClass().getSimpleName());
+                logger.debug("Key item {} destruction failure details", item.toIdentifierString(), e);
                 String failure = e instanceof KeyItemDestructionException
                         ? e.getMessage()
                         : "Destruction of key item %s failed before completion could be confirmed."
@@ -1543,8 +1544,8 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
             tokenInstanceMessage = " in token instance " + key.tokenInstanceReferenceUuid();
         }
         logger
-                .debug("Allowed request to '{}' of the key with UUID '{}' belonging to token with UUID '{}'", operation,
-                        key.uuid(), tokenInstanceMessage);
+                .debug("Allowed request to '{}' of key '{}'{}", operation, key.toIdentifierString(),
+                        tokenInstanceMessage);
     }
 
     private static final class KeyDestructionResult {

@@ -8,13 +8,15 @@ import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
+import com.otilm.core.model.NamedModel;
 import java.util.List;
 import java.util.UUID;
 
 /** Key-item snapshot for API mapping, without a reference back to the wrapper entity. */
 public record CryptographicKeyItemBasicModel(UUID uuid, UUID parentKeyUuid, String name, RemoteKeyReference reference,
         KeyType type, KeyAlgorithm algorithm, KeyFormat format, String keyData, int length, KeyState state,
-        boolean enabled, List<KeyUsage> usages, KeyCompromiseReason reason, ComplianceStatus complianceStatus) {
+        boolean enabled, List<KeyUsage> usages, KeyCompromiseReason reason,
+        ComplianceStatus complianceStatus) implements NamedModel {
 
     public CryptographicKeyItemBasicModel {
         usages = List.copyOf(usages);

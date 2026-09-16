@@ -161,7 +161,7 @@ public class CryptographicOperationServiceImpl
         authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfileUuid);
         logger.info("Requesting to list cipher attributes for Key: {} and Algorithm {}", keyItemUuid, keyAlgorithm);
         CryptographicKeyItem key = getKeyItemEntity(keyItemUuid);
-        logger.debug("Key details: {}", key);
+        logger.debug("Key: {}", key.toIdentifierString());
         return listEncryptionAttributes(keyAlgorithm);
     }
 
@@ -172,10 +172,10 @@ public class CryptographicOperationServiceImpl
     public EncryptDataResponseDto encryptData(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid,
             UUID uuid, UUID keyItemUuid, CipherDataRequestDto request) throws ConnectorException, NotFoundException {
         authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfileUuid);
-        logger.info("Request to encrypt the data using the key: {} and data: {}", keyItemUuid, request);
+        logger.info("Request to encrypt data using key: {}", keyItemUuid);
         CryptographicKeyItemOperationModel key = cryptographicKeyService.getKeyItemModel(keyItemUuid);
         verifyActive(key.keyState(), key.enabled());
-        logger.debug("Key details: {}", key);
+        logger.debug("Key: {}", key.toIdentifierString());
         if (request.getCipherData() == null) {
             throw new ValidationException(ValidationError.create("Cannot encrypt null data"));
         }
@@ -191,7 +191,7 @@ public class CryptographicOperationServiceImpl
             return cipherRequestData;
         }).toList());
         requestDto.setCipherAttributes(request.getCipherAttributes());
-        logger.debug("Request to the connector: {}", requestDto);
+        logger.debug("Sending operation request for key: {}", key.toIdentifierString());
         try {
             String keyReference = requireV1KeyReference(key);
             ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(key.connectorUuid());
@@ -228,10 +228,10 @@ public class CryptographicOperationServiceImpl
     public DecryptDataResponseDto decryptData(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid,
             UUID uuid, UUID keyItemUuid, CipherDataRequestDto request) throws ConnectorException, NotFoundException {
         authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfileUuid);
-        logger.info("Decrypting using the key: {} and data: {}", keyItemUuid, request);
+        logger.info("Decrypting using key: {}", keyItemUuid);
         CryptographicKeyItemOperationModel key = cryptographicKeyService.getKeyItemModel(keyItemUuid);
         verifyActive(key.keyState(), key.enabled());
-        logger.debug("Key details: {}", key);
+        logger.debug("Key: {}", key.toIdentifierString());
         if (request.getCipherData() == null) {
             throw new ValidationException(ValidationError.create("Cannot decrypt null data"));
         }
@@ -247,7 +247,7 @@ public class CryptographicOperationServiceImpl
             return cipherRequestData;
         }).toList());
         requestDto.setCipherAttributes(request.getCipherAttributes());
-        logger.debug("Request to the connector: {}", requestDto);
+        logger.debug("Sending operation request for key: {}", key.toIdentifierString());
         try {
             String keyReference = requireV1KeyReference(key);
             ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(key.connectorUuid());
@@ -289,7 +289,7 @@ public class CryptographicOperationServiceImpl
                 .info("Requesting to list the Signature Attributes for key: {} and Algorithm: {}", keyItemUuid,
                         keyAlgorithm);
         CryptographicKeyItem key = getKeyItemEntity(keyItemUuid);
-        logger.debug("Key details: {}", key);
+        logger.debug("Key: {}", key.toIdentifierString());
         return listSignatureAttributes(key.getKeyAlgorithm());
     }
 
@@ -300,7 +300,7 @@ public class CryptographicOperationServiceImpl
     public SignDataResponseDto signData(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid, UUID uuid,
             UUID keyItemUuid, SignDataRequestDto request) throws ConnectorException, NotFoundException {
         authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfileUuid);
-        logger.info("Signing the data: {} using the key: {}", request, keyItemUuid);
+        logger.info("Signing data using key: {}", keyItemUuid);
         CryptographicKeyItemOperationModel key = cryptographicKeyService.getKeyItemModel(keyItemUuid);
         try {
             SignDataResponseDto response = executeSignData(key, request);
@@ -323,7 +323,7 @@ public class CryptographicOperationServiceImpl
             SecuredUUID tokenProfileUuid, UUID uuid, UUID keyItemUuid, SignDataRequestDto request)
             throws ConnectorException, NotFoundException {
         authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfileUuid);
-        logger.info("Signing the data (no event history): {} using the key: {}", request, keyItemUuid);
+        logger.info("Signing data (no event history) using key: {}", keyItemUuid);
         CryptographicKeyItemOperationModel key = cryptographicKeyService.getKeyItemModel(keyItemUuid);
         return executeSignData(key, request);
     }
@@ -331,7 +331,7 @@ public class CryptographicOperationServiceImpl
     private SignDataResponseDto executeSignData(CryptographicKeyItemOperationModel key, SignDataRequestDto request)
             throws ConnectorException, NotFoundException {
         verifyActive(key.keyState(), key.enabled());
-        logger.debug("Key details: {}", key);
+        logger.debug("Key: {}", key.toIdentifierString());
         if (request.getData() == null) {
             throw new ValidationException(ValidationError.create("Cannot sign empty data"));
         }
@@ -348,7 +348,7 @@ public class CryptographicOperationServiceImpl
             signatureRequestData.setIdentifier(e.getIdentifier());
             return signatureRequestData;
         }).toList());
-        logger.debug("Request to the connector: {}", requestDto);
+        logger.debug("Sending operation request for key: {}", key.toIdentifierString());
         String keyReference = requireV1KeyReference(key);
         ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(key.connectorUuid());
         CryptographicOperationsSyncApiClient apiClient = connectorApiFactory
@@ -375,10 +375,10 @@ public class CryptographicOperationServiceImpl
     public VerifyDataResponseDto verifyData(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid,
             UUID uuid, UUID keyItemUuid, VerifyDataRequestDto request) throws ConnectorException, NotFoundException {
         authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfileUuid);
-        logger.info("Request to verify data: {} for the key: {}", request, keyItemUuid);
+        logger.info("Request to verify data for key: {}", keyItemUuid);
         CryptographicKeyItemOperationModel key = cryptographicKeyService.getKeyItemModel(keyItemUuid);
         verifyActive(key.keyState(), key.enabled());
-        logger.debug("Key details: {}", key);
+        logger.debug("Key: {}", key.toIdentifierString());
         if (request.getSignatures() == null) {
             throw new ValidationException(ValidationError.create("Cannot verify empty data"));
         }
@@ -403,7 +403,7 @@ public class CryptographicOperationServiceImpl
             signatureRequestData.setIdentifier(e.getIdentifier());
             return signatureRequestData;
         }).toList());
-        logger.debug("Request to the connector: {}", requestDto);
+        logger.debug("Sending operation request for key: {}", key.toIdentifierString());
         try {
             String keyReference = requireV1KeyReference(key);
             ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(key.connectorUuid());
@@ -440,7 +440,7 @@ public class CryptographicOperationServiceImpl
             throws ConnectorException, NotFoundException {
         logger.info("Requesting attributes for random generation for token Instance: {}", tokenInstanceUuid);
         TokenInstanceReference tokenInstanceReference = tokenInstanceService.getTokenInstanceEntity(tokenInstanceUuid);
-        logger.debug("Token Instance details: {}", tokenInstanceReference);
+        logger.debug("Token Instance: {}", tokenInstanceReference.toIdentifierString());
         ApiClientConnectorInfo connectorDto = connectorService
                 .getConnectorForApiClient(tokenInstanceReference.getConnectorUuid());
         return connectorApiFactory
@@ -455,11 +455,11 @@ public class CryptographicOperationServiceImpl
             throws ConnectorException, NotFoundException {
         logger.info("Requesting attributes for random generation for token Instance: {}", tokenInstanceUuid);
         TokenInstanceReference tokenInstanceReference = tokenInstanceService.getTokenInstanceEntity(tokenInstanceUuid);
-        logger.debug("Token Instance details: {}", tokenInstanceReference);
+        logger.debug("Token Instance: {}", tokenInstanceReference.toIdentifierString());
         com.otilm.api.model.connector.cryptography.operations.RandomDataRequestDto requestDto = new com.otilm.api.model.connector.cryptography.operations.RandomDataRequestDto();
         requestDto.setAttributes(request.getAttributes());
         requestDto.setLength(request.getLength());
-        logger.debug("Request to the connector: {}", requestDto);
+        logger.debug("Sending random generation request for token: {}", tokenInstanceReference.toIdentifierString());
         ApiClientConnectorInfo connectorDto = connectorService
                 .getConnectorForApiClient(tokenInstanceReference.getConnectorUuid());
         com.otilm.api.model.connector.cryptography.operations.RandomDataResponseDto response = connectorApiFactory
@@ -561,7 +561,7 @@ public class CryptographicOperationServiceImpl
         CryptographicKeyItem key = cryptographicKeyItemRepository
                 .findByUuid(uuid)
                 .orElseThrow(() -> new NotFoundException(CryptographicKeyItem.class, uuid));
-        logger.debug("Key Instance: {}", key);
+        logger.debug("Key Instance: {}", key.toIdentifierString());
         return key;
     }
 
