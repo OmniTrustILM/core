@@ -1,14 +1,7 @@
 package com.otilm.core.dao.entity;
 
 import com.fasterxml.jackson.annotation.JsonBackReference;
-import com.otilm.api.model.core.auth.Resource;
-import com.otilm.api.model.core.compliance.ComplianceStatus;
-import com.otilm.api.model.core.cryptography.key.KeyAssociationDto;
-import com.otilm.api.model.core.cryptography.key.KeyDetailDto;
-import com.otilm.api.model.core.cryptography.key.KeyDto;
-import com.otilm.api.model.core.cryptography.key.KeyItemDetailDto;
-import com.otilm.api.model.core.cryptography.key.KeyItemDto;
-import com.otilm.core.util.DtoMapper;
+import com.otilm.core.model.NamedModel;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.ConstraintMode;
@@ -23,9 +16,7 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 import java.io.Serializable;
-import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -42,7 +33,17 @@ import org.hibernate.proxy.HibernateProxy;
 @RequiredArgsConstructor
 @Entity
 @Table(name = "cryptographic_key")
-public class CryptographicKey extends UniquelyIdentifiedAndAudited implements Serializable, DtoMapper<KeyDto> {
+public class CryptographicKey extends UniquelyIdentifiedAndAudited implements Serializable, NamedModel {
+
+    @Override
+    public UUID uuid() {
+        return getUuid();
+    }
+
+    @Override
+    public String name() {
+        return getName();
+    }
 
     @Column(name = "name")
     private String name;
@@ -106,132 +107,6 @@ public class CryptographicKey extends UniquelyIdentifiedAndAudited implements Se
         if (tokenInstanceReference != null) {
             this.tokenInstanceReferenceUuid = tokenInstanceReference.getUuid();
         }
-    }
-
-    // Get the list of items for the key
-    public List<KeyItemDetailDto> getKeyItems() {
-        return items.stream().map(CryptographicKeyItem::mapToDto).toList();
-    }
-
-    // Get the list of items for the key
-    public List<KeyItemDto> getKeyItemsSummary() {
-        return items.stream().map(CryptographicKeyItem::mapToSummaryDto).toList();
-    }
-
-    @Override
-    public KeyDto mapToDto() {
-        KeyDto dto = buildKeyDto();
-        dto.setAssociations((items.size() - 1) + certificates.size() + altCertificates.size());
-        return dto;
-    }
-
-    /**
-     * Lightweight variant of {@link #mapToDto()} for use in chain responses. Omits {@code associations} to avoid
-     * initializing the lazy {@code certificates} and {@code altCertificates} collections.
-     */
-    public KeyDto mapToChainDto() {
-        return buildKeyDto();
-    }
-
-    /**
-     * Populates a {@link KeyDto} with all fields except {@code associations}.
-     */
-    private KeyDto buildKeyDto() {
-        KeyDto dto = new KeyDto();
-        dto.setName(name);
-        dto.setUuid(uuid.toString());
-        dto.setDescription(description);
-        dto.setCreationTime(created);
-        if (tokenProfile != null) {
-            dto.setTokenProfileName(tokenProfile.getName());
-            dto.setTokenProfileUuid(tokenProfile.getUuid().toString());
-        }
-        if (tokenInstanceReference != null) {
-            dto.setTokenInstanceName(tokenInstanceReference.getName());
-            dto.setTokenInstanceUuid(tokenInstanceReferenceUuid.toString());
-        }
-        if (groups != null) {
-            dto.setGroups(groups.stream().map(Group::mapToDto).toList());
-        }
-        if (owner != null) {
-            dto.setOwnerUuid(owner.getOwnerUuid().toString());
-            dto.setOwner(owner.getOwnerUsername());
-        }
-        dto.setItems(getKeyItemsSummary());
-        dto.setComplianceStatus(getComplianceStatus());
-        return dto;
-    }
-
-    private ComplianceStatus getComplianceStatus() {
-        if (items.isEmpty()) {
-            return ComplianceStatus.NOT_CHECKED;
-        }
-        List<ComplianceStatus> statuses = items
-                .stream()
-                .map(CryptographicKeyItem::getComplianceStatus)
-                .filter(Objects::nonNull)
-                .toList();
-        if (statuses.isEmpty()) {
-            return ComplianceStatus.NOT_CHECKED;
-        }
-        if (statuses.contains(ComplianceStatus.NOK)) {
-            return ComplianceStatus.NOK;
-        } else if (statuses.contains(ComplianceStatus.FAILED)) {
-            return ComplianceStatus.FAILED;
-        } else if (statuses.contains(ComplianceStatus.NA)) {
-            return ComplianceStatus.NA;
-        } else if (statuses.contains(ComplianceStatus.NOT_CHECKED)) {
-            return ComplianceStatus.NOT_CHECKED;
-        } else {
-            return ComplianceStatus.OK;
-        }
-    }
-
-    public KeyDetailDto mapToDetailDto() {
-        KeyDetailDto dto = new KeyDetailDto();
-        dto.setName(name);
-        dto.setUuid(uuid.toString());
-        dto.setDescription(description);
-        dto.setCreationTime(created);
-        dto.setComplianceStatus(getComplianceStatus());
-        if (tokenProfile != null) {
-            dto.setTokenProfileName(tokenProfile.getName());
-            dto.setTokenProfileUuid(tokenProfile.getUuid().toString());
-        }
-        if (tokenInstanceReference != null) {
-            dto.setTokenInstanceName(tokenInstanceReference.getName());
-            dto.setTokenInstanceUuid(tokenInstanceReferenceUuid.toString());
-        }
-        dto.setItems(getKeyItems());
-        if (groups != null) {
-            dto.setGroups(groups.stream().map(Group::mapToDto).toList());
-        }
-        if (owner != null) {
-            dto.setOwnerUuid(owner.getOwnerUuid().toString());
-            dto.setOwner(owner.getOwnerUsername());
-        }
-        List<KeyAssociationDto> keyAssociationDtos = new ArrayList<>();
-        if (certificates != null && !certificates.isEmpty()) {
-            keyAssociationDtos.addAll(certificates.stream().map(e -> {
-                KeyAssociationDto keyAssociationDto = new KeyAssociationDto();
-                keyAssociationDto.setName(e.getCommonName());
-                keyAssociationDto.setUuid(e.getUuid().toString());
-                keyAssociationDto.setResource(Resource.CERTIFICATE);
-                return keyAssociationDto;
-            }).toList());
-        }
-
-        if (altCertificates != null && !altCertificates.isEmpty()) {
-            keyAssociationDtos.addAll(altCertificates.stream().map(e -> {
-                KeyAssociationDto keyAssociationDto = new KeyAssociationDto();
-                keyAssociationDto.setName(e.getCommonName());
-                keyAssociationDto.setUuid(e.getUuid().toString());
-                keyAssociationDto.setResource(Resource.CERTIFICATE);
-                return keyAssociationDto;
-            }).toList());
-        }
-        dto.setAssociations(keyAssociationDtos);
-        return dto;
     }
 
     @Override

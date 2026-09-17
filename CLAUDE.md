@@ -182,6 +182,9 @@ When a user provides a credential (API token, key, password) for a one-off opera
 When writing code, comments, or docs, assume the next reader is an AI model with no conversation context. Prefer:
 
 - Self-explaining identifiers over comments
+- Prefer separate statements with descriptive local variables for converted or constructed values before combining them
+  in a return expression. For example, assign `publicKeyItem` and `privateKeyItem` before returning
+  `List.of(publicKeyItem, privateKeyItem)` instead of nesting both conversions inside `List.of(...)`.
 - Method-level Javadoc on non-obvious behaviour over inline blocks
 - Spec docs that match the shipped code
 - A plan doc that names what's next

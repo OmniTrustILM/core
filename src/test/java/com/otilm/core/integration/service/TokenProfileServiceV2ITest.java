@@ -4,12 +4,14 @@ import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
+import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.client.cryptography.tokenprofile.EditTokenProfileRequestDto;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.cryptography.tokenprofile.TokenProfileDetailDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
@@ -21,6 +23,7 @@ import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
+import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.service.TokenProfileExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.builders.DataAttributeV3Builder;
@@ -31,12 +34,15 @@ import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.security.access.AccessDeniedException;
 
 import static com.otilm.core.util.builders.TokenProfileRequestDtoBuilder.aTokenProfileRequest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @SpringBootTest
 class TokenProfileServiceV2ITest extends BaseSpringBootTest {
@@ -124,6 +130,46 @@ class TokenProfileServiceV2ITest extends BaseSpringBootTest {
         connectorMock.verifyScopedTokenProfileAttributesRequest(emptyScopedRequest);
     }
 
+    @Test
+    void listSupportedKeyRequestTypes_sendsPersistedTokenAndProfileAttributes() throws Exception {
+        // given
+        TokenProfile profile = persistProfile("request-types-profile");
+        KeyUsage allowedUsage = KeyUsage.SIGN;
+        profile.setUsage(List.of(allowedUsage));
+        tokenProfileRepository.saveAndFlush(profile);
+        String tokenAttributeName = "token-slot";
+        String tokenAttributeValue = "slot-7";
+        String profileAttributeName = "profile-policy";
+        String profileAttributeValue = "signing";
+        persistTokenAttribute(tokenAttributeName, tokenAttributeValue);
+        persistAttribute(Resource.TOKEN_PROFILE, profile.getUuid(), profileAttributeName, profileAttributeValue);
+        connectorMock.stubKeyRequestTypes("[\"keyPair\"]");
+        String expectedRequest = "{\"tokenAttributes\":[{\"name\":\"token-slot\",\"content\":[{\"data\":\"slot-7\"}]}],"
+                + "\"tokenProfileAttributes\":[{\"name\":\"profile-policy\",\"content\":[{\"data\":\"signing\"}]}],\"keyUsages\":[\"sign\"]}";
+
+        // when
+        List<KeyRequestType> types = tokenProfileService
+                .listSupportedKeyRequestTypes(token.getSecuredParentUuid(), profile.getSecuredUuid());
+
+        // then
+        assertEquals(List.of(KeyRequestType.KEY_PAIR), types);
+        connectorMock.verifyScopedKeyRequestTypesRequestContaining(expectedRequest);
+    }
+
+    @Test
+    void listSupportedKeyRequestTypes_rejectsUnauthorizedProfile() {
+        // given
+        TokenProfile profile = persistProfile("denied-request-types-profile");
+        denyResourceAccess(Resource.TOKEN_PROFILE, ResourceAction.MEMBERS);
+
+        // when
+        Executable listTypes = () -> tokenProfileService
+                .listSupportedKeyRequestTypes(token.getSecuredParentUuid(), profile.getSecuredUuid());
+
+        // then
+        assertThrows(AccessDeniedException.class, listTypes);
+    }
+
     private Connector persistV2Connector(String url) {
         Connector value = new Connector();
         value.setName("token-profile-provider-v2");
@@ -172,6 +218,10 @@ class TokenProfileServiceV2ITest extends BaseSpringBootTest {
     }
 
     private void persistTokenAttribute(String name, String value) throws Exception {
+        persistAttribute(Resource.TOKEN, token.getUuid(), name, value);
+    }
+
+    private void persistAttribute(Resource resource, UUID objectUuid, String name, String value) throws Exception {
         UUID attributeUuid = UUID.randomUUID();
         attributeEngine
                 .updateDataAttributeDefinitions(connector.getUuid(), null, List
@@ -179,9 +229,8 @@ class TokenProfileServiceV2ITest extends BaseSpringBootTest {
         RequestAttributeV3 request = new RequestAttributeV3(attributeUuid, name, AttributeContentType.STRING,
                 List.of(new StringAttributeContentV3(value)));
         attributeEngine
-                .updateObjectDataAttributesContent(ObjectAttributeContentInfo
-                        .builder(Resource.TOKEN, token.getUuid())
-                        .connector(connector.getUuid())
-                        .build(), List.of(request));
+                .updateObjectDataAttributesContent(
+                        ObjectAttributeContentInfo.builder(resource, objectUuid).connector(connector.getUuid()).build(),
+                        List.of(request));
     }
 }

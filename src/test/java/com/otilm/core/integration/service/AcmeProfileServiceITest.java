@@ -17,6 +17,10 @@ import com.otilm.api.model.common.attribute.common.properties.CustomAttributePro
 import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.core.acme.AccountStatus;
+import com.otilm.api.model.core.acme.AcmeIdentifierAuthorizationMode;
+import com.otilm.api.model.core.acme.AcmeIdentifierMatchType;
+import com.otilm.api.model.core.acme.AcmeIdentifierType;
+import com.otilm.api.model.core.acme.AcmePreauthorizedIdentifierDto;
 import com.otilm.api.model.core.acme.AcmeProfileDto;
 import com.otilm.api.model.core.acme.AcmeProfileListDto;
 import com.otilm.api.model.core.auth.Resource;
@@ -319,6 +323,134 @@ class AcmeProfileServiceITest extends BaseSpringBootTest {
 
         Assertions.assertNotEquals(first, second);
         Assertions.assertTrue(AcmeEabKeys.decode(first).length >= 32);
+    }
+
+    @Test
+    void anEntryThatCouldNeverMatchIsRefusedOnCreateAndOnEdit() throws Exception {
+        // Otherwise it sits in the policy looking like cover, and counts toward the preauthorizedOnly guard while
+        // pre-authorizing nothing.
+        AcmePreauthorizedIdentifierDto wildcardValue = entry("*.apps.example.com");
+        AcmeProfileRequestDto create = new AcmeProfileRequestDto();
+        create.setName("unusablePolicy");
+        create.setPreauthorizedIdentifiers(List.of(wildcardValue));
+
+        ValidationException onCreate = Assertions
+                .assertThrows(ValidationException.class, () -> acmeProfileService.createAcmeProfile(create));
+        Assertions.assertTrue(onCreate.getMessage().contains("*.apps.example.com"), "the entry is named back");
+
+        AcmeProfileEditRequestDto edit = new AcmeProfileEditRequestDto();
+        edit.setPreauthorizedIdentifiers(List.of(wildcardValue));
+        SecuredUUID acmeProfileUuid = acmeProfile.getSecuredUuid();
+
+        Assertions
+                .assertThrows(ValidationException.class,
+                        () -> acmeProfileService.editAcmeProfile(acmeProfileUuid, edit));
+        Assertions
+                .assertTrue(acmeProfileRepository
+                        .findByUuid(acmeProfile.getUuid())
+                        .orElseThrow()
+                        .preauthorizedIdentifierList()
+                        .isEmpty(), "a refused edit stores nothing");
+    }
+
+    @Test
+    void aPolicyOfOnlyUnusableEntriesCannotSatisfyPreauthorizedOnly() throws Exception {
+        // The guard counts entries; without the usability check a list of these would pass it and then refuse
+        // every order the profile could receive.
+        AcmeProfileRequestDto create = new AcmeProfileRequestDto();
+        create.setName("unusableOnlyPolicy");
+        create.setIdentifierAuthorizationMode(AcmeIdentifierAuthorizationMode.PREAUTHORIZED_ONLY);
+        create.setPreauthorizedIdentifiers(List.of(entry("*.apps.example.com")));
+
+        Assertions.assertThrows(ValidationException.class, () -> acmeProfileService.createAcmeProfile(create));
+    }
+
+    @Test
+    void preauthorizedOnlyWithAnEmptyPolicyIsRefusedOnCreate() {
+        AcmeProfileRequestDto request = new AcmeProfileRequestDto();
+        request.setName("emptyOnlyPolicy");
+        request.setIdentifierAuthorizationMode(AcmeIdentifierAuthorizationMode.PREAUTHORIZED_ONLY);
+
+        ValidationException e = Assertions
+                .assertThrows(ValidationException.class, () -> acmeProfileService.createAcmeProfile(request));
+        Assertions.assertTrue(e.getMessage().contains("disable new orders"), "the message points at the alternative");
+    }
+
+    @Test
+    void preauthorizedOnlyWithEntriesIsAcceptedOnCreate() throws Exception {
+        AcmeProfileRequestDto request = new AcmeProfileRequestDto();
+        request.setName("backedOnlyPolicy");
+        request.setIdentifierAuthorizationMode(AcmeIdentifierAuthorizationMode.PREAUTHORIZED_ONLY);
+        request.setPreauthorizedIdentifiers(List.of(entry("apps.example.com")));
+
+        AcmeProfileDto dto = acmeProfileService.createAcmeProfile(request);
+
+        Assertions
+                .assertEquals(AcmeIdentifierAuthorizationMode.PREAUTHORIZED_ONLY, dto.getIdentifierAuthorizationMode());
+        Assertions.assertEquals(1, dto.getPreauthorizedIdentifiers().size());
+    }
+
+    @Test
+    void aModeOnlyEditCannotStrandAProfileWithoutEntries() throws Exception {
+        // The mode arrives without the entries, so the check has to run against the merged profile rather than the
+        // request.
+        AcmeProfileEditRequestDto modeOnly = new AcmeProfileEditRequestDto();
+        modeOnly.setIdentifierAuthorizationMode(AcmeIdentifierAuthorizationMode.PREAUTHORIZED_ONLY);
+        SecuredUUID acmeProfileUuid = acmeProfile.getSecuredUuid();
+
+        Assertions
+                .assertThrows(ValidationException.class,
+                        () -> acmeProfileService.editAcmeProfile(acmeProfileUuid, modeOnly));
+    }
+
+    @Test
+    void emptyingThePolicyOfAPreauthorizedOnlyProfileIsRefused() throws Exception {
+        acmeProfile.setPreauthorizedIdentifiers(List.of(entry("apps.example.com")));
+        acmeProfile.setIdentifierAuthorizationMode(AcmeIdentifierAuthorizationMode.PREAUTHORIZED_ONLY);
+        acmeProfileRepository.save(acmeProfile);
+
+        AcmeProfileEditRequestDto clearing = new AcmeProfileEditRequestDto();
+        clearing.setPreauthorizedIdentifiers(List.of());
+        SecuredUUID acmeProfileUuid = acmeProfile.getSecuredUuid();
+
+        Assertions
+                .assertThrows(ValidationException.class,
+                        () -> acmeProfileService.editAcmeProfile(acmeProfileUuid, clearing));
+    }
+
+    @Test
+    void anEditOmittingThePolicyKeepsItAndAnEmptyListClearsIt() throws Exception {
+        acmeProfile.setPreauthorizedIdentifiers(List.of(entry("apps.example.com")));
+        acmeProfileRepository.save(acmeProfile);
+
+        AcmeProfileEditRequestDto unrelated = new AcmeProfileEditRequestDto();
+        unrelated.setDescription("edited");
+        acmeProfileService.editAcmeProfile(acmeProfile.getSecuredUuid(), unrelated);
+        Assertions
+                .assertEquals(1,
+                        acmeProfileRepository
+                                .findByUuid(acmeProfile.getUuid())
+                                .orElseThrow()
+                                .preauthorizedIdentifierList()
+                                .size());
+
+        AcmeProfileEditRequestDto cleared = new AcmeProfileEditRequestDto();
+        cleared.setPreauthorizedIdentifiers(List.of());
+        acmeProfileService.editAcmeProfile(acmeProfile.getSecuredUuid(), cleared);
+        Assertions
+                .assertTrue(acmeProfileRepository
+                        .findByUuid(acmeProfile.getUuid())
+                        .orElseThrow()
+                        .preauthorizedIdentifierList()
+                        .isEmpty());
+    }
+
+    private static AcmePreauthorizedIdentifierDto entry(String value) {
+        AcmePreauthorizedIdentifierDto entry = new AcmePreauthorizedIdentifierDto();
+        entry.setType(AcmeIdentifierType.DNS);
+        entry.setValue(value);
+        entry.setMatchType(AcmeIdentifierMatchType.SUBDOMAIN);
+        return entry;
     }
 
     private void setUpOldConnector() {

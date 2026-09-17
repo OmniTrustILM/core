@@ -1635,6 +1635,13 @@ public class AttributeEngine {
     public List<ResponseAttribute> updateObjectCustomAttributesContent(Resource objectType, UUID objectUuid,
             List<RequestAttribute> requestAttributes)
             throws ValidationException, NotFoundException, AttributeException {
+        SecurityResourceFilter securityResourceFilter = loadCustomAttributesSecurityResourceFilter();
+        return updateObjectCustomAttributesContent(objectType, objectUuid, requestAttributes, securityResourceFilter);
+    }
+
+    public List<ResponseAttribute> updateObjectCustomAttributesContent(Resource objectType, UUID objectUuid,
+            List<RequestAttribute> requestAttributes, SecurityResourceFilter securityResourceFilter)
+            throws ValidationException, NotFoundException, AttributeException {
         logger
                 .debug("Updating the content of custom attributes for resource {} with UUID: {}", objectType.getLabel(),
                         objectUuid);
@@ -1642,7 +1649,6 @@ public class AttributeEngine {
             requestAttributes = new ArrayList<>();
         }
 
-        SecurityResourceFilter securityResourceFilter = loadCustomAttributesSecurityResourceFilter();
         validateCustomAttributesContent(objectType, requestAttributes, securityResourceFilter);
 
         // if protocol user or has all permissions for attributes
@@ -2896,7 +2902,8 @@ public class AttributeEngine {
         }
     }
 
-    private SecurityResourceFilter loadCustomAttributesSecurityResourceFilter() {
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
+    public SecurityResourceFilter loadCustomAttributesSecurityResourceFilter() {
         // if user is anonymous or protocol user, allow all custom attribute content for sake of system processes and
         // protocol operations
         boolean loadAllContent;

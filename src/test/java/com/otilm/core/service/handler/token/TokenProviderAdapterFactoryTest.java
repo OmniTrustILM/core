@@ -11,9 +11,8 @@ import com.otilm.core.model.connector.ConnectorFunctionGroupModel;
 import com.otilm.core.model.connector.ImmutableConnectorFullModel;
 import com.otilm.core.model.connector.ImmutableConnectorInterface;
 import com.otilm.core.model.crypto.ImmutableTokenInstanceFullModel;
-import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.handler.OperationAttributeResolver;
-import com.otilm.core.service.v2.ConnectorExternalService;
+import com.otilm.core.service.v2.ConnectorInternalService;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -32,12 +31,12 @@ import static org.mockito.Mockito.when;
 class TokenProviderAdapterFactoryTest {
 
     private TokenProviderAdapterFactory factory;
-    private ConnectorExternalService connectorExternalService;
+    private ConnectorInternalService connectorInternalService;
 
     @BeforeEach
     void setUp() {
-        connectorExternalService = mock(ConnectorExternalService.class);
-        factory = new TokenProviderAdapterFactory(mock(ConnectorApiFactory.class), connectorExternalService,
+        connectorInternalService = mock(ConnectorInternalService.class);
+        factory = new TokenProviderAdapterFactory(mock(ConnectorApiFactory.class), connectorInternalService,
                 mock(AttributeEngine.class), mock(OperationAttributeResolver.class));
     }
 
@@ -145,7 +144,7 @@ class TokenProviderAdapterFactoryTest {
         // given
         UUID connectorUuid = UUID.randomUUID();
         ImmutableConnectorFullModel connector = connector(List.of(cryptographyInterface("v2")), List.of());
-        when(connectorExternalService.getConnectorFullModel(SecuredUUID.fromUUID(connectorUuid))).thenReturn(connector);
+        when(connectorInternalService.getConnectorFullModelForApiClient(connectorUuid)).thenReturn(connector);
         var token = new ImmutableTokenInstanceFullModel(UUID.randomUUID(), null, "token", TokenInstanceStatus.UNKNOWN,
                 "SOFT", connectorUuid, "connector", connector.connectorInterfaces().get(0).uuid(),
                 connector.connectorInterfaces().get(0), Set.of());
@@ -155,6 +154,22 @@ class TokenProviderAdapterFactoryTest {
 
         // then
         assertInstanceOf(TokenProviderV2Adapter.class, adapter);
+    }
+
+    @Test
+    void forToken_selectsLegacyAdapter_whenConnectorAdvertisesV2() throws Exception {
+        // given
+        ImmutableConnectorFullModel connector = connector(List.of(cryptographyInterface("v2")), List.of());
+        when(connectorInternalService.getConnectorFullModelForApiClient(connector.uuid())).thenReturn(connector);
+        var legacyToken = new ImmutableTokenInstanceFullModel(UUID.randomUUID(), UUID.randomUUID().toString(),
+                "legacy token", TokenInstanceStatus.ACTIVATED, null, connector.uuid(), connector.name(), null, null,
+                Set.of());
+
+        // when
+        TokenProviderAdapter adapter = factory.forToken(legacyToken);
+
+        // then
+        assertInstanceOf(TokenProviderV1Adapter.class, adapter);
     }
 
     private ImmutableConnectorFullModel connector(List<ImmutableConnectorInterface> interfaces,
@@ -171,7 +186,7 @@ class TokenProviderAdapterFactoryTest {
             throws Exception {
         UUID connectorUuid = UUID.randomUUID();
         ImmutableConnectorFullModel connector = connector(List.of(connectorInterface), List.of());
-        when(connectorExternalService.getConnectorFullModel(SecuredUUID.fromUUID(connectorUuid))).thenReturn(connector);
+        when(connectorInternalService.getConnectorFullModelForApiClient(connectorUuid)).thenReturn(connector);
         return new ImmutableTokenInstanceFullModel(UUID.randomUUID(), null, "token", TokenInstanceStatus.UNKNOWN,
                 "SOFT", connectorUuid, "connector", connectorInterface.uuid(), connectorInterface, Set.of());
     }

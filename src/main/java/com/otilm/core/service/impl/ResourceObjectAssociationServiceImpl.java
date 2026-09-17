@@ -229,7 +229,8 @@ public class ResourceObjectAssociationServiceImpl implements ResourceObjectAssoc
         logger.debug("Removed {} groups from {} with UUIDs {}", associationsDeleted, resource.getLabel(), objectUuids);
     }
 
-    private void setOwner(Resource resource, UUID objectUuid, UUID ownerUuid, String ownerUsername) {
+    @Override
+    public void setOwner(Resource resource, UUID objectUuid, UUID ownerUuid, String ownerUsername) {
         OwnerAssociation ownerAssociation = ownerAssociationRepository
                 .findByResourceAndObjectUuid(resource, objectUuid);
         if (ownerUuid == null) {

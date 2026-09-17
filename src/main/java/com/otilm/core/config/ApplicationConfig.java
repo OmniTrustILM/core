@@ -18,6 +18,7 @@ import com.otilm.api.clients.SchedulerApiClient;
 import com.otilm.api.clients.cryptography.CryptographicOperationsApiClient;
 import com.otilm.api.clients.cryptography.KeyManagementApiClient;
 import com.otilm.api.clients.cryptography.TokenInstanceApiClient;
+import com.otilm.api.clients.cryptography.v2.KeyApiClient;
 import com.otilm.api.clients.cryptography.v2.TokenApiClient;
 import com.otilm.api.clients.secret.SecretApiClient;
 import com.otilm.api.clients.secret.VaultApiClient;
@@ -204,6 +205,12 @@ public class ApplicationConfig {
     @Bean
     public KeyManagementApiClient keyManagementApiClient(WebClient webClient, TrustManager[] defaultTrustManagers) {
         return new KeyManagementApiClient(webClient, defaultTrustManagers);
+    }
+
+    @Bean
+    public KeyApiClient keyManagementApiClientV2(WebClient webClient, TrustManager[] defaultTrustManagers,
+            OperationResponseValidator responseValidator) {
+        return new KeyApiClient(webClient, defaultTrustManagers, responseValidator);
     }
 
     @Bean

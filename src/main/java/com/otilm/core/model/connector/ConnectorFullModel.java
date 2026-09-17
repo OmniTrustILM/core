@@ -5,15 +5,11 @@ import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.core.connector.AuthType;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.proxy.ProxyDto;
+import com.otilm.core.model.NamedModel;
 
 import java.util.List;
-import java.util.UUID;
 
-public interface ConnectorFullModel {
-    UUID uuid();
-
-    String name();
-
+public interface ConnectorFullModel extends NamedModel {
     ConnectorVersion version();
 
     String url();

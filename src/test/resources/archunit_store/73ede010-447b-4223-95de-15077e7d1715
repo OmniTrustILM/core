@@ -27,7 +27,6 @@ com.otilm.core.service.impl.CertificateServiceImpl calls @Modifying CmpProfileRe
 com.otilm.core.service.impl.CertificateServiceImpl calls @Modifying ScepProfileRepository.clearCaCertificateReference() from outside ..service.writer..
 com.otilm.core.service.impl.CertificateServiceImpl calls @Modifying ScepProfileRepository.clearCaCertificateReferenceIn() from outside ..service.writer..
 com.otilm.core.service.impl.CrlServiceImpl calls @Modifying CrlRepository.clearCaCertificateReferenceIn() from outside ..service.writer..
-com.otilm.core.service.impl.CryptographicKeyServiceImpl calls @Modifying CryptographicKeyItemRepository.insertWithFingerprintConflictResolve() from outside ..service.writer..
 com.otilm.core.service.impl.DiscoveryServiceImpl calls @Modifying CertificateContentRepository.deleteUnusedCertificateContents() from outside ..service.writer..
 com.otilm.core.service.impl.LocationServiceImpl calls @Modifying CertificateLocationRepository.deleteByLocationUuid() from outside ..service.writer..
 com.otilm.core.service.impl.TriggerServiceImpl calls @Modifying TriggerHistoryRepository.removeTriggerAssociation() from outside ..service.writer..
