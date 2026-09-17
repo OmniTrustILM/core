@@ -67,6 +67,19 @@ public final class DocumentScope {
      * Indexes the document's components by {@code bom-ref}, treating a duplicated ref as naming nothing.
      *
      * <p>
+     * <b>A document that duplicates a ref is invalid input, and ingest refuses it.</b> CycloneDX requires
+     * {@code bom-ref} to be unique within a document, so a repeat is not a shape to resolve -- it is a document no
+     * reading of which can be trusted. {@link #ambiguousRefs()} is what the refusal names, and
+     * {@code CbomAssetIngestService} is where it happens: the rule belongs to the pipeline that has somewhere to report
+     * it, not to a pure function a caller may run over one component.
+     *
+     * <p>
+     * <b>The index still resolves nothing for a ref repeated among the components, and that is not redundant.</b> This
+     * class is also how a component is keyed outside ingest -- the identity vector runner, the corpus measurements --
+     * where there is no document to refuse, and the rule below is what keeps document order out of a key on those
+     * paths. The refusal's own set is wider than that; {@link #duplicatedRefs} says why the index does not follow it.
+     *
+     * <p>
      * <b>Ambiguity is unresolved, not first-one-wins.</b> {@code bom-ref} is producer-assigned and nothing in either
      * schema version makes it unique, and real producer output duplicates it: 6 corpus documents carry 27 duplicated
      * ref instances, one of them emitting {@code crypto/protocol/tls@TLSv1.3} three times in five documents.
@@ -82,26 +95,84 @@ public final class DocumentScope {
      * string, so first-one-wins hands them the same target and merges them too. What differs between the arms is only
      * whether document order can move a key. 0 corpus rows move either way, because no duplicated ref is currently
      * pointed at.
-     *
-     * <p>
-     * Both arms owe the producer an ingest finding, and neither can raise one yet: {@link #ambiguousRefs()} carries
-     * what a finding would name, and core#2073 owns the channel that reports it.
      */
     public static DocumentScope of(JsonNode document, AssetNormalizer normalizer) {
         if (document == null) {
             return none();
         }
         Map<String, JsonNode> byRef = new LinkedHashMap<>();
-        Set<String> duplicated = new LinkedHashSet<>();
+        Set<String> unresolvable = new LinkedHashSet<>();
         for (JsonNode component : walk(document)) {
             JsonNode ref = component.get("bom-ref");
             if (ref != null && ref.isTextual() && byRef.putIfAbsent(ref.textValue(), component) != null) {
-                duplicated.add(ref.textValue());
+                unresolvable.add(ref.textValue());
             }
         }
-        duplicated.forEach(byRef::remove);
+        unresolvable.forEach(byRef::remove);
         return new DocumentScope(refute(certificateDigestClaims(document, normalizer)),
-                refutedSuiteCodes(document, normalizer), byRef, Set.copyOf(duplicated));
+                refutedSuiteCodes(document, normalizer), byRef, duplicatedRefs(document));
+    }
+
+    /**
+     * Every {@code bom-ref} the document defines more than once, across every section that defines one.
+     *
+     * <p>
+     * <b>Wider than the component index above, deliberately.</b> CycloneDX scopes {@code bom-ref} uniqueness to the
+     * whole document, and three sections define one: {@code metadata.component}, {@code components[]} and
+     * {@code services[]}. The index is built from {@code components[]} alone, because that is the only section a
+     * reference the extractor follows can resolve into -- so a ref repeated between {@code metadata.component} and a
+     * component is invalid input that the index nonetheless resolves, deterministically, to the component.
+     *
+     * <p>
+     * <b>Which is why this is the refusal's set and not the index's.</b> Feeding it back into the index would move the
+     * key of a component whose own ref is unique, on the strength of a repeat in a section nothing resolves into -- and
+     * resolution is what the corpus measurements and the identity vector runner pin. Ingest refuses such a document
+     * whole, so the wider reading costs those callers nothing and buys the producer the message.
+     *
+     * <p>
+     * {@code dependencies[]} carries {@code ref} and {@code dependsOn}, which <em>cite</em> a definition rather than
+     * making one, so a repeat there is not a duplicate definition and does not belong here.
+     */
+    private static Set<String> duplicatedRefs(JsonNode document) {
+        Set<String> seen = new HashSet<>();
+        Set<String> duplicated = new LinkedHashSet<>();
+        JsonNode metadata = document.get("metadata");
+        collectRefs(metadata == null ? null : metadata.get("component"), "components", seen, duplicated);
+        collectRefsInArray(document.get("components"), "components", seen, duplicated);
+        collectRefsInArray(document.get("services"), "services", seen, duplicated);
+        return Set.copyOf(duplicated);
+    }
+
+    private static void collectRefsInArray(JsonNode array, String childField, Set<String> seen,
+            Set<String> duplicated) {
+        if (array == null || !array.isArray()) {
+            return;
+        }
+        for (JsonNode element : array) {
+            collectRefs(element, childField, seen, duplicated);
+        }
+    }
+
+    /** Iterative and bounded by {@link #MAX_DEPTH}, for the same reason {@link #walk} is: both sections nest. */
+    private static void collectRefs(JsonNode root, String childField, Set<String> seen, Set<String> duplicated) {
+        if (root == null || !root.isObject()) {
+            return;
+        }
+        Deque<int[]> depths = new ArrayDeque<>();
+        Deque<JsonNode> pending = new ArrayDeque<>();
+        pending.push(root);
+        depths.push(new int[]{1});
+        while (!pending.isEmpty()) {
+            JsonNode node = pending.pop();
+            int depth = depths.pop()[0];
+            JsonNode ref = node.get("bom-ref");
+            if (ref != null && ref.isTextual() && !seen.add(ref.textValue())) {
+                duplicated.add(ref.textValue());
+            }
+            if (depth < MAX_DEPTH) {
+                pushChildren(node.get(childField), depth + 1, pending, depths);
+            }
+        }
     }
 
     /**
@@ -185,12 +256,16 @@ public final class DocumentScope {
     }
 
     /**
-     * Refs this document defines more than once, which resolve to nothing.
+     * Refs this document defines more than once, which cost the document its ingest.
      *
      * <p>
-     * Exposed for the ingest finding that both arms of the ambiguity rule require and that no channel in
-     * {@code src/main} can yet report -- see {@link #of}. A caller that resolves nothing cannot otherwise tell an
-     * ambiguous ref from an absent one, and the producer needs to hear which of the two it emitted.
+     * A caller that resolves nothing cannot otherwise tell an ambiguous ref from an absent one, and the producer needs
+     * to hear which of the two it emitted -- so this is both the refusal's reason and the finding's subject.
+     *
+     * <p>
+     * A superset of the refs {@link #resolve} answers nothing for: see {@link #duplicatedRefs}. Every ref repeated
+     * within {@code components[]} is in both; one repeated between {@code metadata.component} or {@code services[]} and
+     * a component is only here, and still resolves to the component.
      */
     public Set<String> ambiguousRefs() {
         return ambiguousRefs;

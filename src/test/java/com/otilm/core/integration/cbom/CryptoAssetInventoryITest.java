@@ -14,15 +14,18 @@ import com.otilm.core.cbom.ingest.CbomAssetIngestService;
 import com.otilm.core.cbom.ingest.CbomIngestTestFixtures;
 import com.otilm.core.dao.CryptoAssetConstraintTranslator;
 import com.otilm.core.dao.entity.Cbom;
+import com.otilm.core.dao.entity.cbom.CbomIngestFinding;
 import com.otilm.core.dao.entity.cbom.CbomTombstone;
 import com.otilm.core.dao.entity.cbom.CryptoAsset;
 import com.otilm.core.dao.entity.cbom.CryptoAssetAlias;
 import com.otilm.core.dao.entity.cbom.CryptoAssetSource;
 import com.otilm.core.dao.repository.CbomRepository;
+import com.otilm.core.dao.repository.cbom.CbomIngestFindingRepository;
 import com.otilm.core.dao.repository.cbom.CbomTombstoneRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetAliasRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetSourceRepository;
+import com.otilm.core.model.cbom.CbomIngestFindingKind;
 import com.otilm.core.model.cbom.CryptoAssetIdentityGuard;
 import com.otilm.core.service.CbomExternalService;
 import com.otilm.core.service.writer.cbom.CbomAssetSyncStateWriter;
@@ -71,6 +74,9 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
 
     @Autowired
     private CbomTombstoneRepository tombstoneRepository;
+
+    @Autowired
+    private CbomIngestFindingRepository findingRepository;
 
     @Autowired
     private CbomRepository cbomRepository;
@@ -394,6 +400,11 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
 
     // ---- foreign-key behaviour ----
 
+    /**
+     * The schema's own behaviour, so it is provoked with a plain row delete rather than through
+     * {@code CryptoAssetWriter.delete}: that statement refuses a row an alias names or a source still points at, which
+     * is exactly the pair of cascades this test is here to prove fire. The writer's refusal is pinned separately.
+     */
     @Test
     void deletingAnAssetTakesItsSourcesAndAliasesWithIt() {
         UUID absorbedUuid = upsert(algorithm("RSA", "2048"), null);
@@ -406,7 +417,7 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
                         "operator");
         assertThat(aliasRepository.count()).isEqualTo(1);
 
-        assertThat(assetWriter.delete(canonicalUuid)).isEqualTo(1);
+        assetRepository.deleteById(canonicalUuid);
 
         assertThat(sourceRepository.count())
                 .describedAs("a source reference is meaningless without its asset")
@@ -1121,6 +1132,92 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
                 .isNotNull();
     }
 
+    // ---- the ingest report ----
+
+    /**
+     * CycloneDX requires {@code bom-ref} to be unique. A document that repeats one is refused whole -- both readings of
+     * a repeat move keys -- and the row keeps the reason an operator reads.
+     */
+    @Test
+    void aRepeatedBomRefRefusesTheDocumentAndTheRowSaysWhy() {
+        assertThat(ingestService.ingest(leanCbom.getUuid(), twoAlgorithmsSharingARef(), NOW))
+                .isEqualTo(CbomAssetIngestService.IngestOutcome.REFUSED);
+
+        assertThat(assetRepository.count()).describedAs("nothing of a refused document reaches the inventory").isZero();
+        Cbom refused = cbom(leanCbom.getUuid());
+        assertThat(refused.getAssetSyncState()).isEqualTo(CbomAssetSyncState.FAILED);
+        assertThat(refused.getAssetSyncError()).contains("bom-ref").contains("unique");
+        assertThat(findings(leanCbom.getUuid())).singleElement().satisfies(finding -> {
+            assertThat(finding.getKind()).isEqualTo(CbomIngestFindingKind.FINDING);
+            assertThat(finding.getComponentName()).isNull();
+            assertThat(finding.getDetail()).contains("bom-ref dup");
+        });
+    }
+
+    /**
+     * The finding names the member the producer inlined a secret under, and carries nothing of the value -- the same
+     * rule the redaction itself keeps, applied to the report about it.
+     */
+    @Test
+    void anInlinedSecretIsReportedByMemberAndNeverByValue() {
+        assertThat(ingestService.ingest(leanCbom.getUuid(), inlinedPrivateKey(), NOW))
+                .isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
+
+        assertThat(findings(leanCbom.getUuid()))
+                .anySatisfy(finding -> assertThat(finding.getDetail())
+                        .contains("producer inlined a value")
+                        .contains("private-key"));
+        assertThat(String.valueOf(findings(leanCbom.getUuid()))).doesNotContain(SECRET_MARKER);
+        assertThat(findings(leanCbom.getUuid()))
+                .allSatisfy(finding -> assertThat(finding.getOccurrences()).isPositive());
+    }
+
+    /**
+     * A redone ingest read the whole document again, so its report replaces the previous one rather than joining it.
+     */
+    @Test
+    void theNextRunsReportReplacesTheLastOne() {
+        ingestService.ingest(leanCbom.getUuid(), twoAlgorithmsSharingARef(), NOW);
+        assertThat(findings(leanCbom.getUuid())).isNotEmpty();
+
+        assertThat(ingestService.ingest(leanCbom.getUuid(), twoAlgorithms(), NOW))
+                .isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
+
+        assertThat(findings(leanCbom.getUuid()))
+                .describedAs("the complaint the current document does not make is gone")
+                .isEmpty();
+    }
+
+    /**
+     * A finding is a statement about one document, so it goes when the document goes -- unlike a source row, whose
+     * RESTRICT makes the delete path withdraw the inventory first.
+     */
+    @Test
+    void deletingTheCbomTakesItsReportWithIt() throws Exception {
+        ingestService.ingest(leanCbom.getUuid(), twoAlgorithmsSharingARef(), NOW);
+        assertThat(findings(leanCbom.getUuid())).isNotEmpty();
+
+        cbomService.deleteCbom(leanCbom.getUuid());
+
+        assertThat(findings(leanCbom.getUuid())).isEmpty();
+    }
+
+    /**
+     * The skip path is the one that survives a component the extractor cannot read, and its own component name was the
+     * one string it handed to storage unchecked: an unpaired surrogate there has no UTF-8 encoding, so the report's
+     * insert was refused by the database on the very path whose purpose is to survive such a component.
+     */
+    @Test
+    void aComponentWhoseNameHasNoEncodingIsStillReported() {
+        assertThat(ingestService.ingest(leanCbom.getUuid(), unpairedSurrogateName(), NOW))
+                .isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
+
+        assertThat(findings(leanCbom.getUuid())).anySatisfy(finding -> {
+            assertThat(finding.getKind()).isEqualTo(CbomIngestFindingKind.SKIP);
+            assertThat(finding.getComponentName()).isEqualTo("(a component name with no valid encoding)");
+        });
+    }
+
     // ---- helpers ----
 
     private void assertKeysUnchanged(Map<UUID, String> keysBefore) {
@@ -1168,12 +1265,86 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
      * persistence test has to supply one. {@link AssetRowKeys} makes it a stable function of the normalized fields,
      * which is what keeps every dedup assertion below meaning what it meant before.
      */
+    // ---- the collection statement's own guard ----
+
+    /**
+     * The orphan read and the delete are two statements. Nothing can attach a source between them today -- the
+     * withdrawal and the ingest both write under {@code ALIAS_DECISION_LOCK} -- but that is a property of the callers,
+     * and it is the statement that destroys the row. So the statement carries the condition: an asset a source came
+     * back to is left alone, and the caller is told 0 rather than losing a row an ingest is about to source.
+     */
+    @Test
+    void anAssetASourceCameBackToIsNotCollected() {
+        UUID assetUuid = upsert(rsa2048(), null);
+        sourceWriter
+                .upsertSource(assetUuid, leanCbom.getUuid(), Map.of("assetType", "algorithm"), List.of(),
+                        OffsetDateTime.now());
+
+        assertThat(assetWriter.delete(assetUuid)).describedAs("it is sourced, so it is not an orphan").isZero();
+        assertThat(assetRepository.findById(assetUuid)).isPresent();
+    }
+
+    /**
+     * The irreversible arm. {@code crypto_asset_alias} cascades from {@code canonical_key}, so a delete that raced an
+     * operator pointing an alias at the row would take that decision with it and no re-ingest would bring it back. The
+     * read applies this rule already; asserting it on the write is what makes it true of the row.
+     */
+    @Test
+    void anAssetAnAliasWasPointedAtIsNotCollected() {
+        UUID canonicalUuid = upsert(rsa2048(), null);
+        UUID absorbedUuid = upsert(algorithm("AES", "256"), null);
+        aliasWriter
+                .record(asset(absorbedUuid).getIdentityKey(), asset(canonicalUuid).getIdentityKey(), "duplicate",
+                        "operator");
+
+        assertThat(assetWriter.delete(canonicalUuid))
+                .describedAs("an operator's merge decision is not a sweep's to discard")
+                .isZero();
+        assertThat(assetRepository.findById(canonicalUuid)).isPresent();
+    }
+
+    /** The row the rule is actually for: no source, no alias, collected. */
+    @Test
+    void aTrulyOrphanedAssetIsCollected() {
+        UUID assetUuid = upsert(rsa2048(), null);
+
+        assertThat(assetWriter.delete(assetUuid)).isEqualTo(1);
+        assertThat(assetRepository.findById(assetUuid)).isEmpty();
+    }
+
     private UUID upsert(CryptoAssetIdentityFields fields, CryptoAssetIdentityGuard guard) {
         return assetWriter.upsertIdentity(AssetRowKeys.forFields(fields), fields, guard);
     }
 
     private static JsonNode oneAlgorithm() {
         return CbomIngestTestFixtures.algorithmDocument("AES-256");
+    }
+
+    private List<CbomIngestFinding> findings(UUID cbomUuid) {
+        return findingRepository.findAllByCbomUuidOrderByKindAscDetailAsc(cbomUuid);
+    }
+
+    /** A lone high surrogate in the name: well-formed to Java, and no UTF-8 encoding at all. */
+    private static JsonNode unpairedSurrogateName() {
+        return CbomIngestTestFixtures
+                .read("{\"components\":[{\"type\":\"cryptographic-asset\",\"name\":\"\\ud800\","
+                        + "\"cryptoProperties\":{\"assetType\":\"algorithm\",\"algorithmProperties\":{}}}]}");
+    }
+
+    private static JsonNode twoAlgorithmsSharingARef() {
+        return CbomIngestTestFixtures
+                .read("{\"components\":[{\"type\":\"cryptographic-asset\",\"bom-ref\":\"dup\",\"name\":\"AES-256\","
+                        + "\"cryptoProperties\":{\"assetType\":\"algorithm\",\"algorithmProperties\":{}}},"
+                        + "{\"type\":\"cryptographic-asset\",\"bom-ref\":\"dup\",\"name\":\"RSA-2048\","
+                        + "\"cryptoProperties\":{\"assetType\":\"algorithm\",\"algorithmProperties\":{}}}]}");
+    }
+
+    private static JsonNode inlinedPrivateKey() {
+        return CbomIngestTestFixtures
+                .read("{\"components\":[{\"type\":\"cryptographic-asset\",\"name\":\"a-signing-key\","
+                        + "\"cryptoProperties\":{\"assetType\":\"related-crypto-material\","
+                        + "\"relatedCryptoMaterialProperties\":{\"type\":\"private-key\",\"value\":\"" + SECRET_MARKER
+                        + "\"}}}]}");
     }
 
     private static JsonNode twoAlgorithms() {

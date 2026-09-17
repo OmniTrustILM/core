@@ -308,6 +308,105 @@ class DocumentScopeTest {
                 .isEqualTo(IDENTITY.of(two).key());
     }
 
+    // ---------------------------------------------------------------- duplicated bom-refs
+
+    /**
+     * The rule the component index encodes: a ref two components define resolves to neither, so document order cannot
+     * decide which one a reference names. Fails if {@code unresolvable.forEach(byRef::remove)} goes.
+     */
+    @Test
+    void aRefTwoComponentsDefineIsAmbiguousAndResolvesToNothing() {
+        DocumentScope scope = DocumentScope.of(read("""
+                {"components": [
+                    {"type": "cryptographic-asset", "bom-ref": "k", "name": "first"},
+                    {"type": "cryptographic-asset", "bom-ref": "k", "name": "second"}
+                ]}
+                """), NORMALIZER);
+
+        assertThat(scope.ambiguousRefs()).containsExactly("k");
+        assertThat(scope.resolve(MAPPER.getNodeFactory().textNode("k"))).isNull();
+    }
+
+    /**
+     * CycloneDX scopes uniqueness to the document, and {@code metadata.component} defines a ref like any other. Fails
+     * if the refusal's set is taken from {@link DocumentScope#walk} again, which starts at the root {@code components}
+     * array.
+     */
+    @Test
+    void aRefRepeatedBetweenMetadataAndAComponentIsAmbiguous() {
+        DocumentScope scope = DocumentScope.of(read("""
+                {"metadata": {"component": {"type": "application", "bom-ref": "k", "name": "app"}},
+                 "components": [{"type": "cryptographic-asset", "bom-ref": "k", "name": "first"}]}
+                """), NORMALIZER);
+
+        assertThat(scope.ambiguousRefs()).containsExactly("k");
+    }
+
+    /**
+     * And the component it names still resolves. The wider reading is the refusal's alone: pushing it into the index
+     * would move the key of a component whose own ref is unique, on the strength of a repeat in a section no reference
+     * the extractor follows resolves into.
+     */
+    @Test
+    void aRefRepeatedOutsideTheComponentsArrayStillResolvesToItsComponent() {
+        DocumentScope scope = DocumentScope.of(read("""
+                {"metadata": {"component": {"type": "application", "bom-ref": "k", "name": "app"}},
+                 "components": [{"type": "cryptographic-asset", "bom-ref": "k", "name": "first"}]}
+                """), NORMALIZER);
+
+        assertThat(scope.resolve(MAPPER.getNodeFactory().textNode("k")))
+                .describedAs("the component, not the metadata component and not nothing")
+                .isNotNull();
+    }
+
+    /** {@code services[]} defines a ref too, and nests through its own {@code services[]}. */
+    @Test
+    void aRefRepeatedBetweenANestedServiceAndAComponentIsAmbiguous() {
+        DocumentScope scope = DocumentScope.of(read("""
+                {"services": [{"name": "outer", "services": [{"name": "inner", "bom-ref": "k"}]}],
+                 "components": [{"type": "cryptographic-asset", "bom-ref": "k", "name": "first"}]}
+                """), NORMALIZER);
+
+        assertThat(scope.ambiguousRefs()).containsExactly("k");
+    }
+
+    /** Nested components are walked for the refusal as they are for the index. */
+    @Test
+    void aRefRepeatedBetweenANestedComponentAndItsParentIsAmbiguous() {
+        DocumentScope scope = DocumentScope.of(read("""
+                {"components": [{"type": "library", "bom-ref": "k", "name": "outer",
+                    "components": [{"type": "cryptographic-asset", "bom-ref": "k", "name": "inner"}]}]}
+                """), NORMALIZER);
+
+        assertThat(scope.ambiguousRefs()).containsExactly("k");
+    }
+
+    /**
+     * {@code dependencies[]} cites definitions rather than making them, so repeating a ref there is the format working
+     * as intended. Fails if the collector is pointed at that section too.
+     */
+    @Test
+    void aRefCitedTwiceUnderDependenciesIsNotADuplicateDefinition() {
+        DocumentScope scope = DocumentScope.of(read("""
+                {"components": [{"type": "cryptographic-asset", "bom-ref": "k", "name": "first"}],
+                 "dependencies": [{"ref": "k", "dependsOn": ["k"]}, {"ref": "k"}]}
+                """), NORMALIZER);
+
+        assertThat(scope.ambiguousRefs()).isEmpty();
+    }
+
+    /** A document whose refs are all distinct refuses nothing, however many sections define one. */
+    @Test
+    void distinctRefsAcrossEverySectionAreNotAmbiguous() {
+        DocumentScope scope = DocumentScope.of(read("""
+                {"metadata": {"component": {"type": "application", "bom-ref": "a", "name": "app"}},
+                 "services": [{"name": "svc", "bom-ref": "b"}],
+                 "components": [{"type": "cryptographic-asset", "bom-ref": "c", "name": "first"}]}
+                """), NORMALIZER);
+
+        assertThat(scope.ambiguousRefs()).isEmpty();
+    }
+
     // ---------------------------------------------------------------- helpers
 
     /** A certificate claiming {@link #DIGEST} through {@code component.hashes[]}, issued by one CA. */

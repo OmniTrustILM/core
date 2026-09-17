@@ -38,10 +38,6 @@ public class UpdateCertificateStatusTask implements ScheduledJobTask {
         return false;
     }
 
-    public String getJobClassName() {
-        return this.getClass().getName();
-    }
-
     public boolean isSystemJob() {
         return true;
     }
