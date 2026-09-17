@@ -35,11 +35,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Runs without an ambient transaction. Every mutation here is an HTTP call to the auth service, and the only local
- * writes are the custom-attribute calls, which run in {@code AttributeEngine}'s own short transactions — so no database
- * transaction or connection is held while the remote call is in flight.
- */
 @Service(Resource.Codes.ROLE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 public class RoleManagementServiceImpl implements RoleManagementExternalService, RoleManagementInternalService {
