@@ -37,16 +37,17 @@ public class CryptoAssetAliasWriter {
      * {@code lock(String)} caller -- serializing, or deadlock-aborting, a feature that shares no code with aliases.
      *
      * <p>
-     * Package-private rather than private because {@link CryptoAssetWriter} takes the same lock before it stamps a
-     * guard: guarding and aliasing are the two contradictory statements about one key, and a guard applied while an
-     * alias decision is mid-flight would slip past both checks.
+     * Published rather than private because {@link CryptoAssetWriter} takes the same lock before it stamps a guard --
+     * guarding and aliasing are the two contradictory statements about one key, and a guard applied while an alias
+     * decision is mid-flight would slip past both checks -- and because the ingest orchestrator has to take it up
+     * front, before its first asset row lock, which it cannot do with a key it cannot name.
      *
      * <p>
      * <b>It outranks every row lock in this inventory.</b> A transaction that will take both this and a
      * {@code crypto_asset} row lock must take this one first -- see the lock-order note on
      * {@link CryptoAssetSourceWriter}. Both methods here obey that: the lock is taken before the first read.
      */
-    static final String ALIAS_DECISION_LOCK = "crypto-asset-alias-decisions";
+    public static final String ALIAS_DECISION_LOCK = "crypto-asset-alias-decisions";
 
     private final CryptoAssetAliasRepository aliasRepository;
     private final CryptoAssetRepository assetRepository;

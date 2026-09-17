@@ -48,7 +48,7 @@ class PqcVerdictSweeperTest {
         PqcVerdictSweeper.SweepOutcome outcome = sweeper.sweep();
 
         assertThat(outcome.ran()).isFalse();
-        verify(synchronizer, never()).tryLock(any());
+        verify(synchronizer, never()).tryLock(any(ClusterOperationSynchronizer.Operation.class));
     }
 
     @Test

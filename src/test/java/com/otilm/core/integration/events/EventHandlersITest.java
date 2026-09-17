@@ -1038,7 +1038,7 @@ class EventHandlersITest extends BaseSpringBootTest {
      * Every group evaluates the same triggers, so one such rule imported nothing at all.
      */
     @Test
-    void testCertificateDiscoveredImportsDespiteAConditionOnAnAbsentAssociation() throws Exception {
+    void testCertificateDiscoveredIsIgnoredWhenTheConditionReadsAnAbsentAssociation() throws Exception {
         Discovery discovery = persistProcessingDiscovery();
         X509Certificate x509 = generateSelfSignedCertificate();
         CertificateContent content = persistContentFor(x509);
@@ -1050,14 +1050,33 @@ class EventHandlersITest extends BaseSpringBootTest {
                 .handleEvent(CertificateDiscoveredEventHandler.constructEventMessage(discovery.getUuid(), null, null));
 
         Assertions
-                .assertTrue(certificateRepository.findByFingerprint(CertificateUtil.getThumbprint(x509)).isPresent(),
-                        "an unevaluable condition must not cost the certificate its import");
+                .assertFalse(certificateRepository.findByFingerprint(CertificateUtil.getThumbprint(x509)).isPresent(),
+                        "a certificate without an RA profile has an empty RA profile name, which is what the ignore asks");
         DiscoveryCertificate reloaded = discoveryCertificateRepository.findByUuid(row.getUuid()).orElseThrow();
         Assertions.assertTrue(reloaded.isProcessed());
         Assertions.assertNull(reloaded.getProcessedError(), "unexpected reason: " + reloaded.getProcessedError());
         verify(eventProducer)
                 .produceMessage(argThat((EventMessage msg) -> msg.getEvent() == ResourceEvent.DISCOVERY_FINISHED
                         && ((DiscoveryResult) msg.getData()).getDiscoveryStatus() == DiscoveryStatus.PROCESSING));
+    }
+
+    @Test
+    void testCertificateDiscoveredImportsDespiteAnUnevaluableCondition() throws Exception {
+        Discovery discovery = persistProcessingDiscovery();
+        X509Certificate x509 = generateSelfSignedCertificate();
+        CertificateContent content = persistContentFor(x509);
+        DiscoveryCertificate row = persistDiscoveryCertificate(discovery, content, "bad-regex-host");
+        createPropertyIgnoreTrigger(discovery.getUuid(), FilterField.COMMON_NAME, FilterConditionOperator.MATCHES, "(");
+
+        certificateDiscoveredEventHandler
+                .handleEvent(CertificateDiscoveredEventHandler.constructEventMessage(discovery.getUuid(), null, null));
+
+        Assertions
+                .assertTrue(certificateRepository.findByFingerprint(CertificateUtil.getThumbprint(x509)).isPresent(),
+                        "an unevaluable condition must not cost the certificate its import");
+        DiscoveryCertificate reloaded = discoveryCertificateRepository.findByUuid(row.getUuid()).orElseThrow();
+        Assertions.assertTrue(reloaded.isProcessed());
+        Assertions.assertNull(reloaded.getProcessedError(), "unexpected reason: " + reloaded.getProcessedError());
     }
 
     /**

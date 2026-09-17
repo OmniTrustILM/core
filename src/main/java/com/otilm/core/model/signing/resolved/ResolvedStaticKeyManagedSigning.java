@@ -1,7 +1,7 @@
 package com.otilm.core.model.signing.resolved;
 
 import com.otilm.api.model.client.attribute.RequestAttribute;
-import com.otilm.core.model.crypto.CryptographicKeyItemModel;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.signing.SigningCertificate;
 import com.otilm.core.signing.engine.CertificateChain;
 
@@ -15,6 +15,7 @@ import java.util.List;
  * @param chain Validated certificate chain (see {@link CertificateChain}), built once at resolution time.
  * @param signingOperationAttributes Attributes required for signing operations.
  */
-public record ResolvedStaticKeyManagedSigning(SigningCertificate certificate, List<CryptographicKeyItemModel> keyItems,
-        CertificateChain chain, List<RequestAttribute> signingOperationAttributes) implements ResolvedManagedScheme {
+public record ResolvedStaticKeyManagedSigning(SigningCertificate certificate,
+        List<CryptographicKeyItemOperationModel> keyItems, CertificateChain chain,
+        List<RequestAttribute> signingOperationAttributes) implements ResolvedManagedScheme {
 }

@@ -67,7 +67,7 @@ class DiscoveryWorkClaimerTest {
 
     @Test
     void noDueRows_returnsEmptyAndDoesNotReschedule() {
-        when(clusterSynchronizer.tryLock(any())).thenReturn(true);
+        when(clusterSynchronizer.tryLock(any(ClusterOperationSynchronizer.Operation.class))).thenReturn(true);
         when(workRepository
                 .findByNextDueAtLessThanEqualOrderByNextDueAt(any(OffsetDateTime.class), any(Pageable.class)))
                 .thenReturn(List.of());
@@ -79,7 +79,7 @@ class DiscoveryWorkClaimerTest {
 
     @Test
     void dueRow_buildsMessageAndAdvancesSchedule() {
-        when(clusterSynchronizer.tryLock(any())).thenReturn(true);
+        when(clusterSynchronizer.tryLock(any(ClusterOperationSynchronizer.Operation.class))).thenReturn(true);
         UUID runUuid = UUID.randomUUID();
         when(workRepository
                 .findByNextDueAtLessThanEqualOrderByNextDueAt(any(OffsetDateTime.class), any(Pageable.class)))

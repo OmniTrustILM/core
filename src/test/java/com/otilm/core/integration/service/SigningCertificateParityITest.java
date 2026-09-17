@@ -23,7 +23,7 @@ import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
-import com.otilm.core.model.crypto.CryptographicKeyItemModel;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.signing.SigningCertificate;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.CryptographicKeyInternalService;
@@ -50,8 +50,8 @@ import org.springframework.boot.test.autoconfigure.filter.TypeExcludeFilters;
 import org.springframework.context.annotation.Import;
 
 /**
- * Parity: the cached {@link SigningCertificate} + per-item {@link CryptographicKeyItemModel} assembly reproduces the
- * signer inputs available from the live {@code Certificate} entity graph.
+ * Parity: the cached {@link SigningCertificate} + per-item {@link CryptographicKeyItemOperationModel} assembly
+ * reproduces the signer inputs available from the live {@code Certificate} entity graph.
  */
 @Import(ProducerMocks.class)
 @TypeExcludeFilters(ProducerMocks.MockedProducersTypeExcludeFilter.class)
@@ -194,7 +194,7 @@ class SigningCertificateParityITest extends BaseSpringBootTest {
                     .filter(i -> i.getUuid().equals(itemUuid))
                     .findFirst()
                     .orElseThrow();
-            CryptographicKeyItemModel model = cryptographicKeyService.getKeyItemModel(itemUuid);
+            CryptographicKeyItemOperationModel model = cryptographicKeyService.getKeyItemModel(itemUuid);
 
             Assertions.assertEquals(liveItem.getType(), model.keyType());
             Assertions.assertEquals(liveItem.getState(), model.keyState());

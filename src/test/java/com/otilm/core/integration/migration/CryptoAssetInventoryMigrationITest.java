@@ -21,7 +21,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Runs {@code V202608271000__crypto_asset_inventory.sql} as Flyway will, and asserts what the catalogue then says.
+ * Runs {@code V202608271000__crypto_asset_inventory.sql} and the {@code asset_sync_attempted_at} migration that follows
+ * it, as Flyway will, and asserts what the catalogue then says.
  *
  * <p>
  * The regular test bootstrap generates its schema from the entities, so nothing else in the suite ever executes this
@@ -33,6 +34,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class CryptoAssetInventoryMigrationITest extends BaseSpringBootTest {
 
     private static final String MIGRATION_RESOURCE = "db/migration/V202608271000__crypto_asset_inventory.sql";
+
+    /**
+     * Applied after it, in Flyway's order. It drops one of the inventory migration's own indexes for a composite that
+     * has it as a strict prefix, which the catalogue assertions below are the only thing that would notice.
+     */
+    private static final String ATTEMPT_MIGRATION_RESOURCE = "db/migration/V202609141200__cbom_asset_sync_attempted_at.sql";
 
     private static final String SCRATCH_SCHEMA = "crypto_asset_migration_check";
 
@@ -52,7 +59,7 @@ class CryptoAssetInventoryMigrationITest extends BaseSpringBootTest {
                     "idx_crypto_asset_variant", "idx_crypto_asset_pqc_verdict", "idx_crypto_asset_pqc_ruleset_version",
                     "idx_crypto_asset_ruleset_version", "idx_crypto_asset_source_count",
                     "idx_crypto_asset_properties_source", "idx_crypto_asset_source_cbom",
-                    "idx_crypto_asset_alias_canonical", "idx_cbom_asset_sync_state", "idx_cbom_assets_synced_at");
+                    "idx_crypto_asset_alias_canonical", "idx_cbom_asset_sync_attempt", "idx_cbom_assets_synced_at");
 
     private static final Map<String, String> EXPECTED_FOREIGN_KEY_ACTIONS = Map
             .of("crypto_asset_source_to_crypto_asset_key", "c", "crypto_asset_source_to_cbom_key", "r",
@@ -118,6 +125,9 @@ class CryptoAssetInventoryMigrationITest extends BaseSpringBootTest {
             statement.execute("SET search_path TO " + SCRATCH_SCHEMA);
             statement.execute(CBOM_STUB);
             statement.execute(migration);
+            statement
+                    .execute(new ClassPathResource(ATTEMPT_MIGRATION_RESOURCE)
+                            .getContentAsString(StandardCharsets.UTF_8));
         }
     }
 

@@ -17,15 +17,19 @@ import com.otilm.api.model.common.attribute.common.callback.RequestAttributeCall
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
+import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.TokenInstanceReference;
+import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
@@ -35,6 +39,7 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.service.CallbackExternalService;
 import com.otilm.core.service.callback.AttributeCallbackScopeResolver;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.builders.DataAttributeV3Builder;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
@@ -479,6 +484,136 @@ class AttributesV2CallbackDispatchITest extends BaseSpringBootTest {
                         .withRequestBody(matchingJsonPath("$.contextAttributes[0].scope", WireMock.equalTo("tokens")))
                         .withRequestBody(matchingJsonPath("$.contextAttributes[0].objectUuid",
                                 WireMock.equalTo(tokenInstance.getUuid().toString()))));
+    }
+
+    @Test
+    void tokenProfileCallback_infersCryptographyInterface() throws Exception {
+        // given
+        TokenInstanceReference token = persistCryptographyToken();
+        String tokenAttributeName = "token-slot";
+        String tokenAttributeValue = "slot-7";
+        persistScopeAttribute(Resource.TOKEN, token.getUuid(), tokenAttributeName, tokenAttributeValue);
+        String callbackName = "token-profile-policy";
+        RequestAttributeCallback callback = prepareScopedCallback(callbackName);
+
+        // when
+        callbackService.resourceCallback(Resource.TOKEN_PROFILE, token.getUuid().toString(), callback);
+
+        // then
+        mockServer
+                .verify(WireMock
+                        .postRequestedFor(WireMock.urlPathEqualTo("/v2/attributes/callback"))
+                        .withRequestBody(matchingJsonPath("$.attributeName", WireMock.equalTo(callbackName)))
+                        .withRequestBody(matchingJsonPath("$.connectorInterface", WireMock.equalTo("cryptography")))
+                        .withRequestBody(matchingJsonPath("$.interfaceVersion", WireMock.equalTo("v2")))
+                        .withRequestBody(matchingJsonPath("$.contextAttributes.size()", WireMock.equalTo("1")))
+                        .withRequestBody(matchingJsonPath("$.contextAttributes[0].scope", WireMock.equalTo("tokens")))
+                        .withRequestBody(matchingJsonPath("$.contextAttributes[0].objectUuid",
+                                WireMock.equalTo(token.getUuid().toString())))
+                        .withRequestBody(matchingJsonPath("$.contextAttributes[0].attributes[0].name",
+                                WireMock.equalTo(tokenAttributeName)))
+                        .withRequestBody(matchingJsonPath("$.contextAttributes[0].attributes[0].content[0].data",
+                                WireMock.equalTo(tokenAttributeValue))));
+    }
+
+    @Test
+    void keyCallback_infersCryptographyInterfaceAndTokenScope() throws Exception {
+        // given
+        TokenInstanceReference token = persistCryptographyToken();
+        TokenProfile profile = persistTokenProfile(token);
+        String profileAttributeName = "key-policy";
+        String profileAttributeValue = "signing";
+        persistScopeAttribute(Resource.TOKEN_PROFILE, profile.getUuid(), profileAttributeName, profileAttributeValue);
+        String callbackName = "key-algorithm";
+        RequestAttributeCallback callback = prepareScopedCallback(callbackName);
+        String creationAttributesPath = "/v2/cryptographyProvider/keys/create/attributes";
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo(creationAttributesPath))
+                        .willReturn(WireMock.okJson("[]")));
+
+        // when
+        callbackService.resourceCallback(Resource.CRYPTOGRAPHIC_KEY, profile.getUuid().toString(), callback);
+
+        // then
+        mockServer
+                .verify(WireMock
+                        .postRequestedFor(WireMock.urlPathEqualTo(creationAttributesPath))
+                        .withRequestBody(matchingJsonPath("$.keyRequestType", WireMock.equalTo("keyPair")))
+                        .withRequestBody(matchingJsonPath("$.tokenProfileAttributes[0].name",
+                                WireMock.equalTo(profileAttributeName)))
+                        .withRequestBody(matchingJsonPath("$.tokenProfileAttributes[0].content[0].data",
+                                WireMock.equalTo(profileAttributeValue))));
+        mockServer
+                .verify(WireMock
+                        .postRequestedFor(WireMock.urlPathEqualTo("/v2/attributes/callback"))
+                        .withRequestBody(matchingJsonPath("$.connectorInterface", WireMock.equalTo("cryptography")))
+                        .withRequestBody(matchingJsonPath("$.interfaceVersion", WireMock.equalTo("v2")))
+                        .withRequestBody(matchingJsonPath("$.contextAttributes.size()", WireMock.equalTo("2")))
+                        .withRequestBody(matchingJsonPath("$.contextAttributes[0].scope", WireMock.equalTo("tokens")))
+                        .withRequestBody(matchingJsonPath("$.contextAttributes[0].objectUuid",
+                                WireMock.equalTo(token.getUuid().toString())))
+                        .withRequestBody(
+                                matchingJsonPath("$.contextAttributes[1].scope", WireMock.equalTo("tokenProfiles")))
+                        .withRequestBody(matchingJsonPath("$.contextAttributes[1].objectUuid",
+                                WireMock.equalTo(profile.getUuid().toString())))
+                        .withRequestBody(matchingJsonPath("$.contextAttributes[1].attributes[0].name",
+                                WireMock.equalTo(profileAttributeName)))
+                        .withRequestBody(matchingJsonPath("$.contextAttributes[1].attributes[0].content[0].data",
+                                WireMock.equalTo(profileAttributeValue))));
+    }
+
+    private TokenInstanceReference persistCryptographyToken() {
+        connector.setVersion(ConnectorVersion.V2);
+        connectorRepository.save(connector);
+        ConnectorInterfaceEntity iface = new ConnectorInterfaceEntity();
+        iface.setConnector(connector);
+        iface.setConnectorUuid(connector.getUuid());
+        iface.setInterfaceCode(ConnectorInterface.CRYPTOGRAPHY);
+        iface.setVersion("v2");
+        iface = connectorInterfaceRepository.save(iface);
+        TokenInstanceReference token = new TokenInstanceReference();
+        token.setName("callback-token");
+        token.setStatus(TokenInstanceStatus.CONNECTED);
+        token.setConnector(connector);
+        token.setConnectorInterface(iface);
+        return tokenInstanceReferenceRepository.save(token);
+    }
+
+    private TokenProfile persistTokenProfile(TokenInstanceReference token) {
+        TokenProfile profile = new TokenProfile();
+        profile.setName("callback-profile");
+        profile.setTokenInstanceReference(token);
+        profile.setEnabled(true);
+        profile.setUsage(List.of(KeyUsage.SIGN));
+        return tokenProfileRepository.save(profile);
+    }
+
+    private RequestAttributeCallback prepareScopedCallback(String name) throws AttributeException {
+        DataAttributeV2 definition = ngDataAttribute(name);
+        definition.getAttributeCallback().setDependsOn(List.of());
+        attributeEngine.updateDataAttributeDefinitions(connector.getUuid(), null, List.of(definition));
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo("/v2/attributes/callback"))
+                        .willReturn(WireMock.okJson("{\"content\":[]}")));
+        RequestAttributeCallback callback = new RequestAttributeCallback();
+        callback.setName(name);
+        callback.setUuid(definition.getUuid());
+        return callback;
+    }
+
+    private void persistScopeAttribute(Resource resource, UUID objectUuid, String name, String value) throws Exception {
+        UUID attributeUuid = UUID.randomUUID();
+        attributeEngine
+                .updateDataAttributeDefinitions(connector.getUuid(), null, List
+                        .of(DataAttributeV3Builder.aDataAttribute().withUuid(attributeUuid).withName(name).build()));
+        RequestAttributeV3 request = new RequestAttributeV3(attributeUuid, name, AttributeContentType.STRING,
+                List.of(new StringAttributeContentV3(value)));
+        attributeEngine
+                .updateObjectDataAttributesContent(
+                        ObjectAttributeContentInfo.builder(resource, objectUuid).connector(connector.getUuid()).build(),
+                        List.of(request));
     }
 
     @Test

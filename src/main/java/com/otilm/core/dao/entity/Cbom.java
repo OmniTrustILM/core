@@ -85,6 +85,13 @@ public class Cbom extends UniquelyIdentified implements DtoMapper<CbomDto> {
     @Column(name = "assets_synced_at")
     private OffsetDateTime assetsSyncedAt;
 
+    /**
+     * When asset ingest last touched this row, whether it succeeded or not -- which is what a run needs to decide
+     * whether a claim is stale, and {@link #assetsSyncedAt} cannot answer because it only records success.
+     */
+    @Column(name = "asset_sync_attempted_at")
+    private OffsetDateTime assetSyncAttemptedAt;
+
     @Override
     public CbomDto mapToDto() {
         CbomDto dto = new CbomDto();

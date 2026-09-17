@@ -826,4 +826,76 @@ class CbomAssetExtractorTest {
         assertThat(asset.evidence()).isNull();
         assertThat(asset.reportedOccurrences()).isZero();
     }
+
+    /**
+     * The source row a document's components become has {@code (asset_uuid, cbom_uuid)} as its arbiter and assigns
+     * rather than accumulates on a {@code last_seen_at} tie -- which every component of one document is. Written one at
+     * a time the last component would replace the first's payload and counts, so the fold is what makes a document that
+     * reports one algorithm from several components keep all of it.
+     */
+    @Test
+    void componentsThatKeyAsOneAssetFoldIntoOne() {
+        JsonNode document = read("{\"components\":["
+                + algorithmWithProperties("RSA-2048",
+                        "{\"assetType\":\"algorithm\",\"algorithmProperties\":{\"parameterSetIdentifier\":\"2048\","
+                                + "\"primitive\":\"pke\"}}",
+                        40)
+                + "," + algorithmWithProperties("RSA-2048", "{\"assetType\":\"algorithm\"}", 2) + "]}");
+
+        List<CbomAssetExtractor.ExtractedAsset> folded = CbomAssetExtractor.ExtractedAsset
+                .coalesceByIdentity(EXTRACTOR.extract(document).assets(), CbomAssetExtractorTest::leafCount);
+
+        assertThat(folded).hasSize(1);
+        assertThat(folded.get(0).reportedOccurrences()).isEqualTo(42);
+        assertThat(folded.get(0).evidence()).hasSize(42);
+        // The richer payload survives the impoverished later component, which is the direction the cross-source merge
+        // elects in too.
+        assertThat(folded.get(0).retainedProperties().toString()).contains("parameterSetIdentifier");
+    }
+
+    /** A tie keeps the earlier component, so the fold does not depend on the order the document lists them in. */
+    @Test
+    void anEquallyRichPayloadDoesNotDisplaceTheEarlierComponent() {
+        String properties = "{\"assetType\":\"algorithm\",\"algorithmProperties\":{\"primitive\":\"pke\"}}";
+        JsonNode document = read("{\"components\":[" + algorithmWithProperties("RSA-2048", properties, 1) + ","
+                + algorithmWithProperties("RSA-2048", properties, 1) + "]}");
+        List<CbomAssetExtractor.ExtractedAsset> assets = EXTRACTOR.extract(document).assets();
+
+        List<CbomAssetExtractor.ExtractedAsset> folded = CbomAssetExtractor.ExtractedAsset
+                .coalesceByIdentity(assets, CbomAssetExtractorTest::leafCount);
+
+        assertThat(folded).hasSize(1);
+        assertThat(folded.get(0).retainedProperties()).isSameAs(assets.get(0).retainedProperties());
+    }
+
+    /** Stands in for the ingest's own richness measure, which is the merge's leaf count. */
+    private static int leafCount(CbomAssetExtractor.ExtractedAsset asset) {
+        return asset.retainedProperties() == null ? 0 : countLeaves(asset.retainedProperties());
+    }
+
+    private static int countLeaves(JsonNode node) {
+        if (!node.isContainerNode()) {
+            return 1;
+        }
+        int leaves = 0;
+        for (JsonNode child : node) {
+            leaves += countLeaves(child);
+        }
+        return leaves;
+    }
+
+    private static String algorithmWithProperties(String name, String cryptoProperties, int occurrences) {
+        StringBuilder evidence = new StringBuilder();
+        for (int index = 0; index < occurrences; index++) {
+            evidence
+                    .append(index > 0 ? "," : "")
+                    .append("{\"location\":\"")
+                    .append(name)
+                    .append('/')
+                    .append(index)
+                    .append("\"}");
+        }
+        return "{\"type\":\"cryptographic-asset\",\"name\":\"" + name + "\",\"cryptoProperties\":" + cryptoProperties
+                + ",\"evidence\":{\"occurrences\":[" + evidence + "]}}";
+    }
 }

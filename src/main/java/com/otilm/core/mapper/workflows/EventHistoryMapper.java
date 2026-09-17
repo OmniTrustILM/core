@@ -51,9 +51,10 @@ public class EventHistoryMapper {
     }
 
     public static TriggerHistoryObjectSummaryDto toTriggerHistoryObjectSummaryDto(List<TriggerHistory> triggerHistories,
-            UUID objectUuid) {
+            UUID objectUuid, ResourceObjectDto hostObject) {
         TriggerHistoryObjectSummaryDto triggerHistoryObjectSummaryDto = new TriggerHistoryObjectSummaryDto();
         triggerHistoryObjectSummaryDto.setObjectUuid(objectUuid);
+        triggerHistoryObjectSummaryDto.setHostObject(hostObject);
         boolean ignored = triggerHistories
                 .stream()
                 .filter(th -> th.getTrigger().isIgnoreTrigger())
@@ -74,7 +75,7 @@ public class EventHistoryMapper {
 
     public static EventHistoryDto toEventHistoryDto(EventHistory eventHistory, int objectsEvaluated, int objectsMatched,
             int objectsIgnored, List<UUID> paginatedObjectUuids, int objectsPageNumber, int objectsItemsPerPage,
-            Map<UUID, List<TriggerHistory>> triggerHistoriesPerObject) {
+            Map<UUID, List<TriggerHistory>> triggerHistoriesPerObject, Map<UUID, ResourceObjectDto> hostObjects) {
         EventHistoryDto dto = new EventHistoryDto();
         dto.setResource(eventHistory.getEvent().getResource());
         dto.setStartedAt(eventHistory.getStartedAt());
@@ -87,7 +88,7 @@ public class EventHistoryMapper {
                 .stream()
                 .map(objectUuid -> EventHistoryMapper
                         .toTriggerHistoryObjectSummaryDto(triggerHistoriesPerObject.getOrDefault(objectUuid, List.of()),
-                                objectUuid))
+                                objectUuid, objectUuid == null ? null : hostObjects.get(objectUuid)))
                 .toList();
 
         dto

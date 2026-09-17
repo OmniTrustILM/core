@@ -45,9 +45,10 @@ class IdentityTablesTest {
      *
      * <p>
      * A table edit re-keys, but it does not by itself advance {@link IdentityRuleset#VERSION}: that stamp exists to
-     * make stale <em>stored</em> rows findable, and nothing in production drives {@code CryptoAssetWriter} yet, so
-     * generation 2 has never keyed a row. The bump belongs to whichever change first gives that writer a production
-     * caller, and that change names the rulings it is advancing past.
+     * make stale <em>stored</em> rows findable. Generation 2 never keyed a row, because nothing drove
+     * {@code CryptoAssetWriter} in production while it was current; core#2073 gave that writer its first caller and
+     * advanced the stamp to 3 in the same commit. From here a table edit that moves a stored key has to advance the
+     * stamp with it, and name the rulings it is advancing past.
      */
     @Test
     void theShippedTablesAreTheRatifiedArtifact() throws IOException {

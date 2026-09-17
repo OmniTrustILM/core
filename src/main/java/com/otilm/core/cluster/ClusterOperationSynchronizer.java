@@ -52,6 +52,24 @@ public class ClusterOperationSynchronizer {
     }
 
     /**
+     * Tries to acquire a cluster-wide lock keyed on {@code key} without blocking.
+     * <p>
+     * The non-blocking counterpart of {@link #lock(String)}, for work that is scoped to one entity and that a node may
+     * skip when another node is already doing it: one key per entity means two nodes working different entities never
+     * contend, where an {@link Operation} constant would serialize the whole cluster onto one worker. The {@code key}
+     * is hashed into the advisory-lock keyspace via {@code hashtext}, exactly as {@link #lock(String)} does, so the two
+     * address the same lock and a caller may choose per call whether to wait.
+     * <p>
+     * Must be called inside a transaction, for the reason {@link #tryLock(Operation)} gives.
+     */
+    public boolean tryLock(String key) {
+        return (boolean) entityManager
+                .createNativeQuery("SELECT pg_try_advisory_xact_lock(hashtext(:key))")
+                .setParameter("key", key)
+                .getSingleResult();
+    }
+
+    /**
      * Acquires a cluster-wide lock keyed on {@code key}, blocking until it becomes available.
      * <p>
      * Unlike {@link #tryLock(Operation)}, this waits for the lock instead of skipping the work, so use it to serialize

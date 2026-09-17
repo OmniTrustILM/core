@@ -137,9 +137,10 @@ public class JmsConfig {
             factory.setSubscriptionDurable(true);
         }
         factory.setBackOff(createListenerBackOff(messagingProperties));
-        // Deliberately no transactionManager: the JPA transaction then commits inside processMessage, so AFTER_COMMIT
-        // listeners writing audited history rows still run under the message's identity, before
-        // AbstractJmsEndpointConfig clears it. Adding one would re-attribute those rows to the system user.
+        // Deliberately no transactionManager: whatever transactions a processMessage opens -- a writer's short one, an
+        // AFTER_COMMIT handler's -- commit while the message's identity is still installed, before
+        // AbstractJmsEndpointConfig clears it. A JMS transaction manager would re-attribute those audited rows to the
+        // system user.
         return factory;
     }
 

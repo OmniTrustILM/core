@@ -45,6 +45,9 @@ import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.FunctionGroupRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
+import com.otilm.core.mapper.crypto.CryptographicKeyDtoMapper;
+import com.otilm.core.model.crypto.CryptographicKeyFullModel;
+import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
 import com.otilm.core.model.request.CertificateRequest;
 import com.otilm.core.service.CryptographicOperationExternalService;
 import com.otilm.core.service.CryptographicOperationInternalService;
@@ -773,15 +776,17 @@ class CryptographicOperationServiceITest extends BaseSpringBootTest {
         rsaSignatureAttributes.add(RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PKCS1_v1_5));
         rsaSignatureAttributes.add(RsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA3_256));
 
-        String altPrivateKeyReferenceUuid = altKey
-                .getKeyItems()
+        CryptographicKeyFullModel altKeyModel = ImmutableCryptographicKeyFullModel.from(altKey);
+        CryptographicKeyFullModel defaultKeyModel = ImmutableCryptographicKeyFullModel.from(defaultKey);
+        String altPrivateKeyReferenceUuid = CryptographicKeyDtoMapper
+                .getKeyItems(altKeyModel)
                 .stream()
                 .filter(c -> c.getType() == KeyType.PRIVATE_KEY)
                 .findFirst()
                 .get()
                 .getKeyReferenceUuid();
-        String defaultPrivateKeyReferenceUuid = defaultKey
-                .getKeyItems()
+        String defaultPrivateKeyReferenceUuid = CryptographicKeyDtoMapper
+                .getKeyItems(defaultKeyModel)
                 .stream()
                 .filter(c -> c.getType() == KeyType.PRIVATE_KEY)
                 .findFirst()

@@ -2,8 +2,8 @@ package com.otilm.core.signing.engine.resolver;
 
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.otilm.core.model.crypto.CryptographicKeyItemModel;
 import com.otilm.core.model.crypto.CryptographicKeyItemModelFixtures;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.signing.SigningCertificate;
 import com.otilm.core.model.signing.SigningCertificateBuilder;
 import com.otilm.core.model.signing.resolved.ResolvedManagedScheme;
@@ -66,7 +66,8 @@ class ManagedSchemeResolverTest {
                 .uuid(CERTIFICATE_UUID)
                 .keyItemUuids(List.of(keyItemUuid))
                 .build();
-        CryptographicKeyItemModel keyItem = CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA);
+        CryptographicKeyItemOperationModel keyItem = CryptographicKeyItemModelFixtures
+                .activeSigningPrivateKey(KeyAlgorithm.RSA);
         List<X509Certificate> chain = List.of(someX509());
 
         when(certificateService.getSigningCertificate(CERTIFICATE_UUID)).thenReturn(certificate);

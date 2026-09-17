@@ -408,6 +408,103 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
     }
 
     @Test
+    void absentValueIsNotMetByComparisonsAndNeverFails() throws RuleException {
+        Comment comment = new Comment();
+        comment.setResource(Resource.RA_PROFILE);
+        comment.setObjectUuid(UUID.randomUUID());
+        comment.setAuthorUuid(UUID.randomUUID());
+        comment.setAuthorUsername("tst-author");
+        comment.setBody("open thread");
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setFieldIdentifier(FilterField.COMMENT_RESOLVED_AT.name());
+
+        // A thread not yet resolved has no timestamp to compare
+        condition.setOperator(FilterConditionOperator.GREATER);
+        condition.setValue("2019-12-01T22:10:00.274+00:00");
+        Assertions.assertFalse(commentTriggerEvaluator.evaluateConditionItem(condition, comment, Resource.COMMENT));
+        condition.setOperator(FilterConditionOperator.IN_NEXT);
+        condition.setValue("P7D");
+        Assertions.assertFalse(commentTriggerEvaluator.evaluateConditionItem(condition, comment, Resource.COMMENT));
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        condition.setValue("2019-12-01T22:10:00.274+00:00");
+        Assertions.assertFalse(commentTriggerEvaluator.evaluateConditionItem(condition, comment, Resource.COMMENT));
+        condition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        Assertions.assertTrue(commentTriggerEvaluator.evaluateConditionItem(condition, comment, Resource.COMMENT));
+        condition.setOperator(FilterConditionOperator.NOT_EMPTY);
+        Assertions.assertFalse(commentTriggerEvaluator.evaluateConditionItem(condition, comment, Resource.COMMENT));
+
+        comment.setResolvedAt(OffsetDateTime.now());
+        condition.setOperator(FilterConditionOperator.GREATER);
+        Assertions.assertTrue(commentTriggerEvaluator.evaluateConditionItem(condition, comment, Resource.COMMENT));
+
+        // A value the operator cannot use is reported in the operator's terms, without the Java error text
+        condition.setValue("not-a-date");
+        RuleException reason = Assertions
+                .assertThrows(RuleException.class,
+                        () -> commentTriggerEvaluator.evaluateConditionItem(condition, comment, Resource.COMMENT));
+        Assertions.assertTrue(reason.getMessage().contains("Resolved At"), reason.getMessage());
+        Assertions.assertTrue(reason.getMessage().contains("not-a-date"), reason.getMessage());
+        Assertions.assertFalse(reason.getMessage().contains("java."), reason.getMessage());
+        Assertions.assertFalse(reason.getMessage().contains("Cannot invoke"), reason.getMessage());
+        condition.setValue("2019-12-01T22:10:00.274+00:00");
+
+        // An item without the property inside a joined collection is skipped the same way, and the other items decide
+        Group named = new Group();
+        named.setName("tst-group");
+        Group unnamed = new Group();
+        certificate.setGroups(new HashSet<>(List.of(named, unnamed)));
+        condition.setFieldIdentifier(FilterField.GROUP_NAME.name());
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        condition.setValue(List.of("tst-group"));
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setValue(List.of("other-group"));
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setValue(List.of("tst-group"));
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+
+        // A field that names no property of its own has nothing to read, and says so
+        condition.setFieldIdentifier(FilterField.CBOM_ASSET_FREE_TEXT.name());
+        condition.setOperator(FilterConditionOperator.CONTAINS);
+        condition.setValue("anything");
+        RuleException noProperty = Assertions
+                .assertThrows(RuleException.class, () -> certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        Assertions.assertTrue(noProperty.getMessage().contains("Text Search"), noProperty.getMessage());
+
+        // An association the object does not hold leaves the property absent too
+        certificate.setRaProfile(null);
+        condition.setFieldIdentifier(FilterField.RA_PROFILE_NAME.name());
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        condition.setValue(List.of("tst-ra-profile"));
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+
+        // The same holds for any other field type without a value
+        certificate.setSerialNumber(null);
+        condition.setFieldIdentifier(FilterField.SERIAL_NUMBER.name());
+        condition.setOperator(FilterConditionOperator.CONTAINS);
+        condition.setValue("1");
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+    }
+
+    @Test
     void testCertificateRuleEvaluatorOnBooleanProperty() throws RuleException {
         condition.setFieldSource(FilterFieldSource.PROPERTY);
         certificate.setTrustedCa(true);
@@ -605,14 +702,16 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
         condition.setFieldIdentifier(FilterField.COMMON_NAME.toString());
         condition.setFieldSource(FilterFieldSource.PROPERTY);
         condition.setOperator(FilterConditionOperator.GREATER);
-        Assertions
+        RuleException inapplicable = Assertions
                 .assertThrows(RuleException.class, () -> certificateTriggerEvaluator
                         .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        Assertions.assertTrue(inapplicable.getMessage().contains("Common Name"), inapplicable.getMessage());
+        Assertions.assertTrue(inapplicable.getMessage().contains("greater than"), inapplicable.getMessage());
 
         condition.setValue(123);
         condition.setOperator(FilterConditionOperator.CONTAINS);
         Assertions
-                .assertThrows(RuleException.class, () -> certificateTriggerEvaluator
+                .assertFalse(certificateTriggerEvaluator
                         .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
 
         condition.setFieldIdentifier("expiryInDays");

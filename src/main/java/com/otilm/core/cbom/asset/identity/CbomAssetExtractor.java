@@ -9,9 +9,11 @@ import com.otilm.core.serialization.ObjectMapperFactory;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.ToIntFunction;
 
 /**
  * Walks a CycloneDX document's component tree and extracts every cryptographic asset it carries.
@@ -97,6 +99,47 @@ public final class CbomAssetExtractor {
     public record ExtractedAsset(String identityKey, String chainStep, NormalizedAsset normalized, String componentName,
             JsonNode retainedProperties, List<Map<String, Object>> evidence, int reportedOccurrences,
             CryptoAssetIdentityGuard guard, List<String> findings) {
+
+        /**
+         * Folds the assets of one document that key as the same asset into one, in first-seen order.
+         *
+         * <p>
+         * Extraction yields one asset per cryptographic-asset component, and several components of one document
+         * routinely report the same algorithm. The source row they all become has {@code (asset_uuid, cbom_uuid)} as
+         * its arbiter and assigns rather than accumulates on a {@code last_seen_at} tie -- which every component of one
+         * document is, the observation time being a per-document constant. Written one at a time the last component
+         * therefore replaces every earlier one's payload, evidence and occurrence count, and the cross-source merge
+         * re-elects on whatever it happened to be.
+         *
+         * <p>
+         * Here rather than in the ingest that needs it, because this is where the identity lives: the fold reads the
+         * key as its own field, so no method outside this record has to hand the value on to group by it.
+         *
+         * @param richness how much detail a payload carries, by whatever measure the caller's merge elects on. The
+         * richest payload of the group survives; a tie keeps the earlier component, so the fold does not depend on
+         * document order
+         */
+        public static List<ExtractedAsset> coalesceByIdentity(List<ExtractedAsset> assets,
+                ToIntFunction<ExtractedAsset> richness) {
+            Map<String, ExtractedAsset> byIdentity = new LinkedHashMap<>();
+            for (ExtractedAsset asset : assets) {
+                byIdentity.merge(asset.identityKey, asset, (first, next) -> merge(first, next, richness));
+            }
+            return List.copyOf(byIdentity.values());
+        }
+
+        private static ExtractedAsset merge(ExtractedAsset first, ExtractedAsset next,
+                ToIntFunction<ExtractedAsset> richness) {
+            List<Map<String, Object>> evidence = new ArrayList<>(first.evidence == null ? List.of() : first.evidence);
+            if (next.evidence != null) {
+                evidence.addAll(next.evidence);
+            }
+            ExtractedAsset richer = richness.applyAsInt(next) > richness.applyAsInt(first) ? next : first;
+            return new ExtractedAsset(first.identityKey, richer.chainStep, richer.normalized, first.componentName,
+                    richer.retainedProperties, List.copyOf(evidence),
+                    first.reportedOccurrences + next.reportedOccurrences,
+                    first.guard == null ? next.guard : first.guard, first.findings);
+        }
 
         /**
          * Omits the identity key. The generated {@code toString} would print it, and a record is printed by anything

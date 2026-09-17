@@ -13,62 +13,69 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class CbomSyncPropertiesTest {
 
     @Test
-    void theDocumentedDefaultsAreAccepted() {
-        CbomSyncProperties p = new CbomSyncProperties(1000, Duration.ofSeconds(60), 3);
-        assertThat(p.maxAttempts()).isEqualTo(4);
-    }
-
-    @Test
     void theDefaultValuesBindWhenNoPropertyIsSet() {
         Binder binder = new Binder(new MapConfigurationPropertySource(Map.of()));
         CbomSyncProperties bound = binder.bindOrCreate("cbom.sync", Bindable.of(CbomSyncProperties.class));
-        assertThat(bound).isEqualTo(new CbomSyncProperties(1000, Duration.ofSeconds(60), 3));
+        assertThat(bound).isEqualTo(properties(1000));
     }
 
+    /**
+     * The kill switch. An ingest budget of 0 (a platform setting) disables only the backlog pass, so it cannot stop a
+     * newly stored CBOM from acquiring {@code crypto_asset_source} rows -- and a CBOM that has them cannot be deleted
+     * through the API until the deletion lifecycle lands. This is the value that covers both passes.
+     */
     @Test
-    void aBareOverlapNumberBindsAsSeconds() {
-        // Without @DurationUnit Spring reads a unitless duration as milliseconds, so CBOM_SYNC_OVERLAP=60 would bind
-        // as 60 ms and toSeconds() would round it away to no overlap at all.
-        Binder binder = new Binder(new MapConfigurationPropertySource(Map.of("cbom.sync.overlap", "60")));
-        CbomSyncProperties bound = binder.bindOrCreate("cbom.sync", Bindable.of(CbomSyncProperties.class));
-        assertThat(bound.overlap()).isEqualTo(Duration.ofSeconds(60));
-    }
+    void assetIngestIsOnByDefaultAndCanBeTurnedOff() {
+        Binder defaults = new Binder(new MapConfigurationPropertySource(Map.of()));
+        assertThat(defaults.bindOrCreate("cbom.sync", Bindable.of(CbomSyncProperties.class)).assetIngestEnabled())
+                .isTrue();
 
-    @Test
-    void anOverlapWithAUnitSuffixStillBindsByThatUnit() {
-        Binder binder = new Binder(new MapConfigurationPropertySource(Map.of("cbom.sync.overlap", "2m")));
-        CbomSyncProperties bound = binder.bindOrCreate("cbom.sync", Bindable.of(CbomSyncProperties.class));
-        assertThat(bound.overlap()).isEqualTo(Duration.ofSeconds(120));
-    }
-
-    @Test
-    void zeroRetryRunsMeansAFailedEntryIsWrittenOffAtOnce() {
-        assertThat(new CbomSyncProperties(1, Duration.ZERO, 0).maxAttempts()).isEqualTo(1);
+        Binder off = new Binder(new MapConfigurationPropertySource(Map.of("cbom.sync.asset-ingest-enabled", "false")));
+        assertThat(off.bindOrCreate("cbom.sync", Bindable.of(CbomSyncProperties.class)).assetIngestEnabled()).isFalse();
     }
 
     @Test
     void aPageSizeOutsideTheRepositoryContractIsRefused() {
-        Duration overlap = Duration.ofSeconds(60);
-        assertThatThrownBy(() -> new CbomSyncProperties(0, overlap, 3))
+        assertThatThrownBy(() -> properties(0))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("cbom.sync.page-size");
-        assertThatThrownBy(() -> new CbomSyncProperties(1001, overlap, 3))
+        assertThatThrownBy(() -> properties(1001))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("cbom.sync.page-size");
     }
 
     @Test
-    void aNegativeOverlapOrRetryBudgetIsRefused() {
-        Duration negative = Duration.ofSeconds(-1);
-        Duration overlap = Duration.ofSeconds(60);
-        assertThatThrownBy(() -> new CbomSyncProperties(1000, negative, 3))
+    void theIngestTunablesBindTheirDocumentedDefaults() {
+        Binder binder = new Binder(new MapConfigurationPropertySource(Map.of()));
+        CbomSyncProperties bound = binder.bindOrCreate("cbom.sync", Bindable.of(CbomSyncProperties.class));
+        assertThat(bound.assetBatchSize()).isEqualTo(100);
+        assertThat(bound.ingestRetryAfter()).isEqualTo(Duration.ofMinutes(30));
+    }
+
+    @Test
+    void aBareIngestRetryNumberBindsAsSecondsLikeTheOverlap() {
+        Binder binder = new Binder(new MapConfigurationPropertySource(Map.of("cbom.sync.ingest-retry-after", "90")));
+        CbomSyncProperties bound = binder.bindOrCreate("cbom.sync", Bindable.of(CbomSyncProperties.class));
+        assertThat(bound.ingestRetryAfter()).isEqualTo(Duration.ofSeconds(90));
+    }
+
+    @Test
+    void anUnusableIngestBoundIsRefused() {
+        Duration retryAfter = Duration.ofMinutes(30);
+        assertThatThrownBy(() -> new CbomSyncProperties(1000, true, 0, retryAfter))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("cbom.sync.overlap");
-        assertThatThrownBy(() -> new CbomSyncProperties(1000, null, 3))
+                .hasMessageContaining("cbom.sync.asset-batch-size");
+        assertThatThrownBy(() -> new CbomSyncProperties(1000, true, 100, Duration.ofSeconds(-1)))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("cbom.sync.overlap");
-        assertThatThrownBy(() -> new CbomSyncProperties(1000, overlap, -1))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("cbom.sync.skipped-retry-runs");
+                .hasMessageContaining("cbom.sync.ingest-retry-after");
+    }
+
+    /**
+     * The values this test does not vary, so a new bound cannot be added without a test naming it. The operator policy
+     * (overlap, retry budget, ingest budget) is not bound here at all: it is a platform setting, see
+     * CbomSyncPolicyTest.
+     */
+    private static CbomSyncProperties properties(int pageSize) {
+        return new CbomSyncProperties(pageSize, true, 100, Duration.ofMinutes(30));
     }
 }

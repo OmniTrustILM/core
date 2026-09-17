@@ -9,6 +9,11 @@ import com.otilm.api.model.client.cryptography.key.BulkKeyItemUsageRequestDto;
 import com.otilm.api.model.client.cryptography.key.EditKeyItemDto;
 import com.otilm.api.model.client.cryptography.key.EditKeyRequestDto;
 import com.otilm.api.model.client.cryptography.key.KeyCompromiseReason;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeProperties;
+import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
+import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
@@ -27,7 +32,8 @@ import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
-import com.otilm.core.model.crypto.CryptographicKeyItemModel;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
+import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CryptographicKeyExternalService;
 import com.otilm.core.service.CryptographicKeyInternalService;
@@ -50,6 +56,7 @@ import org.springframework.boot.test.autoconfigure.filter.TypeExcludeFilters;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -87,6 +94,9 @@ class CryptographicKeyItemCacheITest extends BaseSpringBootTest {
 
     @Autowired
     private CryptographicKeyItemRepository cryptographicKeyItemRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     private CryptographicKey key;
     private CryptographicKeyItem keyItem;
@@ -145,26 +155,67 @@ class CryptographicKeyItemCacheITest extends BaseSpringBootTest {
     }
 
     @Test
+    void getKeyItemModel_mapsRemoteUuidReference() throws NotFoundException {
+        // given
+        UUID remoteUuid = keyItem.getKeyReferenceUuid();
+
+        // when
+        CryptographicKeyItemOperationModel model = cryptographicKeyInternalService.getKeyItemModel(keyItem.getUuid());
+
+        // then
+        assertThat(model.reference()).isEqualTo(new RemoteKeyReference.UuidReference(remoteUuid));
+    }
+
+    @Test
+    void getKeyItemModel_preservesStoredMetadataReference() throws NotFoundException {
+        // given
+        String providerHandleName = "provider-key-handle";
+        MetadataAttributeV2 handle = new MetadataAttributeV2();
+        handle.setName(providerHandleName);
+        handle.setUuid(UUID.randomUUID().toString());
+        handle.setType(AttributeType.META);
+        handle.setContentType(AttributeContentType.STRING);
+        handle.setProperties(new MetadataAttributeProperties());
+        handle.setContent(List.of(new StringAttributeContentV2("opaque-provider-handle")));
+        keyItem.setKeyMeta(List.of(handle));
+        cryptographicKeyItemRepository.saveAndFlush(keyItem);
+
+        // when
+        CryptographicKeyItemOperationModel model = cryptographicKeyInternalService.getKeyItemModel(keyItem.getUuid());
+
+        // then
+        assertThat(model.reference()).isInstanceOf(RemoteKeyReference.MetadataReference.class);
+        RemoteKeyReference.MetadataReference reference = (RemoteKeyReference.MetadataReference) model.reference();
+        assertThat(reference.keyMeta()).hasSize(1);
+        assertThat(reference.keyMeta().getFirst().getName()).isEqualTo(handle.getName());
+        String storedHandleName = jdbcTemplate
+                .queryForObject(
+                        "SELECT key_meta->0->>'name' FROM " + dbSchema + ".cryptographic_key_item WHERE uuid = ?",
+                        String.class, keyItem.getUuid());
+        assertThat(storedHandleName).isEqualTo(providerHandleName);
+    }
+
+    @Test
     void firstLookupPopulatesCache() throws NotFoundException {
         Cache cache = cacheManager.getCache(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE);
 
         // given - cache is cold for this key item
-        assertThat(cache.get(keyItem.getUuid(), CryptographicKeyItemModel.class)).isNull();
+        assertThat(cache.get(keyItem.getUuid(), CryptographicKeyItemOperationModel.class)).isNull();
 
         // when
         cryptographicKeyInternalService.getKeyItemModel(keyItem.getUuid());
 
         // then - the model is stored in the cache keyed by key item UUID
-        assertThat(cache.get(keyItem.getUuid(), CryptographicKeyItemModel.class)).isNotNull();
+        assertThat(cache.get(keyItem.getUuid(), CryptographicKeyItemOperationModel.class)).isNotNull();
     }
 
     @Test
     void secondLookupReturnsCachedInstance() throws NotFoundException {
         // given - populate cache on first call
-        CryptographicKeyItemModel first = cryptographicKeyInternalService.getKeyItemModel(keyItem.getUuid());
+        CryptographicKeyItemOperationModel first = cryptographicKeyInternalService.getKeyItemModel(keyItem.getUuid());
 
         // when - second call for the same key item
-        CryptographicKeyItemModel second = cryptographicKeyInternalService.getKeyItemModel(keyItem.getUuid());
+        CryptographicKeyItemOperationModel second = cryptographicKeyInternalService.getKeyItemModel(keyItem.getUuid());
 
         // then - the same Java object is returned, proving no second DB round-trip was made
         assertThat(second).isSameAs(first);
@@ -175,13 +226,13 @@ class CryptographicKeyItemCacheITest extends BaseSpringBootTest {
         // given - cache is warm
         cryptographicKeyInternalService.getKeyItemModel(keyItem.getUuid());
         Cache cache = cacheManager.getCache(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE);
-        assertThat(cache.get(keyItem.getUuid(), CryptographicKeyItemModel.class)).isNotNull();
+        assertThat(cache.get(keyItem.getUuid(), CryptographicKeyItemOperationModel.class)).isNotNull();
 
         // when - key item is disabled; the service evicts the entry after the transaction commits
         cryptographicKeyService.disableKeyItems(List.of(keyItem.getUuid().toString()));
 
         // then - stale entry is gone; the next lookup will re-fetch from the database
-        assertThat(cache.get(keyItem.getUuid(), CryptographicKeyItemModel.class)).isNull();
+        assertThat(cache.get(keyItem.getUuid(), CryptographicKeyItemOperationModel.class)).isNull();
     }
 
     @Test
@@ -189,7 +240,7 @@ class CryptographicKeyItemCacheITest extends BaseSpringBootTest {
         // given - cache is warm
         cryptographicKeyInternalService.getKeyItemModel(keyItem.getUuid());
         Cache cache = cacheManager.getCache(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE);
-        assertThat(cache.get(keyItem.getUuid(), CryptographicKeyItemModel.class)).isNotNull();
+        assertThat(cache.get(keyItem.getUuid(), CryptographicKeyItemOperationModel.class)).isNotNull();
 
         // when - key item name is updated
         EditKeyItemDto editRequest = new EditKeyItemDto();
@@ -197,7 +248,7 @@ class CryptographicKeyItemCacheITest extends BaseSpringBootTest {
         cryptographicKeyService.editKeyItem(SecuredUUID.fromUUID(key.getUuid()), keyItem.getUuid(), editRequest);
 
         // then - stale entry is gone
-        assertThat(cache.get(keyItem.getUuid(), CryptographicKeyItemModel.class)).isNull();
+        assertThat(cache.get(keyItem.getUuid(), CryptographicKeyItemOperationModel.class)).isNull();
     }
 
     @Test
@@ -205,7 +256,7 @@ class CryptographicKeyItemCacheITest extends BaseSpringBootTest {
         // given - cache is warm
         cryptographicKeyInternalService.getKeyItemModel(keyItem.getUuid());
         Cache cache = cacheManager.getCache(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE);
-        assertThat(cache.get(keyItem.getUuid(), CryptographicKeyItemModel.class)).isNotNull();
+        assertThat(cache.get(keyItem.getUuid(), CryptographicKeyItemOperationModel.class)).isNotNull();
 
         // when - key item is marked as compromised
         BulkCompromiseKeyItemRequestDto request = new BulkCompromiseKeyItemRequestDto(
@@ -213,7 +264,7 @@ class CryptographicKeyItemCacheITest extends BaseSpringBootTest {
         cryptographicKeyService.compromiseKeyItems(request);
 
         // then - cached snapshot (still ACTIVE) is purged so signers no longer use the compromised key
-        assertThat(cache.get(keyItem.getUuid(), CryptographicKeyItemModel.class)).isNull();
+        assertThat(cache.get(keyItem.getUuid(), CryptographicKeyItemOperationModel.class)).isNull();
     }
 
     @Test
@@ -221,7 +272,7 @@ class CryptographicKeyItemCacheITest extends BaseSpringBootTest {
         // given - cache is warm
         cryptographicKeyInternalService.getKeyItemModel(keyItem.getUuid());
         Cache cache = cacheManager.getCache(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE);
-        assertThat(cache.get(keyItem.getUuid(), CryptographicKeyItemModel.class)).isNotNull();
+        assertThat(cache.get(keyItem.getUuid(), CryptographicKeyItemOperationModel.class)).isNotNull();
 
         // when - key item usages are restricted (SIGN removed)
         BulkKeyItemUsageRequestDto request = new BulkKeyItemUsageRequestDto(List.of(KeyUsage.DECRYPT),
@@ -229,7 +280,7 @@ class CryptographicKeyItemCacheITest extends BaseSpringBootTest {
         cryptographicKeyService.updateKeyItemUsages(request);
 
         // then - cached usage list is purged so SIGN is denied on next lookup
-        assertThat(cache.get(keyItem.getUuid(), CryptographicKeyItemModel.class)).isNull();
+        assertThat(cache.get(keyItem.getUuid(), CryptographicKeyItemOperationModel.class)).isNull();
     }
 
     @Test
@@ -245,13 +296,13 @@ class CryptographicKeyItemCacheITest extends BaseSpringBootTest {
 
         cryptographicKeyInternalService.getKeyItemModel(keyItem.getUuid());
         Cache cache = cacheManager.getCache(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE);
-        assertThat(cache.get(keyItem.getUuid(), CryptographicKeyItemModel.class)).isNotNull();
+        assertThat(cache.get(keyItem.getUuid(), CryptographicKeyItemOperationModel.class)).isNotNull();
 
         // when - key item is destroyed (state transitions to DESTROYED)
         cryptographicKeyService.destroyKeyItems(List.of(keyItem.getUuid().toString()));
 
         // then - cache entry is gone
-        assertThat(cache.get(keyItem.getUuid(), CryptographicKeyItemModel.class)).isNull();
+        assertThat(cache.get(keyItem.getUuid(), CryptographicKeyItemOperationModel.class)).isNull();
     }
 
     @Test
@@ -264,7 +315,7 @@ class CryptographicKeyItemCacheITest extends BaseSpringBootTest {
 
     @Test
     void modelCarriesTypeForPrivateKeyAndNullPqcSpec() throws NotFoundException {
-        CryptographicKeyItemModel model = cryptographicKeyInternalService.getKeyItemModel(keyItem.getUuid());
+        CryptographicKeyItemOperationModel model = cryptographicKeyInternalService.getKeyItemModel(keyItem.getUuid());
 
         assertThat(model.keyType()).isEqualTo(KeyType.PRIVATE_KEY);
         assertThat(model.pqcParameterSpecName()).isNull(); // RSA private key → no PQC spec
@@ -293,7 +344,7 @@ class CryptographicKeyItemCacheITest extends BaseSpringBootTest {
         pub.setKeyReferenceUuid(pub.getUuid());
         pub = cryptographicKeyItemRepository.saveAndFlush(pub);
 
-        CryptographicKeyItemModel model = cryptographicKeyInternalService.getKeyItemModel(pub.getUuid());
+        CryptographicKeyItemOperationModel model = cryptographicKeyInternalService.getKeyItemModel(pub.getUuid());
 
         assertThat(model.keyType()).isEqualTo(KeyType.PUBLIC_KEY);
         assertThat(model.pqcParameterSpecName()).isEqualTo(MLDSAParameterSpec.ml_dsa_44.getName());
@@ -323,8 +374,8 @@ class CryptographicKeyItemCacheITest extends BaseSpringBootTest {
         cryptographicKeyInternalService.getKeyItemModel(keyItem.getUuid());
         cryptographicKeyInternalService.getKeyItemModel(secondItem.getUuid());
         Cache cache = cacheManager.getCache(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE);
-        assertThat(cache.get(keyItem.getUuid(), CryptographicKeyItemModel.class)).isNotNull();
-        assertThat(cache.get(secondItem.getUuid(), CryptographicKeyItemModel.class)).isNotNull();
+        assertThat(cache.get(keyItem.getUuid(), CryptographicKeyItemOperationModel.class)).isNotNull();
+        assertThat(cache.get(secondItem.getUuid(), CryptographicKeyItemOperationModel.class)).isNotNull();
 
         // when - the parent key is edited (renamed)
         EditKeyRequestDto request = new EditKeyRequestDto();
@@ -332,7 +383,7 @@ class CryptographicKeyItemCacheITest extends BaseSpringBootTest {
         cryptographicKeyService.editKey(key.getSecuredUuid(), request);
 
         // then - both items' cache entries are evicted (the editKey() cascading evict path)
-        assertThat(cache.get(keyItem.getUuid(), CryptographicKeyItemModel.class)).isNull();
-        assertThat(cache.get(secondItem.getUuid(), CryptographicKeyItemModel.class)).isNull();
+        assertThat(cache.get(keyItem.getUuid(), CryptographicKeyItemOperationModel.class)).isNull();
+        assertThat(cache.get(secondItem.getUuid(), CryptographicKeyItemOperationModel.class)).isNull();
     }
 }

@@ -14,11 +14,11 @@ import org.springframework.transaction.annotation.Transactional;
  * The sweep's batch write: one short transaction per batch.
  *
  * <p>
- * A separate bean because two rules forbid putting this on {@code CryptoAssetWriter}.
- * {@code IdentityRulesetStampArchTest} fails if any production class depends on that bean -- it is the tripwire that
- * forces {@code IdentityRuleset.VERSION} to move when ingest is wired. {@code TransactionalBoundaryArchTest} Rule D
- * requires every public method of a {@code @Service} here to be {@code REQUIRED}. {@code SigningRecordWriter} escapes
- * Rule D only by being a {@code @Component}, so this is one too.
+ * A separate bean because {@code TransactionalBoundaryArchTest} Rule D requires every public method of a
+ * {@code @Service} in this package to be {@code REQUIRED}, and this one must not be. {@code SigningRecordWriter}
+ * escapes Rule D only by being a {@code @Component}, so this is one too. It was also kept off {@code CryptoAssetWriter}
+ * by {@code IdentityRulesetStampArchTest}, the tripwire that forced {@code IdentityRuleset.VERSION} to move when ingest
+ * was wired; that tripwire fired in core#2073 and is gone.
  *
  * <p>
  * {@code REQUIRES_NEW} because a {@code REQUIRED} write would join the sweep's lock transaction and hold every row lock

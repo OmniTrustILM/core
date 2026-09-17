@@ -43,8 +43,8 @@ import org.springframework.transaction.annotation.Transactional;
  * source for one asset and then stamps a guard on another would hold a row lock while waiting for the advisory lock,
  * and a concurrent transaction doing the reverse would deadlock against it. <b>An ingest that may stamp a guard must
  * therefore take the advisory lock once, up front, before its first asset row lock</b> -- it is re-entrant within a
- * transaction, so acquiring it early costs a later acquisition nothing. That wiring belongs to the ingest ticket, which
- * is also what first makes the interleaving reachable: nothing composes these writers today.
+ * transaction, so acquiring it early costs a later acquisition nothing. {@code CbomAssetIngestService} is where that
+ * wiring lives, and a unit test asserts the order rather than leaving it to an intermittent deadlock.
  */
 @Service
 public class CryptoAssetSourceWriter {
@@ -76,13 +76,26 @@ public class CryptoAssetSourceWriter {
     @Transactional
     public void upsertSource(UUID assetUuid, UUID cbomUuid, Map<String, Object> cryptoProperties,
             List<Map<String, Object>> occurrences, OffsetDateTime seenAt) {
+        upsertSource(assetUuid, cbomUuid, cryptoProperties, occurrences, occurrenceCount(occurrences), seenAt);
+    }
+
+    /**
+     * Records what one CBOM says about one asset when the caller already knows how many occurrences the document
+     * reported, which is the shape extraction hands over: {@code CbomAssetExtractor} caps the evidence as it builds an
+     * asset, so the list reaching this method is already clipped and its size is no longer what the producer claimed.
+     * Deriving the count from it would erase exactly the gap {@code occurrence_count} exists to record.
+     *
+     * @param reportedOccurrences how many occurrences the CBOM reported, before any capping
+     */
+    @Transactional
+    public void upsertSource(UUID assetUuid, UUID cbomUuid, Map<String, Object> cryptoProperties,
+            List<Map<String, Object>> occurrences, int reportedOccurrences, OffsetDateTime seenAt) {
         assetRepository.lockForSourceChange(assetUuid);
         CryptoPropertiesDigest digest = CryptoPropertiesDigest.of(cryptoProperties);
         sourceRepository
                 .upsertSource(UUID.randomUUID(), assetUuid, cbomUuid, JsonColumnText.render(cryptoProperties),
                         digest.leafCount(), digest.hash(),
-                        JsonColumnText.render(OccurrenceEvidenceCapper.cap(occurrences)), occurrenceCount(occurrences),
-                        seenAt);
+                        JsonColumnText.render(OccurrenceEvidenceCapper.cap(occurrences)), reportedOccurrences, seenAt);
         assetRepository.recomputeMergeFromSources(assetUuid);
     }
 
@@ -96,16 +109,19 @@ public class CryptoAssetSourceWriter {
      * Removes one CBOM's contribution to one asset and re-elects the asset's merged payload from what is left.
      *
      * <p>
-     * An asset left with no sources is retained, with {@code source_count} at zero and its payload cleared, rather than
-     * deleted: retention is reversible by a later sweep and deletion is not, and the epic's re-sync semantics have not
-     * ratified which one applies.
+     * This method leaves an asset with no sources behind, cleared and counted at zero; it does not decide what happens
+     * to it. That decision is the orphan rule, it belongs to the caller that knows why the source went away, and
+     * {@code CbomAssetDetachService} is where it lives: the row is deleted unless an alias points at it as its
+     * canonical key, in which case it is kept so that the cascade from {@code crypto_asset_alias} does not collect the
+     * operator's merge decision along with it.
      *
      * <p>
-     * <b>No production caller yet.</b> The delete path in {@code CbomServiceImpl} must call this for every asset a CBOM
-     * contributes to before deleting the row, because {@code crypto_asset_source_to_cbom_key} is RESTRICT. That wiring
-     * belongs to the ingest ticket, which is also what first makes it reachable: until something writes
-     * {@code crypto_asset_source}, every CBOM has zero sources and deletes unimpeded. It is not optional — without it
-     * the first CBOM to acquire a source cannot be deleted through the API at all.
+     * <b>The API's delete path still does not call this.</b> {@code CbomServiceImpl} must withdraw every asset a CBOM
+     * contributes to before deleting the row, because {@code crypto_asset_source_to_cbom_key} is RESTRICT; until it
+     * does, a CBOM that has acquired a source cannot be deleted through the API at all. Ingest is what writes those
+     * rows, so the exposure is live from core#2073 and {@code cbom.sync.asset-ingest-enabled} is what bounds it:
+     * turning ingest off stops any further CBOM acquiring sources. The supersede path here is the first caller of this
+     * unit of work, not the deletion lifecycle.
      *
      * @return 1 if a source row was removed, 0 if there was none
      */

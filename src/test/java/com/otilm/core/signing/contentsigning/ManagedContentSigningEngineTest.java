@@ -23,8 +23,8 @@ import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.signing.SigningProtocol;
-import com.otilm.core.model.crypto.CryptographicKeyItemModel;
 import com.otilm.core.model.crypto.CryptographicKeyItemModelFixtures;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
 import com.otilm.core.model.signing.SigningCertificate;
 import com.otilm.core.model.signing.SigningCertificateBuilder;
@@ -1052,7 +1052,7 @@ class ManagedContentSigningEngineTest {
                 .build();
     }
 
-    private static List<CryptographicKeyItemModel> signingKeyItems() {
+    private static List<CryptographicKeyItemOperationModel> signingKeyItems() {
         return List
                 .of(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA),
                         CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA));
@@ -1063,7 +1063,7 @@ class ManagedContentSigningEngineTest {
     }
 
     private static ResolvedManagedContentSigningProfile profileWithKeyItems(SigningCertificate certificate,
-            List<CryptographicKeyItemModel> keyItems) {
+            List<CryptographicKeyItemOperationModel> keyItems) {
         return profileWithKeyItems(certificate, keyItems, CertificatePurposeRequirements.NONE);
     }
 
@@ -1073,7 +1073,7 @@ class ManagedContentSigningEngineTest {
     }
 
     private static ResolvedManagedContentSigningProfile profileWithKeyItems(SigningCertificate certificate,
-            List<CryptographicKeyItemModel> keyItems, CertificatePurposeRequirements certificatePurpose) {
+            List<CryptographicKeyItemOperationModel> keyItems, CertificatePurposeRequirements certificatePurpose) {
         return aResolvedContentSigningProfile()
                 .withMaxLevel(SignatureLevel.TIMESTAMPED)
                 .withTimestampSourceProfileName("internal-tsa")

@@ -199,6 +199,11 @@ final class IdentityKeyExposureFence {
                     // once called `key` purely so this regex would not see it, which is invisible to a reader where
                     // an entry is a reviewed record. Scoped, so a pre-image spelling here still fails.
                     storedValue("src/main/java/com/otilm/core/cbom/asset/identity/CbomAssetExtractor.java"),
+                    // The ingest orchestrator is the path by which the keyed asset reaches the writer: it reads the
+                    // extractor's carrier and passes the value straight into upsertIdentity, which is the same reason
+                    // persistence names it. Scoped, so a pre-image spelling here still fails, and the logging rule
+                    // still applies -- the value may be handed on, never written to a log.
+                    storedValue("src/main/java/com/otilm/core/cbom/ingest/CbomAssetIngestService.java"),
                     preImage("src/main/java/com/otilm/core/cbom/asset/identity/CryptoAssetIdentity.java"),
                     preImage("src/main/java/com/otilm/core/cbom/asset/identity/MaterialRedaction.java"),
                     preImage("src/main/java/com/otilm/core/cbom/asset/identity/AssetNormalizer.java"));

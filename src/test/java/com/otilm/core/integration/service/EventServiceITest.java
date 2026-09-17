@@ -24,10 +24,14 @@ import com.otilm.api.model.core.workflows.TriggerRequestDto;
 import com.otilm.api.model.core.workflows.TriggerType;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
+import com.otilm.core.dao.entity.Comment;
+import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.workflows.EventHistory;
 import com.otilm.core.dao.entity.workflows.TriggerHistory;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.dao.repository.CommentRepository;
+import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.workflows.EventHistoryRepository;
 import com.otilm.core.dao.repository.workflows.TriggerHistoryRepository;
 import com.otilm.core.service.ActionExternalService;
@@ -73,6 +77,12 @@ class EventServiceITest extends BaseSpringBootTest {
 
     @Autowired
     private TriggerHistoryRepository triggerHistoryRepository;
+
+    @Autowired
+    private CommentRepository commentRepository;
+
+    @Autowired
+    private RaProfileRepository raProfileRepository;
 
     // trigger with SEND_NOTIFICATION execution — used to verify notificationsSent logic
     private UUID triggerWithNotificationUuid;
@@ -294,6 +304,105 @@ class EventServiceITest extends BaseSpringBootTest {
         Assertions.assertEquals(3, dto.getObjectsEvaluated());
         Assertions.assertEquals(2, dto.getObjectsMatched()); // cert1 + cert3 (both conditionsMatched=true)
         Assertions.assertEquals(1, dto.getObjectsIgnored()); // cert3 only (ignore trigger)
+    }
+
+    @Test
+    void commentHistoriesNameTheHostObjectWhilePagedObjectsNameNone() throws NotFoundException {
+        RaProfile raProfile = new RaProfile();
+        raProfile.setName("tst-ra-profile");
+        UUID hostUuid = raProfileRepository.save(raProfile).getUuid();
+        Comment comment = new Comment();
+        comment.setResource(Resource.RA_PROFILE);
+        comment.setObjectUuid(hostUuid);
+        comment.setAuthorUuid(UUID.randomUUID());
+        comment.setAuthorUsername("tst-author");
+        comment.setBody("a comment on the profile");
+        UUID commentUuid = commentRepository.saveAndFlush(comment).getUuid();
+        EventHistory commentEvent = new EventHistory();
+        commentEvent.setUuid(UUID.randomUUID());
+        commentEvent.setEvent(ResourceEvent.COMMENT_CREATED);
+        commentEvent.setStartedAt(OffsetDateTime.now().minusMinutes(1));
+        commentEvent.setFinishedAt(OffsetDateTime.now());
+        commentEvent.setStatus(EventStatus.FINISHED);
+        commentEvent = eventHistoryRepository.save(commentEvent);
+        TriggerHistory onComment = triggerInternalService
+                .createTriggerHistory(triggerWithNotificationUuid, null, commentUuid, null, commentEvent,
+                        Resource.COMMENT);
+        onComment.setEvent(ResourceEvent.COMMENT_CREATED);
+        triggerHistoryRepository.save(onComment);
+        saveTriggerHistory(triggerWithNotificationUuid, certificateUuid, savedEventHistory, true, true);
+
+        TriggerHistoryObjectSummaryDto commentSummary = eventService
+                .getEventHistory(ResourceEvent.COMMENT_CREATED, null, null, eventHistoryRequest())
+                .getItems()
+                .getFirst()
+                .getObjectHistories()
+                .getItems()
+                .getFirst();
+        Assertions.assertEquals(commentUuid, commentSummary.getObjectUuid());
+        Assertions.assertEquals(Resource.RA_PROFILE, commentSummary.getHostObject().getResource());
+        Assertions.assertEquals(hostUuid, commentSummary.getHostObject().getObjectUuid());
+        Assertions.assertEquals("tst-ra-profile", commentSummary.getHostObject().getName());
+
+        TriggerHistoryObjectSummaryDto certificateSummary = eventService
+                .getEventHistory(ResourceEvent.CERTIFICATE_DISCOVERED, Resource.CERTIFICATE, certificateUuid,
+                        eventHistoryRequest())
+                .getItems()
+                .getFirst()
+                .getObjectHistories()
+                .getItems()
+                .getFirst();
+        Assertions.assertNull(certificateSummary.getHostObject());
+    }
+
+    @Test
+    void aCommentWhoseHostIsGoneListsWithoutOne() throws NotFoundException {
+        Comment comment = new Comment();
+        comment.setResource(Resource.RA_PROFILE);
+        comment.setObjectUuid(UUID.randomUUID());
+        comment.setAuthorUuid(UUID.randomUUID());
+        comment.setAuthorUsername("tst-author");
+        comment.setBody("its profile is gone");
+        UUID commentUuid = commentRepository.saveAndFlush(comment).getUuid();
+        EventHistory commentEvent = new EventHistory();
+        commentEvent.setUuid(UUID.randomUUID());
+        commentEvent.setEvent(ResourceEvent.COMMENT_CREATED);
+        commentEvent.setStartedAt(OffsetDateTime.now().minusMinutes(1));
+        commentEvent.setFinishedAt(OffsetDateTime.now());
+        commentEvent.setStatus(EventStatus.FINISHED);
+        commentEvent = eventHistoryRepository.save(commentEvent);
+        TriggerHistory onComment = triggerInternalService
+                .createTriggerHistory(triggerWithNotificationUuid, null, commentUuid, null, commentEvent,
+                        Resource.COMMENT);
+        onComment.setEvent(ResourceEvent.COMMENT_CREATED);
+        triggerHistoryRepository.save(onComment);
+
+        TriggerHistoryObjectSummaryDto summary = eventService
+                .getEventHistory(ResourceEvent.COMMENT_CREATED, null, null, eventHistoryRequest())
+                .getItems()
+                .getFirst()
+                .getObjectHistories()
+                .getItems()
+                .getFirst();
+
+        Assertions.assertEquals(commentUuid, summary.getObjectUuid());
+        Assertions.assertNull(summary.getHostObject());
+    }
+
+    @Test
+    void anIgnoredObjectWithoutUuidStillListsWhenNoCommentIsOnThePage() throws NotFoundException {
+        saveTriggerHistory(ignoreTriggerUuid, null, savedEventHistory, true, true);
+
+        PaginationResponseDto<TriggerHistoryObjectSummaryDto> objectHistories = eventService
+                .getEventHistory(ResourceEvent.CERTIFICATE_DISCOVERED, Resource.CERTIFICATE, certificateUuid,
+                        eventHistoryRequest())
+                .getItems()
+                .getFirst()
+                .getObjectHistories();
+
+        Assertions.assertEquals(1, objectHistories.getTotalItems());
+        Assertions.assertNull(objectHistories.getItems().getFirst().getObjectUuid());
+        Assertions.assertNull(objectHistories.getItems().getFirst().getHostObject());
     }
 
     @Test

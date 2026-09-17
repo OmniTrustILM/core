@@ -49,6 +49,12 @@ public class CryptographicOperationControllerImpl implements CryptographicOperat
     }
 
     @Override
+    public List<BaseAttribute> listDecryptAttributes(String tokenInstanceUuid, String tokenProfileUuid, String uuid,
+            String keyItemUuid) throws ConnectorException, NotFoundException {
+        return List.of();
+    }
+
+    @Override
     @AuditLogged(module = Module.CRYPTOGRAPHIC_KEYS, resource = Resource.CRYPTOGRAPHIC_KEY_ITEM,
             affiliatedResource = Resource.TOKEN, operation = Operation.DECRYPT)
     public DecryptDataResponseDto decryptData(@LogResource(uuid = true, affiliated = true) String tokenInstanceUuid,
@@ -68,6 +74,12 @@ public class CryptographicOperationControllerImpl implements CryptographicOperat
         return cryptographicOperationService
                 .signData(SecuredParentUUID.fromString(tokenInstanceUuid), SecuredUUID.fromString(tokenProfileUuid),
                         UUID.fromString(uuid), UUID.fromString(keyItemUuid), request);
+    }
+
+    @Override
+    public List<BaseAttribute> listVerifyAttributes(String tokenInstanceUuid, String tokenProfileUuid, String uuid,
+            String keyItemUuid) throws ConnectorException, NotFoundException {
+        return List.of();
     }
 
     @Override
@@ -101,6 +113,12 @@ public class CryptographicOperationControllerImpl implements CryptographicOperat
     }
 
     @Override
+    public List<BaseAttribute> listSignAttributes(String tokenInstanceUuid, String tokenProfileUuid, String uuid,
+            String keyItemUuid) throws ConnectorException, NotFoundException {
+        return List.of();
+    }
+
+    @Override
     @AuditLogged(module = Module.CRYPTOGRAPHIC_KEYS, resource = Resource.ATTRIBUTE, name = "cipher",
             affiliatedResource = Resource.CRYPTOGRAPHIC_KEY_ITEM, operation = Operation.LIST_ATTRIBUTES)
     public List<BaseAttribute> listCipherAttributes(String tokenInstanceUuid, String tokenProfileUuid, String uuid,
@@ -110,6 +128,12 @@ public class CryptographicOperationControllerImpl implements CryptographicOperat
                 .listCipherAttributes(SecuredParentUUID.fromString(tokenInstanceUuid),
                         SecuredUUID.fromString(tokenProfileUuid), UUID.fromString(uuid), UUID.fromString(keyItemUuid),
                         algorithm);
+    }
+
+    @Override
+    public List<BaseAttribute> listEncryptAttributes(String tokenInstanceUuid, String tokenProfileUuid, String uuid,
+            String keyItemUuid) throws ConnectorException, NotFoundException {
+        return List.of();
     }
 
     @Override

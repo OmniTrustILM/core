@@ -66,7 +66,7 @@ class CertificateStatusPollClaimerTest {
 
     @Test
     void noDueRows_returnsEmptyAndDoesNotReschedule() {
-        when(clusterSynchronizer.tryLock(any())).thenReturn(true);
+        when(clusterSynchronizer.tryLock(any(ClusterOperationSynchronizer.Operation.class))).thenReturn(true);
         when(pollRepository
                 .findByNextPollAtLessThanEqualOrderByNextPollAt(any(OffsetDateTime.class), any(Pageable.class)))
                 .thenReturn(List.of());
@@ -78,7 +78,7 @@ class CertificateStatusPollClaimerTest {
 
     @Test
     void dueRow_buildsMessageAndAdvancesSchedule() {
-        when(clusterSynchronizer.tryLock(any())).thenReturn(true);
+        when(clusterSynchronizer.tryLock(any(ClusterOperationSynchronizer.Operation.class))).thenReturn(true);
         UUID certUuid = UUID.randomUUID();
         when(pollRepository
                 .findByNextPollAtLessThanEqualOrderByNextPollAt(any(OffsetDateTime.class), any(Pageable.class)))

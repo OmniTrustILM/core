@@ -6,6 +6,7 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.client.v1.AttributeSyncApiClient;
 import com.otilm.api.interfaces.client.v1.TokenInstanceSyncApiClient;
 import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.connector.cryptography.token.TokenInstanceDto;
 import com.otilm.api.model.connector.cryptography.token.TokenInstanceRequestDto;
@@ -15,6 +16,7 @@ import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.cryptography.token.TokenInstanceStatusDetailDto;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
+import com.otilm.core.model.crypto.TokenProfileBasicModel;
 import java.util.Arrays;
 import java.util.List;
 import org.jspecify.annotations.Nullable;
@@ -45,10 +47,9 @@ public class TokenProviderV1Adapter
     }
 
     @Override
-    public TokenInstanceStatusDetailDto getStatus(TokenInstanceBasicModel tokenInstanceReference)
-            throws ConnectorException {
+    public TokenInstanceStatusDetailDto getStatus(TokenInstanceBasicModel tokenInstance) throws ConnectorException {
         TokenInstanceStatusDto response = tokenApiClient
-                .getTokenInstanceStatus(connectorInfo, tokenInstanceReference.tokenInstanceUuid());
+                .getTokenInstanceStatus(connectorInfo, tokenInstance.tokenInstanceUuid());
         if (response == null) {
             throw new ConnectorException("Connector returned no token status response", connectorInfo);
         }
@@ -62,15 +63,20 @@ public class TokenProviderV1Adapter
     }
 
     @Override
-    public List<BaseAttribute> listTokenProfileAttributes(TokenInstanceBasicModel tokenInstanceReference)
+    public List<BaseAttribute> listTokenProfileAttributes(TokenInstanceBasicModel tokenInstance)
             throws ConnectorException {
-        return tokenApiClient.listTokenProfileAttributes(connectorInfo, tokenInstanceReference.tokenInstanceUuid());
+        return tokenApiClient.listTokenProfileAttributes(connectorInfo, tokenInstance.tokenInstanceUuid());
     }
 
     @Override
-    public List<KeyUsage> listSupportedKeyUsages(TokenInstanceBasicModel tokenInstanceReference) {
+    public List<KeyUsage> listSupportedKeyUsages(TokenInstanceBasicModel tokenInstance) {
         // The v1 connector protocol has no operation for discovering supported key usages.
         return Arrays.stream(KeyUsage.values()).toList();
+    }
+
+    @Override
+    public List<KeyRequestType> listSupportedKeyRequestTypes(TokenProfileBasicModel tokenProfile) {
+        return Arrays.stream(KeyRequestType.values()).toList();
     }
 
     @Override

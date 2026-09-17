@@ -3,8 +3,8 @@ package com.otilm.core.signing.engine.certificate;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.core.certificate.CertificateState;
-import com.otilm.core.model.crypto.CryptographicKeyItemModel;
 import com.otilm.core.model.crypto.CryptographicKeyItemModelFixtures;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
 import com.otilm.core.model.signing.SigningCertificateBuilder;
 import com.otilm.core.model.signing.resolved.ResolvedStaticKeyManagedSigning;
@@ -18,7 +18,7 @@ class StaticKeyManagedSigningCertificateValidatorTest {
 
     private final StaticKeyManagedSigningCertificateValidator provider = new StaticKeyManagedSigningCertificateValidator();
 
-    private static final List<CryptographicKeyItemModel> SIGNING_KEY_ITEMS = List
+    private static final List<CryptographicKeyItemOperationModel> SIGNING_KEY_ITEMS = List
             .of(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA),
                     CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA));
 
