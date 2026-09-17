@@ -8,6 +8,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.enums.cryptography.RsaSignatureScheme;
+import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.core.attribute.EcdsaSignatureAttributes;
 import com.otilm.core.attribute.RsaSignatureAttributes;
@@ -240,19 +241,6 @@ class CryptographyUtilTest {
     }
 
     @Test
-    void resolveFalcon1024AlgorithmName() throws Exception {
-        // given
-        String publicKey = generatePublicKeyBase64("Falcon", FalconParameterSpec.falcon_1024,
-                BouncyCastlePQCProvider.PROVIDER_NAME);
-
-        // when
-        String result = CryptographyUtil.resolveSignatureAlgorithmName(KeyAlgorithm.FALCON, publicKey, List.of());
-
-        // then
-        assertEquals("FALCON-1024", result);
-    }
-
-    @Test
     void resolveFalconThrowsWhenInputIsNotValidAsn1() {
         // given
         String invalidKey = Base64.getEncoder().encodeToString(new byte[]{0x01, 0x02, 0x03});
@@ -274,32 +262,6 @@ class CryptographyUtilTest {
     }
 
     // --- resolveSignatureAlgorithmName: ML-DSA ---
-
-    @Test
-    void resolveMlDsa44AlgorithmName() throws Exception {
-        // given
-        String publicKey = generatePublicKeyBase64("ML-DSA", MLDSAParameterSpec.ml_dsa_44,
-                BouncyCastleProvider.PROVIDER_NAME);
-
-        // when
-        String result = CryptographyUtil.resolveSignatureAlgorithmName(KeyAlgorithm.MLDSA, publicKey, List.of());
-
-        // then
-        assertEquals(MLDSAParameterSpec.ml_dsa_44.getName(), result);
-    }
-
-    @Test
-    void resolveMlDsa65AlgorithmName() throws Exception {
-        // given
-        String publicKey = generatePublicKeyBase64("ML-DSA", MLDSAParameterSpec.ml_dsa_65,
-                BouncyCastleProvider.PROVIDER_NAME);
-
-        // when
-        String result = CryptographyUtil.resolveSignatureAlgorithmName(KeyAlgorithm.MLDSA, publicKey, List.of());
-
-        // then
-        assertEquals(MLDSAParameterSpec.ml_dsa_65.getName(), result);
-    }
 
     @Test
     void resolveMlDsaThrowsWhenInputIsNotValidAsn1() {
@@ -367,6 +329,53 @@ class CryptographyUtilTest {
         // when + then
         assertThrows(ValidationException.class,
                 () -> CryptographyUtil.resolveSignatureAlgorithmName(KeyAlgorithm.SLHDSA, falconKey, List.of()));
+    }
+
+    // --- resolveSignatureAlgorithmName: every post-quantum parameter set the platform names ---
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("postQuantumParameterSets")
+    void resolvePqcAlgorithmName_isTheCodeOfItsPlatformConstant(SignatureAlgorithm expected, KeyAlgorithm keyAlgorithm,
+            String generatorName, AlgorithmParameterSpec parameterSpec) throws Exception {
+        // given
+        String publicKey = generatePublicKeyBase64(generatorName, parameterSpec, BouncyCastleProvider.PROVIDER_NAME);
+
+        // when
+        String result = CryptographyUtil.resolveSignatureAlgorithmName(keyAlgorithm, publicKey, List.of());
+
+        // then
+        assertEquals(expected.getCode(), result);
+        assertEquals(expected, SignatureAlgorithm.findByCode(result));
+    }
+
+    static Stream<Arguments> postQuantumParameterSets() {
+        return Stream
+                .of(Arguments
+                        .of(SignatureAlgorithm.ML_DSA_44, KeyAlgorithm.MLDSA, "ML-DSA", MLDSAParameterSpec.ml_dsa_44),
+                        Arguments
+                                .of(SignatureAlgorithm.ML_DSA_65, KeyAlgorithm.MLDSA, "ML-DSA",
+                                        MLDSAParameterSpec.ml_dsa_65),
+                        Arguments
+                                .of(SignatureAlgorithm.ML_DSA_87, KeyAlgorithm.MLDSA, "ML-DSA",
+                                        MLDSAParameterSpec.ml_dsa_87),
+                        Arguments
+                                .of(SignatureAlgorithm.SLH_DSA_SHA2_128S, KeyAlgorithm.SLHDSA, "SLH-DSA",
+                                        SLHDSAParameterSpec.slh_dsa_sha2_128s),
+                        Arguments
+                                .of(SignatureAlgorithm.SLH_DSA_SHA2_128F, KeyAlgorithm.SLHDSA, "SLH-DSA",
+                                        SLHDSAParameterSpec.slh_dsa_sha2_128f),
+                        Arguments
+                                .of(SignatureAlgorithm.SLH_DSA_SHA2_192S, KeyAlgorithm.SLHDSA, "SLH-DSA",
+                                        SLHDSAParameterSpec.slh_dsa_sha2_192s),
+                        Arguments
+                                .of(SignatureAlgorithm.SLH_DSA_SHA2_192F, KeyAlgorithm.SLHDSA, "SLH-DSA",
+                                        SLHDSAParameterSpec.slh_dsa_sha2_192f),
+                        Arguments
+                                .of(SignatureAlgorithm.SLH_DSA_SHA2_256S, KeyAlgorithm.SLHDSA, "SLH-DSA",
+                                        SLHDSAParameterSpec.slh_dsa_sha2_256s),
+                        Arguments
+                                .of(SignatureAlgorithm.SLH_DSA_SHA2_256F, KeyAlgorithm.SLHDSA, "SLH-DSA",
+                                        SLHDSAParameterSpec.slh_dsa_sha2_256f));
     }
 
     // --- resolveSignatureAlgorithmName: unsupported algorithm ---
