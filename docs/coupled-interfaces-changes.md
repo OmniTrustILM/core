@@ -44,7 +44,9 @@ you will see while you wait, and the places people lose an afternoon.
 
    That job mints the pin even when the SNAPSHOT deploy in the same run failed,
    so a cleared gate is evidence the run reached its pin job, not proof that
-   mainline carries the change. If `publish` is red, check it before merging.
+   mainline carries the change — and after fifteen minutes the gate stops
+   waiting and proceeds without a pin at all, so past that point it is not even
+   evidence of that. Check the `Publish package` run yourself before merging.
 5. **Re-run all jobs on both workflows** — `Build PR` and `Test Docker image`.
    This is the step that goes wrong; see below.
 6. **Merge `core`.**
@@ -107,9 +109,10 @@ the prefix comes from the `interfaces` pom, not from `core`'s, and the two
 diverge across a release cut.
 
 Maven and IntelliJ both honour it. The coordinate is mutable: every push to the
-interfaces pull request replaces it, and Maven's default snapshot policy is
-daily, so build with `-U` while that branch is moving. Delete the file when the
-work lands.
+interfaces pull request whose build passes replaces it — a failing one leaves
+the previous snapshot in place — and Maven's default snapshot policy is daily,
+so build with `-U` while that branch is moving. Delete the file when the work
+lands.
 
 **The alternative has a sharp edge.** You can check out the `interfaces` branch
 and `mvn install` it, but that writes `2.20.0-SNAPSHOT` into your shared `~/.m2`,
@@ -136,11 +139,14 @@ Pin the last good mainline build instead:
 Interfaces-Version: 2.20.0-M907-1299756b
 ```
 
-Take the newest pin below the merge that broke you — the one in the publish
-summary of the merge immediately before it. The breaking merge's own summary
-carries the build that contains the change that reddened you. This unblocks **work and review, not merge** — the pin holds
-`Interfaces pin` red exactly like `Depends-On`, and unlike `Depends-On` it never
-clears itself. Delete the line and re-run all jobs before merging.
+Take the newest pin that exists below the merge that broke you — usually the
+publish summary of the merge immediately before it, but a release-prep commit
+mints none, so walk back past any such hole. Do not take the breaking merge's
+own summary: it carries the build containing the change that reddened you.
+
+This unblocks **work and review, not merge** — the pin holds `Interfaces pin`
+red exactly like `Depends-On`, and unlike `Depends-On` it never clears itself.
+Delete the line and re-run all jobs before merging.
 
 Do not combine the two. `Interfaces-Version` wins and the `Depends-On` line is
 ignored behind a warning, so a coupled pull request must use `Depends-On` alone.
