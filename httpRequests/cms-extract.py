@@ -4,9 +4,12 @@
 Writes into the output directory:
   signedattrs.der  the signedAttrs re-tagged from [0] IMPLICIT to SET OF (RFC 5652 5.4)
   signature.bin    the raw SignerInfo signature value
-  signer.der       the embedded certificate named by SignerInfo.sid, when certificates
-                   are present -- CertificateSet is unordered, so the first one is not
-                   necessarily the signer's
+  signer.der       the embedded certificate specified by SignerInfo.sid
+  untrusted.pem    the remaining embedded certificates
+
+Rejects as MALFORMED some structural preconditions of an RFC 3161 token: more than one
+SignerInfo, or an eContentType or signed content-type other than id-ct-TSTInfo. The ESS
+signing-certificate attribute is not checked, so this is not a conformance check.
 
 Prints one verdict line per check performed:
   messageDigest OK|MISMATCH <digest>   whether signedAttrs describe the eContent carried here
@@ -18,7 +21,9 @@ The exit status reports extraction only:
   1 when the input is malformed
 """
 
+import base64
 import hashlib
+import os
 import sys
 
 
@@ -34,8 +39,20 @@ CONTEXT_0 = 0xA0  # [0] IMPLICIT
 CONTEXT_3 = 0xA3  # [3] EXPLICIT
 
 MESSAGE_DIGEST_OID = bytes.fromhex("06092a864886f70d010904")  # 1.2.840.113549.1.9.4
+CONTENT_TYPE_OID = bytes.fromhex("06092a864886f70d010903")  # 1.2.840.113549.1.9.3
+TSTINFO_OID = bytes.fromhex("060b2a864886f70d0109100104")  # 1.2.840.113549.1.9.16.1.4
 SUBJECT_KEY_IDENTIFIER_OID = bytes.fromhex("0603551d0e")  # 2.5.29.14
-DIGEST_BY_LENGTH = {32: "sha256", 48: "sha384", 64: "sha512"}
+
+DIGEST_BY_OID = {
+    bytes.fromhex("06052b0e03021a"): "sha1",  # 1.3.14.3.2.26
+    bytes.fromhex("0609608648016503040201"): "sha256",  # 2.16.840.1.101.3.4.2.1
+    bytes.fromhex("0609608648016503040202"): "sha384",
+    bytes.fromhex("0609608648016503040203"): "sha512",
+    bytes.fromhex("0609608648016503040204"): "sha224",
+    bytes.fromhex("0609608648016503040208"): "sha3_256",
+    bytes.fromhex("0609608648016503040209"): "sha3_384",
+    bytes.fromhex("060960864801650304020a"): "sha3_512",
+}
 
 
 class Malformed(Exception):
@@ -44,8 +61,9 @@ class Malformed(Exception):
 
 def usage(stream=sys.stdout):
     print("Usage: cms-extract.py <token.der> <output-dir> [query.tsq]", file=stream)
-    print("  Writes signedattrs.der and signature.bin into <output-dir> and prints one", file=stream)
-    print("  verdict line per check: messageDigest, query, or MALFORMED <reason>.", file=stream)
+    print("  Writes signedattrs.der, signature.bin, signer.der and untrusted.pem into", file=stream)
+    print("  <output-dir> and prints one verdict line per check: messageDigest, query,", file=stream)
+    print("  or MALFORMED <reason>.", file=stream)
 
 
 def read_node(buf, offset):
@@ -111,6 +129,9 @@ def econtent_of(buf, signed_data):
     optional [0] certificates and [1] crls.
     """
     encap = child_with_tag(buf, signed_data, SEQUENCE, "encapContentInfo")
+    econtent_type = child_with_tag(buf, encap, OBJECT_IDENTIFIER, "eContentType")
+    if encoding_of(buf, econtent_type) != TSTINFO_OID:
+        raise Malformed("eContentType is not id-ct-TSTInfo")
     wrapper = child_with_tag(buf, encap, CONTEXT_0, "eContent")
     return value_of(buf, read_node(buf, wrapper["content"]))
 
@@ -119,10 +140,13 @@ def signer_info_of(buf, signed_data):
     """The sole SignerInfo.
 
     signerInfos is the last SET, which distinguishes it from the digestAlgorithms SET that
-    precedes encapContentInfo.
+    precedes encapContentInfo. RFC 3161 2.4.2 admits exactly one signer.
     """
     signer_infos = child_with_tag(buf, signed_data, SET, "signerInfos", last=True)
-    return read_node(buf, signer_infos["content"])
+    entries = children(buf, signer_infos)
+    if len(entries) != 1:
+        raise Malformed(f"there must be one signer, found {len(entries)}")
+    return entries[0]
 
 
 def signature_of(buf, signer_info, signed_attrs):
@@ -191,49 +215,96 @@ def certificate_identity(buf, certificate):
     return encoding_of(buf, fields[2]), value_of(buf, fields[0]), certificate_ski(buf, tbs)
 
 
-def signer_certificate(buf, signed_data, signer_info):
+def certificates_of(buf, signed_data, signer_info):
+    """(the signer's certificate, the other embedded ones) from the CertificateSet."""
     wrapper = next((c for c in children(buf, signed_data) if c["tag"] == CONTEXT_0), None)
     if wrapper is None:
-        return None
+        return None, []
 
     kind, wanted = signer_id_of(buf, signer_info)
+    signer, others = None, []
     for certificate in children(buf, wrapper):
         if certificate["tag"] != SEQUENCE:  # a CertificateChoices alternative, not a Certificate
             continue
         issuer, serial, ski = certificate_identity(buf, certificate)
-        if kind == "isn" and (issuer, serial) == wanted:
-            return certificate
-        if kind == "ski" and ski is not None and ski == wanted:
-            return certificate
-    raise Malformed("no embedded certificate matches the SignerInfo sid")
+        if kind == "isn":
+            matches = (issuer, serial) == wanted
+        else:
+            matches = ski is not None and ski == wanted
+        if matches and signer is None:
+            signer = certificate
+        else:
+            others.append(certificate)
+    if signer is None:
+        raise Malformed("no embedded certificate matches the SignerInfo sid")
+    return signer, others
 
 
-def digest_verdict(buf, signed_attrs, econtent):
-    """Compares the signed messageDigest attribute against the eContent the token carries."""
-    signed = None
+# --- Signed attributes ---
+
+def attribute_values(buf, signed_attrs, oid, what):
+    """The attrValues SET members of the signed attribute carrying `oid`."""
     for attribute in children(buf, signed_attrs):
         fields = children(buf, attribute)
-        if not fields or encoding_of(buf, fields[0]) != MESSAGE_DIGEST_OID:
+        if not fields or encoding_of(buf, fields[0]) != oid:
             continue
         if len(fields) < 2 or fields[1]["tag"] != SET:
-            raise Malformed("messageDigest attribute has no attrValues SET")
-        values = children(buf, fields[1])
-        if len(values) != 1 or values[0]["tag"] != OCTET_STRING:
-            raise Malformed("messageDigest attrValues is not a single OCTET STRING")
-        signed = value_of(buf, values[0])
-        break
-    if signed is None:
-        raise Malformed("no messageDigest attribute")
+            raise Malformed(f"{what} attribute has no attrValues SET")
+        return children(buf, fields[1])
+    raise Malformed(f"no {what} attribute")
 
-    name = DIGEST_BY_LENGTH.get(len(signed))
+
+def require_tstinfo_content_type(buf, signed_attrs):
+    """RFC 5652 11.1: the signed content-type must repeat eContentType, here id-ct-TSTInfo."""
+    values = attribute_values(buf, signed_attrs, CONTENT_TYPE_OID, "content-type")
+    if len(values) != 1 or encoding_of(buf, values[0]) != TSTINFO_OID:
+        raise Malformed("signed content-type is not id-ct-TSTInfo")
+
+
+def digest_name_of(buf, signer_info):
+    """The hashlib name for SignerInfo.digestAlgorithm."""
+    fields = children(buf, signer_info)
+    if len(fields) < 3:
+        raise Malformed("truncated SignerInfo")
+    oid = child_with_tag(buf, fields[2], OBJECT_IDENTIFIER, "digestAlgorithm OID")
+    name = DIGEST_BY_OID.get(encoding_of(buf, oid))
     if name is None:
-        raise Malformed(f"unexpected messageDigest length {len(signed)}")
+        raise Malformed("unsupported digestAlgorithm")
+    return name
+
+
+def digest_verdict(buf, signer_info, signed_attrs, econtent):
+    """Compares the signed messageDigest attribute against the eContent the token carries."""
+    values = attribute_values(buf, signed_attrs, MESSAGE_DIGEST_OID, "messageDigest")
+    if len(values) != 1 or values[0]["tag"] != OCTET_STRING:
+        raise Malformed("messageDigest attrValues is not a single OCTET STRING")
+    signed = value_of(buf, values[0])
+
+    name = digest_name_of(buf, signer_info)
+    if len(signed) != hashlib.new(name).digest_size:
+        raise Malformed(f"messageDigest is {len(signed)} bytes, not a {name} digest")
 
     actual = hashlib.new(name, econtent).digest()
     return f"{'OK' if actual == signed else 'MISMATCH'} {name}"
 
 
+def pem_certificates(encodings):
+    """The DER certificates as a PEM bundle, which is what `openssl -untrusted` reads."""
+    out = []
+    for der in encodings:
+        b64 = base64.b64encode(der).decode("ascii")
+        lines = "\n".join(b64[i:i + 64] for i in range(0, len(b64), 64))
+        out.append(f"-----BEGIN CERTIFICATE-----\n{lines}\n-----END CERTIFICATE-----\n")
+    return "".join(out).encode("ascii")
+
+
 def write_file(path, data):
+    if data is None:
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+        return
     with open(path, "wb") as f:
         f.write(data)
 
@@ -298,15 +369,17 @@ def extract(buf, outdir, query=None):
     econtent = econtent_of(buf, signed_data)
     signer_info = signer_info_of(buf, signed_data)
     signed_attrs = child_with_tag(buf, signer_info, CONTEXT_0, "signedAttrs")
+    require_tstinfo_content_type(buf, signed_attrs)
 
     write_file(f"{outdir}/signedattrs.der", signed_attrs_der(buf, signed_attrs))
     write_file(f"{outdir}/signature.bin", signature_of(buf, signer_info, signed_attrs))
 
-    signer = signer_certificate(buf, signed_data, signer_info)
-    if signer is not None:
-        write_file(f"{outdir}/signer.der", encoding_of(buf, signer))
+    signer, others = certificates_of(buf, signed_data, signer_info)
+    write_file(f"{outdir}/signer.der", encoding_of(buf, signer) if signer is not None else None)
+    write_file(f"{outdir}/untrusted.pem",
+               pem_certificates(encoding_of(buf, c) for c in others) if others else None)
 
-    print(f"messageDigest {digest_verdict(buf, signed_attrs, econtent)}")
+    print(f"messageDigest {digest_verdict(buf, signer_info, signed_attrs, econtent)}")
     if query is not None:
         print(f"query {query_verdict(query, econtent)}")
 

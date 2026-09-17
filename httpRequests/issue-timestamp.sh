@@ -44,7 +44,8 @@ Use -u to override the composed URL entirely.
 Authenticates with HTTP Basic by default; the credentials default to the ones provisioned
 by timestamping-setup.sh.
 
-RSA and ML-DSA signing profiles are both supported.
+RSA and ML-DSA signing profiles are both supported; verifying an ML-DSA token needs
+OpenSSL 3.5 or newer.
 
 Options:
   -H ILM_HOST         ILM API origin (default: http://localhost:8080)
@@ -115,7 +116,20 @@ err() {
 }
 
 is_pqc_signer() {
-    openssl x509 -in "$1" -noout -text 2>/dev/null | grep -q "Public Key Algorithm: ML-DSA"
+    # OpenSSL prints the friendly name only from 3.5 on; older builds show the bare OID.
+    openssl x509 -in "$1" -noout -text 2>/dev/null \
+        | grep -qE "Public Key Algorithm: (ML-DSA|2\.16\.840\.1\.101\.3\.4\.3\.1[789])"
+}
+
+openssl_has_mldsa() {
+    local version major minor
+    version=$(openssl version 2>/dev/null | awk '{print $2}')
+    major="${version%%.*}"
+    minor="${version#*.}"
+    minor="${minor%%.*}"
+    # An unparseable version is not evidence of anything; let the operation itself report.
+    [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ ]] || return 0
+    (( major > 3 || (major == 3 && minor >= 5) ))
 }
 
 extract_cms_parts() {
@@ -131,19 +145,29 @@ signer_cert_pem() {
 # openssl cannot verify the timestamp token for ML-DSA so we do it here.
 verify_mldsa_token() {
     local outdir="$1" cert_pem="$2" verdicts="$3"
-    local chain_args=(verify -CAfile "$CA_CERT")
 
+    if ! openssl_has_mldsa; then
+        err "verifying an ML-DSA token needs OpenSSL 3.5 or newer; this is $(openssl version)"
+        return 1
+    fi
+
+    local chain_args=(verify -CAfile "$CA_CERT" -no-CApath -no-CAstore)
     [[ -n "$TSA_CERT" ]] && chain_args+=(-untrusted "$TSA_CERT")
+    [[ -s "$outdir/untrusted.pem" ]] && chain_args+=(-untrusted "$outdir/untrusted.pem")
     chain_args+=(-purpose timestampsign "$cert_pem")
     if ! openssl "${chain_args[@]}"; then
         err "signer certificate does not chain to $CA_CERT for timestamping"
         return 1
     fi
 
-    openssl x509 -in "$cert_pem" -noout -pubkey > "$outdir/signer_pubkey.pem" 2>/dev/null
-    if ! openssl pkeyutl -verify -pubin -inkey "$outdir/signer_pubkey.pem" \
-            -rawin -in "$outdir/signedattrs.der" -sigfile "$outdir/signature.bin" >/dev/null 2>&1; then
-        err "ML-DSA signature over signedAttrs is not valid"
+    local failure
+    if ! failure=$(openssl x509 -in "$cert_pem" -noout -pubkey 2>&1 > "$outdir/signer_pubkey.pem"); then
+        err "could not read the signer public key: $failure"
+        return 1
+    fi
+    if ! failure=$(openssl pkeyutl -verify -pubin -inkey "$outdir/signer_pubkey.pem" \
+            -rawin -in "$outdir/signedattrs.der" -sigfile "$outdir/signature.bin" 2>&1 >/dev/null); then
+        err "ML-DSA signature over signedAttrs is not valid: $failure"
         return 1
     fi
     echo "ML-DSA signature over signedAttrs: verified"
