@@ -19,6 +19,14 @@ import java.util.HexFormat;
  * username against {@code anonymousUser}. Dropping the rest is what lets callers with the same effective permissions
  * share one entry. A policy that starts reading another user field, or the roles, invalidates that reduction and this
  * kernel has to change with it.
+ *
+ * <p>
+ * The decision key is formed by joining four variable-length string components with length prefixes to prevent
+ * collisions. If {@code spring.jackson.serialization.indent-output} is enabled, the {@code resourceJson} and
+ * {@code detailsJson} will contain newlines. Naive newline-separated joining would allow component-boundary
+ * repositioning to produce the same key from different tuples; instead, each component is prefixed with its
+ * character-count to ensure the split is deterministic (see {@code PlatformAuthenticationCache.tokenCacheKey} for the
+ * identical pattern).
  */
 final class AuthorizationCacheKeys {
 
@@ -41,7 +49,8 @@ final class AuthorizationCacheKeys {
     }
 
     static String decisionKey(String policyName, String principalDigest, String resourceJson, String detailsJson) {
-        return sha256Hex(policyName + "\n" + principalDigest + "\n" + resourceJson + "\n" + detailsJson);
+        return sha256Hex(policyName.length() + ":" + policyName + ":" + principalDigest.length() + ":" + principalDigest
+                + ":" + resourceJson.length() + ":" + resourceJson + ":" + detailsJson.length() + ":" + detailsJson);
     }
 
     private static String sha256Hex(String value) {

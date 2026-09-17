@@ -26,15 +26,16 @@ class AuthorizationCacheKeysTest {
         String bob = profile("2222", "bob", """
                 [{"uuid":"aaaa","name":"Certificate Operator"}]""", PERMISSIONS);
 
-        assertThat(AuthorizationCacheKeys.principalDigest(om, alice))
-                .isEqualTo(AuthorizationCacheKeys.principalDigest(om, bob));
+        String digest = AuthorizationCacheKeys.principalDigest(om, alice);
+        assertThat(digest).hasSize(64).matches("[0-9a-f]{64}");
+        assertThat(digest).isEqualTo(AuthorizationCacheKeys.principalDigest(om, bob));
     }
 
     @Test
     void sameDigest_whenRoleSetsDifferButPermissionsMatch() throws Exception {
         String oneRole = profile("1111", "alice", """
                 [{"uuid":"aaaa","name":"Certificate Operator"}]""", PERMISSIONS);
-        String twoRoles = profile("2222", "bob", """
+        String twoRoles = profile("1111", "alice", """
                 [{"uuid":"aaaa","name":"Certificate Operator"},{"uuid":"bbbb","name":"Redundant"}]""", PERMISSIONS);
 
         assertThat(AuthorizationCacheKeys.principalDigest(om, oneRole))
@@ -63,12 +64,44 @@ class AuthorizationCacheKeysTest {
     }
 
     @Test
-    void sameDigest_forEveryAnonymousCaller() throws Exception {
+    void sameDigest_forAnonymousCallersCarryingDifferentUserFields() throws Exception {
+        String first = """
+                {"user":{"uuid":"1111","username":"anonymousUser"},"roles":[]}""";
+        String second = """
+                {"user":{"uuid":"2222","username":"anonymousUser"},"roles":[{"uuid":"aaaa","name":"Ignored"}]}""";
+
+        assertThat(AuthorizationCacheKeys.principalDigest(om, first))
+                .isEqualTo(AuthorizationCacheKeys.principalDigest(om, second));
+    }
+
+    @Test
+    void differentDigest_whenAnonymousAndNamedCarryTheSamePermissions() throws Exception {
         String anonymous = """
-                {"user":{"username":"anonymousUser"}}""";
+                {"user":{"username":"anonymousUser"},"roles":[],"permissions":%s}""".formatted(PERMISSIONS);
+        String named = """
+                {"user":{"username":"alice"},"roles":[],"permissions":%s}""".formatted(PERMISSIONS);
 
         assertThat(AuthorizationCacheKeys.principalDigest(om, anonymous))
-                .isEqualTo(AuthorizationCacheKeys.principalDigest(om, anonymous));
+                .isNotEqualTo(AuthorizationCacheKeys.principalDigest(om, named));
+    }
+
+    @Test
+    void digestsAPrincipalWithNoUserNode() throws Exception {
+        String noUser = """
+                {"permissions":%s}""".formatted(PERMISSIONS);
+
+        assertThat(AuthorizationCacheKeys.principalDigest(om, noUser)).hasSize(64);
+    }
+
+    @Test
+    void differentDigest_whenPermissionsIsNullVersusAbsent() throws Exception {
+        String explicitNull = """
+                {"user":{"username":"alice"},"permissions":null}""";
+        String absent = """
+                {"user":{"username":"alice"}}""";
+
+        assertThat(AuthorizationCacheKeys.principalDigest(om, explicitNull))
+                .isNotEqualTo(AuthorizationCacheKeys.principalDigest(om, absent));
     }
 
     @Test
@@ -87,5 +120,15 @@ class AuthorizationCacheKeysTest {
         assertThat(base)
                 .isNotEqualTo(AuthorizationCacheKeys
                         .decisionKey("method", "digest", "{\"name\":\"certificates\"}", "{\"a\":1}"));
+    }
+
+    @Test
+    void decisionKeyResistsPrincipalCollisionsAcrossComponentBoundaries() {
+        // Naive newline joining would collide: "a\nb\nc" + "\n" + "d"
+        // versus "a\nb" + "\n" + "c\nd". Length-prefixed format prevents this.
+        String key1 = AuthorizationCacheKeys.decisionKey("a", "b\nc", "d", "e");
+        String key2 = AuthorizationCacheKeys.decisionKey("a\nb", "c", "d", "e");
+
+        assertThat(key1).isNotEqualTo(key2);
     }
 }
