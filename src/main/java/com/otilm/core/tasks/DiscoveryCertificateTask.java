@@ -73,10 +73,6 @@ public class DiscoveryCertificateTask implements ScheduledJobTask {
         return false;
     }
 
-    public String getJobClassName() {
-        return this.getClass().getName();
-    }
-
     public boolean isSystemJob() {
         return false;
     }

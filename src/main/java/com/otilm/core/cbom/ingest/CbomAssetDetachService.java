@@ -223,9 +223,16 @@ public class CbomAssetDetachService {
                         .debug("CBOM asset withdrawal: asset {} has no source left but an alias points at it; keeping the row",
                                 orphan.uuid());
                 kept++;
-            } else {
-                assetWriter.delete(orphan.uuid());
+            } else if (assetWriter.delete(orphan.uuid()) == 1) {
                 deleted++;
+            } else {
+                // The statement declined: a source came back, or an alias was pointed at the row, between the page
+                // read and this line. Counted as kept, which is what the row now is -- the next withdrawal that
+                // leaves it sourceless collects it.
+                log
+                        .debug("CBOM asset withdrawal: asset {} was no longer collectable when the delete ran; keeping the row",
+                                orphan.uuid());
+                kept++;
             }
         }
         return new Batch(new Withdrawal(detached, deleted, kept, true), assets.size() < batchSize);

@@ -7,6 +7,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.util.Objects;
 import java.util.UUID;
 import lombok.Getter;
@@ -22,7 +23,10 @@ import org.hibernate.type.SqlTypes;
 @ToString
 @RequiredArgsConstructor
 @Entity
-@Table(name = "scheduled_job")
+// Stated here as well as in the migration, so the entity-generated schema the tests run against refuses a second row
+// for one job name exactly as production does. job_name is what every lookup resolves a job by.
+@Table(name = "scheduled_job",
+        uniqueConstraints = @UniqueConstraint(name = "uq_scheduled_job_job_name", columnNames = "job_name"))
 public class ScheduledJob extends UniquelyIdentified {
 
     @Column(name = "job_name")

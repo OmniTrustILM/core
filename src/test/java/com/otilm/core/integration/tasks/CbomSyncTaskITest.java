@@ -5,6 +5,7 @@ import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
 import com.otilm.core.api.ScheduledJobSkippedException;
 import com.otilm.core.model.ScheduledTaskResult;
 import com.otilm.core.service.impl.CbomServiceImpl;
+import com.otilm.core.tasks.CbomReconcileTask;
 import com.otilm.core.tasks.CbomSyncTask;
 import com.otilm.core.tasks.ScheduledJobInfo;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -30,6 +31,9 @@ class CbomSyncTaskITest extends BaseSpringBootTest {
 
     @Autowired
     private CbomSyncTask cbomSyncTask;
+
+    @Autowired
+    private CbomReconcileTask cbomReconcileTask;
 
     @Test
     void testPerformJob_Success() throws Exception {
@@ -109,6 +113,38 @@ class CbomSyncTaskITest extends BaseSpringBootTest {
     @Test
     void testGetJobClassName() {
         assertEquals(CbomSyncTask.class.getName(), cbomSyncTask.getJobClassName());
+    }
+
+    /** The weekly pass runs the reconciliation, never the hourly window, and reports it as its own job. */
+    @Test
+    void theReconcileTaskRunsTheWholeListingPass() throws Exception {
+        when(cbomService.isCbomRepositoryClientConfigured()).thenReturn(true);
+
+        ScheduledTaskResult result = cbomReconcileTask
+                .performJob(new ScheduledJobInfo(CbomReconcileTask.NAME), new Object());
+
+        assertEquals(SchedulerJobExecutionStatus.SUCCESS, result.getStatus());
+        verify(cbomService, times(1)).reconcile();
+        verify(cbomService, times(0)).sync();
+    }
+
+    /** The failure handling is the base class's, so it is proved once here rather than copied test for test. */
+    @Test
+    void theReconcileTaskIsSkippedWhileTheRepositoryIsNotConfigured() throws Exception {
+        when(cbomService.isCbomRepositoryClientConfigured()).thenReturn(false);
+
+        assertThrows(ScheduledJobSkippedException.class,
+                () -> cbomReconcileTask.performJob(new ScheduledJobInfo(CbomReconcileTask.NAME), new Object()));
+
+        verify(cbomService, times(0)).reconcile();
+    }
+
+    @Test
+    void theReconcileTaskIsWeeklyAndOffTheHourlySyncsMinute() {
+        assertEquals(CbomReconcileTask.NAME, cbomReconcileTask.getDefaultJobName());
+        assertEquals("0 30 2 ? * SUN", cbomReconcileTask.getDefaultCronExpression());
+        assertFalse(cbomReconcileTask.isDefaultOneTimeJob());
+        assertEquals(CbomReconcileTask.class.getName(), cbomReconcileTask.getJobClassName());
     }
 
     @Test

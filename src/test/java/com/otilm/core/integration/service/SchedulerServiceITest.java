@@ -81,6 +81,7 @@ import com.otilm.core.service.RuleExternalService;
 import com.otilm.core.service.SchedulerExternalService;
 import com.otilm.core.service.SchedulerInternalService;
 import com.otilm.core.service.TriggerExternalService;
+import com.otilm.core.tasks.CbomReconcileTask;
 import com.otilm.core.tasks.CbomSyncTask;
 import com.otilm.core.tasks.CryptoAssetPqcSweepTask;
 import com.otilm.core.tasks.DiscoveryCertificateTask;
@@ -98,6 +99,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
 
@@ -402,6 +404,32 @@ class SchedulerServiceITest extends BaseSpringBootTest {
         mockServer.stop();
     }
 
+    /**
+     * The premise the registration race handling rests on: the database refuses a second row for one job name, and the
+     * refusal reaches the caller as a {@code DataIntegrityViolationException} out of {@code save} rather than at some
+     * later flush. `SchedulerJobRegistrationRaceTest` stubs that exception to cover what the service does with it;
+     * without this, nothing would have failed if the premise were wrong.
+     */
+    @Test
+    void theDatabaseRefusesASecondRowForOneJobName() {
+        scheduledJobsRepository.save(scheduledJobNamed("RaceCheckTask"));
+
+        Assertions
+                .assertThrows(DataIntegrityViolationException.class,
+                        () -> scheduledJobsRepository.saveAndFlush(scheduledJobNamed("RaceCheckTask")));
+    }
+
+    private static ScheduledJob scheduledJobNamed(String jobName) {
+        ScheduledJob job = new ScheduledJob();
+        job.setJobName(jobName);
+        job.setCronExpression("0 0 * * * ?");
+        job.setJobClassName("com.otilm.core.tasks.CbomReconcileTask");
+        job.setEnabled(true);
+        job.setOneTime(false);
+        job.setSystem(true);
+        return job;
+    }
+
     @Test
     void testRegisterScheduledJobAndOperations() throws SchedulerException, NotFoundException {
         final String jobName = "TestDiscoveryScheduled";
@@ -462,11 +490,12 @@ class SchedulerServiceITest extends BaseSpringBootTest {
         ScheduledJobsResponseDto jobs = schedulerService
                 .listScheduledJobs(SecurityFilter.create(), new PaginationRequestDto());
 
-        Assertions.assertEquals(4, jobs.getScheduledJobs().size());
+        Assertions.assertEquals(5, jobs.getScheduledJobs().size());
 
         List<String> jobClassNames = jobs.getScheduledJobs().stream().map(ScheduledJobDto::getJobName).toList();
 
         Assertions.assertTrue(jobClassNames.stream().anyMatch(name -> name.contains(CbomSyncTask.NAME)));
+        Assertions.assertTrue(jobClassNames.stream().anyMatch(name -> name.contains(CbomReconcileTask.NAME)));
         Assertions.assertTrue(jobClassNames.stream().anyMatch(name -> name.contains(CryptoAssetPqcSweepTask.NAME)));
     }
 
