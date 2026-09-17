@@ -25,6 +25,7 @@ import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.RoleAssignmentGuard;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
+import com.otilm.core.security.authz.opa.AuthorizationCache;
 import com.otilm.core.service.RoleManagementExternalService;
 import com.otilm.core.service.RoleManagementInternalService;
 import jakarta.transaction.Transactional;
@@ -40,6 +41,7 @@ public class RoleManagementServiceImpl implements RoleManagementExternalService,
     private RoleManagementApiClient roleManagementApiClient;
     private AttributeEngine attributeEngine;
     private AuthenticationCache authenticationCache;
+    private AuthorizationCache authorizationCache;
     private RoleAssignmentGuard roleAssignmentGuard;
 
     @Autowired
@@ -60,6 +62,11 @@ public class RoleManagementServiceImpl implements RoleManagementExternalService,
     @Autowired
     public void setAuthenticationCache(AuthenticationCache authenticationCache) {
         this.authenticationCache = authenticationCache;
+    }
+
+    @Autowired
+    public void setAuthorizationCache(AuthorizationCache authorizationCache) {
+        this.authorizationCache = authorizationCache;
     }
 
     @Override
@@ -111,6 +118,7 @@ public class RoleManagementServiceImpl implements RoleManagementExternalService,
                         .updateObjectCustomAttributesContent(Resource.ROLE, UUID.fromString(dto.getUuid()),
                                 request.getCustomAttributes()));
         authenticationCache.evictAll();
+        authorizationCache.evictAll();
         return dto;
     }
 
@@ -120,6 +128,7 @@ public class RoleManagementServiceImpl implements RoleManagementExternalService,
         roleManagementApiClient.deleteRole(roleUuid);
         attributeEngine.deleteObjectAttributeContent(Resource.ROLE, UUID.fromString(roleUuid));
         authenticationCache.evictAll();
+        authorizationCache.evictAll();
     }
 
     @Override
@@ -134,6 +143,7 @@ public class RoleManagementServiceImpl implements RoleManagementExternalService,
         checkSystemRole(roleUuid);
         SubjectPermissionsDto result = roleManagementApiClient.savePermissions(roleUuid, request);
         authenticationCache.evictAll();
+        authorizationCache.evictAll();
         return result;
     }
 
@@ -156,6 +166,7 @@ public class RoleManagementServiceImpl implements RoleManagementExternalService,
         checkSystemRole(roleUuid);
         roleManagementApiClient.addResourcePermissionObjects(roleUuid, resourceUuid, request);
         authenticationCache.evictAll();
+        authorizationCache.evictAll();
     }
 
     @Override
@@ -165,6 +176,7 @@ public class RoleManagementServiceImpl implements RoleManagementExternalService,
         checkSystemRole(roleUuid);
         roleManagementApiClient.updateResourcePermissionObjects(roleUuid, resourceUuid, objectUuid, request);
         authenticationCache.evictAll();
+        authorizationCache.evictAll();
     }
 
     @Override
@@ -173,6 +185,7 @@ public class RoleManagementServiceImpl implements RoleManagementExternalService,
         checkSystemRole(roleUuid);
         roleManagementApiClient.removeResourcePermissionObjects(roleUuid, resourceUuid, objectUuid);
         authenticationCache.evictAll();
+        authorizationCache.evictAll();
     }
 
     @Override
@@ -187,6 +200,7 @@ public class RoleManagementServiceImpl implements RoleManagementExternalService,
         roleAssignmentGuard.checkUsersAssignableToRole(roleUuid, userUuids);
         RoleDetailDto result = roleManagementApiClient.updateUsers(roleUuid, userUuids);
         authenticationCache.evictAll();
+        authorizationCache.evictAll();
         return result;
     }
 
