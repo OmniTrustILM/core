@@ -49,6 +49,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -481,10 +482,33 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
             scheduledJobEntity.setUserUuid(null);
         }
 
-        scheduledJobsRepository.save(scheduledJobEntity);
+        try {
+            scheduledJobsRepository.save(scheduledJobEntity);
+        } catch (DataIntegrityViolationException e) {
+            // Two nodes booting together both read "absent" above and both insert. uq_scheduled_job_job_name is what
+            // makes one of them lose here rather than both winning: a second row under one job name leaves
+            // findByJobName throwing IncorrectResultSizeDataAccessException on every trigger, enable, disable and
+            // delete of that job, silently, for as long as the estate lives. Losing the insert is the right outcome
+            // -- the job is registered, which is all the caller asked for.
+            return registeredElsewhere(jobName, e);
+        }
 
         logger.info("Scheduled job '{}' was registered.", jobName);
         return scheduledJobEntity.mapToDetailDto(null);
+    }
+
+    /** The registration another node won, re-read after this node's insert lost to it. */
+    private ScheduledJobDetailDto registeredElsewhere(final String jobName, final DataIntegrityViolationException cause)
+            throws SchedulerException {
+        final Optional<ScheduledJob> winner = scheduledJobsRepository.findByJobName(jobName);
+        if (winner.isEmpty()) {
+            // Not the race, then: some other constraint refused the row, and the caller must not be told the job is
+            // registered. The cause is logged rather than put in the message, which reaches an API response.
+            logger.error("Scheduled job '{}' could not be registered", jobName, cause);
+            throw new SchedulerException("Scheduled job could not be registered: " + jobName);
+        }
+        logger.info("Scheduled job '{}' was registered by another node while this one was registering it.", jobName);
+        return winner.get().mapToDetailDto(null);
     }
 
 }

@@ -128,6 +128,24 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
     private static final int MAX_PAGES_PER_RUN = 10_000;
 
     /**
+     * How many failed document reads one run may charge to the {@code cbom_sync_skip} retry budget before the run is
+     * called an outage instead.
+     *
+     * <p>
+     * Nothing else bounds it: {@link SyncRun#deferred} grows with the listing, and the whole-listing pass lists the
+     * estate. A repository that serves its listing but not its documents would otherwise charge every entry Core does
+     * not already hold, once a Sunday, and write the estate off in as few as {@code cbom.sync.skipped-retry-runs + 1}
+     * of them -- one, at the {@code 0} that configuration allows.
+     *
+     * <p>
+     * A thousand rather than a fraction of the listing, because the quantity the budget is spent in is entries, not
+     * proportion: an estate of a hundred documents losing all hundred is a small write-off, and an estate of a million
+     * losing ten thousand is not. Well above what a healthy hour's genuinely broken documents come to, well below what
+     * a repository-wide failure produces.
+     */
+    private static final int MAX_CHARGED_READ_FAILURES_PER_RUN = 1_000;
+
+    /**
      * The unique constraint the dedup key is guarded by, declared under this name in both the migration and
      * {@link Cbom}. Only this violation means "another writer got there first"; any other refusal by the database is
      * this entry's problem and is recorded as such rather than counted as a duplicate.
@@ -526,11 +544,13 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      * and sources nothing, which is what that state exists for.
      *
      * <p>
-     * Narrowed to the one constraint that expresses that: {@code crypto_asset_source_to_cbom_key} is today the only
-     * foreign key in the schema referencing {@code cbom(uuid)}, and the tombstone insert cannot conflict, so every
-     * violation reaching here is the inventory's. Resting the carve-out on the constraint name rather than on the
-     * exception type is what keeps that an argument about this code rather than about the schema it happens to sit in
-     * -- the next foreign key added to {@code cbom} would otherwise silently join it.
+     * Narrowed to the one constraint that expresses that: {@code crypto_asset_source_to_cbom_key} is the only
+     * {@code RESTRICT} reference to {@code cbom(uuid)} in the schema, and the tombstone insert cannot conflict, so
+     * every violation reaching here is the inventory's. {@code cbom_ingest_finding_to_cbom_key} references the same
+     * column and does not join it, because {@code ON DELETE CASCADE} cannot refuse a delete and so cannot reach this
+     * catch at all. Resting the carve-out on the constraint name rather than on the exception type is what keeps that
+     * an argument about this code rather than about the schema it happens to sit in -- the next foreign key added to
+     * {@code cbom} that can refuse a delete would otherwise silently join it.
      */
     private void deleteWithdrawnRow(UUID uuid) {
         try {
@@ -709,7 +729,8 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
                         SearchHelper
                                 .prepareSearch(FilterField.CBOM_ASSET_SYNC_STATE,
                                         CbomAssetSyncState.class.getEnumConstants()),
-                        SearchHelper.prepareSearch(FilterField.CBOM_ASSETS_SYNCED_AT));
+                        SearchHelper.prepareSearch(FilterField.CBOM_ASSETS_SYNCED_AT),
+                        SearchHelper.prepareSearch(FilterField.CBOM_ASSET_SYNC_ERROR));
 
         fields = new ArrayList<>(fields);
         fields.sort(new SearchFieldDataComparator());
@@ -732,7 +753,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
             logger.getLogger().debug("CBOM sync: CBOM Repository not configured: skipped;");
             return;
         }
-        runSync();
+        runSync(SyncScope.SINCE_THE_LAST_RUN);
     }
 
     /**
@@ -763,7 +784,27 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
     @Override
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public String sync() throws CbomRepositoryException {
-        return runSync();
+        return runSync(SyncScope.SINCE_THE_LAST_RUN);
+    }
+
+    /**
+     * The same run over the repository's whole listing.
+     *
+     * <p>
+     * Everything the hourly pass does, from {@code after = 0}: the same deduplication on
+     * {@code (serialNumber, version)}, the same tombstone test before an entry is stored, the same skip bookkeeping,
+     * the same ingest pass at the end. What it adds is reach -- an entry the feed never offered inside any window the
+     * hourly pass asked for is invisible to that pass for ever, and this is where it is found. Almost every entry it
+     * reads is already stored and costs one indexed existence check; only a missing one costs a document read.
+     *
+     * <p>
+     * It does not touch the hourly watermark in either direction: that is read from {@code CbomSyncTask}'s own job
+     * history, and this run is recorded under {@code CbomReconcileTask}.
+     */
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public String reconcile() throws CbomRepositoryException {
+        return runSync(SyncScope.THE_WHOLE_LISTING);
     }
 
     /**
@@ -771,7 +812,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      * Spring applies the transaction advice of {@code @Transactional} only to a call arriving from outside the bean, so
      * a self-invocation would run the boundary of whichever caller it came from.
      */
-    private String runSync() throws CbomRepositoryException {
+    private String runSync(SyncScope scope) throws CbomRepositoryException {
         // Read once, here: a policy changed in the Settings UI applies to the next run, never to half of this one.
         final CbomSyncPolicy policy = CbomSyncPolicy.fromSettings(platformUtilsSettings());
         final SyncRun run = new SyncRun(OffsetDateTime.now(), policy);
@@ -781,14 +822,39 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
                         policy.overlap().toSeconds(), policy.skippedRetryRuns(), policy.maxIngestDocuments());
         final Map<SyncIdentity, CbomSyncSkip> skips = loadSkipRecords();
 
-        readFeed(run, skips);
+        readFeed(run, skips, scope);
         retrySkipped(run, skips);
-        settleUnavailable(run);
+        settleUnavailable(run, scope);
         ingestPending(run);
 
-        final String syncResultMessage = run.summary();
+        final String syncResultMessage = scope.report(run.summary());
         logger.getLogger().info("CBOM Sync: finished. {}", syncResultMessage);
         return syncResultMessage;
+    }
+
+    /**
+     * How far back a run lists.
+     *
+     * <p>
+     * The only difference between the hourly sync and the weekly reconciliation, which is why they are one run with two
+     * openings rather than two runs: every rule about duplicates, tombstones, skips and ingest has to hold for both,
+     * and a second implementation is a second place for one of them to stop holding.
+     *
+     * <p>
+     * Being one run, the two openings spend the <em>same</em> retry budget -- {@link CbomSyncPolicy#maxAttempts}, the
+     * operator's retry setting plus the first attempt: an entry the whole-listing pass fails on is charged exactly as
+     * the hourly pass would charge it, so an entry can reach {@code PERMANENTLY_SKIPPED} up to one run earlier than it
+     * would have without the weekly pass, with no overlap required. {@link #MAX_CHARGED_READ_FAILURES_PER_RUN} is what
+     * bounds how much of the estate one such run spends.
+     */
+    private enum SyncScope {
+        SINCE_THE_LAST_RUN,
+        THE_WHOLE_LISTING;
+
+        /** Says which pass the job history is reporting on, so two schedules do not read as one. */
+        String report(String summary) {
+            return this == THE_WHOLE_LISTING ? "Reconciled against the whole listing. " + summary : summary;
+        }
     }
 
     /**
@@ -825,9 +891,12 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
                 .orElse(null);
     }
 
-    private void readFeed(SyncRun run, Map<SyncIdentity, CbomSyncSkip> skips) throws CbomRepositoryException {
+    private void readFeed(SyncRun run, Map<SyncIdentity, CbomSyncSkip> skips, SyncScope scope)
+            throws CbomRepositoryException {
         final BomSearchRequestDto query = new BomSearchRequestDto();
-        query.setAfter(getLastSyncTimestamp(run.policy.overlap()));
+        // The whole-listing pass opens at 0, so the overlap the hourly pass needs against a late-arriving entry is
+        // not read at all: there is no watermark to step back from.
+        query.setAfter(scope == SyncScope.THE_WHOLE_LISTING ? 0L : getLastSyncTimestamp(run.policy.overlap()));
         query.setLimit(syncProperties.pageSize());
         logger.getLogger().debug("CBOM sync: listing entries created after {}", query.getAfter());
 
@@ -915,6 +984,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
                     .debug("CBOM Sync: CBOM serialNumber {} and version {}: already exists. Skipping the sync",
                             identity.serialNumber(), identity.version());
             run.duplicates++;
+            run.alreadyStored++;
             resolveSkipIfRecorded(identity, skips, run, "is stored");
             return;
         }
@@ -993,7 +1063,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      * Reads the document and stores the header row in its own transaction. Never throws for one entry's failure -- the
      * outcome is the caller's signal. A read Core could not get an answer to at all yields {@code UNAVAILABLE} rather
      * than a skip: whether that was this document or the whole repository is only known once every read of the run is
-     * done, so the verdict is left to {@link #settleUnavailable(SyncRun)}.
+     * done, so the verdict is left to {@link #settleUnavailable(SyncRun, SyncScope)}.
      */
     private StoreOutcome store(SyncIdentity identity, CbomHeaderCounts counts, SyncRun run) {
         final BomResponseDto document;
@@ -1119,20 +1189,28 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      * Decides what the reads Core never got an answer to (see {@link #store}) were: this document's failure, or the
      * repository's. Nothing about one such read tells the two apart -- the client answers a refused connection and a
      * response that timed out with the same 503 -- but the run as a whole does. When it looks like an outage
-     * ({@link #looksLikeOutage(SyncRun)}) the repository is what failed: the run fails without charging anyone's retry
-     * budget, and because the task maps a 503 to a skipped run, the watermark holds and the same entries are offered
-     * again. Otherwise each deferred document, a retried one included, is charged for its own failure, exactly as any
-     * other failed entry is.
+     * ({@link #looksLikeOutage(SyncRun, SyncScope)}) the repository is what failed: the run fails without charging
+     * anyone's retry budget, and because the task maps a 503 to a skipped run, the watermark holds and the same entries
+     * are offered again. Otherwise each deferred document, a retried one included, is charged for its own failure,
+     * exactly as any other failed entry is.
+     *
+     * <p>
+     * All of them or none of them: an entry charged nothing is an entry with no {@code cbom_sync_skip} row, which the
+     * retry pass therefore never offers again, and the hourly watermark has moved past it by then. That is why
+     * {@link #MAX_CHARGED_READ_FAILURES_PER_RUN} is a condition of the verdict rather than a limit on the loop.
      */
-    private void settleUnavailable(SyncRun run) throws CbomRepositoryException {
+    private void settleUnavailable(SyncRun run, SyncScope scope) throws CbomRepositoryException {
         if (run.deferred.isEmpty()) {
             return;
         }
-        if (looksLikeOutage(run)) {
+        if (looksLikeOutage(run, scope)) {
             throw new CbomRepositoryException(ProblemDetail
                     .forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE,
-                            "CBOM Repository failed every document read of this run (" + run.deferred.size()
-                                    + " documents); no server-side read failure was charged to the retry budget"
+                            "CBOM Repository failed " + run.deferred.size() + " document reads of this run"
+                                    + (run.deferred.size() >= MAX_CHARGED_READ_FAILURES_PER_RUN
+                                            ? ", more than one run charges"
+                                            : ", every one it attempted")
+                                    + "; no server-side read failure was charged to the retry budget"
                                     + " and the run is not counted as successful"));
         }
         for (DeferredSkip deferred : run.deferred) {
@@ -1151,9 +1229,63 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      * being exempted in every quiet run to come -- the run skipped every hour, the watermark never recorded again, the
      * budget never spent -- which is the unbounded retry the table exists to prevent. The price is one attempt charged
      * to a retry when an outage begins between the page requests and the retries of the same run.
+     *
+     * <p>
+     * <b>A whole-listing pass needs more evidence than "no read succeeded".</b> Over an estate Core is already in step
+     * with, that pass reads no documents at all -- almost every entry it is offered is stored and settled by an indexed
+     * existence check -- so the first half of the test is satisfied by a healthy run rather than by a sick repository,
+     * and two broken documents would abandon the pass before it ingests anything. Next Sunday reads exactly as little,
+     * so the pass would skip itself for ever, in precisely the case it exists to repair. It therefore diagnoses an
+     * outage only when nothing in the listing was already stored: a run that matched entries it holds has seen the
+     * listing the repository serves, whatever its document store is doing. The hourly pass keeps the original rule,
+     * which its own overlap would otherwise defeat -- it re-offers stored entries every run by design.
+     *
+     * <p>
+     * {@code alreadyStored} rather than {@code duplicates}, which is the aggregate the summary line reports and also
+     * counts an identity the feed offered twice within one run -- its own comment says a page overlapping a retried
+     * cursor does that, and a whole-listing pass from {@code after = 0} meets it more readily than an hourly window.
+     * One such repeat would otherwise flip the verdict for the entire run, in the direction that costs the most.
+     *
+     * <p>
+     * <b>And that arm is bounded by {@link #MAX_CHARGED_READ_FAILURES_PER_RUN}</b>, which is the only place a bound
+     * belongs. Reaching it means the listing proved the repository is serving while <em>no</em> document read
+     * succeeded, and the question is then only how many entries failed: a few are the stuck documents this pass exists
+     * to charge, and an estate's worth of them is the document store. Nothing else bounds that -- {@code deferred}
+     * grows with the listing, and this pass lists the estate -- so a repository serving its listing but not its
+     * documents would charge every entry Core does not hold, once a Sunday, and write the estate off in as few as
+     * {@code cbom.sync.skipped-retry-runs + 1} of them.
+     *
+     * <p>
+     * <b>The cap does not sit ahead of the other arms</b>, and that ordering is the rule rather than an accident. A run
+     * in which reads <em>did</em> succeed has watched the repository serve documents, so its failures are those
+     * documents' own however many there are, and charging them is what the budget is for. Put first, the cap would call
+     * a healthy hourly run with a thousand genuinely broken documents an outage, skip it, and hold the watermark for
+     * ever -- the mirror image of the self-skipping the scope-aware arm above exists to prevent.
+     *
+     * <p>
+     * It raises the verdict rather than truncating the charges, because charging is all-or-nothing by construction: an
+     * entry charged nothing has no skip row, so the retry pass never offers it again, and the hourly watermark has
+     * moved past it.
      */
-    private static boolean looksLikeOutage(SyncRun run) {
-        return run.successfulReads == 0 && run.feedDeferred >= 2;
+    private static boolean looksLikeOutage(SyncRun run, SyncScope scope) {
+        return looksLikeOutage(run.deferred.size(), run.feedDeferred, run.successfulReads, run.alreadyStored,
+                scope == SyncScope.THE_WHOLE_LISTING);
+    }
+
+    /**
+     * The verdict itself, as a function of the four counters it reads. Separated from {@link SyncRun} so that every arm
+     * -- including the charge cap, which a run of a thousand stubbed entries is the only other way to reach -- is
+     * decided by a test that states the counters rather than by one that has to produce them.
+     */
+    static boolean looksLikeOutage(int deferred, int feedDeferred, int successfulReads, int alreadyStored,
+            boolean wholeListing) {
+        if (successfulReads > 0 || feedDeferred < 2) {
+            return false;
+        }
+        if (!wholeListing || alreadyStored == 0) {
+            return true;
+        }
+        return deferred >= MAX_CHARGED_READ_FAILURES_PER_RUN;
     }
 
     /**
@@ -1407,7 +1539,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
             workList
                     .addAll(cbomRepository
                             .findAssetIngestRetries(INGEST_RETRY_STATES, retryBefore,
-                                    Limit.of(budget - workList.size())));
+                                    CbomAssetIngestService.MAX_CONTENT_REFUSALS, Limit.of(budget - workList.size())));
         }
         final List<DeferredIngest> deferred = new ArrayList<>();
         final int readsBefore = run.ingestReads;
@@ -1596,6 +1728,10 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         int feedDeferred;
         int stored;
         int duplicates;
+        /**
+         * Of {@link #duplicates}, the entries Core already held; only these weigh in a whole-listing outage verdict.
+         */
+        int alreadyStored;
         int originals;
         int invalid;
         int recordedForRetry;
