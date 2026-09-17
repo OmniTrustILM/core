@@ -1,8 +1,13 @@
 # CLAUDE.md
 
+This file instructs an agent implementing changes in this repository. Review rules live in
+`.github/copilot-instructions.md`.
+
 General engineering principles and process guidance for working effectively on this codebase. Project-specific facts (build commands, architecture, package layout) belong in the README, scripts, or code itself — they can be derived from the repo. This file is for the things that aren't obvious from the code.
 
 ## Working with reviews
+
+This section is for an agent preparing its own pull request for review, not for a reviewer.
 
 ### Independent review pass on substantial PRs
 
@@ -135,8 +140,16 @@ only configuration surface, so anything living solely in yml/env is unreachable 
 
 Reserve `@Value`/`application.yml` for things that genuinely can't be runtime settings: bootstrap/infrastructure wiring
 needed before the settings store exists, or per-environment plumbing (datasource, ports). When unsure, ask rather than
-default to `@Value`. If you do add a deploy-time env-var override (`${ENV_VAR_NAME:default}`), it must also be wired
-into the Helm charts (separate repo) — **warn the user** and hand them a prompt for a Claude Code session in that repo.
+default to `@Value`.
+
+This governs where a *new* setting is designed to live. A key that tunes behaviour an existing yml-only block already
+configures follows that block: configuring one key differently from its siblings is worse for an operator than the
+current uniform answer. Migrating a block to the Settings subsystem is its own decision, not something to raise against
+a change that adds one key to it. A new operator-facing capability still goes to Settings, wherever its neighbours
+live.
+
+A deploy-time env-var override (`${ENV_VAR_NAME:default}`) also needs wiring in the Helm charts, which live in a
+separate repository. When you implement one, tell the user that the charts need a matching change.
 
 ## Don't leak runtime details to the wire
 
