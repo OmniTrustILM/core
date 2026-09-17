@@ -7,12 +7,20 @@ import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.enums.cryptography.RsaSignatureScheme;
+import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.core.attribute.EcdsaSignatureAttributes;
 import com.otilm.core.attribute.RsaSignatureAttributes;
+import com.otilm.core.model.crypto.KeyMaterial;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.bouncycastle.asn1.ASN1Primitive;
 import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
@@ -22,6 +30,45 @@ import org.bouncycastle.operator.DefaultSignatureAlgorithmIdentifierFinder;
 import org.bouncycastle.pqc.jcajce.provider.falcon.BCFalconPublicKey;
 
 public class CryptographyUtil {
+    private static final Map<KeyType, List<KeyUsage>> FORBIDDEN_TYPE_USAGES = Map
+            .of(KeyType.PRIVATE_KEY, List.of(KeyUsage.VERIFY, KeyUsage.ENCRYPT, KeyUsage.WRAP), KeyType.PUBLIC_KEY,
+                    List.of(KeyUsage.SIGN, KeyUsage.DECRYPT, KeyUsage.UNWRAP));
+    private static final Map<KeyAlgorithm, List<KeyUsage>> FORBIDDEN_ALGORITHM_USAGES = Map
+            .of(KeyAlgorithm.ECDSA, List.of(KeyUsage.ENCRYPT, KeyUsage.DECRYPT));
+
+    /**
+     * Returns usages prohibited by the key type or algorithm.
+     *
+     * @param keyType non-null key type
+     * @param keyAlgorithm non-null key algorithm
+     * @return distinct prohibited usages in unspecified order; empty when neither input imposes restrictions
+     */
+    public static List<KeyUsage> getForbiddenUsages(KeyType keyType, KeyAlgorithm keyAlgorithm) {
+        Set<KeyUsage> usages = new HashSet<>(FORBIDDEN_TYPE_USAGES.getOrDefault(keyType, List.of()));
+        usages.addAll(FORBIDDEN_ALGORITHM_USAGES.getOrDefault(keyAlgorithm, List.of()));
+        return List.copyOf(usages);
+    }
+
+    /**
+     * Calculates a fingerprint from serialized key material.
+     *
+     * @param material key material, or null when no material is available
+     * @return fingerprint, or null for absent material, format, or serialized value, or a custom format
+     * @throws ValidationException if the fingerprint algorithm is unavailable
+     */
+    public static String calculateKeyFingerprint(KeyMaterial material) {
+        if (material == null || material.format() == null || material.format() == KeyFormat.CUSTOM
+                || material.serializedValue() == null) {
+            return null;
+        }
+        try {
+            byte[] serializedBytes = material.serializedValue().getBytes(StandardCharsets.UTF_8);
+            return CertificateUtil.getThumbprint(serializedBytes);
+        } catch (NoSuchAlgorithmException e) {
+            throw new ValidationException("Failed to calculate key fingerprint.");
+        }
+    }
+
     public static AlgorithmIdentifier prepareSignatureAlgorithm(KeyAlgorithm keyAlgorithm, String publicKey,
             List<RequestAttribute> signatureAttributes) {
         return getAlgorithmIdentifierInstance(

@@ -6,8 +6,8 @@ import com.otilm.api.model.core.certificate.CertificateKeyUsage;
 import com.otilm.api.model.core.certificate.CertificateSubjectType;
 import com.otilm.api.model.core.oid.SystemOid;
 import com.otilm.core.dao.entity.Certificate;
-import com.otilm.core.model.crypto.CryptographicKeyItemModel;
 import com.otilm.core.model.crypto.CryptographicKeyItemModelFixtures;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
 import com.otilm.core.model.signing.SigningCertificate;
 import com.otilm.core.model.signing.SigningCertificateBuilder;
@@ -29,7 +29,7 @@ class CertificatePurposeEligibilityTest {
 
     private static final String EMAIL_PROTECTION_OID = "1.3.6.1.5.5.7.3.4";
 
-    private static final List<CryptographicKeyItemModel> SIGNING_KEY_ITEMS = List
+    private static final List<CryptographicKeyItemOperationModel> SIGNING_KEY_ITEMS = List
             .of(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA),
                     CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA));
 

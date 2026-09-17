@@ -8,6 +8,7 @@ import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
+import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.client.cryptography.tokenprofile.AddTokenProfileRequestDto;
 import com.otilm.api.model.client.cryptography.tokenprofile.EditTokenProfileRequestDto;
 import com.otilm.api.model.common.NameAndUuidDto;
@@ -27,6 +28,7 @@ import com.otilm.core.mapper.crypto.TokenProfileDtoMapper;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.crypto.ImmutableTokenProfileBasicModel;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
+import com.otilm.core.model.crypto.TokenProfileListModel;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredParentUUID;
@@ -35,6 +37,7 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.TokenInstanceInternalService;
 import com.otilm.core.service.TokenProfileExternalService;
 import com.otilm.core.service.TokenProfileInternalService;
+import com.otilm.core.service.handler.token.TokenProviderAdapterFactory;
 import com.otilm.core.service.writer.TokenProfileWriter;
 import java.util.List;
 import java.util.Optional;
@@ -55,6 +58,7 @@ public class TokenProfileServiceImpl implements TokenProfileExternalService, Tok
     private AttributeEngine attributeEngine;
     private TokenProfileRepository tokenProfileRepository;
     private TokenInstanceReferenceRepository tokenInstanceReferenceRepository;
+    private TokenProviderAdapterFactory tokenProviderAdapterFactory;
     private TokenProfileWriter tokenProfileWriter;
 
     @Autowired
@@ -87,15 +91,32 @@ public class TokenProfileServiceImpl implements TokenProfileExternalService, Tok
         this.authorizationEnforcer = authorizationEnforcer;
     }
 
+    @Autowired
+    public void setTokenProviderAdapterFactory(TokenProviderAdapterFactory tokenProviderAdapterFactory) {
+        this.tokenProviderAdapterFactory = tokenProviderAdapterFactory;
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.TOKEN_PROFILE, action = ResourceAction.MEMBERS,
+            parentResource = Resource.TOKEN, parentAction = ResourceAction.MEMBERS)
+    public List<KeyRequestType> listSupportedKeyRequestTypes(SecuredParentUUID tokenInstanceUuid,
+            SecuredUUID tokenProfileUuid) throws NotFoundException, ConnectorException {
+        TokenProfileFullModel tokenProfile = findTokenProfile(tokenInstanceUuid.getValue(),
+                tokenProfileUuid.getValue());
+        return this.tokenProviderAdapterFactory
+                .forToken(tokenProfile.tokenInstance())
+                .listSupportedKeyRequestTypes(tokenProfile);
+    }
+
     @Override
     @ExternalAuthorization(resource = Resource.TOKEN_PROFILE, action = ResourceAction.LIST,
             parentResource = Resource.TOKEN, parentAction = ResourceAction.LIST)
     public List<TokenProfileDto> listTokenProfiles(Optional<Boolean> enabled, SecurityFilter filter) {
         logger.info("Listing token profiles");
         filter.setParentRefProperty("tokenInstanceReferenceUuid");
-        List<TokenProfileFullModel> tokenProfiles = enabled
-                .map(value -> tokenProfileRepository.findFullModelsUsingSecurityFilter(filter, value))
-                .orElseGet(() -> tokenProfileRepository.findFullModelsUsingSecurityFilter(filter));
+        List<TokenProfileListModel> tokenProfiles = enabled
+                .map(value -> tokenProfileRepository.findListModelsUsingSecurityFilter(filter, value))
+                .orElseGet(() -> tokenProfileRepository.findListModelsUsingSecurityFilter(filter));
         return tokenProfiles.stream().map(TokenProfileDtoMapper::mapToDto).toList();
     }
 

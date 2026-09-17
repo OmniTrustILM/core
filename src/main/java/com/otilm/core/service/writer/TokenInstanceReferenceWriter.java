@@ -38,14 +38,14 @@ public class TokenInstanceReferenceWriter {
 
     @Transactional
     public TokenInstanceReference save(TokenInstanceBasicModel model) {
-        logger.debug("Creating token instance reference: {}", model == null ? null : model.uuid());
+        logger.debug("Creating token instance reference: {}", model == null ? null : model.toIdentifierString());
         return tokenInstanceReferenceRepository.save(toEntity(model));
     }
 
     @Transactional
     public TokenInstanceReference update(TokenInstanceBasicModel model) throws NotFoundException {
         Objects.requireNonNull(model, "Token instance model is required.");
-        logger.debug("Updating token instance reference: {}", model.uuid());
+        logger.atDebug().addArgument(model::toIdentifierString).log("Updating token instance reference: {}");
         TokenInstanceReference tokenInstanceReference = tokenInstanceReferenceRepository
                 .findWithLockByUuid(model.uuid())
                 .orElseThrow(() -> new NotFoundException("Token instance not found: " + model.uuid()));
@@ -84,7 +84,7 @@ public class TokenInstanceReferenceWriter {
     @Transactional
     public void delete(TokenInstanceBasicModel model) {
         Objects.requireNonNull(model, "Token instance model is required.");
-        logger.debug("Deleting token instance reference: {}", model.uuid());
+        logger.atDebug().addArgument(model::toIdentifierString).log("Deleting token instance reference: {}");
         attributeEngine.deleteObjectAttributeContent(Resource.TOKEN, model.uuid());
         commentService.removeObjectComments(Resource.TOKEN, model.uuid());
         tokenInstanceReferenceRepository.deleteById(model.uuid());

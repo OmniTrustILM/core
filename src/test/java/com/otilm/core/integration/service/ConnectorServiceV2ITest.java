@@ -23,6 +23,7 @@ import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
+import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.AuthType;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.connector.v2.ConnectInfo;
@@ -44,6 +45,8 @@ import com.otilm.core.dao.repository.CredentialRepository;
 import com.otilm.core.dao.repository.EntityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.VaultInstanceRepository;
+import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.model.connector.ImmutableConnectorFullModel;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.v2.ConnectorExternalService;
@@ -56,9 +59,13 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doThrow;
@@ -161,6 +168,38 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
         Assertions
                 .assertThrows(NotFoundException.class, () -> connectorService
                         .getConnector(SecuredUUID.fromString("abfbc322-29e1-11ed-a261-0242ac120002")));
+    }
+
+    @Test
+    void getConnectorFullModelForApiClient_loadsInterfaces_withoutConnectorAuthorization() throws Exception {
+        // given
+        denyResourceAccess(Resource.CONNECTOR, ResourceAction.ANY);
+        UUID connectorUuid = connector.getUuid();
+
+        // when
+        ImmutableConnectorFullModel model = connectorInternalService.getConnectorFullModelForApiClient(connectorUuid);
+        Executable externalLookup = () -> connectorService.getConnectorFullModel(connector.getSecuredUuid());
+
+        // then
+        assertThat(model.uuid()).isEqualTo(connectorUuid);
+        assertThat(model.connectorInterfaces()).singleElement().satisfies(iface -> {
+            assertThat(iface.code()).isEqualTo(ConnectorInterface.AUTHORITY);
+            assertThat(iface.features()).containsExactly(FeatureFlag.STATELESS);
+        });
+        assertThrows(AccessDeniedException.class, externalLookup);
+    }
+
+    @Test
+    void getConnectorFullModelForApiClient_throwsNotFound_forMissingConnector() {
+        // given
+        UUID missingConnectorUuid = UUID.randomUUID();
+
+        // when
+        Executable lookup = () -> connectorInternalService.getConnectorFullModelForApiClient(missingConnectorUuid);
+
+        // then
+        NotFoundException failure = assertThrows(NotFoundException.class, lookup);
+        assertThat(failure).hasMessageContaining(missingConnectorUuid.toString());
     }
 
     @Test

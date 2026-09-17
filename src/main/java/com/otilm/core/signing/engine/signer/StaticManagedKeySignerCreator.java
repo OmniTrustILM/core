@@ -4,7 +4,7 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
-import com.otilm.core.model.crypto.CryptographicKeyItemModel;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.signing.SigningCertificate;
 import com.otilm.core.model.signing.resolved.ResolvedManagedScheme;
 import com.otilm.core.model.signing.resolved.ResolvedStaticKeyManagedSigning;
@@ -42,9 +42,9 @@ public class StaticManagedKeySignerCreator implements SignerCreator {
                     "Signing key could not be found.");
         }
 
-        List<CryptographicKeyItemModel> keyItems = signingScheme.keyItems();
+        List<CryptographicKeyItemOperationModel> keyItems = signingScheme.keyItems();
 
-        CryptographicKeyItemModel privateKeyItem = keyItems
+        CryptographicKeyItemOperationModel privateKeyItem = keyItems
                 .stream()
                 .filter(item -> item.keyType() == KeyType.PRIVATE_KEY)
                 .findFirst()
@@ -52,7 +52,7 @@ public class StaticManagedKeySignerCreator implements SignerCreator {
                         String.format("No private key item found for key '%s'", certificate.keyUuid()),
                         "Signing key could not be found."));
 
-        CryptographicKeyItemModel publicKeyItem = keyItems
+        CryptographicKeyItemOperationModel publicKeyItem = keyItems
                 .stream()
                 .filter(item -> item.keyType() == KeyType.PUBLIC_KEY)
                 .findFirst()
@@ -76,8 +76,8 @@ public class StaticManagedKeySignerCreator implements SignerCreator {
      * -- a SHA-1 digest, or a PQC parameter set outside the enum. That is a Signing Profile the operator can fix, so it
      * is refused as MISCONFIGURED rather than escaping as the unchecked throw a caller would log as a platform fault.
      */
-    private static SignatureAlgorithm resolveSignatureAlgorithm(CryptographicKeyItemModel privateKeyItem,
-            CryptographicKeyItemModel publicKeyItem, List<RequestAttribute> requestAttributes)
+    private static SignatureAlgorithm resolveSignatureAlgorithm(CryptographicKeyItemOperationModel privateKeyItem,
+            CryptographicKeyItemOperationModel publicKeyItem, List<RequestAttribute> requestAttributes)
             throws SigningEngineException {
         String algorithmName = resolveSignatureAlgorithmName(privateKeyItem, publicKeyItem, requestAttributes);
         try {
@@ -91,8 +91,8 @@ public class StaticManagedKeySignerCreator implements SignerCreator {
     }
 
     /** The signing attributes are operator-supplied, so a missing or unreadable one names no algorithm at all. */
-    private static String resolveSignatureAlgorithmName(CryptographicKeyItemModel privateKeyItem,
-            CryptographicKeyItemModel publicKeyItem, List<RequestAttribute> requestAttributes)
+    private static String resolveSignatureAlgorithmName(CryptographicKeyItemOperationModel privateKeyItem,
+            CryptographicKeyItemOperationModel publicKeyItem, List<RequestAttribute> requestAttributes)
             throws SigningEngineException {
         try {
             return CryptographyUtil

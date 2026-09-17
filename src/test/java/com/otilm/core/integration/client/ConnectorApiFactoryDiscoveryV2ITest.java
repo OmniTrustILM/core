@@ -1,6 +1,7 @@
 package com.otilm.core.integration.client;
 
 import com.otilm.api.interfaces.client.v2.DiscoverySyncApiClient;
+import com.otilm.api.interfaces.client.v2.KeySyncApiClient;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.connector.v2.ConnectorDetailDto;
@@ -34,6 +35,31 @@ class ConnectorApiFactoryDiscoveryV2ITest extends BaseSpringBootTest {
         DiscoverySyncApiClient client = connectorApiFactory.getDiscoveryApiClientV2(savedConnectorDto("proxy-1"));
 
         assertThat(client).isInstanceOf(com.otilm.api.clients.mq.discovery.v2.DiscoveryApiClient.class);
+    }
+
+    @Test
+    void keyManagementV2_usesRestClient_forDirectConnector() {
+        // given
+        ConnectorDetailDto connector = savedConnectorDto(null);
+
+        // when
+        KeySyncApiClient client = connectorApiFactory.getKeyManagementApiClientV2(connector);
+
+        // then
+        assertThat(client).isInstanceOf(com.otilm.api.clients.cryptography.v2.KeyApiClient.class);
+    }
+
+    @Test
+    void keyManagementV2_usesMqClient_forProxiedConnector() {
+        // given
+        String proxyCode = "key-management-proxy";
+        ConnectorDetailDto connector = savedConnectorDto(proxyCode);
+
+        // when
+        KeySyncApiClient client = connectorApiFactory.getKeyManagementApiClientV2(connector);
+
+        // then
+        assertThat(client).isInstanceOf(com.otilm.api.clients.mq.v2.KeyApiClient.class);
     }
 
     private ConnectorDetailDto savedConnectorDto(String proxyCode) {

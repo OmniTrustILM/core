@@ -10,9 +10,8 @@ import com.otilm.core.exception.UnsupportedCryptographyProviderVersionException;
 import com.otilm.core.model.connector.ImmutableConnectorFullModel;
 import com.otilm.core.model.connector.ImmutableConnectorInterface;
 import com.otilm.core.model.crypto.TokenInstanceFullModel;
-import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.handler.OperationAttributeResolver;
-import com.otilm.core.service.v2.ConnectorExternalService;
+import com.otilm.core.service.v2.ConnectorInternalService;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
@@ -24,15 +23,15 @@ import org.springframework.stereotype.Component;
 public class TokenProviderAdapterFactory {
 
     private final ConnectorApiFactory connectorApiFactory;
-    private final ConnectorExternalService connectorExternalService;
+    private final ConnectorInternalService connectorInternalService;
     private final AttributeEngine attributeEngine;
     private final OperationAttributeResolver operationAttributeResolver;
 
     public TokenProviderAdapterFactory(ConnectorApiFactory connectorApiFactory,
-            ConnectorExternalService connectorExternalService, AttributeEngine attributeEngine,
+            ConnectorInternalService connectorInternalService, AttributeEngine attributeEngine,
             OperationAttributeResolver operationAttributeResolver) {
         this.connectorApiFactory = connectorApiFactory;
-        this.connectorExternalService = connectorExternalService;
+        this.connectorInternalService = connectorInternalService;
         this.attributeEngine = attributeEngine;
         this.operationAttributeResolver = operationAttributeResolver;
     }
@@ -90,8 +89,8 @@ public class TokenProviderAdapterFactory {
             throw new NotFoundException(Connector.class, tokenInstance.connectorName());
         }
 
-        ImmutableConnectorFullModel connector = connectorExternalService
-                .getConnectorFullModel(SecuredUUID.fromUUID(tokenInstance.connectorUuid()));
+        ImmutableConnectorFullModel connector = connectorInternalService
+                .getConnectorFullModelForApiClient(tokenInstance.connectorUuid());
         ImmutableConnectorInterface iface = tokenInstance.connectorInterface();
         if (iface == null) {
             return new TokenProviderV1Adapter(connectorApiFactory, connector);

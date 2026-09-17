@@ -9,6 +9,7 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.client.cryptography.tokenprofile.AddTokenProfileRequestDto;
 import com.otilm.api.model.client.cryptography.tokenprofile.EditTokenProfileRequestDto;
 import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
@@ -36,16 +37,24 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.TokenProfileExternalService;
 import com.otilm.core.service.TokenProfileInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import jakarta.persistence.EntityManager;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Collectors;
+import org.hibernate.Hibernate;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest
 class TokenProfileServiceITest extends BaseSpringBootTest {
@@ -68,6 +77,10 @@ class TokenProfileServiceITest extends BaseSpringBootTest {
     private SigningProfileRepository signingProfileRepository;
     @Autowired
     private SigningProfileVersionRepository signingProfileVersionRepository;
+    @Autowired
+    private EntityManager entityManager;
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     private TokenProfile tokenProfile;
     private TokenInstanceReference tokenInstanceReference;
@@ -114,6 +127,65 @@ class TokenProfileServiceITest extends BaseSpringBootTest {
         Assertions.assertFalse(tokenProfiles.isEmpty());
         Assertions.assertEquals(1, tokenProfiles.size());
         Assertions.assertEquals(tokenProfile.getUuid().toString(), tokenProfiles.get(0).getUuid());
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(booleans = {true, false})
+    void listTokenProfiles_doesNotLoadSiblingProfiles(Boolean enabled) {
+        // given
+        Optional<Boolean> enabledFilter = Optional.ofNullable(enabled);
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            TokenProfile sibling = new TokenProfile();
+            sibling.setName("disabled-sibling");
+            sibling.setTokenInstanceReference(tokenInstanceReference);
+            sibling.setEnabled(false);
+            entityManager.persist(sibling);
+            entityManager.flush();
+            entityManager.clear();
+
+            // when
+            List<TokenProfileDto> profiles = tokenProfileService
+                    .listTokenProfiles(enabledFilter, SecurityFilter.create());
+
+            // then
+            Assertions.assertEquals(enabled == null ? 2 : 1, profiles.size());
+            if (enabled != null) {
+                Assertions.assertTrue(profiles.stream().allMatch(profile -> enabled.equals(profile.getEnabled())));
+            }
+            TokenInstanceReference token = entityManager
+                    .find(TokenInstanceReference.class, tokenInstanceReference.getUuid());
+            Assertions.assertFalse(Hibernate.isInitialized(token.getTokenProfiles()));
+        });
+    }
+
+    @Test
+    void listSupportedKeyRequestTypes_returnsLegacyTypes() throws Exception {
+        // given
+        List<KeyRequestType> expectedTypes = List.of(KeyRequestType.SECRET, KeyRequestType.KEY_PAIR);
+
+        // when
+        List<KeyRequestType> types = tokenProfileService
+                .listSupportedKeyRequestTypes(tokenInstanceReference.getSecuredParentUuid(),
+                        tokenProfile.getSecuredUuid());
+
+        // then
+        Assertions.assertEquals(expectedTypes, types);
+        Assertions.assertEquals(0, mockServer.getAllServeEvents().size());
+    }
+
+    @Test
+    void listSupportedKeyRequestTypes_rejectsForeignParent() {
+        // given
+        var foreignTokenUuid = SecuredParentUUID.fromUUID(UUID.randomUUID());
+
+        // when
+        Executable listTypes = () -> tokenProfileService
+                .listSupportedKeyRequestTypes(foreignTokenUuid, tokenProfile.getSecuredUuid());
+
+        // then
+        Assertions.assertThrows(NotFoundException.class, listTypes);
+        Assertions.assertEquals(0, mockServer.getAllServeEvents().size());
     }
 
     @Test

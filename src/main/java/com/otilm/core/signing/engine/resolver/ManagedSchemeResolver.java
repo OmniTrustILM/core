@@ -2,7 +2,7 @@ package com.otilm.core.signing.engine.resolver;
 
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
-import com.otilm.core.model.crypto.CryptographicKeyItemModel;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.signing.SigningCertificate;
 import com.otilm.core.model.signing.resolved.ResolvedManagedScheme;
 import com.otilm.core.model.signing.resolved.ResolvedStaticKeyManagedSigning;
@@ -59,7 +59,7 @@ public class ManagedSchemeResolver {
                     "Signing key certificate could not be found.");
         }
 
-        List<CryptographicKeyItemModel> keyItems = new ArrayList<>();
+        List<CryptographicKeyItemOperationModel> keyItems = new ArrayList<>();
         for (UUID keyItemUuid : certificate.keyItemUuids()) {
             try {
                 keyItems.add(cryptographicKeyService.getKeyItemModel(keyItemUuid));

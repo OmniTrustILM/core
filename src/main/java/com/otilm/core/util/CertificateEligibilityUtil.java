@@ -15,7 +15,7 @@ import com.otilm.core.dao.entity.Certificate_;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.CryptographicKeyItem_;
 import com.otilm.core.dao.entity.CryptographicKey_;
-import com.otilm.core.model.crypto.CryptographicKeyItemModel;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
 import com.otilm.core.model.signing.SigningCertificate;
 import jakarta.annotation.Nullable;
@@ -502,7 +502,7 @@ public class CertificateEligibilityUtil {
      * Cache-backed counterpart of
      * {@link #isCertificateDigitalSigningAcceptable(Certificate, SigningWorkflowType, boolean, CertificatePurposeRequirements)}.
      * Evaluates the same acceptability rules against the {@link SigningCertificate} snapshot and its
-     * {@link CryptographicKeyItemModel} key items instead of the JPA entity graph.
+     * {@link CryptographicKeyItemOperationModel} key items instead of the JPA entity graph.
      *
      * @param certificate the cached certificate snapshot
      * @param keyItems the cached key-item snapshots for the certificate's key
@@ -513,11 +513,11 @@ public class CertificateEligibilityUtil {
      * @return {@code true} iff all applicable requirements are satisfied
      */
     public static boolean isCertificateDigitalSigningAcceptable(SigningCertificate certificate,
-            List<CryptographicKeyItemModel> keyItems, SigningWorkflowType workflowType, boolean qualifiedTimestamp,
-            CertificatePurposeRequirements certificatePurpose) {
+            List<CryptographicKeyItemOperationModel> keyItems, SigningWorkflowType workflowType,
+            boolean qualifiedTimestamp, CertificatePurposeRequirements certificatePurpose) {
         List<SigningPrivateKeyView> privateKeys = new ArrayList<>();
         boolean hasPublicKey = false;
-        for (CryptographicKeyItemModel item : keyItems) {
+        for (CryptographicKeyItemOperationModel item : keyItems) {
             if (item.keyType() == KeyType.PRIVATE_KEY) {
                 privateKeys.add(new SigningPrivateKeyView(item.keyState(), item.keyUsage()));
             } else if (item.keyType() == KeyType.PUBLIC_KEY) {

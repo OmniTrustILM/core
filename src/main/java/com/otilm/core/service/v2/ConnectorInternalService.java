@@ -7,6 +7,7 @@ import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.core.connector.v2.ConnectorDetailDto;
 import com.otilm.api.model.core.connector.v2.ConnectorRequestDto;
+import com.otilm.core.model.connector.ImmutableConnectorFullModel;
 import com.otilm.core.service.ResourceExtensionService;
 
 import java.util.UUID;
@@ -33,5 +34,11 @@ public interface ConnectorInternalService extends ResourceExtensionService {
      * Returns cached connector data shaped for API client routing.
      */
     ApiClientConnectorInfo getConnectorForApiClient(UUID connectorUuid) throws NotFoundException;
+
+    /**
+     * Returns the full connector model without connector authorization. Callers must authorize the operation on the
+     * owning resource before using this internal lookup.
+     */
+    ImmutableConnectorFullModel getConnectorFullModelForApiClient(UUID connectorUuid) throws NotFoundException;
 
 }

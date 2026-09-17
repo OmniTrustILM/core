@@ -6,6 +6,7 @@ import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.core.web.TokenProfileController;
+import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.client.cryptography.tokenprofile.AddTokenProfileRequestDto;
 import com.otilm.api.model.client.cryptography.tokenprofile.BulkTokenProfileKeyUsageRequestDto;
 import com.otilm.api.model.client.cryptography.tokenprofile.EditTokenProfileRequestDto;
@@ -160,6 +161,16 @@ public class TokenProfileControllerImpl implements TokenProfileController {
             @LogResource(uuid = true, affiliated = true) String tokenInstanceUuid)
             throws ConnectorException, NotFoundException {
         return tokenInstanceService.listSupportedKeyUsages(SecuredUUID.fromString(tokenInstanceUuid));
+    }
+
+    @Override
+    @AuditLogged(module = Module.CRYPTOGRAPHIC_KEYS, resource = Resource.TOKEN_PROFILE,
+            affiliatedResource = Resource.TOKEN, operation = Operation.LIST_KEY_REQUEST_TYPES)
+    public List<KeyRequestType> listSupportedKeyRequestTypes(String tokenInstanceUuid, String tokenProfileUuid)
+            throws NotFoundException, ConnectorException {
+        SecuredParentUUID tokenInstanceUuidSecured = SecuredParentUUID.fromString(tokenInstanceUuid);
+        SecuredUUID tokenProfileUuidSecured = SecuredUUID.fromString(tokenProfileUuid);
+        return tokenProfileService.listSupportedKeyRequestTypes(tokenInstanceUuidSecured, tokenProfileUuidSecured);
     }
 
     @Override
