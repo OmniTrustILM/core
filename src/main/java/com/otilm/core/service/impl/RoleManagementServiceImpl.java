@@ -70,11 +70,6 @@ public class RoleManagementServiceImpl implements RoleManagementExternalService,
         this.authorizationCache = authorizationCache;
     }
 
-    /**
-     * Drops every cached identity and every cached authorization decision. Both caches derive from the role's
-     * permissions, and by the time this runs the auth service has already applied the change, so a failure in a later
-     * local step must not leave profiles or decisions that still grant the old permissions.
-     */
     private void evictPermissionCaches() {
         authenticationCache.evictAll();
         authorizationCache.evictAll();
