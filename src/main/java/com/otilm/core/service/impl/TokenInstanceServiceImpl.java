@@ -45,7 +45,7 @@ import com.otilm.core.service.handler.token.TokenProfileValidationCapability;
 import com.otilm.core.service.handler.token.TokenProviderAdapter;
 import com.otilm.core.service.handler.token.TokenProviderAdapterFactory;
 import com.otilm.core.service.handler.token.TokenProviderBinding;
-import com.otilm.core.service.v2.ConnectorExternalService;
+import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.service.writer.TokenInstanceReferenceWriter;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import java.util.ArrayList;
@@ -67,7 +67,7 @@ public class TokenInstanceServiceImpl implements TokenInstanceExternalService, T
     // --------------------------------------------------------------------------------
     // Services & API Clients
     // --------------------------------------------------------------------------------
-    private ConnectorExternalService connectorExternalService;
+    private ConnectorInternalService connectorInternalService;
     private CredentialInternalService credentialService;
     private AttributeEngine attributeEngine;
     private ResourceInternalService resourceService;
@@ -114,8 +114,8 @@ public class TokenInstanceServiceImpl implements TokenInstanceExternalService, T
     }
 
     @Autowired
-    public void setConnectorExternalService(ConnectorExternalService connectorExternalService) {
-        this.connectorExternalService = connectorExternalService;
+    public void setConnectorInternalService(ConnectorInternalService connectorInternalService) {
+        this.connectorInternalService = connectorInternalService;
     }
 
     // -------------------------------------------------------------------------------------
@@ -143,7 +143,8 @@ public class TokenInstanceServiceImpl implements TokenInstanceExternalService, T
     public List<BaseAttribute> listTokenAttributes(SecuredUUID connectorUuid, @Nullable String kind)
             throws ConnectorException, NotFoundException {
         logger.info("Listing token attributes for connector '{}'", connectorUuid);
-        ImmutableConnectorFullModel connector = connectorExternalService.getConnectorFullModel(connectorUuid);
+        ImmutableConnectorFullModel connector = connectorInternalService
+                .getConnectorFullModelForApiClient(connectorUuid.getValue());
 
         return tokenProviderAdapterFactory.forConnector(connector).listTokenAttributes(kind);
     }
@@ -183,8 +184,8 @@ public class TokenInstanceServiceImpl implements TokenInstanceExternalService, T
                     ValidationError.create("The connector UUID '{}' is malformed", request.getConnectorUuid()));
         }
 
-        ImmutableConnectorFullModel connector = connectorExternalService
-                .getConnectorFullModel(SecuredUUID.fromUUID(connectorUuid));
+        ImmutableConnectorFullModel connector = connectorInternalService
+                .getConnectorFullModelForApiClient(connectorUuid);
         TokenProviderBinding binding = tokenProviderAdapterFactory.forConnectorWithBinding(connector);
         TokenProviderAdapter adapter = binding.adapter();
 
@@ -214,7 +215,7 @@ public class TokenInstanceServiceImpl implements TokenInstanceExternalService, T
         TokenInstanceStatusDetailDto refreshedStatus = refreshTokenInstanceStatus(tokenInstance, adapter);
         tokenInstanceReferenceWriter.updateStatus(tokenInstance.uuid(), refreshedStatus.getStatus());
 
-        logger.debug("Token Instance Reference: '{}'", tokenInstance);
+        logger.atDebug().addArgument(tokenInstance::toIdentifierString).log("Token Instance Reference: '{}'");
         return assembleTokenInstanceDetail(tokenInstance, refreshedStatus);
     }
 
@@ -225,8 +226,8 @@ public class TokenInstanceServiceImpl implements TokenInstanceExternalService, T
         logger.info("Updating token instance with uuid: '{}'", uuid);
         TokenInstanceFullModel tokenInstance = getTokenInstanceModel(uuid);
 
-        ImmutableConnectorFullModel connector = connectorExternalService
-                .getConnectorFullModel(SecuredUUID.fromUUID(tokenInstance.connectorUuid()));
+        ImmutableConnectorFullModel connector = connectorInternalService
+                .getConnectorFullModelForApiClient(tokenInstance.connectorUuid());
         TokenProviderAdapter adapter = tokenProviderAdapterFactory.forToken(tokenInstance);
 
         attributeEngine.validateCustomAttributesContent(Resource.TOKEN, request.getCustomAttributes());
@@ -380,7 +381,7 @@ public class TokenInstanceServiceImpl implements TokenInstanceExternalService, T
         logger.info("Validating token profile attributes of token instance with uuid: '{}'", uuid);
 
         TokenInstanceFullModel tokenInstanceReference = getTokenInstanceModel(uuid);
-        logger.debug("Token instance detail: '{}'", tokenInstanceReference);
+        logger.atDebug().addArgument(tokenInstanceReference::toIdentifierString).log("Token instance: '{}'");
 
         TokenProviderAdapter adapter = tokenProviderAdapterFactory.forToken(tokenInstanceReference);
         List<RequestAttribute> safeAttributes = attributes == null ? List.of() : attributes;
@@ -427,7 +428,7 @@ public class TokenInstanceServiceImpl implements TokenInstanceExternalService, T
         TokenInstanceFullModel tokenInstance = tokenInstanceReferenceRepository
                 .findFullModelByUuid(uuid.getValue())
                 .orElseThrow(() -> new NotFoundException(TokenInstanceBasicModel.class, uuid));
-        logger.trace("Token Instance Reference: '{}'", tokenInstance);
+        logger.atTrace().addArgument(tokenInstance::toIdentifierString).log("Token Instance Reference: '{}'");
         return tokenInstance;
     }
 
@@ -446,7 +447,10 @@ public class TokenInstanceServiceImpl implements TokenInstanceExternalService, T
         detail
                 .setCustomAttributes(attributeEngine
                         .getObjectCustomAttributesContent(Resource.TOKEN, tokenInstanceReference.uuid()));
-        logger.debug("Token Instance detail: '{}'", detail);
+        logger
+                .atDebug()
+                .addArgument(tokenInstanceReference::toIdentifierString)
+                .log("Token Instance details retrieved: '{}'");
         return detail;
     }
 
@@ -492,8 +496,8 @@ public class TokenInstanceServiceImpl implements TokenInstanceExternalService, T
             status = adapter.getStatus(tokenInstance);
         } catch (Exception e) {
             logger
-                    .warn("Unable to communicate with connector while refreshing status of token instance '{}' ({})",
-                            tokenInstance.name(), tokenInstance.uuid(), e);
+                    .warn("Unable to communicate with connector while refreshing status of token instance '{}'",
+                            tokenInstance.toIdentifierString(), e);
             status = new TokenInstanceStatusDetailDto(TokenInstanceStatus.WARNING);
         }
         return status;
@@ -501,10 +505,8 @@ public class TokenInstanceServiceImpl implements TokenInstanceExternalService, T
 
     private void deleteTokenInstance(TokenInstanceFullModel tokenInstanceReference)
             throws ValidationException, NotFoundException {
-        logger
-                .info("Deleting token instance '{}' ('{}')", tokenInstanceReference.name(),
-                        tokenInstanceReference.uuid());
-        logger.trace("Token instance to delete: '{}'", tokenInstanceReference);
+        logger.info("Deleting token instance '{}'", tokenInstanceReference.toIdentifierString());
+        logger.atTrace().addArgument(tokenInstanceReference::toIdentifierString).log("Token instance to delete: '{}'");
         ValidationError error = null;
         if (tokenInstanceReference.tokenProfiles() != null && !tokenInstanceReference.tokenProfiles().isEmpty()) {
             error = ValidationError
@@ -526,22 +528,30 @@ public class TokenInstanceServiceImpl implements TokenInstanceExternalService, T
             TokenProviderAdapter adapter = tokenProviderAdapterFactory.forToken(tokenInstanceReference);
             if (adapter instanceof RemoteTokenLifecycleCapability cap) {
                 try {
-                    logger.debug("Deleting token instance with connector: '{}'", tokenInstanceReference);
+                    logger
+                            .atDebug()
+                            .addArgument(tokenInstanceReference::toIdentifierString)
+                            .log("Deleting token instance with connector: '{}'");
                     cap.removeRemoteToken(tokenInstanceReference);
                 } catch (Exception e) {
-                    logger.error("Connector failed to remove token instance '{}'", tokenInstanceReference.name(), e);
+                    logger
+                            .error("Connector failed to remove token instance '{}'",
+                                    tokenInstanceReference.toIdentifierString(), e);
                     throw new ValidationException(ValidationError
                             .create("Unable to remove token instance '{}' from its connector.",
                                     tokenInstanceReference.name()));
                 }
             }
         } else {
-            logger.debug("Deleting token instance without connector: '{}'", tokenInstanceReference);
+            logger
+                    .debug("Deleting token instance without connector: '{}'",
+                            tokenInstanceReference.toIdentifierString());
         }
         tokenInstanceReferenceWriter.delete(tokenInstanceReference);
 
         logger
-                .debug("Token instance '{}': ('{}') has been deleted", tokenInstanceReference.name(),
-                        tokenInstanceReference.uuid());
+                .atDebug()
+                .addArgument(tokenInstanceReference::toIdentifierString)
+                .log("Token instance '{}' has been deleted");
     }
 }

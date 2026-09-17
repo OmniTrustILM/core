@@ -556,6 +556,11 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
         return ImmutableConnectorInfo.of(connector);
     }
 
+    @Override
+    public ImmutableConnectorFullModel getConnectorFullModelForApiClient(UUID connectorUuid) throws NotFoundException {
+        return loadConnectorFullModel(connectorUuid);
+    }
+
     private ImmutableConnectorFullModel loadConnectorFullModel(UUID connectorUuid) throws NotFoundException {
         Connector connector = connectorRepository
                 .findWithInterfacesAndFunctionGroupsByUuid(connectorUuid)

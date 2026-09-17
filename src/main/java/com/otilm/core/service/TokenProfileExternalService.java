@@ -5,6 +5,7 @@ import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.client.cryptography.tokenprofile.AddTokenProfileRequestDto;
 import com.otilm.api.model.client.cryptography.tokenprofile.EditTokenProfileRequestDto;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
@@ -17,6 +18,19 @@ import java.util.List;
 import java.util.Optional;
 
 public interface TokenProfileExternalService {
+
+    /**
+     * Lists the key request types supported by the specified token profile on the given token instance.
+     *
+     * @param tokenInstanceUuid UUID of the token instance that owns the token profile
+     * @param tokenProfileUuid UUID of the token profile for which supported key request types are listed
+     * @return list of key request types supported by the token profile
+     * @throws NotFoundException when the token instance or token profile is not found
+     * @throws ConnectorException when there are issues with connector communication or an error from the connector
+     */
+    List<KeyRequestType> listSupportedKeyRequestTypes(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid)
+            throws NotFoundException, ConnectorException;
+
     /**
      * Get the list of token profiles
      *

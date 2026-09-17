@@ -5,9 +5,13 @@ import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyFormat;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.enums.cryptography.RsaSignatureScheme;
+import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.core.attribute.EcdsaSignatureAttributes;
 import com.otilm.core.attribute.RsaSignatureAttributes;
+import com.otilm.core.model.crypto.KeyMaterial;
 import java.io.IOException;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.KeyPairGenerator;
@@ -17,6 +21,8 @@ import java.security.Security;
 import java.security.spec.AlgorithmParameterSpec;
 import java.util.Base64;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Stream;
 import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
 import org.bouncycastle.jcajce.spec.MLDSAParameterSpec;
@@ -27,15 +33,98 @@ import org.bouncycastle.pqc.jcajce.spec.FalconParameterSpec;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Named.named;
+import static org.junit.jupiter.params.provider.Arguments.arguments;
 
 class CryptographyUtilTest {
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("usageRestrictions")
+    void getForbiddenUsages_combinesTypeAndAlgorithmRestrictions(KeyType type, KeyAlgorithm algorithm,
+            Set<KeyUsage> prohibited) {
+        // given
+        Set<KeyUsage> expectedRestrictions = prohibited;
+
+        // when
+        List<KeyUsage> actualRestrictions = CryptographyUtil.getForbiddenUsages(type, algorithm);
+
+        // then
+        assertEquals(expectedRestrictions, Set.copyOf(actualRestrictions));
+        assertEquals(expectedRestrictions.size(), actualRestrictions.size());
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("fingerprintVectors")
+    void calculateKeyFingerprint_hashesSerializedUtf8Material(KeyMaterial material, String expectedFingerprint) {
+        // given
+        KeyMaterial serializedMaterial = material;
+
+        // when
+        String fingerprint = CryptographyUtil.calculateKeyFingerprint(serializedMaterial);
+
+        // then
+        assertEquals(expectedFingerprint, fingerprint);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("unavailableKeyMaterial")
+    void calculateKeyFingerprint_returnsNull_forUnavailableMaterial(KeyMaterial material) {
+        // given
+        KeyMaterial unavailableMaterial = material;
+
+        // when
+        String fingerprint = CryptographyUtil.calculateKeyFingerprint(unavailableMaterial);
+
+        // then
+        assertNull(fingerprint);
+    }
+
+    private static Stream<Arguments> usageRestrictions() {
+        return Stream
+                .of(arguments(named("RSA private key", KeyType.PRIVATE_KEY), KeyAlgorithm.RSA,
+                        Set.of(KeyUsage.VERIFY, KeyUsage.ENCRYPT, KeyUsage.WRAP)),
+                        arguments(named("RSA public key", KeyType.PUBLIC_KEY), KeyAlgorithm.RSA,
+                                Set.of(KeyUsage.SIGN, KeyUsage.DECRYPT, KeyUsage.UNWRAP)),
+                        arguments(named("unrestricted secret key", KeyType.SECRET_KEY), KeyAlgorithm.UNKNOWN, Set.of()),
+                        arguments(named("ECDSA private key combines overlapping restrictions", KeyType.PRIVATE_KEY),
+                                KeyAlgorithm.ECDSA,
+                                Set.of(KeyUsage.VERIFY, KeyUsage.ENCRYPT, KeyUsage.WRAP, KeyUsage.DECRYPT)),
+                        arguments(named("ECDSA public key combines overlapping restrictions", KeyType.PUBLIC_KEY),
+                                KeyAlgorithm.ECDSA,
+                                Set.of(KeyUsage.SIGN, KeyUsage.DECRYPT, KeyUsage.UNWRAP, KeyUsage.ENCRYPT)),
+                        arguments(named("algorithm restrictions alone", KeyType.SECRET_KEY), KeyAlgorithm.ECDSA,
+                                Set.of(KeyUsage.ENCRYPT, KeyUsage.DECRYPT)));
+    }
+
+    private static Stream<Arguments> fingerprintVectors() {
+        String serializedBase64 = "c2VjcmV0";
+        String serializedBase64Fingerprint = "1c1185e02ff3e23b3e5a1c5bc86cf15d4126caa3dcde0fdb6e93adc4deec119e";
+        String unicodeMaterial = "klíč 🔑";
+        String unicodeFingerprint = "7adb4926a001095f4690fe51341c9ea13f0f5d16383cdc241134c48abc438bea";
+        return Stream
+                .of(arguments(named("serialized value is not base64 decoded",
+                        new KeyMaterial(KeyFormat.SPKI, serializedBase64)), serializedBase64Fingerprint),
+                        arguments(named("serialized value uses UTF-8", new KeyMaterial(KeyFormat.RAW, unicodeMaterial)),
+                                unicodeFingerprint));
+    }
+
+    private static Stream<Arguments> unavailableKeyMaterial() {
+        String serializedValue = "c2VjcmV0";
+        return Stream
+                .of(arguments(named("absent material", (KeyMaterial) null)),
+                        arguments(named("absent format", new KeyMaterial(null, serializedValue))),
+                        arguments(named("absent serialized value", new KeyMaterial(KeyFormat.SPKI, null))),
+                        arguments(named("custom material", new KeyMaterial(KeyFormat.CUSTOM, serializedValue))));
+    }
 
     @BeforeAll
     static void registerProviders() {

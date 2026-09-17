@@ -53,11 +53,7 @@ public interface TokenInstanceReferenceRepository extends SecurityFilterReposito
             GROUP BY token.uuid, token.tokenInstanceUuid, token.name, token.status, token.kind,
                 token.connectorUuid, token.connectorName, token.connectorInterfaceUuid
             """)
-    Optional<ImmutableTokenInstanceBasicModel> findImmutableBasicModelByUuid(@Param("uuid") UUID uuid);
-
-    default Optional<TokenInstanceBasicModel> findBasicModelByUuid(UUID uuid) {
-        return findImmutableBasicModelByUuid(uuid).map(value -> (TokenInstanceBasicModel) value);
-    }
+    Optional<TokenInstanceBasicModel> findBasicModelByUuid(@Param("uuid") UUID uuid);
 
     @EntityGraph(attributePaths = {"connector", "connectorInterface", "tokenProfiles"})
     @Query("SELECT token FROM TokenInstanceReference token WHERE token.uuid = :uuid")

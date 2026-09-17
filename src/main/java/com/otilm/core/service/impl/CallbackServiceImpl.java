@@ -33,6 +33,7 @@ import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.EntityInstanceReference;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.TokenInstanceReference;
+import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.EntityInstanceReferenceRepository;
@@ -495,7 +496,7 @@ public class CallbackServiceImpl implements CallbackExternalService {
                 interfaceVersion = interfaceVersionOf(issuanceAuthority);
                 break;
 
-            case TOKEN_PROFILE:
+            case TOKEN_PROFILE: {
                 // The token-profile create form's parent scope is the token INSTANCE (a token profile is created
                 // under an instance), so the FE sends the token-instance UUID as the parent — matching the scope
                 // table (TOKEN_PROFILE -> [{tokenInstance}]). Load the instance directly; loading a TokenProfile by
@@ -504,22 +505,24 @@ public class CallbackServiceImpl implements CallbackExternalService {
                         .findByUuid(UUID.fromString(parentObjectUuid))
                         .orElseThrow(() -> new NotFoundException(TokenInstanceReference.class, parentObjectUuid));
                 connector = tokenInstance.getConnector();
-                // Token connectors carry no ConnectorInterfaceEntity, so this arm pre-resolves no interface: a legacy
-                // callback stamps none, and an NG definition dispatched here must carry interfaceUuid on the request
-                // (like the connector route) or the dispatch is rejected for a missing interface.
+                connectorInterface = interfaceCodeOf(tokenInstance);
+                interfaceVersion = interfaceVersionOf(tokenInstance);
                 break;
+            }
 
-            case CRYPTOGRAPHIC_KEY:
-                connector = tokenProfileService
-                        .getTokenProfileEntity(SecuredUUID.fromString(parentObjectUuid))
-                        .getTokenInstanceReference()
-                        .getConnector();
-                // See TOKEN_PROFILE: token connectors carry no ConnectorInterfaceEntity, so this arm pre-resolves no
-                // interface; an NG definition here must carry interfaceUuid on the request.
+            case CRYPTOGRAPHIC_KEY: {
+                TokenProfile tokenProfile = tokenProfileService
+                        .getTokenProfileEntity(SecuredUUID.fromString(parentObjectUuid));
+                TokenInstanceReference tokenInstance = tokenProfile.getTokenInstanceReference();
+                connector = tokenInstance.getConnector();
+                connectorInterface = interfaceCodeOf(tokenInstance);
+                interfaceVersion = interfaceVersionOf(tokenInstance);
                 definitions = cryptographicKeyService
-                        .listCreateKeyAttributes(null, SecuredParentUUID.fromString(parentObjectUuid),
-                                KeyRequestType.KEY_PAIR);
+                        .listCreateKeyAttributes(tokenInstance.getUuid(),
+                                SecuredParentUUID.fromString(parentObjectUuid), KeyRequestType.KEY_PAIR);
+
                 break;
+            }
 
             case LOCATION:
                 EntityInstanceReference entityInstance = entityInstanceReferenceRepository
@@ -560,6 +563,16 @@ public class CallbackServiceImpl implements CallbackExternalService {
     private static String interfaceVersionOf(AuthorityInstanceReference ref) {
         ConnectorInterfaceEntity iface = ref.getConnectorInterface();
         return iface == null ? null : iface.getVersion();
+    }
+
+    private static String interfaceVersionOf(TokenInstanceReference ref) {
+        ConnectorInterfaceEntity iface = ref.getConnectorInterface();
+        return iface == null ? null : iface.getVersion();
+    }
+
+    private static ConnectorInterface interfaceCodeOf(TokenInstanceReference ref) {
+        ConnectorInterfaceEntity iface = ref.getConnectorInterface();
+        return iface == null ? null : iface.getInterfaceCode();
     }
 
     /**

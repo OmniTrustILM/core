@@ -4,7 +4,7 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
-import com.otilm.core.model.crypto.CryptographicKeyItemModel;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 
 import java.security.PublicKey;
 import java.util.UUID;
@@ -32,7 +32,7 @@ public interface CryptographicKeyInternalService extends ResourceExtensionServic
      * Returns the cached model for a key item including its full connector chain. The result is cached by key item
      * UUID; cache is invalidated whenever the key item is mutated.
      */
-    CryptographicKeyItemModel getKeyItemModel(UUID keyItemUuid) throws NotFoundException;
+    CryptographicKeyItemOperationModel getKeyItemModel(UUID keyItemUuid) throws NotFoundException;
 
     /**
      * Upload public key of existing certificate

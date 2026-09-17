@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.cryptography.token.TokenInstanceDto;
+import com.otilm.core.model.NamedModel;
 import com.otilm.core.util.DtoMapper;
 import com.otilm.core.util.ObjectAccessControlMapper;
 import jakarta.persistence.Column;
@@ -37,7 +38,18 @@ public class TokenInstanceReference extends UniquelyIdentifiedAndAudited
         implements
             Serializable,
             DtoMapper<TokenInstanceDto>,
-            ObjectAccessControlMapper<NameAndUuidDto> {
+            ObjectAccessControlMapper<NameAndUuidDto>,
+            NamedModel {
+
+    @Override
+    public UUID uuid() {
+        return getUuid();
+    }
+
+    @Override
+    public String name() {
+        return getName();
+    }
 
     @Column(name = "token_instance_uuid")
     private String tokenInstanceUuid;

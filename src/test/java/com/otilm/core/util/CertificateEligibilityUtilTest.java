@@ -11,7 +11,8 @@ import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
-import com.otilm.core.model.crypto.CryptographicKeyItemModel;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
+import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
 import com.otilm.core.model.signing.SigningCertificate;
 import com.otilm.core.oid.OidHandler;
@@ -192,7 +193,7 @@ class CertificateEligibilityUtilTest {
             Boolean qcCompliance, boolean expectedResult) {
         boolean hasKey = !publicKeys.isEmpty() || !privateKeys.isEmpty();
 
-        List<CryptographicKeyItemModel> keyItems = new ArrayList<>();
+        List<CryptographicKeyItemOperationModel> keyItems = new ArrayList<>();
         for (CertificateTestData.KeyItemData keyData : publicKeys) {
             keyItems.add(toKeyItemModel(keyData));
         }
@@ -204,7 +205,7 @@ class CertificateEligibilityUtilTest {
                 validationStatus, List.copyOf(extendedKeyUsages), extendedKeyUsageCritical, qcCompliance,
                 hasKey ? UUID.randomUUID() : null, (hasKey && withTokenProfile) ? UUID.randomUUID() : null,
                 (hasKey && withTokenInstanceReference) ? UUID.randomUUID() : null,
-                keyItems.stream().map(CryptographicKeyItemModel::keyItemUuid).toList(),
+                keyItems.stream().map(CryptographicKeyItemOperationModel::keyItemUuid).toList(),
                 CertificateKeyUsage.DIGITAL_SIGNATURE.getBit(), CertificateSubjectType.END_ENTITY);
 
         Assertions
@@ -215,8 +216,9 @@ class CertificateEligibilityUtilTest {
                         "Test case '" + testCaseName + "' failed");
     }
 
-    private static CryptographicKeyItemModel toKeyItemModel(CertificateTestData.KeyItemData keyData) {
-        return new CryptographicKeyItemModel(UUID.randomUUID(), true, keyData.algorithm(), keyData.state(),
-                keyData.type(), keyData.usage(), null, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+    private static CryptographicKeyItemOperationModel toKeyItemModel(CertificateTestData.KeyItemData keyData) {
+        RemoteKeyReference reference = new RemoteKeyReference.UuidReference(UUID.randomUUID());
+        return new CryptographicKeyItemOperationModel(UUID.randomUUID(), true, keyData.algorithm(), keyData.state(),
+                keyData.type(), keyData.usage(), null, reference, UUID.randomUUID(), UUID.randomUUID());
     }
 }

@@ -69,6 +69,20 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
         return this;
     }
 
+    public CryptographyProviderV2ConnectorMock stubKeyRequestTypes(String responseJson) {
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo("/v2/cryptographyProvider/tokens/keyRequestTypes"))
+                        .willReturn(WireMock.okJson(responseJson)));
+        return this;
+    }
+
+    public void verifyScopedKeyRequestTypesRequestContaining(String expectedRequestJson) {
+        server
+                .verify(postRequestedFor(WireMock.urlPathEqualTo("/v2/cryptographyProvider/tokens/keyRequestTypes"))
+                        .withRequestBody(WireMock.equalToJson(expectedRequestJson, true, true)));
+    }
+
     public CryptographyProviderV2ConnectorMock stubTokenProfileKeyUsagesWithoutBody() {
         server
                 .stubFor(WireMock

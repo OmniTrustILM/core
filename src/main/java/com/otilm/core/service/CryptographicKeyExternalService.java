@@ -89,20 +89,22 @@ public interface CryptographicKeyExternalService {
     KeyDetailDto editKey(SecuredUUID uuid, EditKeyRequestDto request) throws NotFoundException, AttributeException;
 
     /**
-     * Function to disable a key
+     * Disables selected items of a key. Duplicate item UUIDs are processed once.
      *
      * @param uuid UUID of the key
+     * @param keyUuids UUID strings of items belonging to the key; null or empty selects all its items
      * @throws NotFoundException when the key is not found
-     * @throws ValidationException when the key is already disabled
+     * @throws ValidationException when a selected item is missing or belongs to another key; no items are updated
      */
     void disableKey(UUID uuid, List<String> keyUuids) throws NotFoundException, ValidationException;
 
     /**
-     * Function to enable a disabled key
+     * Enables selected items of a key. Duplicate item UUIDs are processed once.
      *
      * @param uuid UUID of the key
+     * @param keyUuids UUID strings of items belonging to the key; null or empty selects all its items
      * @throws NotFoundException when the key with given uuid is not found
-     * @throws ValidationException when the key is already active
+     * @throws ValidationException when a selected item is missing or belongs to another key; no items are updated
      */
     void enableKey(UUID uuid, List<String> keyUuids) throws NotFoundException, ValidationException;
 
@@ -121,11 +123,14 @@ public interface CryptographicKeyExternalService {
     void enableKey(List<String> uuids);
 
     /**
-     * Function to delete the key
+     * Deletes selected items of a key. Duplicate item UUIDs are processed once. A null or empty selection deletes the
+     * key and all its items.
      *
      * @param uuid UUID of the key
-     * @param keyUuids UUIDs of the items inside the key. If empty is provided, all the items will be deleted
-     * @throws ConnectorException connector issue
+     * @param keyUuids UUID strings of items belonging to the key, or null or empty to delete the entire key
+     * @throws NotFoundException when the key is not found
+     * @throws ValidationException when a selected item is missing or belongs to another key; nothing is deleted
+     * @throws ConnectorException when remote deletion fails
      */
     void deleteKey(UUID uuid, List<String> keyUuids) throws ConnectorException, NotFoundException;
 
@@ -147,21 +152,31 @@ public interface CryptographicKeyExternalService {
     void deleteKeyItems(SecurityFilter filter, List<String> keyItemUuids) throws ConnectorException;
 
     /**
-     * Destroy a key
+     * Destroys selected items of a key after validating the complete selection and its authorization. Duplicate item
+     * UUIDs are processed once. Every selected item is considered even when another item has an invalid lifecycle state
+     * or fails during destruction. Failures are reported together with the completed count after processing;
+     * successfully completed destruction is not undone when another item fails.
      *
-     * @param uuid UUID of the concerned key
-     * @param keyUuids List of uuids that are part of the key object
-     * @throws NotFoundException when the token profile or the key uuid is not found
-     * @throws ConnectorException when there are issues with connector communication
+     * @param uuid non-null UUID of the key
+     * @param keyUuids UUID strings of items belonging to the key; null or empty selects all its items
+     * @throws NotFoundException when the key or its token is not found before destruction
+     * @throws IllegalArgumentException when an item UUID is malformed; no items are destroyed
+     * @throws ValidationException when an item is missing or belongs to another key, before any destruction, or when an
+     * item's state prevents destruction or its destruction fails, after processing the entire selection
      */
     void destroyKey(UUID uuid, List<String> keyUuids) throws ConnectorException, NotFoundException;
 
     /**
-     * Destroy multiple keys
+     * Destroys the items of the specified keys after loading and authorizing all selected keys. Duplicate key UUIDs are
+     * processed once, in order of first occurrence. Every selected item across all keys is considered even when another
+     * item has an invalid lifecycle state or fails during destruction. Failures are reported together with the
+     * completed count after processing; successfully completed destruction is not undone when another item fails.
      *
-     * @param uuids UUID of the concerned keys
-     * @throws NotFoundException when the token profile or the key uuid is not found
-     * @throws ConnectorException when there are issues with connector communication
+     * @param uuids non-null list of key UUID strings; an empty list performs no destruction
+     * @throws NotFoundException when a key or its token is not found; no items are destroyed
+     * @throws IllegalArgumentException when a key UUID is malformed; no items are destroyed
+     * @throws ValidationException when an item's state prevents destruction or its destruction fails, after processing
+     * all selected keys
      */
     void destroyKey(List<String> uuids) throws ConnectorException, NotFoundException;
 
@@ -186,11 +201,13 @@ public interface CryptographicKeyExternalService {
     void syncKeys(SecuredParentUUID tokenInstanceUuid) throws ConnectorException, AttributeException, NotFoundException;
 
     /**
-     * Function to mark the key as compromised
+     * Marks selected items of a key as compromised. Duplicate item UUIDs are processed once.
      *
      * @param uuid UUID of the key
-     * @param request UUIDs of the sub items inside the key. If empty list is provided then all the items inside the key
-     * will be marked as compromised
+     * @param request non-null request containing the reason and item UUIDs; a null or empty UUID list selects all items
+     * @throws NotFoundException when the key is not found
+     * @throws ValidationException when an item is missing or belongs to another key, before any updates, or when an
+     * item's state prevents compromise, after processing the selection
      */
     void compromiseKey(UUID uuid, CompromiseKeyRequestDto request) throws NotFoundException;
 
@@ -209,19 +226,23 @@ public interface CryptographicKeyExternalService {
     void updateKeyUsages(BulkKeyUsageRequestDto request);
 
     /**
-     * Update the key usages for multiple keys and its items
+     * Replaces the usages of selected items of a key. Duplicate item UUIDs are processed once.
      *
      * @param uuid UUID of the key
-     * @param request Request containing the details for the key usage updates
+     * @param request non-null request containing the usages and item UUIDs; a null or empty UUID list selects all items
+     * @throws NotFoundException when the key is not found
+     * @throws ValidationException when an item is missing or belongs to another key, before any updates, or when an
+     * item's usage update fails, after processing the selection
      */
     void updateKeyUsages(UUID uuid, UpdateKeyUsageRequestDto request) throws NotFoundException;
 
     /**
-     * Get the list of actions and events done of the provided key item
+     * Returns the event history of an item belonging to the specified key.
      *
-     * @param uuid Key UUID
-     * @param keyItemUuid UUID of the key Item
-     * @return
+     * @param uuid UUID of the parent key
+     * @param keyItemUuid UUID of the item belonging to that key
+     * @return item events ordered from most recent to oldest
+     * @throws NotFoundException when the key or item is missing, or the item belongs to another key
      */
     List<KeyEventHistoryDto> getEventHistory(UUID uuid, UUID keyItemUuid) throws NotFoundException;
 
@@ -244,34 +265,40 @@ public interface CryptographicKeyExternalService {
      *
      * @param uuids UUIDs of the key items
      */
-    void enableKeyItems(List<String> uuids);
+    void enableKeyItems(List<String> uuids) throws NotFoundException;
 
     /**
      * Function to disable multiple key items
      *
      * @param uuids UUIDs of the key items
      */
-    void disableKeyItems(List<String> uuids);
+    void disableKeyItems(List<String> uuids) throws NotFoundException;
 
     /**
-     * Destroy multiple key items
+     * Destroys selected key items after validating the complete selection and authorizing their parent keys. Duplicate
+     * item UUIDs are processed once. Every selected item across all parent keys is considered even when another item
+     * has an invalid lifecycle state or fails during destruction. Failures are reported together with the completed
+     * count after processing; successfully completed destruction is not undone when another item fails.
      *
-     * @param keyItemUuids UUID of the concerned key items
-     * @throws ConnectorException when there are issues with connector communication
+     * @param keyItemUuids UUID strings of the items to destroy; null or empty performs no destruction
+     * @throws NotFoundException when a parent key or its token is not found before destruction
+     * @throws IllegalArgumentException when an item UUID is malformed; no items are destroyed
+     * @throws ValidationException when an item is missing, before any destruction, or when an item's state prevents
+     * destruction or its destruction fails, after processing the entire selection
      */
-    void destroyKeyItems(List<String> keyItemUuids) throws ConnectorException;
+    void destroyKeyItems(List<String> keyItemUuids) throws ConnectorException, NotFoundException;
 
     /**
      * Function to mark the key items as compromised
      *
      * @param request UUIDs of the key items
      */
-    void compromiseKeyItems(BulkCompromiseKeyItemRequestDto request);
+    void compromiseKeyItems(BulkCompromiseKeyItemRequestDto request) throws NotFoundException;
 
     /**
      * Function to update the usages for the key items
      *
      * @param request Request containing the details for updating the usages
      */
-    void updateKeyItemUsages(BulkKeyItemUsageRequestDto request);
+    void updateKeyItemUsages(BulkKeyItemUsageRequestDto request) throws NotFoundException;
 }

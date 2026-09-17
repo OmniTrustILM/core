@@ -1,6 +1,7 @@
 package com.otilm.core.integration.client;
 
 import com.otilm.api.interfaces.client.v2.DiscoverySyncApiClient;
+import com.otilm.api.interfaces.client.v2.KeySyncApiClient;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.connector.v2.ConnectorDetailDto;
@@ -22,6 +23,22 @@ class ConnectorApiFactoryDiscoveryV2NoProxyITest extends BaseSpringBootTest {
     private ConnectorApiFactory connectorApiFactory;
     @Autowired
     private ConnectorRepository connectorRepository;
+
+    @Test
+    void keyManagementV2_usesRestClient_whenMqIsDisabled() {
+        // given
+        String proxyCode = "key-management-proxy";
+        ConnectorDetailDto connector = new ConnectorDetailDto();
+        ProxyDto proxy = new ProxyDto();
+        proxy.setCode(proxyCode);
+        connector.setProxy(proxy);
+
+        // when
+        KeySyncApiClient client = connectorApiFactory.getKeyManagementApiClientV2(connector);
+
+        // then
+        assertThat(client).isInstanceOf(com.otilm.api.clients.cryptography.v2.KeyApiClient.class);
+    }
 
     @Test
     void proxiedConnectorFallsBackToRestWhenTheMqBeanIsAbsent() {

@@ -25,6 +25,8 @@ public interface ResourceObjectAssociationService {
 
     NameAndUuidDto setOwner(Resource resource, UUID objectUuid, UUID ownerUuid) throws NotFoundException;
 
+    void setOwner(Resource resource, UUID objectUuid, UUID ownerUuid, String ownerUsername);
+
     void setOwnerFromProfile(Resource resource, UUID objectUuid);
 
     void removeOwnerAssociations(UUID ownerUuid);

@@ -34,9 +34,35 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
+
 class CertificateDetailDtoMapperTest {
 
     private Certificate certificate;
+
+    @Test
+    void toChainDto_omitsCertificateCollectionReadsForBothKeys() {
+        // given
+        CryptographicKey primaryKey = spy(new CryptographicKey());
+        primaryKey.setUuid(UUID.randomUUID());
+        CryptographicKey alternativeKey = spy(new CryptographicKey());
+        alternativeKey.setUuid(UUID.randomUUID());
+        certificate.setKey(primaryKey);
+        certificate.setAltKey(alternativeKey);
+
+        // when
+        CertificateDetailDto dto = CertificateDetailDtoMapper.toChainDto(certificate);
+
+        // then
+        Assertions.assertEquals(primaryKey.getUuid().toString(), dto.getKey().getUuid());
+        Assertions.assertEquals(alternativeKey.getUuid().toString(), dto.getAltKey().getUuid());
+        verify(primaryKey, never()).getCertificates();
+        verify(primaryKey, never()).getAltCertificates();
+        verify(alternativeKey, never()).getCertificates();
+        verify(alternativeKey, never()).getAltCertificates();
+    }
 
     @BeforeEach
     void setUp() {

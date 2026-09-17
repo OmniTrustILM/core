@@ -131,9 +131,12 @@ import org.junit.jupiter.api.function.Executable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 
 class AttributeEngineITest extends BaseSpringBootTest {
 
@@ -818,6 +821,76 @@ class AttributeEngineITest extends BaseSpringBootTest {
         Assertions
                 .assertEquals(orderNoCustomAttribute.getUuid(),
                         certificateDetailDto.getCustomAttributes().getFirst().getUuid().toString());
+    }
+
+    @Test
+    void updateCustomAttributes_preservesInaccessibleContent_withExplicitFilter() throws Exception {
+        // given
+        String originalDepartment = "Sales";
+        String updatedDepartment = "Engineering";
+        float inaccessibleOrderNumber = 555f;
+        var department = customAttributeRequest(departmentCustomAttribute,
+                new StringAttributeContentV3(originalDepartment));
+        var orderNumber = customAttributeRequest(orderNoCustomAttribute,
+                new FloatAttributeContentV3(inaccessibleOrderNumber));
+        attributeEngine
+                .updateObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid(),
+                        List.of(department, orderNumber));
+        var filter = new SecurityResourceFilter(List.of(departmentCustomAttribute.getUuid()), List.of(), true);
+        var update = customAttributeRequest(departmentCustomAttribute, new StringAttributeContentV3(updatedDepartment));
+
+        // when
+        var visible = attributeEngine
+                .updateObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid(), List.of(update),
+                        filter);
+
+        // then
+        assertThat(visible).singleElement().satisfies(attribute -> {
+            List<AttributeContent> content = attribute.getContent();
+            Object departmentName = content.getFirst().getData();
+            assertThat(departmentName).isEqualTo(updatedDepartment);
+        });
+        var persisted = attributeEngine.getObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid());
+        assertThat(persisted)
+                .hasSize(2)
+                .filteredOn(attribute -> attribute.getName().equals(orderNoCustomAttribute.getName()))
+                .singleElement()
+                .satisfies(attribute -> {
+                    assertThat(attribute.getName()).isEqualTo(orderNoCustomAttribute.getName());
+                    List<AttributeContent> content = attribute.getContent();
+                    Object persistedOrderNumber = content.getFirst().getData();
+                    assertThat(persistedOrderNumber).isEqualTo(inaccessibleOrderNumber);
+                });
+    }
+
+    @Test
+    void loadCustomAttributePermissions_suspendsAmbientTransaction() {
+        // given
+        var permissionCallTransactions = new ArrayList<Boolean>();
+        var allowed = new com.otilm.core.security.authz.opa.dto.OpaObjectAccessResult();
+        allowed.setActionAllowedForGroupOfObjects(true);
+        allowed.setAllowedObjects(List.of());
+        allowed.setForbiddenObjects(List.of());
+        doAnswer(invocation -> {
+            permissionCallTransactions.add(TransactionSynchronizationManager.isActualTransactionActive());
+            return allowed;
+        }).when(opaClient).checkObjectAccess(any(), any(), any(), any());
+        var transaction = new TransactionTemplate(transactionManager);
+
+        // when
+        transaction.executeWithoutResult(status -> {
+            attributeEngine.loadCustomAttributesSecurityResourceFilter();
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
+        });
+
+        // then
+        assertThat(permissionCallTransactions).containsExactly(false);
+    }
+
+    private static RequestAttributeV3 customAttributeRequest(CustomAttributeV3 definition,
+            BaseAttributeContentV3<?> content) {
+        return new RequestAttributeV3(UUID.fromString(definition.getUuid()), definition.getName(),
+                definition.getContentType(), List.of(content));
     }
 
     @Test

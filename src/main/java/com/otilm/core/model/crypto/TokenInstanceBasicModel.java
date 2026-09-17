@@ -1,14 +1,11 @@
 package com.otilm.core.model.crypto;
 
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
+import com.otilm.core.model.NamedModel;
 import java.util.UUID;
 
-public interface TokenInstanceBasicModel {
-    UUID uuid();
-
+public interface TokenInstanceBasicModel extends NamedModel {
     String tokenInstanceUuid();
-
-    String name();
 
     TokenInstanceStatus status();
 
@@ -21,4 +18,8 @@ public interface TokenInstanceBasicModel {
     UUID connectorInterfaceUuid();
 
     long tokenProfileCount();
+
+    default int providerInterfaceVersion() {
+        return connectorInterfaceUuid() == null ? 1 : 2;
+    }
 }
