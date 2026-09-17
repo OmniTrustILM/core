@@ -11,14 +11,10 @@ import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
 import com.otilm.core.util.builders.RsaSignatureAttributesBuilder;
 import java.util.List;
-import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.Arguments;
-import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -147,37 +143,45 @@ class StaticManagedKeySignerCreatorTest {
                             .isEqualTo(SigningEngineFailure.MISCONFIGURED));
         }
 
-        @ParameterizedTest(name = "{0}")
-        @MethodSource("com.otilm.core.signing.engine.signer.StaticManagedKeySignerCreatorTest#postQuantumParameterSets")
-        void resolvesThePostQuantumParameterSetToItsConstant(SignatureAlgorithm expected, KeyAlgorithm keyAlgorithm)
-                throws SigningEngineException {
+        @Test
+        void readsThePostQuantumParameterSetFromThePublicKeyItem() throws SigningEngineException {
             // given
             ResolvedStaticKeyManagedSigning scheme = new ResolvedStaticKeyManagedSigning(
                     SigningCertificateBuilder.valid(),
                     List
-                            .of(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(keyAlgorithm),
-                                    CryptographicKeyItemModelFixtures.publicKey(keyAlgorithm, expected.getCode())),
+                            .of(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.MLDSA),
+                                    CryptographicKeyItemModelFixtures
+                                            .publicKey(KeyAlgorithm.MLDSA, SignatureAlgorithm.ML_DSA_65.getCode())),
                     null, List.of());
 
             // when
             Signer signer = creator.create(scheme);
 
             // then
-            assertThat(signer.getSignatureAlgorithm()).isEqualTo(expected);
+            assertThat(signer.getSignatureAlgorithm()).isEqualTo(SignatureAlgorithm.ML_DSA_65);
         }
-    }
 
-    static Stream<Arguments> postQuantumParameterSets() {
-        return Stream
-                .of(Arguments.of(SignatureAlgorithm.FALCON_1024, KeyAlgorithm.FALCON),
-                        Arguments.of(SignatureAlgorithm.ML_DSA_44, KeyAlgorithm.MLDSA),
-                        Arguments.of(SignatureAlgorithm.ML_DSA_65, KeyAlgorithm.MLDSA),
-                        Arguments.of(SignatureAlgorithm.ML_DSA_87, KeyAlgorithm.MLDSA),
-                        Arguments.of(SignatureAlgorithm.SLH_DSA_SHA2_128S, KeyAlgorithm.SLHDSA),
-                        Arguments.of(SignatureAlgorithm.SLH_DSA_SHA2_128F, KeyAlgorithm.SLHDSA),
-                        Arguments.of(SignatureAlgorithm.SLH_DSA_SHA2_192S, KeyAlgorithm.SLHDSA),
-                        Arguments.of(SignatureAlgorithm.SLH_DSA_SHA2_192F, KeyAlgorithm.SLHDSA),
-                        Arguments.of(SignatureAlgorithm.SLH_DSA_SHA2_256S, KeyAlgorithm.SLHDSA),
-                        Arguments.of(SignatureAlgorithm.SLH_DSA_SHA2_256F, KeyAlgorithm.SLHDSA));
+        @Test
+        void throwsMisconfigured_whenPostQuantumParameterSetIsNotAPlatformConstant() {
+            // given
+            ResolvedStaticKeyManagedSigning scheme = new ResolvedStaticKeyManagedSigning(
+                    SigningCertificateBuilder.valid(),
+                    List
+                            .of(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.MLDSA),
+                                    CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.MLDSA, "ML-DSA-99")),
+                    null, List.of());
+
+            // when / then
+            assertThatThrownBy(() -> creator.create(scheme))
+                    .isInstanceOf(SigningEngineException.class)
+                    .satisfies(ex -> {
+                        assertThat(((SigningEngineException) ex).failure())
+                                .isEqualTo(SigningEngineFailure.MISCONFIGURED);
+                        assertThat(((SigningEngineException) ex).operatorMessage())
+                                .contains("ML-DSA-99", "which the platform does not support");
+                        assertThat(((SigningEngineException) ex).clientMessage())
+                                .isEqualTo("Signing key algorithm is not supported.");
+                    });
+        }
     }
 }

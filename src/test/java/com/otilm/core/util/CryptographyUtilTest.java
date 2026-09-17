@@ -336,9 +336,9 @@ class CryptographyUtilTest {
     @ParameterizedTest(name = "{0}")
     @MethodSource("postQuantumParameterSets")
     void resolvePqcAlgorithmName_isTheCodeOfItsPlatformConstant(SignatureAlgorithm expected, KeyAlgorithm keyAlgorithm,
-            String generatorName, AlgorithmParameterSpec parameterSpec, String provider) throws Exception {
+            AlgorithmParameterSpec parameterSpec) throws Exception {
         // given
-        String publicKey = generatePublicKeyBase64(generatorName, parameterSpec, provider);
+        String publicKey = generatePublicKeyBase64(keyAlgorithm, parameterSpec);
 
         // when
         String result = CryptographyUtil.resolveSignatureAlgorithmName(keyAlgorithm, publicKey, List.of());
@@ -350,36 +350,28 @@ class CryptographyUtilTest {
 
     static Stream<Arguments> postQuantumParameterSets() {
         return Stream
-                .of(Arguments
-                        .of(SignatureAlgorithm.FALCON_1024, KeyAlgorithm.FALCON, "Falcon",
-                                FalconParameterSpec.falcon_1024, BouncyCastlePQCProvider.PROVIDER_NAME),
+                .of(Arguments.of(SignatureAlgorithm.FALCON_1024, KeyAlgorithm.FALCON, FalconParameterSpec.falcon_1024),
+                        Arguments.of(SignatureAlgorithm.ML_DSA_44, KeyAlgorithm.MLDSA, MLDSAParameterSpec.ml_dsa_44),
+                        Arguments.of(SignatureAlgorithm.ML_DSA_65, KeyAlgorithm.MLDSA, MLDSAParameterSpec.ml_dsa_65),
+                        Arguments.of(SignatureAlgorithm.ML_DSA_87, KeyAlgorithm.MLDSA, MLDSAParameterSpec.ml_dsa_87),
                         Arguments
-                                .of(SignatureAlgorithm.ML_DSA_44, KeyAlgorithm.MLDSA, "ML-DSA",
-                                        MLDSAParameterSpec.ml_dsa_44, BouncyCastleProvider.PROVIDER_NAME),
+                                .of(SignatureAlgorithm.SLH_DSA_SHA2_128S, KeyAlgorithm.SLHDSA,
+                                        SLHDSAParameterSpec.slh_dsa_sha2_128s),
                         Arguments
-                                .of(SignatureAlgorithm.ML_DSA_65, KeyAlgorithm.MLDSA, "ML-DSA",
-                                        MLDSAParameterSpec.ml_dsa_65, BouncyCastleProvider.PROVIDER_NAME),
+                                .of(SignatureAlgorithm.SLH_DSA_SHA2_128F, KeyAlgorithm.SLHDSA,
+                                        SLHDSAParameterSpec.slh_dsa_sha2_128f),
                         Arguments
-                                .of(SignatureAlgorithm.ML_DSA_87, KeyAlgorithm.MLDSA, "ML-DSA",
-                                        MLDSAParameterSpec.ml_dsa_87, BouncyCastleProvider.PROVIDER_NAME),
+                                .of(SignatureAlgorithm.SLH_DSA_SHA2_192S, KeyAlgorithm.SLHDSA,
+                                        SLHDSAParameterSpec.slh_dsa_sha2_192s),
                         Arguments
-                                .of(SignatureAlgorithm.SLH_DSA_SHA2_128S, KeyAlgorithm.SLHDSA, "SLH-DSA",
-                                        SLHDSAParameterSpec.slh_dsa_sha2_128s, BouncyCastleProvider.PROVIDER_NAME),
+                                .of(SignatureAlgorithm.SLH_DSA_SHA2_192F, KeyAlgorithm.SLHDSA,
+                                        SLHDSAParameterSpec.slh_dsa_sha2_192f),
                         Arguments
-                                .of(SignatureAlgorithm.SLH_DSA_SHA2_128F, KeyAlgorithm.SLHDSA, "SLH-DSA",
-                                        SLHDSAParameterSpec.slh_dsa_sha2_128f, BouncyCastleProvider.PROVIDER_NAME),
+                                .of(SignatureAlgorithm.SLH_DSA_SHA2_256S, KeyAlgorithm.SLHDSA,
+                                        SLHDSAParameterSpec.slh_dsa_sha2_256s),
                         Arguments
-                                .of(SignatureAlgorithm.SLH_DSA_SHA2_192S, KeyAlgorithm.SLHDSA, "SLH-DSA",
-                                        SLHDSAParameterSpec.slh_dsa_sha2_192s, BouncyCastleProvider.PROVIDER_NAME),
-                        Arguments
-                                .of(SignatureAlgorithm.SLH_DSA_SHA2_192F, KeyAlgorithm.SLHDSA, "SLH-DSA",
-                                        SLHDSAParameterSpec.slh_dsa_sha2_192f, BouncyCastleProvider.PROVIDER_NAME),
-                        Arguments
-                                .of(SignatureAlgorithm.SLH_DSA_SHA2_256S, KeyAlgorithm.SLHDSA, "SLH-DSA",
-                                        SLHDSAParameterSpec.slh_dsa_sha2_256s, BouncyCastleProvider.PROVIDER_NAME),
-                        Arguments
-                                .of(SignatureAlgorithm.SLH_DSA_SHA2_256F, KeyAlgorithm.SLHDSA, "SLH-DSA",
-                                        SLHDSAParameterSpec.slh_dsa_sha2_256f, BouncyCastleProvider.PROVIDER_NAME));
+                                .of(SignatureAlgorithm.SLH_DSA_SHA2_256F, KeyAlgorithm.SLHDSA,
+                                        SLHDSAParameterSpec.slh_dsa_sha2_256f));
     }
 
     // --- resolveSignatureAlgorithmName: unsupported algorithm ---
@@ -534,6 +526,13 @@ class CryptographyUtilTest {
     }
 
     // --- helpers ---
+
+    private static String generatePublicKeyBase64(KeyAlgorithm keyAlgorithm, AlgorithmParameterSpec spec)
+            throws NoSuchAlgorithmException, InvalidAlgorithmParameterException {
+        KeyPairGenerator kpg = KeyPairGenerator.getInstance(keyAlgorithm.getCode());
+        kpg.initialize(spec);
+        return Base64.getEncoder().encodeToString(kpg.generateKeyPair().getPublic().getEncoded());
+    }
 
     private static String generatePublicKeyBase64(String keyAlgorithm, AlgorithmParameterSpec spec, String provider)
             throws NoSuchAlgorithmException, NoSuchProviderException, InvalidAlgorithmParameterException {

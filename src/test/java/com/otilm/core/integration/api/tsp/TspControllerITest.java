@@ -1,16 +1,15 @@
 package com.otilm.core.integration.api.tsp;
 
-import com.otilm.api.model.client.attribute.RequestAttribute;
-import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.core.connector.v2.ConnectorDetailDto;
 import com.otilm.api.model.core.cryptography.token.TokenInstanceDetailDto;
 import com.otilm.api.model.core.cryptography.tokenprofile.TokenProfileDetailDto;
 import com.otilm.core.api.tsp.TspControllerImpl;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
+import com.otilm.core.helpers.SigningAlgorithmSpecs;
 import com.otilm.core.helpers.TestCertificateAuthority;
+import com.otilm.core.helpers.TsaSigningMaterial;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CryptographicKeyExternalService;
@@ -27,19 +26,10 @@ import java.math.BigInteger;
 import java.security.KeyPair;
 import java.security.MessageDigest;
 import java.security.Security;
-import java.security.spec.AlgorithmParameterSpec;
-import java.security.spec.ECGenParameterSpec;
-import java.util.Base64;
-import java.util.EnumMap;
-import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Stream;
 import org.bouncycastle.asn1.cmp.PKIStatus;
-import org.bouncycastle.jcajce.spec.MLDSAParameterSpec;
-import org.bouncycastle.jcajce.spec.SLHDSAParameterSpec;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
-import org.bouncycastle.pqc.jcajce.spec.FalconParameterSpec;
 import org.bouncycastle.tsp.TSPAlgorithms;
 import org.bouncycastle.tsp.TimeStampRequest;
 import org.bouncycastle.tsp.TimeStampResponse;
@@ -55,10 +45,7 @@ import org.springframework.http.ResponseEntity;
 
 import static com.otilm.core.util.builders.ConnectorRequestDtoBuilder.aV1ConnectorRequest;
 import static com.otilm.core.util.builders.ConnectorRequestDtoBuilder.aV2ConnectorRequest;
-import static com.otilm.core.util.builders.EcdsaSignatureAttributesBuilder.ecdsaSignatureAttributes;
-import static com.otilm.core.util.builders.KeyPairRequestDtoBuilder.aKeyPairRequest;
 import static com.otilm.core.util.builders.RawTspRequestBuilder.aRawTspRequest;
-import static com.otilm.core.util.builders.RsaSignatureAttributesBuilder.rsaSignatureAttributes;
 import static com.otilm.core.util.builders.SigningProfileRequestDtoBuilder.aSigningProfileRequest;
 import static com.otilm.core.util.builders.TimestampingWorkflowRequestDtoBuilder.aTimestampingWorkflow;
 import static com.otilm.core.util.builders.TokenInstanceRequestDtoBuilder.aTokenInstanceRequest;
@@ -107,53 +94,10 @@ public class TspControllerITest extends BaseSpringBootTest {
     @Autowired
     private TestCertificateAuthority testCertificateAuthority;
 
-    /**
-     * Static description of a single signing algorithm under test: the signature algorithm the platform is expected to
-     * resolve and the mock connector signs with, the key algorithm and key-generation parameters the key is created
-     * under, and the signing-operation attributes the profile carries (empty for post-quantum algorithms).
-     *
-     * <p>
-     * The signature algorithm is what identifies a row, because one key algorithm covers several post-quantum parameter
-     * sets and each of them is a signing configuration in its own right.
-     * </p>
-     */
-    private record AlgorithmSpec(SignatureAlgorithm signatureAlgorithm, KeyAlgorithm keyAlgorithm,
-            AlgorithmParameterSpec keyParameterSpec, List<RequestAttribute> signingAttributes) {
-    }
-
-    /**
-     * The slower SLH-DSA parameter sets are covered in the unit tier; signing with them here would dominate the suite's
-     * runtime without exercising a different path.
-     */
-    private static final List<AlgorithmSpec> ALGORITHM_SPECS = List
-            .of(new AlgorithmSpec(SignatureAlgorithm.SHA256_WITH_RSA, KeyAlgorithm.RSA, null,
-                    rsaSignatureAttributes().build()),
-                    new AlgorithmSpec(SignatureAlgorithm.SHA256_WITH_ECDSA, KeyAlgorithm.ECDSA,
-                            new ECGenParameterSpec("secp256r1"), ecdsaSignatureAttributes().build()),
-                    new AlgorithmSpec(SignatureAlgorithm.FALCON_1024, KeyAlgorithm.FALCON,
-                            FalconParameterSpec.falcon_1024, List.of()),
-                    new AlgorithmSpec(SignatureAlgorithm.ML_DSA_44, KeyAlgorithm.MLDSA, MLDSAParameterSpec.ml_dsa_44,
-                            List.of()),
-                    new AlgorithmSpec(SignatureAlgorithm.ML_DSA_65, KeyAlgorithm.MLDSA, MLDSAParameterSpec.ml_dsa_65,
-                            List.of()),
-                    new AlgorithmSpec(SignatureAlgorithm.ML_DSA_87, KeyAlgorithm.MLDSA, MLDSAParameterSpec.ml_dsa_87,
-                            List.of()),
-                    new AlgorithmSpec(SignatureAlgorithm.SLH_DSA_SHA2_128S, KeyAlgorithm.SLHDSA,
-                            SLHDSAParameterSpec.slh_dsa_sha2_128s, List.of()),
-                    new AlgorithmSpec(SignatureAlgorithm.SLH_DSA_SHA2_128F, KeyAlgorithm.SLHDSA,
-                            SLHDSAParameterSpec.slh_dsa_sha2_128f, List.of()));
-
     private CryptographyProviderConnectorMock cryptographyProviderMock;
     private TimestampingFormattingConnectorMock timestampingFormattingMock;
     private ConnectorDetailDto formattingConnector;
-    private TokenInstanceDetailDto tokenInstance;
-    private TokenProfileDetailDto tokenProfile;
-    private TestCertificateAuthority.TrustedCa trustedCa;
-
-    private final Map<SignatureAlgorithm, Certificate> tsaCertificates = new EnumMap<>(SignatureAlgorithm.class);
-
-    /** Lets a test re-register a different private key for an algorithm's runtime signer. */
-    private final Map<SignatureAlgorithm, UUID> privateKeyReferenceUuids = new EnumMap<>(SignatureAlgorithm.class);
+    private TsaSigningMaterial tsaSigningMaterial;
 
     @BeforeEach
     public void setUp() throws Exception {
@@ -179,45 +123,18 @@ public class TspControllerITest extends BaseSpringBootTest {
                         .withUrl(timestampingFormattingMock.getUrl())
                         .build());
 
-        tokenInstance = tokenInstanceService
+        TokenInstanceDetailDto tokenInstance = tokenInstanceService
                 .createTokenInstance(aTokenInstanceRequest()
                         .withName("tsp-token-instance")
                         .withConnector(cryptographyProviderConnector.getUuid())
                         .build());
-        tokenProfile = tokenProfileService
+        TokenProfileDetailDto tokenProfile = tokenProfileService
                 .createTokenProfile(SecuredParentUUID.fromString(tokenInstance.getUuid()),
                         aTokenProfileRequest().withName("tsp-token-profile").build());
 
-        trustedCa = testCertificateAuthority.createTrustedCa("CN=TSP Test Root CA");
-    }
-
-    private Certificate tsaCertificateFor(SignatureAlgorithm signatureAlgorithm) throws Exception {
-        Certificate existing = tsaCertificates.get(signatureAlgorithm);
-        if (existing != null) {
-            return existing;
-        }
-
-        AlgorithmSpec spec = specFor(signatureAlgorithm);
-        KeyPair keyPair = CertificateGeneratorHelper.generateKeyPair(spec.keyAlgorithm(), spec.keyParameterSpec());
-
-        // The connector reports this UUID as the private key's reference; the same UUID keys the
-        // real-signer mock, so runtime sign requests reach this algorithm's live private key.
-        UUID privateKeyReferenceUuid = UUID.randomUUID();
-        privateKeyReferenceUuids.put(signatureAlgorithm, privateKeyReferenceUuid);
-        cryptographyProviderMock
-                .stubKeyPairCreation(Base64.getEncoder().encodeToString(keyPair.getPublic().getEncoded()),
-                        spec.keyAlgorithm(), privateKeyReferenceUuid)
-                .registerSigningKey(privateKeyReferenceUuid, keyPair.getPrivate(), signatureAlgorithm);
-        cryptographicKeyService
-                .createKey(UUID.fromString(tokenInstance.getUuid()),
-                        SecuredParentUUID.fromString(tokenProfile.getUuid()), KeyRequestType.KEY_PAIR,
-                        aKeyPairRequest().withName("tsp-key-" + signatureAlgorithm.getCode().toLowerCase()).build());
-
-        // Uploading the leaf associates it (by public-key fingerprint) with the token-backed key
-        Certificate certificate = trustedCa
-                .issueTimestampingCertificate(keyPair, "CN=Test TSA " + signatureAlgorithm.getCode());
-        tsaCertificates.put(signatureAlgorithm, certificate);
-        return certificate;
+        tsaSigningMaterial = new TsaSigningMaterial(cryptographyProviderMock, cryptographicKeyService, tokenInstance,
+                tokenProfile, testCertificateAuthority.createTrustedCa("CN=TSP Test Root CA"), "tsp-key-",
+                "CN=Test TSA ");
     }
 
     @AfterEach
@@ -276,7 +193,7 @@ public class TspControllerITest extends BaseSpringBootTest {
     }
 
     static Stream<SignatureAlgorithm> allSigningAlgorithms() {
-        return ALGORITHM_SPECS.stream().map(AlgorithmSpec::signatureAlgorithm);
+        return SigningAlgorithmSpecs.timestampingAlgorithms();
     }
 
     // ── Edge cases (single algorithm — the per-algorithm matrix is covered above) ─
@@ -292,7 +209,7 @@ public class TspControllerITest extends BaseSpringBootTest {
         String tspProfileName = createEnabledProfiles(SignatureAlgorithm.SHA256_WITH_RSA, validateTokenSignature);
         KeyPair keyNotMatchingCertificate = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
         cryptographyProviderMock
-                .registerSigningKey(privateKeyReferenceUuids.get(SignatureAlgorithm.SHA256_WITH_RSA),
+                .registerSigningKey(tsaSigningMaterial.privateKeyReferenceUuid(SignatureAlgorithm.SHA256_WITH_RSA),
                         keyNotMatchingCertificate.getPrivate(), SignatureAlgorithm.SHA256_WITH_RSA);
         byte[] requestWithSha256Imprint = aRawTspRequest()
                 .withCertReq(REQUEST_SIGNER_CERTIFICATE)
@@ -416,8 +333,9 @@ public class TspControllerITest extends BaseSpringBootTest {
                 .fromString(signingProfileService
                         .createSigningProfile(aSigningProfileRequest()
                                 .withName("tsp-signing-profile-" + label)
-                                .withStaticKeyManagedSigning(tsaCertificateFor(signatureAlgorithm).getUuid(),
-                                        specFor(signatureAlgorithm).signingAttributes())
+                                .withStaticKeyManagedSigning(
+                                        tsaSigningMaterial.issueTimestampingCertificate(signatureAlgorithm).getUuid(),
+                                        SigningAlgorithmSpecs.specFor(signatureAlgorithm).signingAttributes())
                                 .withTimestamping(aTimestampingWorkflow()
                                         .withSignatureFormattingConnector(
                                                 UUID.fromString(formattingConnector.getUuid()))
@@ -441,14 +359,6 @@ public class TspControllerITest extends BaseSpringBootTest {
         signingProfileService
                 .activateTsp(SecuredUUID.fromUUID(signingProfileUuid), SecuredUUID.fromUUID(tspProfileUuid), BASE_URL);
         return tspProfileName;
-    }
-
-    private static AlgorithmSpec specFor(SignatureAlgorithm signatureAlgorithm) {
-        return ALGORITHM_SPECS
-                .stream()
-                .filter(spec -> spec.signatureAlgorithm() == signatureAlgorithm)
-                .findFirst()
-                .orElseThrow();
     }
 
     private static byte[] sha256(String input) throws Exception {

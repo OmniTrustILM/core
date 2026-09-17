@@ -60,7 +60,11 @@ class ComputeDtbsEchoTransformer implements ResponseDefinitionTransformerV2 {
     }
 
     private static DigestAlgorithm committedDigest(JsonNode body) {
-        SignatureAlgorithm signatureAlgorithm = SignatureAlgorithm.findByCode(body.at("/signatureAlgorithm").asText());
+        JsonNode named = body.at("/signatureAlgorithm");
+        if (!named.isTextual()) {
+            return DigestAlgorithm.SHA_256; // default fallback
+        }
+        SignatureAlgorithm signatureAlgorithm = SignatureAlgorithm.findByCode(named.asText());
         return DigestAlgorithm.findByOid(signatureAlgorithm.getDigestAlgorithmIdentifier().getAlgorithm().getId());
     }
 
