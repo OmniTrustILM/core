@@ -713,21 +713,6 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
             connectorRepository.save(connector);
         }
 
-        if (!connector.getInterfaces().isEmpty()) {
-            // Discovery runs are not associations to be detached — they are history, and they stay. Only their hold
-            // on the interface is released, and it has to be released here: the reference is ON DELETE RESTRICT, so
-            // the interfaces would otherwise refuse to cascade away with their connector. A released run keeps every
-            // other column, but can no longer report which interface drove it.
-            int released = discoveryWriter
-                    .releaseConnectorInterfaces(
-                            connector.getInterfaces().stream().map(ConnectorInterfaceEntity::getUuid).toList());
-            if (released > 0) {
-                logger
-                        .debug("Released {} discovery run(s) from the interfaces of connector {}", released,
-                                connector.getUuid());
-            }
-        }
-
         if (!connector.getVaultInstances().isEmpty()) {
             for (VaultInstance vaultInstance : connector.getVaultInstances()) {
                 vaultInstance.setConnector(null);
@@ -870,6 +855,19 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
 
         if (!errors.isEmpty()) {
             throw new ValidationException(ValidationError.create(String.join("\n", errors)));
+        }
+
+        // Discovery runs are history and stay, as v1 runs always have. Only their hold on the interfaces is released:
+        // the reference is ON DELETE RESTRICT, so the interfaces could not cascade away with their connector otherwise.
+        if (!connector.getInterfaces().isEmpty()) {
+            int released = discoveryWriter
+                    .releaseConnectorInterfaces(
+                            connector.getInterfaces().stream().map(ConnectorInterfaceEntity::getUuid).toList());
+            if (released > 0) {
+                logger
+                        .debug("Released {} discovery run(s) from the interfaces of connector {}", released,
+                                connector.getUuid());
+            }
         }
 
         // remove connector attribute definitions and content if they are only dependent resources

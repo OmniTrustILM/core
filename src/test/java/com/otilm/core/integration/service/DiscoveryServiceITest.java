@@ -49,6 +49,7 @@ import com.otilm.core.events.handlers.CertificateDiscoveredEventHandler;
 import com.otilm.core.events.handlers.DiscoveryFinishedEventHandler;
 import com.otilm.core.messaging.jms.listeners.EventListener;
 import com.otilm.core.messaging.model.EventMessage;
+import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.discovery.DiscoveryMessageCode;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -61,6 +62,7 @@ import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.tasks.ScheduledJobInfo;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.DiscoveryCheckpointFixture;
 import com.otilm.core.util.MetaDefinitions;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -74,6 +76,7 @@ import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.security.access.AccessDeniedException;
 
 class DiscoveryServiceITest extends BaseSpringBootTest {
 
@@ -804,6 +807,46 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         Assertions.assertTrue(hasWork(DiscoveryWorkType.DRAIN), "a resumed run must collect what it left behind");
     }
 
+    /**
+     * The replayed handle comes from the response that last carried one, so an omitted checkpoint is not a cleared one.
+     */
+    @Test
+    void aStopResponseWithoutACheckpointKeepsTheStoredOne() throws Exception {
+        givenV2Run(List.of(Resource.CERTIFICATE));
+        Discovery run = discoveryRepository.findByUuid(discovery.getUuid()).orElseThrow();
+        run.setStoppable(true);
+        run.setCheckpoint(DiscoveryCheckpointFixture.checkpoint("connectorRunId", "run-42"));
+        discoveryRepository.saveAndFlush(run);
+        giveInterfaceStopResumeFlag();
+        stubLifecycle("/v2/discoveryProvider/discoveries/stop");
+
+        adapterFactory.forDiscovery(run).stop(run);
+
+        Discovery persisted = discoveryRepository.findByUuid(discovery.getUuid()).orElseThrow();
+        Assertions.assertNotNull(persisted.getCheckpoint(), "the handle the connector minted must survive the stop");
+        Assertions.assertEquals("connectorRunId", persisted.getCheckpoint().getFirst().getName());
+    }
+
+    @Test
+    void aResumeResponseWithoutACheckpointKeepsTheStoredOne() throws Exception {
+        givenV2Run(List.of(Resource.CERTIFICATE));
+        Discovery run = discoveryRepository.findByUuid(discovery.getUuid()).orElseThrow();
+        run.setStatus(DiscoveryStatus.STOPPED);
+        run.setStoppable(true);
+        run.setCheckpoint(DiscoveryCheckpointFixture.checkpoint("connectorRunId", "run-42"));
+        discoveryRepository.saveAndFlush(run);
+        giveInterfaceStopResumeFlag();
+        stubLifecycle("/v2/discoveryProvider/discoveries/resume");
+
+        adapterFactory.forDiscovery(run).resume(run);
+
+        Discovery persisted = discoveryRepository.findByUuid(discovery.getUuid()).orElseThrow();
+        Assertions
+                .assertNotNull(persisted.getCheckpoint(),
+                        "the handle the run was stopped with must survive the resume");
+        Assertions.assertEquals("connectorRunId", persisted.getCheckpoint().getFirst().getName());
+    }
+
     @Test
     void stopIsRefusedForARunTheConnectorNeverDeclaredStoppable() {
         givenV2Run(List.of(Resource.CERTIFICATE));
@@ -899,6 +942,24 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         // A v2 connector discovers several kinds and cannot guess which was meant.
         DiscoveryDto request = v2Request(null);
         Assertions.assertThrows(ValidationException.class, () -> discoveryService.createDiscovery(request, true));
+    }
+
+    /**
+     * v1 creation is gated on the connector through {@code mergeAndValidateAttributes}; the v2 path calls the connector
+     * itself, so it must ask the same question first, or discovery-create permission alone reaches a restricted
+     * connector.
+     */
+    @Test
+    void creatingAgainstAV2ConnectorRequiresAccessToThatConnector() {
+        giveConnectorAV2DiscoveryInterface();
+        stubSupportedResources("""
+                [{"resource":"certificates"}]""");
+        denyResourceAccess(Resource.CONNECTOR, ResourceAction.ANY);
+        DiscoveryDto request = v2Request(List.of(Resource.CERTIFICATE));
+
+        Assertions.assertThrows(AccessDeniedException.class, () -> discoveryService.createDiscovery(request, true));
+
+        mockServer.verify(0, WireMock.anyRequestedFor(WireMock.urlPathMatching("/v2/discoveryProvider/.*")));
     }
 
     @Test

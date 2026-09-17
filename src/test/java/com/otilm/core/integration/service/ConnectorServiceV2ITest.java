@@ -31,10 +31,12 @@ import com.otilm.api.model.core.connector.v2.ConnectorDetailDto;
 import com.otilm.api.model.core.connector.v2.ConnectorDto;
 import com.otilm.api.model.core.connector.v2.ConnectorRequestDto;
 import com.otilm.api.model.core.connector.v2.ConnectorUpdateRequestDto;
+import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.Credential;
+import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.EntityInstanceReference;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.VaultInstance;
@@ -42,6 +44,7 @@ import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.CredentialRepository;
+import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.EntityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.VaultInstanceRepository;
@@ -105,6 +108,8 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
 
     @Autowired
     private AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;
+    @Autowired
+    private DiscoveryRepository discoveryRepository;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -275,6 +280,35 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
         Assertions
                 .assertThrows(NotFoundException.class, () -> connectorService
                         .deleteConnector(SecuredUUID.fromString("abfbc322-29e1-11ed-a261-0242ac120002")));
+    }
+
+    /**
+     * A discovery run is history and outlives its connector, as v1 runs always have. In production its interface
+     * reference is a RESTRICT foreign key, so a plain delete has to release it or the connector's interfaces cannot
+     * cascade away and the delete fails.
+     */
+    @Test
+    void deletingAConnectorReleasesTheDiscoveryRunsBoundToItsInterfaces() throws NotFoundException {
+        ConnectorInterfaceEntity discoveryInterface = new ConnectorInterfaceEntity();
+        discoveryInterface.setConnectorUuid(connector.getUuid());
+        discoveryInterface.setInterfaceCode(ConnectorInterface.DISCOVERY);
+        discoveryInterface.setVersion("v2");
+        discoveryInterface = connectorInterfaceRepository.save(discoveryInterface);
+        Discovery run = new Discovery();
+        run.setName("finished-run");
+        run.setConnectorUuid(connector.getUuid());
+        run.setConnectorName(CONNECTOR_NAME);
+        run.setStatus(DiscoveryStatus.COMPLETED);
+        run.setConnectorStatus(DiscoveryStatus.COMPLETED);
+        run.setConnectorInterfaceUuid(discoveryInterface.getUuid());
+        run = discoveryRepository.save(run);
+
+        connectorService.deleteConnector(connector.getSecuredUuid());
+
+        Discovery kept = discoveryRepository.findByUuid(run.getUuid()).orElseThrow();
+        Assertions.assertNull(kept.getConnectorInterfaceUuid(), "a run may not keep pointing at a deleted interface");
+        Assertions.assertEquals(CONNECTOR_NAME, kept.getConnectorName(), "the run stays as history");
+        Assertions.assertTrue(connectorInterfaceRepository.findById(discoveryInterface.getUuid()).isEmpty());
     }
 
     @Test

@@ -62,6 +62,7 @@ import com.otilm.core.messaging.jms.producers.NotificationProducer;
 import com.otilm.core.messaging.model.NotificationRecipient;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.discovery.DiscoveryRunLifecycle;
+import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -141,6 +142,7 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     private DiscoveryWriter discoveryWriter;
     private DiscoveryRunWriter discoveryRunWriter;
     private ConnectorRepository connectorRepository;
+    private AuthorizationEnforcer authorizationEnforcer;
     private EventProducer eventProducer;
     private NotificationProducer notificationProducer;
 
@@ -172,6 +174,11 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     @Autowired
     public void setConnectorRepository(ConnectorRepository connectorRepository) {
         this.connectorRepository = connectorRepository;
+    }
+
+    @Autowired
+    public void setAuthorizationEnforcer(AuthorizationEnforcer authorizationEnforcer) {
+        this.authorizationEnforcer = authorizationEnforcer;
     }
 
     @Autowired
@@ -772,6 +779,12 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
 
         ConnectorInterfaceEntity discoveryInterface = resolveDiscoveryInterface(connector.getUuid(),
                 request.getInterfaceUuid());
+        if (discoveryInterface != null) {
+            // A v1 run is gated on its connector by mergeAndValidateAttributes (CONNECTOR:ANY). The v2 path calls the
+            // connector itself, so it asks the same question before the first call.
+            authorizationEnforcer
+                    .enforce(Resource.CONNECTOR, ResourceAction.ANY, SecuredUUID.fromUUID(connector.getUuid()));
+        }
         validateRequestedResources(request, connector, discoveryInterface);
         validateRunAttributes(request, connector, discoveryInterface);
 

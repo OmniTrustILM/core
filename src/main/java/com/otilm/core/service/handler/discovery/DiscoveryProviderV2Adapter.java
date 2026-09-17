@@ -334,7 +334,10 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
             // The status checked before the connector call was a snapshot; the call can take tens of seconds, and a
             // tick worker or the reaper may have ended the run since. Writing STOPPED over that would resurrect it.
             requireStatus(locked, "stopped", DiscoveryStatus.IN_PROGRESS);
-            locked.setCheckpoint(response.getCheckpoint());
+            // Omitted keeps the handle from the response that last carried one; only a present list replaces it.
+            if (response.getCheckpoint() != null) {
+                locked.setCheckpoint(response.getCheckpoint());
+            }
             locked.setStatus(DiscoveryStatus.STOPPED);
             // Both, always together: connector_status is the connector's view of the run, and the connector has
             // just acknowledged the stop. Left behind it keeps reporting IN_PROGRESS for a run nobody is scanning.
@@ -390,7 +393,10 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
             Discovery locked = lock(discoveryUuid);
             // Same reason as stop: the legality check ran against a snapshot taken before the connector call.
             requireStatus(locked, "resumed", DiscoveryStatus.STOPPED);
-            locked.setCheckpoint(response.getCheckpoint());
+            // As in stop: an omitted checkpoint keeps the stored handle.
+            if (response.getCheckpoint() != null) {
+                locked.setCheckpoint(response.getCheckpoint());
+            }
             locked.setStoppable(stoppable(locked, response));
             locked.setStatus(DiscoveryStatus.IN_PROGRESS);
             locked.setConnectorStatus(DiscoveryStatus.IN_PROGRESS);
