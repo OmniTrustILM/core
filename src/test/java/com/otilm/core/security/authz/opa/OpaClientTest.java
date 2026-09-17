@@ -9,6 +9,7 @@ import com.otilm.core.security.authz.OpaPolicy;
 import com.otilm.core.security.authz.opa.dto.OpaObjectAccessResult;
 import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
 import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
+import com.otilm.core.util.PrincipalFixtures;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
@@ -54,8 +55,7 @@ class OpaClientTest {
         CaffeineCacheManager mgr = new CaffeineCacheManager();
         mgr.registerCustomCache(CacheConfig.RESOURCE_AUTHZ_CACHE, Caffeine.newBuilder().maximumSize(100).build());
         mgr.registerCustomCache(CacheConfig.OBJECT_AUTHZ_CACHE, Caffeine.newBuilder().maximumSize(100).build());
-        mgr.registerCustomCache(CacheConfig.PRINCIPAL_DIGEST_CACHE, Caffeine.newBuilder().maximumSize(100).build());
-        return new PlatformAuthorizationCache(mgr, om, new AuthorizationCacheProperties(true, 5, 100, 100, 100));
+        return new PlatformAuthorizationCache(mgr, om, new AuthorizationCacheProperties(true, 5, 100, 100));
     }
 
     @AfterEach
@@ -114,16 +114,7 @@ class OpaClientTest {
                             "\"action\":\"DETAIL\"" +
                         "}," +
                         "\"details\":null," +
-                        "\"principal\":{" +
-                            "\"user\":{" +
-                                "\"username\":\"FrantisekJednicka\"," +
-                                "\"enabled\":true" +
-                            "}," +
-                            "\"roles\":[" +
-                                "\"ROLE_ADMINISTRATOR\"," +
-                                "\"ROLE_AUTH_MANAGER\"" +
-                            "]" +
-                        "}" +
+                        "\"principal\":" + getPrincipal() +
                     "}" +
                 "}", request.getBody().readUtf8());
         //@formatter:on
@@ -169,8 +160,12 @@ class OpaClientTest {
     void callersWithEqualPermissionsShareOneOpaCall() {
         setUpSuccessfulResourceAccessResponse();
 
-        opaClient.checkResourceAccess(OpaPolicy.METHOD.policyName, getResource(), principal("alice"), null);
-        opaClient.checkResourceAccess(OpaPolicy.METHOD.policyName, getResource(), principal("bob"), null);
+        opaClient
+                .checkResourceAccess(OpaPolicy.METHOD.policyName, getResource(),
+                        PrincipalFixtures.operator("alice-uuid", "alice"), null);
+        opaClient
+                .checkResourceAccess(OpaPolicy.METHOD.policyName, getResource(),
+                        PrincipalFixtures.operator("bob-uuid", "bob"), null);
 
         assertEquals(1, opaMock.getRequestCount());
     }
@@ -180,8 +175,12 @@ class OpaClientTest {
         setUpSuccessfulResourceAccessResponse();
         setUpSuccessfulResourceAccessResponse();
 
-        opaClient.checkResourceAccess(OpaPolicy.METHOD.policyName, getResource(), principal("alice"), null);
-        opaClient.checkResourceAccess(OpaPolicy.METHOD.policyName, getResource(), adminPrincipal(), null);
+        opaClient
+                .checkResourceAccess(OpaPolicy.METHOD.policyName, getResource(),
+                        PrincipalFixtures.operator("alice-uuid", "alice"), null);
+        opaClient
+                .checkResourceAccess(OpaPolicy.METHOD.policyName, getResource(),
+                        PrincipalFixtures.admin("9999-uuid", "carol"), null);
 
         assertEquals(2, opaMock.getRequestCount());
     }
@@ -197,18 +196,6 @@ class OpaClientTest {
         assertEquals(2, opaMock.getRequestCount());
     }
 
-    private static String principal(String username) {
-        return """
-                {"user":{"uuid":"%s-uuid","username":"%s"},"roles":[],\
-                "permissions":{"allowAllResources":false,"resources":[]}}""".formatted(username, username);
-    }
-
-    private static String adminPrincipal() {
-        return """
-                {"user":{"uuid":"9999-uuid","username":"carol"},"roles":[],\
-                "permissions":{"allowAllResources":true,"resources":[]}}""";
-    }
-
     OpaRequestedResource getResource() {
         Map<String, String> properties = new HashMap<>();
         properties.put("name", "GROUPS");
@@ -221,18 +208,7 @@ class OpaClientTest {
     }
 
     String getPrincipal() {
-        //@formatter:off
-        return "{" +
-                    "\"user\":{" +
-                        "\"username\":\"FrantisekJednicka\"," +
-                        "\"enabled\":true" +
-                    "}," +
-                    "\"roles\":[" +
-                        "\"ROLE_ADMINISTRATOR\"," +
-                        "\"ROLE_AUTH_MANAGER\"" +
-                    "]" +
-                "}";
-        //@formatter:on
+        return PrincipalFixtures.operator("1111-uuid", "FrantisekJednicka");
     }
 
     RecordedRequest getLastRequest() throws InterruptedException {

@@ -8,8 +8,16 @@ import com.otilm.core.security.authz.opa.dto.OpaObjectAccessResult;
 import com.otilm.core.security.authz.opa.dto.OpaRequestDetails;
 import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
 import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
+import com.otilm.core.util.PrincipalFixtures;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,11 +29,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class PlatformAuthorizationCacheTest {
 
-    private static final String PERMISSIONS = """
-            {"allowAllResources":false,"resources":[\
-            {"name":"certificates","allowAllActions":false,"actions":["detail"],"objects":[]}]}""";
-
     private static final OpaRequestDetails DETAILS = new OpaRequestDetails(null);
+
+    private static final long TIMEOUT_SECONDS = 5;
 
     private AtomicInteger loads;
     private PlatformAuthorizationCache cache;
@@ -40,15 +46,8 @@ class PlatformAuthorizationCacheTest {
         CaffeineCacheManager mgr = new CaffeineCacheManager();
         mgr.registerCustomCache(CacheConfig.RESOURCE_AUTHZ_CACHE, Caffeine.newBuilder().maximumSize(100).build());
         mgr.registerCustomCache(CacheConfig.OBJECT_AUTHZ_CACHE, Caffeine.newBuilder().maximumSize(100).build());
-        mgr.registerCustomCache(CacheConfig.PRINCIPAL_DIGEST_CACHE, Caffeine.newBuilder().maximumSize(100).build());
         return new PlatformAuthorizationCache(mgr, new ObjectMapper(),
-                new AuthorizationCacheProperties(enabled, 5, 100, 100, 100));
-    }
-
-    private static String profile(String userUuid, String username) {
-        return """
-                {"user":{"uuid":"%s","username":"%s"},"roles":[],"permissions":%s}"""
-                .formatted(userUuid, username, PERMISSIONS);
+                new AuthorizationCacheProperties(enabled, 5, 100, 100));
     }
 
     private static OpaRequestedResource certificateDetail() {
@@ -66,30 +65,28 @@ class PlatformAuthorizationCacheTest {
 
     @Test
     void secondCallIsServedFromCache() {
-        OpaResourceAccessResult first = resourceAccess(profile("1111", "alice"), certificateDetail());
-        OpaResourceAccessResult second = resourceAccess(profile("1111", "alice"), certificateDetail());
+        OpaResourceAccessResult first = resourceAccess(PrincipalFixtures.operator("1111", "alice"),
+                certificateDetail());
+        OpaResourceAccessResult second = resourceAccess(PrincipalFixtures.operator("1111", "alice"),
+                certificateDetail());
 
         assertThat(loads).hasValue(1);
-        assertThat(second).isSameAs(first);
+        assertThat(second.isAuthorized()).isEqualTo(first.isAuthorized());
+        assertThat(second.getAllow()).isEqualTo(first.getAllow());
     }
 
     @Test
     void differentUsersWithEqualPermissionsShareAnEntry() {
-        resourceAccess(profile("1111", "alice"), certificateDetail());
-        resourceAccess(profile("2222", "bob"), certificateDetail());
+        resourceAccess(PrincipalFixtures.operator("1111", "alice"), certificateDetail());
+        resourceAccess(PrincipalFixtures.operator("2222", "bob"), certificateDetail());
 
         assertThat(loads).hasValue(1);
     }
 
     @Test
     void differentPermissionsDoNotShareAnEntry() {
-        String operator = profile("1111", "alice");
-        String admin = """
-                {"user":{"uuid":"2222","username":"bob"},"roles":[],\
-                "permissions":{"allowAllResources":true,"resources":[]}}""";
-
-        resourceAccess(operator, certificateDetail());
-        resourceAccess(admin, certificateDetail());
+        resourceAccess(PrincipalFixtures.operator("1111", "alice"), certificateDetail());
+        resourceAccess(PrincipalFixtures.admin("2222", "bob"), certificateDetail());
 
         assertThat(loads).hasValue(2);
     }
@@ -103,22 +100,85 @@ class PlatformAuthorizationCacheTest {
     }
 
     @Test
+    void aPrincipalWithTrailingContentBypassesTheCacheWithoutThrowing() {
+        // Deliberately malformed: a complete profile followed by a second one, which no fixture can produce.
+        String twoDocuments = PrincipalFixtures.operator("1111", "alice") + PrincipalFixtures.admin("2222", "bob");
+
+        resourceAccess(twoDocuments, certificateDetail());
+        resourceAccess(twoDocuments, certificateDetail());
+
+        assertThat(loads).hasValue(2);
+    }
+
+    @Test
+    void aPrincipalCarryingAnUnpairedSurrogateBypassesTheCacheWithoutThrowing() {
+        // Deliberately malformed: a lone high surrogate inside the permissions document. Jackson admits the escape
+        // and no fixture can produce it.
+        String loneSurrogate = """
+                {"user":{"username":"alice"},"permissions":{"allowAllResources":false,\
+                "resources":[{"name":"certificates\\ud800"}]}}""";
+
+        resourceAccess(loneSurrogate, certificateDetail());
+        resourceAccess(loneSurrogate, certificateDetail());
+
+        assertThat(loads).hasValue(2);
+    }
+
+    @Test
     void differentObjectUuidsMiss() {
         OpaRequestedResource first = certificateDetail();
         first.setObjectUUIDs(List.of("abc-123"));
         OpaRequestedResource second = certificateDetail();
         second.setObjectUUIDs(List.of("def-456"));
 
-        resourceAccess(profile("1111", "alice"), first);
-        resourceAccess(profile("1111", "alice"), second);
+        resourceAccess(PrincipalFixtures.operator("1111", "alice"), first);
+        resourceAccess(PrincipalFixtures.operator("1111", "alice"), second);
+
+        assertThat(loads).hasValue(2);
+    }
+
+    @Test
+    void reorderedObjectUuidsShareAnEntry() {
+        OpaRequestedResource first = certificateDetail();
+        first.setObjectUUIDs(List.of("abc-123", "def-456"));
+        OpaRequestedResource second = certificateDetail();
+        second.setObjectUUIDs(List.of("def-456", "abc-123"));
+
+        resourceAccess(PrincipalFixtures.operator("1111", "alice"), first);
+        resourceAccess(PrincipalFixtures.operator("1111", "alice"), second);
+
+        assertThat(loads).hasValue(1);
+    }
+
+    @Test
+    void reorderedPropertiesShareAnEntry() {
+        Map<String, String> reversed = new LinkedHashMap<>();
+        reversed.put("action", "detail");
+        reversed.put("name", "certificates");
+
+        resourceAccess(PrincipalFixtures.operator("1111", "alice"), certificateDetail());
+        resourceAccess(PrincipalFixtures.operator("1111", "alice"), new OpaRequestedResource(reversed));
+
+        assertThat(loads).hasValue(1);
+    }
+
+    @Test
+    void absentObjectUuidsDoNotShareAnEntryWithAnEmptyList() {
+        OpaRequestedResource empty = certificateDetail();
+        empty.setObjectUUIDs(List.of());
+
+        resourceAccess(PrincipalFixtures.operator("1111", "alice"), certificateDetail());
+        resourceAccess(PrincipalFixtures.operator("1111", "alice"), empty);
 
         assertThat(loads).hasValue(2);
     }
 
     @Test
     void theTwoPolicyCachesAreSeparate() {
-        resourceAccess(profile("1111", "alice"), certificateDetail());
-        cache.getOrCheckObjectAccess("method", certificateDetail(), profile("1111", "alice"), DETAILS, () -> {
+        String principal = PrincipalFixtures.operator("1111", "alice");
+
+        resourceAccess(principal, certificateDetail());
+        cache.getOrCheckObjectAccess("method", certificateDetail(), principal, DETAILS, () -> {
             loads.incrementAndGet();
             return new OpaObjectAccessResult();
         });
@@ -130,8 +190,8 @@ class PlatformAuthorizationCacheTest {
     void disabledCacheAlwaysInvokesTheLoader() {
         cache = newCache(false);
 
-        resourceAccess(profile("1111", "alice"), certificateDetail());
-        resourceAccess(profile("1111", "alice"), certificateDetail());
+        resourceAccess(PrincipalFixtures.operator("1111", "alice"), certificateDetail());
+        resourceAccess(PrincipalFixtures.operator("1111", "alice"), certificateDetail());
 
         assertThat(loads).hasValue(2);
     }
@@ -139,34 +199,95 @@ class PlatformAuthorizationCacheTest {
     @Test
     void aThrowingLoaderCachesNothing() {
         assertThatThrownBy(() -> cache
-                .getOrCheckResourceAccess("method", certificateDetail(), profile("1111", "alice"), DETAILS, () -> {
-                    throw new IllegalStateException("OPA is down");
-                })).isInstanceOf(IllegalStateException.class);
+                .getOrCheckResourceAccess("method", certificateDetail(), PrincipalFixtures.operator("1111", "alice"),
+                        DETAILS, () -> {
+                            throw new IllegalStateException("OPA is down");
+                        }))
+                .isInstanceOf(IllegalStateException.class);
 
-        resourceAccess(profile("1111", "alice"), certificateDetail());
+        resourceAccess(PrincipalFixtures.operator("1111", "alice"), certificateDetail());
 
         assertThat(loads).hasValue(1);
     }
 
     @Test
     void aNullResultIsNotCached() {
+        String principal = PrincipalFixtures.operator("1111", "alice");
         Supplier<OpaResourceAccessResult> nullLoader = () -> {
             loads.incrementAndGet();
             return null;
         };
 
-        cache.getOrCheckResourceAccess("method", certificateDetail(), profile("1111", "alice"), DETAILS, nullLoader);
-        cache.getOrCheckResourceAccess("method", certificateDetail(), profile("1111", "alice"), DETAILS, nullLoader);
+        cache.getOrCheckResourceAccess("method", certificateDetail(), principal, DETAILS, nullLoader);
+        cache.getOrCheckResourceAccess("method", certificateDetail(), principal, DETAILS, nullLoader);
 
         assertThat(loads).hasValue(2);
     }
 
     @Test
+    void theCallerCannotMutateTheCachedDecision() {
+        OpaResourceAccessResult first = resourceAccess(PrincipalFixtures.operator("1111", "alice"),
+                certificateDetail());
+        first.setAuthorized(false);
+        first.setAllow(List.of());
+
+        OpaResourceAccessResult second = resourceAccess(PrincipalFixtures.operator("1111", "alice"),
+                certificateDetail());
+
+        assertThat(loads).hasValue(1);
+        assertThat(second.isAuthorized()).isTrue();
+        assertThat(second.getAllow()).containsExactly("ActionAllowedOnResource");
+    }
+
+    @Test
+    void concurrentMissesOnOneKeyRunTheLoaderOnce() throws Exception {
+        CountDownLatch loaderEntered = new CountDownLatch(1);
+        CountDownLatch releaseLoader = new CountDownLatch(1);
+        CountDownLatch secondCallerStarted = new CountDownLatch(1);
+        Supplier<OpaResourceAccessResult> blockingLoader = () -> {
+            loads.incrementAndGet();
+            loaderEntered.countDown();
+            awaitQuietly(releaseLoader);
+            return new OpaResourceAccessResult(true, List.of("ActionAllowedOnResource"));
+        };
+        Callable<OpaResourceAccessResult> check = () -> cache
+                .getOrCheckResourceAccess("method", certificateDetail(), PrincipalFixtures.operator("1111", "alice"),
+                        DETAILS, blockingLoader);
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<OpaResourceAccessResult> first = pool.submit(check);
+            assertThat(loaderEntered.await(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isTrue();
+            Future<OpaResourceAccessResult> second = pool.submit(() -> {
+                secondCallerStarted.countDown();
+                return check.call();
+            });
+            assertThat(secondCallerStarted.await(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isTrue();
+            releaseLoader.countDown();
+
+            assertThat(first.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isNotNull();
+            assertThat(second.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isNotNull();
+        } finally {
+            pool.shutdownNow();
+        }
+
+        assertThat(loads).hasValue(1);
+    }
+
+    @Test
     void evictAllForcesAReload() {
-        resourceAccess(profile("1111", "alice"), certificateDetail());
+        resourceAccess(PrincipalFixtures.operator("1111", "alice"), certificateDetail());
         cache.evictAll();
-        resourceAccess(profile("1111", "alice"), certificateDetail());
+        resourceAccess(PrincipalFixtures.operator("1111", "alice"), certificateDetail());
 
         assertThat(loads).hasValue(2);
+    }
+
+    private static void awaitQuietly(CountDownLatch latch) {
+        try {
+            latch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 }

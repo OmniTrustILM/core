@@ -13,7 +13,6 @@ caching:
     ttl-minutes: ${AUTHZ_CACHE_TTL_MINUTES:5}                        # Must not exceed the authentication cache TTL
     resource-max-size: ${AUTHZ_RESOURCE_CACHE_MAX_SIZE:10000}        # Verdicts; keys include requested object UUIDs
     object-max-size: ${AUTHZ_OBJECT_CACHE_MAX_SIZE:1000}             # Object filters; few keys, large values
-    principal-digest-max-size: ${AUTHZ_PRINCIPAL_DIGEST_MAX_SIZE:500} # One entry per distinct user profile
   # Connector API-client cache caches ApiClientConnectorInfo per connector UUID to avoid repeated database accesses.
   connectors:
     ttl-minutes: ${CONNECTORS_CACHE_TTL_MINUTES:5}

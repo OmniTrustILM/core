@@ -6,6 +6,7 @@ import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
 import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
 import com.otilm.core.service.RoleManagementExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.PrincipalFixtures;
 import com.otilm.core.util.mockbeans.ManagementApiMocks;
 import java.util.List;
 import java.util.Map;
@@ -21,9 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Import(ManagementApiMocks.class)
 class AuthorizationCacheITest extends BaseSpringBootTest {
 
-    private static final String PRINCIPAL = """
-            {"user":{"uuid":"1111","username":"alice"},"roles":[],"permissions":\
-            {"allowAllResources":false,"resources":[]}}""";
+    private static final String PRINCIPAL = PrincipalFixtures.operator("1111", "alice");
 
     @Autowired
     private AuthorizationCache authorizationCache;

@@ -37,7 +37,6 @@ public class CacheConfig {
     public static final String CREDENTIAL_VERIFICATION_CACHE = "credentialVerification";
     public static final String CRYPTOGRAPHIC_KEY_ITEM_CACHE = "cryptographicKeyItem";
     public static final String OBJECT_AUTHZ_CACHE = "objectAuthz";
-    public static final String PRINCIPAL_DIGEST_CACHE = "principalDigest";
     public static final String RESOURCE_AUTHZ_CACHE = "resourceAuthz";
     public static final String SIGNING_CERTIFICATE_CACHE = "signingCertificate";
     public static final String SIGNING_PROFILE_CACHE = "signingProfile";
@@ -135,15 +134,6 @@ public class CacheConfig {
                                 .newBuilder()
                                 .expireAfterWrite(authorizationCacheProperties.ttlMinutes(), TimeUnit.MINUTES)
                                 .maximumSize(authorizationCacheProperties.objectMaxSize())
-                                .recordStats()
-                                .build());
-
-        mgr
-                .registerCustomCache(PRINCIPAL_DIGEST_CACHE,
-                        Caffeine
-                                .newBuilder()
-                                .expireAfterWrite(authorizationCacheProperties.ttlMinutes(), TimeUnit.MINUTES)
-                                .maximumSize(authorizationCacheProperties.principalDigestMaxSize())
                                 .recordStats()
                                 .build());
 
