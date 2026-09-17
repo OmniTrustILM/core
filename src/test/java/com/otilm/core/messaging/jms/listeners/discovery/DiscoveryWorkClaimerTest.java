@@ -107,7 +107,7 @@ class DiscoveryWorkClaimerTest {
      */
     @Test
     void aRungShorterThanATick_parksTheRowPastTheTickInstead() {
-        when(clusterSynchronizer.tryLock(any())).thenReturn(true);
+        when(clusterSynchronizer.tryLock(any(ClusterOperationSynchronizer.Operation.class))).thenReturn(true);
         UUID runUuid = UUID.randomUUID();
         when(workRepository
                 .findByNextDueAtLessThanEqualOrderByNextDueAt(any(OffsetDateTime.class), any(Pageable.class)))
@@ -126,7 +126,7 @@ class DiscoveryWorkClaimerTest {
 
     @Test
     void aRungLongerThanTheFloor_keepsItsOwnCadence() {
-        when(clusterSynchronizer.tryLock(any())).thenReturn(true);
+        when(clusterSynchronizer.tryLock(any(ClusterOperationSynchronizer.Operation.class))).thenReturn(true);
         UUID runUuid = UUID.randomUUID();
         // Attempt 2 takes the ladder's ceiling, 30s here but minutes on the real STATUS ladder.
         when(workProperties.scheduleFor(any()))
@@ -152,7 +152,7 @@ class DiscoveryWorkClaimerTest {
      */
     @Test
     void aCeilingShorterThanTheFloor_isOverriddenByIt() {
-        when(clusterSynchronizer.tryLock(any())).thenReturn(true);
+        when(clusterSynchronizer.tryLock(any(ClusterOperationSynchronizer.Operation.class))).thenReturn(true);
         UUID runUuid = UUID.randomUUID();
         // DRAIN's real ladder: its last rung is 30s, under the 35s floor.
         when(workProperties.scheduleFor(any()))
