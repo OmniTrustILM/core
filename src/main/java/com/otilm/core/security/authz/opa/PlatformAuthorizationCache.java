@@ -75,6 +75,9 @@ public class PlatformAuthorizationCache implements AuthorizationCache {
 
     /** Returns {@code null} when the request cannot be reduced to a key, which sends the caller straight to OPA. */
     private String key(String policyName, OpaRequestedResource resource, String principal, OpaRequestDetails details) {
+        if (principal == null) {
+            return null;
+        }
         try {
             return AuthorizationCacheKeys
                     .decisionKey(policyName, principalDigest(principal), om.writeValueAsString(resource),

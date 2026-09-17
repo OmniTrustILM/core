@@ -66,11 +66,11 @@ class PlatformAuthorizationCacheTest {
 
     @Test
     void secondCallIsServedFromCache() {
-        resourceAccess(profile("1111", "alice"), certificateDetail());
+        OpaResourceAccessResult first = resourceAccess(profile("1111", "alice"), certificateDetail());
         OpaResourceAccessResult second = resourceAccess(profile("1111", "alice"), certificateDetail());
 
         assertThat(loads).hasValue(1);
-        assertThat(second.isAuthorized()).isTrue();
+        assertThat(second).isSameAs(first);
     }
 
     @Test
@@ -79,6 +79,27 @@ class PlatformAuthorizationCacheTest {
         resourceAccess(profile("2222", "bob"), certificateDetail());
 
         assertThat(loads).hasValue(1);
+    }
+
+    @Test
+    void differentPermissionsDoNotShareAnEntry() {
+        String operator = profile("1111", "alice");
+        String admin = """
+                {"user":{"uuid":"2222","username":"bob"},"roles":[],\
+                "permissions":{"allowAllResources":true,"resources":[]}}""";
+
+        resourceAccess(operator, certificateDetail());
+        resourceAccess(admin, certificateDetail());
+
+        assertThat(loads).hasValue(2);
+    }
+
+    @Test
+    void nullPrincipalBypassesTheCacheWithoutThrowing() {
+        resourceAccess(null, certificateDetail());
+        resourceAccess(null, certificateDetail());
+
+        assertThat(loads).hasValue(2);
     }
 
     @Test
@@ -97,7 +118,7 @@ class PlatformAuthorizationCacheTest {
     @Test
     void theTwoPolicyCachesAreSeparate() {
         resourceAccess(profile("1111", "alice"), certificateDetail());
-        cache.getOrCheckObjectAccess("objects", certificateDetail(), profile("1111", "alice"), DETAILS, () -> {
+        cache.getOrCheckObjectAccess("method", certificateDetail(), profile("1111", "alice"), DETAILS, () -> {
             loads.incrementAndGet();
             return new OpaObjectAccessResult();
         });

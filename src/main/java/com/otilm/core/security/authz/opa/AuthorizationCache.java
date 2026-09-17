@@ -11,7 +11,7 @@ import java.util.function.Supplier;
  *
  * <p>
  * Entries are keyed by the caller's effective permissions rather than their identity, so two callers holding different
- * roles that grant the same access share one entry. See {@link AuthorizationCacheKeys} for what that reduction assumes
+ * roles that grant the same access share one entry. See {@code AuthorizationCacheKeys} for what that reduction assumes
  * about the policies.
  */
 public interface AuthorizationCache {
