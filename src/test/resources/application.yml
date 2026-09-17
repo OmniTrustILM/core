@@ -5,6 +5,12 @@ caching:
   authentication:
     ttl-minutes: 5
     max-size: 500
+  authorization:
+    enabled: true
+    ttl-minutes: 5
+    resource-max-size: 10000
+    object-max-size: 1000
+    principal-digest-max-size: 500
   connectors:
     ttl-minutes: 5
     max-size: 100
