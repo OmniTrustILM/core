@@ -122,21 +122,21 @@ extract_cms_parts() {
     python3 "$SCRIPT_DIR/cms-extract.py" "$@"
 }
 
+signer_cert_pem() {
+    local outdir="$1" out_pem="$2"
+    [[ -s "$outdir/signer.der" ]] || return 1
+    openssl x509 -inform DER -in "$outdir/signer.der" -out "$out_pem" 2>/dev/null
+}
+
 # openssl cannot verify the timestamp token for ML-DSA so we do it here.
 verify_mldsa_token() {
-    local outdir="$1" cert_pem="$2" query="$3"
+    local outdir="$1" cert_pem="$2" verdicts="$3"
     local chain_args=(verify -CAfile "$CA_CERT")
 
     [[ -n "$TSA_CERT" ]] && chain_args+=(-untrusted "$TSA_CERT")
     chain_args+=(-purpose timestampsign "$cert_pem")
     if ! openssl "${chain_args[@]}"; then
         err "signer certificate does not chain to $CA_CERT for timestamping"
-        return 1
-    fi
-
-    local verdicts
-    if ! verdicts=$(extract_cms_parts "$outdir/token_content.der" "$outdir" "$query"); then
-        err "could not parse the CMS token: $verdicts"
         return 1
     fi
 
@@ -182,11 +182,9 @@ diagnose_signature() {
         return 1
     fi
 
-    # Extract signer certificate using openssl cms
     local cert_pem="$outdir/signer_cert.pem"
-    if ! openssl pkcs7 -inform DER -in "$outdir/token_content.der" \
-            -print_certs -out "$cert_pem" 2>/dev/null \
-       || [[ ! -s "$cert_pem" ]]; then
+    if ! extract_cms_parts "$outdir/token_content.der" "$outdir" >/dev/null \
+       || ! signer_cert_pem "$outdir" "$cert_pem"; then
         err "Could not extract signer certificate from CMS token"
         echo "==========================="
         return 1
@@ -204,12 +202,6 @@ diagnose_signature() {
         openssl x509 -in "$cert_pem" -noout -text 2>/dev/null | grep -E "Public Key Algorithm|Signature Algorithm" | head -2
         echo "==========================="
         return 0
-    fi
-
-    if ! extract_cms_parts "$outdir/token_content.der" "$outdir" >/dev/null; then
-        err "Could not extract signature bytes"
-        echo "==========================="
-        return 1
     fi
 
     # RSA-decrypt the signature to reveal DigestInfo
@@ -403,16 +395,19 @@ if [[ -n "$CA_CERT" ]]; then
         err "Could not extract the token from the TSP response"
         exit 1
     fi
+    if ! CMS_VERDICTS=$(extract_cms_parts "$OUTPUT_DIR/token_content.der" "$OUTPUT_DIR" "$QUERY_FILE"); then
+        err "Could not parse the timestamp token: $CMS_VERDICTS"
+        exit 1
+    fi
     SIGNER_PEM="$OUTPUT_DIR/signer_cert.pem"
-    if ! openssl pkcs7 -inform DER -in "$OUTPUT_DIR/token_content.der" \
-            -print_certs -out "$SIGNER_PEM" 2>/dev/null || [[ ! -s "$SIGNER_PEM" ]]; then
+    if ! signer_cert_pem "$OUTPUT_DIR" "$SIGNER_PEM"; then
         err "Could not extract the signer certificate; was the query sent without -cert?"
         exit 1
     fi
 
     if is_pqc_signer "$SIGNER_PEM"; then
         log "Post-quantum signer: verifying without openssl ts -verify"
-        if verify_mldsa_token "$OUTPUT_DIR" "$SIGNER_PEM" "$QUERY_FILE"; then
+        if verify_mldsa_token "$OUTPUT_DIR" "$SIGNER_PEM" "$CMS_VERDICTS"; then
             echo "Verification: OK"
             if [[ "$VERBOSE" == true ]]; then
                 diagnose_signature "$RESPONSE_FILE" "$OUTPUT_DIR"

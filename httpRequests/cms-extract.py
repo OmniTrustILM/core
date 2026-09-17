@@ -4,6 +4,9 @@
 Writes into the output directory:
   signedattrs.der  the signedAttrs re-tagged from [0] IMPLICIT to SET OF (RFC 5652 5.4)
   signature.bin    the raw SignerInfo signature value
+  signer.der       the embedded certificate named by SignerInfo.sid, when certificates
+                   are present -- CertificateSet is unordered, so the first one is not
+                   necessarily the signer's
 
 Prints one verdict line per check performed:
   messageDigest OK|MISMATCH <digest>   whether signedAttrs describe the eContent carried here
@@ -26,9 +29,12 @@ OBJECT_IDENTIFIER = 0x06
 GENERALIZED_TIME = 0x18
 SEQUENCE = 0x30
 SET = 0x31
+CONTEXT_0_PRIMITIVE = 0x80  # [0] IMPLICIT, primitive
 CONTEXT_0 = 0xA0  # [0] IMPLICIT
+CONTEXT_3 = 0xA3  # [3] EXPLICIT
 
 MESSAGE_DIGEST_OID = bytes.fromhex("06092a864886f70d010904")  # 1.2.840.113549.1.9.4
+SUBJECT_KEY_IDENTIFIER_OID = bytes.fromhex("0603551d0e")  # 2.5.29.14
 DIGEST_BY_LENGTH = {32: "sha256", 48: "sha384", 64: "sha512"}
 
 
@@ -140,12 +146,70 @@ def signed_attrs_der(buf, signed_attrs):
     return bytes(der)
 
 
-def digest_verdict(buf, signed_attrs, econtent):
-    """Compares the signed messageDigest attribute against the eContent the token carries.
+# --- Locating the signer's certificate ---
 
-    Without this the signature would only prove that some TSTInfo was signed, not the one this
-    response returned.
-    """
+def signer_id_of(buf, signer_info):
+    fields = children(buf, signer_info)
+    if len(fields) < 2:
+        raise Malformed("truncated SignerInfo")
+    sid = fields[1]
+    if sid["tag"] == SEQUENCE:
+        parts = children(buf, sid)
+        if len(parts) < 2 or parts[1]["tag"] != INTEGER:
+            raise Malformed("malformed issuerAndSerialNumber")
+        return "isn", (encoding_of(buf, parts[0]), value_of(buf, parts[1]))
+    if sid["tag"] == CONTEXT_0_PRIMITIVE:
+        return "ski", value_of(buf, sid)
+    raise Malformed("unrecognized SignerIdentifier")
+
+
+def certificate_ski(buf, tbs):
+    """The subjectKeyIdentifier extension value, or None when the certificate carries none."""
+    wrapper = next((c for c in children(buf, tbs) if c["tag"] == CONTEXT_3), None)
+    if wrapper is None:
+        return None
+    for extension in children(buf, read_node(buf, wrapper["content"])):
+        parts = children(buf, extension)
+        if not parts or encoding_of(buf, parts[0]) != SUBJECT_KEY_IDENTIFIER_OID:
+            continue
+        extn_value = next((p for p in parts if p["tag"] == OCTET_STRING), None)
+        if extn_value is None:
+            raise Malformed("subjectKeyIdentifier extension has no extnValue")
+        # extnValue wraps the DER of the extension, here another OCTET STRING.
+        octets = value_of(buf, extn_value)
+        return value_of(octets, read_node(octets, 0))
+    return None
+
+
+def certificate_identity(buf, certificate):
+    tbs = child_with_tag(buf, certificate, SEQUENCE, "tbsCertificate")
+    fields = children(buf, tbs)
+    if fields and fields[0]["tag"] == CONTEXT_0:
+        fields = fields[1:]
+    if len(fields) < 3 or fields[0]["tag"] != INTEGER:
+        raise Malformed("malformed tbsCertificate")
+    return encoding_of(buf, fields[2]), value_of(buf, fields[0]), certificate_ski(buf, tbs)
+
+
+def signer_certificate(buf, signed_data, signer_info):
+    wrapper = next((c for c in children(buf, signed_data) if c["tag"] == CONTEXT_0), None)
+    if wrapper is None:
+        return None
+
+    kind, wanted = signer_id_of(buf, signer_info)
+    for certificate in children(buf, wrapper):
+        if certificate["tag"] != SEQUENCE:  # a CertificateChoices alternative, not a Certificate
+            continue
+        issuer, serial, ski = certificate_identity(buf, certificate)
+        if kind == "isn" and (issuer, serial) == wanted:
+            return certificate
+        if kind == "ski" and ski is not None and ski == wanted:
+            return certificate
+    raise Malformed("no embedded certificate matches the SignerInfo sid")
+
+
+def digest_verdict(buf, signed_attrs, econtent):
+    """Compares the signed messageDigest attribute against the eContent the token carries."""
     signed = None
     for attribute in children(buf, signed_attrs):
         fields = children(buf, attribute)
@@ -237,6 +301,10 @@ def extract(buf, outdir, query=None):
 
     write_file(f"{outdir}/signedattrs.der", signed_attrs_der(buf, signed_attrs))
     write_file(f"{outdir}/signature.bin", signature_of(buf, signer_info, signed_attrs))
+
+    signer = signer_certificate(buf, signed_data, signer_info)
+    if signer is not None:
+        write_file(f"{outdir}/signer.der", encoding_of(buf, signer))
 
     print(f"messageDigest {digest_verdict(buf, signed_attrs, econtent)}")
     if query is not None:
