@@ -1,5 +1,9 @@
 package com.otilm.core.integration.service;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nimbusds.jose.JOSEException;
@@ -39,6 +43,7 @@ import com.otilm.core.dao.repository.SettingRepository;
 import com.otilm.core.dao.repository.workflows.TriggerRepository;
 import com.otilm.core.service.SettingExternalService;
 import com.otilm.core.service.impl.SettingServiceImpl;
+import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.BaseSpringBootTest;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
@@ -53,6 +58,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 
 class SettingServiceITest extends BaseSpringBootTest {
@@ -107,6 +113,204 @@ class SettingServiceITest extends BaseSpringBootTest {
         Assertions.assertEquals(utilsServiceUrl, platformSettings.getUtils().getUtilsServiceUrl());
         Assertions.assertEquals(cbomRepositoryUrl, platformSettings.getUtils().getCbomRepositoryUrl());
         Assertions.assertEquals(5, platformSettings.getCertificates().getValidation().getFrequency());
+    }
+
+    @Test
+    void platformCbomSyncTunablesDefaultToSixtySecondsThreeRunsAndFiftyDocumentsAndAreEditable() {
+        // A fresh platform reports the sync policy defaults, so a form shows what the sync will use.
+        PlatformSettingsDto seeded = settingService.getPlatformSettings();
+        Assertions.assertEquals(60, seeded.getUtils().getCbomSyncOverlapSeconds());
+        Assertions.assertEquals(3, seeded.getUtils().getCbomSyncSkippedRetryRuns());
+        Assertions.assertEquals(50, seeded.getUtils().getCbomSyncMaxIngestDocuments());
+
+        UtilsSettingsDto utils = new UtilsSettingsDto();
+        utils.setCbomSyncOverlapSeconds(120);
+        utils.setCbomSyncSkippedRetryRuns(0);
+        utils.setCbomSyncMaxIngestDocuments(5);
+        PlatformSettingsUpdateDto update = new PlatformSettingsUpdateDto();
+        update.setUtils(utils);
+        settingService.updatePlatformSettings(update);
+
+        PlatformSettingsDto edited = settingService.getPlatformSettings();
+        Assertions.assertEquals(120, edited.getUtils().getCbomSyncOverlapSeconds());
+        Assertions.assertEquals(0, edited.getUtils().getCbomSyncSkippedRetryRuns());
+        Assertions.assertEquals(5, edited.getUtils().getCbomSyncMaxIngestDocuments());
+        // ...and the cache the sync reads its policy from holds the same.
+        PlatformSettingsDto cached = SettingsCache.getSettings(SettingsSection.PLATFORM);
+        Assertions.assertEquals(0, cached.getUtils().getCbomSyncSkippedRetryRuns());
+    }
+
+    @Test
+    void aStoredCbomSyncTunableOutsideTheContractBoundsReadsAsItsDefault() {
+        // Only a manual edit can put such values there: the API validates the bounds before the write. The read keeps
+        // the sync on the defaults rather than failing every run on a corrupt row.
+        storeUtilsSetting(SettingServiceImpl.CBOM_SYNC_OVERLAP_SECONDS_NAME, "99999999");
+        storeUtilsSetting(SettingServiceImpl.CBOM_SYNC_SKIPPED_RETRY_RUNS_NAME, "-5");
+        storeUtilsSetting(SettingServiceImpl.CBOM_SYNC_MAX_INGEST_DOCUMENTS_NAME, "fifty");
+
+        PlatformSettingsDto read = settingService.getPlatformSettings();
+
+        Assertions.assertEquals(60, read.getUtils().getCbomSyncOverlapSeconds());
+        Assertions.assertEquals(3, read.getUtils().getCbomSyncSkippedRetryRuns());
+        Assertions.assertEquals(50, read.getUtils().getCbomSyncMaxIngestDocuments());
+    }
+
+    /**
+     * The read runs on every cache refresh, so a corrupt value is reported when it appears and again only after it was
+     * corrected -- not once per refresh, and not never again.
+     */
+    @Test
+    void aCorruptCbomSyncTunableIsReportedWhenItAppearsAndAgainAfterACorrection() {
+        ListAppender<ILoggingEvent> logged = new ListAppender<>();
+        logged.start();
+        Logger settingsLogger = (Logger) LoggerFactory.getLogger(SettingServiceImpl.class);
+        settingsLogger.addAppender(logged);
+        try {
+            // a valid read first, so whatever an earlier test reported for this name is cleared
+            storeUtilsSetting(SettingServiceImpl.CBOM_SYNC_MAX_INGEST_DOCUMENTS_NAME, "50");
+            settingService.getPlatformSettings();
+            Setting stored = utilsRow(SettingServiceImpl.CBOM_SYNC_MAX_INGEST_DOCUMENTS_NAME);
+
+            stored.setValue("fifty");
+            settingRepository.save(stored);
+            settingService.getPlatformSettings();
+            settingService.getPlatformSettings();
+            Assertions.assertEquals(1, corruptIngestBudgetReports(logged), "reported once, not once per read");
+
+            stored.setValue("50");
+            settingRepository.save(stored);
+            Assertions
+                    .assertEquals(50, settingService.getPlatformSettings().getUtils().getCbomSyncMaxIngestDocuments());
+            stored.setValue("fifty");
+            settingRepository.save(stored);
+            settingService.getPlatformSettings();
+            Assertions.assertEquals(2, corruptIngestBudgetReports(logged), "reported again after a correction");
+        } finally {
+            settingsLogger.detachAppender(logged);
+            logged.stop();
+        }
+    }
+
+    private Setting utilsRow(String name) {
+        return settingRepository
+                .findBySection(SettingsSection.PLATFORM)
+                .stream()
+                .filter(setting -> SettingsSectionCategory.PLATFORM_UTILS.getCode().equals(setting.getCategory())
+                        && name.equals(setting.getName()))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private static long corruptIngestBudgetReports(ListAppender<ILoggingEvent> logged) {
+        return logged.list
+                .stream()
+                .filter(event -> event.getLevel() == Level.WARN)
+                .map(ILoggingEvent::getFormattedMessage)
+                .filter(message -> message.contains(SettingServiceImpl.CBOM_SYNC_MAX_INGEST_DOCUMENTS_NAME)
+                        && message.contains("'fifty'"))
+                .count();
+    }
+
+    private void storeUtilsSetting(String name, String value) {
+        Setting setting = new Setting();
+        setting.setSection(SettingsSection.PLATFORM);
+        setting.setCategory(SettingsSectionCategory.PLATFORM_UTILS.getCode());
+        setting.setName(name);
+        setting.setValue(value);
+        settingRepository.save(setting);
+    }
+
+    @Test
+    void anUnsetCbomSyncTunableFallsBackToItsDefaultAndLeavesNoRow() {
+        UtilsSettingsDto utils = new UtilsSettingsDto();
+        utils.setCbomRepositoryUrl("http://cbom-repository.example");
+        utils.setCbomSyncSkippedRetryRuns(1);
+        PlatformSettingsUpdateDto update = new PlatformSettingsUpdateDto();
+        update.setUtils(utils);
+        settingService.updatePlatformSettings(update);
+        PlatformSettingsDto set = settingService.getPlatformSettings();
+        Assertions.assertEquals("http://cbom-repository.example", set.getUtils().getCbomRepositoryUrl());
+        Assertions.assertEquals(1, set.getUtils().getCbomSyncSkippedRetryRuns());
+
+        // The section is replaced as sent. Nothing set: the URL is cleared and every tunable is back to its default.
+        update.setUtils(new UtilsSettingsDto());
+        settingService.updatePlatformSettings(update);
+        PlatformSettingsDto reverted = settingService.getPlatformSettings();
+        Assertions.assertNull(reverted.getUtils().getCbomRepositoryUrl());
+        Assertions.assertEquals(3, reverted.getUtils().getCbomSyncSkippedRetryRuns());
+        Assertions.assertEquals(60, reverted.getUtils().getCbomSyncOverlapSeconds());
+        Assertions.assertEquals(50, reverted.getUtils().getCbomSyncMaxIngestDocuments());
+        // ...and no row with a null value is left behind to be read on every cache refresh.
+        Assertions
+                .assertTrue(
+                        settingRepository
+                                .findBySection(SettingsSection.PLATFORM)
+                                .stream()
+                                .noneMatch(setting -> SettingsSectionCategory.PLATFORM_UTILS
+                                        .getCode()
+                                        .equals(setting.getCategory())),
+                        "an unset utils value must not leave a row behind");
+    }
+
+    /**
+     * What the PUT documents (interfaces#974): a section left out of the body is untouched, a present {@code utils} is
+     * stored as sent, and inside {@code certificates} each group is untouched when left out and stored as sent when
+     * present.
+     */
+    @Test
+    void aSectionOrCertificatesGroupLeftOutOfThePlatformUpdateIsUntouched() {
+        // given: the utils section and two certificate groups hold operator values
+        UtilsSettingsDto utils = new UtilsSettingsDto();
+        utils.setCbomRepositoryUrl("http://cbom-repository.example");
+        utils.setCbomSyncSkippedRetryRuns(1);
+        CertificateRegistrationSettingsUpdateDto registration = new CertificateRegistrationSettingsUpdateDto();
+        registration.setDefaultIssuanceWindowDays(14);
+        registration.setMaxFailedAttempts(3);
+        CertificateValidationSettingsUpdateDto validation = new CertificateValidationSettingsUpdateDto();
+        validation.setEnabled(true);
+        validation.setFrequency(5);
+        validation.setExpiringThreshold(45);
+        CertificateSettingsUpdateDto certificates = new CertificateSettingsUpdateDto();
+        certificates.setRegistration(registration);
+        certificates.setValidation(validation);
+        PlatformSettingsUpdateDto seed = new PlatformSettingsUpdateDto();
+        seed.setUtils(utils);
+        seed.setCertificates(certificates);
+        settingService.updatePlatformSettings(seed);
+
+        // when: a certificates-only update carries only the validation group
+        CertificateValidationSettingsUpdateDto validationOnly = new CertificateValidationSettingsUpdateDto();
+        validationOnly.setEnabled(true);
+        validationOnly.setFrequency(2);
+        validationOnly.setExpiringThreshold(45);
+        CertificateSettingsUpdateDto validationGroup = new CertificateSettingsUpdateDto();
+        validationGroup.setValidation(validationOnly);
+        PlatformSettingsUpdateDto certificatesOnly = new PlatformSettingsUpdateDto();
+        certificatesOnly.setCertificates(validationGroup);
+        settingService.updatePlatformSettings(certificatesOnly);
+
+        // then: the utils section and the registration group are untouched, the validation group is as sent
+        PlatformSettingsDto afterCertificates = settingService.getPlatformSettings();
+        Assertions.assertEquals("http://cbom-repository.example", afterCertificates.getUtils().getCbomRepositoryUrl());
+        Assertions.assertEquals(1, afterCertificates.getUtils().getCbomSyncSkippedRetryRuns());
+        Assertions
+                .assertEquals(14, afterCertificates.getCertificates().getRegistration().getDefaultIssuanceWindowDays());
+        Assertions.assertEquals(3, afterCertificates.getCertificates().getRegistration().getMaxFailedAttempts());
+        Assertions.assertEquals(2, afterCertificates.getCertificates().getValidation().getFrequency());
+
+        // when: a utils-only update carries a retry budget and no URL
+        UtilsSettingsDto utilsOnly = new UtilsSettingsDto();
+        utilsOnly.setCbomSyncSkippedRetryRuns(0);
+        PlatformSettingsUpdateDto utilsUpdate = new PlatformSettingsUpdateDto();
+        utilsUpdate.setUtils(utilsOnly);
+        settingService.updatePlatformSettings(utilsUpdate);
+
+        // then: the certificates section is untouched, the utils section is as sent: URL cleared, budget zero
+        PlatformSettingsDto afterUtils = settingService.getPlatformSettings();
+        Assertions.assertEquals(14, afterUtils.getCertificates().getRegistration().getDefaultIssuanceWindowDays());
+        Assertions.assertEquals(2, afterUtils.getCertificates().getValidation().getFrequency());
+        Assertions.assertNull(afterUtils.getUtils().getCbomRepositoryUrl());
+        Assertions.assertEquals(0, afterUtils.getUtils().getCbomSyncSkippedRetryRuns());
     }
 
     @Test

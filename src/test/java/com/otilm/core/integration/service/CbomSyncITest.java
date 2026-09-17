@@ -104,10 +104,11 @@ class CbomSyncITest extends BaseSpringBootTest {
 
     @Test
     void theSyncPropertiesBindTheDocumentedDefaults() {
+        // The deploy-time half only; the operator policy is a platform setting, which SettingServiceITest covers.
         assertThat(syncProperties.pageSize()).isEqualTo(1000);
-        assertThat(syncProperties.overlap()).isEqualTo(Duration.ofSeconds(60));
-        assertThat(syncProperties.skippedRetryRuns()).isEqualTo(3);
-        assertThat(syncProperties.maxAttempts()).isEqualTo(4);
+        assertThat(syncProperties.assetIngestEnabled()).isTrue();
+        assertThat(syncProperties.assetBatchSize()).isEqualTo(100);
+        assertThat(syncProperties.ingestRetryAfter()).isEqualTo(Duration.ofMinutes(30));
     }
 
     // ---- paging ----
@@ -338,6 +339,24 @@ class CbomSyncITest extends BaseSpringBootTest {
                         WireMock.getRequestedFor(WireMock.urlPathEqualTo("/api/v1/bom/urn:uuid:bad")).build())
                 .getCount()).isEqualTo(readsSoFar);
         assertThat(cbomRepository.count()).isZero();
+    }
+
+    @Test
+    void withARetryBudgetOfZeroInThePlatformSettingsAnUnreadableEntryIsWrittenOffAtOnce() throws Exception {
+        // The cache hands out the object it holds, and startRepository installed this test's own copy of it.
+        SettingsCache
+                .<PlatformSettingsDto>getSettings(SettingsSection.PLATFORM)
+                .getUtils()
+                .setCbomSyncSkippedRetryRuns(0);
+        stubPage("after", "0", "[" + entry("urn:uuid:bad", "1", STATS, null) + "]", null);
+        stubDocumentFailure("urn:uuid:bad", 1, 500);
+
+        cbomInternalService.sync();
+
+        // Read from the platform settings at the start of the run: one attempt, and the entry is given up on.
+        assertThat(onlySkip().getAttempts()).isEqualTo(1);
+        assertThat(onlySkip().getState()).isEqualTo(CbomSyncSkipState.PERMANENTLY_SKIPPED);
+        assertThat(warnings()).anySatisfy(m -> assertThat(m).contains("urn:uuid:bad").contains("permanently skipped"));
     }
 
     @Test
