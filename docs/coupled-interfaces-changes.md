@@ -202,6 +202,8 @@ the approval and cannot be self-approved. Re-running does not.
 
 One thing that is easy to miss while the review is open: a push to the
 `interfaces` pull request republishes the same coordinate but re-runs nothing
-here. Re-run all jobs after each such push, or the green checks are evidence
-from an older `interfaces` head. The snapshot is built from that pull request
-merged into `main`, not from its branch head.
+here. After each such push, wait for that pull request's `Publish PR snapshot`
+run to finish before re-running all jobs — the coordinate is replaced only when
+its publish job completes, so re-running sooner resolves the previous snapshot
+and produces green checks that look current and are not. The snapshot is built
+from that pull request merged into `main`, not from its branch head.
