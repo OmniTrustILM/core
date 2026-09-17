@@ -14,7 +14,6 @@ import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
-import com.otilm.core.dao.repository.DiscoveryMessageRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.exception.UnsupportedDiscoveryVersionException;
@@ -64,7 +63,6 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
     static final int MAX_META_BYTES = 64 * 1024;
 
     private final DiscoveryRepository discoveryRepository;
-    private final DiscoveryMessageRepository messageRepository;
     private final DiscoveryDetailCounts detailCounts;
     private final ConnectorInterfaceRepository connectorInterfaceRepository;
     private final DiscoveryV2Client client;
@@ -78,14 +76,12 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
     private EntityManager entityManager;
 
     @SuppressWarnings("java:S107")
-    public DiscoveryProviderV2Adapter(DiscoveryRepository discoveryRepository,
-            DiscoveryMessageRepository messageRepository, DiscoveryDetailCounts detailCounts,
+    public DiscoveryProviderV2Adapter(DiscoveryRepository discoveryRepository, DiscoveryDetailCounts detailCounts,
             ConnectorInterfaceRepository connectorInterfaceRepository, DiscoveryV2Client client,
             DiscoveryWorkWriter workWriter, DiscoveryRunTerminator terminator,
             ConnectorCapabilityService capabilityService, TransactionHandler transactionHandler,
             DiscoveryWorkProperties workProperties) {
         this.discoveryRepository = discoveryRepository;
-        this.messageRepository = messageRepository;
         this.detailCounts = detailCounts;
         this.connectorInterfaceRepository = connectorInterfaceRepository;
         this.client = client;
@@ -103,29 +99,12 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
         if (run == null) {
             // Routed here for a run that no longer exists: the refusal signal, so the caller ends it the same way
             // it ends any run it cannot dispatch, rather than this throwing into an async caller.
-            throw new UnsupportedDiscoveryVersionException("Discovery " + discoveryUuid + " no longer exists");
+            throw new UnsupportedDiscoveryVersionException(runLabel(discoveryUuid) + " no longer exists");
         }
         try {
             // Outside any transaction, by DiscoveryV2Client's own NOT_SUPPORTED boundary.
             validateResources(run);
-            DiscoveryInitiateResponseDto response = client.initiate(run);
-            // Past this point the connector holds an open run, so every exit tells it to drop one it will never
-            // be asked about again -- otherwise its scan keeps going until its own timeout, and the run is
-            // terminal by then so the reaper will not collect it either.
-            try {
-                if (!recordInitiated(discoveryUuid, response, scheduledJobInfo)) {
-                    logger
-                            .info("Discovery {} ended while it was being started; dropping it at the connector",
-                                    discoveryUuid);
-                    dropAtConnector(run, response.getCheckpoint());
-                    return detailOf(discoveryUuid);
-                }
-                scheduleFirstTicks(discoveryUuid);
-            } catch (Exception bookkeepingFailed) {
-                dropAtConnector(run, response.getCheckpoint());
-                throw bookkeepingFailed;
-            }
-            return detailOf(discoveryUuid);
+            return recordOrDrop(run, client.initiate(run), scheduledJobInfo);
         } catch (Exception e) {
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
@@ -139,6 +118,30 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
                 return new DiscoveryRunTerminator.Ending(DiscoveryStatus.FAILED, startFailureReason(e));
             });
             return detailOf(discoveryUuid);
+        }
+    }
+
+    /**
+     * Past initiate the connector holds an open run, so every exit from here tells it to drop one it will never be
+     * asked about again: otherwise its scan runs until the connector's own timeout, and the run is terminal by then, so
+     * the reaper will not collect it either. The detail read sits inside the scope for the same reason.
+     */
+    private DiscoveryDetailDto recordOrDrop(Discovery run, DiscoveryInitiateResponseDto response,
+            ScheduledJobInfo scheduledJobInfo) {
+        UUID discoveryUuid = run.getUuid();
+        try {
+            if (!recordInitiated(discoveryUuid, response, scheduledJobInfo)) {
+                logger
+                        .info("Discovery {} ended while it was being started; dropping it at the connector",
+                                discoveryUuid);
+                dropAtConnector(run, response.getCheckpoint());
+                return detailOf(discoveryUuid);
+            }
+            scheduleFirstTicks(discoveryUuid);
+            return detailOf(discoveryUuid);
+        } catch (RuntimeException bookkeepingFailed) {
+            dropAtConnector(run, response.getCheckpoint());
+            throw bookkeepingFailed;
         }
     }
 
@@ -173,7 +176,7 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
         return Boolean.TRUE.equals(transactionHandler.runInNewTransaction(() -> {
             Discovery locked = discoveryRepository
                     .findWithLockByUuid(discoveryUuid)
-                    .orElseThrow(() -> new IllegalStateException("Discovery " + discoveryUuid + " vanished mid-start"));
+                    .orElseThrow(() -> new IllegalStateException(runLabel(discoveryUuid) + " vanished mid-start"));
             // Re-asserted under the lock, as DiscoveryRunTerminator.endIf does. The run was created IN_PROGRESS and
             // started asynchronously, so a cancel in that window has already told the connector to drop it and
             // deleted the agenda; writing IN_PROGRESS here would revive a run nothing can drive.
@@ -320,7 +323,7 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
         // Both gates: the interface must advertise the capability, and this run must have been declared stoppable
         // at initiate. A run that was never checkpointable cannot be stopped even by a connector that can stop others.
         if (!advertisesStopResume(discovery) || !Boolean.TRUE.equals(discovery.getStoppable())) {
-            throw new ValidationException("Discovery " + discovery.getUuid() + " cannot be stopped");
+            throw new ValidationException(runLabel(discovery.getUuid()) + " cannot be stopped");
         }
         UUID discoveryUuid = discovery.getUuid();
         DiscoveryStopResponseDto response = call(discoveryUuid, "stop", () -> client.stop(discovery));
@@ -368,7 +371,7 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
         // The flag alone, deliberately: the run's own snapshot describes whether it could be stopped, and the
         // connector's 410 is the authority on whether its checkpoint still exists.
         if (!advertisesStopResume(discovery)) {
-            throw new ValidationException("Discovery " + discovery.getUuid() + " cannot be resumed");
+            throw new ValidationException(runLabel(discovery.getUuid()) + " cannot be resumed");
         }
         UUID discoveryUuid = discovery.getUuid();
         DiscoveryInitiateResponseDto response;
@@ -412,8 +415,18 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
         requireStatus(discovery, "cancelled", DiscoveryStatus.IN_PROGRESS, DiscoveryStatus.STOPPED);
         UUID discoveryUuid = discovery.getUuid();
         // 404 is not a failure: it says the connector no longer tracks the run, which is the state cancel asked
-        // for. The client hands the status back rather than throwing precisely so this can be read, not caught.
-        call(discoveryUuid, "cancel", () -> client.cancel(discovery));
+        // for. Over REST the client hands the status back; over the AMQP proxy the same answer arrives as an
+        // exception, so that one is read here rather than rethrown.
+        try {
+            call(discoveryUuid, "cancel", () -> client.cancel(discovery));
+        } catch (ConnectorException e) {
+            if (!DiscoveryConnectorErrors.isRunNoLongerTracked(e)) {
+                throw e;
+            }
+            logger
+                    .debug("Discovery {} is no longer tracked by its connector; the cancel is already done there",
+                            discoveryUuid);
+        }
         // Through the decide hook so connector_status and the terminal transition commit under one lock: split, the
         // run is non-terminal between the two commits and a status tick in that window overwrites this. Set here
         // rather than in the terminator, which also ends runs whose connector said nothing and must leave its last
@@ -462,8 +475,7 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
             // getLabel, not the enum: this reaches a person. Null renders as a phrase rather than the word "null",
             // for the same nullable column the comment above guards against.
             String state = discovery.getStatus() == null ? "in an unknown state" : discovery.getStatus().getLabel();
-            throw new ValidationException(
-                    "Discovery " + discovery.getUuid() + " is " + state + " and cannot be " + verb);
+            throw new ValidationException(runLabel(discovery.getUuid()) + " is " + state + " and cannot be " + verb);
         }
     }
 
@@ -485,7 +497,7 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
     private Discovery lock(UUID discoveryUuid) {
         Discovery run = discoveryRepository
                 .findWithLockByUuid(discoveryUuid)
-                .orElseThrow(() -> new IllegalStateException("Discovery " + discoveryUuid + " vanished mid-operation"));
+                .orElseThrow(() -> new IllegalStateException(runLabel(discoveryUuid) + " vanished mid-operation"));
         entityManager.refresh(run);
         return run;
     }
@@ -508,6 +520,10 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
         } catch (Exception e) {
             throw failed(discoveryUuid, operation, e);
         }
+    }
+
+    private static String runLabel(UUID discoveryUuid) {
+        return "Discovery " + discoveryUuid;
     }
 
     private IllegalStateException failed(UUID discoveryUuid, String operation, Exception e) {

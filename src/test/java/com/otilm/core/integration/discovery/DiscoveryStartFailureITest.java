@@ -1,5 +1,6 @@
 package com.otilm.core.integration.discovery;
 
+import com.otilm.api.exception.ConnectorEntityNotFoundException;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryInitiateResponseDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
@@ -56,6 +57,22 @@ class DiscoveryStartFailureITest extends BaseSpringBootTest {
         assertThat(persisted.getScheduledJobHistoryUuid())
                 .as("a run whose ending still names its job execution finalizes that job history a second time")
                 .isNull();
+    }
+
+    /**
+     * Over the AMQP proxy a 404 arrives as an exception rather than as a status. It still says the connector no longer
+     * tracks the run, which is the state cancel asked for.
+     */
+    @Test
+    void aCancelTheProxyAnswersWithNotFoundStillEndsTheRun() throws Exception {
+        Discovery run = v2Run();
+        when(client.cancel(any())).thenThrow(new ConnectorEntityNotFoundException("HTTP 404: Not Found"));
+
+        adapter.cancel(run);
+
+        Discovery persisted = discoveryRepository.findByUuid(run.getUuid()).orElseThrow();
+        assertThat(persisted.getStatus()).isEqualTo(DiscoveryStatus.CANCELLED);
+        assertThat(persisted.getConnectorStatus()).isEqualTo(DiscoveryStatus.CANCELLED);
     }
 
     private Discovery v2Run() {

@@ -21,6 +21,11 @@ public final class DiscoveryRunLifecycle {
     private DiscoveryRunLifecycle() {
     }
 
+    /** The terminal statuses, for a query that must leave finished runs out. */
+    public static Set<DiscoveryStatus> terminalStatuses() {
+        return Set.copyOf(TERMINAL);
+    }
+
     public static boolean isTerminal(DiscoveryStatus status) {
         return status != null && TERMINAL.contains(status);
     }

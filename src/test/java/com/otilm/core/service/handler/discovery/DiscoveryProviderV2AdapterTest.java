@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class DiscoveryProviderV2AdapterTest {
 
     private final DiscoveryProviderV2Adapter adapter = new DiscoveryProviderV2Adapter(null, null, null, null, null,
-            null, null, null, null, null);
+            null, null, null, null);
 
     @Test
     void anUnexpectedFailuresOwnWordsNeverReachTheRun() {
@@ -31,14 +31,17 @@ class DiscoveryProviderV2AdapterTest {
 
         // The run's message is published on the detail and in the message log. A driver's SQL, an NPE's field path
         // or, as here, a connection string is for the log the adapter already writes the exception to.
-        assertThat(reason).doesNotContain("hunter2").doesNotContain("vault.internal");
-        assertThat(reason).isEqualTo("Discovery could not be started at its connector");
+        assertThat(reason)
+                .doesNotContain("hunter2")
+                .doesNotContain("vault.internal")
+                .isEqualTo("Discovery could not be started at its connector");
     }
 
     @ParameterizedTest
     @EnumSource(value = DiscoveryStatus.class, names = "IN_PROGRESS", mode = EnumSource.Mode.EXCLUDE)
     void stopIsRefusedUnlessTheRunIsInProgress(DiscoveryStatus status) {
-        assertThatThrownBy(() -> adapter.stop(runWith(status)))
+        Discovery run = runWith(status);
+        assertThatThrownBy(() -> adapter.stop(run))
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("cannot be stopped");
     }
@@ -46,7 +49,8 @@ class DiscoveryProviderV2AdapterTest {
     @ParameterizedTest
     @EnumSource(value = DiscoveryStatus.class, names = "STOPPED", mode = EnumSource.Mode.EXCLUDE)
     void resumeIsRefusedUnlessTheRunIsStopped(DiscoveryStatus status) {
-        assertThatThrownBy(() -> adapter.resume(runWith(status)))
+        Discovery run = runWith(status);
+        assertThatThrownBy(() -> adapter.resume(run))
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("cannot be resumed");
     }
@@ -54,7 +58,8 @@ class DiscoveryProviderV2AdapterTest {
     @ParameterizedTest
     @EnumSource(value = DiscoveryStatus.class, names = {"IN_PROGRESS", "STOPPED"}, mode = EnumSource.Mode.EXCLUDE)
     void cancelIsRefusedOnceTheRunIsPastDriving(DiscoveryStatus status) {
-        assertThatThrownBy(() -> adapter.cancel(runWith(status)))
+        Discovery run = runWith(status);
+        assertThatThrownBy(() -> adapter.cancel(run))
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("cannot be cancelled");
     }
@@ -63,7 +68,8 @@ class DiscoveryProviderV2AdapterTest {
     void aRunWithNoStatusAtAllIsRefusedRatherThanAssumed() {
         // Null is not a legal state for any operation, and defaulting it either way would drive a run whose status
         // could not be read.
-        assertThatThrownBy(() -> adapter.cancel(runWith(null))).isInstanceOf(ValidationException.class);
+        Discovery run = runWith(null);
+        assertThatThrownBy(() -> adapter.cancel(run)).isInstanceOf(ValidationException.class);
     }
 
     private static Discovery runWith(DiscoveryStatus status) {

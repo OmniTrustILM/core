@@ -275,8 +275,7 @@ public class DiscoveryV2Client {
     }
 
     /** The run's own definitions under {@link #RUN_SCOPE}, then each targeted resource's under its wire code. */
-    private Map<String, List<DataAttribute>> definitionScopes(Discovery run, ConnectorDto connector)
-            throws NotFoundException, AttributeException {
+    private Map<String, List<DataAttribute>> definitionScopes(Discovery run, ConnectorDto connector) {
         Map<String, List<DataAttribute>> scopes = new LinkedHashMap<>();
         scopes.put(RUN_SCOPE, fromEngine(run, connector, null));
         for (Resource resource : resourcesOf(run)) {
@@ -285,8 +284,7 @@ public class DiscoveryV2Client {
         return scopes;
     }
 
-    private List<DataAttribute> fromEngine(Discovery run, ConnectorDto connector, String operation)
-            throws NotFoundException, AttributeException {
+    private List<DataAttribute> fromEngine(Discovery run, ConnectorDto connector, String operation) {
         return attributeEngine
                 .getDefinitionObjectAttributeContent(AttributeType.DATA, UUID.fromString(connector.getUuid()),
                         operation, Resource.DISCOVERY, run.getUuid());

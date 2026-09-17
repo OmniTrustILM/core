@@ -512,9 +512,9 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
     void attributesAreRefusedForAConnectorWithoutTheV2Interface() {
         // v1 publishes no discovery attribute schema, so there is nothing to relay -- refused rather than empty,
         // which a client would render as "no configuration needed".
+        SecuredUUID connectorUuid = SecuredUUID.fromUUID(connector.getUuid());
         Assertions
-                .assertThrows(ValidationException.class,
-                        () -> discoveryService.getDiscoveryAttributes(SecuredUUID.fromUUID(connector.getUuid())));
+                .assertThrows(ValidationException.class, () -> discoveryService.getDiscoveryAttributes(connectorUuid));
     }
 
     @Test
@@ -522,11 +522,10 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         giveConnectorAV2DiscoveryInterface();
 
         // Refused here rather than at the client, whose IllegalArgumentException would surface as a 500.
+        SecuredUUID connectorUuid = SecuredUUID.fromUUID(connector.getUuid());
         Assertions
                 .assertThrows(ValidationException.class,
-                        () -> discoveryService
-                                .getDiscoveryResourceAttributes(SecuredUUID.fromUUID(connector.getUuid()),
-                                        Resource.RA_PROFILE));
+                        () -> discoveryService.getDiscoveryResourceAttributes(connectorUuid, Resource.RA_PROFILE));
     }
 
     @Test
@@ -536,11 +535,10 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
                 [{"resource":"certificates"}]""");
 
         // Discoverable in general, but not by this connector -- only its own live answer settles that.
+        SecuredUUID connectorUuid = SecuredUUID.fromUUID(connector.getUuid());
         Assertions
-                .assertThrows(ValidationException.class,
-                        () -> discoveryService
-                                .getDiscoveryResourceAttributes(SecuredUUID.fromUUID(connector.getUuid()),
-                                        Resource.CRYPTOGRAPHIC_KEY));
+                .assertThrows(ValidationException.class, () -> discoveryService
+                        .getDiscoveryResourceAttributes(connectorUuid, Resource.CRYPTOGRAPHIC_KEY));
         WireMock.verify(0, WireMock.getRequestedFor(WireMock.urlPathEqualTo("/v2/discoveryProvider/keys/attributes")));
     }
 
@@ -854,7 +852,8 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         giveInterfaceStopResumeFlag();
 
         // The interface advertises the capability, but this run was not declared stoppable at initiate.
-        Assertions.assertThrows(ValidationException.class, () -> adapterFactory.forDiscovery(run).stop(run));
+        var v2 = adapterFactory.forDiscovery(run);
+        Assertions.assertThrows(ValidationException.class, () -> v2.stop(run));
     }
 
     @Test
@@ -1107,9 +1106,9 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
 
         // Deleting it would cascade away the agenda rows that drive it, so nothing would ever end the run: no
         // terminal transition, no event, a connector still scanning, and a scheduled job open forever.
+        SecuredUUID liveRun = discovery.getSecuredUuid();
         ValidationException refused = Assertions
-                .assertThrows(ValidationException.class,
-                        () -> discoveryService.deleteDiscovery(discovery.getSecuredUuid()));
+                .assertThrows(ValidationException.class, () -> discoveryService.deleteDiscovery(liveRun));
         Assertions.assertTrue(refused.getMessage().contains("cancel"), refused.getMessage());
     }
 

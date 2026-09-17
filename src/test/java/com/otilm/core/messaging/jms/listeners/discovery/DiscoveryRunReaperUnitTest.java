@@ -167,7 +167,7 @@ class DiscoveryRunReaperUnitTest {
     }
 
     @Test
-    void stopExpired_skipsResumedRunAndCancelsNothingOnTheConnector() throws Exception {
+    void stopExpired_skipsResumedRunAndCancelsNothingOnTheConnector() {
         // The run escaped its stop between selection and action: status moved off STOPPED, stoppedAt stale.
         Discovery resumed = run(DiscoveryStatus.IN_PROGRESS);
         resumed.setStoppedAt(OffsetDateTime.now(ZoneOffset.UTC).minusDays(30));
@@ -217,7 +217,7 @@ class DiscoveryRunReaperUnitTest {
     }
 
     @Test
-    void workLost_sendsNothingForAV1Run() throws Exception {
+    void workLost_sendsNothingForAV1Run() {
         Discovery v1 = run(DiscoveryStatus.IN_PROGRESS);
         v1.setConnectorInterfaceUuid(null);
         selections(List.of(v1.getUuid()), List.of());

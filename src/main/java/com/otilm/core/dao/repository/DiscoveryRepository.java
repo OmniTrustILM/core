@@ -87,4 +87,19 @@ public interface DiscoveryRepository extends SecurityFilterRepository<Discovery,
             + "AND d.status = com.otilm.api.model.core.discovery.DiscoveryStatus.STOPPED "
             + "AND d.stoppedAt < :threshold")
     List<UUID> findExpiredStoppedRunUuids(@Param("threshold") OffsetDateTime threshold, Pageable pageable);
+
+    /**
+     * Runs bound to any of the given interfaces that have not ended; a connector delete refuses over them or ends them.
+     */
+    List<Discovery> findByConnectorInterfaceUuidInAndStatusNotIn(Collection<UUID> connectorInterfaceUuids,
+            Collection<DiscoveryStatus> statuses);
+
+    /**
+     * The same runs as uuids only. The caller ends each in a transaction of its own and must not carry the entities in
+     * its own context: a managed run pointing at an interface the caller then deletes fails that caller's flush.
+     */
+    @Query("SELECT d.uuid FROM Discovery d WHERE d.connectorInterfaceUuid IN :interfaceUuids "
+            + "AND d.status NOT IN :statuses")
+    List<UUID> findLiveRunUuidsBoundTo(@Param("interfaceUuids") Collection<UUID> interfaceUuids,
+            @Param("statuses") Collection<DiscoveryStatus> statuses);
 }

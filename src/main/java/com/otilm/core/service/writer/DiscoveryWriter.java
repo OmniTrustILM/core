@@ -3,7 +3,6 @@ package com.otilm.core.service.writer;
 import com.otilm.api.model.client.discovery.DiscoveryDetailDto;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
-import com.otilm.core.dao.repository.DiscoveryMessageRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.mapper.discovery.DiscoveryDtoMapper;
 import com.otilm.core.service.handler.discovery.DiscoveryDetailCounts;
@@ -30,15 +29,12 @@ public class DiscoveryWriter {
 
     private final DiscoveryCertificateRepository discoveryCertificateRepository;
     private final DiscoveryRepository discoveryRepository;
-    private final DiscoveryMessageRepository discoveryMessageRepository;
     private final DiscoveryDetailCounts detailCounts;
 
     public DiscoveryWriter(DiscoveryCertificateRepository discoveryCertificateRepository,
-            DiscoveryRepository discoveryRepository, DiscoveryMessageRepository discoveryMessageRepository,
-            DiscoveryDetailCounts detailCounts) {
+            DiscoveryRepository discoveryRepository, DiscoveryDetailCounts detailCounts) {
         this.discoveryCertificateRepository = discoveryCertificateRepository;
         this.discoveryRepository = discoveryRepository;
-        this.discoveryMessageRepository = discoveryMessageRepository;
         this.detailCounts = detailCounts;
     }
 

@@ -23,6 +23,7 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.Discovery;
+import com.otilm.core.dao.entity.DiscoveryMessage;
 import com.otilm.core.dao.entity.DiscoveryWork;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryMessageRepository;
@@ -634,7 +635,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
         assertThat(messageRepository.findAll())
                 .filteredOn(message -> message.getDiscoveryUuid().equals(run.getUuid()))
-                .extracting(message -> message.getCode())
+                .extracting(DiscoveryMessage::getCode)
                 .containsExactly(DiscoveryMessageCode.RUN_METADATA_NOT_RECORDED.code());
     }
 
@@ -657,7 +658,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         assertThat(recordedMetadata(run)).containsExactly(entry("resolver", "10.0.0.53"));
         assertThat(messageRepository.findAll())
                 .filteredOn(message -> message.getDiscoveryUuid().equals(run.getUuid()))
-                .extracting(message -> message.getCode())
+                .extracting(DiscoveryMessage::getCode)
                 .containsExactly(DiscoveryMessageCode.RUN_METADATA_NOT_RECORDED.code());
     }
 

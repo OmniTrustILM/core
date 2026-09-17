@@ -26,7 +26,6 @@ import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
-import com.otilm.core.dao.repository.DiscoveryMessageRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.events.data.DiscoveryResult;
 import com.otilm.core.events.handlers.CertificateDiscoveredEventHandler;
@@ -80,7 +79,6 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
     private static final Semaphore downloadCertSemaphore = new Semaphore(10);
 
     private final DiscoveryProperties discoveryProperties;
-    private final DiscoveryMessageRepository discoveryMessageRepository;
     private final PlatformTransactionManager transactionManager;
     private final DiscoveryRepository discoveryRepository;
     private final ConnectorRepository connectorRepository;
@@ -100,9 +98,7 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
             DiscoveryCertificateRepository discoveryCertificateRepository, AttributeEngine attributeEngine,
             CertificateHandler certificateHandler, CredentialInternalService credentialService,
             ResourceInternalService resourceService, ConnectorApiFactory connectorApiFactory,
-            EventProducer eventProducer, DiscoveryMessageRepository discoveryMessageRepository,
-            DiscoveryDetailCounts detailCounts) {
-        this.discoveryMessageRepository = discoveryMessageRepository;
+            EventProducer eventProducer, DiscoveryDetailCounts detailCounts) {
         this.detailCounts = detailCounts;
         this.discoveryProperties = discoveryProperties;
         this.transactionManager = transactionManager;

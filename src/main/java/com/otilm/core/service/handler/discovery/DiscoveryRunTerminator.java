@@ -19,6 +19,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Collection;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
@@ -85,6 +86,27 @@ public class DiscoveryRunTerminator {
      */
     public boolean endWith(UUID discoveryUuid, Function<Discovery, Ending> decide) {
         return endIf(discoveryUuid, DiscoveryRunLifecycle::isTerminal, decide);
+    }
+
+    /**
+     * Ends every live run bound to the given interfaces as cancelled, for a connector being force-deleted. The
+     * connector is not told: the delete holds a transaction, which a connector call must not, and the connector is
+     * usually the reason for the force. Its own idle timeout ends the scan.
+     *
+     * @return how many runs were ended
+     */
+    public int endRunsBoundTo(Collection<UUID> connectorInterfaceUuids, String reason) {
+        if (connectorInterfaceUuids.isEmpty()) {
+            return 0;
+        }
+        int ended = 0;
+        for (UUID runUuid : discoveryRepository
+                .findLiveRunUuidsBoundTo(connectorInterfaceUuids, DiscoveryRunLifecycle.terminalStatuses())) {
+            if (end(runUuid, DiscoveryStatus.CANCELLED, reason)) {
+                ended++;
+            }
+        }
+        return ended;
     }
 
     /**

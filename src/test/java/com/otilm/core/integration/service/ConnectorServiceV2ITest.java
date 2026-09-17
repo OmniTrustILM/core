@@ -311,6 +311,60 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
         Assertions.assertTrue(connectorInterfaceRepository.findById(discoveryInterface.getUuid()).isEmpty());
     }
 
+    /**
+     * A live run is driven by its interface association: releasing it would route the run to the v1 adapter, hide it
+     * from the reaper and leave its agenda and the connector-side scan orphaned. So a plain delete refuses, as it does
+     * for every other dependent.
+     */
+    @Test
+    void deletingAConnectorIsRefusedWhileADiscoveryRunBoundToItIsLive() {
+        Discovery run = liveRunBoundTo(discoveryInterfaceOf(connector));
+
+        ValidationException refused = assertThrows(ValidationException.class,
+                () -> connectorService.deleteConnector(connector.getSecuredUuid()));
+
+        assertThat(refused.getMessage()).contains("discovery run").contains(run.getName());
+        Discovery untouched = discoveryRepository.findByUuid(run.getUuid()).orElseThrow();
+        assertThat(untouched.getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
+        assertThat(untouched.getConnectorInterfaceUuid()).isNotNull();
+        assertThat(connectorRepository.findByUuid(connector.getUuid())).isPresent();
+    }
+
+    /** Force delete is for a connector that is gone or broken, so it ends the live runs itself rather than refusing. */
+    @Test
+    void forceDeletingAConnectorEndsItsLiveDiscoveryRunsBeforeReleasingThem() {
+        Discovery run = liveRunBoundTo(discoveryInterfaceOf(connector));
+
+        List<BulkActionMessageDto> messages = connectorService
+                .forceDeleteConnector(List.of(connector.getSecuredUuid()));
+
+        assertThat(messages).isEmpty();
+        Discovery ended = discoveryRepository.findByUuid(run.getUuid()).orElseThrow();
+        assertThat(ended.getStatus()).isEqualTo(DiscoveryStatus.CANCELLED);
+        assertThat(ended.getMessage()).contains("was deleted");
+        assertThat(ended.getConnectorInterfaceUuid()).isNull();
+        assertThat(connectorRepository.findByUuid(connector.getUuid())).isEmpty();
+    }
+
+    private ConnectorInterfaceEntity discoveryInterfaceOf(Connector owner) {
+        ConnectorInterfaceEntity discoveryInterface = new ConnectorInterfaceEntity();
+        discoveryInterface.setConnectorUuid(owner.getUuid());
+        discoveryInterface.setInterfaceCode(ConnectorInterface.DISCOVERY);
+        discoveryInterface.setVersion("v2");
+        return connectorInterfaceRepository.save(discoveryInterface);
+    }
+
+    private Discovery liveRunBoundTo(ConnectorInterfaceEntity discoveryInterface) {
+        Discovery run = new Discovery();
+        run.setName("live-run-" + UUID.randomUUID());
+        run.setConnectorUuid(connector.getUuid());
+        run.setConnectorName(CONNECTOR_NAME);
+        run.setStatus(DiscoveryStatus.IN_PROGRESS);
+        run.setConnectorStatus(DiscoveryStatus.IN_PROGRESS);
+        run.setConnectorInterfaceUuid(discoveryInterface.getUuid());
+        return discoveryRepository.save(run);
+    }
+
     @Test
     void testBulkDeleteConnector() {
         connectorService.bulkDeleteConnector(List.of(connector.getSecuredUuid()));
