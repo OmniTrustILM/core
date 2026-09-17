@@ -16,10 +16,9 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
+import okhttp3.mockwebserver.QueueDispatcher;
 import okhttp3.mockwebserver.RecordedRequest;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
@@ -33,28 +32,19 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class OpaClientTest {
-    private static MockWebServer opaMock;
+    private MockWebServer opaMock;
 
-    private static String opaBaseUrl;
-
-    private static OpaClient opaClient;
-
-    @BeforeAll
-    static void setup() throws IOException {
-        opaMock = new MockWebServer();
-        opaMock.start();
-
-        opaBaseUrl = "http://%s:%d".formatted(opaMock.getHostName(), opaMock.getPort());
-    }
-
-    @AfterAll
-    static void tearDown() throws IOException {
-        opaMock.close();
-        opaMock.shutdown();
-    }
+    private OpaClient opaClient;
 
     @BeforeEach
-    void freshClient() {
+    void freshClient() throws IOException {
+        opaMock = new MockWebServer();
+        QueueDispatcher dispatcher = new QueueDispatcher();
+        dispatcher.setFailFast(true);
+        opaMock.setDispatcher(dispatcher);
+        opaMock.start();
+
+        String opaBaseUrl = "http://%s:%d".formatted(opaMock.getHostName(), opaMock.getPort());
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         opaClient = new OpaClient(objectMapper, opaBaseUrl, newAuthorizationCache(objectMapper));
@@ -69,13 +59,9 @@ class OpaClientTest {
     }
 
     @AfterEach
-    void cleanup() {
-        try {
-            // Clear the last request by reading it
-            opaMock.takeRequest(50, TimeUnit.MILLISECONDS);
-        } catch (InterruptedException e) {
-            // No request found, no cleanup needed
-        }
+    void tearDown() throws IOException {
+        opaMock.close();
+        opaMock.shutdown();
     }
 
     @Test
@@ -172,47 +158,43 @@ class OpaClientTest {
     @Test
     void repeatedCheckHitsOpaOnce() {
         setUpSuccessfulResourceAccessResponse();
-        int before = opaMock.getRequestCount();
 
         opaClient.checkResourceAccess(OpaPolicy.METHOD.policyName, getResource(), getPrincipal(), null);
         opaClient.checkResourceAccess(OpaPolicy.METHOD.policyName, getResource(), getPrincipal(), null);
 
-        assertEquals(1, opaMock.getRequestCount() - before);
+        assertEquals(1, opaMock.getRequestCount());
     }
 
     @Test
     void callersWithEqualPermissionsShareOneOpaCall() {
         setUpSuccessfulResourceAccessResponse();
-        int before = opaMock.getRequestCount();
 
         opaClient.checkResourceAccess(OpaPolicy.METHOD.policyName, getResource(), principal("alice"), null);
         opaClient.checkResourceAccess(OpaPolicy.METHOD.policyName, getResource(), principal("bob"), null);
 
-        assertEquals(1, opaMock.getRequestCount() - before);
+        assertEquals(1, opaMock.getRequestCount());
     }
 
     @Test
-    void callersWithDifferentPermissionsEachHitOpa() throws Exception {
+    void callersWithDifferentPermissionsEachHitOpa() {
         setUpSuccessfulResourceAccessResponse();
         setUpSuccessfulResourceAccessResponse();
-        int before = opaMock.getRequestCount();
 
         opaClient.checkResourceAccess(OpaPolicy.METHOD.policyName, getResource(), principal("alice"), null);
         opaClient.checkResourceAccess(OpaPolicy.METHOD.policyName, getResource(), adminPrincipal(), null);
 
-        assertEquals(2, opaMock.getRequestCount() - before);
+        assertEquals(2, opaMock.getRequestCount());
     }
 
     @Test
     void theTwoPoliciesDoNotShareEntries() {
         setUpSuccessfulResourceAccessResponse();
         setUpSuccessfulObjectAccessResponse();
-        int before = opaMock.getRequestCount();
 
         opaClient.checkResourceAccess(OpaPolicy.METHOD.policyName, getResource(), getPrincipal(), null);
         opaClient.checkObjectAccess(OpaPolicy.OBJECTS.policyName, getResource(), getPrincipal(), null);
 
-        assertEquals(2, opaMock.getRequestCount() - before);
+        assertEquals(2, opaMock.getRequestCount());
     }
 
     private static String principal(String username) {
