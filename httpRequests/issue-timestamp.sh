@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Defaults below match the provisioning done by the timestamping-setup.sh script in the
 # development-environment repository. Update here if you change values there.
 # Two route modes (-P switches to TSP profile route, -S to signing profile route):
@@ -23,14 +25,14 @@ CA_CERT=""
 TSA_CERT=""
 CLIENT_CERT=""
 CLIENT_KEY=""
-POLICY_OID="1.2.3.4.1"
+POLICY_OID=""
 NONCE=true
 OUTPUT_DIR="./tmp/tsa-test"
 VERBOSE=false
 
 usage() {
     cat <<EOF
-Usage: $(basename "\$0") [OPTIONS]
+Usage: $(basename "$0") [OPTIONS]
 
 Test an RFC 3161 TSA endpoint using openssl ts and curl.
 
@@ -41,6 +43,8 @@ Route mode (default: signing profile):
 Use -u to override the composed URL entirely.
 Authenticates with HTTP Basic by default; the credentials default to the ones provisioned
 by timestamping-setup.sh.
+
+RSA and ML-DSA signing profiles are both supported.
 
 Options:
   -H ILM_HOST         ILM API origin (default: http://localhost:8080)
@@ -56,11 +60,13 @@ Options:
   -t TSA_CERT     TSA signer cert for verification chain (optional)
   -C CLIENT_CERT  Client certificate for mTLS
   -K CLIENT_KEY   Client key for mTLS
-  -p POLICY_OID   Request specific policy OID
+  -p POLICY_OID   Request a specific policy OID (default: none - the signing profile uses its own)
   -n              Omit nonce
   -o OUTPUT_DIR   Output directory (default: ./tmp/tsa-test)
   -v              Verbose
   -h              Show this help
+
+Exits non-zero when the TSA rejects the request or when verification fails.
 EOF
     exit 0
 }
@@ -108,6 +114,61 @@ err() {
     echo "[ERROR] $*" >&2
 }
 
+is_pqc_signer() {
+    openssl x509 -in "$1" -noout -text 2>/dev/null | grep -q "Public Key Algorithm: ML-DSA"
+}
+
+extract_cms_parts() {
+    python3 "$SCRIPT_DIR/cms-extract.py" "$@"
+}
+
+# openssl cannot verify the timestamp token for ML-DSA so we do it here.
+verify_mldsa_token() {
+    local outdir="$1" cert_pem="$2" query="$3"
+    local chain_args=(verify -CAfile "$CA_CERT")
+
+    [[ -n "$TSA_CERT" ]] && chain_args+=(-untrusted "$TSA_CERT")
+    chain_args+=(-purpose timestampsign "$cert_pem")
+    if ! openssl "${chain_args[@]}"; then
+        err "signer certificate does not chain to $CA_CERT for timestamping"
+        return 1
+    fi
+
+    local verdicts
+    if ! verdicts=$(extract_cms_parts "$outdir/token_content.der" "$outdir" "$query"); then
+        err "could not parse the CMS token: $verdicts"
+        return 1
+    fi
+
+    openssl x509 -in "$cert_pem" -noout -pubkey > "$outdir/signer_pubkey.pem" 2>/dev/null
+    if ! openssl pkeyutl -verify -pubin -inkey "$outdir/signer_pubkey.pem" \
+            -rawin -in "$outdir/signedattrs.der" -sigfile "$outdir/signature.bin" >/dev/null 2>&1; then
+        err "ML-DSA signature over signedAttrs is not valid"
+        return 1
+    fi
+    echo "ML-DSA signature over signedAttrs: verified"
+
+    local check verdict detail
+    while read -r check verdict detail; do
+        [[ -z "$check" ]] && continue
+        case "$check:$verdict" in
+            messageDigest:OK)
+                echo "signed messageDigest binds the returned TSTInfo ($detail)" ;;
+            query:OK)
+                echo "TSTInfo answers this request (imprint, nonce, policy)" ;;
+            messageDigest:*)
+                err "signed messageDigest does not match the returned TSTInfo ($detail)"
+                return 1 ;;
+            query:*)
+                err "the token does not answer this request: $detail differs"
+                return 1 ;;
+            *)
+                err "unexpected verdict from cms-extract.py: $check $verdict $detail"
+                return 1 ;;
+        esac
+    done <<< "$verdicts"
+}
+
 diagnose_signature() {
     local tsr="$1"
     local outdir="$2"
@@ -138,47 +199,18 @@ diagnose_signature() {
     # Extract public key
     openssl x509 -in "$cert_pem" -noout -pubkey > "$outdir/signer_pubkey.pem" 2>/dev/null
 
-    # Extract the raw signature bytes using Python
-    # The signature is the last BIT STRING in the SignerInfo
-    local sig_hex
-    sig_hex=$(python3 -c "
-import sys
-data = open('$tsr', 'rb').read()
+    if is_pqc_signer "$cert_pem"; then
+        echo "--- Signer key is post-quantum; DigestInfo recovery does not apply ---"
+        openssl x509 -in "$cert_pem" -noout -text 2>/dev/null | grep -E "Public Key Algorithm|Signature Algorithm" | head -2
+        echo "==========================="
+        return 0
+    fi
 
-# Find the last BIT STRING in the outer structure — this is the signature
-# in SignerInfo. We parse minimally: find SignerInfo's encryptedDigest.
-# The signature is the final OCTET STRING / BIT STRING value in SignerInfo.
-from subprocess import run, PIPE
-r = run(['openssl', 'asn1parse', '-in', '$tsr', '-inform', 'DER'],
-        capture_output=True, text=True)
-lines = r.stdout.strip().split('\n')
-
-# Find the signature: last OCTET STRING at SignerInfo depth
-sig_offset = None
-sig_length = None
-for line in reversed(lines):
-    if 'OCTET STRING' in line:
-        parts = line.strip().split(':')
-        sig_offset = int(parts[0].strip())
-        # Parse header length: offset points to tag, we need to skip tag+length
-        hl = int([p for p in parts if p.strip().startswith('hl=')][0].split('=')[1].strip().split()[0])
-        sig_length = int([p for p in parts if p.strip().startswith('l=')][0].split('=')[1].strip().split()[0])
-        break
-
-if sig_offset is not None:
-    raw = data[sig_offset + hl : sig_offset + hl + sig_length]
-    sys.stdout.write(raw.hex())
-else:
-    sys.exit(1)
-" 2>/dev/null) || {
+    if ! extract_cms_parts "$outdir/token_content.der" "$outdir" >/dev/null; then
         err "Could not extract signature bytes"
         echo "==========================="
         return 1
-    }
-
-    # Write raw signature to file
-    python3 -c "import sys; sys.stdout.buffer.write(bytes.fromhex('$sig_hex'))" \
-        > "$outdir/signature.bin" 2>/dev/null
+    fi
 
     # RSA-decrypt the signature to reveal DigestInfo
     echo "--- DigestInfo (RSA-decrypted signature) ---"
@@ -203,24 +235,30 @@ else:
             echo "AlgorithmIdentifier NULL parameters: ABSENT (may cause verification failure)"
         fi
 
-        # Compare actual DigestInfo prefix against the expected DER encoding for the hash algorithm
-        local actual_hex expected prefix_len
+        local sig_digest actual_hex expected prefix_len actual_prefix
+        sig_digest=$(openssl asn1parse -in "$outdir/digestinfo.der" -inform DER 2>/dev/null \
+            | awk -F':' '/OBJECT/ {print $NF; exit}')
         actual_hex=$(xxd -p "$outdir/digestinfo.der" | tr -d '\n')
-        case "$DIGEST" in
+        case "$sig_digest" in
             sha256) expected="3031300d060960864801650304020105000420" ;;
             sha384) expected="3041300d060960864801650304020205000430" ;;
             sha512) expected="3051300d060960864801650304020305000440" ;;
+            *)      expected="" ;;
         esac
-        prefix_len="${#expected}"
         echo ""
-        echo "--- Expected DigestInfo prefix for $DIGEST (DER, with NULL) ---"
-        echo "$expected"
-        local actual_prefix="${actual_hex:0:$prefix_len}"
-        if [[ "$actual_prefix" == "$expected" ]]; then
-            echo "Actual prefix matches expected for $DIGEST: OK"
+        echo "--- DigestInfo encoding for ${sig_digest:-unknown} (the profile's signing digest; -d ${DIGEST} is the imprint) ---"
+        if [[ -z "$expected" ]]; then
+            echo "No expected DER encoding known for '${sig_digest:-unknown}'"
         else
-            echo "MISMATCH — actual prefix: $actual_prefix"
-            echo "           expected:       $expected"
+            prefix_len="${#expected}"
+            actual_prefix="${actual_hex:0:$prefix_len}"
+            echo "$expected"
+            if [[ "$actual_prefix" == "$expected" ]]; then
+                echo "Actual prefix matches the DER encoding for $sig_digest: OK"
+            else
+                echo "MISMATCH — actual prefix: $actual_prefix"
+                echo "           expected:       $expected"
+            fi
         fi
     else
         err "RSA decrypt failed (key may not be RSA, or signature extraction failed)"
@@ -232,7 +270,7 @@ else:
     if [[ -f "$outdir/token_content.der" ]]; then
         local cms_result
         cms_result=$(openssl cms -verify -in "$outdir/token_content.der" -inform DER \
-            -CAfile "$CA_CERT" -purpose any -binary 2>&1) || true
+            -CAfile "$CA_CERT" -purpose any -binary -out "$outdir/cms_content.bin" 2>&1) || true
         echo "$cms_result" | head -3
     else
         err "Could not extract token for CMS verify"
@@ -347,28 +385,59 @@ rm -f "$CURL_STDERR"
 log "Response written to: $RESPONSE_FILE (HTTP $HTTP_CODE)"
 
 # Step 3: Inspect response
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 echo "=== Timestamp Response ==="
 python3 "$SCRIPT_DIR/asn1-dump.py" "$RESPONSE_FILE"
 echo "=========================="
 
+if ! OPENSSL_CONF=/dev/null openssl ts -reply -in "$RESPONSE_FILE" -text 2>/dev/null \
+        | grep -q '^Status: Granted'; then
+    err "The TSA did not grant the timestamp; see the response above."
+    exit 1
+fi
+
 # Step 4: Verify (optional)
 if [[ -n "$CA_CERT" ]]; then
     log "Verifying response..."
-    VERIFY_ARGS=(-verify -queryfile "$QUERY_FILE" -in "$RESPONSE_FILE" -CAfile "$CA_CERT")
-    if [[ -n "$TSA_CERT" ]]; then
-        VERIFY_ARGS+=(-untrusted "$TSA_CERT")
+
+    if ! openssl ts -reply -in "$RESPONSE_FILE" -token_out -out "$OUTPUT_DIR/token_content.der" 2>/dev/null; then
+        err "Could not extract the token from the TSP response"
+        exit 1
+    fi
+    SIGNER_PEM="$OUTPUT_DIR/signer_cert.pem"
+    if ! openssl pkcs7 -inform DER -in "$OUTPUT_DIR/token_content.der" \
+            -print_certs -out "$SIGNER_PEM" 2>/dev/null || [[ ! -s "$SIGNER_PEM" ]]; then
+        err "Could not extract the signer certificate; was the query sent without -cert?"
+        exit 1
     fi
 
-    if openssl ts "${VERIFY_ARGS[@]}"; then
-        echo "Verification: OK"
-        if [[ "$VERBOSE" == true ]]; then
+    if is_pqc_signer "$SIGNER_PEM"; then
+        log "Post-quantum signer: verifying without openssl ts -verify"
+        if verify_mldsa_token "$OUTPUT_DIR" "$SIGNER_PEM" "$QUERY_FILE"; then
+            echo "Verification: OK"
+            if [[ "$VERBOSE" == true ]]; then
+                diagnose_signature "$RESPONSE_FILE" "$OUTPUT_DIR"
+            fi
+        else
+            err "Verification failed"
             diagnose_signature "$RESPONSE_FILE" "$OUTPUT_DIR"
+            exit 1
         fi
     else
-        err "Verification failed"
-        diagnose_signature "$RESPONSE_FILE" "$OUTPUT_DIR"
-        exit 1
+        VERIFY_ARGS=(-verify -queryfile "$QUERY_FILE" -in "$RESPONSE_FILE" -CAfile "$CA_CERT")
+        if [[ -n "$TSA_CERT" ]]; then
+            VERIFY_ARGS+=(-untrusted "$TSA_CERT")
+        fi
+
+        if openssl ts "${VERIFY_ARGS[@]}"; then
+            echo "Verification: OK"
+            if [[ "$VERBOSE" == true ]]; then
+                diagnose_signature "$RESPONSE_FILE" "$OUTPUT_DIR"
+            fi
+        else
+            err "Verification failed"
+            diagnose_signature "$RESPONSE_FILE" "$OUTPUT_DIR"
+            exit 1
+        fi
     fi
 else
     log "Skipping verification (no CA cert provided, use -c to enable)"
