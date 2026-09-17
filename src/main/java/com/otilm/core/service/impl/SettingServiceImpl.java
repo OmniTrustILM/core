@@ -93,6 +93,7 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
     public static final String CBOM_SYNC_OVERLAP_SECONDS_NAME = "cbomSyncOverlapSeconds";
     public static final String CBOM_SYNC_SKIPPED_RETRY_RUNS_NAME = "cbomSyncSkippedRetryRuns";
     public static final String CBOM_SYNC_MAX_INGEST_DOCUMENTS_NAME = "cbomSyncMaxIngestDocuments";
+    public static final String CBOM_SYNC_SKIP_RETENTION_DAYS_NAME = "cbomSyncSkipRetentionDays";
     public static final String CERTIFICATES_VALIDATION_SETTINGS_NAME = "certificatesValidation";
     public static final String CERTIFICATES_REGISTRATION_SETTINGS_NAME = "certificatesRegistration";
 
@@ -186,14 +187,19 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
         // The CBOM sync policy reads back with its defaults filled in, so a form shows what the sync will use.
         utilsSettingsDto
                 .setCbomSyncOverlapSeconds(utilsInteger(utilsSettings, CBOM_SYNC_OVERLAP_SECONDS_NAME,
-                        CbomSyncPolicy.DEFAULT_OVERLAP_SECONDS, UtilsSettingsDto.MAX_CBOM_SYNC_OVERLAP_SECONDS));
+                        CbomSyncPolicy.DEFAULT_OVERLAP_SECONDS, 0, UtilsSettingsDto.MAX_CBOM_SYNC_OVERLAP_SECONDS));
         utilsSettingsDto
                 .setCbomSyncSkippedRetryRuns(utilsInteger(utilsSettings, CBOM_SYNC_SKIPPED_RETRY_RUNS_NAME,
-                        CbomSyncPolicy.DEFAULT_SKIPPED_RETRY_RUNS, UtilsSettingsDto.MAX_CBOM_SYNC_SKIPPED_RETRY_RUNS));
+                        CbomSyncPolicy.DEFAULT_SKIPPED_RETRY_RUNS, 0,
+                        UtilsSettingsDto.MAX_CBOM_SYNC_SKIPPED_RETRY_RUNS));
         utilsSettingsDto
                 .setCbomSyncMaxIngestDocuments(utilsInteger(utilsSettings, CBOM_SYNC_MAX_INGEST_DOCUMENTS_NAME,
-                        CbomSyncPolicy.DEFAULT_MAX_INGEST_DOCUMENTS,
+                        CbomSyncPolicy.DEFAULT_MAX_INGEST_DOCUMENTS, 0,
                         UtilsSettingsDto.MAX_CBOM_SYNC_MAX_INGEST_DOCUMENTS));
+        utilsSettingsDto
+                .setCbomSyncSkipRetentionDays(utilsInteger(utilsSettings, CBOM_SYNC_SKIP_RETENTION_DAYS_NAME,
+                        CbomSyncPolicy.DEFAULT_SKIP_RETENTION_DAYS, 1,
+                        UtilsSettingsDto.MAX_CBOM_SYNC_SKIP_RETENTION_DAYS));
         platformSettings.setUtils(utilsSettingsDto);
 
         // Certificates
@@ -443,6 +449,8 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
                 integerText(utils.getCbomSyncSkippedRetryRuns()));
         upsertUtilsSetting(platformUtilsSettings, CBOM_SYNC_MAX_INGEST_DOCUMENTS_NAME,
                 integerText(utils.getCbomSyncMaxIngestDocuments()));
+        upsertUtilsSetting(platformUtilsSettings, CBOM_SYNC_SKIP_RETENTION_DAYS_NAME,
+                integerText(utils.getCbomSyncSkipRetentionDays()));
     }
 
     /** Writes one utils value; an unset value leaves no row behind, as the branding writes do. */
@@ -470,7 +478,8 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
      * failing on a corrupt one. Reported when it appears, whenever its text changes, and again after it was corrected
      * -- not on every cache refresh, which is where this runs.
      */
-    private int utilsInteger(Map<String, Setting> utilsSettings, String name, int defaultValue, int maxValue) {
+    private int utilsInteger(Map<String, Setting> utilsSettings, String name, int defaultValue, int minValue,
+            int maxValue) {
         String value = utilsValue(utilsSettings, name);
         if (value == null || value.isBlank()) {
             lastReportedCorruptUtilsValue.remove(name);
@@ -478,8 +487,8 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
         }
         try {
             int parsed = Integer.parseInt(value.trim());
-            if (parsed < 0 || parsed > maxValue) {
-                reportCorruptUtilsValue(name, value, "outside 0.." + maxValue, defaultValue);
+            if (parsed < minValue || parsed > maxValue) {
+                reportCorruptUtilsValue(name, value, "outside " + minValue + ".." + maxValue, defaultValue);
                 return defaultValue;
             }
             lastReportedCorruptUtilsValue.remove(name);

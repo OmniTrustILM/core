@@ -1,5 +1,6 @@
 package com.otilm.core.service.writer.cbom;
 
+import com.otilm.api.model.core.cbom.CbomSyncSkipState;
 import com.otilm.core.dao.entity.cbom.CbomSyncSkip;
 import com.otilm.core.dao.repository.cbom.CbomSyncSkipRepository;
 import com.otilm.core.model.cbom.CbomHeaderCounts;
@@ -48,5 +49,14 @@ public class CbomSyncSkipWriter {
     @Transactional
     public int resolve(String serialNumber, int version) {
         return repository.deleteBySerialNumberAndVersion(serialNumber, version);
+    }
+
+    /**
+     * An operator's request to try a written-off entry again: back to retrying with a full budget. Returns whether the
+     * row changed; a row already retrying is left alone and answers 0.
+     */
+    @Transactional
+    public int requestRetry(UUID uuid) {
+        return repository.requestRetry(uuid, CbomSyncSkipState.RETRYING, CbomSyncSkipState.PERMANENTLY_SKIPPED);
     }
 }

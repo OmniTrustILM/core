@@ -122,11 +122,13 @@ class SettingServiceITest extends BaseSpringBootTest {
         Assertions.assertEquals(60, seeded.getUtils().getCbomSyncOverlapSeconds());
         Assertions.assertEquals(3, seeded.getUtils().getCbomSyncSkippedRetryRuns());
         Assertions.assertEquals(50, seeded.getUtils().getCbomSyncMaxIngestDocuments());
+        Assertions.assertEquals(90, seeded.getUtils().getCbomSyncSkipRetentionDays());
 
         UtilsSettingsDto utils = new UtilsSettingsDto();
         utils.setCbomSyncOverlapSeconds(120);
         utils.setCbomSyncSkippedRetryRuns(0);
         utils.setCbomSyncMaxIngestDocuments(5);
+        utils.setCbomSyncSkipRetentionDays(30);
         PlatformSettingsUpdateDto update = new PlatformSettingsUpdateDto();
         update.setUtils(utils);
         settingService.updatePlatformSettings(update);
@@ -135,6 +137,7 @@ class SettingServiceITest extends BaseSpringBootTest {
         Assertions.assertEquals(120, edited.getUtils().getCbomSyncOverlapSeconds());
         Assertions.assertEquals(0, edited.getUtils().getCbomSyncSkippedRetryRuns());
         Assertions.assertEquals(5, edited.getUtils().getCbomSyncMaxIngestDocuments());
+        Assertions.assertEquals(30, edited.getUtils().getCbomSyncSkipRetentionDays());
         // ...and the cache the sync reads its policy from holds the same.
         PlatformSettingsDto cached = SettingsCache.getSettings(SettingsSection.PLATFORM);
         Assertions.assertEquals(0, cached.getUtils().getCbomSyncSkippedRetryRuns());
@@ -147,12 +150,15 @@ class SettingServiceITest extends BaseSpringBootTest {
         storeUtilsSetting(SettingServiceImpl.CBOM_SYNC_OVERLAP_SECONDS_NAME, "99999999");
         storeUtilsSetting(SettingServiceImpl.CBOM_SYNC_SKIPPED_RETRY_RUNS_NAME, "-5");
         storeUtilsSetting(SettingServiceImpl.CBOM_SYNC_MAX_INGEST_DOCUMENTS_NAME, "fifty");
+        // The retention has a floor of one day: a stored zero is below it and reads as the default too.
+        storeUtilsSetting(SettingServiceImpl.CBOM_SYNC_SKIP_RETENTION_DAYS_NAME, "0");
 
         PlatformSettingsDto read = settingService.getPlatformSettings();
 
         Assertions.assertEquals(60, read.getUtils().getCbomSyncOverlapSeconds());
         Assertions.assertEquals(3, read.getUtils().getCbomSyncSkippedRetryRuns());
         Assertions.assertEquals(50, read.getUtils().getCbomSyncMaxIngestDocuments());
+        Assertions.assertEquals(90, read.getUtils().getCbomSyncSkipRetentionDays());
     }
 
     /**

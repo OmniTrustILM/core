@@ -56,6 +56,7 @@ import com.otilm.core.service.writer.cbom.CryptoAssetWriter;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.tasks.CbomSyncTask;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.SearchHelper;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
@@ -1192,10 +1193,54 @@ class CbomServiceITest extends BaseSpringBootTest {
         assertTrue(fieldNames.contains(FilterField.CBOM_TOTAL_ASSETS_COUNT.name()));
         assertTrue(fieldNames.contains(FilterField.CBOM_ASSET_SYNC_STATE.name()));
         assertTrue(fieldNames.contains(FilterField.CBOM_ASSETS_SYNCED_AT.name()));
-        // Advertised like every other member of SearchHelper.ABSENT_FROM_LISTING: that set means "filterable but not
-        // a column", and it is what stops the registered field being offered as one -- not an alternative to
-        // registering it.
+        // Filterable and, since CbomDto carries the reason, a column the picker may offer.
         assertTrue(fieldNames.contains(FilterField.CBOM_ASSET_SYNC_ERROR.name()));
+        assertTrue(SearchHelper.isDisplayable(FilterField.CBOM_ASSET_SYNC_ERROR),
+                "the listing returns the reason, so the field is a column candidate");
+        assertTrue(SearchHelper.isOrderableOnListing(FilterField.CBOM_ASSET_SYNC_ERROR),
+                "a column the listing serves can also be ordered on");
+    }
+
+    /**
+     * The reason asset ingest last failed or refused a document is written for an operator, so the listing and the
+     * detail serve it; a record with nothing to report carries none.
+     */
+    @Test
+    void theListingCarriesTheAssetSyncReasonAndOmitsItWhenThereIsNone() throws Exception {
+        Cbom refused = failedIngest("urn:uuid:refused", 1);
+        refused.setAssetSyncError("The document repeats a bom-ref 3 times; CycloneDX requires it to be unique");
+        cbomRepository.save(refused);
+        failedIngest("urn:uuid:transient", 0);
+
+        PaginationResponseDto<CbomDto> listing = cbomService.listCboms(new SecurityFilter(), new SearchRequestDto());
+
+        Map<String, String> reasonBySerial = new HashMap<>();
+        listing.getItems().forEach(item -> reasonBySerial.put(item.getSerialNumber(), item.getAssetSyncError()));
+        assertEquals("The document repeats a bom-ref 3 times; CycloneDX requires it to be unique",
+                reasonBySerial.get("urn:uuid:refused"));
+        assertTrue(reasonBySerial.containsKey("urn:uuid:transient"));
+        assertNull(reasonBySerial.get("urn:uuid:transient"));
+
+        stubBomRead(1);
+        CbomDetailDto detail = cbomService.getCbomDetail(SecuredUUID.fromString(refused.getUuid().toString()));
+        assertEquals("The document repeats a bom-ref 3 times; CycloneDX requires it to be unique",
+                detail.getAssetSyncError());
+    }
+
+    /** The detail reads the document itself from the CBOM Repository; its content is not what the caller asserts on. */
+    private void stubBomRead(int version) {
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock.urlPathMatching("/api/v1/bom/.*"))
+                        .withQueryParam("version", WireMock.equalTo(Integer.toString(version)))
+                        .willReturn(WireMock
+                                .aResponse()
+                                .withStatus(200)
+                                .withHeader("Content-Type", "application/json")
+                                .withBody("""
+                                        {"bomFormat": "CycloneDX", "specVersion": "1.6", "version": 1,
+                                         "metadata": {}, "components": []}
+                                        """)));
     }
 
     /**

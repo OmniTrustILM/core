@@ -9,17 +9,36 @@ import com.github.tomakehurst.wiremock.client.MappingBuilder;
 import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.otilm.api.exception.CbomRepositoryException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.certificate.SearchColumnRequestDto;
+import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
+import com.otilm.api.model.client.certificate.SearchRequestDto;
+import com.otilm.api.model.client.certificate.SearchSortRequestDto;
+import com.otilm.api.model.common.PaginationResponseDto;
+import com.otilm.api.model.common.enums.PlatformEnum;
+import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cbom.CbomAssetSyncState;
+import com.otilm.api.model.core.cbom.CbomSyncSkipDto;
+import com.otilm.api.model.core.cbom.CbomSyncSkipState;
+import com.otilm.api.model.core.search.FilterConditionOperator;
+import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.search.FilterFieldType;
+import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.model.core.search.SearchFieldDataDto;
+import com.otilm.api.model.core.search.SortDirection;
 import com.otilm.api.model.core.settings.PlatformSettingsDto;
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.UtilsSettingsDto;
+import com.otilm.core.cbom.sync.CbomSyncSkipSearch;
 import com.otilm.core.config.CbomSyncProperties;
 import com.otilm.core.dao.entity.Cbom;
 import com.otilm.core.dao.entity.cbom.CbomSyncSkip;
 import com.otilm.core.dao.repository.CbomRepository;
 import com.otilm.core.dao.repository.cbom.CbomSyncSkipRepository;
+import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.cbom.CbomHeaderCounts;
-import com.otilm.core.model.cbom.CbomSyncSkipState;
+import com.otilm.core.service.CbomExternalService;
 import com.otilm.core.service.CbomInternalService;
 import com.otilm.core.service.impl.CbomServiceImpl;
 import com.otilm.core.service.writer.cbom.CbomSyncSkipWriter;
@@ -35,6 +54,7 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ProblemDetail;
+import org.springframework.security.access.AccessDeniedException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -69,6 +89,8 @@ class CbomSyncITest extends BaseSpringBootTest {
 
     @Autowired
     private CbomSyncSkipWriter skipWriter;
+    @Autowired
+    private CbomExternalService cbomService;
 
     private WireMockServer repository;
     private PlatformSettingsDto originalSettings;
@@ -770,6 +792,30 @@ class CbomSyncITest extends BaseSpringBootTest {
     }
 
     @Test
+    void aRowMapsToItsDtoWhole() {
+        OffsetDateTime now = OffsetDateTime.now().truncatedTo(ChronoUnit.MICROS);
+        CbomSyncSkip stored = skipWriter
+                .recordAttempt("urn:uuid:mapped", 3, "The CBOM Repository answered 404 for the document",
+                        new CbomHeaderCounts(1, 2, 3, 4, 10), now, 1);
+
+        CbomSyncSkipDto dto = stored.mapToDto();
+
+        assertThat(dto.getUuid()).isEqualTo(stored.getUuid());
+        assertThat(dto.getSerialNumber()).isEqualTo("urn:uuid:mapped");
+        assertThat(dto.getVersion()).isEqualTo(3);
+        assertThat(dto.getState()).isEqualTo(CbomSyncSkipState.PERMANENTLY_SKIPPED);
+        assertThat(dto.getAttempts()).isEqualTo(1);
+        assertThat(dto.getFirstSkippedAt().toInstant()).isEqualTo(now.toInstant());
+        assertThat(dto.getLastAttemptAt().toInstant()).isEqualTo(now.toInstant());
+        assertThat(dto.getReason()).isEqualTo("The CBOM Repository answered 404 for the document");
+        assertThat(dto.getAlgorithms()).isEqualTo(1);
+        assertThat(dto.getCertificates()).isEqualTo(2);
+        assertThat(dto.getProtocols()).isEqualTo(3);
+        assertThat(dto.getCryptoMaterial()).isEqualTo(4);
+        assertThat(dto.getTotalAssets()).isEqualTo(10);
+    }
+
+    @Test
     void resolveDeletesTheRecordAndReportsWhetherOneExisted() {
         OffsetDateTime now = OffsetDateTime.now().truncatedTo(ChronoUnit.MICROS);
         skipWriter.recordAttempt("urn:uuid:resolved", 1, "reason", CbomHeaderCounts.ZERO, now, 4);
@@ -854,5 +900,337 @@ class CbomSyncITest extends BaseSpringBootTest {
 
     private static Logger syncLogger() {
         return (Logger) LoggerFactory.getLogger(CbomServiceImpl.class);
+    }
+
+    // ---- the operator's view ----
+
+    @Test
+    void theOperatorListShowsEveryRecordNewestFailureFirstWithItsReason() {
+        OffsetDateTime now = OffsetDateTime.now().truncatedTo(ChronoUnit.MICROS);
+        skipWriter.recordAttempt("urn:uuid:old", 1, "reason old", CbomHeaderCounts.ZERO, now.minusDays(2), 1);
+        skipWriter.recordAttempt("urn:uuid:new", 1, "reason new", CbomHeaderCounts.ZERO, now, 5);
+        skipWriter.recordAttempt("urn:uuid:mid", 2, "reason mid", CbomHeaderCounts.ZERO, now.minusDays(1), 1);
+
+        PaginationResponseDto<CbomSyncSkipDto> page = cbomService.listSyncSkips(new SearchRequestDto());
+
+        assertThat(page.getTotalItems()).isEqualTo(3);
+        assertThat(page.getItems())
+                .extracting(CbomSyncSkipDto::getSerialNumber)
+                .containsExactly("urn:uuid:new", "urn:uuid:mid", "urn:uuid:old");
+        assertThat(page.getItems())
+                .extracting(CbomSyncSkipDto::getState)
+                .containsExactly(CbomSyncSkipState.RETRYING, CbomSyncSkipState.PERMANENTLY_SKIPPED,
+                        CbomSyncSkipState.PERMANENTLY_SKIPPED);
+        assertThat(page.getItems().getFirst().getReason()).isEqualTo("reason new");
+    }
+
+    @Test
+    void theOperatorListFiltersOnStateAndSerialNumberAndPages() {
+        OffsetDateTime now = OffsetDateTime.now().truncatedTo(ChronoUnit.MICROS);
+        skipWriter.recordAttempt("urn:uuid:alpha", 1, "reason", CbomHeaderCounts.ZERO, now.minusHours(3), 1);
+        skipWriter.recordAttempt("urn:uuid:beta", 1, "reason", CbomHeaderCounts.ZERO, now.minusHours(2), 5);
+        skipWriter.recordAttempt("urn:uuid:gamma", 1, "reason", CbomHeaderCounts.ZERO, now.minusHours(1), 1);
+
+        SearchRequestDto writtenOff = new SearchRequestDto();
+        writtenOff
+                .setFilters(List
+                        .of(filter(CbomSyncSkipSearch.STATE, FilterConditionOperator.EQUALS,
+                                List.of(CbomSyncSkipState.PERMANENTLY_SKIPPED.getCode()))));
+        assertThat(cbomService.listSyncSkips(writtenOff).getItems())
+                .extracting(CbomSyncSkipDto::getSerialNumber)
+                .containsExactly("urn:uuid:gamma", "urn:uuid:alpha");
+
+        SearchRequestDto containsAl = new SearchRequestDto();
+        containsAl
+                .setFilters(
+                        List.of(filter(CbomSyncSkipSearch.SERIAL_NUMBER, FilterConditionOperator.CONTAINS, "alph")));
+        assertThat(cbomService.listSyncSkips(containsAl).getItems())
+                .extracting(CbomSyncSkipDto::getSerialNumber)
+                .containsExactly("urn:uuid:alpha");
+
+        SearchRequestDto secondPage = new SearchRequestDto();
+        secondPage.setItemsPerPage(2);
+        secondPage.setPageNumber(2);
+        SearchSortRequestDto oldestFirst = new SearchSortRequestDto();
+        oldestFirst.setFieldSource(FilterFieldSource.PROPERTY);
+        oldestFirst.setFieldIdentifier(CbomSyncSkipSearch.LAST_ATTEMPT_AT);
+        oldestFirst.setDirection(SortDirection.ASC);
+        secondPage.setSort(oldestFirst);
+        PaginationResponseDto<CbomSyncSkipDto> page = cbomService.listSyncSkips(secondPage);
+        assertThat(page.getTotalPages()).isEqualTo(2);
+        assertThat(page.getItems()).extracting(CbomSyncSkipDto::getSerialNumber).containsExactly("urn:uuid:gamma");
+    }
+
+    /**
+     * The refusal is the caller's own error, so it has to say what was refused and what would work instead -- a message
+     * that reached the client as its own template would tell an operator nothing.
+     */
+    @Test
+    void theOperatorListRefusesAFieldOrConditionItDoesNotServeAndNamesBoth() {
+        SearchRequestDto unknownField = new SearchRequestDto();
+        unknownField.setFilters(List.of(filter("CBOM_SERIAL_NUMBER", FilterConditionOperator.EQUALS, "x")));
+        assertThatThrownBy(() -> cbomService.listSyncSkips(unknownField))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("CBOM_SERIAL_NUMBER")
+                .hasMessageContaining(CbomSyncSkipSearch.SERIAL_NUMBER)
+                .hasMessageContaining(CbomSyncSkipSearch.STATE);
+
+        SearchRequestDto unknownCondition = new SearchRequestDto();
+        unknownCondition
+                .setFilters(List
+                        .of(filter(CbomSyncSkipSearch.STATE, FilterConditionOperator.CONTAINS,
+                                CbomSyncSkipState.RETRYING.getCode())));
+        assertThatThrownBy(() -> cbomService.listSyncSkips(unknownCondition))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining(FilterConditionOperator.CONTAINS.getCode())
+                .hasMessageContaining(CbomSyncSkipSearch.STATE)
+                .hasMessageContaining(FilterConditionOperator.EQUALS.getCode());
+
+        SearchRequestDto blankValue = new SearchRequestDto();
+        blankValue.setFilters(List.of(filter(CbomSyncSkipSearch.STATE, FilterConditionOperator.EQUALS, "   ")));
+        assertThatThrownBy(() -> cbomService.listSyncSkips(blankValue))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining(CbomSyncSkipSearch.STATE)
+                .hasMessageContaining("needs a value");
+
+        SearchRequestDto twoSerialNumbers = new SearchRequestDto();
+        twoSerialNumbers
+                .setFilters(List
+                        .of(filter(CbomSyncSkipSearch.SERIAL_NUMBER, FilterConditionOperator.EQUALS,
+                                List.of("urn:uuid:a", "urn:uuid:b"))));
+        assertThatThrownBy(() -> cbomService.listSyncSkips(twoSerialNumbers))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("takes one value");
+
+        SearchRequestDto unknownSort = new SearchRequestDto();
+        SearchSortRequestDto sort = new SearchSortRequestDto();
+        sort.setFieldSource(FilterFieldSource.PROPERTY);
+        sort.setFieldIdentifier("CBOM_TIMESTAMP");
+        sort.setDirection(SortDirection.DESC);
+        unknownSort.setSort(sort);
+        assertThatThrownBy(() -> cbomService.listSyncSkips(unknownSort))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("CBOM_TIMESTAMP")
+                .hasMessageContaining(CbomSyncSkipSearch.LAST_ATTEMPT_AT)
+                .hasMessageContaining(CbomSyncSkipSearch.ATTEMPTS);
+    }
+
+    @Test
+    void theOperatorListIsGatedByTheCbomListPermission() {
+        denyResourceAccess(Resource.CBOM, ResourceAction.LIST);
+
+        assertThatThrownBy(() -> cbomService.listSyncSkips(new SearchRequestDto()))
+                .isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(() -> cbomService.getSyncSkipSearchableFields()).isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void aRetryPutsAWrittenOffEntryBackWithAFullBudgetAndTheNextRunStoresIt() throws Exception {
+        CbomSyncSkip writtenOff = skipWriter
+                .recordAttempt("urn:uuid:retry-me", 1, "reason", CbomHeaderCounts.ZERO,
+                        OffsetDateTime.now().truncatedTo(ChronoUnit.MICROS), 1);
+        assertThat(writtenOff.getState()).isEqualTo(CbomSyncSkipState.PERMANENTLY_SKIPPED);
+
+        CbomSyncSkipDto retried = cbomService.retrySyncSkip(writtenOff.getUuid());
+
+        assertThat(retried.getState()).isEqualTo(CbomSyncSkipState.RETRYING);
+        assertThat(retried.getAttempts()).isZero();
+        // The record of the last attempt is what it was: only the budget is given back.
+        assertThat(retried.getReason()).isEqualTo("reason");
+        assertThat(retried.getFirstSkippedAt().toInstant()).isEqualTo(writtenOff.getFirstSkippedAt().toInstant());
+        assertThat(retried.getLastAttemptAt().toInstant()).isEqualTo(writtenOff.getLastAttemptAt().toInstant());
+
+        // The next run loads it as a retrying row and, the document now readable, stores it and resolves the record.
+        stubPage("after", "0", "[]", null);
+        stubDocument("urn:uuid:retry-me", 1);
+        String result = cbomInternalService.sync();
+        assertThat(result).contains("retried 1 previously skipped entries").contains("1 skip records resolved");
+        assertThat(skipRepository.count()).isZero();
+        assertThat(cbomRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void aRetryOfAnEntryStillRetryingChangesNothing() throws Exception {
+        CbomSyncSkip retrying = skipWriter
+                .recordAttempt("urn:uuid:still", 1, "reason", CbomHeaderCounts.ZERO,
+                        OffsetDateTime.now().truncatedTo(ChronoUnit.MICROS), 5);
+
+        CbomSyncSkipDto answered = cbomService.retrySyncSkip(retrying.getUuid());
+
+        assertThat(answered.getState()).isEqualTo(CbomSyncSkipState.RETRYING);
+        assertThat(answered.getAttempts()).isEqualTo(1);
+    }
+
+    @Test
+    void aRetryOfAnUnknownEntryIsNotFoundAndNeedsTheUpdatePermission() {
+        assertThatThrownBy(() -> cbomService.retrySyncSkip(java.util.UUID.randomUUID()))
+                .isInstanceOf(NotFoundException.class);
+
+        denyResourceAccess(Resource.CBOM, ResourceAction.UPDATE);
+        assertThatThrownBy(() -> cbomService.retrySyncSkip(java.util.UUID.randomUUID()))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void theSearchableFieldsNameTheTwoFiltersTheirConditionsAndWhatMayBeOrdered() {
+        List<SearchFieldDataByGroupDto> groups = cbomService.getSyncSkipSearchableFields();
+
+        assertThat(groups).hasSize(1);
+        assertThat(groups.getFirst().getFilterFieldSource()).isEqualTo(FilterFieldSource.PROPERTY);
+        List<SearchFieldDataDto> fields = groups.getFirst().getSearchFieldData();
+        assertThat(fields)
+                .extracting(SearchFieldDataDto::getFieldIdentifier)
+                .containsExactly(CbomSyncSkipSearch.SERIAL_NUMBER, CbomSyncSkipSearch.STATE);
+
+        SearchFieldDataDto serialNumber = fields.getFirst();
+        assertThat(serialNumber.getType()).isEqualTo(FilterFieldType.STRING);
+        assertThat(serialNumber.getConditions())
+                .containsExactly(FilterConditionOperator.EQUALS, FilterConditionOperator.NOT_EQUALS,
+                        FilterConditionOperator.CONTAINS, FilterConditionOperator.NOT_CONTAINS,
+                        FilterConditionOperator.STARTS_WITH);
+        assertThat(serialNumber.isSortable()).isTrue();
+        assertThat(serialNumber.isMultiValue()).isFalse();
+
+        SearchFieldDataDto state = fields.get(1);
+        assertThat(state.getType()).isEqualTo(FilterFieldType.LIST);
+        assertThat(state.getConditions())
+                .containsExactly(FilterConditionOperator.EQUALS, FilterConditionOperator.NOT_EQUALS);
+        assertThat(state.getPlatformEnum()).isEqualTo(PlatformEnum.CBOM_SYNC_SKIP_STATE);
+        assertThat(state.getValue())
+                .isEqualTo(
+                        List.of(CbomSyncSkipState.RETRYING.getCode(), CbomSyncSkipState.PERMANENTLY_SKIPPED.getCode()));
+        assertThat(state.isMultiValue()).isTrue();
+
+        // The rows have a fixed shape, so the catalogue offers no columns at all.
+        assertThat(fields).extracting(SearchFieldDataDto::isDisplayable).containsOnlyNulls();
+
+        // Every condition advertised here is one the list actually serves.
+        for (SearchFieldDataDto field : fields) {
+            for (FilterConditionOperator condition : field.getConditions()) {
+                SearchRequestDto request = new SearchRequestDto();
+                request
+                        .setFilters(List
+                                .of(filter(field.getFieldIdentifier(), condition,
+                                        CbomSyncSkipState.RETRYING.getCode())));
+                assertThat(cbomService.listSyncSkips(request)).isNotNull();
+            }
+        }
+    }
+
+    @Test
+    void theSerialNumberFilterServesEveryConditionItAdvertisesAndMatchesLiterally() {
+        OffsetDateTime now = OffsetDateTime.now().truncatedTo(ChronoUnit.MICROS);
+        skipWriter.recordAttempt("urn:uuid:alpha", 1, "reason", CbomHeaderCounts.ZERO, now.minusHours(4), 1);
+        skipWriter.recordAttempt("urn:uuid:beta", 1, "reason", CbomHeaderCounts.ZERO, now.minusHours(3), 1);
+        skipWriter.recordAttempt("urn:uuid:abc", 1, "reason", CbomHeaderCounts.ZERO, now.minusHours(2), 1);
+        skipWriter.recordAttempt("urn:uuid:a_c", 1, "reason", CbomHeaderCounts.ZERO, now.minusHours(1), 1);
+
+        assertThat(serialNumbersMatching(FilterConditionOperator.EQUALS, "urn:uuid:alpha"))
+                .containsExactly("urn:uuid:alpha");
+        assertThat(serialNumbersMatching(FilterConditionOperator.NOT_EQUALS, "urn:uuid:alpha"))
+                .containsExactlyInAnyOrder("urn:uuid:beta", "urn:uuid:abc", "urn:uuid:a_c");
+        assertThat(serialNumbersMatching(FilterConditionOperator.STARTS_WITH, "urn:uuid:a"))
+                .containsExactlyInAnyOrder("urn:uuid:alpha", "urn:uuid:abc", "urn:uuid:a_c");
+        assertThat(serialNumbersMatching(FilterConditionOperator.NOT_CONTAINS, "alpha"))
+                .containsExactlyInAnyOrder("urn:uuid:beta", "urn:uuid:abc", "urn:uuid:a_c");
+
+        // LIKE's own wildcards are escaped, so an underscore matches an underscore and not "abc".
+        assertThat(serialNumbersMatching(FilterConditionOperator.CONTAINS, "a_c")).containsExactly("urn:uuid:a_c");
+        assertThat(serialNumbersMatching(FilterConditionOperator.CONTAINS, "%")).isEmpty();
+
+        // Case-sensitive, as the platform's other string filters are.
+        assertThat(serialNumbersMatching(FilterConditionOperator.CONTAINS, "ALPHA")).isEmpty();
+    }
+
+    @Test
+    void theStateFilterTakesOneStateOrSeveralAndCanExcludeThem() {
+        OffsetDateTime now = OffsetDateTime.now().truncatedTo(ChronoUnit.MICROS);
+        skipWriter.recordAttempt("urn:uuid:retrying", 1, "reason", CbomHeaderCounts.ZERO, now, 5);
+        skipWriter.recordAttempt("urn:uuid:written-off", 1, "reason", CbomHeaderCounts.ZERO, now.minusHours(1), 1);
+
+        assertThat(serialNumbersInStates(FilterConditionOperator.NOT_EQUALS,
+                List.of(CbomSyncSkipState.PERMANENTLY_SKIPPED.getCode()))).containsExactly("urn:uuid:retrying");
+        assertThat(serialNumbersInStates(FilterConditionOperator.EQUALS,
+                List.of(CbomSyncSkipState.RETRYING.getCode(), CbomSyncSkipState.PERMANENTLY_SKIPPED.getCode())))
+                .containsExactlyInAnyOrder("urn:uuid:retrying", "urn:uuid:written-off");
+
+        SearchRequestDto unknownState = new SearchRequestDto();
+        unknownState.setFilters(List.of(filter(CbomSyncSkipSearch.STATE, FilterConditionOperator.EQUALS, "gaveUp")));
+        assertThatThrownBy(() -> cbomService.listSyncSkips(unknownState)).isInstanceOf(ValidationException.class);
+    }
+
+    @Test
+    void theListCanBeOrderedByEveryKeyTheListOperationNames() {
+        OffsetDateTime now = OffsetDateTime.now().truncatedTo(ChronoUnit.MICROS);
+        // One attempt three days ago; three attempts starting a day ago; two starting two days ago.
+        skipWriter.recordAttempt("urn:uuid:a", 1, "reason", CbomHeaderCounts.ZERO, now.minusDays(3), 5);
+        skipWriter.recordAttempt("urn:uuid:b", 1, "reason", CbomHeaderCounts.ZERO, now.minusDays(1), 5);
+        skipWriter.recordAttempt("urn:uuid:b", 1, "reason", CbomHeaderCounts.ZERO, now.minusHours(5), 5);
+        skipWriter.recordAttempt("urn:uuid:b", 1, "reason", CbomHeaderCounts.ZERO, now.minusHours(2), 5);
+        skipWriter.recordAttempt("urn:uuid:c", 1, "reason", CbomHeaderCounts.ZERO, now.minusDays(2), 5);
+        skipWriter.recordAttempt("urn:uuid:c", 1, "reason", CbomHeaderCounts.ZERO, now.minusHours(1), 5);
+
+        assertThat(serialNumbersOrderedBy(CbomSyncSkipSearch.ATTEMPTS, SortDirection.ASC))
+                .containsExactly("urn:uuid:a", "urn:uuid:c", "urn:uuid:b");
+        assertThat(serialNumbersOrderedBy(CbomSyncSkipSearch.FIRST_SKIPPED_AT, SortDirection.ASC))
+                .containsExactly("urn:uuid:a", "urn:uuid:c", "urn:uuid:b");
+        assertThat(serialNumbersOrderedBy(CbomSyncSkipSearch.LAST_ATTEMPT_AT, SortDirection.DESC))
+                .containsExactly("urn:uuid:c", "urn:uuid:b", "urn:uuid:a");
+        assertThat(serialNumbersOrderedBy(CbomSyncSkipSearch.SERIAL_NUMBER, SortDirection.ASC))
+                .containsExactly("urn:uuid:a", "urn:uuid:b", "urn:uuid:c");
+
+        // No sort at all is the newest failure first, which is what the contract promises by default.
+        assertThat(cbomService.listSyncSkips(new SearchRequestDto()).getItems())
+                .extracting(CbomSyncSkipDto::getSerialNumber)
+                .containsExactly("urn:uuid:c", "urn:uuid:b", "urn:uuid:a");
+    }
+
+    @Test
+    void theListAcceptsColumnsAndIgnoresThem() {
+        skipWriter
+                .recordAttempt("urn:uuid:only", 1, "reason", CbomHeaderCounts.ZERO,
+                        OffsetDateTime.now().truncatedTo(ChronoUnit.MICROS), 1);
+
+        SearchRequestDto withColumns = new SearchRequestDto();
+        withColumns
+                .setColumns(List
+                        .of(new SearchColumnRequestDto(FilterFieldSource.PROPERTY, CbomSyncSkipSearch.SERIAL_NUMBER)));
+
+        // The rows have a fixed shape: naming a column changes nothing and is not an error.
+        PaginationResponseDto<CbomSyncSkipDto> page = cbomService.listSyncSkips(withColumns);
+        assertThat(page.getItems()).hasSize(1);
+        assertThat(page.getItems().getFirst().getReason()).isEqualTo("reason");
+        assertThat(page.getItems().getFirst().getVersion()).isEqualTo(1);
+    }
+
+    private List<String> serialNumbersMatching(FilterConditionOperator condition, String value) {
+        SearchRequestDto request = new SearchRequestDto();
+        request.setFilters(List.of(filter(CbomSyncSkipSearch.SERIAL_NUMBER, condition, value)));
+        return cbomService.listSyncSkips(request).getItems().stream().map(CbomSyncSkipDto::getSerialNumber).toList();
+    }
+
+    private List<String> serialNumbersInStates(FilterConditionOperator condition, List<String> codes) {
+        SearchRequestDto request = new SearchRequestDto();
+        request.setFilters(List.of(filter(CbomSyncSkipSearch.STATE, condition, codes)));
+        return cbomService.listSyncSkips(request).getItems().stream().map(CbomSyncSkipDto::getSerialNumber).toList();
+    }
+
+    private List<String> serialNumbersOrderedBy(String fieldIdentifier, SortDirection direction) {
+        SearchSortRequestDto sort = new SearchSortRequestDto();
+        sort.setFieldSource(FilterFieldSource.PROPERTY);
+        sort.setFieldIdentifier(fieldIdentifier);
+        sort.setDirection(direction);
+        SearchRequestDto request = new SearchRequestDto();
+        request.setSort(sort);
+        return cbomService.listSyncSkips(request).getItems().stream().map(CbomSyncSkipDto::getSerialNumber).toList();
+    }
+
+    private static SearchFilterRequestDto filter(String identifier, FilterConditionOperator condition, Object value) {
+        SearchFilterRequestDto filter = new SearchFilterRequestDto();
+        filter.setFieldSource(FilterFieldSource.PROPERTY);
+        filter.setFieldIdentifier(identifier);
+        filter.setCondition(condition);
+        filter.setValue((java.io.Serializable) value);
+        return filter;
     }
 }

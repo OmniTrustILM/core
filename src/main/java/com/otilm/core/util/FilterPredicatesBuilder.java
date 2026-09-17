@@ -92,7 +92,7 @@ public class FilterPredicatesBuilder {
     private static final String TEXTREGEXEQ_FUNCTION_NAME = "textregexeq";
     private static final String ARRAY_CONTAINS_FUNCTION_NAME = PostgresFunctionContributor.ARRAY_CONTAINS;
 
-    private static final char LIKE_ESCAPE_CHAR = '\\';
+    public static final char LIKE_ESCAPE_CHAR = '\\';
     private static final String ARRAY_ITEM_CONTAINS_FUNCTION_NAME = PostgresFunctionContributor.ARRAY_ITEM_CONTAINS;
 
     private static final Set<FilterConditionOperator> OID_CONDITIONS_A_NULL_OID_SATISFIES = Set
@@ -760,9 +760,10 @@ public class FilterPredicatesBuilder {
     /**
      * LIKE's {@code %}, {@code _} and the escape character itself, escaped so free-text input matches literally. The
      * generic CONTAINS on single columns leaves wildcards active (a platform-wide trait predating this field); the
-     * free-text box is new surface, and a search box promises literal matching.
+     * free-text box is new surface, and a search box promises literal matching. The CBOM sync skip list's serial number
+     * filter ({@code CbomSyncSkipSearch}) escapes with this too.
      */
-    private static String escapeLikeWildcards(String value) {
+    public static String escapeLikeWildcards(String value) {
         return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 

@@ -14,6 +14,8 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cbom.CbomAssetSyncState;
 import com.otilm.api.model.core.cbom.CbomDetailDto;
 import com.otilm.api.model.core.cbom.CbomDto;
+import com.otilm.api.model.core.cbom.CbomSyncSkipDto;
+import com.otilm.api.model.core.cbom.CbomSyncSkipState;
 import com.otilm.api.model.core.cbom.CbomUploadRequestDto;
 import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
@@ -23,9 +25,6 @@ import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
-import com.otilm.api.model.core.settings.PlatformSettingsDto;
-import com.otilm.api.model.core.settings.SettingsSection;
-import com.otilm.api.model.core.settings.UtilsSettingsDto;
 import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
 import com.otilm.core.attribute.engine.AttributeColumnProjector;
 import com.otilm.core.attribute.engine.AttributeEngine;
@@ -36,6 +35,7 @@ import com.otilm.core.cbom.client.CbomRepositoryClient;
 import com.otilm.core.cbom.ingest.CbomAssetDetachService;
 import com.otilm.core.cbom.ingest.CbomAssetIngestService;
 import com.otilm.core.cbom.sync.CbomSyncPolicy;
+import com.otilm.core.cbom.sync.CbomSyncSkipSearch;
 import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.config.CbomSyncProperties;
@@ -58,7 +58,6 @@ import com.otilm.core.model.cbom.BomResponseDto;
 import com.otilm.core.model.cbom.BomSearchRequestDto;
 import com.otilm.core.model.cbom.BomVersionDto;
 import com.otilm.core.model.cbom.CbomHeaderCounts;
-import com.otilm.core.model.cbom.CbomSyncSkipState;
 import com.otilm.core.model.cbom.CryptoStatsDto;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -68,7 +67,6 @@ import com.otilm.core.service.CbomInternalService;
 import com.otilm.core.service.writer.cbom.CbomAssetSyncStateWriter;
 import com.otilm.core.service.writer.cbom.CbomSyncSkipWriter;
 import com.otilm.core.service.writer.cbom.CbomTombstoneWriter;
-import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.tasks.CbomSyncTask;
 import com.otilm.core.util.CbomUtil;
 import com.otilm.core.util.FilterPredicatesBuilder;
@@ -100,6 +98,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.AuditorAware;
 import org.springframework.data.domain.Limit;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
@@ -337,6 +336,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         detailDto.setTotalAssets(cbomDto.getTotalAssets());
         detailDto.setAssetSyncState(cbomDto.getAssetSyncState());
         detailDto.setAssetSyncedAt(cbomDto.getAssetSyncedAt());
+        detailDto.setAssetSyncError(cbomDto.getAssetSyncError());
 
         return detailDto;
     }
@@ -741,6 +741,54 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         return searchFieldDataByGroupDtos;
     }
 
+    @Override
+    @ExternalAuthorization(resource = Resource.CBOM, action = ResourceAction.LIST)
+    public PaginationResponseDto<CbomSyncSkipDto> listSyncSkips(SearchRequestDto request) {
+        RequestValidatorHelper.revalidateSearchRequestDto(request);
+        final Pageable page = PageRequest
+                .of(request.getPageNumber() - 1, request.getItemsPerPage(), CbomSyncSkipSearch.sort(request.getSort()));
+        final Page<CbomSyncSkip> rows = syncSkipRepository
+                .findAll(CbomSyncSkipSearch.specification(request.getFilters()), page);
+
+        final PaginationResponseDto<CbomSyncSkipDto> response = new PaginationResponseDto<>();
+        response.setItems(rows.getContent().stream().map(CbomSyncSkip::mapToDto).toList());
+        response.setItemsPerPage(request.getItemsPerPage());
+        response.setPageNumber(request.getPageNumber());
+        response.setTotalItems(rows.getTotalElements());
+        response.setTotalPages(rows.getTotalPages());
+        return response;
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.CBOM, action = ResourceAction.LIST)
+    public List<SearchFieldDataByGroupDto> getSyncSkipSearchableFields() {
+        return CbomSyncSkipSearch.searchableFields();
+    }
+
+    /**
+     * The reset goes through the writer so it commits with this transaction; a retrying row is answered as it is. The
+     * next run loads every retrying row and tries it with the counted attempts, which the reset put back to zero.
+     */
+    @Override
+    @ExternalAuthorization(resource = Resource.CBOM, action = ResourceAction.UPDATE)
+    public CbomSyncSkipDto retrySyncSkip(UUID uuid) throws NotFoundException {
+        CbomSyncSkip row = syncSkipRepository
+                .findById(uuid)
+                .orElseThrow(() -> new NotFoundException(CbomSyncSkip.class, uuid));
+        if (row.getState() == CbomSyncSkipState.PERMANENTLY_SKIPPED) {
+            if (syncSkipWriter.requestRetry(uuid) == 1) {
+                logger
+                        .getLogger()
+                        .info("CBOM Sync: CBOM serialNumber {} version {} is retrying again at an operator's request",
+                                row.getSerialNumber(), row.getVersion());
+            }
+            // Re-read whatever happened meanwhile: the update landed, or a sync run resolved the row, or the retention
+            // sweep removed it -- in which case there is no entry to answer with.
+            row = syncSkipRepository.findById(uuid).orElseThrow(() -> new NotFoundException(CbomSyncSkip.class, uuid));
+        }
+        return row.mapToDto();
+    }
+
     private Cbom getEntity(SecuredUUID uuid) throws NotFoundException {
         return cbomRepository.findByUuid(uuid).orElseThrow(() -> new NotFoundException(Cbom.class, uuid));
     }
@@ -814,7 +862,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      */
     private String runSync(SyncScope scope) throws CbomRepositoryException {
         // Read once, here: a policy changed in the Settings UI applies to the next run, never to half of this one.
-        final CbomSyncPolicy policy = CbomSyncPolicy.fromSettings(platformUtilsSettings());
+        final CbomSyncPolicy policy = CbomSyncPolicy.fromSettingsCache();
         final SyncRun run = new SyncRun(OffsetDateTime.now(), policy);
         logger
                 .getLogger()
@@ -858,18 +906,10 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
     }
 
     /**
-     * The operator's half of the sync tunables as the settings cache holds it -- null before the platform settings were
-     * ever read, which {@link CbomSyncPolicy#fromSettings} treats as "all defaults".
-     */
-    private static UtilsSettingsDto platformUtilsSettings() {
-        PlatformSettingsDto platform = SettingsCache.getSettings(SettingsSection.PLATFORM);
-        return platform == null ? null : platform.getUtils();
-    }
-
-    /**
-     * The live retry set: the {@code RETRYING} rows, oldest failure first. Written-off rows stay in the table but are
-     * not loaded -- their number only ever grows -- so a row this map does not hold is looked up by identity when an
-     * entry fails or is stored ({@link #previousSkip}, {@link #resolveSkipIfRecorded}).
+     * The live retry set: the {@code RETRYING} rows, oldest failure first. Written-off rows stay in the table (until
+     * the retention sweep removes them, or an operator's retry moves one back into this set) but are not loaded -- so a
+     * row this map does not hold is looked up by identity when an entry fails or is stored ({@link #previousSkip},
+     * {@link #resolveSkipIfRecorded}).
      */
     private Map<SyncIdentity, CbomSyncSkip> loadSkipRecords() {
         final Map<SyncIdentity, CbomSyncSkip> skips = new LinkedHashMap<>();

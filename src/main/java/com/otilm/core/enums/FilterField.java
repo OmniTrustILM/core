@@ -399,8 +399,8 @@ public enum FilterField {
             CbomAssetSyncState.class),
     CBOM_ASSETS_SYNCED_AT(Resource.CBOM, null, null, Cbom_.assetsSyncedAt, "Assets Synced At",
             SearchFieldTypeEnum.DATETIME),
-    // The reason asset ingest last refused or failed this CBOM. Filterable here is as far as this repository can
-    // carry it on its own: CbomDto has no field for the reason, so serving it in a response is an interfaces release.
+    // The reason asset ingest last refused or failed this CBOM, worded for an operator; the listing and the detail
+    // serve it, so it is a column as well as a filter.
     CBOM_ASSET_SYNC_ERROR(Resource.CBOM, null, null, Cbom_.assetSyncError, "Asset Sync Error",
             SearchFieldTypeEnum.STRING),
 

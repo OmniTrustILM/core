@@ -83,12 +83,7 @@ public class SearchHelper {
 
                         // Signing records. SigningRecordMapper.toListDto sets the retrieval timestamp on the detail
                         // DTO only; SigningRecordListDto has no property for it.
-                        FilterField.SIGNING_RECORD_SIGNED_DOCUMENT_RETRIEVED_AT,
-
-                        // CBOMs. Cbom.mapToDto never sets the asset sync reason and CbomDto has no property for it,
-                        // so the column would publish a heading over empty cells. Filtering on it works: the
-                        // predicate reads the entity's column, which the listing simply does not return.
-                        FilterField.CBOM_ASSET_SYNC_ERROR);
+                        FilterField.SIGNING_RECORD_SIGNED_DOCUMENT_RETRIEVED_AT);
 
         private FilterFieldSets() {
         }

@@ -27,6 +27,7 @@ public class SystemScheduledJobs {
         schedulerService.registerScheduledJob(CbomSyncTask.class);
         schedulerService.registerScheduledJob(CbomReconcileTask.class);
         schedulerService.registerScheduledJob(CryptoAssetPqcSweepTask.class);
+        schedulerService.registerScheduledJob(CbomSyncSkipRetentionTask.class);
         return null;
     }
 }

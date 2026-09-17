@@ -14,6 +14,7 @@ class CbomSyncPolicyTest {
         assertThat(CbomSyncPolicy.DEFAULTS.overlap()).isEqualTo(Duration.ofSeconds(60));
         assertThat(CbomSyncPolicy.DEFAULTS.skippedRetryRuns()).isEqualTo(3);
         assertThat(CbomSyncPolicy.DEFAULTS.maxIngestDocuments()).isEqualTo(50);
+        assertThat(CbomSyncPolicy.DEFAULTS.skipRetentionDays()).isEqualTo(90);
         assertThat(CbomSyncPolicy.DEFAULTS.maxAttempts()).isEqualTo(4);
     }
 
@@ -33,6 +34,7 @@ class CbomSyncPolicyTest {
         assertThat(policy.skippedRetryRuns()).isZero();
         assertThat(policy.maxAttempts()).isEqualTo(1);
         assertThat(policy.maxIngestDocuments()).isEqualTo(CbomSyncPolicy.DEFAULT_MAX_INGEST_DOCUMENTS);
+        assertThat(policy.skipRetentionDays()).isEqualTo(CbomSyncPolicy.DEFAULT_SKIP_RETENTION_DAYS);
     }
 
     @Test
@@ -41,24 +43,25 @@ class CbomSyncPolicyTest {
         utils.setCbomSyncOverlapSeconds(120);
         utils.setCbomSyncSkippedRetryRuns(1);
         utils.setCbomSyncMaxIngestDocuments(0);
+        utils.setCbomSyncSkipRetentionDays(30);
 
         CbomSyncPolicy policy = CbomSyncPolicy.fromSettings(utils);
 
-        assertThat(policy).isEqualTo(new CbomSyncPolicy(Duration.ofMinutes(2), 1, 0));
+        assertThat(policy).isEqualTo(new CbomSyncPolicy(Duration.ofMinutes(2), 1, 0, 30));
     }
 
     @Test
     void aNegativeValueIsRefused() {
-        assertThatThrownBy(() -> new CbomSyncPolicy(Duration.ofSeconds(-1), 3, 50))
+        assertThatThrownBy(() -> new CbomSyncPolicy(Duration.ofSeconds(-1), 3, 50, 90))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("overlap");
-        assertThatThrownBy(() -> new CbomSyncPolicy(null, 3, 50))
+        assertThatThrownBy(() -> new CbomSyncPolicy(null, 3, 50, 90))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("overlap");
-        assertThatThrownBy(() -> new CbomSyncPolicy(Duration.ZERO, -1, 50))
+        assertThatThrownBy(() -> new CbomSyncPolicy(Duration.ZERO, -1, 50, 90))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("retry budget");
-        assertThatThrownBy(() -> new CbomSyncPolicy(Duration.ZERO, 3, -1))
+        assertThatThrownBy(() -> new CbomSyncPolicy(Duration.ZERO, 3, -1, 90))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("ingest budget");
     }
@@ -66,16 +69,16 @@ class CbomSyncPolicyTest {
     @Test
     void aValueAboveTheContractCapIsRefused() {
         assertThatThrownBy(
-                () -> new CbomSyncPolicy(Duration.ofSeconds(UtilsSettingsDto.MAX_CBOM_SYNC_OVERLAP_SECONDS + 1L), 3,
-                        50))
+                () -> new CbomSyncPolicy(Duration.ofSeconds(UtilsSettingsDto.MAX_CBOM_SYNC_OVERLAP_SECONDS + 1L), 3, 50,
+                        90))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("overlap");
         assertThatThrownBy(
-                () -> new CbomSyncPolicy(Duration.ZERO, UtilsSettingsDto.MAX_CBOM_SYNC_SKIPPED_RETRY_RUNS + 1, 50))
+                () -> new CbomSyncPolicy(Duration.ZERO, UtilsSettingsDto.MAX_CBOM_SYNC_SKIPPED_RETRY_RUNS + 1, 50, 90))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("retry budget");
         assertThatThrownBy(
-                () -> new CbomSyncPolicy(Duration.ZERO, 3, UtilsSettingsDto.MAX_CBOM_SYNC_MAX_INGEST_DOCUMENTS + 1))
+                () -> new CbomSyncPolicy(Duration.ZERO, 3, UtilsSettingsDto.MAX_CBOM_SYNC_MAX_INGEST_DOCUMENTS + 1, 90))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("ingest budget");
     }
@@ -84,8 +87,22 @@ class CbomSyncPolicyTest {
     void theCapsThemselvesAreAccepted() {
         CbomSyncPolicy atTheCaps = new CbomSyncPolicy(
                 Duration.ofSeconds(UtilsSettingsDto.MAX_CBOM_SYNC_OVERLAP_SECONDS),
-                UtilsSettingsDto.MAX_CBOM_SYNC_SKIPPED_RETRY_RUNS, UtilsSettingsDto.MAX_CBOM_SYNC_MAX_INGEST_DOCUMENTS);
+                UtilsSettingsDto.MAX_CBOM_SYNC_SKIPPED_RETRY_RUNS, UtilsSettingsDto.MAX_CBOM_SYNC_MAX_INGEST_DOCUMENTS,
+                UtilsSettingsDto.MAX_CBOM_SYNC_SKIP_RETENTION_DAYS);
 
         assertThat(atTheCaps.maxAttempts()).isEqualTo(1 + UtilsSettingsDto.MAX_CBOM_SYNC_SKIPPED_RETRY_RUNS);
+        assertThat(atTheCaps.skipRetentionDays()).isEqualTo(UtilsSettingsDto.MAX_CBOM_SYNC_SKIP_RETENTION_DAYS);
+    }
+
+    /** The retention has a floor of one day, not zero: a retention of nothing would sweep a write-off as it lands. */
+    @Test
+    void aRetentionBelowOneDayOrAboveTheCapIsRefused() {
+        assertThatThrownBy(() -> new CbomSyncPolicy(Duration.ZERO, 3, 50, 0))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("retention");
+        assertThatThrownBy(
+                () -> new CbomSyncPolicy(Duration.ZERO, 3, 50, UtilsSettingsDto.MAX_CBOM_SYNC_SKIP_RETENTION_DAYS + 1))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("retention");
     }
 }
