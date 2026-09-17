@@ -416,20 +416,8 @@ connector:
 cbom:
   client:
     max-buffer-size: ${CBOM_CLIENT_MAX_BUFFER_SIZE:20971520}
-  sync:
-    # The operator policy -- the re-list overlap, the retry budget for documents that could not be stored and the
-    # per-run ingest budget -- is a platform setting (Settings UI, the utils section beside the repository URL), read at
-    # the start of each run; see CbomSyncPolicy. What stays here is deploy-time plumbing.
-    # Page size sent as `limit` to the repository search (1..1000); pages are followed through `Link rel="next"`.
-    page-size: ${CBOM_SYNC_PAGE_SIZE:1000}
-    # The kill switch for cryptographic-asset ingest, covering both discovery paths: the inline ingest of a document
-    # the feed pass has just stored, and the backlog pass. An ingest budget of 0 (the platform setting) disables only
-    # the backlog pass, so it cannot stop a newly stored CBOM from acquiring asset sources.
-    asset-ingest-enabled: ${CBOM_SYNC_ASSET_INGEST_ENABLED:true}
-    # Assets written per ingest transaction. Bounds how long one ingest holds the alias advisory lock and its row locks.
-    asset-batch-size: ${CBOM_SYNC_ASSET_BATCH_SIZE:100}
-    # How long a CBOM whose ingest is IN_PROGRESS or FAILED is left untouched before a run offers it again.
-    ingest-retry-after: ${CBOM_SYNC_INGEST_RETRY_AFTER:30m}
+  # Every CBOM sync tunable is a platform setting (Settings UI, the utils section beside the repository URL), read at
+  # the start of each run; see CbomSyncPolicy. Nothing of the sync is configured here.
 
 signing-record:
   outbox:

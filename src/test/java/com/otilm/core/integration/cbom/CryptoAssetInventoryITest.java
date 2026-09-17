@@ -12,6 +12,7 @@ import com.otilm.core.cbom.asset.identity.IdentityRuleset;
 import com.otilm.core.cbom.ingest.CbomAssetDetachService;
 import com.otilm.core.cbom.ingest.CbomAssetIngestService;
 import com.otilm.core.cbom.ingest.CbomIngestTestFixtures;
+import com.otilm.core.cbom.sync.CbomSyncPolicy;
 import com.otilm.core.dao.CryptoAssetConstraintTranslator;
 import com.otilm.core.dao.entity.Cbom;
 import com.otilm.core.dao.entity.cbom.CbomIngestFinding;
@@ -62,6 +63,9 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
     private static final String SECRET_MARKER = "AKIA-SECRET-MARKER";
 
     private static final OffsetDateTime NOW = OffsetDateTime.parse("2026-09-14T10:00:00Z");
+
+    /** What a sync run hands the ingest and the withdrawal; these tests do not vary the tunables. */
+    private static final CbomSyncPolicy POLICY = CbomSyncPolicy.DEFAULTS;
 
     @Autowired
     private CryptoAssetRepository assetRepository;
@@ -940,7 +944,8 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
         UUID assetUuid = upsert(rsa2048(), null);
         sourceWriter.upsertSource(assetUuid, leanCbom.getUuid(), Map.of("assetType", "algorithm"), List.of(), NOW);
 
-        CbomAssetDetachService.Withdrawal withdrawal = detachService.withdraw(leanCbom.getUuid());
+        CbomAssetDetachService.Withdrawal withdrawal = detachService
+                .withdraw(leanCbom.getUuid(), POLICY.assetBatchSize());
 
         assertThat(withdrawal).isEqualTo(new CbomAssetDetachService.Withdrawal(1, 1, 0, true));
         assertThat(assetRepository.findById(assetUuid)).isEmpty();
@@ -967,7 +972,8 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
         sourceWriter.upsertSource(absorbedUuid, leanCbom.getUuid(), Map.of("assetType", "algorithm"), List.of(), NOW);
         sourceWriter.upsertSource(canonicalUuid, leanCbom.getUuid(), Map.of("assetType", "algorithm"), List.of(), NOW);
 
-        CbomAssetDetachService.Withdrawal withdrawal = detachService.withdraw(leanCbom.getUuid());
+        CbomAssetDetachService.Withdrawal withdrawal = detachService
+                .withdraw(leanCbom.getUuid(), POLICY.assetBatchSize());
 
         assertThat(withdrawal)
                 .describedAs("the canonical row is what the alias cascades from, so only it is kept")
@@ -995,7 +1001,8 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
         sourceWriter.upsertSource(canonicalUuid, leanCbom.getUuid(), Map.of("assetType", "algorithm"), List.of(), NOW);
         sourceWriter.upsertSource(unrelated, leanCbom.getUuid(), Map.of("assetType", "algorithm"), List.of(), NOW);
 
-        CbomAssetDetachService.Withdrawal withdrawal = detachService.withdraw(leanCbom.getUuid());
+        CbomAssetDetachService.Withdrawal withdrawal = detachService
+                .withdraw(leanCbom.getUuid(), POLICY.assetBatchSize());
 
         assertThat(withdrawal)
                 .describedAs("the alias names one of these two assets; the other is an ordinary orphan")
@@ -1010,7 +1017,8 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
         sourceWriter.upsertSource(assetUuid, leanCbom.getUuid(), Map.of("assetType", "algorithm"), List.of(), NOW);
         sourceWriter.upsertSource(assetUuid, richCbom.getUuid(), Map.of("assetType", "algorithm"), List.of(), NOW);
 
-        CbomAssetDetachService.Withdrawal withdrawal = detachService.withdraw(leanCbom.getUuid());
+        CbomAssetDetachService.Withdrawal withdrawal = detachService
+                .withdraw(leanCbom.getUuid(), POLICY.assetBatchSize());
 
         assertThat(withdrawal).isEqualTo(new CbomAssetDetachService.Withdrawal(1, 0, 0, true));
         assertThat(asset(assetUuid).getSourceCount()).isEqualTo(1);
@@ -1023,12 +1031,12 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
     @Test
     void theNewVersionOfAUrnTakesTheInventoryFromTheOldOne() {
         Cbom first = cbom("urn:uuid:app", 1);
-        assertThat(ingestService.ingest(first.getUuid(), twoAlgorithms(), NOW))
+        assertThat(ingestService.ingest(first.getUuid(), twoAlgorithms(), NOW, POLICY))
                 .isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
         assertThat(assetRepository.count()).isEqualTo(2);
 
         Cbom second = cbom("urn:uuid:app", 2);
-        assertThat(ingestService.ingest(second.getUuid(), oneAlgorithm(), NOW))
+        assertThat(ingestService.ingest(second.getUuid(), oneAlgorithm(), NOW, POLICY))
                 .isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
 
         assertThat(sourceRepository.findAssetUuidsByCbomUuid(first.getUuid()))
@@ -1056,9 +1064,9 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
     void aVersionALaterOneAlreadySupersededIsNotIngestedAtAll() {
         Cbom first = cbom("urn:uuid:app", 1);
         Cbom second = cbom("urn:uuid:app", 2);
-        ingestService.ingest(second.getUuid(), oneAlgorithm(), NOW);
+        ingestService.ingest(second.getUuid(), oneAlgorithm(), NOW, POLICY);
 
-        assertThat(ingestService.ingest(first.getUuid(), twoAlgorithms(), NOW))
+        assertThat(ingestService.ingest(first.getUuid(), twoAlgorithms(), NOW, POLICY))
                 .isEqualTo(CbomAssetIngestService.IngestOutcome.SUPERSEDED);
 
         assertThat(sourceRepository.findAssetUuidsByCbomUuid(first.getUuid())).isEmpty();
@@ -1078,7 +1086,7 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
         Cbom first = cbom("urn:uuid:app", 1);
         cbom("urn:uuid:app", 2);
 
-        assertThat(ingestService.ingest(first.getUuid(), twoAlgorithms(), NOW))
+        assertThat(ingestService.ingest(first.getUuid(), twoAlgorithms(), NOW, POLICY))
                 .describedAs("the newer row exists but has contributed nothing, so this document still speaks")
                 .isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
         assertThat(assetRepository.count()).isEqualTo(2);
@@ -1094,13 +1102,13 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
     void aSupersededVersionWithdrawsWhatItHadAlreadyContributed() {
         Cbom first = cbom("urn:uuid:app", 1);
         Cbom second = cbom("urn:uuid:app", 2);
-        assertThat(ingestService.ingest(second.getUuid(), oneAlgorithm(), NOW))
+        assertThat(ingestService.ingest(second.getUuid(), oneAlgorithm(), NOW, POLICY))
                 .isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
         // The partial contribution a failed attempt of the older revision would have left behind.
         UUID stranded = upsert(rsa2048(), null);
         sourceWriter.upsertSource(stranded, first.getUuid(), Map.of("assetType", "algorithm"), List.of(), NOW);
 
-        assertThat(ingestService.ingest(first.getUuid(), twoAlgorithms(), NOW))
+        assertThat(ingestService.ingest(first.getUuid(), twoAlgorithms(), NOW, POLICY))
                 .isEqualTo(CbomAssetIngestService.IngestOutcome.SUPERSEDED);
 
         assertThat(sourceRepository.findAssetUuidsByCbomUuid(first.getUuid()))
@@ -1119,9 +1127,9 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
     void aSupersededVersionIsNotGivenASyncTimeOfItsOwn() {
         Cbom first = cbom("urn:uuid:app", 1);
         Cbom second = cbom("urn:uuid:app", 2);
-        ingestService.ingest(second.getUuid(), oneAlgorithm(), NOW);
+        ingestService.ingest(second.getUuid(), oneAlgorithm(), NOW, POLICY);
 
-        assertThat(ingestService.ingest(first.getUuid(), twoAlgorithms(), NOW))
+        assertThat(ingestService.ingest(first.getUuid(), twoAlgorithms(), NOW, POLICY))
                 .isEqualTo(CbomAssetIngestService.IngestOutcome.SUPERSEDED);
 
         assertThat(cbom(first.getUuid()).getAssetsSyncedAt())
@@ -1140,7 +1148,7 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
      */
     @Test
     void aRepeatedBomRefRefusesTheDocumentAndTheRowSaysWhy() {
-        assertThat(ingestService.ingest(leanCbom.getUuid(), twoAlgorithmsSharingARef(), NOW))
+        assertThat(ingestService.ingest(leanCbom.getUuid(), twoAlgorithmsSharingARef(), NOW, POLICY))
                 .isEqualTo(CbomAssetIngestService.IngestOutcome.REFUSED);
 
         assertThat(assetRepository.count()).describedAs("nothing of a refused document reaches the inventory").isZero();
@@ -1160,7 +1168,7 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
      */
     @Test
     void anInlinedSecretIsReportedByMemberAndNeverByValue() {
-        assertThat(ingestService.ingest(leanCbom.getUuid(), inlinedPrivateKey(), NOW))
+        assertThat(ingestService.ingest(leanCbom.getUuid(), inlinedPrivateKey(), NOW, POLICY))
                 .isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
 
         assertThat(findings(leanCbom.getUuid()))
@@ -1177,10 +1185,10 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
      */
     @Test
     void theNextRunsReportReplacesTheLastOne() {
-        ingestService.ingest(leanCbom.getUuid(), twoAlgorithmsSharingARef(), NOW);
+        ingestService.ingest(leanCbom.getUuid(), twoAlgorithmsSharingARef(), NOW, POLICY);
         assertThat(findings(leanCbom.getUuid())).isNotEmpty();
 
-        assertThat(ingestService.ingest(leanCbom.getUuid(), twoAlgorithms(), NOW))
+        assertThat(ingestService.ingest(leanCbom.getUuid(), twoAlgorithms(), NOW, POLICY))
                 .isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
 
         assertThat(findings(leanCbom.getUuid()))
@@ -1194,7 +1202,7 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
      */
     @Test
     void deletingTheCbomTakesItsReportWithIt() throws Exception {
-        ingestService.ingest(leanCbom.getUuid(), twoAlgorithmsSharingARef(), NOW);
+        ingestService.ingest(leanCbom.getUuid(), twoAlgorithmsSharingARef(), NOW, POLICY);
         assertThat(findings(leanCbom.getUuid())).isNotEmpty();
 
         cbomService.deleteCbom(leanCbom.getUuid());
@@ -1209,7 +1217,7 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
      */
     @Test
     void aComponentWhoseNameHasNoEncodingIsStillReported() {
-        assertThat(ingestService.ingest(leanCbom.getUuid(), unpairedSurrogateName(), NOW))
+        assertThat(ingestService.ingest(leanCbom.getUuid(), unpairedSurrogateName(), NOW, POLICY))
                 .isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
 
         assertThat(findings(leanCbom.getUuid())).anySatisfy(finding -> {

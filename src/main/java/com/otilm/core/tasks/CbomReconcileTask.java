@@ -7,12 +7,13 @@ import org.springframework.stereotype.Component;
  * The weekly pass: the repository's whole listing, not the window since the last hourly run.
  *
  * <p>
- * <b>What the hourly pass cannot recover.</b> {@code cbom.sync.overlap} and the {@code cbom_sync_skip} retry budget
- * together cover an entry the feed <em>offered</em> and Core then failed on -- clock skew against the object store, an
- * in-flight upload, a document that could not be read for a moment. Neither covers an entry the feed never offered
- * inside any window Core asked for: a run that recorded SUCCESS after the listing had already moved past an entry, a
- * repository that back-dated one, an entry written off as permanently skipped while its listing window closed behind
- * it. Those are invisible to a pass that only ever looks forward from a watermark, and this is the pass that sees them.
+ * <b>What the hourly pass cannot recover.</b> {@code cbomSyncOverlapSeconds} and the {@code cbom_sync_skip} retry
+ * budget together cover an entry the feed <em>offered</em> and Core then failed on -- clock skew against the object
+ * store, an in-flight upload, a document that could not be read for a moment. Neither covers an entry the feed never
+ * offered inside any window Core asked for: a run that recorded SUCCESS after the listing had already moved past an
+ * entry, a repository that back-dated one, an entry written off as permanently skipped while its listing window closed
+ * behind it. Those are invisible to a pass that only ever looks forward from a watermark, and this is the pass that
+ * sees them.
  *
  * <p>
  * <b>It cannot resurrect what an operator deleted.</b> Deletion in Core is not deletion in the repository, so the whole

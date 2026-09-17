@@ -138,8 +138,8 @@ public interface CbomRepository extends SecurityFilterRepository<Cbom, UUID> {
      * The one failure the backlog gives up on. {@link #updateAssetSyncState} is what every other failure is written
      * through, and it is right that those keep being retried -- a lock, a read or a database error can go the other way
      * next time. A repeated {@code bom-ref} cannot: the extraction is a pure function of the document, so a retry
-     * spends an HTTP read, an extraction and one of {@code cbom.sync.max-ingest-documents} slots to reach the same
-     * verdict. The producer's fix is a new version, which arrives as its own row.
+     * spends an HTTP read, an extraction and one of {@code cbomSyncMaxIngestDocuments} slots to reach the same verdict.
+     * The producer's fix is a new version, which arrives as its own row.
      *
      * <p>
      * Guarded and stamped exactly as {@link #updateAssetSyncState} is, for the same reasons; the increment is the only
@@ -209,7 +209,7 @@ public interface CbomRepository extends SecurityFilterRepository<Cbom, UUID> {
      * <p>
      * A claim taken before the document read comes to nothing when the repository answers nothing at all, and a row
      * left {@code IN_PROGRESS} by an outage claims work no node is doing: it drops out of the pending list and into the
-     * retry list, where it waits for {@code cbom.sync.ingest-retry-after} rather than being offered again at once.
+     * retry list, where it waits for {@code cbomSyncIngestRetryAfterSeconds} rather than being offered again at once.
      *
      * <p>
      * The state goes back; {@code asset_sync_attempted_at} stays where the claim put it, because an attempt really was
@@ -311,7 +311,7 @@ public interface CbomRepository extends SecurityFilterRepository<Cbom, UUID> {
      * {@link #updateAssetSyncState} stamps {@code assetSyncAttemptedAt} on every write, because that column is what the
      * retry list reads to tell a live claim from an abandoned one. A deletion that withdrew the inventory and then
      * failed attempted no ingest, and stamping it would exclude the row from the retry list for a whole
-     * {@code cbom.sync.ingest-retry-after} window and then sort it behind every older candidate -- the row that most
+     * {@code cbomSyncIngestRetryAfterSeconds} window and then sort it behind every older candidate -- the row that most
      * urgently owes a rebuild made to wait the longest. So this write sets the state and the error and nothing else.
      *
      * @param expectedStates the states this failure may be written over; never null here, because a row that owes no

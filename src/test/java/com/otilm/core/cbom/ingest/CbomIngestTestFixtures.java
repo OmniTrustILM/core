@@ -3,8 +3,7 @@ package com.otilm.core.cbom.ingest;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.otilm.core.config.CbomSyncProperties;
-import java.time.Duration;
+import com.otilm.core.cbom.sync.CbomSyncPolicy;
 import java.util.Arrays;
 import java.util.stream.Collectors;
 
@@ -49,14 +48,19 @@ public final class CbomIngestTestFixtures {
                 + "{\"assetType\":\"algorithm\",\"algorithmProperties\":{}}}";
     }
 
-    /** The four-arg record, with ingest enabled and everything but the batch size at its production default. */
-    public static CbomSyncProperties properties(int assetBatchSize) {
-        return new CbomSyncProperties(1000, true, assetBatchSize, Duration.ofMinutes(30));
+    /** The production defaults with one batch size substituted; what a run hands the ingest and the withdrawal. */
+    public static CbomSyncPolicy policy(int assetBatchSize) {
+        return new CbomSyncPolicy(CbomSyncPolicy.DEFAULT_OVERLAP, CbomSyncPolicy.DEFAULT_SKIPPED_RETRY_RUNS,
+                CbomSyncPolicy.DEFAULT_MAX_INGEST_DOCUMENTS, CbomSyncPolicy.DEFAULT_SKIP_RETENTION_DAYS,
+                CbomSyncPolicy.DEFAULT_PAGE_SIZE, true, assetBatchSize, CbomSyncPolicy.DEFAULT_INGEST_RETRY_AFTER);
     }
 
-    /** As {@link #properties(int)}, with {@code cbom.sync.asset-ingest-enabled} off. */
-    public static CbomSyncProperties propertiesWithIngestDisabled() {
-        return new CbomSyncProperties(1000, false, 100, Duration.ofMinutes(30));
+    /** As {@link #policy(int)}, with the asset-ingest kill switch off. */
+    public static CbomSyncPolicy policyWithIngestDisabled() {
+        return new CbomSyncPolicy(CbomSyncPolicy.DEFAULT_OVERLAP, CbomSyncPolicy.DEFAULT_SKIPPED_RETRY_RUNS,
+                CbomSyncPolicy.DEFAULT_MAX_INGEST_DOCUMENTS, CbomSyncPolicy.DEFAULT_SKIP_RETENTION_DAYS,
+                CbomSyncPolicy.DEFAULT_PAGE_SIZE, false, CbomSyncPolicy.DEFAULT_ASSET_BATCH_SIZE,
+                CbomSyncPolicy.DEFAULT_INGEST_RETRY_AFTER);
     }
 
     public static JsonNode read(String json) {

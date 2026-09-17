@@ -37,6 +37,7 @@ import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDt
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsResponseDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsUpdateDto;
 import com.otilm.core.attribute.CsrAttributes;
+import com.otilm.core.cbom.sync.CbomSyncPolicy;
 import com.otilm.core.dao.entity.Setting;
 import com.otilm.core.dao.entity.workflows.Trigger;
 import com.otilm.core.dao.repository.SettingRepository;
@@ -116,19 +117,28 @@ class SettingServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void platformCbomSyncTunablesDefaultToSixtySecondsThreeRunsAndFiftyDocumentsAndAreEditable() {
-        // A fresh platform reports the sync policy defaults, so a form shows what the sync will use.
+    void everyPlatformCbomSyncTunableReportsItsDefaultAndIsEditable() {
+        // A fresh platform reports the sync defaults, so a form shows what the sync will use. All eight: nothing of
+        // the sync is bound from application.yml any more.
         PlatformSettingsDto seeded = settingService.getPlatformSettings();
         Assertions.assertEquals(60, seeded.getUtils().getCbomSyncOverlapSeconds());
         Assertions.assertEquals(3, seeded.getUtils().getCbomSyncSkippedRetryRuns());
         Assertions.assertEquals(50, seeded.getUtils().getCbomSyncMaxIngestDocuments());
         Assertions.assertEquals(90, seeded.getUtils().getCbomSyncSkipRetentionDays());
+        Assertions.assertEquals(1000, seeded.getUtils().getCbomSyncPageSize());
+        Assertions.assertEquals(Boolean.TRUE, seeded.getUtils().getCbomSyncAssetIngestEnabled());
+        Assertions.assertEquals(100, seeded.getUtils().getCbomSyncAssetBatchSize());
+        Assertions.assertEquals(1800, seeded.getUtils().getCbomSyncIngestRetryAfterSeconds());
 
         UtilsSettingsDto utils = new UtilsSettingsDto();
         utils.setCbomSyncOverlapSeconds(120);
         utils.setCbomSyncSkippedRetryRuns(0);
         utils.setCbomSyncMaxIngestDocuments(5);
         utils.setCbomSyncSkipRetentionDays(30);
+        utils.setCbomSyncPageSize(250);
+        utils.setCbomSyncAssetIngestEnabled(false);
+        utils.setCbomSyncAssetBatchSize(25);
+        utils.setCbomSyncIngestRetryAfterSeconds(60);
         PlatformSettingsUpdateDto update = new PlatformSettingsUpdateDto();
         update.setUtils(utils);
         settingService.updatePlatformSettings(update);
@@ -138,9 +148,15 @@ class SettingServiceITest extends BaseSpringBootTest {
         Assertions.assertEquals(0, edited.getUtils().getCbomSyncSkippedRetryRuns());
         Assertions.assertEquals(5, edited.getUtils().getCbomSyncMaxIngestDocuments());
         Assertions.assertEquals(30, edited.getUtils().getCbomSyncSkipRetentionDays());
-        // ...and the cache the sync reads its policy from holds the same.
+        Assertions.assertEquals(250, edited.getUtils().getCbomSyncPageSize());
+        Assertions.assertEquals(Boolean.FALSE, edited.getUtils().getCbomSyncAssetIngestEnabled());
+        Assertions.assertEquals(25, edited.getUtils().getCbomSyncAssetBatchSize());
+        Assertions.assertEquals(60, edited.getUtils().getCbomSyncIngestRetryAfterSeconds());
+        // ...and the cache the sync reads its policy from holds the same, which is what makes an edit reach a running
+        // node without a restart.
         PlatformSettingsDto cached = SettingsCache.getSettings(SettingsSection.PLATFORM);
         Assertions.assertEquals(0, cached.getUtils().getCbomSyncSkippedRetryRuns());
+        Assertions.assertEquals(Boolean.FALSE, cached.getUtils().getCbomSyncAssetIngestEnabled());
     }
 
     @Test
@@ -152,6 +168,11 @@ class SettingServiceITest extends BaseSpringBootTest {
         storeUtilsSetting(SettingServiceImpl.CBOM_SYNC_MAX_INGEST_DOCUMENTS_NAME, "fifty");
         // The retention has a floor of one day: a stored zero is below it and reads as the default too.
         storeUtilsSetting(SettingServiceImpl.CBOM_SYNC_SKIP_RETENTION_DAYS_NAME, "0");
+        // Zero is below the floor for these two, not merely at it: a page of none is not a page, and a batch of none
+        // never drains its work list.
+        storeUtilsSetting(SettingServiceImpl.CBOM_SYNC_PAGE_SIZE_NAME, "0");
+        storeUtilsSetting(SettingServiceImpl.CBOM_SYNC_ASSET_BATCH_SIZE_NAME, "0");
+        storeUtilsSetting(SettingServiceImpl.CBOM_SYNC_INGEST_RETRY_AFTER_SECONDS_NAME, "-1");
 
         PlatformSettingsDto read = settingService.getPlatformSettings();
 
@@ -159,6 +180,74 @@ class SettingServiceITest extends BaseSpringBootTest {
         Assertions.assertEquals(3, read.getUtils().getCbomSyncSkippedRetryRuns());
         Assertions.assertEquals(50, read.getUtils().getCbomSyncMaxIngestDocuments());
         Assertions.assertEquals(90, read.getUtils().getCbomSyncSkipRetentionDays());
+        Assertions.assertEquals(1000, read.getUtils().getCbomSyncPageSize());
+        Assertions.assertEquals(100, read.getUtils().getCbomSyncAssetBatchSize());
+        Assertions.assertEquals(1800, read.getUtils().getCbomSyncIngestRetryAfterSeconds());
+    }
+
+    /**
+     * The kill switch is the one tunable whose corrupt value could be read as a valid one: {@code Boolean.parseBoolean}
+     * answers false for every text that is not {@code true}, so a typo in this row would stop every ingest across the
+     * platform and look like a deliberate setting while doing it.
+     */
+    @Test
+    void aStoredKillSwitchThatIsNeitherTrueNorFalseReadsAsOnRatherThanOff() {
+        storeUtilsSetting(SettingServiceImpl.CBOM_SYNC_ASSET_INGEST_ENABLED_NAME, "off");
+
+        PlatformSettingsDto read = settingService.getPlatformSettings();
+
+        Assertions.assertEquals(Boolean.TRUE, read.getUtils().getCbomSyncAssetIngestEnabled());
+    }
+
+    /**
+     * The kill switch is the one field the stored-as-sent rule does not cover. An operator who has stopped ingest and
+     * then saves the page again -- a client that sends the section without the flag, which is what the administrator
+     * does -- must not have ingest restarted underneath them. Every other tunable in the same update still resets.
+     */
+    @Test
+    void anUpdateOmittingTheKillSwitchKeepsItOffWhileTheOtherTunablesReset() {
+        UtilsSettingsDto stop = new UtilsSettingsDto();
+        stop.setCbomSyncAssetIngestEnabled(false);
+        stop.setCbomSyncMaxIngestDocuments(5);
+        PlatformSettingsUpdateDto stopUpdate = new PlatformSettingsUpdateDto();
+        stopUpdate.setUtils(stop);
+        settingService.updatePlatformSettings(stopUpdate);
+        Assertions
+                .assertEquals(Boolean.FALSE,
+                        settingService.getPlatformSettings().getUtils().getCbomSyncAssetIngestEnabled());
+
+        PlatformSettingsUpdateDto withoutTheFlag = new PlatformSettingsUpdateDto();
+        withoutTheFlag.setUtils(new UtilsSettingsDto());
+        settingService.updatePlatformSettings(withoutTheFlag);
+
+        PlatformSettingsDto read = settingService.getPlatformSettings();
+        Assertions
+                .assertEquals(Boolean.FALSE, read.getUtils().getCbomSyncAssetIngestEnabled(),
+                        "an update leaving the kill switch out keeps it off");
+        Assertions
+                .assertEquals(CbomSyncPolicy.DEFAULT_MAX_INGEST_DOCUMENTS,
+                        read.getUtils().getCbomSyncMaxIngestDocuments(),
+                        "every other tunable left out still returns to its default");
+        PlatformSettingsDto cached = SettingsCache.getSettings(SettingsSection.PLATFORM);
+        Assertions
+                .assertEquals(Boolean.FALSE, cached.getUtils().getCbomSyncAssetIngestEnabled(),
+                        "and the cache the sync reads its policy from holds the kept value");
+    }
+
+    /** Both spellings are taken, in whatever case the row happens to carry. */
+    @Test
+    void aStoredKillSwitchIsReadCaseInsensitively() {
+        storeUtilsSetting(SettingServiceImpl.CBOM_SYNC_ASSET_INGEST_ENABLED_NAME, "FALSE");
+        Assertions
+                .assertEquals(Boolean.FALSE,
+                        settingService.getPlatformSettings().getUtils().getCbomSyncAssetIngestEnabled());
+
+        Setting stored = utilsRow(SettingServiceImpl.CBOM_SYNC_ASSET_INGEST_ENABLED_NAME);
+        stored.setValue("True");
+        settingRepository.save(stored);
+        Assertions
+                .assertEquals(Boolean.TRUE,
+                        settingService.getPlatformSettings().getUtils().getCbomSyncAssetIngestEnabled());
     }
 
     /**
@@ -246,6 +335,10 @@ class SettingServiceITest extends BaseSpringBootTest {
         Assertions.assertEquals(3, reverted.getUtils().getCbomSyncSkippedRetryRuns());
         Assertions.assertEquals(60, reverted.getUtils().getCbomSyncOverlapSeconds());
         Assertions.assertEquals(50, reverted.getUtils().getCbomSyncMaxIngestDocuments());
+        Assertions.assertEquals(1000, reverted.getUtils().getCbomSyncPageSize());
+        Assertions.assertEquals(Boolean.TRUE, reverted.getUtils().getCbomSyncAssetIngestEnabled());
+        Assertions.assertEquals(100, reverted.getUtils().getCbomSyncAssetBatchSize());
+        Assertions.assertEquals(1800, reverted.getUtils().getCbomSyncIngestRetryAfterSeconds());
         // ...and no row with a null value is left behind to be read on every cache refresh.
         Assertions
                 .assertTrue(
