@@ -24,8 +24,10 @@ class AuthorizationCacheKeysTest {
         String bob = PrincipalFixtures.operator("2222", "bob");
 
         String digest = AuthorizationCacheKeys.principalDigest(om, alice);
-        assertThat(digest).hasSize(64).matches("[0-9a-f]{64}");
-        assertThat(digest).isEqualTo(AuthorizationCacheKeys.principalDigest(om, bob));
+        assertThat(digest)
+                .hasSize(64)
+                .matches("[0-9a-f]{64}")
+                .isEqualTo(AuthorizationCacheKeys.principalDigest(om, bob));
     }
 
     @Test
@@ -145,16 +147,13 @@ class AuthorizationCacheKeysTest {
     void decisionKeyVariesWithEveryComponent() {
         String base = AuthorizationCacheKeys.decisionKey("method", "digest", "{\"name\":\"certificates\"}", "{}");
 
-        assertThat(base).hasSize(64);
         assertThat(base)
+                .hasSize(64)
                 .isNotEqualTo(
-                        AuthorizationCacheKeys.decisionKey("objects", "digest", "{\"name\":\"certificates\"}", "{}"));
-        assertThat(base)
+                        AuthorizationCacheKeys.decisionKey("objects", "digest", "{\"name\":\"certificates\"}", "{}"))
                 .isNotEqualTo(
-                        AuthorizationCacheKeys.decisionKey("method", "other", "{\"name\":\"certificates\"}", "{}"));
-        assertThat(base)
-                .isNotEqualTo(AuthorizationCacheKeys.decisionKey("method", "digest", "{\"name\":\"groups\"}", "{}"));
-        assertThat(base)
+                        AuthorizationCacheKeys.decisionKey("method", "other", "{\"name\":\"certificates\"}", "{}"))
+                .isNotEqualTo(AuthorizationCacheKeys.decisionKey("method", "digest", "{\"name\":\"groups\"}", "{}"))
                 .isNotEqualTo(AuthorizationCacheKeys
                         .decisionKey("method", "digest", "{\"name\":\"certificates\"}", "{\"a\":1}"));
     }

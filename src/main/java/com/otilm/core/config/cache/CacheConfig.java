@@ -178,9 +178,16 @@ public class CacheConfig {
 
     // For authenticated callers authorization staleness is bounded by authentication staleness, but for
     // anonymous callers the authorization TTL is the only bound, so it must not exceed the authentication TTL.
+    // A disabled cache serves nothing, so its TTL bounds nothing and there is nothing to warn about.
+    static boolean authorizationTtlExceedsAuthenticationTtl(AuthCacheProperties authCacheProperties,
+            AuthorizationCacheProperties authorizationCacheProperties) {
+        return authorizationCacheProperties.enabled()
+                && authorizationCacheProperties.ttlMinutes() > authCacheProperties.ttlMinutes();
+    }
+
     private static void warnIfAuthorizationTtlExceedsAuthenticationTtl(AuthCacheProperties authCacheProperties,
             AuthorizationCacheProperties authorizationCacheProperties) {
-        if (authorizationCacheProperties.ttlMinutes() > authCacheProperties.ttlMinutes()) {
+        if (authorizationTtlExceedsAuthenticationTtl(authCacheProperties, authorizationCacheProperties)) {
             logger
                     .warn("caching.authorization.ttl-minutes ({}) exceeds caching.authentication.ttl-minutes ({}); "
                             + "anonymous callers may be served a stale authorization decision for longer than "

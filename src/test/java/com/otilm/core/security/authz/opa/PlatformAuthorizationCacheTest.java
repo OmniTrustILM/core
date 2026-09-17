@@ -198,11 +198,13 @@ class PlatformAuthorizationCacheTest {
 
     @Test
     void aThrowingLoaderCachesNothing() {
-        assertThatThrownBy(() -> cache
-                .getOrCheckResourceAccess("method", certificateDetail(), PrincipalFixtures.operator("1111", "alice"),
-                        DETAILS, () -> {
-                            throw new IllegalStateException("OPA is down");
-                        }))
+        OpaRequestedResource resource = certificateDetail();
+        String principal = PrincipalFixtures.operator("1111", "alice");
+        Supplier<OpaResourceAccessResult> failingLoader = () -> {
+            throw new IllegalStateException("OPA is down");
+        };
+
+        assertThatThrownBy(() -> cache.getOrCheckResourceAccess("method", resource, principal, DETAILS, failingLoader))
                 .isInstanceOf(IllegalStateException.class);
 
         resourceAccess(PrincipalFixtures.operator("1111", "alice"), certificateDetail());
