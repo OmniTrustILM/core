@@ -28,14 +28,20 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.security.authz.opa.AuthorizationCache;
 import com.otilm.core.service.RoleManagementExternalService;
 import com.otilm.core.service.RoleManagementInternalService;
-import jakarta.transaction.Transactional;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Runs without an ambient transaction. Every mutation here is an HTTP call to the auth service, and the only local
+ * writes are the custom-attribute calls, which run in {@code AttributeEngine}'s own short transactions — so no database
+ * transaction or connection is held while the remote call is in flight.
+ */
 @Service(Resource.Codes.ROLE)
-@Transactional
+@Transactional(propagation = Propagation.NOT_SUPPORTED)
 public class RoleManagementServiceImpl implements RoleManagementExternalService, RoleManagementInternalService {
 
     private RoleManagementApiClient roleManagementApiClient;
