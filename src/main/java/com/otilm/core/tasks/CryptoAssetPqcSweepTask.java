@@ -55,11 +55,6 @@ public class CryptoAssetPqcSweepTask implements ScheduledJobTask {
     }
 
     @Override
-    public String getJobClassName() {
-        return this.getClass().getName();
-    }
-
-    @Override
     public boolean isSystemJob() {
         return true;
     }

@@ -41,6 +41,12 @@ class CryptoAssetInventoryMigrationITest extends BaseSpringBootTest {
      */
     private static final String ATTEMPT_MIGRATION_RESOURCE = "db/migration/V202609141200__cbom_asset_sync_attempted_at.sql";
 
+    /**
+     * And after that one, the counter that stops the backlog offering a document whose refusal it has already earned.
+     * It adds a column and a check to the same table, so it belongs to the same chain rather than to a file of its own.
+     */
+    private static final String CONTENT_REFUSALS_MIGRATION_RESOURCE = "db/migration/V202609161200__cbom_asset_sync_content_refusals.sql";
+
     private static final String SCRATCH_SCHEMA = "crypto_asset_migration_check";
 
     /** Only the columns the migration's ALTER touches: it adds columns and reads nothing else about the table. */
@@ -70,7 +76,8 @@ class CryptoAssetInventoryMigrationITest extends BaseSpringBootTest {
                     "ck_crypto_asset_properties_leaf_count", "ck_crypto_asset_source_occurrence_count",
                     "ck_crypto_asset_source_properties_leaf_count", "ck_crypto_asset_alias_not_self",
                     "ck_crypto_asset_asset_type", "ck_crypto_asset_identity_guard", "ck_crypto_asset_pqc_verdict",
-                    "ck_crypto_asset_oid_length", "ck_crypto_asset_name_length", "ck_cbom_asset_sync_state");
+                    "ck_crypto_asset_oid_length", "ck_crypto_asset_name_length", "ck_cbom_asset_sync_state",
+                    "ck_cbom_asset_sync_content_refusals");
 
     private static final String CBOM_UUID = "11111111-0000-4000-8000-000000000001";
     private static final String ASSET_UUID = "22222222-0000-4000-8000-000000000001";
@@ -127,6 +134,9 @@ class CryptoAssetInventoryMigrationITest extends BaseSpringBootTest {
             statement.execute(migration);
             statement
                     .execute(new ClassPathResource(ATTEMPT_MIGRATION_RESOURCE)
+                            .getContentAsString(StandardCharsets.UTF_8));
+            statement
+                    .execute(new ClassPathResource(CONTENT_REFUSALS_MIGRATION_RESOURCE)
                             .getContentAsString(StandardCharsets.UTF_8));
         }
     }
@@ -212,7 +222,8 @@ class CryptoAssetInventoryMigrationITest extends BaseSpringBootTest {
                 SELECT column_name, is_nullable || '|' || data_type || '|' || COALESCE(column_default, '')
                 FROM information_schema.columns
                 WHERE table_schema = ? AND table_name = 'cbom'
-                  AND column_name IN ('asset_sync_state', 'asset_sync_error', 'assets_synced_at')
+                  AND column_name IN ('asset_sync_state', 'asset_sync_error', 'assets_synced_at',
+                                      'asset_sync_content_refusals')
                 """)) {
             statement.setString(1, SCRATCH_SCHEMA);
             try (ResultSet rows = statement.executeQuery()) {
@@ -222,12 +233,17 @@ class CryptoAssetInventoryMigrationITest extends BaseSpringBootTest {
             }
         }
 
-        assertThat(columns).containsOnlyKeys("asset_sync_state", "asset_sync_error", "assets_synced_at");
+        assertThat(columns)
+                .containsOnlyKeys("asset_sync_state", "asset_sync_error", "assets_synced_at",
+                        "asset_sync_content_refusals");
         assertThat(columns.get("asset_sync_state"))
                 .describedAs("existing header-only rows must read as PENDING: their assets were never ingested")
                 .isEqualTo("NO|text|'PENDING'::text");
         assertThat(columns.get("asset_sync_error")).startsWith("YES|text|");
         assertThat(columns.get("assets_synced_at")).startsWith("YES|timestamp with time zone|");
+        assertThat(columns.get("asset_sync_content_refusals"))
+                .describedAs("every existing row has earned no refusal, and the column is never null")
+                .isEqualTo("NO|integer|0");
     }
 
     private void assertNoGinIndexes(Connection connection) throws SQLException {

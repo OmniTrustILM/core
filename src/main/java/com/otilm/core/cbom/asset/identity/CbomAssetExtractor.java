@@ -83,9 +83,8 @@ public final class CbomAssetExtractor {
      * inlined secret, a dropped extension, an occurrence whose stated location rendered as no location. It is published
      * because {@code MaterialRedaction.findings()} had no reader anywhere: the values were computed, and then died at
      * this boundary, so a promise the redaction class makes in its own Javadoc was unreachable the moment extraction
-     * returned. Carrying them here does not report them -- core#2073 owns the per-CBOM reporting path -- but it turns
-     * that work into wiring an existing value rather than re-deriving it, and it makes the gap visible to anyone
-     * reading this record.
+     * returned. {@code IngestFindingRollup} is that reader -- it rolls these up, per distinct message, into the
+     * {@code cbom_ingest_finding} report the ingest writes for the document.
      *
      * <p>
      * <b>{@code identityKey}, and this file is allowlisted for that vocabulary.</b> The component was called
@@ -172,9 +171,16 @@ public final class CbomAssetExtractor {
      * without it. That is not the recoverable direction: with nothing refuted a fabricated placeholder digest is
      * trusted, and with no reference resolving every certificate's public-key slot empties -- both over-merges. It is
      * recorded here because a caller reading only the assets would see rows and no sign of what they lack.
+     *
+     * <p>
+     * {@code ambiguousRefs} carries the {@code bom-ref} values the document defines more than once. CycloneDX requires
+     * the value to be unique, so a repeat is invalid input rather than a shape to resolve: the ingest refuses such a
+     * document, and {@link DocumentScope#of} explains why neither reading of a duplicate can be trusted. A ref with no
+     * UTF-8 encoding is replaced by {@link #UNENCODABLE_REF} -- it cannot be stored or shown, and dropping it silently
+     * would understate how many the document carries.
      */
     public record Extraction(List<ExtractedAsset> assets, List<Skip> skips, boolean depthLimitReached,
-            boolean documentScopeUnavailable) {
+            boolean documentScopeUnavailable, List<String> ambiguousRefs) {
 
         public int assetCount() {
             return assets.size();
@@ -199,7 +205,7 @@ public final class CbomAssetExtractor {
      */
     public Extraction extract(JsonNode document, Set<String> batchRefutedDigests) {
         if (document == null || !document.isObject()) {
-            return new Extraction(List.of(), List.of(), false, false);
+            return new Extraction(List.of(), List.of(), false, false, List.of());
         }
         Set<String> refuted = batchRefutedDigests == null ? Set.of() : batchRefutedDigests;
 
@@ -237,10 +243,55 @@ public final class CbomAssetExtractor {
             } catch (RuntimeException e) {
                 // Deliberately broad, and deliberately not logged with the throwable. Producer input reaches every
                 // derivation below this line; the failure classes are open-ended, and one of them must not be fatal.
-                skips.add(new Skip(nameOf(component), e.getClass().getSimpleName()));
+                // The name goes through the same encodability rule as everything else headed for storage. It
+                // cannot be refused the way an asset's is: this is the refusal path, and a component whose name has
+                // no UTF-8 encoding is exactly the one whose skip has to be reportable.
+                skips.add(new Skip(encodable(nameOf(component)), e.getClass().getSimpleName()));
             }
         }
-        return new Extraction(List.copyOf(assets), List.copyOf(skips), walk.depthLimitReached(), scopeUnavailable);
+        return new Extraction(List.copyOf(assets), List.copyOf(skips), walk.depthLimitReached(), scopeUnavailable,
+                encodable(scope.ambiguousRefs()));
+    }
+
+    /** Stands in for a duplicated {@code bom-ref} that has no UTF-8 encoding, so no column can hold its spelling. */
+    static final String UNENCODABLE_REF = "(a bom-ref with no valid encoding)";
+
+    /** Stands in for a component name with no UTF-8 encoding, on the one path that reports rather than refuses. */
+    static final String UNENCODABLE_NAME = "(a component name with no valid encoding)";
+
+    /**
+     * The duplicated refs a report can carry, with the ones that have no encoding replaced.
+     *
+     * <p>
+     * Every string this class hands toward an <em>asset</em> is refused for an unpaired surrogate rather than replaced
+     * -- see {@link #requireEncodable}. The two reporting surfaces cannot be: there is no row to refuse, and a document
+     * whose refs or unreadable components are spelled that way is exactly the one whose producer needs to hear about
+     * them. A skip carrying such a name reached the report's own text column and was refused there by the database, on
+     * the path whose whole purpose is to survive a component this class cannot read.
+     */
+    private static List<String> encodable(Set<String> refs) {
+        List<String> readable = new ArrayList<>(refs.size());
+        for (String ref : refs) {
+            readable.add(encodable(ref, UNENCODABLE_REF));
+        }
+        return List.copyOf(readable);
+    }
+
+    /** The skipped component's name, or a stand-in when it has none that can be stored. */
+    private static String encodable(String name) {
+        return encodable(name, UNENCODABLE_NAME);
+    }
+
+    private static String encodable(String text, String standIn) {
+        if (text == null) {
+            return null;
+        }
+        try {
+            IdentityDigests.requireWellFormedUnicode(text);
+            return text;
+        } catch (IllegalArgumentException e) {
+            return standIn;
+        }
     }
 
     /** The component's occurrence objects in producer order, or {@code null} when it reported none. */
