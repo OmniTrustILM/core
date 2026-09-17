@@ -241,6 +241,32 @@ class PlatformAuthorizationCacheTest {
         assertThat(second.getAllow()).containsExactly("ActionAllowedOnResource");
     }
 
+    private OpaObjectAccessResult objectAccess(String principal, OpaRequestedResource resource) {
+        return cache.getOrCheckObjectAccess("objects", resource, principal, DETAILS, () -> {
+            loads.incrementAndGet();
+            OpaObjectAccessResult filter = new OpaObjectAccessResult();
+            filter.setAllowedObjects(List.of("allowed-1"));
+            filter.setForbiddenObjects(List.of("forbidden-1"));
+            filter.setActionAllowedForGroupOfObjects(true);
+            return filter;
+        });
+    }
+
+    @Test
+    void theCallerCannotMutateTheCachedObjectFilter() {
+        OpaObjectAccessResult first = objectAccess(PrincipalFixtures.operator("1111", "alice"), certificateDetail());
+        first.setAllowedObjects(List.of());
+        first.setForbiddenObjects(List.of("allowed-1"));
+        first.setActionAllowedForGroupOfObjects(false);
+
+        OpaObjectAccessResult second = objectAccess(PrincipalFixtures.operator("1111", "alice"), certificateDetail());
+
+        assertThat(loads).hasValue(1);
+        assertThat(second.getAllowedObjects()).containsExactly("allowed-1");
+        assertThat(second.getForbiddenObjects()).containsExactly("forbidden-1");
+        assertThat(second.isActionAllowedForGroupOfObjects()).isTrue();
+    }
+
     @Test
     void concurrentMissesOnOneKeyRunTheLoaderOnce() throws Exception {
         CountDownLatch loaderEntered = new CountDownLatch(1);

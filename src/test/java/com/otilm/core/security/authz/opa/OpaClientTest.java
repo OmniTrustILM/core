@@ -28,6 +28,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -153,7 +154,7 @@ class OpaClientTest {
         opaClient.checkResourceAccess(OpaPolicy.METHOD.policyName, getResource(), getPrincipal(), null);
         opaClient.checkResourceAccess(OpaPolicy.METHOD.policyName, getResource(), getPrincipal(), null);
 
-        assertEquals(1, opaMock.getRequestCount());
+        assertThat(opaMock.getRequestCount()).isEqualTo(1);
     }
 
     @Test
@@ -167,7 +168,7 @@ class OpaClientTest {
                 .checkResourceAccess(OpaPolicy.METHOD.policyName, getResource(),
                         PrincipalFixtures.operator("bob-uuid", "bob"), null);
 
-        assertEquals(1, opaMock.getRequestCount());
+        assertThat(opaMock.getRequestCount()).isEqualTo(1);
     }
 
     @Test
@@ -182,7 +183,7 @@ class OpaClientTest {
                 .checkResourceAccess(OpaPolicy.METHOD.policyName, getResource(),
                         PrincipalFixtures.admin("9999-uuid", "carol"), null);
 
-        assertEquals(2, opaMock.getRequestCount());
+        assertThat(opaMock.getRequestCount()).isEqualTo(2);
     }
 
     @Test
@@ -193,7 +194,7 @@ class OpaClientTest {
         opaClient.checkResourceAccess(OpaPolicy.METHOD.policyName, getResource(), getPrincipal(), null);
         opaClient.checkObjectAccess(OpaPolicy.OBJECTS.policyName, getResource(), getPrincipal(), null);
 
-        assertEquals(2, opaMock.getRequestCount());
+        assertThat(opaMock.getRequestCount()).isEqualTo(2);
     }
 
     OpaRequestedResource getResource() {
