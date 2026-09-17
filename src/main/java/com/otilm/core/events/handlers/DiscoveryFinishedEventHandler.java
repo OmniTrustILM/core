@@ -17,6 +17,7 @@ import com.otilm.core.messaging.model.EventMessage;
 import com.otilm.core.messaging.model.NotificationMessage;
 import com.otilm.core.messaging.model.NotificationRecipient;
 import com.otilm.core.model.ScheduledTaskResult;
+import com.otilm.core.model.discovery.DiscoveryRunLifecycle;
 import com.otilm.core.tasks.ScheduledJobInfo;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -51,7 +52,7 @@ public class DiscoveryFinishedEventHandler extends EventHandler<Discovery> {
         // that terminal state, so they are ignored here. The not-yet-terminal guard makes only this persisted
         // write idempotent on redelivery; the base handler still dispatches follow-up notifications either way.
         DiscoveryStatus reportedStatus = discoveryResult.getDiscoveryStatus();
-        if (!isTerminal(discovery.getStatus()) && isPostProcessingFinishSignal(reportedStatus)) {
+        if (!DiscoveryRunLifecycle.isTerminal(discovery.getStatus()) && isPostProcessingFinishSignal(reportedStatus)) {
             DiscoveryStatus finalStatus = reportedStatus == DiscoveryStatus.PROCESSING
                     ? DiscoveryStatus.COMPLETED
                     : reportedStatus;
@@ -84,7 +85,9 @@ public class DiscoveryFinishedEventHandler extends EventHandler<Discovery> {
 
         // if discovery was scheduled, raise application event to notify that scheduled discovery has finished
         if (eventContext.getScheduledJobInfo() != null) {
-            ScheduledTaskResult scheduledTaskResult = new ScheduledTaskResult(SchedulerJobExecutionStatus.SUCCESS,
+            // The run's own outcome, not a constant: a scheduled discovery that failed, was cancelled, or ended
+            // with warnings was indistinguishable from a clean one in the scheduler's execution history.
+            ScheduledTaskResult scheduledTaskResult = new ScheduledTaskResult(executionStatusOf(discovery.getStatus()),
                     discovery.getMessage(), Resource.DISCOVERY, discovery.getUuid().toString());
             applicationEventPublisher
                     .publishEvent(
@@ -98,13 +101,18 @@ public class DiscoveryFinishedEventHandler extends EventHandler<Discovery> {
                 discoveryResult, userUuid, scheduledJobInfo);
     }
 
-    private static boolean isPostProcessingFinishSignal(DiscoveryStatus reportedStatus) {
-        return reportedStatus == DiscoveryStatus.PROCESSING || reportedStatus == DiscoveryStatus.WARNING;
+    /**
+     * WARNING counts as success: the run finished and imported what it could, and the warning is about individual items
+     * rather than the job. FAILED and CANCELLED did not deliver what the schedule asked for.
+     */
+    private static SchedulerJobExecutionStatus executionStatusOf(DiscoveryStatus status) {
+        return status == DiscoveryStatus.FAILED || status == DiscoveryStatus.CANCELLED
+                ? SchedulerJobExecutionStatus.FAILED
+                : SchedulerJobExecutionStatus.SUCCESS;
     }
 
-    private static boolean isTerminal(DiscoveryStatus status) {
-        return status == DiscoveryStatus.COMPLETED || status == DiscoveryStatus.WARNING
-                || status == DiscoveryStatus.FAILED;
+    private static boolean isPostProcessingFinishSignal(DiscoveryStatus reportedStatus) {
+        return reportedStatus == DiscoveryStatus.PROCESSING || reportedStatus == DiscoveryStatus.WARNING;
     }
 
     private static String buildFinishedMessage(DiscoveryStatus finalStatus, String detail) {

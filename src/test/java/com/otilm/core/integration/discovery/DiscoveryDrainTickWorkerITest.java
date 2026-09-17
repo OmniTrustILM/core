@@ -23,7 +23,7 @@ import com.otilm.core.service.handler.discovery.DiscoveryDrainTickWorker;
 import com.otilm.core.service.handler.discovery.DiscoveryV2Client;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.util.BaseSpringBootTest;
-import com.otilm.core.util.DiscoveryRunMetaFixture;
+import com.otilm.core.util.DiscoveryCheckpointFixture;
 import java.net.URI;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -137,7 +137,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
 
         Discovery reloaded = reload(run);
         assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.PROCESSING);
-        assertThat(reloaded.getRunMeta())
+        assertThat(reloaded.getCheckpoint())
                 .as("the connector owns nothing from here on, so its handle is released")
                 .isNull();
         assertThat(agenda(run)).extracting(DiscoveryWork::getWorkType).containsExactly(DiscoveryWorkType.PROCESS);
@@ -175,7 +175,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         // costs retention, not data. Rolling the handover back would cost the import instead.
         Discovery reloaded = reload(run);
         assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.PROCESSING);
-        assertThat(reloaded.getRunMeta()).isNull();
+        assertThat(reloaded.getCheckpoint()).isNull();
         assertThat(agenda(run)).extracting(DiscoveryWork::getWorkType).containsExactly(DiscoveryWorkType.PROCESS);
         assertThat(publishedTicks())
                 .containsExactly(new DiscoveryWorkMessage(run.getUuid(), DiscoveryWorkType.PROCESS, 0));
@@ -213,7 +213,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
 
         Discovery reloaded = reload(run);
         assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
-        assertThat(reloaded.getRunMeta()).isNull();
+        assertThat(reloaded.getCheckpoint()).isNull();
         assertThat(agenda(run)).isEmpty();
     }
 
@@ -443,7 +443,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         run.setConnectorName("network-discovery");
         run.setConnectorInterfaceUuid(UUID.randomUUID());
         run.setConnectorState(connectorState);
-        run.setRunMeta(DiscoveryRunMetaFixture.runMeta("connectorRunId", "run-42"));
+        run.setCheckpoint(DiscoveryCheckpointFixture.checkpoint("connectorRunId", "run-42"));
         return discoveryRepository.saveAndFlush(run);
     }
 }

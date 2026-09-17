@@ -131,6 +131,37 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
         assertThat(reload(run).getLastAppliedSequence()).isEqualTo(2);
     }
 
+    /**
+     * The certificate total is the only yield figure the discovery listing carries, so a live run must report it as
+     * pages land rather than when it ends.
+     */
+    @Test
+    void certificateTotal_movesAsPagesLandRatherThanOnlyAtTheEnd() {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+
+        ingestor.applyDrainPage(run.getUuid(), page(1L, true, certificateItem(1, "cert-a")));
+        entityManager.flush();
+        assertThat(reload(run).getTotalCertificatesDiscovered()).isEqualTo(1);
+
+        ingestor.applyDrainPage(run.getUuid(), page(3L, false, certificateItem(2, "cert-b"), keyItem(3, "key-a")));
+        entityManager.flush();
+        assertThat(reload(run).getTotalCertificatesDiscovered())
+                .as("keys are staged too, but this figure counts certificates")
+                .isEqualTo(2);
+    }
+
+    /** Counted, not accumulated: a re-sent certificate stages nothing, so the total must not creep upward. */
+    @Test
+    void certificateTotal_doesNotCountARepeatTwice() {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        ingestor.applyDrainPage(run.getUuid(), page(1L, true, certificateItem(1, "cert-a")));
+
+        ingestor.applyDrainPage(run.getUuid(), page(2L, false, certificateItem(2, "cert-a")));
+
+        entityManager.flush();
+        assertThat(reload(run).getTotalCertificatesDiscovered()).isEqualTo(1);
+    }
+
     @Test
     void certificateRefReSentUnderANewerSequence_isStagedOnce() {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
@@ -211,17 +242,21 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
     void progressEvent_storesTheSnapshotAndNothingElse() {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
         DiscoveryProgressEvent event = new DiscoveryProgressEvent();
-        event.setProcessed(12L);
-        event.setTotalEstimate(40L);
+        event.setTargetsProcessed(12L);
+        event.setTargetsTotal(40L);
         event.setPhase("scanning");
+        event.setTargetsFailed(28L);
 
         ingestor.applyAdvisoryEvent(run.getUuid(), event);
 
         Discovery reloaded = reload(run);
         assertThat(reloaded.getProgress()).isNotNull();
-        assertThat(reloaded.getProgress().getProcessed()).isEqualTo(12L);
-        assertThat(reloaded.getProgress().getTotalEstimate()).isEqualTo(40L);
+        assertThat(reloaded.getProgress().getTargetsProcessed()).isEqualTo(12L);
+        assertThat(reloaded.getProgress().getTargetsTotal()).isEqualTo(40L);
         assertThat(reloaded.getProgress().getPhase()).isEqualTo("scanning");
+        // The snapshot is copied field by field rather than mapped, so a counter added to the contract is
+        // dropped here silently until someone remembers to copy it too.
+        assertThat(reloaded.getProgress().getTargetsFailed()).isEqualTo(28L);
         assertThat(agenda(run)).isEmpty();
     }
 

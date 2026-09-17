@@ -613,6 +613,25 @@ class EventHandlersITest extends BaseSpringBootTest {
     }
 
     @Test
+    void testDiscoveryFinishedEventLeavesACancelledDiscoveryAlone() throws EventException {
+        Discovery discovery = persistProcessingDiscovery();
+        discovery.setStatus(DiscoveryStatus.CANCELLED);
+        discovery.setMessage("Discovery cancelled");
+        discoveryRepository.save(discovery);
+
+        discoveryFinishedEventHandler
+                .handleEvent(DiscoveryFinishedEventHandler
+                        .constructEventMessage(discovery.getUuid(), null, null,
+                                new DiscoveryResult(DiscoveryStatus.PROCESSING, "Provider completed.")));
+
+        // A cancel is final. Post-processing that was already in flight when the run was cancelled must not
+        // resurrect it as COMPLETED.
+        Discovery persisted = discoveryRepository.findByUuid(discovery.getUuid()).orElseThrow();
+        Assertions.assertEquals(DiscoveryStatus.CANCELLED, persisted.getStatus());
+        Assertions.assertEquals("Discovery cancelled", persisted.getMessage());
+    }
+
+    @Test
     void testDiscoveryFinishedEventMarksWarningWhenCertificatesFailed() throws EventException {
         Discovery discovery = persistProcessingDiscovery();
 

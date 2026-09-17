@@ -38,9 +38,28 @@ public interface DiscoveryRepository extends SecurityFilterRepository<Discovery,
     @Query("SELECT DISTINCT connectorName FROM Discovery ")
     List<String> findDistinctConnectorName();
 
+    /**
+     * The run's connector interface, read as a scalar so dispatch can pick an adapter without pulling the run into the
+     * persistence context. Empty both for a run that does not exist and for one with no association — the two route the
+     * same way, to v1.
+     */
+    @Query("SELECT d.connectorInterfaceUuid FROM Discovery d WHERE d.uuid = :uuid")
+    Optional<UUID> findConnectorInterfaceUuid(@Param("uuid") UUID uuid);
+
     @Modifying
     @Query("UPDATE Discovery d SET d.message = :message, d.updated = CURRENT_TIMESTAMP WHERE d.uuid = :uuid")
     void updateMessage(@Param("uuid") UUID uuid, @Param("message") String message);
+
+    /**
+     * Clears the interface reference from every run holding one of these interfaces. See
+     * {@code DiscoveryWriter#releaseConnectorInterfaces}, its only caller, for why.
+     *
+     * @return how many runs were released
+     */
+    @Modifying
+    @Query("UPDATE Discovery d SET d.connectorInterfaceUuid = NULL, d.updated = CURRENT_TIMESTAMP "
+            + "WHERE d.connectorInterfaceUuid IN :interfaceUuids")
+    int releaseConnectorInterfaces(@Param("interfaceUuids") Collection<UUID> interfaceUuids);
 
     /**
      * Uuids of v2 runs (interface association present) still in one of {@code statuses} whose agenda is empty and that

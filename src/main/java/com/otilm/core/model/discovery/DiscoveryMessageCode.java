@@ -50,6 +50,8 @@ public enum DiscoveryMessageCode {
     /** How the run ended; the message is the terminal reason and the severity follows the terminal status. */
     RUN_ENDED("runEnded"),
 
+    /** A run metadata statement Core did not record: over the size cap, or malformed. */
+    RUN_METADATA_NOT_RECORDED("runMetadataNotRecorded"),
     /** Stands in for everything a run had no room left to keep, whatever kind it was. */
     MESSAGES_SUPPRESSED("messagesSuppressed");
 

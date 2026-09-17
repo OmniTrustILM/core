@@ -5,6 +5,8 @@ import com.otilm.core.dao.entity.DiscoveryMessage;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -99,6 +101,9 @@ public interface DiscoveryMessageRepository extends JpaRepository<DiscoveryMessa
 
     /** The run's log, oldest first. Ordered by the identity column; see {@code DiscoveryMessage.id}. */
     List<DiscoveryMessage> findByDiscoveryUuidOrderByIdAsc(UUID discoveryUuid);
+
+    /** One page of the same, so paging is stable while a live run keeps appending. */
+    Page<DiscoveryMessage> findByDiscoveryUuidOrderByIdAsc(UUID discoveryUuid, Pageable pageable);
 
     long countByDiscoveryUuid(UUID discoveryUuid);
 }

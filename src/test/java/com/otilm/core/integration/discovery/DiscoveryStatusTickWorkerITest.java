@@ -2,15 +2,29 @@ package com.otilm.core.integration.discovery;
 
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ConnectorProblemException;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeProperties;
+import com.otilm.api.model.common.attribute.v3.MetadataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryProgressDto;
+import com.otilm.api.model.connector.discovery.v2.DiscoveryResourceProgressDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryRunState;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryStatusResponseDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.discovery.DiscoveryMessageSeverity;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
+import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
+import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryWork;
+import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryMessageRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.DiscoveryWorkRepository;
@@ -21,12 +35,13 @@ import com.otilm.core.service.handler.discovery.DiscoveryStatusTickWorker;
 import com.otilm.core.service.handler.discovery.DiscoveryV2Client;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.util.BaseSpringBootTest;
-import com.otilm.core.util.DiscoveryRunMetaFixture;
+import com.otilm.core.util.DiscoveryCheckpointFixture;
 import java.net.URI;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -66,6 +81,12 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
     @Autowired
     private DiscoveryWorkProperties workProperties;
 
+    @Autowired
+    private AttributeEngine attributeEngine;
+
+    @Autowired
+    private ConnectorRepository connectorRepository;
+
     @Test
     void runningAnswer_keepsTheRunInProgressAndRefreshesTheBudget() throws Exception {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
@@ -87,16 +108,215 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         armStatusRow(run, 0);
         DiscoveryStatusResponseDto response = statusResponse(DiscoveryRunState.RUNNING);
         DiscoveryProgressDto progress = new DiscoveryProgressDto();
-        progress.setProcessed(31L);
+        progress.setTargetsProcessed(31L);
         progress.setPhase("scanning");
+        response.setProgress(progress);
+        answers(response);
+        OffsetDateTime polledAt = OffsetDateTime.now(ZoneOffset.UTC);
+
+        worker.tick(run.getUuid(), 0);
+
+        Discovery reloaded = reload(run);
+        assertThat(reloaded.getProgress().getTargetsProcessed()).isEqualTo(31L);
+        assertThat(reloaded.getProgress().getPhase()).isEqualTo("scanning");
+        // Counters can be minutes older than the response carrying them, so the snapshot is dated on the way in.
+        assertThat(reloaded.getProgress().getUpdatedAt())
+                .as("a stored snapshot must say when it was recorded")
+                .isNotNull()
+                .isAfterOrEqualTo(polledAt.minusSeconds(1));
+    }
+
+    /**
+     * Two status calls for one run can be in flight at once — a call slower than the claim floor is published again —
+     * and nothing else orders their answers once the run's own status has not moved between them. An answer taken
+     * earlier must not put older counters back, least of all stamped as freshly recorded.
+     */
+    @Test
+    void anAnswerTakenBeforeOneAlreadyAppliedIsDropped() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        answers(runningAt(90L, 4_000L));
+        worker.tick(run.getUuid(), 0);
+        OffsetDateTime recordedAt = reload(run).getProgress().getUpdatedAt();
+
+        // The straggler: taken earlier, so it carries a lower sequence and lower counters.
+        answers(runningAt(40L, 1_000L));
+        worker.tick(run.getUuid(), 0);
+
+        Discovery reloaded = reload(run);
+        assertThat(reloaded.getProgress().getTargetsProcessed())
+                .as("older counters must not replace newer ones")
+                .isEqualTo(4_000L);
+        assertThat(reloaded.getProgress().getUpdatedAt())
+                .as("and must not be re-dated, which is what a client reads to judge freshness")
+                .isEqualTo(recordedAt);
+        assertThat(reloaded.getConnectorHighestSequence()).isEqualTo(90L);
+    }
+
+    @Test
+    void anAnswerTakenAfterTheLastOneIsApplied() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        answers(runningAt(40L, 1_000L));
+        worker.tick(run.getUuid(), 0);
+
+        answers(runningAt(90L, 4_000L));
+        worker.tick(run.getUuid(), 0);
+
+        Discovery reloaded = reload(run);
+        assertThat(reloaded.getProgress().getTargetsProcessed()).isEqualTo(4_000L);
+        assertThat(reloaded.getConnectorHighestSequence()).isEqualTo(90L);
+    }
+
+    /**
+     * The sequence is required on the wire, so its absence means a non-conformant connector. Dropping every answer from
+     * one would leave its runs with no status at all, which is worse than an unordered write.
+     */
+    @Test
+    void anAnswerWithoutASequenceIsStillApplied() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        answers(runningAt(90L, 4_000L));
+        worker.tick(run.getUuid(), 0);
+
+        DiscoveryStatusResponseDto unnumbered = runningAt(90L, 9_000L);
+        unnumbered.setHighestSequence(null);
+        answers(unnumbered);
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(reload(run).getProgress().getTargetsProcessed()).isEqualTo(9_000L);
+    }
+
+    /**
+     * A paused run reports nothing new, and the reaper lets one stay stopped for days. Left on the live cadence it
+     * would ask a paused connector the same question every claim floor for that whole window.
+     */
+    @Test
+    void stoppedAnswer_backsTheStatusPollOff() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        // Armed due now rather than parked: a row already parked hours out would satisfy any "later than" assertion
+        // whether or not the stopped branch moved it.
+        workWriter.schedule(run.getUuid(), DiscoveryWorkType.STATUS, OffsetDateTime.now(ZoneOffset.UTC));
+        answers(statusResponse(DiscoveryRunState.STOPPED));
+        OffsetDateTime polledAt = OffsetDateTime.now(ZoneOffset.UTC);
+
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.STOPPED);
+        assertThat(statusRow(run).getNextDueAt())
+                .as("a stopped run must not keep the live polling cadence")
+                .isAfter(polledAt.plusMinutes(1));
+    }
+
+    /**
+     * The connector's certificate figure is mirrored on every answer, not only at the terminal transition: it is the
+     * only yield the discovery listing carries, so a running discovery must not show none.
+     */
+    @Test
+    void runningAnswer_mirrorsTheConnectorsCertificateYield() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        DiscoveryStatusResponseDto response = statusResponse(DiscoveryRunState.RUNNING);
+        DiscoveryResourceProgressDto certificates = new DiscoveryResourceProgressDto();
+        certificates.setProduced(612L);
+        DiscoveryProgressDto progress = new DiscoveryProgressDto();
+        progress.setTargetsProcessed(4L);
+        progress.setByResource(Map.of(Resource.CERTIFICATE, certificates));
         response.setProgress(progress);
         answers(response);
 
         worker.tick(run.getUuid(), 0);
 
+        assertThat(reload(run).getConnectorTotalCertificatesDiscovered()).isEqualTo(612);
+    }
+
+    /** A connector reporting no breakdown leaves the figure alone rather than resetting it to nothing. */
+    @Test
+    void answerWithoutABreakdown_leavesTheCertificateYieldAlone() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        run.setConnectorTotalCertificatesDiscovered(97);
+        discoveryRepository.saveAndFlush(run);
+        armStatusRow(run, 0);
+        DiscoveryStatusResponseDto response = statusResponse(DiscoveryRunState.RUNNING);
+        DiscoveryProgressDto progress = new DiscoveryProgressDto();
+        progress.setTargetsProcessed(4L);
+        response.setProgress(progress);
+        answers(response);
+
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(reload(run).getConnectorTotalCertificatesDiscovered()).isEqualTo(97);
+    }
+
+    /**
+     * The timestamp is Core's, not the connector's: a connector clock that is wrong, or deliberately set, must not be
+     * able to make a reading look fresher or staler than it is.
+     */
+    @Test
+    void aConnectorSuppliedTimestampIsReplaced() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        DiscoveryStatusResponseDto response = statusResponse(DiscoveryRunState.RUNNING);
+        DiscoveryProgressDto progress = new DiscoveryProgressDto();
+        progress.setTargetsProcessed(31L);
+        progress.setUpdatedAt(OffsetDateTime.parse("2001-01-01T00:00:00Z"));
+        response.setProgress(progress);
+        answers(response);
+
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(reload(run).getProgress().getUpdatedAt())
+                .as("the connector's own value must not survive")
+                .isAfter(OffsetDateTime.parse("2020-01-01T00:00:00Z"));
+    }
+
+    /**
+     * Kept apart from the omitted-progress case because the two arrive as different JSON and only this one passes a
+     * null check.
+     */
+    @Test
+    void emptyProgressAnswer_keepsTheSnapshotTheRunAlreadyHas() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        DiscoveryStatusResponseDto reporting = statusResponse(DiscoveryRunState.RUNNING);
+        DiscoveryProgressDto progress = new DiscoveryProgressDto();
+        progress.setTargetsProcessed(31L);
+        progress.setTargetsFailed(12L);
+        reporting.setProgress(progress);
+        answers(reporting);
+        worker.tick(run.getUuid(), 0);
+
+        armStatusRow(run, 0);
+        DiscoveryStatusResponseDto silent = statusResponse(DiscoveryRunState.RUNNING);
+        silent.setProgress(new DiscoveryProgressDto());
+        answers(silent);
+
+        worker.tick(run.getUuid(), 0);
+
         Discovery reloaded = reload(run);
-        assertThat(reloaded.getProgress().getProcessed()).isEqualTo(31L);
-        assertThat(reloaded.getProgress().getPhase()).isEqualTo("scanning");
+        assertThat(reloaded.getProgress()).isNotNull();
+        assertThat(reloaded.getProgress().getTargetsProcessed())
+                .as("an empty report must not blank out what the run already knows")
+                .isEqualTo(31L);
+        assertThat(reloaded.getProgress().getTargetsFailed()).isEqualTo(12L);
+    }
+
+    @Test
+    void runningAnswer_storesTheFailedTargetCount() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        DiscoveryStatusResponseDto response = statusResponse(DiscoveryRunState.RUNNING);
+        DiscoveryProgressDto progress = new DiscoveryProgressDto();
+        progress.setTargetsProcessed(42L);
+        progress.setTargetsFailed(65_492L);
+        response.setProgress(progress);
+        answers(response);
+
+        worker.tick(run.getUuid(), 0);
+
+        // A sweep of address space fails most of what it attempts; without this the run detail cannot tell
+        // "examined 42 of 65534" from "found 42, nothing else to look at".
+        assertThat(reload(run).getProgress().getTargetsFailed()).isEqualTo(65_492L);
     }
 
     @Test
@@ -129,9 +349,10 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
     }
 
     @Test
-    void runningAnswerAfterAStop_clearsTheResumeWindow() throws Exception {
+    void runningAnswerForAStoppedRun_doesNotRestartIt() throws Exception {
         Discovery run = v2Run(DiscoveryStatus.STOPPED);
-        run.setStoppedAt(OffsetDateTime.now(ZoneOffset.UTC).minusDays(6));
+        OffsetDateTime stoppedAt = OffsetDateTime.now(ZoneOffset.UTC).minusDays(6);
+        run.setStoppedAt(stoppedAt);
         discoveryRepository.saveAndFlush(run);
         armStatusRow(run, 0);
         answers(statusResponse(DiscoveryRunState.RUNNING));
@@ -139,10 +360,40 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         worker.tick(run.getUuid(), 0);
 
         Discovery reloaded = reload(run);
-        assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
+        assertThat(reloaded.getStatus())
+                .as("Core writes STOPPED only once the connector has acknowledged the stop, so a later RUNNING is "
+                        + "the connector contradicting itself -- not grounds to restart a run the user paused")
+                .isEqualTo(DiscoveryStatus.STOPPED);
         assertThat(reloaded.getStoppedAt())
-                .as("a resumed run carries no resume deadline; a stale one would expire its next pause on arrival")
-                .isNull();
+                .as("the resume window the reaper bounds survives; clearing it would hand the run an unbounded pause, "
+                        + "and re-stamping it would push the deadline out on every poll")
+                .isCloseTo(stoppedAt, within(1, ChronoUnit.SECONDS));
+        assertThat(reloaded.getConnectorStatus())
+                .as("the divergence is recorded rather than hidden: this is the connector's view, not Core's")
+                .isEqualTo(DiscoveryStatus.IN_PROGRESS);
+    }
+
+    @Test
+    void answerThatArrivesAfterAStop_isDiscardedRatherThanApplied() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        // The stop lands while the poll is in flight: the connector was asked about a running run and answers
+        // truthfully, but by the time the answer arrives it describes a state the run has already left.
+        when(client.status(any())).thenAnswer(invocation -> {
+            Discovery stopped = discoveryRepository.findByUuid(run.getUuid()).orElseThrow();
+            stopped.setStatus(DiscoveryStatus.STOPPED);
+            stopped.setStoppedAt(OffsetDateTime.now(ZoneOffset.UTC));
+            discoveryRepository.saveAndFlush(stopped);
+            return statusResponse(DiscoveryRunState.RUNNING);
+        });
+
+        worker.tick(run.getUuid(), 0);
+
+        Discovery reloaded = reload(run);
+        assertThat(reloaded.getStatus())
+                .as("applying an answer the run has outrun would undo the newer transition")
+                .isEqualTo(DiscoveryStatus.STOPPED);
+        assertThat(reloaded.getStoppedAt()).as("and would clear the resume window with it").isNotNull();
     }
 
     @Test
@@ -174,7 +425,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         Discovery reloaded = reload(run);
         assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
         assertThat(reloaded.getEndTime()).isNotNull();
-        assertThat(reloaded.getRunMeta()).isNull();
+        assertThat(reloaded.getCheckpoint()).isNull();
         assertThat(agenda(run)).isEmpty();
         // How a run ended is recorded at a severity that follows its status, and only an ending written through the
         // real terminator proves that mapping: the reason reaches the log as ERROR, not as the WARNING a run that
@@ -291,7 +542,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
     @Test
     void runHandedOverToProcessing_dropsTheTickWithoutCallingTheConnector() throws Exception {
         Discovery run = v2Run(DiscoveryStatus.PROCESSING);
-        run.setRunMeta(null);
+        run.setCheckpoint(null);
         discoveryRepository.saveAndFlush(run);
         armStatusRow(run, 0);
         workWriter.schedule(run.getUuid(), DiscoveryWorkType.PROCESS, OffsetDateTime.now(ZoneOffset.UTC).plusHours(1));
@@ -315,6 +566,151 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         assertThat(workRepository.findAll()).isEmpty();
     }
 
+    // ---- the connector's metadata statement about the run ----
+
+    @Test
+    void runningAnswer_recordsTheConnectorsStatementAboutTheRun() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        answers(saying(DiscoveryRunState.RUNNING, "resolver", "10.0.0.53"));
+
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(recordedMetadata(run)).containsExactly(entry("resolver", "10.0.0.53"));
+    }
+
+    @Test
+    void aLaterStatement_replacesTheEarlierOneWhole() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        answers(saying(DiscoveryRunState.RUNNING, "resolver", "10.0.0.53"));
+        worker.tick(run.getUuid(), 0);
+
+        answers(saying(DiscoveryRunState.RUNNING, "scanWindow", "02:00-04:00"));
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(recordedMetadata(run))
+                .as("a present list is the complete set: what it omits is retracted")
+                .containsExactly(entry("scanWindow", "02:00-04:00"));
+    }
+
+    @Test
+    void anAbsentStatement_keepsWhatTheRunHolds() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        answers(saying(DiscoveryRunState.RUNNING, "resolver", "10.0.0.53"));
+        worker.tick(run.getUuid(), 0);
+
+        answers(statusResponse(DiscoveryRunState.RUNNING));
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(recordedMetadata(run)).containsExactly(entry("resolver", "10.0.0.53"));
+    }
+
+    @Test
+    void anEmptyStatement_clearsWhatTheRunHolds() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        answers(saying(DiscoveryRunState.RUNNING, "resolver", "10.0.0.53"));
+        worker.tick(run.getUuid(), 0);
+
+        DiscoveryStatusResponseDto silent = statusResponse(DiscoveryRunState.RUNNING);
+        silent.setMeta(List.of());
+        answers(silent);
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(recordedMetadata(run)).isEmpty();
+    }
+
+    @Test
+    void anOversizedStatement_isDroppedWithAMessageAndTheRunGoesOn() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        answers(saying(DiscoveryRunState.RUNNING, "dump", "x".repeat(70 * 1024)));
+
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(recordedMetadata(run)).isEmpty();
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
+        assertThat(messageRepository.findAll())
+                .filteredOn(message -> message.getDiscoveryUuid().equals(run.getUuid()))
+                .extracting(message -> message.getCode())
+                .containsExactly(DiscoveryMessageCode.RUN_METADATA_NOT_RECORDED.code());
+    }
+
+    /**
+     * An attribute the engine cannot register is refused before anything is deleted, so nothing already held is lost.
+     */
+    @Test
+    void aMalformedStatement_isDroppedWithAMessageAndKeepsWhatTheRunHolds() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        answers(saying(DiscoveryRunState.RUNNING, "resolver", "10.0.0.53"));
+        worker.tick(run.getUuid(), 0);
+
+        DiscoveryStatusResponseDto malformed = statusResponse(DiscoveryRunState.RUNNING);
+        // The checkpoint fixture: identity but no properties, which is fine for a handle and not for metadata.
+        malformed.setMeta(DiscoveryCheckpointFixture.checkpoint("bare", "x"));
+        answers(malformed);
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(recordedMetadata(run)).containsExactly(entry("resolver", "10.0.0.53"));
+        assertThat(messageRepository.findAll())
+                .filteredOn(message -> message.getDiscoveryUuid().equals(run.getUuid()))
+                .extracting(message -> message.getCode())
+                .containsExactly(DiscoveryMessageCode.RUN_METADATA_NOT_RECORDED.code());
+    }
+
+    @Test
+    void aTerminalAnswer_recordsTheStatementBeforeEndingTheRun() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        answers(saying(DiscoveryRunState.FAILED, "lastTarget", "172.16.4.110:443"));
+
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.FAILED);
+        assertThat(recordedMetadata(run)).containsExactly(entry("lastTarget", "172.16.4.110:443"));
+    }
+
+    private static DiscoveryStatusResponseDto saying(DiscoveryRunState state, String name, String value) {
+        DiscoveryStatusResponseDto response = statusResponse(state);
+        response.setMeta(List.of(statement(name, value)));
+        return response;
+    }
+
+    /** A run metadata entry as a connector sends one: identity, content and the properties the engine registers. */
+    private static MetadataAttribute statement(String name, String value) {
+        MetadataAttributeV3 attribute = new MetadataAttributeV3();
+        attribute.setUuid(UUID.nameUUIDFromBytes(name.getBytes()).toString());
+        attribute.setName(name);
+        attribute.setType(AttributeType.META);
+        attribute.setContentType(AttributeContentType.STRING);
+        MetadataAttributeProperties properties = new MetadataAttributeProperties();
+        properties.setLabel(name);
+        properties.setVisible(true);
+        attribute.setProperties(properties);
+        attribute.setContent(List.of(new StringAttributeContentV3(value)));
+        return attribute;
+    }
+
+    private List<Map.Entry<String, String>> recordedMetadata(Discovery run) {
+        List<MetadataAttribute> recorded = attributeEngine
+                .getMetadataAttributesDefinitionContent(ObjectAttributeContentInfo
+                        .builder(Resource.DISCOVERY, run.getUuid())
+                        .connector(run.getConnectorUuid())
+                        .build());
+        return recorded
+                .stream()
+                .map(attribute -> entry(attribute.getName(),
+                        ((StringAttributeContentV3) ((MetadataAttributeV3) attribute).getContent().get(0)).getData()))
+                .toList();
+    }
+
+    private static Map.Entry<String, String> entry(String name, String value) {
+        return Map.entry(name, value);
+    }
+
     private void answers(DiscoveryStatusResponseDto response) throws Exception {
         when(client.status(any())).thenReturn(response);
     }
@@ -323,6 +719,16 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         DiscoveryStatusResponseDto response = new DiscoveryStatusResponseDto();
         response.setState(state);
         response.setHighestSequence(0L);
+        return response;
+    }
+
+    /** A running answer taken at a given point in the connector's own numbering, with counters to match. */
+    private static DiscoveryStatusResponseDto runningAt(long highestSequence, long targetsProcessed) {
+        DiscoveryStatusResponseDto response = statusResponse(DiscoveryRunState.RUNNING);
+        response.setHighestSequence(highestSequence);
+        DiscoveryProgressDto progress = new DiscoveryProgressDto();
+        progress.setTargetsProcessed(targetsProcessed);
+        response.setProgress(progress);
         return response;
     }
 
@@ -362,10 +768,16 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         run.setKind("IP-HostName");
         run.setStatus(status);
         run.setConnectorStatus(status);
-        run.setConnectorUuid(UUID.randomUUID());
+        // A real row: run metadata definitions carry a foreign key to the connector that published them.
+        Connector connector = new Connector();
+        connector.setName("network-discovery-" + UUID.randomUUID());
+        connector.setUrl("http://localhost");
+        connector.setVersion(ConnectorVersion.V2);
+        connector.setStatus(ConnectorStatus.CONNECTED);
+        run.setConnectorUuid(connectorRepository.save(connector).getUuid());
         run.setConnectorName("network-discovery");
         run.setConnectorInterfaceUuid(UUID.randomUUID());
-        run.setRunMeta(DiscoveryRunMetaFixture.runMeta("connectorRunId", "run-42"));
+        run.setCheckpoint(DiscoveryCheckpointFixture.checkpoint("connectorRunId", "run-42"));
         return discoveryRepository.saveAndFlush(run);
     }
 }

@@ -74,12 +74,20 @@ discovery:
     sweep-interval-ms: ${DISCOVERY_WORK_SWEEP_INTERVAL_MS:10000}
     sweep-batch-size: ${DISCOVERY_WORK_SWEEP_BATCH_SIZE:200}
     sweep-max-batches-per-run: ${DISCOVERY_WORK_SWEEP_MAX_BATCHES_PER_RUN:10}
-    # How long a non-terminal v2 run may exist with no pending work rows before the reaper fails it.
-    # Covers the initiate window, where the run row exists before its first agenda rows.
+    # How long a non-terminal run may hold no pending work row before the reaper fails it. Covers the initiate
+    # window, where the run row exists before its first agenda rows.
     reap-grace: ${DISCOVERY_WORK_REAP_GRACE:PT5M}
-    # How far out a worker parks the agenda row when it direct-publishes the next tick itself, so a due-now
-    # row cannot let the sweep publish a competing tick. Must comfortably exceed one tick's duration.
+    # How far out a worker parks the agenda row when it direct-publishes the next tick itself, so a due-now row
+    # cannot let the sweep publish a competing one. Must exceed one tick's duration.
     continuation-backstop: ${DISCOVERY_WORK_CONTINUATION_BACKSTOP:PT1M}
+    # Least time a claimed row waits before the sweep may publish it again, so a tick slower than its own rung is
+    # not published twice while it runs. Above the connector timeouts, and above every ladder's last rung, so an
+    # idle tick of any type settles here. Only idle ticks wait on it: a drain with more to fetch direct-publishes
+    # its continuation.
+    claim-floor: ${DISCOVERY_WORK_CLAIM_FLOOR:PT35S}
+    # How long a stopped run waits between status polls. It reports nothing new while paused, but it is still
+    # watched: its connector can still fail or cancel it.
+    stopped-poll-interval: ${DISCOVERY_WORK_STOPPED_POLL_INTERVAL:PT5M}
     defaults:
       delays:
         - PT1S
@@ -87,14 +95,25 @@ discovery:
         - PT15S
         - PT1M
         - PT5M
-      # Attempt budget for consecutive unanswered ticks. Enforcement belongs to the tick
-      # workers, which reset the counter on every clear connector answer — so a scan the
-      # connector keeps reporting on never times out.
+      # Budget of consecutive unanswered ticks. The tick workers enforce it and reset the counter on every clear
+      # connector answer, so a scan the connector keeps reporting on never times out.
       max-attempts: 720
     by-type:
-      # Ladders start at PT1S, not PT0S: a zero first rung would leave a just-claimed row still
-      # due, so one sweep could claim and publish it twice. Immediate continuations are
-      # direct-published by the workers and never wait on these ladders.
+      # Ladders start at PT1S, not PT0S: a zero first rung leaves a just-claimed row still due, so one sweep could
+      # claim and publish it twice.
+      #
+      # STATUS is laddered rather than left on the defaults, which end at five minutes. It is the only tick that
+      # brings back the connector's counters and its view of the run, so its last rung is how stale a run's
+      # progress can be and how late Core learns a scan finished. A slower rung saved little, since DRAIN already
+      # calls the same connector every claim-floor. max-attempts rises with the shorter rungs to keep the same
+      # wall-clock allowance for a connector that stops answering.
+      STATUS:
+        delays:
+          - PT1S
+          - PT5S
+          - PT15S
+          - PT30S
+        max-attempts: 6000
       DRAIN:
         delays:
           - PT1S
@@ -108,11 +127,11 @@ discovery:
           - PT30S
         max-attempts: 100
   run:
-    # How long a stopped run waits for resume before the reaper cancels it (the connector's
-    # checkpoint can no longer be assumed to exist).
+    # How long a stopped run waits for resume before the reaper cancels it: past this the connector's checkpoint
+    # cannot be assumed to exist.
     stopped-max-duration: ${DISCOVERY_RUN_STOPPED_MAX_DURATION:P7D}
-  # Bounds on a single DRAIN tick's page. max-bytes is sized for the proxy envelope rather than
-  # the contract's 10 MiB transport cap, so a tunneled page has headroom.
+  # Bounds on a single DRAIN tick's page. max-bytes is sized for the proxy envelope rather than the contract's
+  # 10 MiB transport cap, so a tunneled page has headroom.
   drain:
     max-items: ${DISCOVERY_DRAIN_MAX_ITEMS:500}
     max-bytes: ${DISCOVERY_DRAIN_MAX_BYTES:5242880}

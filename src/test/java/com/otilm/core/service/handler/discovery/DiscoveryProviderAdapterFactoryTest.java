@@ -13,6 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /** Pins the factory's routing table: no association → v1, {@code "v2"} → v2, anything else refuses. */
@@ -48,6 +49,22 @@ class DiscoveryProviderAdapterFactoryTest {
         Discovery run = runWithInterfaceVersion("v2");
 
         assertThat(factory.forDiscovery(run)).isSameAs(v2Adapter);
+    }
+
+    @Test
+    void routingOnTheAssociationAloneMatchesRoutingOnTheRun() {
+        Discovery run = runWithInterfaceVersion("v2");
+
+        // Dispatch takes this route so it never loads the run; it has to reach the same adapter as the entity one,
+        // or the generation a run is driven by would depend on how it was dispatched.
+        assertThat(factory.forConnectorInterface(run.getConnectorInterfaceUuid(), run.getUuid()))
+                .isSameAs(factory.forDiscovery(run));
+    }
+
+    @Test
+    void noAssociationRoutesToV1WithoutTouchingTheRepository() {
+        assertThat(factory.forConnectorInterface(null, UUID.randomUUID())).isSameAs(v1Adapter);
+        verifyNoInteractions(interfaceRepository);
     }
 
     @Test

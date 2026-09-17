@@ -26,10 +26,12 @@ import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
+import com.otilm.core.dao.repository.DiscoveryMessageRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.events.data.DiscoveryResult;
 import com.otilm.core.events.handlers.CertificateDiscoveredEventHandler;
 import com.otilm.core.events.handlers.DiscoveryFinishedEventHandler;
+import com.otilm.core.mapper.discovery.DiscoveryDtoMapper;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.model.discovery.DiscoveryContext;
 import com.otilm.core.service.CredentialInternalService;
@@ -78,11 +80,13 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
     private static final Semaphore downloadCertSemaphore = new Semaphore(10);
 
     private final DiscoveryProperties discoveryProperties;
+    private final DiscoveryMessageRepository discoveryMessageRepository;
     private final PlatformTransactionManager transactionManager;
     private final DiscoveryRepository discoveryRepository;
     private final ConnectorRepository connectorRepository;
     private final CertificateRepository certificateRepository;
     private final DiscoveryCertificateRepository discoveryCertificateRepository;
+    private final DiscoveryDetailCounts detailCounts;
     private final AttributeEngine attributeEngine;
     private final CertificateHandler certificateHandler;
     private final CredentialInternalService credentialService;
@@ -96,7 +100,10 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
             DiscoveryCertificateRepository discoveryCertificateRepository, AttributeEngine attributeEngine,
             CertificateHandler certificateHandler, CredentialInternalService credentialService,
             ResourceInternalService resourceService, ConnectorApiFactory connectorApiFactory,
-            EventProducer eventProducer) {
+            EventProducer eventProducer, DiscoveryMessageRepository discoveryMessageRepository,
+            DiscoveryDetailCounts detailCounts) {
+        this.discoveryMessageRepository = discoveryMessageRepository;
+        this.detailCounts = detailCounts;
         this.discoveryProperties = discoveryProperties;
         this.transactionManager = transactionManager;
         this.discoveryRepository = discoveryRepository;
@@ -203,7 +210,7 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
 
         updateDiscoveryStateInTx(context, false);
 
-        DiscoveryDetailDto discoveryDto = discovery.mapToDto();
+        DiscoveryDetailDto discoveryDto = DiscoveryDtoMapper.toDetailDto(discovery, detailCounts.forRun(discovery));
         eventProducer
                 .produceMessage(CertificateDiscoveredEventHandler
                         .constructEventMessage(discovery.getUuid(), context.getLoggedUserUuid(), scheduledJobInfo));
@@ -564,11 +571,12 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
         discoveryRepository.save(discovery);
         transactionManager.commit(transaction);
 
-        DiscoveryDetailDto discoveryDto = discovery.mapToDto();
+        DiscoveryDetailDto discoveryDto = DiscoveryDtoMapper.toDetailDto(discovery, detailCounts.forRun(discovery));
         eventProducer
                 .produceMessage(DiscoveryFinishedEventHandler
                         .constructEventMessage(discovery.getUuid(), discoveryContext.getLoggedUserUuid(), null,
                                 new DiscoveryResult(discovery.getStatus(), discovery.getMessage())));
         return discoveryDto;
     }
+
 }

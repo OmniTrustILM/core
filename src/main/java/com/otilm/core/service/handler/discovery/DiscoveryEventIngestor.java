@@ -19,6 +19,7 @@ import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.model.discovery.DiscoveryMessageCode;
 import com.otilm.core.model.discovery.DiscoveryMessageDraft;
+import com.otilm.core.model.discovery.DiscoveryProgressSnapshot;
 import com.otilm.core.model.discovery.DiscoveryRunLifecycle;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
 import com.otilm.core.service.handler.CertificateHandler;
@@ -111,10 +112,24 @@ public class DiscoveryEventIngestor {
         if (highestReceived > cursor) {
             run.setLastAppliedSequence(highestReceived);
         }
+        recordCertificatesStagedSoFar(run);
         logger
                 .debug("Staged {} of {} drained items for discovery {}; cursor {} -> {}", fresh.size(), items.size(),
                         discoveryUuid, cursor, run.getLastAppliedSequence());
         return run.getLastAppliedSequence() > cursor;
+    }
+
+    /**
+     * Keeps the run's certificate total current as pages land: it is the only yield figure the discovery listing
+     * carries, so a live run must not show none until it ends.
+     *
+     * <p>
+     * Counted rather than accumulated: staging skips a certificate already staged for this run, so adding the page size
+     * would drift upward on every re-send. The terminal write in {@code DiscoveryRunTerminator} has the last word and
+     * agrees with this by then.
+     */
+    private void recordCertificatesStagedSoFar(Discovery run) {
+        run.setTotalCertificatesDiscovered(certificateRepository.countByDiscovery(run).intValue());
     }
 
     /**
@@ -136,7 +151,7 @@ public class DiscoveryEventIngestor {
             return;
         }
         switch (event.getType()) {
-            case PROGRESS -> run.setProgress(snapshotOf((DiscoveryProgressEvent) event));
+            case PROGRESS -> applyProgress(run, (DiscoveryProgressEvent) event);
             case ERROR -> {
                 DiscoveryErrorEvent error = (DiscoveryErrorEvent) event;
                 // The connector's code identifies the problem; its prose goes to the log rather than to the
@@ -305,6 +320,11 @@ public class DiscoveryEventIngestor {
         data.setUuid(item.getUniqueRef());
         data.setBase64Content(certificate.getCertificateData());
         data.setMeta(item.getMeta() == null ? List.of() : item.getMeta());
+        // Carried through so a staged certificate keeps the connector's own run-wide number. Without it the items
+        // listing synthesizes one from staging order, which collides with the real numbers the run's other
+        // resources carry and destroys the single ordering the listing exists to provide.
+        data.setSequence(item.getSequence());
+        data.setDiscoveredAt(item.getDiscoveredAt());
         return data;
     }
 
@@ -350,13 +370,25 @@ public class DiscoveryEventIngestor {
     }
 
     /**
+     * A pushed report is held to the same bar as a polled one, and for the same reason — see
+     * {@link DiscoveryProgressSnapshot#reportsSomething}.
+     */
+    private static void applyProgress(Discovery run, DiscoveryProgressEvent event) {
+        DiscoveryProgressDto snapshot = snapshotOf(event);
+        if (DiscoveryProgressSnapshot.reportsSomething(snapshot)) {
+            run.setProgress(DiscoveryProgressSnapshot.recorded(snapshot));
+        }
+    }
+
+    /**
      * Copies fields rather than storing the event as-is, since the column holds the plain snapshot shape.
      */
     private static DiscoveryProgressDto snapshotOf(DiscoveryProgressEvent event) {
         DiscoveryProgressDto snapshot = new DiscoveryProgressDto();
-        snapshot.setProcessed(event.getProcessed());
-        snapshot.setTotalEstimate(event.getTotalEstimate());
+        snapshot.setTargetsProcessed(event.getTargetsProcessed());
+        snapshot.setTargetsTotal(event.getTargetsTotal());
         snapshot.setPhase(event.getPhase());
+        snapshot.setTargetsFailed(event.getTargetsFailed());
         snapshot.setByResource(event.getByResource());
         return snapshot;
     }

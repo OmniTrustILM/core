@@ -11,7 +11,7 @@ import com.otilm.core.messaging.model.DiscoveryWorkMessage;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.util.BaseSpringBootTest;
-import com.otilm.core.util.DiscoveryRunMetaFixture;
+import com.otilm.core.util.DiscoveryCheckpointFixture;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -145,7 +145,7 @@ class DiscoveryWorkSweepITest extends BaseSpringBootTest {
         assertThat(reaped.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
         assertThat(reaped.getMessage()).contains("work lost");
         assertThat(reaped.getEndTime()).isNotNull();
-        assertThat(reaped.getRunMeta()).isNull();
+        assertThat(reaped.getCheckpoint()).isNull();
     }
 
     @Test
@@ -185,7 +185,7 @@ class DiscoveryWorkSweepITest extends BaseSpringBootTest {
     void reap_cancelsAStoppedRunPastItsResumeWindow() {
         Discovery run = v2Run(DiscoveryStatus.STOPPED);
         run.setStoppedAt(OffsetDateTime.now(ZoneOffset.UTC).minusDays(8));
-        run.setRunMeta(DiscoveryRunMetaFixture.runMeta("cursor", "abc"));
+        run.setCheckpoint(DiscoveryCheckpointFixture.checkpoint("cursor", "abc"));
         discoveryRepository.saveAndFlush(run);
         workWriter.schedule(run.getUuid(), DiscoveryWorkType.STATUS, OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(1));
 
@@ -195,7 +195,7 @@ class DiscoveryWorkSweepITest extends BaseSpringBootTest {
         assertThat(reaped.getStatus()).isEqualTo(DiscoveryStatus.CANCELLED);
         assertThat(reaped.getMessage()).contains("Stop expired");
         assertThat(reaped.getEndTime()).isNotNull();
-        assertThat(reaped.getRunMeta()).isNull();
+        assertThat(reaped.getCheckpoint()).isNull();
         assertThat(workRepository.existsByDiscoveryUuid(run.getUuid()))
                 .as("terminal transition drops the run's agenda rows")
                 .isFalse();

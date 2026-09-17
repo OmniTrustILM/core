@@ -31,7 +31,7 @@ public final class DiscoveryRunLifecycle {
      *
      * <p>
      * The distinction from {@link #isTerminal} is load-bearing for the connector-driven ticks. A {@code PROCESSING} run
-     * is very much alive, but its {@code run_meta} was nulled when the drain handed over, so a {@code STATUS} or
+     * is very much alive, but its {@code checkpoint} was nulled when the drain handed over, so a {@code STATUS} or
      * {@code DRAIN} tick still in flight from before the swap would call the connector with no handle — and read the
      * resulting 404 as "this run no longer exists", ending a healthy run mid-import. Anything that talks to the
      * connector, or schedules work that will, asks this rather than {@code isTerminal}.
