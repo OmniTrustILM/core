@@ -97,10 +97,6 @@ public class UpdateIntuneRevocationRequestsTask implements ScheduledJobTask {
         return false;
     }
 
-    public String getJobClassName() {
-        return this.getClass().getName();
-    }
-
     public boolean isSystemJob() {
         return true;
     }

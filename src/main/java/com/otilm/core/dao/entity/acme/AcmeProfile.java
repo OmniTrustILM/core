@@ -2,6 +2,8 @@ package com.otilm.core.dao.entity.acme;
 
 import com.fasterxml.jackson.annotation.JsonBackReference;
 import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.core.acme.AcmeIdentifierAuthorizationMode;
+import com.otilm.api.model.core.acme.AcmePreauthorizedIdentifierDto;
 import com.otilm.api.model.core.acme.AcmeProfileDto;
 import com.otilm.api.model.core.acme.AcmeProfileListDto;
 import com.otilm.core.dao.entity.ProtocolCertificateAssociations;
@@ -12,6 +14,8 @@ import com.otilm.core.util.DtoMapper;
 import com.otilm.core.util.ObjectAccessControlMapper;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OneToOne;
@@ -103,12 +107,32 @@ public class AcmeProfile extends UniquelyIdentifiedAndAudited
     @JdbcTypeCode(SqlTypes.ARRAY)
     private List<UUID> eabSecretUuids = new ArrayList<>();
 
+    @Column(name = "preauthorized_identifiers", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
+    private List<AcmePreauthorizedIdentifierDto> preauthorizedIdentifiers = new ArrayList<>();
+
+    @Column(name = "identifier_authorization_mode")
+    @Enumerated(EnumType.STRING)
+    private AcmeIdentifierAuthorizationMode identifierAuthorizationMode = AcmeIdentifierAuthorizationMode.PREAUTHORIZED_OR_CHALLENGE;
+
     /**
      * Whether a newAccount request must carry an External Account Binding. Derived from the configured keys rather than
      * stored, so a profile can never advertise the requirement with nothing to verify a binding against.
      */
     public boolean isExternalAccountRequired() {
         return eabSecretUuids != null && !eabSecretUuids.isEmpty();
+    }
+
+    /** The policy as a list that is never null, so callers need not repeat the check. */
+    public List<AcmePreauthorizedIdentifierDto> preauthorizedIdentifierList() {
+        return preauthorizedIdentifiers == null ? List.of() : preauthorizedIdentifiers;
+    }
+
+    /** The mode, defaulting to the permissive one for a row written before the column existed. */
+    public AcmeIdentifierAuthorizationMode effectiveIdentifierAuthorizationMode() {
+        return identifierAuthorizationMode == null
+                ? AcmeIdentifierAuthorizationMode.PREAUTHORIZED_OR_CHALLENGE
+                : identifierAuthorizationMode;
     }
 
     @Override
@@ -132,6 +156,8 @@ public class AcmeProfile extends UniquelyIdentifiedAndAudited
         acmeProfileDto.setWebsiteUrl(website);
         acmeProfileDto.setTermsOfServiceChangeUrl(termsOfServiceChangeUrl);
         acmeProfileDto.setEabSecretUuids(eabSecretUuids == null ? new ArrayList<>() : List.copyOf(eabSecretUuids));
+        acmeProfileDto.setPreauthorizedIdentifiers(List.copyOf(preauthorizedIdentifierList()));
+        acmeProfileDto.setIdentifierAuthorizationMode(effectiveIdentifierAuthorizationMode());
         if (raProfile != null) {
             acmeProfileDto
                     .setDirectoryUrl(ServletUriComponentsBuilder.fromCurrentContextPath().build().toUriString()

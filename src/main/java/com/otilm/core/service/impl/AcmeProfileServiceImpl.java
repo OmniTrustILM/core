@@ -14,6 +14,8 @@ import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.core.acme.AcmeEabKeyDto;
+import com.otilm.api.model.core.acme.AcmeIdentifierAuthorizationMode;
+import com.otilm.api.model.core.acme.AcmePreauthorizedIdentifierDto;
 import com.otilm.api.model.core.acme.AcmeProfileDto;
 import com.otilm.api.model.core.acme.AcmeProfileListDto;
 import com.otilm.api.model.core.auth.Resource;
@@ -41,6 +43,7 @@ import com.otilm.core.service.AcmeProfileInternalService;
 import com.otilm.core.service.CommentInternalService;
 import com.otilm.core.service.RaProfileInternalService;
 import com.otilm.core.service.acme.eab.AcmeEabKeys;
+import com.otilm.core.service.acme.identifier.AcmeIdentifierPolicy;
 import com.otilm.core.service.model.SecuredList;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import com.otilm.core.util.ValidatorUtil;
@@ -194,6 +197,14 @@ public class AcmeProfileServiceImpl implements AcmeProfileExternalService, AcmeP
         acmeProfile.setRaProfile(raProfile);
         acmeProfile.setEabSecretUuids(resolveEabSecrets(request.getEabSecretUuids()));
         requireTermsUrlWhenAgreementIsRequired(acmeProfile);
+        acmeProfile
+                .setPreauthorizedIdentifiers(new ArrayList<>(request.getPreauthorizedIdentifiers() == null
+                        ? List.of()
+                        : request.getPreauthorizedIdentifiers()));
+        if (request.getIdentifierAuthorizationMode() != null) {
+            acmeProfile.setIdentifierAuthorizationMode(request.getIdentifierAuthorizationMode());
+        }
+        requirePolicyWhenPreauthorizedOnly(acmeProfile);
         if (request.getCertificateAssociations() != null && !request.getCertificateAssociations().isEmpty()) {
             ProtocolCertificateAssociations certificateAssociation = new ProtocolCertificateAssociations();
             certificateAssociation.setOwnerUuid(request.getCertificateAssociations().getOwnerUuid());
@@ -298,6 +309,13 @@ public class AcmeProfileServiceImpl implements AcmeProfileExternalService, AcmeP
             acmeProfile.setEabSecretUuids(resolveEabSecrets(request.getEabSecretUuids()));
         }
         requireTermsUrlWhenAgreementIsRequired(acmeProfile);
+        if (request.getPreauthorizedIdentifiers() != null) {
+            acmeProfile.setPreauthorizedIdentifiers(new ArrayList<>(request.getPreauthorizedIdentifiers()));
+        }
+        if (request.getIdentifierAuthorizationMode() != null) {
+            acmeProfile.setIdentifierAuthorizationMode(request.getIdentifierAuthorizationMode());
+        }
+        requirePolicyWhenPreauthorizedOnly(acmeProfile);
 
         UUID certificateAssociationUuid = null;
         ProtocolCertificateAssociations certificateAssociation = null;
@@ -384,6 +402,47 @@ public class AcmeProfileServiceImpl implements AcmeProfileExternalService, AcmeP
             throw new ValidationException(
                     ValidationError.create("Requiring agreement to the Terms of Service needs a Terms of Service URL"));
         }
+    }
+
+    /**
+     * The policy as the profile would store it must be one the matcher can act on. Both rules are checked on the merged
+     * profile, since an edit can supply the mode alone or the entries alone and neither request sees the other half.
+     * <p>
+     * Every entry must be able to cover something. An entry that cannot — a value that is not a well-formed name or
+     * address literal, a wildcard written where a name belongs, an address asked to match by subdomain — would sit in
+     * the policy looking like cover the operator does not have, and would count toward the rule below while
+     * pre-authorizing nothing.
+     * <p>
+     * PREAUTHORIZED_ONLY then refuses every identifier the policy does not cover, so with no entries at all it refuses
+     * every order the profile could receive.
+     */
+    private static void requirePolicyWhenPreauthorizedOnly(AcmeProfile acmeProfile) {
+        String unusable = acmeProfile
+                .preauthorizedIdentifierList()
+                .stream()
+                .filter(entry -> !AcmeIdentifierPolicy.isUsable(entry))
+                .map(AcmeProfileServiceImpl::describe)
+                .collect(Collectors.joining(", "));
+        if (!unusable.isEmpty()) {
+            throw new ValidationException(ValidationError
+                    .create("These pre-authorized identifiers could never match anything: %s".formatted(unusable)));
+        }
+        if (acmeProfile.effectiveIdentifierAuthorizationMode() == AcmeIdentifierAuthorizationMode.PREAUTHORIZED_ONLY
+                && acmeProfile.preauthorizedIdentifierList().isEmpty()) {
+            throw new ValidationException(ValidationError
+                    .create("preauthorizedOnly needs at least one pre-authorized identifier; to stop the profile "
+                            + "accepting orders, disable new orders instead"));
+        }
+    }
+
+    /** The offending entry named back to the operator as they wrote it, so they can find it in the list they sent. */
+    private static String describe(AcmePreauthorizedIdentifierDto entry) {
+        if (entry == null) {
+            return "(none)";
+        }
+        return "%s %s (%s)"
+                .formatted(entry.getType() == null ? "?" : entry.getType().getCode(), entry.getValue(),
+                        entry.getMatchType() == null ? "?" : entry.getMatchType().getCode());
     }
 
     private AcmeProfileDto mapToDetailDto(AcmeProfile acmeProfile) {

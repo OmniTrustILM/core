@@ -393,8 +393,32 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
             @Param("verdict") String verdict, @Param("ruleId") String ruleId, @Param("reason") String reason,
             @Param("rulesetVersion") int rulesetVersion, @Param("evaluatedFields") String evaluatedFields);
 
+    /**
+     * Collects an orphan, and only while it still is one.
+     *
+     * <p>
+     * The condition is re-asserted here rather than trusted from {@link #findOrphanRows}: those are two statements, and
+     * an unconditional delete is correct only for as long as nothing can attach a source between them. Nothing can
+     * today -- both the withdrawal and the ingest write under {@code ALIAS_DECISION_LOCK} -- but that is a property of
+     * the callers, not of the statement, and it is the statement that destroys rows. A row a source came back to is
+     * left alone and the caller is told 0.
+     *
+     * <p>
+     * The alias arm matters more than the source arm, because it is the irreversible one: {@code crypto_asset_alias}
+     * cascades from {@code canonical_key}, so a delete that raced an operator's merge decision would take the decision
+     * with it and no re-ingest would bring it back. The read applies the same rule; this is what makes the rule true of
+     * the write.
+     *
+     * @return 1 if the row was collected, 0 if it was re-sourced or named by an alias since it was read
+     */
     @Modifying
-    @Query("DELETE FROM CryptoAsset a WHERE a.uuid = :uuid")
+    @Query(value = """
+            DELETE FROM {h-schema}crypto_asset a
+            WHERE a.uuid = :uuid
+              AND NOT EXISTS (SELECT 1 FROM {h-schema}crypto_asset_source s WHERE s.asset_uuid = a.uuid)
+              AND NOT EXISTS (SELECT 1 FROM {h-schema}crypto_asset_alias al
+                              WHERE al.canonical_key = a.identity_key)
+            """, nativeQuery = true)
     int deleteAsset(@Param("uuid") UUID uuid);
 
     /**
