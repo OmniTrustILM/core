@@ -31,21 +31,27 @@ public class OpaClient {
 
     private final String opaBaseUrl;
 
-    public OpaClient(@Autowired ObjectMapper om, @Value("${opa.base-url}") String opaBaseUrl) {
+    private final AuthorizationCache authorizationCache;
+
+    public OpaClient(@Autowired ObjectMapper om, @Value("${opa.base-url}") String opaBaseUrl,
+            @Autowired AuthorizationCache authorizationCache) {
         this.om = om;
         this.opaBaseUrl = opaBaseUrl;
+        this.authorizationCache = authorizationCache;
     }
 
     public OpaResourceAccessResult checkResourceAccess(String policyName, OpaRequestedResource resource,
             String principal, OpaRequestDetails details) throws AccessDeniedException {
-        return sendRequest(policyName, resource, principal, details,
-                OpaReturnType.fromInner(OpaResourceAccessResult.class));
+        return authorizationCache
+                .getOrCheckResourceAccess(policyName, resource, principal, details, () -> sendRequest(policyName,
+                        resource, principal, details, OpaReturnType.fromInner(OpaResourceAccessResult.class)));
     }
 
     public OpaObjectAccessResult checkObjectAccess(String policyName, OpaRequestedResource resource, String principal,
             OpaRequestDetails details) throws AccessDeniedException {
-        return sendRequest(policyName, resource, principal, details,
-                OpaReturnType.fromInner(OpaObjectAccessResult.class));
+        return authorizationCache
+                .getOrCheckObjectAccess(policyName, resource, principal, details, () -> sendRequest(policyName,
+                        resource, principal, details, OpaReturnType.fromInner(OpaObjectAccessResult.class)));
     }
 
     private <T> T sendRequest(String policyName, OpaRequestedResource resource, String principal,
