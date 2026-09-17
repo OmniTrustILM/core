@@ -26,7 +26,7 @@ import java.util.HexFormat;
  * {@code detailsJson} will contain newlines. Naive newline-separated joining would allow component-boundary
  * repositioning to produce the same key from different tuples; instead, each component is prefixed with its
  * character-count to ensure the split is deterministic (see {@code PlatformAuthenticationCache.tokenCacheKey} for the
- * identical pattern).
+ * same length-prefix pattern applied to a single variable-length field rather than to every component).
  */
 final class AuthorizationCacheKeys {
 

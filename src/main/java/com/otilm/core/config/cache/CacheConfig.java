@@ -5,6 +5,8 @@ import com.otilm.core.security.authn.client.SecretRefIndex;
 import com.otilm.core.security.authn.client.TokenJtiIndex;
 import com.otilm.core.security.authn.client.UserCertificateIndex;
 import java.util.concurrent.TimeUnit;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.EnableCaching;
@@ -26,6 +28,8 @@ import org.springframework.core.Ordered;
         TimeQualityConfigurationCacheProperties.class,
         TspProfileCacheProperties.class,})
 public class CacheConfig {
+
+    private static final Logger logger = LoggerFactory.getLogger(CacheConfig.class);
 
     public static final String CERTIFICATE_AUTH_CACHE = "certificateAuth";
     public static final String CERTIFICATE_CHAIN_CACHE = "certificateChain";
@@ -53,6 +57,7 @@ public class CacheConfig {
             SigningProfileCacheProperties signingProfileCacheProperties,
             TimeQualityConfigurationCacheProperties tqcCacheProperties, TokenJtiIndex tokenJtiIndex,
             TspProfileCacheProperties tspProfileCacheProperties, UserCertificateIndex userCertificateIndex) {
+        warnIfAuthorizationTtlExceedsAuthenticationTtl(authCacheProperties, authorizationCacheProperties);
         CaffeineCacheManager mgr = new CaffeineCacheManager(SYSTEM_USER_AUTH_CACHE, USER_UUID_AUTH_CACHE);
         mgr
                 .setCaffeine(Caffeine
@@ -179,5 +184,18 @@ public class CacheConfig {
                                 .build());
 
         return mgr;
+    }
+
+    // For authenticated callers authorization staleness is bounded by authentication staleness, but for
+    // anonymous callers the authorization TTL is the only bound, so it must not exceed the authentication TTL.
+    private static void warnIfAuthorizationTtlExceedsAuthenticationTtl(AuthCacheProperties authCacheProperties,
+            AuthorizationCacheProperties authorizationCacheProperties) {
+        if (authorizationCacheProperties.ttlMinutes() > authCacheProperties.ttlMinutes()) {
+            logger
+                    .warn("caching.authorization.ttl-minutes ({}) exceeds caching.authentication.ttl-minutes ({}); "
+                            + "anonymous callers may be served a stale authorization decision for longer than "
+                            + "an authenticated caller's identity is trusted.",
+                            authorizationCacheProperties.ttlMinutes(), authCacheProperties.ttlMinutes());
+        }
     }
 }

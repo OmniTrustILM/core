@@ -89,8 +89,10 @@ class AuthorizationCacheKeysTest {
     void digestsAPrincipalWithNoUserNode() throws Exception {
         String noUser = """
                 {"permissions":%s}""".formatted(PERMISSIONS);
+        String namedNonAnonymous = profile("1111", "alice", "[]", PERMISSIONS);
 
-        assertThat(AuthorizationCacheKeys.principalDigest(om, noUser)).hasSize(64);
+        assertThat(AuthorizationCacheKeys.principalDigest(om, noUser))
+                .isEqualTo(AuthorizationCacheKeys.principalDigest(om, namedNonAnonymous));
     }
 
     @Test

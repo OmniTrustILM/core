@@ -11,6 +11,7 @@ import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.cache.caffeine.CaffeineCacheManager;
@@ -37,7 +38,6 @@ class PlatformAuthorizationCacheTest {
 
     private static PlatformAuthorizationCache newCache(boolean enabled) {
         CaffeineCacheManager mgr = new CaffeineCacheManager();
-        mgr.setCaffeine(Caffeine.newBuilder().maximumSize(100));
         mgr.registerCustomCache(CacheConfig.RESOURCE_AUTHZ_CACHE, Caffeine.newBuilder().maximumSize(100).build());
         mgr.registerCustomCache(CacheConfig.OBJECT_AUTHZ_CACHE, Caffeine.newBuilder().maximumSize(100).build());
         mgr.registerCustomCache(CacheConfig.PRINCIPAL_DIGEST_CACHE, Caffeine.newBuilder().maximumSize(100).build());
@@ -146,6 +146,19 @@ class PlatformAuthorizationCacheTest {
         resourceAccess(profile("1111", "alice"), certificateDetail());
 
         assertThat(loads).hasValue(1);
+    }
+
+    @Test
+    void aNullResultIsNotCached() {
+        Supplier<OpaResourceAccessResult> nullLoader = () -> {
+            loads.incrementAndGet();
+            return null;
+        };
+
+        cache.getOrCheckResourceAccess("method", certificateDetail(), profile("1111", "alice"), DETAILS, nullLoader);
+        cache.getOrCheckResourceAccess("method", certificateDetail(), profile("1111", "alice"), DETAILS, nullLoader);
+
+        assertThat(loads).hasValue(2);
     }
 
     @Test

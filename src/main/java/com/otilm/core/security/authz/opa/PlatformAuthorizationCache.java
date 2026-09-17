@@ -69,7 +69,9 @@ public class PlatformAuthorizationCache implements AuthorizationCache {
             return type.cast(cached.get());
         }
         T result = loader.get();
-        cache.put(key, result);
+        if (result != null) {
+            cache.put(key, result);
+        }
         return result;
     }
 
