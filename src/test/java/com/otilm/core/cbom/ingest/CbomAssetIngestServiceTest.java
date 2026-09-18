@@ -10,6 +10,7 @@ import com.otilm.core.cbom.asset.identity.CbomAssetExtractor;
 import com.otilm.core.cbom.asset.identity.CryptoAssetIdentity;
 import com.otilm.core.cbom.asset.identity.IdentityTables;
 import com.otilm.core.cbom.pqc.PqcEvaluator;
+import com.otilm.core.cbom.sync.CbomSyncPolicy;
 import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.dao.repository.CbomRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
@@ -60,6 +61,9 @@ class CbomAssetIngestServiceTest {
     private static final UUID CBOM = UUID.randomUUID();
     private static final OffsetDateTime SEEN_AT = OffsetDateTime.parse("2026-09-14T10:00:00Z");
     private static final String LOCK_KEY = CbomAssetIngestService.assetSyncLockKey(CBOM);
+
+    /** What a run hands the ingest: the production tunables, whose batch size these tests do not vary. */
+    private static final CbomSyncPolicy POLICY = CbomIngestTestFixtures.policy(100);
 
     private final CryptoAssetWriter assetWriter = mock(CryptoAssetWriter.class);
     private final CryptoAssetSourceWriter sourceWriter = mock(CryptoAssetSourceWriter.class);
@@ -131,7 +135,7 @@ class CbomAssetIngestServiceTest {
 
     /**
      * The claim goes back. Left {@code IN_PROGRESS}, the row drops out of the pending list and into the retry list,
-     * where it waits out {@code cbom.sync.ingest-retry-after} -- a whole run skipped over work no node is doing.
+     * where it waits out {@code cbomSyncIngestRetryAfterSeconds} -- a whole run skipped over work no node is doing.
      */
     @Test
     void aContendedClusterLockGivesTheClaimBackAndLeavesTheCbomOwingAnIngest() {
@@ -158,7 +162,8 @@ class CbomAssetIngestServiceTest {
         when(extractor.extract(any(JsonNode.class)))
                 .thenReturn(new CbomAssetExtractor.Extraction(List.of(), List.of(), false, true, List.of()));
 
-        CbomAssetIngestService.IngestOutcome outcome = service(extractor, 100).ingest(CBOM, twoAlgorithms(), SEEN_AT);
+        CbomAssetIngestService.IngestOutcome outcome = service(extractor)
+                .ingest(CBOM, twoAlgorithms(), SEEN_AT, POLICY);
 
         assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.REFUSED);
         verify(assetWriter, never()).upsertIdentity(anyString(), any(), any());
@@ -260,14 +265,15 @@ class CbomAssetIngestServiceTest {
         whenUpsertReturnsAFreshUuid();
         UUID earlier = UUID.randomUUID();
         when(cbomRepository.findSupersededVersionUuids(CBOM)).thenReturn(List.of(earlier));
-        when(detachService.withdraw(earlier)).thenReturn(new CbomAssetDetachService.Withdrawal(2, 1, 0, true));
+        when(detachService.withdraw(earlier, POLICY.assetBatchSize()))
+                .thenReturn(new CbomAssetDetachService.Withdrawal(2, 1, 0, true));
 
         CbomAssetIngestService.IngestOutcome outcome = ingest(twoAlgorithms(), 100);
 
         assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
         InOrder order = inOrder(sourceWriter, detachService, stateWriter);
         order.verify(sourceWriter, atLeastOnce()).upsertSource(any(), eq(CBOM), any(), any(), anyInt(), any());
-        order.verify(detachService).withdraw(earlier);
+        order.verify(detachService).withdraw(earlier, POLICY.assetBatchSize());
         order.verify(stateWriter).markSynced(CBOM, SEEN_AT);
     }
 
@@ -282,7 +288,8 @@ class CbomAssetIngestServiceTest {
         whenUpsertReturnsAFreshUuid();
         UUID earlier = UUID.randomUUID();
         when(cbomRepository.findSupersededVersionUuids(CBOM)).thenReturn(List.of(earlier));
-        when(detachService.withdraw(earlier)).thenReturn(new CbomAssetDetachService.Withdrawal(2, 1, 0, true));
+        when(detachService.withdraw(earlier, POLICY.assetBatchSize()))
+                .thenReturn(new CbomAssetDetachService.Withdrawal(2, 1, 0, true));
 
         CbomAssetIngestService.IngestOutcome outcome = ingest(twoAlgorithms(), 100);
 
@@ -301,7 +308,8 @@ class CbomAssetIngestServiceTest {
         whenUpsertReturnsAFreshUuid();
         UUID earlier = UUID.randomUUID();
         when(cbomRepository.findSupersededVersionUuids(CBOM)).thenReturn(List.of(earlier));
-        when(detachService.withdraw(earlier)).thenReturn(new CbomAssetDetachService.Withdrawal(0, 0, 0, false));
+        when(detachService.withdraw(earlier, POLICY.assetBatchSize()))
+                .thenReturn(new CbomAssetDetachService.Withdrawal(0, 0, 0, false));
 
         ingest(twoAlgorithms(), 100);
 
@@ -320,7 +328,8 @@ class CbomAssetIngestServiceTest {
         whenUpsertReturnsAFreshUuid();
         UUID earlier = UUID.randomUUID();
         when(cbomRepository.findSupersededVersionUuids(CBOM)).thenReturn(List.of(earlier));
-        when(detachService.withdraw(earlier)).thenReturn(new CbomAssetDetachService.Withdrawal(0, 0, 0, false));
+        when(detachService.withdraw(earlier, POLICY.assetBatchSize()))
+                .thenReturn(new CbomAssetDetachService.Withdrawal(0, 0, 0, false));
 
         CbomAssetIngestService.IngestOutcome outcome = ingest(twoAlgorithms(), 100);
 
@@ -362,8 +371,8 @@ class CbomAssetIngestServiceTest {
         CbomAssetIngestService.IngestOutcome outcome = new CbomAssetIngestService(realExtractor(), assetWriter,
                 sourceWriter, detachService, stateWriter, findingWriter, cbomRepository, assetRepository,
                 new PqcEvaluator(new AssetNormalizer(IdentityTables.load())), synchronizer, new TransactionHandler(),
-                new SimpleMeterRegistry(), CbomIngestTestFixtures.propertiesWithIngestDisabled())
-                .ingest(CBOM, twoAlgorithms(), SEEN_AT);
+                new SimpleMeterRegistry())
+                .ingest(CBOM, twoAlgorithms(), SEEN_AT, CbomIngestTestFixtures.policyWithIngestDisabled());
 
         assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.DISABLED);
         verify(stateWriter, never()).markInProgress(any());
@@ -378,10 +387,12 @@ class CbomAssetIngestServiceTest {
     @Test
     void aSupersededVersionIsNotExtracted() {
         when(cbomRepository.hasIngestedLaterVersion(CBOM)).thenReturn(true);
-        when(detachService.withdraw(CBOM)).thenReturn(CbomAssetDetachService.Withdrawal.NOTHING);
+        when(detachService.withdraw(CBOM, POLICY.assetBatchSize()))
+                .thenReturn(CbomAssetDetachService.Withdrawal.NOTHING);
         CbomAssetExtractor extractor = mock(CbomAssetExtractor.class);
 
-        CbomAssetIngestService.IngestOutcome outcome = service(extractor, 100).ingest(CBOM, twoAlgorithms(), SEEN_AT);
+        CbomAssetIngestService.IngestOutcome outcome = service(extractor)
+                .ingest(CBOM, twoAlgorithms(), SEEN_AT, POLICY);
 
         assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.SUPERSEDED);
         verify(extractor, never()).extract(any(JsonNode.class));
@@ -422,14 +433,15 @@ class CbomAssetIngestServiceTest {
         whenUpsertReturnsAFreshUuid();
         // False at entry, true by the second batch: a newer revision landed in the gap between the two commits.
         when(cbomRepository.hasIngestedLaterVersion(CBOM)).thenReturn(false, false, true);
-        when(detachService.withdraw(CBOM)).thenReturn(new CbomAssetDetachService.Withdrawal(1, 1, 0, true));
+        // The withdrawal walks at the batch size this ingest was given, not at the production default.
+        when(detachService.withdraw(CBOM, 1)).thenReturn(new CbomAssetDetachService.Withdrawal(1, 1, 0, true));
 
         CbomAssetIngestService.IngestOutcome outcome = ingest(twoAlgorithms(), 1);
 
         assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.SUPERSEDED);
         // What the first batch wrote is given back rather than stranded: nothing else would ever withdraw it, since
         // the withdrawal half of supersession only runs from the ingesting version.
-        verify(detachService).withdraw(CBOM);
+        verify(detachService).withdraw(CBOM, 1);
         verify(stateWriter).markSuperseded(CBOM);
         verify(stateWriter, never()).markSynced(any(), any());
     }
@@ -439,10 +451,11 @@ class CbomAssetIngestServiceTest {
     void aSupersededVersionWhoseOwnWithdrawalIsContendedIsNotWrittenOff() {
         when(cbomRepository.hasIngestedLaterVersion(CBOM)).thenReturn(true);
         when(cbomRepository.findAssetSyncState(CBOM)).thenReturn(Optional.of(CbomAssetSyncState.FAILED));
-        when(detachService.withdraw(CBOM)).thenReturn(new CbomAssetDetachService.Withdrawal(1, 0, 0, false));
+        when(detachService.withdraw(CBOM, POLICY.assetBatchSize()))
+                .thenReturn(new CbomAssetDetachService.Withdrawal(1, 0, 0, false));
 
-        CbomAssetIngestService.IngestOutcome outcome = service(mock(CbomAssetExtractor.class), 100)
-                .ingest(CBOM, twoAlgorithms(), SEEN_AT);
+        CbomAssetIngestService.IngestOutcome outcome = service(mock(CbomAssetExtractor.class))
+                .ingest(CBOM, twoAlgorithms(), SEEN_AT, POLICY);
 
         assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.LOCKED_ELSEWHERE);
         verify(stateWriter, never()).markSuperseded(any());
@@ -463,10 +476,11 @@ class CbomAssetIngestServiceTest {
         when(cbomRepository.hasIngestedLaterVersion(CBOM)).thenReturn(false);
         when(synchronizer.tryLock(anyString())).thenReturn(true);
         whenUpsertReturnsAFreshUuid();
-        CbomAssetIngestService service = service(realExtractor(), 1);
+        CbomAssetIngestService service = service(realExtractor());
         when(cbomRepository.existsById(CBOM)).thenReturn(true, false);
 
-        CbomAssetIngestService.IngestOutcome outcome = service.ingest(CBOM, twoAlgorithms(), SEEN_AT);
+        CbomAssetIngestService.IngestOutcome outcome = service
+                .ingest(CBOM, twoAlgorithms(), SEEN_AT, CbomIngestTestFixtures.policy(1));
 
         assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.DELETED);
         verify(stateWriter, never()).markSynced(any(), any());
@@ -494,7 +508,7 @@ class CbomAssetIngestServiceTest {
     /**
      * And the refusal is counted, which is what eventually takes the row off the retry list. The extraction is a pure
      * function of the document, so without a count the backlog re-read it over HTTP, re-extracted it and re-refused it
-     * every run for ever, spending one of {@code cbom.sync.max-ingest-documents} slots each time.
+     * every run for ever, spending one of {@code cbomSyncMaxIngestDocuments} slots each time.
      */
     @Test
     void aRefusalTheDocumentEarnedIsCountedAgainstTheIngestsBound() {
@@ -513,7 +527,7 @@ class CbomAssetIngestServiceTest {
         CbomAssetExtractor extractor = mock(CbomAssetExtractor.class);
         when(extractor.extract(any(JsonNode.class))).thenThrow(new IllegalStateException("unreadable"));
 
-        service(extractor, 100).ingest(CBOM, twoAlgorithms(), SEEN_AT);
+        service(extractor).ingest(CBOM, twoAlgorithms(), SEEN_AT, POLICY);
 
         verify(stateWriter).markFailed(eq(CBOM), anyString());
         verify(stateWriter, never()).markRefusedForContent(any(), anyString());
@@ -587,10 +601,11 @@ class CbomAssetIngestServiceTest {
     @Test
     void aSupersededVersionsReportGoesWithIt() {
         when(cbomRepository.hasIngestedLaterVersion(CBOM)).thenReturn(true);
-        when(detachService.withdraw(CBOM)).thenReturn(CbomAssetDetachService.Withdrawal.NOTHING);
+        when(detachService.withdraw(CBOM, POLICY.assetBatchSize()))
+                .thenReturn(CbomAssetDetachService.Withdrawal.NOTHING);
 
-        CbomAssetIngestService.IngestOutcome outcome = service(mock(CbomAssetExtractor.class), 100)
-                .ingest(CBOM, twoAlgorithms(), SEEN_AT);
+        CbomAssetIngestService.IngestOutcome outcome = service(mock(CbomAssetExtractor.class))
+                .ingest(CBOM, twoAlgorithms(), SEEN_AT, POLICY);
 
         assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.SUPERSEDED);
         verify(findingWriter).clear(CBOM);
@@ -604,11 +619,12 @@ class CbomAssetIngestServiceTest {
     @Test
     void aReportThatCannotBeClearedStillLeavesTheVersionSuperseded() {
         when(cbomRepository.hasIngestedLaterVersion(CBOM)).thenReturn(true);
-        when(detachService.withdraw(CBOM)).thenReturn(CbomAssetDetachService.Withdrawal.NOTHING);
+        when(detachService.withdraw(CBOM, POLICY.assetBatchSize()))
+                .thenReturn(CbomAssetDetachService.Withdrawal.NOTHING);
         doThrow(new IllegalStateException("the report could not be cleared")).when(findingWriter).clear(CBOM);
 
-        CbomAssetIngestService.IngestOutcome outcome = service(mock(CbomAssetExtractor.class), 100)
-                .ingest(CBOM, twoAlgorithms(), SEEN_AT);
+        CbomAssetIngestService.IngestOutcome outcome = service(mock(CbomAssetExtractor.class))
+                .ingest(CBOM, twoAlgorithms(), SEEN_AT, POLICY);
 
         assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.SUPERSEDED);
         verify(stateWriter).markSuperseded(CBOM);
@@ -624,7 +640,8 @@ class CbomAssetIngestServiceTest {
         CbomAssetExtractor extractor = mock(CbomAssetExtractor.class);
         when(extractor.extract(any(JsonNode.class))).thenThrow(new IllegalStateException("unreadable"));
 
-        CbomAssetIngestService.IngestOutcome outcome = service(extractor, 100).ingest(CBOM, twoAlgorithms(), SEEN_AT);
+        CbomAssetIngestService.IngestOutcome outcome = service(extractor)
+                .ingest(CBOM, twoAlgorithms(), SEEN_AT, POLICY);
 
         assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.REFUSED);
         verify(findingWriter).clear(CBOM);
@@ -634,17 +651,17 @@ class CbomAssetIngestServiceTest {
     // ---------------------------------------------------------------- fixtures
 
     private CbomAssetIngestService.IngestOutcome ingest(JsonNode document, int batchSize) {
-        return service(realExtractor(), batchSize).ingest(CBOM, document, SEEN_AT);
+        return service(realExtractor()).ingest(CBOM, document, SEEN_AT, CbomIngestTestFixtures.policy(batchSize));
     }
 
-    private CbomAssetIngestService service(CbomAssetExtractor extractor, int batchSize) {
+    private CbomAssetIngestService service(CbomAssetExtractor extractor) {
         // The header is there unless a test says otherwise: every batch re-reads it under the lock, because a deletion
         // can remove it in the gap between two batch commits.
         when(cbomRepository.existsById(CBOM)).thenReturn(true);
         return new CbomAssetIngestService(extractor, assetWriter, sourceWriter, detachService, stateWriter,
                 findingWriter, cbomRepository, assetRepository,
                 new PqcEvaluator(new AssetNormalizer(IdentityTables.load())), synchronizer, new TransactionHandler(),
-                new SimpleMeterRegistry(), CbomIngestTestFixtures.properties(batchSize));
+                new SimpleMeterRegistry());
     }
 
     private void doThrowFromVerdictStamp() {

@@ -9,6 +9,7 @@ import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.core.cbom.CbomDetailDto;
 import com.otilm.api.model.core.cbom.CbomDto;
+import com.otilm.api.model.core.cbom.CbomSyncSkipDto;
 import com.otilm.api.model.core.cbom.CbomUploadRequestDto;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -78,6 +79,22 @@ public interface CbomExternalService {
      * @return List of {@link SearchFieldDataByGroupDto} object with definition the possible fields
      */
     List<SearchFieldDataByGroupDto> getSearchableFieldInformationByGroup();
+
+    /**
+     * The CBOM Repository entries the header sync could not store, newest failure first unless the request orders
+     * otherwise; see {@code CbomSyncSkipSearch} for the fields a filter and a sort may use.
+     */
+    PaginationResponseDto<CbomSyncSkipDto> listSyncSkips(SearchRequestDto request);
+
+    /** The fields {@link #listSyncSkips} filters and orders on. */
+    List<SearchFieldDataByGroupDto> getSyncSkipSearchableFields();
+
+    /**
+     * Puts a permanently skipped entry back to retrying with a full budget; an entry still retrying is left alone.
+     *
+     * @return the entry as it now stands
+     */
+    CbomSyncSkipDto retrySyncSkip(UUID uuid) throws NotFoundException;
 
     /**
      * Synchronize CBOMs from the CBOM repository. This version is intended for use by the REST API controller as it

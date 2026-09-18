@@ -24,6 +24,12 @@ public class OpaResourceAccessResult {
     public OpaResourceAccessResult() {
     }
 
+    /** Copies the verdict so that a shared instance, such as a cached one, is never handed to a caller. */
+    public OpaResourceAccessResult(OpaResourceAccessResult other) {
+        this.allow = other.allow == null ? null : List.copyOf(other.allow);
+        this.authorized = other.authorized;
+    }
+
     public List<String> getAllow() {
         return allow;
     }

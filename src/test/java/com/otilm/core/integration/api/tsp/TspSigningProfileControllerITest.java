@@ -1,15 +1,15 @@
 package com.otilm.core.integration.api.tsp;
 
-import com.otilm.api.model.client.attribute.RequestAttribute;
-import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.core.connector.v2.ConnectorDetailDto;
 import com.otilm.api.model.core.cryptography.token.TokenInstanceDetailDto;
 import com.otilm.api.model.core.cryptography.tokenprofile.TokenProfileDetailDto;
 import com.otilm.core.api.tsp.TspSigningProfileControllerImpl;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
+import com.otilm.core.helpers.SigningAlgorithmSpecs;
 import com.otilm.core.helpers.TestCertificateAuthority;
+import com.otilm.core.helpers.TsaSigningMaterial;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CryptographicKeyExternalService;
@@ -26,20 +26,11 @@ import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.MessageDigest;
 import java.security.Security;
-import java.security.spec.AlgorithmParameterSpec;
-import java.security.spec.ECGenParameterSpec;
-import java.util.Base64;
-import java.util.EnumMap;
-import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Stream;
 import org.bouncycastle.asn1.cmp.PKIFailureInfo;
 import org.bouncycastle.asn1.cmp.PKIStatus;
-import org.bouncycastle.jcajce.spec.MLDSAParameterSpec;
-import org.bouncycastle.jcajce.spec.SLHDSAParameterSpec;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
-import org.bouncycastle.pqc.jcajce.spec.FalconParameterSpec;
 import org.bouncycastle.tsp.TSPAlgorithms;
 import org.bouncycastle.tsp.TimeStampResponse;
 import org.junit.jupiter.api.AfterEach;
@@ -47,17 +38,13 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 
 import static com.otilm.core.util.builders.ConnectorRequestDtoBuilder.aV1ConnectorRequest;
 import static com.otilm.core.util.builders.ConnectorRequestDtoBuilder.aV2ConnectorRequest;
-import static com.otilm.core.util.builders.EcdsaSignatureAttributesBuilder.ecdsaSignatureAttributes;
-import static com.otilm.core.util.builders.KeyPairRequestDtoBuilder.aKeyPairRequest;
 import static com.otilm.core.util.builders.RawTspRequestBuilder.aRawTspRequest;
-import static com.otilm.core.util.builders.RsaSignatureAttributesBuilder.rsaSignatureAttributes;
 import static com.otilm.core.util.builders.SigningProfileRequestDtoBuilder.aSigningProfileRequest;
 import static com.otilm.core.util.builders.TimestampingWorkflowRequestDtoBuilder.aTimestampingWorkflow;
 import static com.otilm.core.util.builders.TokenInstanceRequestDtoBuilder.aTokenInstanceRequest;
@@ -114,41 +101,10 @@ public class TspSigningProfileControllerITest extends BaseSpringBootTest {
     @Autowired
     private TestCertificateAuthority testCertificateAuthority;
 
-    /**
-     * Static description of a single signing algorithm under test: the platform key algorithm, the key-generation
-     * parameters, the JCA signature algorithm the mock connector signs with, and the signing-operation attributes the
-     * profile carries (empty for post-quantum algorithms, whose signature algorithm is derived from the public key's
-     * SubjectPublicKeyInfo OID).
-     */
-    private record AlgorithmSpec(String label, KeyAlgorithm keyAlgorithm, AlgorithmParameterSpec keyParameterSpec,
-            String jcaSignatureAlgorithm, List<RequestAttribute> signingAttributes) {
-    }
-
-    private static final List<AlgorithmSpec> ALGORITHM_SPECS = List
-            .of(new AlgorithmSpec("RSA", KeyAlgorithm.RSA, null, "SHA256withRSA", rsaSignatureAttributes().build()),
-                    new AlgorithmSpec("ECDSA", KeyAlgorithm.ECDSA, new ECGenParameterSpec("secp256r1"),
-                            "SHA256withECDSA", ecdsaSignatureAttributes().build()),
-                    new AlgorithmSpec("FALCON-1024", KeyAlgorithm.FALCON, FalconParameterSpec.falcon_1024,
-                            "FALCON-1024", List.of()),
-                    new AlgorithmSpec("ML-DSA-65", KeyAlgorithm.MLDSA, MLDSAParameterSpec.ml_dsa_65, "ML-DSA-65",
-                            List.of()),
-                    new AlgorithmSpec("SLH-DSA-SHA2-128F", KeyAlgorithm.SLHDSA, SLHDSAParameterSpec.slh_dsa_sha2_128f,
-                            "SLH-DSA-SHA2-128F", List.of()));
-
     private CryptographyProviderConnectorMock cryptographyProviderMock;
     private TimestampingFormattingConnectorMock timestampingFormattingMock;
     private ConnectorDetailDto formattingConnector;
-
-    /**
-     * Uploaded TSA certificate entities indexed by algorithm — populated in {@link #setUp()}.
-     */
-    private final Map<KeyAlgorithm, Certificate> tsaCertificates = new EnumMap<>(KeyAlgorithm.class);
-
-    /**
-     * Private-key reference UUIDs indexed by algorithm — populated in {@link #setUp()}. Lets a test re-register the
-     * signer mock with a different key to drive the signature-mismatch rejection path.
-     */
-    private final Map<KeyAlgorithm, UUID> privateKeyReferenceUuids = new EnumMap<>(KeyAlgorithm.class);
+    private TsaSigningMaterial tsaSigningMaterial;
 
     @BeforeEach
     public void setUp() throws Exception {
@@ -183,30 +139,9 @@ public class TspSigningProfileControllerITest extends BaseSpringBootTest {
                 .createTokenProfile(SecuredParentUUID.fromString(tokenInstance.getUuid()),
                         aTokenProfileRequest().withName("tsp-sp-token-profile").build());
 
-        TestCertificateAuthority.TrustedCa trustedCa = testCertificateAuthority
-                .createTrustedCa("CN=TSP SP Test Root CA");
-
-        for (AlgorithmSpec spec : ALGORITHM_SPECS) {
-            KeyPair keyPair = CertificateGeneratorHelper.generateKeyPair(spec.keyAlgorithm(), spec.keyParameterSpec());
-
-            // The connector reports this UUID as the private key's reference; the same UUID keys the
-            // real-signer mock, so runtime sign requests reach this algorithm's live private key.
-            UUID privateKeyReferenceUuid = UUID.randomUUID();
-            privateKeyReferenceUuids.put(spec.keyAlgorithm(), privateKeyReferenceUuid);
-            cryptographyProviderMock
-                    .stubKeyPairCreation(Base64.getEncoder().encodeToString(keyPair.getPublic().getEncoded()),
-                            spec.keyAlgorithm(), privateKeyReferenceUuid)
-                    .registerSigningKey(privateKeyReferenceUuid, keyPair.getPrivate(), spec.jcaSignatureAlgorithm());
-            cryptographicKeyService
-                    .createKey(UUID.fromString(tokenInstance.getUuid()),
-                            SecuredParentUUID.fromString(tokenProfile.getUuid()), KeyRequestType.KEY_PAIR,
-                            aKeyPairRequest().withName("tsp-sp-key-" + spec.label().toLowerCase()).build());
-
-            // Uploading the leaf associates it (by public-key fingerprint) with the token-backed key
-            tsaCertificates
-                    .put(spec.keyAlgorithm(),
-                            trustedCa.issueTimestampingCertificate(keyPair, "CN=Test SP TSA " + spec.label()));
-        }
+        tsaSigningMaterial = new TsaSigningMaterial(cryptographyProviderMock, cryptographicKeyService, tokenInstance,
+                tokenProfile, testCertificateAuthority.createTrustedCa("CN=TSP SP Test Root CA"), "tsp-sp-key-",
+                "CN=Test SP TSA ");
     }
 
     @AfterEach
@@ -224,11 +159,11 @@ public class TspSigningProfileControllerITest extends BaseSpringBootTest {
      * signing-profile name returns PKI status GRANTED with a SHA-256 imprint algorithm.
      */
     @ParameterizedTest(name = "{0}")
-    @MethodSource("allSigningAlgorithmParameters")
-    public void withoutSignatureValidation(String label, KeyAlgorithm keyAlgorithm) throws Exception {
+    @MethodSource("allSigningAlgorithms")
+    public void withoutSignatureValidation(SignatureAlgorithm signatureAlgorithm) throws Exception {
         // given
         boolean validateTokenSignature = false;
-        String signingProfileName = createEnabledTspSigningProfile(label, keyAlgorithm, validateTokenSignature);
+        String signingProfileName = createEnabledTspSigningProfile(signatureAlgorithm, validateTokenSignature);
         byte[] requestWithSha256Imprint = aRawTspRequest()
                 .withCertReq(REQUEST_SIGNER_CERTIFICATE)
                 .withHashedMessage(sha256(TSP_IMPRINT_INPUT))
@@ -248,11 +183,11 @@ public class TspSigningProfileControllerITest extends BaseSpringBootTest {
      * mock embeds the live signature.
      */
     @ParameterizedTest(name = "{0}")
-    @MethodSource("allSigningAlgorithmParameters")
-    public void withSignatureValidation(String label, KeyAlgorithm keyAlgorithm) throws Exception {
+    @MethodSource("allSigningAlgorithms")
+    public void withSignatureValidation(SignatureAlgorithm signatureAlgorithm) throws Exception {
         // given
         boolean validateTokenSignature = true;
-        String signingProfileName = createEnabledTspSigningProfile(label, keyAlgorithm, validateTokenSignature);
+        String signingProfileName = createEnabledTspSigningProfile(signatureAlgorithm, validateTokenSignature);
         byte[] requestWithSha256Imprint = aRawTspRequest()
                 .withCertReq(REQUEST_SIGNER_CERTIFICATE)
                 .withHashedMessage(sha256(TSP_IMPRINT_INPUT))
@@ -266,12 +201,8 @@ public class TspSigningProfileControllerITest extends BaseSpringBootTest {
         assertGrantedSha256Response(response);
     }
 
-    /**
-     * Parameter source for {@link #withoutSignatureValidation} and {@link #withSignatureValidation}:
-     * {@code (label, KeyAlgorithm)} for every entry of {@link #ALGORITHM_SPECS}.
-     */
-    static Stream<Arguments> allSigningAlgorithmParameters() {
-        return ALGORITHM_SPECS.stream().map(s -> Arguments.of(s.label(), s.keyAlgorithm()));
+    static Stream<SignatureAlgorithm> allSigningAlgorithms() {
+        return SigningAlgorithmSpecs.timestampingAlgorithms();
     }
 
     // ── Edge cases specific to the signing-profile entry point ──────────────────
@@ -285,7 +216,7 @@ public class TspSigningProfileControllerITest extends BaseSpringBootTest {
     public void rejectsBadRequest_whenSigningProfileHasTspProtocolDisabled() throws Exception {
         // given: an enabled signing profile that was NOT activated for any TSP profile
         boolean validateTokenSignature = false;
-        String signingProfileName = createEnabledSigningProfileWithoutTspActivation("RSA", KeyAlgorithm.RSA,
+        String signingProfileName = createEnabledSigningProfileWithoutTspActivation(SignatureAlgorithm.SHA256_WITH_RSA,
                 validateTokenSignature);
         byte[] requestWithSha256Imprint = aRawTspRequest()
                 .withCertReq(REQUEST_SIGNER_CERTIFICATE)
@@ -337,11 +268,12 @@ public class TspSigningProfileControllerITest extends BaseSpringBootTest {
     public void withSignatureValidation_rejectsToken_whenSignerKeyDoesNotMatchCertificate() throws Exception {
         // given: the signer mock signs with a freshly generated key unrelated to the TSA certificate
         boolean validateTokenSignature = true;
-        String signingProfileName = createEnabledTspSigningProfile("RSA", KeyAlgorithm.RSA, validateTokenSignature);
+        String signingProfileName = createEnabledTspSigningProfile(SignatureAlgorithm.SHA256_WITH_RSA,
+                validateTokenSignature);
         KeyPair keyNotMatchingCertificate = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
         cryptographyProviderMock
-                .registerSigningKey(privateKeyReferenceUuids.get(KeyAlgorithm.RSA),
-                        keyNotMatchingCertificate.getPrivate(), "SHA256withRSA");
+                .registerSigningKey(tsaSigningMaterial.privateKeyReferenceUuid(SignatureAlgorithm.SHA256_WITH_RSA),
+                        keyNotMatchingCertificate.getPrivate(), SignatureAlgorithm.SHA256_WITH_RSA);
         byte[] requestWithSha256Imprint = aRawTspRequest()
                 .withCertReq(REQUEST_SIGNER_CERTIFICATE)
                 .withHashedMessage(sha256(TSP_IMPRINT_INPUT))
@@ -366,10 +298,12 @@ public class TspSigningProfileControllerITest extends BaseSpringBootTest {
      * timestamping workflow), then creates+enables a TSP profile and activates the signing profile for it so the TSP
      * protocol is reachable by signing-profile name. Returns the signing profile name.
      */
-    private String createEnabledTspSigningProfile(String label, KeyAlgorithm keyAlgorithm,
-            boolean validateTokenSignature) throws Exception {
+    private String createEnabledTspSigningProfile(SignatureAlgorithm signatureAlgorithm, boolean validateTokenSignature)
+            throws Exception {
+        String label = signatureAlgorithm.getCode();
         String signingProfileName = "tsp-sp-signing-profile-" + label;
-        UUID signingProfileUuid = createEnabledSigningProfile(signingProfileName, keyAlgorithm, validateTokenSignature);
+        UUID signingProfileUuid = createEnabledSigningProfile(signingProfileName, signatureAlgorithm,
+                validateTokenSignature);
 
         String tspProfileName = "tsp-sp-profile-" + label;
         UUID tspProfileUuid = UUID
@@ -389,21 +323,22 @@ public class TspSigningProfileControllerITest extends BaseSpringBootTest {
      * Creates and enables a signing profile but does NOT activate it for any TSP profile, leaving
      * {@code tspProfileUuid == null}. Returns the signing profile name.
      */
-    private String createEnabledSigningProfileWithoutTspActivation(String label, KeyAlgorithm keyAlgorithm,
+    private String createEnabledSigningProfileWithoutTspActivation(SignatureAlgorithm signatureAlgorithm,
             boolean validateTokenSignature) throws Exception {
-        String signingProfileName = "tsp-sp-inactive-signing-profile-" + label;
-        createEnabledSigningProfile(signingProfileName, keyAlgorithm, validateTokenSignature);
+        String signingProfileName = "tsp-sp-inactive-signing-profile-" + signatureAlgorithm.getCode();
+        createEnabledSigningProfile(signingProfileName, signatureAlgorithm, validateTokenSignature);
         return signingProfileName;
     }
 
-    private UUID createEnabledSigningProfile(String signingProfileName, KeyAlgorithm keyAlgorithm,
+    private UUID createEnabledSigningProfile(String signingProfileName, SignatureAlgorithm signatureAlgorithm,
             boolean validateTokenSignature) throws Exception {
         UUID signingProfileUuid = UUID
                 .fromString(signingProfileService
                         .createSigningProfile(aSigningProfileRequest()
                                 .withName(signingProfileName)
-                                .withStaticKeyManagedSigning(tsaCertificates.get(keyAlgorithm).getUuid(),
-                                        signingAttributesFor(keyAlgorithm))
+                                .withStaticKeyManagedSigning(
+                                        tsaSigningMaterial.issueTimestampingCertificate(signatureAlgorithm).getUuid(),
+                                        SigningAlgorithmSpecs.specFor(signatureAlgorithm).signingAttributes())
                                 .withTimestamping(aTimestampingWorkflow()
                                         .withSignatureFormattingConnector(
                                                 UUID.fromString(formattingConnector.getUuid()))
@@ -415,15 +350,6 @@ public class TspSigningProfileControllerITest extends BaseSpringBootTest {
                         .getUuid());
         signingProfileService.enableSigningProfile(SecuredUUID.fromUUID(signingProfileUuid));
         return signingProfileUuid;
-    }
-
-    private static List<RequestAttribute> signingAttributesFor(KeyAlgorithm keyAlgorithm) {
-        return ALGORITHM_SPECS
-                .stream()
-                .filter(spec -> spec.keyAlgorithm() == keyAlgorithm)
-                .findFirst()
-                .orElseThrow()
-                .signingAttributes();
     }
 
     private static byte[] sha256(String input) throws Exception {

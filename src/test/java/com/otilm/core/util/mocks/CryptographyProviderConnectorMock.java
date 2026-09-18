@@ -3,6 +3,7 @@ package com.otilm.core.util.mocks;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.otilm.api.model.client.connector.InfoResponse;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.core.connector.EndpointDto;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.core.util.seeders.FunctionGroupSeeder;
@@ -178,8 +179,8 @@ public class CryptographyProviderConnectorMock extends BaseConnectorMock {
     }
 
     public CryptographyProviderConnectorMock registerSigningKey(UUID keyReferenceUuid, PrivateKey privateKey,
-            String jcaSignatureAlgorithm) {
-        realSignerTransformer.registerKey(keyReferenceUuid, privateKey, jcaSignatureAlgorithm);
+            SignatureAlgorithm signatureAlgorithm) {
+        realSignerTransformer.registerKey(keyReferenceUuid, privateKey, signatureAlgorithm.getCode());
         return this;
     }
 

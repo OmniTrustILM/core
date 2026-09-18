@@ -11,6 +11,7 @@ import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cbom.CbomDetailDto;
 import com.otilm.api.model.core.cbom.CbomDto;
+import com.otilm.api.model.core.cbom.CbomSyncSkipDto;
 import com.otilm.api.model.core.cbom.CbomUploadRequestDto;
 import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
@@ -83,5 +84,24 @@ public class CbomControllerImpl implements CbomController {
             operation = Operation.LIST)
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformation() {
         return cbomService.getSearchableFieldInformationByGroup();
+    }
+
+    @Override
+    @AuditLogged(module = Module.CORE, resource = Resource.CBOM, operation = Operation.LIST)
+    public PaginationResponseDto<CbomSyncSkipDto> listSyncSkips(SearchRequestDto request) {
+        return cbomService.listSyncSkips(request);
+    }
+
+    @Override
+    @AuditLogged(module = Module.CORE, resource = Resource.SEARCH_FILTER, affiliatedResource = Resource.CBOM,
+            operation = Operation.LIST)
+    public List<SearchFieldDataByGroupDto> getSyncSkipSearchableFields() {
+        return cbomService.getSyncSkipSearchableFields();
+    }
+
+    @Override
+    @AuditLogged(module = Module.CORE, resource = Resource.CBOM, operation = Operation.RETRY)
+    public CbomSyncSkipDto retrySyncSkip(@LogResource(uuid = true) UUID uuid) throws NotFoundException {
+        return cbomService.retrySyncSkip(uuid);
     }
 }

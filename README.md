@@ -165,8 +165,7 @@ Depends-On: OmniTrustILM/interfaces#940
 ```
 
 CI then builds against that pull request's own snapshot, which it publishes only
-while it carries the `publish-snapshot` label. Fork pull requests never publish,
-because their token is read-only.
+while it carries the `publish-snapshot` label, and never from a fork.
 
 Use `Interfaces-Version` instead to pin one already-published build — useful when
 somebody else's merge reddens an unrelated pull request:
@@ -175,16 +174,19 @@ somebody else's merge reddens an unrelated pull request:
 Interfaces-Version: 2.20.0-M907-1299756b
 ```
 
-Two rules decide whether a marker is read at all. **It must start at column 0** —
-no bullet, no indent, no `>`, no bold — and **nothing may follow the value**. A
-marker breaking either rule fails the build with a message naming the accepted
-form, rather than being silently ignored. Markers inside fenced code blocks or
-HTML comments are skipped, so quoting the syntax is safe.
+Three rules decide whether a marker is read at all. **It must start at column 0**
+— no bullet, no indent, no `>`, no bold — **nothing may follow the value**, and
+**the repository must be spelled in full** as `OmniTrustILM/interfaces`. Break
+either of the first two and the build fails with a message naming the accepted
+form; a shortened repository name is not recognised as a marker at all, so it is
+ignored in silence. Markers inside fenced code blocks or HTML comments are
+skipped too, so quoting the syntax is safe.
 
-The `Interfaces pin` check stays red for as long as a marker is active, and it
-feeds the required `Build` check, so neither form can reach `main`:
+`Interfaces pin` stays red for as long as a marker is active, and it feeds the
+required `Build` check, so neither form can reach `main`. `Depends-On` clears
+itself once the `interfaces` pull request merges and **all** jobs are re-run —
+re-running only the failed job replays the cached resolution. `Interfaces-Version`
+clears only when you delete the line.
 
-- `Depends-On` clears itself. Merge the `interfaces` pull request, wait for its
-  publish to finish, then re-run **all** jobs — re-running only the failed job
-  replays the cached resolution and the gate stays red.
-- `Interfaces-Version` does not. Delete the line and re-run before merging.
+The rest of the flow — merge order, which workflows to re-run and why, building
+locally — is in [docs/coupled-interfaces-changes.md](docs/coupled-interfaces-changes.md).

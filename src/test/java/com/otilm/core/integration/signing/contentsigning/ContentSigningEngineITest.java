@@ -23,6 +23,7 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.signing.SigningRecord;
 import com.otilm.core.dao.repository.signing.SigningRecordRepository;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
+import com.otilm.core.helpers.SigningAlgorithmSpecs;
 import com.otilm.core.helpers.TestCertificateAuthority;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.resolved.ResolvedManagedContentSigningProfile;
@@ -44,6 +45,7 @@ import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
 import com.otilm.core.signing.engine.resolver.SigningProfileResolverFactory;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.builders.SigningProfileRequestDtoBuilder;
 import com.otilm.core.util.mocks.ConnectorMockFactory;
 import com.otilm.core.util.mocks.ContentSigningFormattingMock;
 import com.otilm.core.util.mocks.CryptographyProviderConnectorMock;
@@ -51,14 +53,18 @@ import com.otilm.core.util.mocks.TimestampingFormattingConnectorMock;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.MessageDigest;
+import java.security.spec.AlgorithmParameterSpec;
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import static com.otilm.core.util.builders.ConnectorRequestDtoBuilder.aV1ConnectorRequest;
@@ -125,6 +131,22 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
     private ConnectorDetailDto contentSigningFormattingConnector;
     private Certificate signingCertificate;
     private Certificate timestampingCertificate;
+    private TokenInstanceDetailDto tokenInstance;
+    private TokenProfileDetailDto tokenProfile;
+    private TestCertificateAuthority.TrustedCa trustedCa;
+
+    private record PostQuantumKey(SignatureAlgorithm signatureAlgorithm, KeyAlgorithm keyAlgorithm,
+            DigestAlgorithm expectedDigest) {
+
+        AlgorithmParameterSpec keyParameterSpec() {
+            return SigningAlgorithmSpecs.parameterSpecFor(signatureAlgorithm, keyAlgorithm);
+        }
+    }
+
+    private static final List<PostQuantumKey> POST_QUANTUM_KEYS = List
+            .of(new PostQuantumKey(SignatureAlgorithm.ML_DSA_65, KeyAlgorithm.MLDSA, DigestAlgorithm.SHA_512),
+                    new PostQuantumKey(SignatureAlgorithm.SLH_DSA_SHA2_128F, KeyAlgorithm.SLHDSA,
+                            DigestAlgorithm.SHA_256));
 
     @BeforeEach
     void registerConnectorsAndSigningMaterial() throws Exception {
@@ -153,14 +175,14 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
                         .build());
 
         cryptographyProviderMock.stubTokenInstanceCreation(UUID.randomUUID());
-        TokenInstanceDetailDto tokenInstance = tokenInstanceService
+        tokenInstance = tokenInstanceService
                 .createTokenInstance(aTokenInstanceRequest()
                         .withName("soft-token")
                         .withConnector(cryptographyProviderConnector.getUuid())
                         .build());
 
         cryptographyProviderMock.stubTokenProfileCreation();
-        TokenProfileDetailDto tokenProfile = tokenProfileService
+        tokenProfile = tokenProfileService
                 .createTokenProfile(SecuredParentUUID.fromString(tokenInstance.getUuid()),
                         aTokenProfileRequest().withName("soft-token-profile").build());
 
@@ -172,7 +194,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
                         SecuredParentUUID.fromString(tokenProfile.getUuid()), KeyRequestType.KEY_PAIR,
                         aKeyPairRequest().withName("soft-key-pair").build());
 
-        TestCertificateAuthority.TrustedCa trustedCa = testCertificateAuthority.createTrustedCa("CN=Test Root CA");
+        trustedCa = testCertificateAuthority.createTrustedCa("CN=Test Root CA");
         signingCertificate = trustedCa.issueSigningCertificate(keyPair, "CN=Test Signing");
         timestampingCertificate = trustedCa.issueTimestampingCertificate(keyPair, "CN=Test TSA");
 
@@ -267,6 +289,33 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         assertThat(embedded).isEqualTo(computed);
     }
 
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("postQuantumKeys")
+    void tellsTheConnectorThePostQuantumParameterSetOfTheResolvedSigner(PostQuantumKey postQuantumKey)
+            throws Exception {
+        // given: a profile over a key of this parameter set, authorized under the digest the row pins
+        SigningProfileDto contentProfile = createPostQuantumContentSigningProfile(postQuantumKey);
+        byte[] document = "a document signed with a post-quantum key".getBytes(StandardCharsets.UTF_8);
+
+        // when
+        engine
+                .sign(signingRequest(SignatureLevel.SIGNED, document, postQuantumKey.expectedDigest()),
+                        modelOf(contentProfile), resolvedContentSigningProfile(contentProfile),
+                        SigningProtocol.CSC_API);
+
+        // then
+        List<String> computed = contentSigningFormattingMock
+                .signatureAlgorithmsReceivedBy(ContentSigningFormattingOperation.COMPUTE_DTBS);
+        List<String> embedded = contentSigningFormattingMock
+                .signatureAlgorithmsReceivedBy(ContentSigningFormattingOperation.EMBED_SIGNATURE_VALUE);
+        assertThat(computed).containsExactly(postQuantumKey.signatureAlgorithm().getCode());
+        assertThat(embedded).isEqualTo(computed);
+    }
+
+    static Stream<Named<PostQuantumKey>> postQuantumKeys() {
+        return POST_QUANTUM_KEYS.stream().map(key -> Named.of(key.signatureAlgorithm().getCode(), key));
+    }
+
     @Test
     void refusesToSignWhenTheConnectorEchoesADigestOfAnotherDocument() throws Exception {
         // given: the connector commits to content other than the document that was authorized
@@ -349,8 +398,13 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
     }
 
     private static ContentSigningRequest signingRequest(SignatureLevel targetLevel, byte[] document) throws Exception {
-        return new ContentSigningRequest(targetLevel, new InlineDocumentTransferDto(document),
-                new DocumentDigest(DigestAlgorithm.SHA_256, MessageDigest.getInstance("SHA-256").digest(document)));
+        return signingRequest(targetLevel, document, DigestAlgorithm.SHA_256);
+    }
+
+    private static ContentSigningRequest signingRequest(SignatureLevel targetLevel, byte[] document,
+            DigestAlgorithm authorizedDigest) throws Exception {
+        return new ContentSigningRequest(targetLevel, new InlineDocumentTransferDto(document), new DocumentDigest(
+                authorizedDigest, MessageDigest.getInstance(authorizedDigest.getCode()).digest(document)));
     }
 
     private SigningProfileModel<?, ?> modelOf(SigningProfileDto profile) throws NotFoundException {
@@ -384,6 +438,24 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
 
     private SigningProfileDto createContentSigningProfile(String name, SignatureFamily family, SignatureLevel maxLevel,
             UUID timestampSourceProfileUuid) throws Exception {
+        return createEnabledSigningProfile(aContentSigningProfile(name, family, maxLevel, timestampSourceProfileUuid)
+                .withStaticKeyManagedSigning(signingCertificate.getUuid()));
+    }
+
+    private SigningProfileDto createPostQuantumContentSigningProfile(PostQuantumKey postQuantumKey) throws Exception {
+        SignatureAlgorithm signatureAlgorithm = postQuantumKey.signatureAlgorithm();
+        // Attributes are given explicitly and empty: the one-argument scheme defaults them to an RSA
+        // signature, which is validated against the key algorithm and rejected for a post-quantum key.
+        return createEnabledSigningProfile(
+                aContentSigningProfile("pqc-signed-run-" + signatureAlgorithm.getCode().toLowerCase(),
+                        SignatureFamily.PADES, SignatureLevel.SIGNED, null)
+                        .withStaticKeyManagedSigning(postQuantumSigningCertificateFor(postQuantumKey).getUuid(),
+                                List.of()));
+    }
+
+    /** The content-signing half of a profile request; the caller adds the signing scheme its key needs. */
+    private SigningProfileRequestDtoBuilder aContentSigningProfile(String name, SignatureFamily family,
+            SignatureLevel maxLevel, UUID timestampSourceProfileUuid) {
         var workflow = aContentSigningWorkflow()
                 .withSignatureFormattingConnector(UUID.fromString(contentSigningFormattingConnector.getUuid()))
                 .withFamily(family)
@@ -391,15 +463,31 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         if (timestampSourceProfileUuid != null) {
             workflow.withInternalTimestampSource(timestampSourceProfileUuid);
         }
+        return aSigningProfileRequest().withName(name).withContentSigning(workflow.build());
+    }
+
+    private SigningProfileDto createEnabledSigningProfile(SigningProfileRequestDtoBuilder request) throws Exception {
         SigningProfileDto profile = signingProfileService
-                .createSigningProfile(aSigningProfileRequest()
-                        .withName(name)
-                        .withStaticKeyManagedSigning(signingCertificate.getUuid())
-                        .withContentSigning(workflow.build())
-                        .withRecordPolicy(recordingEverything())
-                        .build());
+                .createSigningProfile(request.withRecordPolicy(recordingEverything()).build());
         signingProfileService.enableSigningProfile(SecuredUUID.fromString(profile.getUuid()));
         return profile;
+    }
+
+    private Certificate postQuantumSigningCertificateFor(PostQuantumKey postQuantumKey) throws Exception {
+        SignatureAlgorithm signatureAlgorithm = postQuantumKey.signatureAlgorithm();
+        KeyPair postQuantumKeyPair = CertificateGeneratorHelper
+                .generateKeyPair(postQuantumKey.keyAlgorithm(), postQuantumKey.keyParameterSpec());
+        cryptographyProviderMock
+                .stubKeyPairCreation(Base64.getEncoder().encodeToString(postQuantumKeyPair.getPublic().getEncoded()),
+                        postQuantumKey.keyAlgorithm(), UUID.randomUUID());
+        cryptographicKeyService
+                .createKey(UUID.fromString(tokenInstance.getUuid()),
+                        SecuredParentUUID.fromString(tokenProfile.getUuid()), KeyRequestType.KEY_PAIR,
+                        aKeyPairRequest()
+                                .withName("soft-key-pair-" + signatureAlgorithm.getCode().toLowerCase())
+                                .build());
+
+        return trustedCa.issueSigningCertificate(postQuantumKeyPair, "CN=Test Signing " + signatureAlgorithm.getCode());
     }
 
     private static String profileName(String prefix, SignatureFamily family) {

@@ -12,6 +12,16 @@ public class OpaObjectAccessResult {
     @JsonProperty("actionAllowedForGroupOfObjects")
     private boolean actionAllowedForGroupOfObjects;
 
+    public OpaObjectAccessResult() {
+    }
+
+    /** Copies the filter so that a shared instance, such as a cached one, is never handed to a caller. */
+    public OpaObjectAccessResult(OpaObjectAccessResult other) {
+        this.allowedObjects = other.allowedObjects == null ? null : List.copyOf(other.allowedObjects);
+        this.forbiddenObjects = other.forbiddenObjects == null ? null : List.copyOf(other.forbiddenObjects);
+        this.actionAllowedForGroupOfObjects = other.actionAllowedForGroupOfObjects;
+    }
+
     public List<String> getAllowedObjects() {
         return allowedObjects;
     }

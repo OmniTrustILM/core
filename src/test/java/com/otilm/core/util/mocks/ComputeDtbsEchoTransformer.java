@@ -6,6 +6,7 @@ import com.github.tomakehurst.wiremock.extension.ResponseDefinitionTransformerV2
 import com.github.tomakehurst.wiremock.http.ResponseDefinition;
 import com.github.tomakehurst.wiremock.stubbing.ServeEvent;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.connector.signatures.contentsigning.common.ComputeDtbsResponseDto;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -40,11 +41,14 @@ class ComputeDtbsEchoTransformer implements ResponseDefinitionTransformerV2 {
     @Override
     public ResponseDefinition transform(ServeEvent serveEvent) {
         try {
+            JsonNode body = BaseConnectorMock.OBJECT_MAPPER.readTree(serveEvent.getRequest().getBodyAsString());
+            DigestAlgorithm committed = committedDigest(body);
+
             ComputeDtbsResponseDto response = new ComputeDtbsResponseDto();
             response.setDtbs(FIXED_DTBS);
             response.setFormattingContext(FIXED_FORMATTING_CONTEXT);
-            response.setDocumentDigestAlgorithm(DigestAlgorithm.SHA_256);
-            response.setDocumentDigest(sha256(committedContent(serveEvent)));
+            response.setDocumentDigestAlgorithm(committed);
+            response.setDocumentDigest(digest(committed, committedContent(body)));
 
             return ResponseDefinitionBuilder
                     .like(serveEvent.getResponseDefinition())
@@ -55,16 +59,24 @@ class ComputeDtbsEchoTransformer implements ResponseDefinitionTransformerV2 {
         }
     }
 
-    private byte[] committedContent(ServeEvent serveEvent) throws Exception {
+    private static DigestAlgorithm committedDigest(JsonNode body) {
+        JsonNode named = body.at("/signatureAlgorithm");
+        if (!named.isTextual()) {
+            return DigestAlgorithm.SHA_256; // default fallback
+        }
+        SignatureAlgorithm signatureAlgorithm = SignatureAlgorithm.findByCode(named.asText());
+        return DigestAlgorithm.findByOid(signatureAlgorithm.getDigestAlgorithmIdentifier().getAlgorithm().getId());
+    }
+
+    private byte[] committedContent(JsonNode body) {
         if (foreignContent != null) {
             return foreignContent;
         }
-        JsonNode body = BaseConnectorMock.OBJECT_MAPPER.readTree(serveEvent.getRequest().getBodyAsString());
         return Base64.getDecoder().decode(body.at("/document/document").asText());
     }
 
-    private static byte[] sha256(byte[] content) throws Exception {
-        return MessageDigest.getInstance("SHA-256").digest(content);
+    private static byte[] digest(DigestAlgorithm algorithm, byte[] content) throws Exception {
+        return MessageDigest.getInstance(algorithm.getCode()).digest(content);
     }
 
     @Override

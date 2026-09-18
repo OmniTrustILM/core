@@ -70,31 +70,27 @@ class BrandingLogoValidatorTest {
         Assertions.assertDoesNotThrow(() -> BrandingLogoValidator.validateAndSanitize(FIELD, null));
     }
 
+    /** 406x79 is the platform's own wordmark, so the list spans the proportions a real brand arrives in. */
     @ParameterizedTest
-    @CsvSource({"200,200", "300,100", "240,120", "1,1", "3,1"})
-    void aPngWithinTheAllowedAspectRatioIsAccepted(int width, int height) {
+    @CsvSource({"200,200", "300,100", "240,120", "1,1", "3,1", "406,79", "1000,50", "100,300"})
+    void aPngOfAnyShapeIsAccepted(int width, int height) {
         Assertions.assertDoesNotThrow(() -> BrandingLogoValidator.validateAndSanitize(FIELD, pngLogo(width, height)));
-    }
-
-    /** The boundaries are inclusive, so 1:1 and 3:1 pass and anything a hair outside them does not. */
-    @ParameterizedTest
-    @CsvSource({"301,100", "400,100", "199,200", "100,300"})
-    void aPngOutsideTheAllowedAspectRatioIsRejected(int width, int height) {
-        Assertions.assertTrue(rejectionMessage(pngLogo(width, height)).contains("aspect ratio"));
     }
 
     /**
      * A width or height of zero cannot come out of a real encoder, so the fixture is hand-built; the CRCs are still the
-     * ones the chunks require, leaving the dimension as the only thing wrong with it.
+     * ones the chunks require, leaving the dimension as the only thing wrong with it. The offsets are IHDR's width and
+     * its height, which are the first two four-byte fields of the chunk's data.
      */
-    @Test
-    void aPngWithNoWidthOrHeightIsRejected() {
-        byte[] zeroWidth = png(200, 100);
-        System.arraycopy(fourBytes(0), 0, zeroWidth, 16, 4);
-        repairChunkCrc(zeroWidth, 8);
+    @ParameterizedTest
+    @ValueSource(ints = {16, 20})
+    void aPngWithNoWidthOrHeightIsRejected(int dimensionOffset) {
+        byte[] zeroed = png(200, 100);
+        System.arraycopy(fourBytes(0), 0, zeroed, dimensionOffset, 4);
+        repairChunkCrc(zeroed, 8);
 
         Assertions
-                .assertTrue(rejectionMessage(dataUri(BrandingLogoValidator.PNG_MEDIA_TYPE, zeroWidth))
+                .assertTrue(rejectionMessage(dataUri(BrandingLogoValidator.PNG_MEDIA_TYPE, zeroed))
                         .contains("zero width or height"));
     }
 
@@ -195,35 +191,34 @@ class BrandingLogoValidatorTest {
         System.arraycopy(fourBytes((int) crc.getValue()), 0, content, offset + 8 + dataLength, 4);
     }
 
+    /**
+     * Nothing derives proportions from an SVG, so these pin only that it is taken whatever it declares — a size in any
+     * unit, a percentage, a viewBox alone, a zero side, or no size at all. The zero cases are the ones a shared
+     * dimension guard would quietly take back: that refusal belongs to PNG, where a zero side means an undecodable file
+     * rather than a document that renders nothing.
+     */
     @ParameterizedTest
     @ValueSource(strings = {
             "<svg xmlns='http://www.w3.org/2000/svg' width='200' height='100'/>",
             "<svg xmlns='http://www.w3.org/2000/svg' width='200px' height='100px'/>",
             "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 120'/>",
             "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0,0,240,120'/>",
-            "<svg width='100' height='100'/>"})
-    void anSvgWithReadableProportionsInsideTheRangeIsAccepted(String svg) {
+            "<svg width='100' height='100'/>",
+            "<svg xmlns='http://www.w3.org/2000/svg' width='500' height='100'/>",
+            "<svg xmlns='http://www.w3.org/2000/svg' width='406' height='79'/>",
+            "<svg xmlns='http://www.w3.org/2000/svg' width='50mm' height='100px'/>",
+            "<svg xmlns='http://www.w3.org/2000/svg' width='100%' height='40%'/>",
+            "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 10'/>",
+            "<svg xmlns='http://www.w3.org/2000/svg' width='0' height='100'/>",
+            "<svg xmlns='http://www.w3.org/2000/svg' width='200' height='0'/>",
+            "<svg xmlns='http://www.w3.org/2000/svg'><rect width='10' height='10'/></svg>"})
+    void anSvgOfAnyDeclaredSizeIsAccepted(String svg) {
         Assertions.assertDoesNotThrow(() -> BrandingLogoValidator.validateAndSanitize(FIELD, svgLogo(svg)));
     }
 
-    @Test
-    void anSvgOutsideTheAllowedAspectRatioIsRejected() {
-        String wide = "<svg xmlns='http://www.w3.org/2000/svg' width='500' height='100'/>";
-
-        Assertions.assertTrue(rejectionMessage(svgLogo(wide)).contains("aspect ratio"));
-    }
-
-    @Test
-    void anSvgWithNeitherDimensionsNorViewBoxIsRejected() {
-        String bare = "<svg xmlns='http://www.w3.org/2000/svg'><rect width='10' height='10'/></svg>";
-
-        Assertions
-                .assertTrue(rejectionMessage(svgLogo(bare)).contains("neither usable width and height nor a viewBox"));
-    }
-
     /**
-     * Every comparison against {@code NaN} is false, so a viewBox carrying one would pass a range check by failing both
-     * halves of it. {@code Infinity} parses just as readily and divides into a ratio that is not a number either.
+     * No dimension is derived from the viewBox any more, so a value that is not a finite size reaches the sanitizer,
+     * which still inspects the attribute like any other.
      */
     @ParameterizedTest
     @ValueSource(strings = {
@@ -234,41 +229,10 @@ class BrandingLogoValidatorTest {
             "0 0 Infinity Infinity",
             "0 0 200 Infinity",
             "0 0 -Infinity 100"})
-    void anSvgWhoseViewBoxIsNotAFiniteSizeIsRejected(String viewBox) {
+    void anSvgWhoseViewBoxIsNotAFiniteSizeIsAccepted(String viewBox) {
         String svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='%s'/>".formatted(viewBox);
 
-        Assertions.assertTrue(rejectionMessage(svgLogo(svg)).contains("neither usable width and height nor a viewBox"));
-    }
-
-    /**
-     * A percentage is relative to whatever renders the logo, so it carries no intrinsic proportions; the viewBox does,
-     * and is used instead when it is there.
-     */
-    @Test
-    void anSvgSizedInPercentagesFallsBackToItsViewBox() {
-        String relative = "<svg xmlns='http://www.w3.org/2000/svg' width='100%' height='100%' viewBox='0 0 200 100'/>";
-
-        Assertions.assertDoesNotThrow(() -> BrandingLogoValidator.validateAndSanitize(FIELD, svgLogo(relative)));
-    }
-
-    @Test
-    void anSvgSizedInPercentagesWithoutAViewBoxIsRejected() {
-        String relative = "<svg xmlns='http://www.w3.org/2000/svg' width='100%' height='50%'/>";
-
-        Assertions
-                .assertTrue(
-                        rejectionMessage(svgLogo(relative)).contains("neither usable width and height nor a viewBox"));
-    }
-
-    /**
-     * Comparing a width in millimetres against a height in pixels as if they were the same unit would let a badly
-     * proportioned logo through, so mismatched units defer to the viewBox rather than guess a conversion.
-     */
-    @Test
-    void anSvgMixingUnitsBetweenWidthAndHeightFallsBackToItsViewBox() {
-        String mixed = "<svg xmlns='http://www.w3.org/2000/svg' width='50mm' height='100px' viewBox='0 0 200 100'/>";
-
-        Assertions.assertDoesNotThrow(() -> BrandingLogoValidator.validateAndSanitize(FIELD, svgLogo(mixed)));
+        Assertions.assertDoesNotThrow(() -> BrandingLogoValidator.validateAndSanitize(FIELD, svgLogo(svg)));
     }
 
     @Test
@@ -279,8 +243,8 @@ class BrandingLogoValidatorTest {
     }
 
     /**
-     * Reading the dimensions means parsing operator-supplied XML. With entity resolution left on, a logo would be a way
-     * to read files off the server, so the parser refuses a document type declaration outright.
+     * Sanitizing means parsing operator-supplied XML. With entity resolution left on, a logo would be a way to read
+     * files off the server, so the parser refuses a document type declaration outright.
      */
     @Test
     void anSvgCarryingADoctypeIsRejectedRatherThanResolved() {
@@ -350,7 +314,7 @@ class BrandingLogoValidatorTest {
     /** Every rejection has to name the slot, or the Appearance form cannot say which upload was refused. */
     @Test
     void everyRejectionNamesTheFieldItCameFrom() {
-        String logo = pngLogo(500, 100);
+        String logo = svgLogo("<html><body>hello</body></html>");
 
         Assertions
                 .assertTrue(Assertions

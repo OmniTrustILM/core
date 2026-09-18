@@ -2,10 +2,14 @@ package com.otilm.core.security.authz.opa;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.otilm.core.config.cache.AuthorizationCacheProperties;
+import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.security.authz.OpaPolicy;
 import com.otilm.core.security.authz.opa.dto.OpaObjectAccessResult;
 import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
 import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
+import com.otilm.core.util.PrincipalFixtures;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
@@ -13,50 +17,52 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
+import okhttp3.mockwebserver.QueueDispatcher;
 import okhttp3.mockwebserver.RecordedRequest;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
+import org.springframework.cache.caffeine.CaffeineCacheManager;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class OpaClientTest {
-    private static MockWebServer opaMock;
+    private MockWebServer opaMock;
 
-    private static OpaClient opaClient;
+    private OpaClient opaClient;
 
-    @BeforeAll
-    static void setup() throws IOException {
+    @BeforeEach
+    void freshClient() throws IOException {
         opaMock = new MockWebServer();
+        QueueDispatcher dispatcher = new QueueDispatcher();
+        dispatcher.setFailFast(true);
+        opaMock.setDispatcher(dispatcher);
         opaMock.start();
 
         String opaBaseUrl = "http://%s:%d".formatted(opaMock.getHostName(), opaMock.getPort());
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        opaClient = new OpaClient(objectMapper, opaBaseUrl);
+        opaClient = new OpaClient(objectMapper, opaBaseUrl, newAuthorizationCache(objectMapper));
     }
 
-    @AfterAll
-    static void tearDown() throws IOException {
-        opaMock.close();
-        opaMock.shutdown();
+    private static PlatformAuthorizationCache newAuthorizationCache(ObjectMapper om) {
+        CaffeineCacheManager mgr = new CaffeineCacheManager();
+        mgr.registerCustomCache(CacheConfig.RESOURCE_AUTHZ_CACHE, Caffeine.newBuilder().maximumSize(100).build());
+        mgr.registerCustomCache(CacheConfig.OBJECT_AUTHZ_CACHE, Caffeine.newBuilder().maximumSize(100).build());
+        return new PlatformAuthorizationCache(mgr, om, new AuthorizationCacheProperties(true, 5, 100, 100));
     }
 
     @AfterEach
-    void cleanup() {
-        try {
-            // Clear the last request by reading it
-            opaMock.takeRequest(50, TimeUnit.MILLISECONDS);
-        } catch (InterruptedException e) {
-            // No request found, no cleanup needed
-        }
+    void tearDown() throws IOException {
+        opaMock.close();
+        opaMock.shutdown();
     }
 
     @Test
@@ -109,16 +115,7 @@ class OpaClientTest {
                             "\"action\":\"DETAIL\"" +
                         "}," +
                         "\"details\":null," +
-                        "\"principal\":{" +
-                            "\"user\":{" +
-                                "\"username\":\"FrantisekJednicka\"," +
-                                "\"enabled\":true" +
-                            "}," +
-                            "\"roles\":[" +
-                                "\"ROLE_ADMINISTRATOR\"," +
-                                "\"ROLE_AUTH_MANAGER\"" +
-                            "]" +
-                        "}" +
+                        "\"principal\":" + getPrincipal() +
                     "}" +
                 "}", request.getBody().readUtf8());
         //@formatter:on
@@ -150,6 +147,56 @@ class OpaClientTest {
         assertThrows(AccessDeniedException.class, shouldThrow);
     }
 
+    @Test
+    void repeatedCheckHitsOpaOnce() {
+        setUpSuccessfulResourceAccessResponse();
+
+        opaClient.checkResourceAccess(OpaPolicy.METHOD.policyName, getResource(), getPrincipal(), null);
+        opaClient.checkResourceAccess(OpaPolicy.METHOD.policyName, getResource(), getPrincipal(), null);
+
+        assertThat(opaMock.getRequestCount()).isEqualTo(1);
+    }
+
+    @Test
+    void callersWithEqualPermissionsShareOneOpaCall() {
+        setUpSuccessfulResourceAccessResponse();
+
+        opaClient
+                .checkResourceAccess(OpaPolicy.METHOD.policyName, getResource(),
+                        PrincipalFixtures.operator("alice-uuid", "alice"), null);
+        opaClient
+                .checkResourceAccess(OpaPolicy.METHOD.policyName, getResource(),
+                        PrincipalFixtures.operator("bob-uuid", "bob"), null);
+
+        assertThat(opaMock.getRequestCount()).isEqualTo(1);
+    }
+
+    @Test
+    void callersWithDifferentPermissionsEachHitOpa() {
+        setUpSuccessfulResourceAccessResponse();
+        setUpSuccessfulResourceAccessResponse();
+
+        opaClient
+                .checkResourceAccess(OpaPolicy.METHOD.policyName, getResource(),
+                        PrincipalFixtures.operator("alice-uuid", "alice"), null);
+        opaClient
+                .checkResourceAccess(OpaPolicy.METHOD.policyName, getResource(),
+                        PrincipalFixtures.admin("9999-uuid", "carol"), null);
+
+        assertThat(opaMock.getRequestCount()).isEqualTo(2);
+    }
+
+    @Test
+    void theTwoPoliciesDoNotShareEntries() {
+        setUpSuccessfulResourceAccessResponse();
+        setUpSuccessfulObjectAccessResponse();
+
+        opaClient.checkResourceAccess(OpaPolicy.METHOD.policyName, getResource(), getPrincipal(), null);
+        opaClient.checkObjectAccess(OpaPolicy.OBJECTS.policyName, getResource(), getPrincipal(), null);
+
+        assertThat(opaMock.getRequestCount()).isEqualTo(2);
+    }
+
     OpaRequestedResource getResource() {
         Map<String, String> properties = new HashMap<>();
         properties.put("name", "GROUPS");
@@ -162,18 +209,7 @@ class OpaClientTest {
     }
 
     String getPrincipal() {
-        //@formatter:off
-        return "{" +
-                    "\"user\":{" +
-                        "\"username\":\"FrantisekJednicka\"," +
-                        "\"enabled\":true" +
-                    "}," +
-                    "\"roles\":[" +
-                        "\"ROLE_ADMINISTRATOR\"," +
-                        "\"ROLE_AUTH_MANAGER\"" +
-                    "]" +
-                "}";
-        //@formatter:on
+        return PrincipalFixtures.operator("1111-uuid", "FrantisekJednicka");
     }
 
     RecordedRequest getLastRequest() throws InterruptedException {

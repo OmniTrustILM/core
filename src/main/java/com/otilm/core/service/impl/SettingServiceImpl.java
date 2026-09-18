@@ -93,6 +93,11 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
     public static final String CBOM_SYNC_OVERLAP_SECONDS_NAME = "cbomSyncOverlapSeconds";
     public static final String CBOM_SYNC_SKIPPED_RETRY_RUNS_NAME = "cbomSyncSkippedRetryRuns";
     public static final String CBOM_SYNC_MAX_INGEST_DOCUMENTS_NAME = "cbomSyncMaxIngestDocuments";
+    public static final String CBOM_SYNC_SKIP_RETENTION_DAYS_NAME = "cbomSyncSkipRetentionDays";
+    public static final String CBOM_SYNC_PAGE_SIZE_NAME = "cbomSyncPageSize";
+    public static final String CBOM_SYNC_ASSET_INGEST_ENABLED_NAME = "cbomSyncAssetIngestEnabled";
+    public static final String CBOM_SYNC_ASSET_BATCH_SIZE_NAME = "cbomSyncAssetBatchSize";
+    public static final String CBOM_SYNC_INGEST_RETRY_AFTER_SECONDS_NAME = "cbomSyncIngestRetryAfterSeconds";
     public static final String CERTIFICATES_VALIDATION_SETTINGS_NAME = "certificatesValidation";
     public static final String CERTIFICATES_REGISTRATION_SETTINGS_NAME = "certificatesRegistration";
 
@@ -186,14 +191,34 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
         // The CBOM sync policy reads back with its defaults filled in, so a form shows what the sync will use.
         utilsSettingsDto
                 .setCbomSyncOverlapSeconds(utilsInteger(utilsSettings, CBOM_SYNC_OVERLAP_SECONDS_NAME,
-                        CbomSyncPolicy.DEFAULT_OVERLAP_SECONDS, UtilsSettingsDto.MAX_CBOM_SYNC_OVERLAP_SECONDS));
+                        CbomSyncPolicy.DEFAULT_OVERLAP_SECONDS, 0, UtilsSettingsDto.MAX_CBOM_SYNC_OVERLAP_SECONDS));
         utilsSettingsDto
                 .setCbomSyncSkippedRetryRuns(utilsInteger(utilsSettings, CBOM_SYNC_SKIPPED_RETRY_RUNS_NAME,
-                        CbomSyncPolicy.DEFAULT_SKIPPED_RETRY_RUNS, UtilsSettingsDto.MAX_CBOM_SYNC_SKIPPED_RETRY_RUNS));
+                        CbomSyncPolicy.DEFAULT_SKIPPED_RETRY_RUNS, 0,
+                        UtilsSettingsDto.MAX_CBOM_SYNC_SKIPPED_RETRY_RUNS));
         utilsSettingsDto
                 .setCbomSyncMaxIngestDocuments(utilsInteger(utilsSettings, CBOM_SYNC_MAX_INGEST_DOCUMENTS_NAME,
-                        CbomSyncPolicy.DEFAULT_MAX_INGEST_DOCUMENTS,
+                        CbomSyncPolicy.DEFAULT_MAX_INGEST_DOCUMENTS, 0,
                         UtilsSettingsDto.MAX_CBOM_SYNC_MAX_INGEST_DOCUMENTS));
+        utilsSettingsDto
+                .setCbomSyncSkipRetentionDays(utilsInteger(utilsSettings, CBOM_SYNC_SKIP_RETENTION_DAYS_NAME,
+                        CbomSyncPolicy.DEFAULT_SKIP_RETENTION_DAYS, UtilsSettingsDto.MIN_CBOM_SYNC_SKIP_RETENTION_DAYS,
+                        UtilsSettingsDto.MAX_CBOM_SYNC_SKIP_RETENTION_DAYS));
+        utilsSettingsDto
+                .setCbomSyncPageSize(
+                        utilsInteger(utilsSettings, CBOM_SYNC_PAGE_SIZE_NAME, CbomSyncPolicy.DEFAULT_PAGE_SIZE,
+                                UtilsSettingsDto.MIN_CBOM_SYNC_PAGE_SIZE, UtilsSettingsDto.MAX_CBOM_SYNC_PAGE_SIZE));
+        utilsSettingsDto
+                .setCbomSyncAssetIngestEnabled(utilsBoolean(utilsSettings, CBOM_SYNC_ASSET_INGEST_ENABLED_NAME,
+                        CbomSyncPolicy.DEFAULT_ASSET_INGEST_ENABLED));
+        utilsSettingsDto
+                .setCbomSyncAssetBatchSize(utilsInteger(utilsSettings, CBOM_SYNC_ASSET_BATCH_SIZE_NAME,
+                        CbomSyncPolicy.DEFAULT_ASSET_BATCH_SIZE, UtilsSettingsDto.MIN_CBOM_SYNC_ASSET_BATCH_SIZE,
+                        UtilsSettingsDto.MAX_CBOM_SYNC_ASSET_BATCH_SIZE));
+        utilsSettingsDto
+                .setCbomSyncIngestRetryAfterSeconds(utilsInteger(utilsSettings,
+                        CBOM_SYNC_INGEST_RETRY_AFTER_SECONDS_NAME, CbomSyncPolicy.DEFAULT_INGEST_RETRY_AFTER_SECONDS, 0,
+                        UtilsSettingsDto.MAX_CBOM_SYNC_INGEST_RETRY_AFTER_SECONDS));
         platformSettings.setUtils(utilsSettingsDto);
 
         // Certificates
@@ -443,6 +468,20 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
                 integerText(utils.getCbomSyncSkippedRetryRuns()));
         upsertUtilsSetting(platformUtilsSettings, CBOM_SYNC_MAX_INGEST_DOCUMENTS_NAME,
                 integerText(utils.getCbomSyncMaxIngestDocuments()));
+        upsertUtilsSetting(platformUtilsSettings, CBOM_SYNC_SKIP_RETENTION_DAYS_NAME,
+                integerText(utils.getCbomSyncSkipRetentionDays()));
+        upsertUtilsSetting(platformUtilsSettings, CBOM_SYNC_PAGE_SIZE_NAME, integerText(utils.getCbomSyncPageSize()));
+        // The one field the stored-as-sent rule does not cover: left out, it keeps the stored value. Both of its
+        // values are expressible, so nothing becomes unreachable, and a client that sends the section without it
+        // cannot restart an ingest an operator has stopped.
+        if (utils.getCbomSyncAssetIngestEnabled() != null) {
+            upsertUtilsSetting(platformUtilsSettings, CBOM_SYNC_ASSET_INGEST_ENABLED_NAME,
+                    booleanText(utils.getCbomSyncAssetIngestEnabled()));
+        }
+        upsertUtilsSetting(platformUtilsSettings, CBOM_SYNC_ASSET_BATCH_SIZE_NAME,
+                integerText(utils.getCbomSyncAssetBatchSize()));
+        upsertUtilsSetting(platformUtilsSettings, CBOM_SYNC_INGEST_RETRY_AFTER_SECONDS_NAME,
+                integerText(utils.getCbomSyncIngestRetryAfterSeconds()));
     }
 
     /** Writes one utils value; an unset value leaves no row behind, as the branding writes do. */
@@ -470,7 +509,8 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
      * failing on a corrupt one. Reported when it appears, whenever its text changes, and again after it was corrected
      * -- not on every cache refresh, which is where this runs.
      */
-    private int utilsInteger(Map<String, Setting> utilsSettings, String name, int defaultValue, int maxValue) {
+    private int utilsInteger(Map<String, Setting> utilsSettings, String name, int defaultValue, int minValue,
+            int maxValue) {
         String value = utilsValue(utilsSettings, name);
         if (value == null || value.isBlank()) {
             lastReportedCorruptUtilsValue.remove(name);
@@ -478,8 +518,8 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
         }
         try {
             int parsed = Integer.parseInt(value.trim());
-            if (parsed < 0 || parsed > maxValue) {
-                reportCorruptUtilsValue(name, value, "outside 0.." + maxValue, defaultValue);
+            if (parsed < minValue || parsed > maxValue) {
+                reportCorruptUtilsValue(name, value, "outside %d..%d".formatted(minValue, maxValue), defaultValue);
                 return defaultValue;
             }
             lastReportedCorruptUtilsValue.remove(name);
@@ -490,7 +530,27 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
         }
     }
 
-    private void reportCorruptUtilsValue(String name, String value, String problem, int defaultValue) {
+    /**
+     * As {@link #utilsInteger}, for a flag. Spelled out rather than {@code Boolean.parseBoolean}, which reads every
+     * text that is not {@code true} as {@code false} -- so a typo in the asset-ingest row would silently stop every
+     * ingest rather than read as the corrupt value it is.
+     */
+    private boolean utilsBoolean(Map<String, Setting> utilsSettings, String name, boolean defaultValue) {
+        String value = utilsValue(utilsSettings, name);
+        if (value == null || value.isBlank()) {
+            lastReportedCorruptUtilsValue.remove(name);
+            return defaultValue;
+        }
+        String text = value.trim();
+        if (Boolean.TRUE.toString().equalsIgnoreCase(text) || Boolean.FALSE.toString().equalsIgnoreCase(text)) {
+            lastReportedCorruptUtilsValue.remove(name);
+            return Boolean.parseBoolean(text);
+        }
+        reportCorruptUtilsValue(name, value, "neither true nor false", defaultValue);
+        return defaultValue;
+    }
+
+    private void reportCorruptUtilsValue(String name, String value, String problem, Object defaultValue) {
         if (!value.equals(lastReportedCorruptUtilsValue.put(name, value))) {
             logger
                     .warn("Platform setting {} holds '{}', {}; using the default {} until it is corrected", name, value,
@@ -500,6 +560,10 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
 
     private static String integerText(Integer value) {
         return value == null ? null : Integer.toString(value);
+    }
+
+    private static String booleanText(Boolean value) {
+        return value == null ? null : Boolean.toString(value);
     }
 
     private void updateCertificateSettings(PlatformSettingsUpdateDto platformSettings,

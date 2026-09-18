@@ -5,6 +5,8 @@ import com.otilm.core.security.authn.client.SecretRefIndex;
 import com.otilm.core.security.authn.client.TokenJtiIndex;
 import com.otilm.core.security.authn.client.UserCertificateIndex;
 import java.util.concurrent.TimeUnit;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.EnableCaching;
@@ -17,6 +19,7 @@ import org.springframework.core.Ordered;
 @EnableCaching(order = Ordered.HIGHEST_PRECEDENCE)
 @EnableConfigurationProperties({
         AuthCacheProperties.class,
+        AuthorizationCacheProperties.class,
         ConnectorApiClientCacheProperties.class,
         CertificateChainCacheProperties.class,
         CryptographicKeyItemCacheProperties.class,
@@ -26,11 +29,15 @@ import org.springframework.core.Ordered;
         TspProfileCacheProperties.class,})
 public class CacheConfig {
 
+    private static final Logger logger = LoggerFactory.getLogger(CacheConfig.class);
+
     public static final String CERTIFICATE_AUTH_CACHE = "certificateAuth";
     public static final String CERTIFICATE_CHAIN_CACHE = "certificateChain";
     public static final String CONNECTOR_API_CLIENT_CACHE = "connectorApiClient";
     public static final String CREDENTIAL_VERIFICATION_CACHE = "credentialVerification";
     public static final String CRYPTOGRAPHIC_KEY_ITEM_CACHE = "cryptographicKeyItem";
+    public static final String OBJECT_AUTHZ_CACHE = "objectAuthz";
+    public static final String RESOURCE_AUTHZ_CACHE = "resourceAuthz";
     public static final String SIGNING_CERTIFICATE_CACHE = "signingCertificate";
     public static final String SIGNING_PROFILE_CACHE = "signingProfile";
     public static final String SYSTEM_USER_AUTH_CACHE = "systemUserAuth";
@@ -41,6 +48,7 @@ public class CacheConfig {
 
     @Bean
     public CacheManager cacheManager(AuthCacheProperties authCacheProperties,
+            AuthorizationCacheProperties authorizationCacheProperties,
             CertificateChainCacheProperties certChainProperties,
             ConnectorApiClientCacheProperties connectorCacheProperties,
             CryptographicKeyItemCacheProperties cryptographicKeyItemCacheProperties, SecretRefIndex secretRefIndex,
@@ -48,6 +56,7 @@ public class CacheConfig {
             SigningProfileCacheProperties signingProfileCacheProperties,
             TimeQualityConfigurationCacheProperties tqcCacheProperties, TokenJtiIndex tokenJtiIndex,
             TspProfileCacheProperties tspProfileCacheProperties, UserCertificateIndex userCertificateIndex) {
+        warnIfAuthorizationTtlExceedsAuthenticationTtl(authCacheProperties, authorizationCacheProperties);
         CaffeineCacheManager mgr = new CaffeineCacheManager(SYSTEM_USER_AUTH_CACHE, USER_UUID_AUTH_CACHE);
         mgr
                 .setCaffeine(Caffeine
@@ -111,6 +120,24 @@ public class CacheConfig {
                                 .build());
 
         mgr
+                .registerCustomCache(RESOURCE_AUTHZ_CACHE,
+                        Caffeine
+                                .newBuilder()
+                                .expireAfterWrite(authorizationCacheProperties.ttlMinutes(), TimeUnit.MINUTES)
+                                .maximumSize(authorizationCacheProperties.resourceMaxSize())
+                                .recordStats()
+                                .build());
+
+        mgr
+                .registerCustomCache(OBJECT_AUTHZ_CACHE,
+                        Caffeine
+                                .newBuilder()
+                                .expireAfterWrite(authorizationCacheProperties.ttlMinutes(), TimeUnit.MINUTES)
+                                .maximumSize(authorizationCacheProperties.objectMaxSize())
+                                .recordStats()
+                                .build());
+
+        mgr
                 .registerCustomCache(SIGNING_CERTIFICATE_CACHE,
                         Caffeine
                                 .newBuilder()
@@ -147,5 +174,25 @@ public class CacheConfig {
                                 .build());
 
         return mgr;
+    }
+
+    // For authenticated callers authorization staleness is bounded by authentication staleness, but for
+    // anonymous callers the authorization TTL is the only bound, so it must not exceed the authentication TTL.
+    // A disabled cache serves nothing, so its TTL bounds nothing and there is nothing to warn about.
+    static boolean authorizationTtlExceedsAuthenticationTtl(AuthCacheProperties authCacheProperties,
+            AuthorizationCacheProperties authorizationCacheProperties) {
+        return authorizationCacheProperties.enabled()
+                && authorizationCacheProperties.ttlMinutes() > authCacheProperties.ttlMinutes();
+    }
+
+    private static void warnIfAuthorizationTtlExceedsAuthenticationTtl(AuthCacheProperties authCacheProperties,
+            AuthorizationCacheProperties authorizationCacheProperties) {
+        if (authorizationTtlExceedsAuthenticationTtl(authCacheProperties, authorizationCacheProperties)) {
+            logger
+                    .warn("caching.authorization.ttl-minutes ({}) exceeds caching.authentication.ttl-minutes ({}); "
+                            + "anonymous callers may be served a stale authorization decision for longer than "
+                            + "an authenticated caller's identity is trusted.",
+                            authorizationCacheProperties.ttlMinutes(), authCacheProperties.ttlMinutes());
+        }
     }
 }

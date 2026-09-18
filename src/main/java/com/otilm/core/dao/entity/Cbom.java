@@ -123,6 +123,7 @@ public class Cbom extends UniquelyIdentified implements DtoMapper<CbomDto> {
         dto.setTotalAssets(this.totalAssetsCount);
         dto.setAssetSyncState(this.assetSyncState);
         dto.setAssetSyncedAt(this.assetsSyncedAt);
+        dto.setAssetSyncError(this.assetSyncError);
         return dto;
     }
 
