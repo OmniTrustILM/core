@@ -105,8 +105,8 @@ class DiscoveryDetailCountsITest extends BaseSpringBootTest {
     }
 
     /**
-     * Only certificates have an import pipeline, so a staged key is waiting, not imported — a count that subtracted a
-     * certificates-only backlog from a both-stores total would report every key as imported the moment it was staged.
+     * A count that subtracted a certificates-only backlog from a both-stores total would report every key as imported
+     * the moment it was staged.
      */
     @Test
     void aStagedKeyIsNotCountedAsImported() {

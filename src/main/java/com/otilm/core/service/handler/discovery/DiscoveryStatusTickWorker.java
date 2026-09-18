@@ -180,10 +180,8 @@ public class DiscoveryStatusTickWorker {
                 return false;
             }
             // Two status calls for one run can be in flight at once: a call slower than the claim floor is published
-            // again, and the check above lets both through when the run's own status did not move between them. The
-            // connector's highest assigned sequence never decreases, so an answer carrying less than what is already
-            // recorded was taken earlier than the one that recorded it -- applying it would put older counters back
-            // and stamp them as freshly recorded.
+            // again. The connector's highest sequence never decreases, so an answer carrying less than what is already
+            // recorded was taken earlier -- applying it would put older counters back, stamped as freshly recorded.
             if (arrivedOutOfOrder(locked, status)) {
                 logger
                         .debug("Dropping status tick for discovery {}: it was taken at sequence {}, behind the {}"

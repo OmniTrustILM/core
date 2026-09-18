@@ -85,8 +85,8 @@ public class DiscoveryFinishedEventHandler extends EventHandler<Discovery> {
 
         // if discovery was scheduled, raise application event to notify that scheduled discovery has finished
         if (eventContext.getScheduledJobInfo() != null) {
-            // The run's own outcome, not a constant: a scheduled discovery that failed, was cancelled, or ended
-            // with warnings was indistinguishable from a clean one in the scheduler's execution history.
+            // The run's own outcome, so the scheduler's execution history tells a failed or cancelled discovery from a
+            // clean one.
             ScheduledTaskResult scheduledTaskResult = new ScheduledTaskResult(executionStatusOf(discovery.getStatus()),
                     discovery.getMessage(), Resource.DISCOVERY, discovery.getUuid().toString());
             applicationEventPublisher

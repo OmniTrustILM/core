@@ -139,10 +139,7 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
         assertThat(reload(run).getLastAppliedSequence()).isEqualTo(2);
     }
 
-    /**
-     * The certificate total is the only yield figure the discovery listing carries, so a live run must report it as
-     * pages land rather than when it ends.
-     */
+    /** The certificate total is the only yield figure the discovery listing carries. */
     @Test
     void certificateTotal_movesAsPagesLandRatherThanOnlyAtTheEnd() {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);

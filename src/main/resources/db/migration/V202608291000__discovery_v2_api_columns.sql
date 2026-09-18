@@ -5,8 +5,7 @@
 ALTER TABLE "discovery"
     RENAME COLUMN "run_meta" TO "checkpoint";
 
--- stoppable: what the connector declared at initiate and refreshes on each resume. NULL for a v1 run, which cannot
---   be stopped; the detail publishes that as false.
+-- stoppable: see Discovery.stoppable; NULL for a v1 run, which the detail publishes as false.
 -- scheduled_job_history_uuid: the scheduled job execution that started the run, replayed when it ends; see
 --   Discovery.scheduledJobHistoryUuid for why it is stored and why the execution alone.
 -- connector_highest_sequence: the highest item number the connector had assigned as of the last status answer

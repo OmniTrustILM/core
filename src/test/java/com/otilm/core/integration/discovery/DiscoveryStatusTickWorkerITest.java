@@ -130,8 +130,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
     }
 
     /**
-     * An answer taken earlier must not put older counters back, least of all stamped as freshly recorded; how two
-     * answers to one run come to be in flight at once is explained at {@code DiscoveryStatusTickWorker#apply}.
+     * How two answers to one run come to be in flight at once is explained at {@code DiscoveryStatusTickWorker#apply}.
      */
     @Test
     void anAnswerTakenBeforeOneAlreadyAppliedIsDropped() throws Exception {

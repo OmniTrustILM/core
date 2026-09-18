@@ -118,10 +118,9 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     private static final Logger logger = LoggerFactory.getLogger(DiscoveryServiceImpl.class);
 
     /**
-     * The largest page size the frontend offers ({@code DEFAULT_ITEMS_PER_PAGE_OPTIONS}). Clamping below it would
-     * answer a user who picked 1000 with 100 rows and an itemsPerPage that disagrees with the control they used.
-     * {@code WebAppConfig}'s own ceiling does not reach here — it binds Spring-resolved Pageables, and these arrive as
-     * raw ints.
+     * The largest page size the frontend offers. Clamping below it would silently shrink a page the user explicitly
+     * picked. {@code WebAppConfig}'s own ceiling does not reach here — it binds Spring-resolved Pageables, and these
+     * arrive as raw ints.
      */
     private static final int MAX_ITEMS_PER_PAGE = 1000;
 
@@ -306,8 +305,7 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     }
 
     // The relays below are keyed and gated on the CONNECTOR, not the run: DISCOVERY has no object access,
-    // so gating there would silently skip the per-connector ACL. NOT_SUPPORTED because each one goes on to call
-    // the connector, which must never happen inside a transaction.
+    // so gating there would silently skip the per-connector ACL. NOT_SUPPORTED: each one calls the connector.
 
     @Override
     @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.ANY)
@@ -345,8 +343,7 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
         if (!DiscoveredItemPayloadDto.DISCOVERABLE.contains(resource)) {
             throw new ValidationException("Resource " + resource.getLabel() + " is not discoverable");
         }
-        // Discoverable in general is not the same as discoverable by this connector, and the supported set is
-        // never persisted -- it is relayed live -- so answering that question costs a call.
+        // Discoverable in general is not the same as discoverable by this connector.
         if (!liveSupportedResources(connectorUuid.getValue()).contains(resource)) {
             throw new ValidationException(
                     "Connector " + connectorUuid.getValue() + " does not discover " + resource.getLabel());
@@ -365,13 +362,9 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     }
 
     /**
-     * Validates the run's own attributes against the schema its connector actually publishes.
-     *
-     * <p>
-     * The two generations publish it in different places. A v1 connector serves kind-scoped definitions from the legacy
-     * function-group endpoints, which is what {@code mergeAndValidateAttributes} reads. A v2 connector does not expose
-     * those at all — it answers {@code listRunAttributes} — so a v2 run cannot go through the v1 path, which would
-     * validate it against endpoints its connector never implements.
+     * Validates the run's own attributes against the schema its connector actually publishes: a v1 connector serves
+     * kind-scoped definitions from the legacy function-group endpoints, which {@code mergeAndValidateAttributes} reads;
+     * a v2 connector answers {@code listRunAttributes} instead and implements no such endpoints.
      */
     private void validateRunAttributes(DiscoveryDto request, Connector connector,
             ConnectorInterfaceEntity discoveryInterface)
@@ -550,9 +543,6 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
      * The discovery interface a run is driven through, resolved the way an authority instance resolves its own: the
      * caller names one, or a connector exposing exactly one has it chosen for it. Null means the connector declares no
      * discovery interface at all — a framework-v1 connector, and a v1 run.
-     *
-     * <p>
-     * The adapter factory is the one place that maps a version onto a generation, so nothing here names one.
      */
     private ConnectorInterfaceEntity resolveDiscoveryInterface(UUID connectorUuid, UUID interfaceUuid) {
         List<ConnectorInterfaceEntity> interfaces = connectorInterfaceRepository
@@ -674,8 +664,8 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
         return responseDto;
     }
 
-    // Lifecycle operations. NOT_SUPPORTED because each one calls the connector, which must never happen
-    // inside a transaction; the adapter opens its own around each state change.
+    // Lifecycle operations. NOT_SUPPORTED: each one calls the connector; the adapter opens its own transaction around
+    // each state change.
 
     @Override
     @ExternalAuthorization(resource = Resource.DISCOVERY, action = ResourceAction.STOP)
@@ -740,9 +730,8 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
                 .findByUuid(uuid)
                 .orElseThrow(() -> new NotFoundException(Discovery.class, uuid));
         // A v2 run still at its connector is driven by agenda rows this delete would cascade away, so nothing would
-        // ever end it: no terminal transition, no DISCOVERY_FINISHED, a connector still scanning, a scheduled job open
-        // forever. PROCESSING is refused too: the connector is done but Core's import runs on those same rows. A v1
-        // run has no agenda and its provider call is over, so it deletes directly.
+        // ever end it. PROCESSING is refused too: the connector is done but Core's import runs on those same rows.
+        // A v1 run has no agenda and its provider call is over, so it deletes directly.
         if (discovery.getConnectorInterfaceUuid() != null && !DiscoveryRunLifecycle.isTerminal(discovery.getStatus())) {
             throw new ValidationException("Discovery " + uuid.getValue() + " is " + discovery.getStatus().getLabel()
                     + " and cannot be deleted; cancel it first");
@@ -839,8 +828,6 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
         }
         validateRequestedResources(request, connector, discoveryInterface);
         validateRunAttributes(request, connector, discoveryInterface);
-        // Everything the connector has to say is read here, before a transaction exists, so the writes below can
-        // commit as one unit without a connector call inside them.
         Map<Resource, List<BaseAttribute>> resourceDefinitions = fetchResourceDefinitions(request, connector);
         if (discoveryInterface != null) {
             authorizeReferences(request, connector);

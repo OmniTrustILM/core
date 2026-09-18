@@ -55,10 +55,9 @@ public class DiscoveryRunWriter {
      * request, one entry per resource the run targets; empty for a v1 run, which targets certificates implicitly and
      * publishes no per-resource attribute definitions
      */
-    // rollbackFor, against the platform's usual default: the writes below are checked-exception paths --
-    // AttributeException from the engine, NotFoundException from the trigger associations -- and Spring rolls back
-    // only unchecked ones. On the default, an attribute that fails to persist would commit the run row it was
-    // supposed to belong to, which is the exact orphan this bean exists to prevent, and the likeliest failure here.
+    // rollbackFor: the writes below throw checked AttributeException and NotFoundException, which Spring does not roll
+    // back on by default -- an attribute that failed to persist would then commit the orphan run row this bean exists
+    // to prevent.
     @Transactional(rollbackFor = Exception.class)
     public DiscoveryDetailDto createRun(Discovery discovery, DiscoveryDto request, UUID connectorUuid,
             Map<Resource, List<BaseAttribute>> resourceDefinitions) throws AttributeException, NotFoundException {
@@ -102,8 +101,8 @@ public class DiscoveryRunWriter {
                             saved.getUuid(), request.getTriggers(), false);
             saved = discoveryRepository.findWithTriggersByUuid(saved.getUuid());
         }
-        // Zero without asking: the run was inserted in this transaction and nothing since then writes a message.
-        // A run this new has staged nothing yet, so both counts are 0 by construction rather than by default.
+        // All zero by construction: the run was inserted in this transaction and nothing since has written a message
+        // or staged an item.
         return DiscoveryDtoMapper.toDetailDto(saved, new DiscoveryDtoMapper.DetailCounts(0, 0, 0, 0));
     }
 }

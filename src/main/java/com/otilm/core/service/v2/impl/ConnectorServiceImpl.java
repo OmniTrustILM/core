@@ -802,8 +802,7 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
 
     /**
      * A live run is driven through its interface association: released, it would route to the v1 adapter, drop out of
-     * the reaper's view and leave its agenda and the connector-side scan orphaned. A plain delete refuses over these,
-     * naming the first so many and counting the rest: an operator needs to know there are many, not to read them all.
+     * the reaper's view and leave its agenda and the connector-side scan orphaned. A plain delete refuses over these.
      *
      * @return the refusal's account of the live runs, or empty when there are none
      */
@@ -923,8 +922,7 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
             throw new ValidationException(ValidationError.create(String.join("\n", errors)));
         }
 
-        // Discovery runs are history and stay, as v1 runs always have. Only their hold on the interfaces is released:
-        // the reference is ON DELETE RESTRICT, so the interfaces could not cascade away with their connector otherwise.
+        // Runs stay as history; only their hold on the interfaces goes, see DiscoveryWriter#releaseConnectorInterfaces.
         if (!connector.getInterfaces().isEmpty()) {
             int released = discoveryWriter
                     .releaseConnectorInterfaces(

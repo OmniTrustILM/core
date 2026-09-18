@@ -61,8 +61,6 @@ public class DiscoveryDtoMapper {
         dto.setTriggers(discovery.getTriggers().stream().map(Trigger::mapToDto).toList());
         dto.setConnectorStatus(discovery.getConnectorStatus());
         dto.setConnectorTotalCertificatesDiscovered(discovery.getConnectorTotalCertificatesDiscovered());
-        // Counted rather than carried: a client polls this detail while a run is live, and both tables are read
-        // from their own endpoints. Message kinds, not occurrences -- the count is what the listing would return.
         dto.setRunMessageCount(counts.runMessages());
         dto.setItemsNewlyDiscovered(counts.newlyDiscoveredItems());
         dto.setItemsProcessed(counts.processedItems());
@@ -111,8 +109,8 @@ public class DiscoveryDtoMapper {
     }
 
     /**
-     * A staged item, from either staging store. {@code payload} and {@code meta} arrive as JSON text because the
-     * certificate branch builds its payload at read time from the deduplicated content rather than from a column.
+     * A staged item, from either staging store; {@link DiscoveryItemRow} says why {@code payload} and {@code meta}
+     * arrive as JSON text.
      */
     public static DiscoveryItemDto toItemDto(DiscoveryItemRow row) {
         DiscoveryItemDto dto = new DiscoveryItemDto();

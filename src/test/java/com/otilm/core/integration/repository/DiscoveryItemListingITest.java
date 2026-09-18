@@ -130,8 +130,7 @@ class DiscoveryItemListingITest extends BaseSpringBootTest {
 
         List<DiscoveryItemRow> filtered = itemRepository.listItems(run.getUuid(), null, false, 10, 0);
 
-        // Numbered over the whole run and filtered afterwards: the second row stays 2 rather than becoming the
-        // only row and renumbering to 1, so a client's page positions survive a filter change.
+        // Numbered over the whole run, then filtered: a client's page positions survive a filter change.
         assertThat(filtered).singleElement().extracting(DiscoveryItemRow::getSequence).isEqualTo(2L);
     }
 

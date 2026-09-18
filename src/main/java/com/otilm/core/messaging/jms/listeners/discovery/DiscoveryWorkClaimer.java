@@ -93,9 +93,9 @@ public class DiscoveryWorkClaimer {
      * ticks draining the same page would spend the run's budget on the one that stages nothing.
      *
      * <p>
-     * A floor: {@code STATUS} keeps its five-minute ceiling, while {@code DRAIN} and {@code PROCESS} idle here instead
-     * of on their thirty-second rungs. A tick with more to fetch direct-publishes its continuation and never waits on a
-     * rung. It does not cover a tick outliving the floor itself; that would take a lease column the agenda lacks.
+     * A floor, not a replacement: a rung above it is kept. A tick with more to fetch direct-publishes its continuation
+     * and never waits on a rung. It does not cover a tick outliving the floor itself; that would take a lease column
+     * the agenda lacks.
      */
     private Duration parkFor(DiscoveryWorkType workType, int nextAttempt) {
         Duration rung = workProperties.scheduleFor(workType).delayFor(nextAttempt);

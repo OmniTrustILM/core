@@ -101,9 +101,8 @@ class DiscoveryWorkClaimerTest {
     }
 
     /**
-     * A tick outlives its own backoff rung far more often than not — the early rungs are seconds and a connector call
-     * may take its whole timeout. Nothing marks the row as being worked, so parking it at that rung invites the next
-     * sweep to publish the same tick again.
+     * The early rungs are seconds against a connector call that may take its whole timeout; why a row parked at such a
+     * rung is republished is at {@code DiscoveryWorkClaimer#parkFor}.
      */
     @Test
     void aRungShorterThanATick_parksTheRowPastTheTickInstead() {
@@ -128,7 +127,7 @@ class DiscoveryWorkClaimerTest {
     void aRungLongerThanTheFloor_keepsItsOwnCadence() {
         when(clusterSynchronizer.tryLock(any(ClusterOperationSynchronizer.Operation.class))).thenReturn(true);
         UUID runUuid = UUID.randomUUID();
-        // Attempt 2 takes the ladder's ceiling, 30s here but minutes on the real STATUS ladder.
+        // Attempt 2 takes the ladder's ceiling: five minutes here, well above the floor.
         when(workProperties.scheduleFor(any()))
                 .thenReturn(new StatusPollProperties.PollSchedule(List.of(Duration.ofSeconds(5), Duration.ofMinutes(5)),
                         100));
@@ -146,10 +145,7 @@ class DiscoveryWorkClaimerTest {
                 .isAfterOrEqualTo(before.plusMinutes(5).minusSeconds(1));
     }
 
-    /**
-     * The floor outlives DRAIN's own ceiling, so it — not the ladder — sets what an idle drain settles at. Pinned
-     * because a reader of the ladder would expect thirty seconds.
-     */
+    /** Pinned because a reader of DRAIN's ladder would expect an idle drain to settle at its thirty-second ceiling. */
     @Test
     void aCeilingShorterThanTheFloor_isOverriddenByIt() {
         when(clusterSynchronizer.tryLock(any(ClusterOperationSynchronizer.Operation.class))).thenReturn(true);

@@ -103,11 +103,10 @@ discovery:
       # Ladders start at PT1S, not PT0S: a zero first rung leaves a just-claimed row still due, so one sweep could
       # claim and publish it twice.
       #
-      # STATUS is laddered rather than left on the defaults, which end at five minutes. It is the only tick that
-      # brings back the connector's counters and its view of the run, so its last rung is how stale a run's
-      # progress can be and how late Core learns a scan finished. A slower rung saved little, since DRAIN already
-      # calls the same connector every claim-floor. max-attempts rises with the shorter rungs to keep the same
-      # wall-clock allowance for a connector that stops answering.
+      # STATUS has its own ladder: it is the tick that brings back the connector's counters and its view of the run,
+      # so its last rung is how stale a run's progress can be and how late Core learns a scan finished. DRAIN already
+      # calls the same connector every claim-floor, so a slower rung buys nothing. max-attempts rises with the shorter
+      # rungs to keep the same wall-clock allowance for a connector that stops answering.
       STATUS:
         delays:
           - PT1S

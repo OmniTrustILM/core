@@ -55,9 +55,8 @@ class DiscoveryWorkLadderConfigTest {
     }
 
     /**
-     * Nothing marks an agenda row as being worked, so a tick still running when its row comes due again is published a
-     * second time. The floor is what keeps that from a tick spending a connector call's whole allowance: acquiring a
-     * connection, connecting, and waiting for the response.
+     * The floor must outlast a connector call's whole allowance: acquiring a connection, connecting, and waiting for
+     * the response. {@code DiscoveryWorkClaimer#parkFor} explains why a tick outliving its rung is published twice.
      */
     @Test
     void theClaimFloorOutlastsTheSlowestConnectorCall() {

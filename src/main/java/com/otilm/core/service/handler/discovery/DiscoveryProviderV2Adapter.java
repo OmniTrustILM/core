@@ -111,9 +111,8 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
             }
             logger.error("Discovery {} could not be started at its connector", discoveryUuid, e);
             terminator.endWith(discoveryUuid, failing -> {
-                // Whoever asked for the run is still on the thread and reports this failure to the scheduler itself.
-                // Announcing it here as well would finalize one job history twice: its owner notified twice, and
-                // SCHEDULED_JOB_FINISHED raised twice, so anything bound to that event acts twice.
+                // Whoever asked for the run is still on the thread and reports this failure to the scheduler itself;
+                // announcing it here as well would finalize the same job history twice.
                 failing.setScheduledJobHistoryUuid(null);
                 return new DiscoveryRunTerminator.Ending(DiscoveryStatus.FAILED, startFailureReason(e));
             });
@@ -349,17 +348,14 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
             // Best-effort, not atomic with the status above: resetAttempt is REQUIRES_NEW, so a failure after it
             // leaves a refreshed budget on a run that never reached STOPPED -- harmless, the budget is a retry
             // allowance rather than state. To the ceiling, not 0, so the budget is restored without restarting the
-            // ramp at full speed. The status row stays, parked -- a stopped run is resumable.
+            // ramp at full speed.
             workWriter
                     .resetAttempt(discoveryUuid, DiscoveryWorkType.STATUS,
                             workProperties.scheduleFor(DiscoveryWorkType.STATUS).ceilingAttempt());
-            // The drain row goes rather than parks. A stopped run is not producing, so an idle drain would ask the
-            // connector for results it has already said it has none of -- once per claim floor, for as long as the
-            // run stays stopped, which the reaper allows to be days. Resume expedites DRAIN through an upsert, so the
-            // row
-            // comes back the moment the run does, and anything the connector still holds is collected then. The
-            // status row stays: a stopped run can still fail or be cancelled at its connector, and the reaper reads an
-            // empty agenda as lost work.
+            // The drain row goes rather than parks: a stopped run produces nothing, so an idle drain would poll the
+            // connector once per claim floor for as long as the run stays stopped, which the reaper allows to be days.
+            // Resume re-creates it through an upsert. The status row stays: a stopped run can still fail or be
+            // cancelled at its connector, and the reaper reads an empty agenda as lost work.
             workWriter.deleteForRun(discoveryUuid, DiscoveryWorkType.DRAIN);
             return locked;
         });
@@ -414,9 +410,8 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
     public void cancel(Discovery discovery) throws ConnectorException {
         requireStatus(discovery, "cancelled", DiscoveryStatus.IN_PROGRESS, DiscoveryStatus.STOPPED);
         UUID discoveryUuid = discovery.getUuid();
-        // 404 is not a failure: it says the connector no longer tracks the run, which is the state cancel asked
-        // for. Over REST the client hands the status back; over the AMQP proxy the same answer arrives as an
-        // exception, so that one is read here rather than rethrown.
+        // A 404 is the state cancel asked for (DiscoveryV2Client#cancel). Over REST it comes back as the response
+        // status; over the AMQP proxy the same answer arrives as an exception, so that one is read here.
         try {
             call(discoveryUuid, "cancel", () -> client.cancel(discovery));
         } catch (ConnectorException e) {
@@ -438,11 +433,8 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
     }
 
     /**
-     * A resume the connector cannot honour: its checkpoint is gone, so the run can never be driven again.
-     *
-     * <p>
-     * The staged items stay. They were really discovered, and a client can still read them — they are simply never
-     * processed, because the run that would have processed them no longer exists.
+     * Ends a run whose checkpoint the connector no longer holds. The staged items stay: they were really discovered and
+     * a client can still read them, only never processed.
      */
     private void disposeCheckpointLost(UUID discoveryUuid) {
         logger.warn("Discovery {} cannot be resumed: the connector no longer holds its checkpoint", discoveryUuid);
@@ -487,12 +479,9 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
     }
 
     /**
-     * Takes the run's row lock and reads the row as it now is.
-     *
-     * <p>
-     * The refresh is what makes the re-assertions above this call mean anything. Every lifecycle operation runs
-     * {@code NOT_SUPPORTED} and has already loaded the run, so the locking read finds that same instance in the shared
-     * persistence context and answers with its pre-call field values, however far the row has moved since.
+     * Takes the run's row lock and refreshes the instance, so the re-assertions above this call see the row as it now
+     * is rather than the pre-call fields of the copy every {@code NOT_SUPPORTED} lifecycle operation has already loaded
+     * — the trap {@code DiscoveryRunTerminator#endIf} spells out.
      */
     private Discovery lock(UUID discoveryUuid) {
         Discovery run = discoveryRepository

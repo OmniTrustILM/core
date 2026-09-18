@@ -218,10 +218,9 @@ public class DiscoveryRunTerminator {
     }
 
     /**
-     * Rebuilt from the one execution uuid the run stored; the history row carries the job, and the scheduler resolves
-     * the name from it, so neither is kept as a second copy. A history row that no longer exists yields no job info at
-     * all: passing the uuid on would hand the scheduler an execution it cannot find, turning a clean ending into a
-     * downstream failure.
+     * Rebuilt from the execution uuid the run stored — {@code Discovery#scheduledJobHistoryUuid} says why only that. A
+     * history row that no longer exists yields no job info at all: passing the uuid on would hand the scheduler an
+     * execution it cannot find, turning a clean ending into a downstream failure.
      */
     private ScheduledJobInfo scheduledJobOf(Discovery run) {
         if (run.getScheduledJobHistoryUuid() == null) {

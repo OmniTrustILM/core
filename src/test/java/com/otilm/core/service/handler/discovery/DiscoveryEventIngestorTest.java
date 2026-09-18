@@ -124,9 +124,9 @@ class DiscoveryEventIngestorTest {
     }
 
     /**
-     * The wire contract is enforced only where a Validator runs, and the REST and MQ clients deserialize without one.
-     * The ingestor is the last point before a row exists, so it is where a private key a connector must never have sent
-     * is stopped: never staged, named to the operator, and stepped over so the run is not stuck behind it.
+     * The wire contract is enforced only where a Validator runs, and the REST and MQ clients deserialize without one,
+     * so the ingestor is the last point before a row exists where a private key a connector must never have sent can be
+     * stopped.
      */
     @Test
     void anItemBreakingTheContract_isSkippedWithAMessageRatherThanStaged() {

@@ -89,10 +89,7 @@ class DiscoveryStartFailureITest extends BaseSpringBootTest {
                 .isNull();
     }
 
-    /**
-     * Over the AMQP proxy a 404 arrives as an exception rather than as a status. It still says the connector no longer
-     * tracks the run, which is the state cancel asked for.
-     */
+    /** Over the AMQP proxy the 404 arrives as an exception, not a status; it still means what cancel asked for. */
     @Test
     void aCancelTheProxyAnswersWithNotFoundStillEndsTheRun() throws Exception {
         Discovery run = v2Run();
@@ -106,9 +103,8 @@ class DiscoveryStartFailureITest extends BaseSpringBootTest {
     }
 
     /**
-     * A lifecycle call spends its connector call outside any transaction with the run already loaded, and open-in-view
-     * keeps that persistence context for the whole request. What decides the write afterwards has to be the row as it
-     * is by then, not as it was loaded: a run ended in the meantime must not come back as stopped.
+     * The connector call runs outside any transaction with the run already loaded, and open-in-view keeps that
+     * persistence context for the whole request; the write afterwards must be decided on the row as it is by then.
      */
     @Test
     void aStopWhoseRunEndedDuringTheConnectorCall_isRefusedRatherThanWrittenOverTheEnding() throws Exception {

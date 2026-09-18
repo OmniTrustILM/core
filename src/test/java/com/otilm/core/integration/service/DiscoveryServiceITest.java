@@ -667,8 +667,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
 
         DiscoveryDetailDto detail = discoveryInternalService.runDiscovery(discovery.getUuid(), null);
 
-        // The handle is replayed on every later call, so one that exceeds the cap would make every tick send a
-        // request the transport cannot carry -- better to fail the run at the only point it can still be reported.
+        // Failed at the only point the run can still be reported; DiscoveryProviderV2Adapter#MAX_META_BYTES says why.
         Assertions.assertEquals(DiscoveryStatus.FAILED, detail.getStatus());
         Discovery persisted = discoveryRepository.findByUuid(discovery.getUuid()).orElseThrow();
         Assertions.assertNull(persisted.getCheckpoint());
@@ -742,13 +741,10 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
 
         adapterFactory.forDiscovery(run).cancel(run);
 
-        // 404 says the connector no longer tracks the run -- which is exactly what cancel asked for, so it counts
-        // as success rather than leaving the run un-cancelled.
         Discovery persisted = discoveryRepository.findByUuid(discovery.getUuid()).orElseThrow();
         Assertions.assertEquals(DiscoveryStatus.CANCELLED, persisted.getStatus());
         Assertions.assertNull(persisted.getCheckpoint());
-        // Both statuses, committed together with the terminal transition. Written in a transaction of its own, the
-        // run would be non-terminal between the two commits and a status tick could write this back.
+        // Committed with the terminal transition: written separately, a status tick in between could write this back.
         Assertions
                 .assertEquals(DiscoveryStatus.CANCELLED, persisted.getConnectorStatus(),
                         "a cancelled run must not go on reporting its connector as still scanning");
@@ -772,7 +768,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
                                 + "only to be deleted");
     }
 
-    /** Stopping drops the drain row and keeps the status row; {@code DiscoveryProviderV2Adapter#stop} says why. */
+    /** The reasoning is on {@code DiscoveryProviderV2Adapter#stop}. */
     @Test
     void stoppingARunDropsItsDrainRowAndKeepsItsStatusRow() throws Exception {
         givenV2Run(List.of(Resource.CERTIFICATE));
@@ -1188,8 +1184,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
     void aLiveV2RunCannotBeDeletedOutFromUnderItsAgenda() {
         givenV2Run(List.of(Resource.CERTIFICATE));
 
-        // Deleting it would cascade away the agenda rows that drive it, so nothing would ever end the run: no
-        // terminal transition, no event, a connector still scanning, and a scheduled job open forever.
+        // Deleting it would cascade away the agenda rows that drive it, so nothing would ever end the run.
         SecuredUUID liveRun = discovery.getSecuredUuid();
         ValidationException refused = Assertions
                 .assertThrows(ValidationException.class, () -> discoveryService.deleteDiscovery(liveRun));
@@ -1247,10 +1242,6 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
                         WireMock.getRequestedFor(WireMock.urlPathMatching("/v1/discoveryProvider/[^/]+/attributes")));
     }
 
-    /**
-     * A per-resource schema is a contract like the run-level one, and a request that ignores it is refused rather than
-     * stored.
-     */
     @Test
     void aRequiredResourceAttributeTheRequestOmits_refusesTheRun() {
         giveConnectorAV2DiscoveryInterface();

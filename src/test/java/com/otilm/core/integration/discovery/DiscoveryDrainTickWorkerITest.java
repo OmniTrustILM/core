@@ -325,8 +325,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
     void unstageablePageWithBudgetLeft_isContainedInsteadOfEscapingToTheListener() throws Exception {
         Discovery run = runStillScanning();
         armDrainRow(run, 0);
-        // A genuinely unstageable page: it passes every contract check, so nothing skips it, and its payload
-        // still cannot be stored, however many times it is retried.
+        // Passes every contract check, so nothing skips it.
         when(client.results(any(), anyInt(), anyLong())).thenReturn(page(1L, false, unstageableKeyItem(1)));
 
         worker.tick(run.getUuid(), 0);

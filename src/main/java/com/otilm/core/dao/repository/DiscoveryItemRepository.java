@@ -152,8 +152,8 @@ public interface DiscoveryItemRepository extends JpaRepository<DiscoveryItem, UU
      * counted by {@link #countNewlyDiscoveredFailed} instead.
      *
      * <p>
-     * The item branch reads {@code processed_at}, which nothing writes until the other resources gain an import
-     * pipeline — so a run staging keys reports none of them imported, which is exactly what has happened to them.
+     * The item branch reads {@code processed_at}, unwritten until key ingestion lands (see {@link #listItems}), so a
+     * run staging keys reports none of them imported.
      */
     @Query(value = """
             SELECT (

@@ -292,9 +292,9 @@ public class DiscoveryV2Client {
      *
      * <p>
      * The elevation narrows nothing: these are the resource-level list loaders, which have no per-object gate (that is
-     * {@code CredentialServiceImpl.getAuthorizedObjectAttributes}). It also drops an accidental requirement that an
-     * operator hold {@code CREDENTIAL:DETAIL} to stop or resume a run. Collapsing into {@link ConnectorException} is
-     * forced: the elevated body may declare only one checked type.
+     * {@code CredentialServiceImpl.getAuthorizedObjectAttributes}); an operator therefore needs no
+     * {@code CREDENTIAL:DETAIL} to stop or resume a run. Collapsing into {@link ConnectorException} is forced: the
+     * elevated body may declare only one checked type.
      */
     private void dereferenceAsSystem(List<DataAttribute> toResolve) throws ConnectorException {
         authHelper.runAsSystem(AuthHelper.ATTRIBUTE_CONTENT_RESOLVER_USERNAME, () -> {

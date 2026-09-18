@@ -71,10 +71,9 @@ public class Discovery extends UniquelyIdentifiedAndAudited implements Serializa
     @Column(name = "connector_interface_uuid")
     private UUID connectorInterfaceUuid;
 
-    // The same association as an object, for reads that publish which interface drives the run. Written through
-    // setConnectorInterface so the scalar above, which every write and the dispatch projection use, stays in step.
-    // A foreign key here as in the migration, so the schema the tests build from the entities enforces what
-    // production does: a run cannot point at an interface that is not there.
+    // The same association as an object, for reads that publish which interface drives the run; every write and the
+    // dispatch projection use the scalar above. A foreign key here as in the migration, so the schema the tests build
+    // from the entities enforces what production does: a run cannot point at an interface that is not there.
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "connector_interface_uuid", insertable = false, updatable = false)
     @ToString.Exclude
@@ -166,11 +165,9 @@ public class Discovery extends UniquelyIdentifiedAndAudited implements Serializa
     @Column(name = "started_by_user_uuid")
     private UUID startedByUserUuid;
 
-    // The scheduled job execution that started the run, replayed when it ends so the scheduler learns the outcome.
-    // Stored because a v2 run ends much later, in a tick worker with no memory of who asked for it: without this
-    // the scheduled job is never told and hangs open. Null for a run a user started. A v1 run never stores it: its
-    // whole flow is one call chain that still holds it. The execution alone -- the job itself is not stored, since
-    // the history row already points at it.
+    // The scheduled job execution that started the run, replayed when it ends so the scheduler learns the outcome: a
+    // v2 run ends in a tick worker with no memory of who asked for it. Null for a user-started run; a v1 run never
+    // stores it, its single call chain still holds it. Only the execution: the history row already names the job.
     @Column(name = "scheduled_job_history_uuid")
     private UUID scheduledJobHistoryUuid;
 

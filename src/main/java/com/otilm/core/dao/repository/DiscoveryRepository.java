@@ -52,7 +52,7 @@ public interface DiscoveryRepository extends SecurityFilterRepository<Discovery,
 
     /**
      * Clears the interface reference from every run in one of {@code statuses} that holds one of these interfaces. See
-     * {@code DiscoveryWriter#releaseConnectorInterfaces}, its only caller, for why and for why only ended runs.
+     * {@code DiscoveryWriter#releaseConnectorInterfaces} for why, and why only ended runs.
      *
      * @return how many runs were released
      */

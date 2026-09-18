@@ -370,9 +370,7 @@ public class DiscoveryEventIngestor {
         data.setUuid(item.getUniqueRef());
         data.setBase64Content(certificate.getCertificateData());
         data.setMeta(item.getMeta() == null ? List.of() : item.getMeta());
-        // Carried through so a staged certificate keeps the connector's own run-wide number rather than the one
-        // synthesized for a v1 row (DiscoveryCertificate#sequence), which would collide with the real numbers the
-        // run's other resources carry.
+        // The connector's own run-wide number and timestamp; DiscoveryCertificate#sequence says what a v1 row gets.
         data.setSequence(item.getSequence());
         data.setDiscoveredAt(item.getDiscoveredAt());
         return data;
