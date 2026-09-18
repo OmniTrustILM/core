@@ -75,12 +75,14 @@ class PropertyColumnDisplayabilityITest extends BaseSpringBootTest {
                                 FilterField.SECRET_COMPLIANCE_STATUS, FilterField.SECRET_SOURCE_VAULT_PROFILE));
 
         OFFERED_COLUMNS
-                .put(Resource.CBOM, EnumSet
-                        .of(FilterField.CBOM_SERIAL_NUMBER, FilterField.CBOM_VERSION, FilterField.CBOM_TIMESTAMP,
-                                FilterField.CBOM_SOURCE, FilterField.CBOM_ALGORITHMS_COUNT,
-                                FilterField.CBOM_CERTIFICATES_COUNT, FilterField.CBOM_PROTOCOLS_COUNT,
-                                FilterField.CBOM_CRYPTO_MATERIAL_COUNT, FilterField.CBOM_TOTAL_ASSETS_COUNT,
-                                FilterField.CBOM_ASSET_SYNC_STATE, FilterField.CBOM_ASSETS_SYNCED_AT));
+                .put(Resource.CBOM,
+                        EnumSet
+                                .of(FilterField.CBOM_SERIAL_NUMBER, FilterField.CBOM_VERSION,
+                                        FilterField.CBOM_TIMESTAMP, FilterField.CBOM_SOURCE,
+                                        FilterField.CBOM_ALGORITHMS_COUNT, FilterField.CBOM_CERTIFICATES_COUNT,
+                                        FilterField.CBOM_PROTOCOLS_COUNT, FilterField.CBOM_CRYPTO_MATERIAL_COUNT,
+                                        FilterField.CBOM_TOTAL_ASSETS_COUNT, FilterField.CBOM_ASSET_SYNC_STATE,
+                                        FilterField.CBOM_ASSETS_SYNCED_AT, FilterField.CBOM_ASSET_SYNC_ERROR));
 
         OFFERED_COLUMNS
                 .put(Resource.SIGNING_RECORD, EnumSet
