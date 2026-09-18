@@ -435,15 +435,19 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
                                 .getDataAttributesByContent(connector.getUuid(), requestAttributesOrNone(attributes)));
             }
         }
-        boolean referencesAnything = referenced.stream().anyMatch(definition -> {
-            AttributeContentType contentType = definition.getContentType();
-            return contentType == AttributeContentType.CREDENTIAL || contentType == AttributeContentType.RESOURCE;
-        });
-        if (!referencesAnything) {
-            return;
+        // The credential loader authorizes CREDENTIAL:DETAIL at method entry, so a run that names no credential is
+        // kept away from it: the caller would be charged that permission for work the loader walks past. The resource
+        // loader needs no such guard -- it gates per object, inside. Same shape as ConnectorRequestAttributesBuilder.
+        if (referencesACredential(referenced)) {
+            credentialService.loadFullCredentialData(referenced);
         }
-        credentialService.loadFullCredentialData(referenced);
         resourceService.loadResourceObjectContentData(referenced);
+    }
+
+    private static boolean referencesACredential(List<DataAttribute> referenced) {
+        return referenced
+                .stream()
+                .anyMatch(definition -> definition.getContentType() == AttributeContentType.CREDENTIAL);
     }
 
     private static List<RequestAttribute> requestAttributesOrNone(List<RequestAttribute> attributes) {

@@ -9,6 +9,7 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV2;
+import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.certificate.DiscoveryResponseDto;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
@@ -24,8 +25,11 @@ import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.content.data.CredentialAttributeContentData;
 import com.otilm.api.model.common.attribute.v2.content.CredentialAttributeContentV2;
+import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
+import com.otilm.api.model.common.attribute.v3.content.data.ResourceSimpleContentData;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryProgressDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoverySupportedResourceDto;
+import com.otilm.api.model.core.auth.AttributeResource;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
@@ -768,7 +772,6 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
                                 + "only to be deleted");
     }
 
-    /** The reasoning is on {@code DiscoveryProviderV2Adapter#stop}. */
     @Test
     void stoppingARunDropsItsDrainRowAndKeepsItsStatusRow() throws Exception {
         givenV2Run(List.of(Resource.CERTIFICATE));
@@ -1009,6 +1012,38 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         DiscoveryDetailDto created = discoveryService.createDiscovery(request, true);
 
         Assertions.assertNotNull(created.getUuid());
+    }
+
+    @Test
+    void creatingAV2RunResolvesAResourceReferenceWithoutCredentialPermission() throws Exception {
+        giveConnectorAV2DiscoveryInterface();
+        stubSupportedResources("""
+                [{"resource":"certificates"}]""");
+        stubRunAttributes(RESOURCE_DEFINITION);
+        // The resource loader gates per object, inside, so this run needs no credential permission at all.
+        denyResourceAccess(Resource.CREDENTIAL, ResourceAction.DETAIL);
+        DiscoveryDto request = v2Request(List.of(Resource.CERTIFICATE));
+        request.setAttributes(List.of(resourceReference(aCredential())));
+
+        DiscoveryDetailDto created = discoveryService.createDiscovery(request, true);
+
+        Assertions.assertNotNull(created.getUuid());
+    }
+
+    private static final String RESOURCE_DEFINITION = """
+            [{"uuid":"7f7f0000-0000-4000-8000-000000000003","name":"vault",
+              "type":"data","version":3,"contentType":"resource",
+              "properties":{"label":"Vault","visible":true,"required":false,"resource":"credentials"},
+              "attributeCallback":{"callbackContext":"/v2/discoveryProvider/vaults","callbackMethod":"GET",
+                                   "mappings":[]}}]""";
+
+    /** What a caller files for a resource reference: the object's identity, which the resource loader resolves. */
+    private static RequestAttribute resourceReference(Credential credential) {
+        ResourceSimpleContentData identity = new ResourceSimpleContentData(AttributeResource.CREDENTIAL);
+        identity.setUuid(credential.getUuid().toString());
+        identity.setName(credential.getName());
+        return new RequestAttributeV3(UUID.fromString("7f7f0000-0000-4000-8000-000000000003"), "vault",
+                AttributeContentType.RESOURCE, List.of(new ResourceObjectContent(credential.getName(), identity)));
     }
 
     private static final String CREDENTIAL_DEFINITION = """
