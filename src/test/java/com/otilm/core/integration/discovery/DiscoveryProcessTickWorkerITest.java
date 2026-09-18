@@ -11,12 +11,14 @@ import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryCertificate;
+import com.otilm.core.dao.entity.DiscoveryItem;
 import com.otilm.core.dao.entity.DiscoveryMessage;
 import com.otilm.core.dao.entity.DiscoveryWork;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
+import com.otilm.core.dao.repository.DiscoveryItemRepository;
 import com.otilm.core.dao.repository.DiscoveryMessageRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.DiscoveryWorkRepository;
@@ -106,6 +108,8 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
     @Autowired
     private DiscoveryWorkWriter workWriter;
     @Autowired
+    private DiscoveryItemRepository itemRepository;
+    @Autowired
     private DiscoveryItemWriter itemWriter;
     @Autowired
     private DiscoveryMessageWriter messageWriter;
@@ -142,6 +146,57 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
         // The backlog spans both staging stores. Counting certificates alone ends a keys-only run the moment it
         // starts processing, with every key still staged and nothing in the inventory.
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.PROCESSING);
+    }
+
+    @Test
+    void stagedKeys_areImportedTickByTickUntilTheRunIsDone() throws Exception {
+        Discovery run = processingRun();
+        stageKeys(run, 2);
+
+        worker.tick(run.getUuid(), 0);
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.PROCESSING);
+
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.COMPLETED);
+        assertThat(importedKeyItems(run)).as("both staged keys reached the inventory").isEqualTo(2);
+    }
+
+    @Test
+    void mixedRun_waitsForItsKeysEvenOnceEveryCertificateIsIn() throws Exception {
+        Discovery run = processingRun();
+        stageCertificates(run, 1);
+        // Two keys against a batch size of one, so the run still owes something after the certificate is in.
+        stageKeys(run, 2);
+        importsCleanly();
+
+        worker.tick(run.getUuid(), 0);
+
+        // Ending here would leave the second key staged with nothing to come back for it.
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.PROCESSING);
+
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.COMPLETED);
+        assertThat(importedKeyItems(run)).isEqualTo(2);
+    }
+
+    @Test
+    void keyThatCannotBeIdentified_stopsAtItsOwnRowAndIsReportedOnTheRun() throws Exception {
+        Discovery run = processingRun();
+        stageUnusableKey(run);
+
+        worker.tick(run.getUuid(), 0);
+
+        DiscoveryItem failed = keyItemsOf(run).getFirst();
+        assertThat(failed.getProcessedError()).isNotNull();
+        assertThat(failed.getInventoryUuid()).as("nothing reached the inventory for it").isNull();
+        assertThat(messages(run))
+                .extracting(DiscoveryMessage::getCode)
+                .contains(DiscoveryMessageCode.KEY_IMPORT_FAILED.code());
+        // A row that carries a reason is accounted for, so the run finishes rather than stalling on it -- with a
+        // warning, because something it discovered never made it in.
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.WARNING);
     }
 
     @Test
@@ -670,6 +725,27 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
             item.setDiscoveredAt(OffsetDateTime.now(ZoneOffset.UTC));
             itemWriter.stage(run.getUuid(), item, true);
         }
+    }
+
+    private void stageUnusableKey(Discovery run) {
+        DiscoveredKeyDto payload = new DiscoveredKeyDto();
+        payload.setType(KeyType.SECRET_KEY);
+        payload.setAlgorithm(KeyAlgorithm.UNKNOWN);
+        // No public part and no fingerprint: nothing here tells this key apart from any other.
+        DiscoveredItemDto item = new DiscoveredItemDto();
+        item.setSequence(1L);
+        item.setUniqueRef("vault://unnamed");
+        item.setPayload(payload);
+        item.setDiscoveredAt(OffsetDateTime.now(ZoneOffset.UTC));
+        itemWriter.stage(run.getUuid(), item, true);
+    }
+
+    private List<DiscoveryItem> keyItemsOf(Discovery run) {
+        return itemRepository.findAll().stream().filter(item -> run.getUuid().equals(item.getDiscoveryUuid())).toList();
+    }
+
+    private long importedKeyItems(Discovery run) {
+        return keyItemsOf(run).stream().filter(item -> item.getInventoryUuid() != null).count();
     }
 
     private Discovery processingRun() {

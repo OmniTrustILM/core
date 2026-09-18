@@ -1,9 +1,11 @@
 package com.otilm.core.service.handler.discovery;
 
+import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.discovery.DiscoveryMessageSeverity;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryCertificate;
+import com.otilm.core.dao.entity.DiscoveryItem;
 import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
 import com.otilm.core.dao.repository.DiscoveryItemRepository;
 import com.otilm.core.dao.repository.DiscoveryMessageRepository;
@@ -14,9 +16,11 @@ import com.otilm.core.messaging.jms.configuration.DiscoveryWorkProperties;
 import com.otilm.core.messaging.jms.producers.DiscoveryWorkProducer;
 import com.otilm.core.messaging.model.DiscoveryWorkMessage;
 import com.otilm.core.model.discovery.DiscoveryMessageCode;
+import com.otilm.core.model.discovery.DiscoveryMessageDraft;
 import com.otilm.core.model.discovery.DiscoveryRunLifecycle;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
 import com.otilm.core.service.handler.discovery.DiscoveryRunTerminator.Ending;
+import com.otilm.core.service.handler.discovery.KeyDiscoveredHandler.KeyImportOutcome;
 import com.otilm.core.service.writer.DiscoveryWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
@@ -56,6 +60,7 @@ public class DiscoveryProcessTickWorker {
     private final DiscoveryItemRepository itemRepository;
     private final DiscoveryMessageRepository messageRepository;
     private final CertificateDiscoveredEventHandler importHandler;
+    private final KeyDiscoveredHandler keyImportHandler;
     private final DiscoveryWorkWriter workWriter;
     private final DiscoveryWorkProducer workProducer;
     private final DiscoveryRunTerminator terminator;
@@ -69,13 +74,15 @@ public class DiscoveryProcessTickWorker {
     public DiscoveryProcessTickWorker(DiscoveryRepository discoveryRepository,
             DiscoveryCertificateRepository certificateRepository, DiscoveryItemRepository itemRepository,
             DiscoveryMessageRepository messageRepository, CertificateDiscoveredEventHandler importHandler,
-            DiscoveryWorkWriter workWriter, DiscoveryWorkProducer workProducer, DiscoveryRunTerminator terminator,
-            DiscoveryWriter discoveryWriter, DiscoveryMessageWriter messageWriter, AuthHelper authHelper,
-            DiscoveryWorkProperties workProperties, @Value("${discovery.processing.batch-size:200}") int batchSize,
+            KeyDiscoveredHandler keyImportHandler, DiscoveryWorkWriter workWriter, DiscoveryWorkProducer workProducer,
+            DiscoveryRunTerminator terminator, DiscoveryWriter discoveryWriter, DiscoveryMessageWriter messageWriter,
+            AuthHelper authHelper, DiscoveryWorkProperties workProperties,
+            @Value("${discovery.processing.batch-size:200}") int batchSize,
             @Value("${discovery.work.continuation-backstop:PT1M}") Duration continuationBackstop) {
         this.discoveryRepository = discoveryRepository;
         this.certificateRepository = certificateRepository;
         this.itemRepository = itemRepository;
+        this.keyImportHandler = keyImportHandler;
         this.messageRepository = messageRepository;
         this.importHandler = importHandler;
         this.workWriter = workWriter;
@@ -124,6 +131,7 @@ public class DiscoveryProcessTickWorker {
         if (!batch.isEmpty()) {
             importBatch(run, attempt, batch);
         }
+        importStagedKeys(run);
 
         long remaining = backlogOf(discoveryUuid);
         if (remaining == 0) {
@@ -227,6 +235,32 @@ public class DiscoveryProcessTickWorker {
     }
 
     /**
+     * Imports one bounded page of the run's staged keys. Each key stands alone: one that cannot be identified stamps
+     * its own row and the rest of the page goes in, so a single bad payload never costs the run its other keys.
+     */
+    private void importStagedKeys(Discovery run) {
+        List<DiscoveryItem> keys = itemRepository
+                .findByDiscoveryUuidAndResourceAndProcessedAtIsNullAndProcessedErrorIsNull(run.getUuid(),
+                        Resource.CRYPTOGRAPHIC_KEY, PageRequest.of(0, batchSize));
+        if (keys.isEmpty()) {
+            return;
+        }
+        KeyImportOutcome outcome = keyImportHandler.importBatch(run, keys);
+        if (outcome.failed() == 0) {
+            return;
+        }
+        // Filed once for the page rather than once per key: the run's message log aggregates by code and text, and
+        // what an operator acts on is that keys were lost, with the per-key reason on the item itself.
+        recordQuietly(run.getUuid(), "keys that could not be imported",
+                () -> messageWriter
+                        .append(run.getUuid(),
+                                new DiscoveryMessageDraft(DiscoveryMessageSeverity.WARNING,
+                                        DiscoveryMessageCode.KEY_IMPORT_FAILED,
+                                        "A discovered key could not be imported. The item listing says which, and why.",
+                                        outcome.failed())));
+    }
+
+    /**
      * Records a message that must not take the tick down with it. The same outage that tripped the caller's catch will
      * often trip the write too, and an exception escaping there skips the stall path — so the attempt counter never
      * climbs and the budget never ends a failing run.
@@ -314,7 +348,8 @@ public class DiscoveryProcessTickWorker {
         // message log is checked too -- by severity, not by whether it holds anything. A run collects messages for
         // things it recovered from, and ending a run whose every row imported on the strength of one of those
         // would report a warning about nothing an operator can act on.
-        boolean rowsFailed = certificateRepository.existsByDiscoveryUuidAndProcessedErrorIsNotNull(run.getUuid());
+        boolean rowsFailed = certificateRepository.existsByDiscoveryUuidAndProcessedErrorIsNotNull(run.getUuid())
+                || itemRepository.existsByDiscoveryUuidAndProcessedErrorIsNotNull(run.getUuid());
         boolean runLevelGaps = messageRepository.existsByDiscoveryUuidAndSeverityIn(run.getUuid(), UNRECOVERED);
         if (!rowsFailed && !runLevelGaps) {
             return new Ending(DiscoveryStatus.COMPLETED, "Discovery completed successfully.");

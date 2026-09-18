@@ -148,6 +148,9 @@ public interface DiscoveryItemRepository extends JpaRepository<DiscoveryItem, UU
     long countItems(@Param("discoveryUuid") UUID discoveryUuid, @Param("resource") String resource,
             @Param("newlyDiscovered") Boolean newlyDiscovered);
 
+    /** Whether any staged item of this run carries a reason it produced nothing. */
+    boolean existsByDiscoveryUuidAndProcessedErrorIsNotNull(UUID discoveryUuid);
+
     /** One bounded page of key items the import pipeline has not reached yet, oldest first. */
     List<DiscoveryItem> findByDiscoveryUuidAndResourceAndProcessedAtIsNullAndProcessedErrorIsNull(UUID discoveryUuid,
             Resource resource, Pageable pageable);
