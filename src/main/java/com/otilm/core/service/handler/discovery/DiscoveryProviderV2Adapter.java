@@ -188,7 +188,6 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
             locked.setStatus(DiscoveryStatus.IN_PROGRESS);
             locked.setConnectorStatus(DiscoveryStatus.IN_PROGRESS);
             locked.setStartTime(OffsetDateTime.now(ZoneOffset.UTC));
-            // Why it is stored, and why the execution alone: Discovery#scheduledJobHistoryUuid.
             if (scheduledJobInfo != null) {
                 locked.setScheduledJobHistoryUuid(scheduledJobInfo.jobHistoryUuid());
             }

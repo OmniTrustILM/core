@@ -913,7 +913,6 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
 
         discoveryInternalService.runDiscovery(discovery.getUuid(), job);
 
-        // The execution alone, and why: Discovery#scheduledJobHistoryUuid.
         Discovery persisted = discoveryRepository.findByUuid(discovery.getUuid()).orElseThrow();
         Assertions.assertEquals(job.jobHistoryUuid(), persisted.getScheduledJobHistoryUuid());
     }
