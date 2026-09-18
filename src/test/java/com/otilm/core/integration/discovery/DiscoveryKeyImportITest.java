@@ -126,6 +126,27 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
     }
 
     @Test
+    void publicKeyMaterialThatIsNotBase64_isRefusedWithAReasonOnTheItem() {
+        Discovery run = processingRun();
+        DiscoveredKeyDto payload = new DiscoveredKeyDto();
+        payload.setType(KeyType.PUBLIC_KEY);
+        payload.setAlgorithm(KeyAlgorithm.RSA);
+        payload.setPublicKeyFormat(KeyFormat.SPKI);
+        payload.setPublicKey("this is not base64 ****");
+        payload.setFingerprint("connector-would-have-said-this");
+        stage(run, "ssh://host-d:22", payload);
+
+        KeyDiscoveredHandler.KeyImportOutcome outcome = handler.importBatch(run, pendingKeys(run));
+
+        // Not fallen back to the connector's fingerprint: material that cannot be read is a broken report, and
+        // recording it under a name nothing else computes would bury the break in the inventory.
+        assertThat(outcome.failed()).isEqualTo(1);
+        DiscoveryItem refused = itemOf(run, "ssh://host-d:22");
+        assertThat(refused.getProcessedError()).contains("Base64");
+        assertThat(refused.getInventoryUuid()).isNull();
+    }
+
+    @Test
     void aKeyWithNoPublicPart_isIdentifiedByWhatTheConnectorCalledIt() {
         Discovery run = processingRun();
         // A secret key has nothing to compute an identity from, and no certificate can ever carry one, so the
