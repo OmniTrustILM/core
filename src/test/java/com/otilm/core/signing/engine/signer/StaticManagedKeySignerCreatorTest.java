@@ -2,6 +2,7 @@ package com.otilm.core.signing.engine.signer;
 
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.core.model.crypto.CryptographicKeyItemModelFixtures;
 import com.otilm.core.model.signing.SigningCertificateBuilder;
 import com.otilm.core.model.signing.resolved.ResolvedStaticKeyManagedSigning;
@@ -140,6 +141,47 @@ class StaticManagedKeySignerCreatorTest {
                     .isInstanceOf(SigningEngineException.class)
                     .satisfies(ex -> assertThat(((SigningEngineException) ex).failure())
                             .isEqualTo(SigningEngineFailure.MISCONFIGURED));
+        }
+
+        @Test
+        void readsThePostQuantumParameterSetFromThePublicKeyItem() throws SigningEngineException {
+            // given
+            ResolvedStaticKeyManagedSigning scheme = new ResolvedStaticKeyManagedSigning(
+                    SigningCertificateBuilder.valid(),
+                    List
+                            .of(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.MLDSA),
+                                    CryptographicKeyItemModelFixtures
+                                            .publicKey(KeyAlgorithm.MLDSA, SignatureAlgorithm.ML_DSA_65.getCode())),
+                    null, List.of());
+
+            // when
+            Signer signer = creator.create(scheme);
+
+            // then
+            assertThat(signer.getSignatureAlgorithm()).isEqualTo(SignatureAlgorithm.ML_DSA_65);
+        }
+
+        @Test
+        void throwsMisconfigured_whenPostQuantumParameterSetIsNotAPlatformConstant() {
+            // given
+            ResolvedStaticKeyManagedSigning scheme = new ResolvedStaticKeyManagedSigning(
+                    SigningCertificateBuilder.valid(),
+                    List
+                            .of(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.MLDSA),
+                                    CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.MLDSA, "ML-DSA-99")),
+                    null, List.of());
+
+            // when / then
+            assertThatThrownBy(() -> creator.create(scheme))
+                    .isInstanceOf(SigningEngineException.class)
+                    .satisfies(ex -> {
+                        assertThat(((SigningEngineException) ex).failure())
+                                .isEqualTo(SigningEngineFailure.MISCONFIGURED);
+                        assertThat(((SigningEngineException) ex).operatorMessage())
+                                .contains("ML-DSA-99", "which the platform does not support");
+                        assertThat(((SigningEngineException) ex).clientMessage())
+                                .isEqualTo("Signing key algorithm is not supported.");
+                    });
         }
     }
 }
