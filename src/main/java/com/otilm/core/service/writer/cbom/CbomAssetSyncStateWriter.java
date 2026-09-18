@@ -204,4 +204,20 @@ public class CbomAssetSyncStateWriter {
         return cbomRepository
                 .updateAssetSyncState(cbomUuid, CbomAssetSyncState.FAILED, operatorSafeError, null, NOT_YET_SYNCED);
     }
+
+    /**
+     * Records a refusal the document's own content earned, and counts it.
+     *
+     * <p>
+     * {@code FAILED} exactly as {@link #markFailed} writes it, with the same guard and the same operator-visible
+     * contract on the text -- the difference is the count, which is what eventually takes the row off the retry list.
+     * See {@link CbomRepository#recordContentRefusal}: it is the one failure a re-read cannot turn into a success.
+     *
+     * @return 1 if the refusal was recorded, 0 if the CBOM had been synced in the meantime
+     */
+    @Transactional
+    public int markRefusedForContent(UUID cbomUuid, String operatorSafeError) {
+        return cbomRepository
+                .recordContentRefusal(cbomUuid, CbomAssetSyncState.FAILED, operatorSafeError, NOT_YET_SYNCED);
+    }
 }

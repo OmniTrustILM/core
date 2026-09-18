@@ -37,6 +37,7 @@ import com.otilm.api.model.core.settings.logging.AuditLoggingSettingsDto;
 import com.otilm.api.model.core.settings.logging.LoggingSettingsDto;
 import com.otilm.api.model.core.settings.logging.ResourceLoggingSettingsDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.cbom.sync.CbomSyncPolicy;
 import com.otilm.core.certificate.request.DefaultRequestAttributeSet;
 import com.otilm.core.dao.entity.Setting;
 import com.otilm.core.dao.repository.SettingRepository;
@@ -72,6 +73,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
@@ -88,6 +90,9 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 public class SettingServiceImpl implements SettingExternalService, SettingInternalService {
     public static final String UTILS_SERVICE_URL_NAME = "utilsServiceUrl";
     public static final String CBOM_REPOSITORY_URL_NAME = "cbomRepositoryUrl";
+    public static final String CBOM_SYNC_OVERLAP_SECONDS_NAME = "cbomSyncOverlapSeconds";
+    public static final String CBOM_SYNC_SKIPPED_RETRY_RUNS_NAME = "cbomSyncSkippedRetryRuns";
+    public static final String CBOM_SYNC_MAX_INGEST_DOCUMENTS_NAME = "cbomSyncMaxIngestDocuments";
     public static final String CERTIFICATES_VALIDATION_SETTINGS_NAME = "certificatesValidation";
     public static final String CERTIFICATES_REGISTRATION_SETTINGS_NAME = "certificatesRegistration";
 
@@ -105,6 +110,14 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
      * removes only its own row and that field falls back to its platform default independently of the rest.
      */
     private static final Map<String, BrandingField> BRANDING_FIELDS = brandingFields();
+
+    /**
+     * The corrupt text last reported per utils setting. The read runs on every cache refresh, so a value is reported
+     * when it appears, whenever its text changes, and again after a valid or unset read has cleared the entry; three
+     * entries at most. A refresh that read a corrupt value racing a request that read its correction can leave the
+     * entry behind for one refresh cycle; the next read clears it.
+     */
+    private final Map<String, String> lastReportedCorruptUtilsValue = new ConcurrentHashMap<>();
 
     private final ObjectMapper wireMapper;
     private final SettingsCache settingsCache;
@@ -168,16 +181,19 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
         // Utils
         Map<String, Setting> utilsSettings = mappedSettings.get(SettingsSectionCategory.PLATFORM_UTILS.getCode());
         UtilsSettingsDto utilsSettingsDto = new UtilsSettingsDto();
-        if (utilsSettings != null) {
-            Setting utilsServiceSetting = utilsSettings.get(UTILS_SERVICE_URL_NAME);
-            if (utilsServiceSetting != null) {
-                utilsSettingsDto.setUtilsServiceUrl(utilsServiceSetting.getValue());
-            }
-            Setting cbomRepositorySetting = utilsSettings.get(CBOM_REPOSITORY_URL_NAME);
-            if (cbomRepositorySetting != null) {
-                utilsSettingsDto.setCbomRepositoryUrl(cbomRepositorySetting.getValue());
-            }
-        }
+        utilsSettingsDto.setUtilsServiceUrl(utilsValue(utilsSettings, UTILS_SERVICE_URL_NAME));
+        utilsSettingsDto.setCbomRepositoryUrl(utilsValue(utilsSettings, CBOM_REPOSITORY_URL_NAME));
+        // The CBOM sync policy reads back with its defaults filled in, so a form shows what the sync will use.
+        utilsSettingsDto
+                .setCbomSyncOverlapSeconds(utilsInteger(utilsSettings, CBOM_SYNC_OVERLAP_SECONDS_NAME,
+                        CbomSyncPolicy.DEFAULT_OVERLAP_SECONDS, UtilsSettingsDto.MAX_CBOM_SYNC_OVERLAP_SECONDS));
+        utilsSettingsDto
+                .setCbomSyncSkippedRetryRuns(utilsInteger(utilsSettings, CBOM_SYNC_SKIPPED_RETRY_RUNS_NAME,
+                        CbomSyncPolicy.DEFAULT_SKIPPED_RETRY_RUNS, UtilsSettingsDto.MAX_CBOM_SYNC_SKIPPED_RETRY_RUNS));
+        utilsSettingsDto
+                .setCbomSyncMaxIngestDocuments(utilsInteger(utilsSettings, CBOM_SYNC_MAX_INGEST_DOCUMENTS_NAME,
+                        CbomSyncPolicy.DEFAULT_MAX_INGEST_DOCUMENTS,
+                        UtilsSettingsDto.MAX_CBOM_SYNC_MAX_INGEST_DOCUMENTS));
         platformSettings.setUtils(utilsSettingsDto);
 
         // Certificates
@@ -345,11 +361,21 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
     }
 
     private Setting certificateSetting(Map<String, Setting> certificateSettings, String name) {
-        Setting setting = certificateSettings == null ? null : certificateSettings.get(name);
+        return platformSetting(certificateSettings, SettingsSectionCategory.PLATFORM_CERTIFICATES, name);
+    }
+
+    /**
+     * The stored row of one platform setting, or a new unsaved one for it. The caller holds the category's advisory
+     * lock ({@code lockUtilsWrites}, {@code lockCertificateWrites}) from before the rows were read: this inserts when
+     * it finds no row, and two writers that both find none would insert the name twice.
+     */
+    private static Setting platformSetting(Map<String, Setting> categorySettings, SettingsSectionCategory category,
+            String name) {
+        Setting setting = categorySettings == null ? null : categorySettings.get(name);
         if (setting == null) {
             setting = new Setting();
             setting.setSection(SettingsSection.PLATFORM);
-            setting.setCategory(SettingsSectionCategory.PLATFORM_CERTIFICATES.getCode());
+            setting.setCategory(category.getCode());
             setting.setName(name);
         }
         return setting;
@@ -378,6 +404,15 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
     @Override
     @ExternalAuthorization(resource = Resource.SETTINGS, action = ResourceAction.UPDATE)
     public void updatePlatformSettings(PlatformSettingsUpdateDto platformSettings) {
+        // Held before the rows are read, as for branding: a value is written by looking for its row and inserting when
+        // there is none, so two concurrent first updates would otherwise insert a name twice. Utils first, then
+        // certificates, always in this order, so the two keys cannot wait on each other.
+        if (platformSettings.getUtils() != null) {
+            settingRepository.lockUtilsWrites();
+        }
+        if (platformSettings.getCertificates() != null) {
+            settingRepository.lockCertificateWrites();
+        }
         List<Setting> settings = settingRepository.findBySection(SettingsSection.PLATFORM);
         Map<String, Map<String, Setting>> mappedSettings = mapSettingsByCategory(settings);
 
@@ -393,34 +428,78 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
         cacheAfterCommit(() -> settingsCache.cacheSettings(SettingsSection.PLATFORM, getPlatformSettings()));
     }
 
-    // Auxiliary services: utils service and cbom repository
+    // Auxiliary services: utils service and cbom repository, plus the CBOM sync policy the sync reads per run
     private void updateUtilsSettings(PlatformSettingsUpdateDto platformSettings,
             Map<String, Map<String, Setting>> mappedSettings) {
-        Setting utilSetting;
         Map<String, Setting> platformUtilsSettings = mappedSettings
                 .get(SettingsSectionCategory.PLATFORM_UTILS.getCode());
-        if (platformUtilsSettings == null
-                || (utilSetting = platformUtilsSettings.get(UTILS_SERVICE_URL_NAME)) == null) {
-            utilSetting = new Setting();
-            utilSetting.setSection(SettingsSection.PLATFORM);
-            utilSetting.setCategory(SettingsSectionCategory.PLATFORM_UTILS.getCode());
-            utilSetting.setName(UTILS_SERVICE_URL_NAME);
+        UtilsSettingsDto utils = platformSettings.getUtils();
+        upsertUtilsSetting(platformUtilsSettings, UTILS_SERVICE_URL_NAME, utils.getUtilsServiceUrl());
+        upsertUtilsSetting(platformUtilsSettings, CBOM_REPOSITORY_URL_NAME, utils.getCbomRepositoryUrl());
+        // Stored as text like every setting. An unset value removes the row, and the read falls back to the default.
+        upsertUtilsSetting(platformUtilsSettings, CBOM_SYNC_OVERLAP_SECONDS_NAME,
+                integerText(utils.getCbomSyncOverlapSeconds()));
+        upsertUtilsSetting(platformUtilsSettings, CBOM_SYNC_SKIPPED_RETRY_RUNS_NAME,
+                integerText(utils.getCbomSyncSkippedRetryRuns()));
+        upsertUtilsSetting(platformUtilsSettings, CBOM_SYNC_MAX_INGEST_DOCUMENTS_NAME,
+                integerText(utils.getCbomSyncMaxIngestDocuments()));
+    }
+
+    /** Writes one utils value; an unset value leaves no row behind, as the branding writes do. */
+    private void upsertUtilsSetting(Map<String, Setting> platformUtilsSettings, String name, String value) {
+        Setting stored = platformUtilsSettings == null ? null : platformUtilsSettings.get(name);
+        if (value == null) {
+            if (stored != null) {
+                settingRepository.delete(stored);
+            }
+            return;
         }
+        Setting setting = platformSetting(platformUtilsSettings, SettingsSectionCategory.PLATFORM_UTILS, name);
+        setting.setValue(value);
+        settingRepository.save(setting);
+    }
 
-        utilSetting.setValue(platformSettings.getUtils().getUtilsServiceUrl());
-        settingRepository.save(utilSetting);
+    private static String utilsValue(Map<String, Setting> utilsSettings, String name) {
+        Setting setting = utilsSettings == null ? null : utilsSettings.get(name);
+        return setting == null ? null : setting.getValue();
+    }
 
-        Setting cbomRepositorySetting;
-        if (platformUtilsSettings == null
-                || (cbomRepositorySetting = platformUtilsSettings.get(CBOM_REPOSITORY_URL_NAME)) == null) {
-            cbomRepositorySetting = new Setting();
-            cbomRepositorySetting.setSection(SettingsSection.PLATFORM);
-            cbomRepositorySetting.setCategory(SettingsSectionCategory.PLATFORM_UTILS.getCode());
-            cbomRepositorySetting.setName(CBOM_REPOSITORY_URL_NAME);
+    /**
+     * A stored value that is not an integer, or lies outside the bounds the API validates on the way in -- only a
+     * manual edit can put one there -- reads as the default, so the sync keeps running on a known value rather than
+     * failing on a corrupt one. Reported when it appears, whenever its text changes, and again after it was corrected
+     * -- not on every cache refresh, which is where this runs.
+     */
+    private int utilsInteger(Map<String, Setting> utilsSettings, String name, int defaultValue, int maxValue) {
+        String value = utilsValue(utilsSettings, name);
+        if (value == null || value.isBlank()) {
+            lastReportedCorruptUtilsValue.remove(name);
+            return defaultValue;
         }
+        try {
+            int parsed = Integer.parseInt(value.trim());
+            if (parsed < 0 || parsed > maxValue) {
+                reportCorruptUtilsValue(name, value, "outside 0.." + maxValue, defaultValue);
+                return defaultValue;
+            }
+            lastReportedCorruptUtilsValue.remove(name);
+            return parsed;
+        } catch (NumberFormatException e) {
+            reportCorruptUtilsValue(name, value, "not an integer", defaultValue);
+            return defaultValue;
+        }
+    }
 
-        cbomRepositorySetting.setValue(platformSettings.getUtils().getCbomRepositoryUrl());
-        settingRepository.save(cbomRepositorySetting);
+    private void reportCorruptUtilsValue(String name, String value, String problem, int defaultValue) {
+        if (!value.equals(lastReportedCorruptUtilsValue.put(name, value))) {
+            logger
+                    .warn("Platform setting {} holds '{}', {}; using the default {} until it is corrected", name, value,
+                            problem, defaultValue);
+        }
+    }
+
+    private static String integerText(Integer value) {
+        return value == null ? null : Integer.toString(value);
     }
 
     private void updateCertificateSettings(PlatformSettingsUpdateDto platformSettings,

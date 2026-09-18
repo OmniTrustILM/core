@@ -104,10 +104,11 @@ class CbomSyncITest extends BaseSpringBootTest {
 
     @Test
     void theSyncPropertiesBindTheDocumentedDefaults() {
+        // The deploy-time half only; the operator policy is a platform setting, which SettingServiceITest covers.
         assertThat(syncProperties.pageSize()).isEqualTo(1000);
-        assertThat(syncProperties.overlap()).isEqualTo(Duration.ofSeconds(60));
-        assertThat(syncProperties.skippedRetryRuns()).isEqualTo(3);
-        assertThat(syncProperties.maxAttempts()).isEqualTo(4);
+        assertThat(syncProperties.assetIngestEnabled()).isTrue();
+        assertThat(syncProperties.assetBatchSize()).isEqualTo(100);
+        assertThat(syncProperties.ingestRetryAfter()).isEqualTo(Duration.ofMinutes(30));
     }
 
     // ---- paging ----
@@ -341,6 +342,24 @@ class CbomSyncITest extends BaseSpringBootTest {
     }
 
     @Test
+    void withARetryBudgetOfZeroInThePlatformSettingsAnUnreadableEntryIsWrittenOffAtOnce() throws Exception {
+        // The cache hands out the object it holds, and startRepository installed this test's own copy of it.
+        SettingsCache
+                .<PlatformSettingsDto>getSettings(SettingsSection.PLATFORM)
+                .getUtils()
+                .setCbomSyncSkippedRetryRuns(0);
+        stubPage("after", "0", "[" + entry("urn:uuid:bad", "1", STATS, null) + "]", null);
+        stubDocumentFailure("urn:uuid:bad", 1, 500);
+
+        cbomInternalService.sync();
+
+        // Read from the platform settings at the start of the run: one attempt, and the entry is given up on.
+        assertThat(onlySkip().getAttempts()).isEqualTo(1);
+        assertThat(onlySkip().getState()).isEqualTo(CbomSyncSkipState.PERMANENTLY_SKIPPED);
+        assertThat(warnings()).anySatisfy(m -> assertThat(m).contains("urn:uuid:bad").contains("permanently skipped"));
+    }
+
+    @Test
     void aSkippedEntryThatBecomesReadableIsStoredWithTheCountsTheFeedReportedAndItsRecordResolved() throws Exception {
         stubPage("after", "0", "[" + entry("urn:uuid:late", "3", STATS, null) + "]", null);
         stubDocumentFailure("urn:uuid:late", 3, 404);
@@ -423,8 +442,72 @@ class CbomSyncITest extends BaseSpringBootTest {
                 .satisfies(e -> {
                     assertThat(((CbomRepositoryException) e).getProblemDetail().getStatus()).isEqualTo(503);
                     assertThat(((CbomRepositoryException) e).getProblemDetail().getDetail())
-                            .startsWith("CBOM Repository failed every document read of this run (2 documents)");
+                            .startsWith("CBOM Repository failed 2 document reads of this run, every one it attempted");
                 });
+
+        assertThat(skipRepository.count()).isZero();
+        assertThat(cbomRepository.count()).isZero();
+    }
+
+    /**
+     * The whole-listing pass reads no document for an entry it already holds, so "not one read answered" is what a
+     * healthy reconciliation looks like rather than evidence of an outage. Charging the two that failed is the only
+     * reading that terminates: abandoning the run here would abandon it every Sunday, since the next pass reads exactly
+     * as little -- and it would abandon it before the ingest pass, in the case the weekly pass exists for.
+     */
+    @Test
+    void aReconcileOverAnEstateItAlreadyHoldsChargesTheUnreadableRatherThanFailing() throws Exception {
+        Cbom held = new Cbom();
+        held.setSerialNumber("urn:uuid:held");
+        held.setVersion(1);
+        held.setSpecVersion("1.6");
+        held.setAssetSyncState(CbomAssetSyncState.SYNCED);
+        cbomRepository.save(held);
+        stubPage(
+                "after", "0", "[" + entry("urn:uuid:held", "1", STATS, null) + ","
+                        + entry("urn:uuid:a", "1", STATS, null) + "," + entry("urn:uuid:b", "1", STATS, null) + "]",
+                null);
+        stubDocumentFailure("urn:uuid:a", 1, 503);
+        stubDocumentFailure("urn:uuid:b", 1, 503);
+
+        String result = cbomInternalService.reconcile();
+
+        assertThat(result)
+                .startsWith("Reconciled against the whole listing.")
+                .contains("skipped duplicates 1")
+                .contains("2 entries could not be stored and were recorded for retry");
+        assertThat(skipRepository.count()).isEqualTo(2);
+    }
+
+    /**
+     * The other half of that rule. A listing in which Core recognised nothing and no document answered is the same
+     * evidence the hourly pass acts on, so the weekly pass fails too rather than charging a budget for an outage.
+     */
+    /**
+     * The evidence is {@code alreadyStored}, not the aggregate duplicate count: a listing that repeats one identity --
+     * which its own overlapping cursors do -- says nothing about what Core holds. Reading the aggregate instead let a
+     * single repeat flip an outage into "charge every deferred entry in the estate".
+     */
+    @Test
+    void aListingThatRepeatsAnEntryDoesNotMakeAnOutageLookHealthy() {
+        stubPage("after", "0", "[" + entry("urn:uuid:a", "1", STATS, null) + "," + entry("urn:uuid:a", "1", STATS, null)
+                + "," + entry("urn:uuid:b", "1", STATS, null) + "]", null);
+        stubDocumentFailure("urn:uuid:a", 1, 503);
+        stubDocumentFailure("urn:uuid:b", 1, 503);
+
+        assertThatThrownBy(() -> cbomInternalService.reconcile()).isInstanceOf(CbomRepositoryException.class);
+
+        assertThat(skipRepository.count()).describedAs("nothing was charged to the retry budget").isZero();
+    }
+
+    @Test
+    void aReconcileThatRecognisesNothingInTheListingStillFailsAsAnOutage() {
+        stubPage("after", "0",
+                "[" + entry("urn:uuid:a", "1", STATS, null) + "," + entry("urn:uuid:b", "1", STATS, null) + "]", null);
+        stubDocumentFailure("urn:uuid:a", 1, 503);
+        stubDocumentFailure("urn:uuid:b", 1, 503);
+
+        assertThatThrownBy(() -> cbomInternalService.reconcile()).isInstanceOf(CbomRepositoryException.class);
 
         assertThat(skipRepository.count()).isZero();
         assertThat(cbomRepository.count()).isZero();

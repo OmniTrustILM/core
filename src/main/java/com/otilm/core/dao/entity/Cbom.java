@@ -32,6 +32,7 @@ import org.hibernate.proxy.HibernateProxy;
                 columnNames = {"serial_number", "version"}))
 @Check(name = "ck_cbom_asset_sync_state",
         constraints = "asset_sync_state IN ('PENDING', 'IN_PROGRESS', 'SYNCED', 'FAILED')")
+@Check(name = "ck_cbom_asset_sync_content_refusals", constraints = "asset_sync_content_refusals >= 0")
 public class Cbom extends UniquelyIdentified implements DtoMapper<CbomDto> {
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -91,6 +92,18 @@ public class Cbom extends UniquelyIdentified implements DtoMapper<CbomDto> {
      */
     @Column(name = "asset_sync_attempted_at")
     private OffsetDateTime assetSyncAttemptedAt;
+
+    /**
+     * How many times the asset ingest refused this document for something the document itself says -- a repeated
+     * {@code bom-ref}, a cross-component scope that could not be built.
+     *
+     * <p>
+     * Such a refusal is a verdict on bytes that will not change, so the retry list stops offering the row once this
+     * reaches the ingest's bound. Every other failure leaves it alone and keeps retrying as it always did; the two are
+     * told apart by which writer is called, not by reading the stored reason.
+     */
+    @Column(name = "asset_sync_content_refusals", nullable = false)
+    private int assetSyncContentRefusals;
 
     @Override
     public CbomDto mapToDto() {
