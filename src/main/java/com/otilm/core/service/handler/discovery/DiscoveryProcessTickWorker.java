@@ -5,6 +5,7 @@ import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryCertificate;
 import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
+import com.otilm.core.dao.repository.DiscoveryItemRepository;
 import com.otilm.core.dao.repository.DiscoveryMessageRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.events.handlers.CertificateDiscoveredEventHandler;
@@ -52,6 +53,7 @@ public class DiscoveryProcessTickWorker {
 
     private final DiscoveryRepository discoveryRepository;
     private final DiscoveryCertificateRepository certificateRepository;
+    private final DiscoveryItemRepository itemRepository;
     private final DiscoveryMessageRepository messageRepository;
     private final CertificateDiscoveredEventHandler importHandler;
     private final DiscoveryWorkWriter workWriter;
@@ -65,14 +67,15 @@ public class DiscoveryProcessTickWorker {
     private final Duration continuationBackstop;
 
     public DiscoveryProcessTickWorker(DiscoveryRepository discoveryRepository,
-            DiscoveryCertificateRepository certificateRepository, DiscoveryMessageRepository messageRepository,
-            CertificateDiscoveredEventHandler importHandler, DiscoveryWorkWriter workWriter,
-            DiscoveryWorkProducer workProducer, DiscoveryRunTerminator terminator, DiscoveryWriter discoveryWriter,
-            DiscoveryMessageWriter messageWriter, AuthHelper authHelper, DiscoveryWorkProperties workProperties,
-            @Value("${discovery.processing.batch-size:200}") int batchSize,
+            DiscoveryCertificateRepository certificateRepository, DiscoveryItemRepository itemRepository,
+            DiscoveryMessageRepository messageRepository, CertificateDiscoveredEventHandler importHandler,
+            DiscoveryWorkWriter workWriter, DiscoveryWorkProducer workProducer, DiscoveryRunTerminator terminator,
+            DiscoveryWriter discoveryWriter, DiscoveryMessageWriter messageWriter, AuthHelper authHelper,
+            DiscoveryWorkProperties workProperties, @Value("${discovery.processing.batch-size:200}") int batchSize,
             @Value("${discovery.work.continuation-backstop:PT1M}") Duration continuationBackstop) {
         this.discoveryRepository = discoveryRepository;
         this.certificateRepository = certificateRepository;
+        this.itemRepository = itemRepository;
         this.messageRepository = messageRepository;
         this.importHandler = importHandler;
         this.workWriter = workWriter;
@@ -152,9 +155,14 @@ public class DiscoveryProcessTickWorker {
         return selected;
     }
 
+    /**
+     * What the run still owes, across both staging stores. Certificates alone would end a run whose keys are all still
+     * staged the moment it starts processing — with nothing in the inventory and nothing to say why.
+     */
     private long backlogOf(UUID discoveryUuid) {
         return certificateRepository
-                .countByDiscoveryUuidAndNewlyDiscoveredTrueAndProcessedFalseAndProcessedErrorIsNull(discoveryUuid);
+                .countByDiscoveryUuidAndNewlyDiscoveredTrueAndProcessedFalseAndProcessedErrorIsNull(discoveryUuid)
+                + itemRepository.countPendingKeys(discoveryUuid);
     }
 
     /** How much of one batch is still waiting for a verdict. A row stamped with a reason is not waiting. */
@@ -247,11 +255,10 @@ public class DiscoveryProcessTickWorker {
      * Commits the agenda row as the backstop, then publishes the next batch directly (see {@link DiscoveryWorkWriter}).
      */
     private void continueProcessing(UUID discoveryUuid, long remaining) {
-        logger.debug("Discovery {} has {} certificates left to process", discoveryUuid, remaining);
+        logger.debug("Discovery {} has {} item(s) left to process", discoveryUuid, remaining);
         // Reported here, not by the pipeline, which sees only one batch and would report each as 100% complete.
         discoveryWriter
-                .updateProgressMessage(discoveryUuid,
-                        "Importing discovered certificates (%d remaining)".formatted(remaining));
+                .updateProgressMessage(discoveryUuid, "Importing discovered items (%d remaining)".formatted(remaining));
         workWriter
                 .reschedule(discoveryUuid, DiscoveryWorkType.PROCESS, 0,
                         OffsetDateTime.now(ZoneOffset.UTC).plus(continuationBackstop));
@@ -267,13 +274,13 @@ public class DiscoveryProcessTickWorker {
         if (next >= workProperties.scheduleFor(DiscoveryWorkType.PROCESS).maxAttempts()) {
             terminator
                     .end(discoveryUuid, DiscoveryStatus.WARNING,
-                            ("Processing stopped with %d certificate(s) that could not be imported. See this run's "
-                                    + "messages for what went wrong.").formatted(remaining));
+                            ("Processing stopped with %d discovered item(s) that could not be imported. See this "
+                                    + "run's messages for what went wrong.").formatted(remaining));
             return;
         }
         logger
-                .warn("Process tick {} for discovery {} accounted for none of its {} remaining certificates; backing "
-                        + "off", attempt, discoveryUuid, remaining);
+                .warn("Process tick {} for discovery {} accounted for none of its {} remaining item(s); backing off",
+                        attempt, discoveryUuid, remaining);
         workWriter
                 .reschedule(discoveryUuid, DiscoveryWorkType.PROCESS, next,
                         OffsetDateTime

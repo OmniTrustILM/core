@@ -147,6 +147,19 @@ public interface DiscoveryItemRepository extends JpaRepository<DiscoveryItem, UU
             @Param("newlyDiscovered") Boolean newlyDiscovered);
 
     /**
+     * Key items the import pipeline still owes a verdict. A row carries one either way once it has been through:
+     * {@code processed_at} when it became a key, {@code processed_error} when it could not.
+     */
+    @Query(value = """
+            SELECT COUNT(*) FROM {h-schema}discovery_item i
+             WHERE i.discovery_uuid = :discoveryUuid
+               AND i.resource = 'CRYPTOGRAPHIC_KEY'
+               AND i.processed_at IS NULL
+               AND i.processed_error IS NULL
+            """, nativeQuery = true)
+    long countPendingKeys(@Param("discoveryUuid") UUID discoveryUuid);
+
+    /**
      * How many newly discovered items reached the inventory, across both stores. Cleanly imported only: a certificate
      * row carries its reason alongside {@code processed}, so a row stamped with one is an outcome of its own and is
      * counted by {@link #countNewlyDiscoveredFailed} instead.

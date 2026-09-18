@@ -1,5 +1,10 @@
 package com.otilm.core.integration.discovery;
 
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyFormat;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.connector.discovery.v2.DiscoveredItemDto;
+import com.otilm.api.model.connector.discovery.v2.DiscoveredKeyDto;
 import com.otilm.api.model.core.discovery.DiscoveryMessageSeverity;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.dao.entity.CertificateContent;
@@ -26,6 +31,7 @@ import com.otilm.core.service.handler.discovery.DiscoveryProcessTickWorker;
 import com.otilm.core.service.handler.discovery.DiscoveryRunTerminator;
 import com.otilm.core.service.handler.discovery.DiscoveryRunTerminator.Ending;
 import com.otilm.core.service.writer.DiscoveryWriter;
+import com.otilm.core.service.writer.discovery.DiscoveryItemWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.util.AuthHelper;
@@ -100,6 +106,8 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
     @Autowired
     private DiscoveryWorkWriter workWriter;
     @Autowired
+    private DiscoveryItemWriter itemWriter;
+    @Autowired
     private DiscoveryMessageWriter messageWriter;
     @Autowired
     private DiscoveryMessageRepository messageRepository;
@@ -125,6 +133,18 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
     }
 
     @Test
+    void runWithOnlyStagedKeys_isNotFinishedJustBecauseItHasNoCertificates() throws Exception {
+        Discovery run = processingRun();
+        stageKeys(run, 2);
+
+        worker.tick(run.getUuid(), 0);
+
+        // The backlog spans both staging stores. Counting certificates alone ends a keys-only run the moment it
+        // starts processing, with every key still staged and nothing in the inventory.
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.PROCESSING);
+    }
+
+    @Test
     void importRunsAsTheUserWhoStartedTheRun() throws Exception {
         Discovery run = processingRun();
         stageCertificates(run, 1);
@@ -147,7 +167,7 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
 
         // The import pipeline counts progress against the batch it was handed. For a v2 run that batch is not
         // the run, so every batch would finish at 100% while the backlog is still draining.
-        assertThat(reload(run).getMessage()).isEqualTo("Importing discovered certificates (2 remaining)");
+        assertThat(reload(run).getMessage()).isEqualTo("Importing discovered items (2 remaining)");
     }
 
     @Test
@@ -247,7 +267,7 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
         // The budget ends the run with a reason naming what was left behind, rather than backing off forever.
         Discovery reloaded = reload(run);
         assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.WARNING);
-        assertThat(reloaded.getMessage()).contains("2 certificate(s) that could not be imported");
+        assertThat(reloaded.getMessage()).contains("2 discovered item(s) that could not be imported");
         assertThat(agenda(run)).isEmpty();
     }
 
@@ -631,6 +651,24 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
             staged.setProcessed(false);
             staged.setCommonName("host-" + i + ".example.com");
             certificateRepository.saveAndFlush(staged);
+        }
+    }
+
+    private void stageKeys(Discovery run, int count) {
+        for (int i = 1; i <= count; i++) {
+            DiscoveredKeyDto payload = new DiscoveredKeyDto();
+            payload.setType(KeyType.PUBLIC_KEY);
+            payload.setAlgorithm(KeyAlgorithm.RSA);
+            payload.setLength(2048);
+            payload.setPublicKeyFormat(KeyFormat.SPKI);
+            payload.setFingerprint("fp-" + UUID.randomUUID());
+            payload.setPublicKey("MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE");
+            DiscoveredItemDto item = new DiscoveredItemDto();
+            item.setSequence((long) i);
+            item.setUniqueRef("key-" + i);
+            item.setPayload(payload);
+            item.setDiscoveredAt(OffsetDateTime.now(ZoneOffset.UTC));
+            itemWriter.stage(run.getUuid(), item, true);
         }
     }
 

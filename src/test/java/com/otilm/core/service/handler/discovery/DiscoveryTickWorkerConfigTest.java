@@ -53,7 +53,7 @@ class DiscoveryTickWorkerConfigTest {
     }
 
     private static DiscoveryProcessTickWorker processWorkerWith(int batchSize, Duration continuationBackstop) {
-        return new DiscoveryProcessTickWorker(null, null, null, null, null, null, null, null, null, null, null,
+        return new DiscoveryProcessTickWorker(null, null, null, null, null, null, null, null, null, null, null, null,
                 batchSize, continuationBackstop);
     }
 
