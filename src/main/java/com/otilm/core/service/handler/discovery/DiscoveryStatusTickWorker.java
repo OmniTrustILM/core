@@ -3,6 +3,7 @@ package com.otilm.core.service.handler.discovery;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.PlatformException;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryProgressDto;
@@ -265,8 +266,11 @@ public class DiscoveryStatusTickWorker {
         }
     }
 
-    /** Carries the engine's checked refusal out of the replacement's transaction, rolling it back on the way. */
-    private static final class MetadataRefused extends RuntimeException {
+    /**
+     * Carries the engine's checked refusal out of the replacement's transaction, rolling it back on the way. Caught two
+     * frames up, so its message never reaches a wire boundary.
+     */
+    private static final class MetadataRefused extends RuntimeException implements PlatformException {
         private MetadataRefused(AttributeException cause) {
             super(cause);
         }
