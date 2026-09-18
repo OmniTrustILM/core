@@ -63,6 +63,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLConnection;
+import java.nio.charset.StandardCharsets;
 import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -781,7 +782,7 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
             }
 
             for (OAuth2ProviderSettingsDto providerDto : authenticationSettingsDto.getOAuth2Providers()) {
-                validateOAuth2ProviderSettings(providerDto);
+                normalizeAndValidateOAuth2ProviderSettings(providerDto);
             }
 
             settingRepository.lockOAuth2ProviderWrites();
@@ -814,17 +815,11 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
             } catch (JsonProcessingException e) {
                 throw new ValidationException(DESERIALIZATION_ERROR_MESSAGE.formatted(providerName));
             }
-            if (settingsDto.getJwkSetUrl() != null) {
-                try {
-                    settingsDto.setJwkSetKeys(convertJwkToListOfKeyDtos(checkJwkSetValidity(settingsDto)));
-                } catch (ValidationException e) {
-                    logger
-                            .warn("Unable to load JWK Set keys for OAuth2 provider '{}': {}", providerName,
-                                    e.getMessage());
-                    settingsDto.setJwkSetKeys(List.of());
-                }
-            } else {
+            try {
                 settingsDto.setJwkSetKeys(convertJwkToListOfKeyDtos(checkJwkSetValidity(settingsDto)));
+            } catch (ValidationException e) {
+                logger.warn("Unable to load JWK Set keys for OAuth2 provider '{}': {}", providerName, e.getMessage());
+                settingsDto.setJwkSetKeys(List.of());
             }
         }
         return settingsDto;
@@ -833,7 +828,7 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
     @Override
     @ExternalAuthorization(resource = Resource.SETTINGS, action = ResourceAction.UPDATE)
     public void updateOAuth2ProviderSettings(String providerName, OAuth2ProviderSettingsUpdateDto settingsDto) {
-        validateOAuth2ProviderSettings(settingsDto);
+        normalizeAndValidateOAuth2ProviderSettings(settingsDto);
 
         settingRepository.lockOAuth2ProviderWrites();
         validateIssuerUniqueness(providerName, settingsDto.getIssuerUrl());
@@ -927,7 +922,7 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
         return mapping;
     }
 
-    private void validateOAuth2ProviderSettings(OAuth2ProviderSettingsUpdateDto settingsDto) {
+    private void normalizeAndValidateOAuth2ProviderSettings(OAuth2ProviderSettingsUpdateDto settingsDto) {
         String jwkSetUrl = settingsDto.getJwkSetUrl();
         if (jwkSetUrl != null && jwkSetUrl.isBlank()) {
             settingsDto.setJwkSetUrl(null);
@@ -937,11 +932,20 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
             throw new ValidationException("Missing JWK Set URL or encoded JWK Set.");
         }
         if (jwkSetUrl == null) {
-            checkJwkSetValidity(settingsDto);
+            convertJwkToListOfKeyDtos(checkJwkSetValidity(settingsDto));
             return;
         }
+        parseJwkSetUrl(jwkSetUrl);
+    }
+
+    private URL parseJwkSetUrl(String jwkSetUrl) {
         try {
-            new URI(jwkSetUrl).toURL();
+            URI uri = new URI(jwkSetUrl);
+            String scheme = uri.getScheme();
+            if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
+                throw new ValidationException("JWK Set URL must use http or https.");
+            }
+            return uri.toURL();
         } catch (MalformedURLException | URISyntaxException | IllegalArgumentException e) {
             throw new ValidationException("JWK Set URL is invalid.");
         }
@@ -951,21 +955,19 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
         String jwkSet;
         if (settingsDto.getJwkSetUrl() != null) {
             try {
-                URL url = new URI(settingsDto.getJwkSetUrl()).toURL();
+                URL url = parseJwkSetUrl(settingsDto.getJwkSetUrl());
                 URLConnection urlConnection = url.openConnection();
                 urlConnection.setConnectTimeout(5000);
                 urlConnection.setReadTimeout(5000);
                 try (InputStream stream = urlConnection.getInputStream()) {
-                    jwkSet = new String(stream.readAllBytes());
+                    jwkSet = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
                 }
-            } catch (MalformedURLException | URISyntaxException | IllegalArgumentException e) {
-                throw new ValidationException("Unable to convert JWK Set URL to URL instance: " + e.getMessage());
             } catch (IOException e) {
                 throw new ValidationException("Unable to open connection for JWK Set URL: " + e.getMessage());
             }
         } else {
             try {
-                jwkSet = new String(Base64.getDecoder().decode(settingsDto.getJwkSet()));
+                jwkSet = new String(Base64.getDecoder().decode(settingsDto.getJwkSet()), StandardCharsets.UTF_8);
             } catch (IllegalArgumentException e) {
                 throw new ValidationException("Encoded JWK Set is invalid.");
             }
