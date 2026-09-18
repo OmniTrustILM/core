@@ -68,7 +68,8 @@ class DiscoveryProviderV2AdapterStartTest {
         when(terminator.endWith(eq(run.getUuid()), any())).thenReturn(true);
 
         // The failure path maps the same detail and fails the same way; what matters is what the start left behind.
-        assertThatThrownBy(() -> adapter.start(run.getUuid(), null)).isInstanceOf(IllegalStateException.class);
+        UUID runUuid = run.getUuid();
+        assertThatThrownBy(() -> adapter.start(runUuid, null)).isInstanceOf(IllegalStateException.class);
 
         verify(client).cancel(run);
         @SuppressWarnings("unchecked")

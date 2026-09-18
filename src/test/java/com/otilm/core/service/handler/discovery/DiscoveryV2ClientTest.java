@@ -300,6 +300,46 @@ class DiscoveryV2ClientTest {
     }
 
     @Test
+    void anInitiateResponseEchoingASecret_isStillAcceptedSoTheOpenRunIsNotOrphaned() throws Exception {
+        givenARunResolvingASecret();
+        DiscoveryInitiateResponseDto echo = new DiscoveryInitiateResponseDto();
+        echo.setCheckpoint(DiscoveryCheckpointFixture.checkpoint("lastToken", "s3cr3t-token"));
+        when(apiClient.initiate(any(), any())).thenReturn(echo);
+
+        // The connector has opened the run by the time this returns. Refusing here would leave it scanning with
+        // nothing in Core to cancel it by, which is what recordOrDrop exists to prevent.
+        assertThat(client.initiate(run).getCheckpoint()).isEqualTo(echo.getCheckpoint());
+    }
+
+    @Test
+    void aResumeResponseEchoingASecret_isStillAcceptedSoCoreDoesNotStayStopped() throws Exception {
+        givenARunResolvingASecret();
+        DiscoveryInitiateResponseDto echo = new DiscoveryInitiateResponseDto();
+        echo.setCheckpoint(DiscoveryCheckpointFixture.checkpoint("lastToken", "s3cr3t-token"));
+        when(apiClient.resume(any(), any())).thenReturn(echo);
+
+        // Same divergence in the direction that cannot repair itself: the connector restarts, and only an explicit
+        // resume moves Core out of STOPPED.
+        assertThat(client.resume(run).getCheckpoint()).isEqualTo(echo.getCheckpoint());
+    }
+
+    /** A run whose attributes carry a resource reference Core expands into a real secret before the call. */
+    private void givenARunResolvingASecret() throws Exception {
+        run.setResources(List.of(Resource.CERTIFICATE));
+        when(attributeEngine.getDefinitionObjectAttributeContent(any(), any(), isNull(), any(), any()))
+                .thenReturn(List.of(definition("vaultToken", "reference-only", AttributeContentType.RESOURCE)));
+        doAnswer(invocation -> {
+            List<DataAttribute> resolving = invocation.getArgument(0);
+            resolving
+                    .forEach(attribute -> attribute
+                            .setContent(List
+                                    .of(new ResourceObjectContent("vault", new ResourceSecretContentData("u", "vault",
+                                            new ApiKeySecretContent("s3cr3t-token"))))));
+            return null;
+        }).when(resourceService).loadResourceObjectContentData(anyList());
+    }
+
+    @Test
     void missingConnectorRow_failsRatherThanCallingSomethingElse() {
         when(connectorRepository.findByUuid(run.getConnectorUuid())).thenReturn(Optional.empty());
 

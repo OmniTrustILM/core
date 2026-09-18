@@ -103,9 +103,8 @@ public class DiscoveryV2Client {
             throws ConnectorException, NotFoundException, AttributeException {
         ConnectorDto connector = connectorOf(run);
         DiscoveryInitiateRequestDto request = new DiscoveryInitiateRequestDto();
-        Set<String> sentSecrets = populate(request, run, connector);
-        return contained(connectorApiFactory.getDiscoveryApiClientV2(connector).initiate(connector, request),
-                sentSecrets, "initiate");
+        populate(request, run, connector);
+        return connectorApiFactory.getDiscoveryApiClientV2(connector).initiate(connector, request);
     }
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -147,9 +146,8 @@ public class DiscoveryV2Client {
             throws ConnectorException, NotFoundException, AttributeException {
         ConnectorDto connector = connectorOf(run);
         DiscoveryRunRequestDto request = new DiscoveryRunRequestDto();
-        Set<String> sentSecrets = populate(request, run, connector);
-        return contained(connectorApiFactory.getDiscoveryApiClientV2(connector).stop(connector, request), sentSecrets,
-                "stop");
+        populate(request, run, connector);
+        return connectorApiFactory.getDiscoveryApiClientV2(connector).stop(connector, request);
     }
 
     /** Restarts a stopped run from its checkpoint. Answers the same shape as initiate: a handle and stoppability. */
@@ -158,9 +156,8 @@ public class DiscoveryV2Client {
             throws ConnectorException, NotFoundException, AttributeException {
         ConnectorDto connector = connectorOf(run);
         DiscoveryRunRequestDto request = new DiscoveryRunRequestDto();
-        Set<String> sentSecrets = populate(request, run, connector);
-        return contained(connectorApiFactory.getDiscoveryApiClientV2(connector).resume(connector, request), sentSecrets,
-                "resume");
+        populate(request, run, connector);
+        return connectorApiFactory.getDiscoveryApiClientV2(connector).resume(connector, request);
     }
 
     /**
@@ -194,9 +191,16 @@ public class DiscoveryV2Client {
 
     /**
      * Fails closed on a response that hands back a secret Core resolved into the request, or that carries a
-     * secret-bearing shape at all. Every response here is persisted or served: a checkpoint replayed on every call, run
-     * and item metadata the API returns. An echo would make Core the path by which a connector publishes what it was
-     * trusted with. Surfaced as the connector failure it is, so a tick spends budget on it like any other bad answer.
+     * secret-bearing shape at all. An echo would make Core the path by which a connector publishes what it was trusted
+     * with. Surfaced as the connector failure it is, so a tick spends budget on it like any other bad answer.
+     *
+     * <p>
+     * Applied to {@code status} and {@code results} only — the answers whose metadata and items the API serves. A
+     * mutating call is not contained: the connector has already opened, paused or restarted the run by the time it
+     * answers, so a refusal would leave an initiate Core never recorded and cannot cancel, or a run Core keeps STOPPED
+     * while the connector runs. Their responses carry only a checkpoint Core stores and shows nobody, and the connector
+     * already holds the secret it would be echoing. {@code AuthorityProviderV3Adapter} draws the same line between its
+     * read-only attribute lists and its operations.
      */
     private <T> T contained(T response, Set<String> sentSecrets, String operation) throws ConnectorException {
         try {
@@ -221,7 +225,7 @@ public class DiscoveryV2Client {
      * @return the secret values resolved into the request, for {@link #contained} to catch on the way back
      */
     private Set<String> populate(DiscoveryV2ScopedRequestDto request, Discovery run, ConnectorDto connector)
-            throws ConnectorException, NotFoundException, AttributeException {
+            throws ConnectorException {
         request.setRunId(run.getUuid());
         request.setCheckpoint(run.getCheckpoint());
         request.setResources(resourcesOf(run));
@@ -247,7 +251,7 @@ public class DiscoveryV2Client {
      * resolves it before its own call.
      */
     private Map<String, List<DataAttribute>> resolvedScopes(Discovery run, ConnectorDto connector)
-            throws ConnectorException, NotFoundException, AttributeException {
+            throws ConnectorException {
         Map<String, List<DataAttribute>> scopes = definitionScopes(run, connector);
         // Resolved across all scopes at once, and only once per distinct definition: a credential the run and a
         // resource both declare is one lookup, not two, and for a SECRET reference a lookup is a connector round
