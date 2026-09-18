@@ -1,9 +1,11 @@
 package com.otilm.core.dao.repository;
 
+import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.dao.entity.DiscoveryItem;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -145,6 +147,33 @@ public interface DiscoveryItemRepository extends JpaRepository<DiscoveryItem, UU
             """, nativeQuery = true)
     long countItems(@Param("discoveryUuid") UUID discoveryUuid, @Param("resource") String resource,
             @Param("newlyDiscovered") Boolean newlyDiscovered);
+
+    /** One bounded page of key items the import pipeline has not reached yet, oldest first. */
+    List<DiscoveryItem> findByDiscoveryUuidAndResourceAndProcessedAtIsNullAndProcessedErrorIsNull(UUID discoveryUuid,
+            Resource resource, Pageable pageable);
+
+    /** Stamps the item with the object it became. */
+    @Modifying
+    @Query(value = """
+            UPDATE {h-schema}discovery_item
+               SET inventory_uuid = :inventoryUuid, processed_at = :processedAt
+             WHERE uuid = :uuid
+            """, nativeQuery = true)
+    void markImported(@Param("uuid") UUID uuid, @Param("inventoryUuid") UUID inventoryUuid,
+            @Param("processedAt") OffsetDateTime processedAt);
+
+    /**
+     * Stamps why the item produced nothing. {@code processed_at} is set with it: the item was attempted, and the
+     * backlog must not offer it again.
+     */
+    @Modifying
+    @Query(value = """
+            UPDATE {h-schema}discovery_item
+               SET processed_error = :reason, processed_at = :processedAt
+             WHERE uuid = :uuid
+            """, nativeQuery = true)
+    void markFailed(@Param("uuid") UUID uuid, @Param("reason") String reason,
+            @Param("processedAt") OffsetDateTime processedAt);
 
     /**
      * Key items the import pipeline still owes a verdict. A row carries one either way once it has been through:
