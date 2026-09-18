@@ -108,6 +108,45 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
     }
 
     @Test
+    void oneKeyThatCannotBeIdentified_costsTheBatchOnlyThatKey() {
+        Discovery run = processingRun();
+        stageUnusableKey(run, "vault://unnamed");
+        stageKey(run, "ssh://host-a:22", SPKI_BASE64, "connector-a");
+
+        KeyDiscoveredHandler.KeyImportOutcome outcome = handler.importBatch(run, pendingKeys(run));
+
+        assertThat(outcome.imported()).isEqualTo(1);
+        assertThat(outcome.failed()).isEqualTo(1);
+        DiscoveryItem unusable = itemOf(run, "vault://unnamed");
+        assertThat(unusable.getProcessedError()).isNotNull();
+        assertThat(unusable.getInventoryUuid()).isNull();
+        assertThat(itemOf(run, "ssh://host-a:22").getInventoryUuid())
+                .as("the key that was fine goes in regardless")
+                .isNotNull();
+    }
+
+    @Test
+    void aKeyWithNoPublicPart_isIdentifiedByWhatTheConnectorCalledIt() {
+        Discovery run = processingRun();
+        // A secret key has nothing to compute an identity from, and no certificate can ever carry one, so the
+        // connector's own fingerprint is the only identity there is -- and it is enough.
+        stageSecretKey(run, "vault://kv/app-signing", "connector-fingerprint-42");
+
+        handler.importBatch(run, pendingKeys(run));
+
+        UUID keyUuid = itemOf(run, "vault://kv/app-signing").getInventoryUuid();
+        assertThat(keyUuid).isNotNull();
+        CryptographicKeyItem stored = keyRepository
+                .findWithKeyItemsAndTokenByUuid(keyUuid)
+                .orElseThrow()
+                .getItems()
+                .iterator()
+                .next();
+        assertThat(stored.getFingerprint()).isEqualTo("connector-fingerprint-42");
+        assertThat(stored.getKeyData()).isNull();
+    }
+
+    @Test
     void theKeyACertificateAlreadyBrought_isTheOneTheStagedItemLandsOn() {
         // The certificate pipeline computes its own identity for a certificate's public key, and the v2 contract
         // never says how a connector computes the fingerprint it reports. Trusting the connector's string here
@@ -159,6 +198,40 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
                 .filter(item -> run.getUuid().equals(item.getDiscoveryUuid()))
                 .findFirst()
                 .orElseThrow();
+    }
+
+    private DiscoveryItem itemOf(Discovery run, String uniqueRef) {
+        return itemRepository
+                .findAll()
+                .stream()
+                .filter(item -> run.getUuid().equals(item.getDiscoveryUuid()) && uniqueRef.equals(item.getUniqueRef()))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private void stageUnusableKey(Discovery run, String uniqueRef) {
+        DiscoveredKeyDto payload = new DiscoveredKeyDto();
+        payload.setType(KeyType.SECRET_KEY);
+        payload.setAlgorithm(KeyAlgorithm.UNKNOWN);
+        stage(run, uniqueRef, payload);
+    }
+
+    private void stageSecretKey(Discovery run, String uniqueRef, String connectorFingerprint) {
+        DiscoveredKeyDto payload = new DiscoveredKeyDto();
+        payload.setType(KeyType.SECRET_KEY);
+        payload.setAlgorithm(KeyAlgorithm.UNKNOWN);
+        payload.setLength(256);
+        payload.setFingerprint(connectorFingerprint);
+        stage(run, uniqueRef, payload);
+    }
+
+    private void stage(Discovery run, String uniqueRef, DiscoveredKeyDto payload) {
+        DiscoveredItemDto item = new DiscoveredItemDto();
+        item.setSequence(1L);
+        item.setUniqueRef(uniqueRef);
+        item.setPayload(payload);
+        item.setDiscoveredAt(OffsetDateTime.now(ZoneOffset.UTC));
+        itemWriter.stage(run.getUuid(), item, true);
     }
 
     private void stageKey(Discovery run, String uniqueRef, String publicKey, String connectorFingerprint) {
