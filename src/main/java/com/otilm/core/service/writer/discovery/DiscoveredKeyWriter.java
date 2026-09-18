@@ -1,5 +1,6 @@
 package com.otilm.core.service.writer.discovery;
 
+import com.otilm.api.exception.PlatformException;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredKeyDto;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.core.dao.entity.CryptographicKey;
@@ -150,8 +151,11 @@ public class DiscoveredKeyWriter {
         return "discovered_%s_%s".formatted(item.getUniqueRef(), head);
     }
 
-    /** A payload that cannot identify a key. Its message is written for the operator who reads the item. */
-    public static class UnusableKeyException extends IllegalArgumentException {
+    /**
+     * A payload that cannot identify a key. Platform shaped because its message is written for the operator who reads
+     * the item, and reaches them through {@code processed_error}.
+     */
+    public static class UnusableKeyException extends IllegalArgumentException implements PlatformException {
 
         public UnusableKeyException(String message) {
             super(message);
