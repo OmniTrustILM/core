@@ -54,6 +54,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.v2.ConnectorExternalService;
 import com.otilm.core.service.v2.ConnectorInternalService;
+import com.otilm.core.service.writer.DiscoveryWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import java.util.ArrayList;
 import java.util.List;
@@ -93,6 +94,8 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
 
     @Autowired
     private ConnectorInterfaceRepository connectorInterfaceRepository;
+    @Autowired
+    private DiscoveryWriter discoveryWriter;
 
     @Autowired
     private CredentialRepository credentialRepository;
@@ -344,6 +347,39 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
         assertThat(ended.getMessage()).contains("was deleted");
         assertThat(ended.getConnectorInterfaceUuid()).isNull();
         assertThat(connectorRepository.findByUuid(connector.getUuid())).isEmpty();
+    }
+
+    /**
+     * Only what has ended is released. A run created between the live-run check and the release would otherwise lose
+     * its association and go on as a v1 run; keeping it bound makes the connector's delete fail on the reference
+     * instead.
+     */
+    @Test
+    void releasingInterfacesLeavesALiveRunBound() {
+        ConnectorInterfaceEntity discoveryInterface = discoveryInterfaceOf(connector);
+        Discovery live = liveRunBoundTo(discoveryInterface);
+
+        int released = discoveryWriter.releaseConnectorInterfaces(List.of(discoveryInterface.getUuid()));
+
+        assertThat(released).isZero();
+        assertThat(discoveryRepository.findByUuid(live.getUuid()).orElseThrow().getConnectorInterfaceUuid())
+                .isEqualTo(discoveryInterface.getUuid());
+    }
+
+    /**
+     * The refusal names the runs in the way, up to a point: an operator needs to know there are many, not all of them.
+     */
+    @Test
+    void aRefusalOverManyLiveRunsNamesOnlySoMany() {
+        ConnectorInterfaceEntity discoveryInterface = discoveryInterfaceOf(connector);
+        for (int i = 0; i < 12; i++) {
+            liveRunBoundTo(discoveryInterface);
+        }
+
+        ValidationException refused = assertThrows(ValidationException.class,
+                () -> connectorService.deleteConnector(connector.getSecuredUuid()));
+
+        assertThat(refused.getMessage()).contains("and 2 more");
     }
 
     private ConnectorInterfaceEntity discoveryInterfaceOf(Connector owner) {

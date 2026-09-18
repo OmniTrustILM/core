@@ -3,8 +3,10 @@ package com.otilm.core.config;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Properties;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.config.YamlPropertiesFactoryBean;
+import org.springframework.boot.convert.DurationStyle;
 import org.springframework.core.io.FileSystemResource;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -12,10 +14,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Guards the shipped discovery tick ladders, which the integration tests cannot: {@code src/test/resources} substitutes
  * its own {@code discovery.work} block wholesale.
- *
- * <p>
- * The status tick is the only path by which a Discovery Provider's counters and its view of a run reach the platform,
- * so its slowest rung is how stale progress can be and how late the platform learns a scan finished.
  */
 class DiscoveryWorkLadderConfigTest {
 
@@ -54,6 +52,27 @@ class DiscoveryWorkLadderConfigTest {
         Duration tolerated = slowestRung(shipped, STATUS_DELAYS).multipliedBy(maxAttempts);
 
         assertThat(tolerated).isGreaterThan(Duration.ofHours(24));
+    }
+
+    /**
+     * Nothing marks an agenda row as being worked, so a tick still running when its row comes due again is published a
+     * second time. The floor is what keeps that from a tick spending a connector call's whole allowance: acquiring a
+     * connection, connecting, and waiting for the response.
+     */
+    @Test
+    void theClaimFloorOutlastsTheSlowestConnectorCall() {
+        Properties shipped = shipped();
+        Duration slowestCall = Stream
+                .of("connector.api-client.pending-acquire-timeout", "connector.api-client.connect-timeout",
+                        "connector.api-client.response-timeout")
+                .map(key -> DurationStyle.detectAndParse(withoutPlaceholder(shipped.getProperty(key))))
+                .reduce(Duration.ZERO, Duration::plus);
+        Duration claimFloor = Duration.parse(withoutPlaceholder(shipped.getProperty("discovery.work.claim-floor")));
+
+        assertThat(claimFloor)
+                .describedAs("a floor at or below the slowest connector call lets the sweep publish a tick whose "
+                        + "predecessor is still at the connector")
+                .isGreaterThan(slowestCall);
     }
 
     private static Duration slowestRung(Properties shipped, String delaysKey) {

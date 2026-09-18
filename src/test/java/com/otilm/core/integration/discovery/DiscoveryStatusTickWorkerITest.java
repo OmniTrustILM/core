@@ -2,7 +2,6 @@ package com.otilm.core.integration.discovery;
 
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ConnectorProblemException;
-import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
@@ -16,15 +15,15 @@ import com.otilm.api.model.connector.discovery.v2.DiscoveryResourceProgressDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryRunState;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryStatusResponseDto;
 import com.otilm.api.model.core.auth.Resource;
-import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.discovery.DiscoveryMessageSeverity;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
-import com.otilm.core.dao.entity.Connector;
+import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryMessage;
 import com.otilm.core.dao.entity.DiscoveryWork;
+import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryMessageRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
@@ -37,6 +36,7 @@ import com.otilm.core.service.handler.discovery.DiscoveryV2Client;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.DiscoveryCheckpointFixture;
+import com.otilm.core.util.DiscoveryInterfaceFixture;
 import java.net.URI;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -87,6 +87,8 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
 
     @Autowired
     private ConnectorRepository connectorRepository;
+    @Autowired
+    private ConnectorInterfaceRepository connectorInterfaceRepository;
 
     @Test
     void runningAnswer_keepsTheRunInProgressAndRefreshesTheBudget() throws Exception {
@@ -128,9 +130,8 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
     }
 
     /**
-     * Two status calls for one run can be in flight at once — a call slower than the claim floor is published again —
-     * and nothing else orders their answers once the run's own status has not moved between them. An answer taken
-     * earlier must not put older counters back, least of all stamped as freshly recorded.
+     * An answer taken earlier must not put older counters back, least of all stamped as freshly recorded; how two
+     * answers to one run come to be in flight at once is explained at {@code DiscoveryStatusTickWorker#apply}.
      */
     @Test
     void anAnswerTakenBeforeOneAlreadyAppliedIsDropped() throws Exception {
@@ -231,7 +232,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         assertThat(reload(run).getConnectorTotalCertificatesDiscovered()).isEqualTo(612);
     }
 
-    /** A connector reporting no breakdown leaves the figure alone rather than resetting it to nothing. */
+    /** Core never learned a newer number, so the one it holds is still the best it has. */
     @Test
     void answerWithoutABreakdown_leavesTheCertificateYieldAlone() throws Exception {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
@@ -662,6 +663,30 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
                 .containsExactly(DiscoveryMessageCode.RUN_METADATA_NOT_RECORDED.code());
     }
 
+    /**
+     * The replacement is all or nothing. The statement held so far is deleted before the new one is written, so one the
+     * engine refuses part-way must take that deletion back with it, or the run is left holding nothing.
+     */
+    @Test
+    void aStatementTheEngineRefuses_keepsWhatTheRunHolds() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        answers(saying(DiscoveryRunState.RUNNING, "resolver", "10.0.0.53"));
+        worker.tick(run.getUuid(), 0);
+
+        DiscoveryStatusResponseDto refused = statusResponse(DiscoveryRunState.RUNNING);
+        // Well-formed to the worker's eye and refused by the engine: content that carries no data.
+        refused.setMeta(List.of(statement("resolver", new StringAttributeContentV3((String) null))));
+        answers(refused);
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(recordedMetadata(run)).containsExactly(entry("resolver", "10.0.0.53"));
+        assertThat(messageRepository.findAll())
+                .filteredOn(message -> message.getDiscoveryUuid().equals(run.getUuid()))
+                .extracting(DiscoveryMessage::getCode)
+                .containsExactly(DiscoveryMessageCode.RUN_METADATA_NOT_RECORDED.code());
+    }
+
     @Test
     void aTerminalAnswer_recordsTheStatementBeforeEndingTheRun() throws Exception {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
@@ -682,6 +707,10 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
 
     /** A run metadata entry as a connector sends one: identity, content and the properties the engine registers. */
     private static MetadataAttribute statement(String name, String value) {
+        return statement(name, new StringAttributeContentV3(value));
+    }
+
+    private static MetadataAttribute statement(String name, StringAttributeContentV3 content) {
         MetadataAttributeV3 attribute = new MetadataAttributeV3();
         attribute.setUuid(UUID.nameUUIDFromBytes(name.getBytes()).toString());
         attribute.setName(name);
@@ -691,7 +720,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         properties.setLabel(name);
         properties.setVisible(true);
         attribute.setProperties(properties);
-        attribute.setContent(List.of(new StringAttributeContentV3(value)));
+        attribute.setContent(List.of(content));
         return attribute;
     }
 
@@ -769,15 +798,11 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         run.setKind("IP-HostName");
         run.setStatus(status);
         run.setConnectorStatus(status);
-        // A real row: run metadata definitions carry a foreign key to the connector that published them.
-        Connector connector = new Connector();
-        connector.setName("network-discovery-" + UUID.randomUUID());
-        connector.setUrl("http://localhost");
-        connector.setVersion(ConnectorVersion.V2);
-        connector.setStatus(ConnectorStatus.CONNECTED);
-        run.setConnectorUuid(connectorRepository.save(connector).getUuid());
+        ConnectorInterfaceEntity discoveryInterface = DiscoveryInterfaceFixture
+                .v2Interface(connectorRepository, connectorInterfaceRepository);
+        run.setConnectorUuid(discoveryInterface.getConnectorUuid());
         run.setConnectorName("network-discovery");
-        run.setConnectorInterfaceUuid(UUID.randomUUID());
+        run.setConnectorInterfaceUuid(discoveryInterface.getUuid());
         run.setCheckpoint(DiscoveryCheckpointFixture.checkpoint("connectorRunId", "run-42"));
         return discoveryRepository.saveAndFlush(run);
     }

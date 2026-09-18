@@ -26,6 +26,8 @@ import com.otilm.core.service.handler.CertificateHandler;
 import com.otilm.core.service.writer.discovery.DiscoveryItemWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Validator;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -64,11 +66,12 @@ public class DiscoveryEventIngestor {
     private final CryptographicKeyItemRepository keyItemRepository;
     private final DiscoveryCertificateRepository certificateRepository;
     private final DiscoveryMessageWriter messageWriter;
+    private final Validator validator;
 
     public DiscoveryEventIngestor(DiscoveryRepository discoveryRepository, DiscoveryItemWriter itemWriter,
             DiscoveryWorkWriter workWriter, CertificateHandler certificateHandler,
             CryptographicKeyItemRepository keyItemRepository, DiscoveryCertificateRepository certificateRepository,
-            DiscoveryMessageWriter messageWriter) {
+            DiscoveryMessageWriter messageWriter, Validator validator) {
         this.discoveryRepository = discoveryRepository;
         this.itemWriter = itemWriter;
         this.workWriter = workWriter;
@@ -76,6 +79,7 @@ public class DiscoveryEventIngestor {
         this.keyItemRepository = keyItemRepository;
         this.certificateRepository = certificateRepository;
         this.messageWriter = messageWriter;
+        this.validator = validator;
     }
 
     /**
@@ -103,9 +107,10 @@ public class DiscoveryEventIngestor {
             return false;
         }
         recordMalformed(run, items);
+        List<DiscoveredItemDto> conformant = dropNonConformant(run, items);
 
         long cursor = run.getLastAppliedSequence();
-        List<DiscoveredItemDto> fresh = items.stream().filter(item -> sequenceOf(item) > cursor).toList();
+        List<DiscoveredItemDto> fresh = conformant.stream().filter(item -> sequenceOf(item) > cursor).toList();
         stage(run, fresh);
 
         long highestReceived = items.stream().mapToLong(DiscoveryEventIngestor::sequenceOf).max().orElse(cursor);
@@ -198,6 +203,51 @@ public class DiscoveryEventIngestor {
                         new DiscoveryMessageDraft(DiscoveryMessageSeverity.WARNING,
                                 DiscoveryMessageCode.ITEM_SEQUENCE_MISSING,
                                 "A discovered item arrived without a sequence and was skipped.", refs.size()));
+    }
+
+    /**
+     * Holds each item to the wire contract before anything of it is stored. The REST and MQ clients deserialize without
+     * a validator, so the contract's constraints, above all that a key item carries no private key material, run
+     * nowhere else. A violating item is skipped and named to the operator by the rule it broke; the cursor still steps
+     * over it, since the connector re-sending it cannot make it valid. An item already recorded as sequence-less is not
+     * reported a second time.
+     */
+    private List<DiscoveredItemDto> dropNonConformant(Discovery run, List<DiscoveredItemDto> items) {
+        List<DiscoveredItemDto> conformant = new ArrayList<>(items.size());
+        Map<String, Long> skippedByRule = new LinkedHashMap<>();
+        for (DiscoveredItemDto item : items) {
+            if (item.getSequence() == null) {
+                continue;
+            }
+            Set<ConstraintViolation<DiscoveredItemDto>> violations = validator.validate(item);
+            if (violations.isEmpty()) {
+                conformant.add(item);
+                continue;
+            }
+            String rule = violations
+                    .stream()
+                    .map(ConstraintViolation::getMessage)
+                    .sorted()
+                    .collect(Collectors.joining("; "));
+            skippedByRule.merge(rule, 1L, Long::sum);
+        }
+        if (!skippedByRule.isEmpty()) {
+            logger
+                    .warn("Discovery {} received {} item(s) breaking the wire contract; skipped", run.getUuid(),
+                            skippedByRule.values().stream().mapToLong(Long::longValue).sum());
+            messageWriter
+                    .appendAll(run.getUuid(),
+                            skippedByRule
+                                    .entrySet()
+                                    .stream()
+                                    .map(byRule -> new DiscoveryMessageDraft(DiscoveryMessageSeverity.WARNING,
+                                            DiscoveryMessageCode.ITEM_INVALID,
+                                            "A discovered item broke the contract and was skipped: %s."
+                                                    .formatted(byRule.getKey()),
+                                            byRule.getValue()))
+                                    .toList());
+        }
+        return conformant;
     }
 
     /**
@@ -320,9 +370,9 @@ public class DiscoveryEventIngestor {
         data.setUuid(item.getUniqueRef());
         data.setBase64Content(certificate.getCertificateData());
         data.setMeta(item.getMeta() == null ? List.of() : item.getMeta());
-        // Carried through so a staged certificate keeps the connector's own run-wide number. Without it the items
-        // listing synthesizes one from staging order, which collides with the real numbers the run's other
-        // resources carry and destroys the single ordering the listing exists to provide.
+        // Carried through so a staged certificate keeps the connector's own run-wide number rather than the one
+        // synthesized for a v1 row (DiscoveryCertificate#sequence), which would collide with the real numbers the
+        // run's other resources carry.
         data.setSequence(item.getSequence());
         data.setDiscoveredAt(item.getDiscoveredAt());
         return data;

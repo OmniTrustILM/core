@@ -5,17 +5,22 @@ import com.otilm.api.model.connector.discovery.v2.DiscoveryResourceProgressDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.dao.entity.CertificateContent;
+import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryCertificate;
 import com.otilm.core.dao.repository.CertificateContentRepository;
+import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
+import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.service.handler.discovery.DiscoveryRunTerminator;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.DiscoveryCheckpointFixture;
+import com.otilm.core.util.DiscoveryInterfaceFixture;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.PersistenceContext;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -29,13 +34,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Ending a run is a decision taken under the row lock, and it is only as good as what the locked read returns.
- *
- * <p>
- * A lifecycle call runs {@code NOT_SUPPORTED} with the run already loaded and then spends a connector call — tens of
- * seconds — outside any transaction. Open-in-view keeps one EntityManager on the thread for the whole request, which a
- * {@code REQUIRES_NEW} transaction joins, so whatever ended the run in that window is invisible to a locking read
- * answering from the persistence context the caller already populated.
+ * Ending a run is a decision taken under the row lock, and an ending committed while the caller was at the connector
+ * has to be visible to that locked read; {@link DiscoveryRunTerminator} says why it would not be by default.
  */
 class DiscoveryRunTerminatorITest extends BaseSpringBootTest {
 
@@ -43,6 +43,10 @@ class DiscoveryRunTerminatorITest extends BaseSpringBootTest {
     private DiscoveryRunTerminator terminator;
     @Autowired
     private DiscoveryRepository discoveryRepository;
+    @Autowired
+    private ConnectorRepository connectorRepository;
+    @Autowired
+    private ConnectorInterfaceRepository connectorInterfaceRepository;
     @Autowired
     private PlatformTransactionManager transactionManager;
     @Autowired
@@ -87,6 +91,28 @@ class DiscoveryRunTerminatorITest extends BaseSpringBootTest {
         assertThat(discoveryRepository.findByUuid(uuid).orElseThrow().getStatus())
                 .as("the first ending stands")
                 .isEqualTo(DiscoveryStatus.FAILED);
+    }
+
+    /**
+     * A connector's force delete ends the runs bound to it and then deletes the connector, and the two stand or fall
+     * together: runs ended in transactions of their own would stay cancelled, their endings announced, under a
+     * connector that is still there.
+     */
+    @Test
+    void endingTheRunsBoundToInterfaces_standsOrFallsWithTheCaller() {
+        Discovery run = v2Run();
+        TransactionTemplate caller = new TransactionTemplate(transactionManager);
+
+        Integer ended = caller.execute(status -> {
+            int count = terminator.endRunsBoundTo(List.of(run.getConnectorInterfaceUuid()), "connector deleted");
+            status.setRollbackOnly();
+            return count;
+        });
+
+        assertThat(ended).isEqualTo(1);
+        assertThat(discoveryRepository.findByUuid(run.getUuid()).orElseThrow().getStatus())
+                .as("the caller rolled back, so the ending never happened")
+                .isEqualTo(DiscoveryStatus.IN_PROGRESS);
     }
 
     @Test
@@ -168,9 +194,11 @@ class DiscoveryRunTerminatorITest extends BaseSpringBootTest {
         run.setKind("IP-HostName");
         run.setStatus(DiscoveryStatus.IN_PROGRESS);
         run.setConnectorStatus(DiscoveryStatus.IN_PROGRESS);
-        run.setConnectorUuid(UUID.randomUUID());
+        ConnectorInterfaceEntity discoveryInterface = DiscoveryInterfaceFixture
+                .v2Interface(connectorRepository, connectorInterfaceRepository);
+        run.setConnectorUuid(discoveryInterface.getConnectorUuid());
         run.setConnectorName("network-discovery");
-        run.setConnectorInterfaceUuid(UUID.randomUUID());
+        run.setConnectorInterfaceUuid(discoveryInterface.getUuid());
         run.setCheckpoint(DiscoveryCheckpointFixture.checkpoint("connectorRunId", "run-42"));
         return discoveryRepository.saveAndFlush(run);
     }

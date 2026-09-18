@@ -19,6 +19,8 @@ import com.otilm.api.model.connector.discovery.v2.DiscoveryV2ScopedRequestDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.ConnectorDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.OutboundSecretContainment;
+import com.otilm.core.attribute.engine.OutboundSecretLeakException;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.Discovery;
@@ -29,10 +31,12 @@ import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.AuthHelper;
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
@@ -66,16 +70,19 @@ public class DiscoveryV2Client {
     private final CredentialInternalService credentialService;
     private final ResourceInternalService resourceService;
     private final AuthHelper authHelper;
+    private final OutboundSecretContainment outboundContainment;
 
     public DiscoveryV2Client(ConnectorApiFactory connectorApiFactory, ConnectorRepository connectorRepository,
             AttributeEngine attributeEngine, CredentialInternalService credentialService,
-            ResourceInternalService resourceService, AuthHelper authHelper) {
+            ResourceInternalService resourceService, AuthHelper authHelper,
+            OutboundSecretContainment outboundContainment) {
         this.connectorApiFactory = connectorApiFactory;
         this.connectorRepository = connectorRepository;
         this.attributeEngine = attributeEngine;
         this.credentialService = credentialService;
         this.resourceService = resourceService;
         this.authHelper = authHelper;
+        this.outboundContainment = outboundContainment;
     }
 
     /** What this connector can discover, as it reports right now. Never persisted, so it is always asked. */
@@ -96,8 +103,9 @@ public class DiscoveryV2Client {
             throws ConnectorException, NotFoundException, AttributeException {
         ConnectorDto connector = connectorOf(run);
         DiscoveryInitiateRequestDto request = new DiscoveryInitiateRequestDto();
-        populate(request, run, connector);
-        return connectorApiFactory.getDiscoveryApiClientV2(connector).initiate(connector, request);
+        Set<String> sentSecrets = populate(request, run, connector);
+        return contained(connectorApiFactory.getDiscoveryApiClientV2(connector).initiate(connector, request),
+                sentSecrets, "initiate");
     }
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -105,8 +113,9 @@ public class DiscoveryV2Client {
             throws ConnectorException, NotFoundException, AttributeException {
         ConnectorDto connector = connectorOf(run);
         DiscoveryRunRequestDto request = new DiscoveryRunRequestDto();
-        populate(request, run, connector);
-        return connectorApiFactory.getDiscoveryApiClientV2(connector).status(connector, request);
+        Set<String> sentSecrets = populate(request, run, connector);
+        return contained(connectorApiFactory.getDiscoveryApiClientV2(connector).status(connector, request), sentSecrets,
+                "status");
     }
 
     /**
@@ -138,8 +147,9 @@ public class DiscoveryV2Client {
             throws ConnectorException, NotFoundException, AttributeException {
         ConnectorDto connector = connectorOf(run);
         DiscoveryRunRequestDto request = new DiscoveryRunRequestDto();
-        populate(request, run, connector);
-        return connectorApiFactory.getDiscoveryApiClientV2(connector).stop(connector, request);
+        Set<String> sentSecrets = populate(request, run, connector);
+        return contained(connectorApiFactory.getDiscoveryApiClientV2(connector).stop(connector, request), sentSecrets,
+                "stop");
     }
 
     /** Restarts a stopped run from its checkpoint. Answers the same shape as initiate: a handle and stoppability. */
@@ -148,8 +158,9 @@ public class DiscoveryV2Client {
             throws ConnectorException, NotFoundException, AttributeException {
         ConnectorDto connector = connectorOf(run);
         DiscoveryRunRequestDto request = new DiscoveryRunRequestDto();
-        populate(request, run, connector);
-        return connectorApiFactory.getDiscoveryApiClientV2(connector).resume(connector, request);
+        Set<String> sentSecrets = populate(request, run, connector);
+        return contained(connectorApiFactory.getDiscoveryApiClientV2(connector).resume(connector, request), sentSecrets,
+                "resume");
     }
 
     /**
@@ -171,13 +182,32 @@ public class DiscoveryV2Client {
             throws ConnectorException, NotFoundException, AttributeException {
         ConnectorDto connector = connectorOf(run);
         DiscoveryDrainRequestDto request = new DiscoveryDrainRequestDto();
-        populate(request, run, connector);
+        Set<String> sentSecrets = populate(request, run, connector);
         request.setAfterSequence(afterSequence);
         request.setMaxItems(maxItems);
         // Clamped to the contract's cap: a configured value above it would produce a request the connector
         // rejects on every single drain.
         request.setMaxBytes(Math.min(maxBytes, DiscoveryDrainRequestDto.MAX_BYTES_CAP));
-        return connectorApiFactory.getDiscoveryApiClientV2(connector).results(connector, request);
+        return contained(connectorApiFactory.getDiscoveryApiClientV2(connector).results(connector, request),
+                sentSecrets, "results");
+    }
+
+    /**
+     * Fails closed on a response that hands back a secret Core resolved into the request, or that carries a
+     * secret-bearing shape at all. Every response here is persisted or served: a checkpoint replayed on every call, run
+     * and item metadata the API returns. An echo would make Core the path by which a connector publishes what it was
+     * trusted with. Surfaced as the connector failure it is, so a tick spends budget on it like any other bad answer.
+     */
+    private <T> T contained(T response, Set<String> sentSecrets, String operation) throws ConnectorException {
+        try {
+            outboundContainment.assertNoExpandedSecretOutbound(response, sentSecrets);
+        } catch (OutboundSecretLeakException e) {
+            throw new ConnectorException(
+                    "The connector's %s response was refused: it carries secret material Core resolved for this run"
+                            .formatted(operation),
+                    e);
+        }
+        return response;
     }
 
     /**
@@ -187,8 +217,10 @@ public class DiscoveryV2Client {
      * <p>
      * The resource set goes on every request, not only initiate: a stateless connector rebuilding a resumed run cannot
      * recover it from {@code resourceAttributes}, which omits any resource declaring no attributes of its own.
+     *
+     * @return the secret values resolved into the request, for {@link #contained} to catch on the way back
      */
-    private void populate(DiscoveryV2ScopedRequestDto request, Discovery run, ConnectorDto connector)
+    private Set<String> populate(DiscoveryV2ScopedRequestDto request, Discovery run, ConnectorDto connector)
             throws ConnectorException, NotFoundException, AttributeException {
         request.setRunId(run.getUuid());
         request.setCheckpoint(run.getCheckpoint());
@@ -204,6 +236,10 @@ public class DiscoveryV2Client {
             }
         }
         request.setResourceAttributes(byResource);
+        Set<String> sentSecrets = new HashSet<>();
+        outboundContainment.recordExpandedSecretsFromRequest(request.getAttributes(), sentSecrets);
+        byResource.values().forEach(sent -> outboundContainment.recordExpandedSecretsFromRequest(sent, sentSecrets));
+        return sentSecrets;
     }
 
     /**

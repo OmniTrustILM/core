@@ -21,6 +21,8 @@ import com.otilm.api.model.client.discovery.DiscoveryListDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.common.DataAttribute;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredItemPayloadDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoverySupportedResourceDto;
 import com.otilm.api.model.core.auth.Resource;
@@ -68,8 +70,10 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CommentInternalService;
 import com.otilm.core.service.ConnectorInternalService;
+import com.otilm.core.service.CredentialInternalService;
 import com.otilm.core.service.DiscoveryExternalService;
 import com.otilm.core.service.DiscoveryInternalService;
+import com.otilm.core.service.ResourceInternalService;
 import com.otilm.core.service.TriggerInternalService;
 import com.otilm.core.service.handler.discovery.DiscoveryDetailCounts;
 import com.otilm.core.service.handler.discovery.DiscoveryProviderAdapter;
@@ -126,6 +130,8 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     private static final String UNSUPPORTED_VERSION_MESSAGE = "The discovery's connector interface version is not supported.";
 
     private AttributeEngine attributeEngine;
+    private CredentialInternalService credentialService;
+    private ResourceInternalService resourceService;
     private AttributeColumnProjector attributeColumnProjector;
 
     private ListingSortResolver listingSortResolver;
@@ -214,6 +220,16 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     @Autowired
     public void setAttributeEngine(AttributeEngine attributeEngine) {
         this.attributeEngine = attributeEngine;
+    }
+
+    @Autowired
+    public void setCredentialService(CredentialInternalService credentialService) {
+        this.credentialService = credentialService;
+    }
+
+    @Autowired
+    public void setResourceService(ResourceInternalService resourceService) {
+        this.resourceService = resourceService;
     }
 
     @Autowired
@@ -403,6 +419,42 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
             definitions.put(resource, declared);
         }
         return definitions;
+    }
+
+    /**
+     * Dereferences every credential and referenced object the request names, under the caller.
+     *
+     * <p>
+     * A v2 run's ticks resolve the same references later under the system identity, since no caller is on the thread
+     * then. So this is where the caller is asked whether they may read what they filed; otherwise permission to create
+     * a discovery on a connector would be enough to have Core read any credential or secret into it. Only asked when
+     * something is referenced, as the credential loader is gated at method entry, and a run of plain attributes must
+     * not need credential access. What gets loaded is discarded; the run stores the references alone.
+     */
+    private void authorizeReferences(DiscoveryDto request, Connector connector)
+            throws AttributeException, NotFoundException, ConnectorException {
+        List<DataAttribute> referenced = new ArrayList<>(attributeEngine
+                .getDataAttributesByContent(connector.getUuid(), requestAttributesOrNone(request.getAttributes())));
+        if (request.getResourceAttributes() != null) {
+            for (List<RequestAttribute> attributes : request.getResourceAttributes().values()) {
+                referenced
+                        .addAll(attributeEngine
+                                .getDataAttributesByContent(connector.getUuid(), requestAttributesOrNone(attributes)));
+            }
+        }
+        boolean referencesAnything = referenced.stream().anyMatch(definition -> {
+            AttributeContentType contentType = definition.getContentType();
+            return contentType == AttributeContentType.CREDENTIAL || contentType == AttributeContentType.RESOURCE;
+        });
+        if (!referencesAnything) {
+            return;
+        }
+        credentialService.loadFullCredentialData(referenced);
+        resourceService.loadResourceObjectContentData(referenced);
+    }
+
+    private static List<RequestAttribute> requestAttributesOrNone(List<RequestAttribute> attributes) {
+        return attributes == null ? List.of() : attributes;
     }
 
     /**
@@ -787,6 +839,12 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
         }
         validateRequestedResources(request, connector, discoveryInterface);
         validateRunAttributes(request, connector, discoveryInterface);
+        // Everything the connector has to say is read here, before a transaction exists, so the writes below can
+        // commit as one unit without a connector call inside them.
+        Map<Resource, List<BaseAttribute>> resourceDefinitions = fetchResourceDefinitions(request, connector);
+        if (discoveryInterface != null) {
+            authorizeReferences(request, connector);
+        }
 
         Discovery discovery = new Discovery();
         discovery.setName(request.getName());
@@ -808,10 +866,7 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
         discovery.setKind(request.getKind());
 
         if (saveEntity) {
-            // Everything the connector has to say is read here, before a transaction exists, so the writes below can
-            // commit as one unit without a connector call inside them.
-            return discoveryRunWriter
-                    .createRun(discovery, request, connector.getUuid(), fetchResourceDefinitions(request, connector));
+            return discoveryRunWriter.createRun(discovery, request, connector.getUuid(), resourceDefinitions);
         }
 
         return null;

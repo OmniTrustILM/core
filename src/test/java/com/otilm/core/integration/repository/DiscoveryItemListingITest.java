@@ -22,9 +22,8 @@ import org.springframework.transaction.annotation.Transactional;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The items listing, which is the one place a client reads what a run staged. Storage stays split — certificates keep
- * their own v1 table, everything else lives in {@code discovery_item} — so every assertion here is really about the
- * union hiding that split: one ordering, one page, one shape.
+ * The items listing, which is the one place a client reads what a run staged. Every assertion here is really about the
+ * union hiding the split storage ({@code DiscoveryDetailCounts} explains it): one ordering, one page, one shape.
  */
 @Transactional
 class DiscoveryItemListingITest extends BaseSpringBootTest {
@@ -58,8 +57,7 @@ class DiscoveryItemListingITest extends BaseSpringBootTest {
         DiscoveryItemRow row = listAll().getFirst();
 
         assertThat(row.getResource()).isEqualTo("CERTIFICATE");
-        // The v1 provider numbered nothing and stamped nothing, so both are synthesized -- and both are REQUIRED
-        // on the wire, which is why an unnumbered row cannot simply be published as-is.
+        // Both synthesized for a v1 row (DiscoveryCertificate#sequence), and both REQUIRED on the wire.
         assertThat(row.getSequence()).as("numbered from staging order").isEqualTo(1L);
         assertThat(row.getUniqueRef())
                 .as("the fingerprint is the only per-occurrence key a v1 row has")

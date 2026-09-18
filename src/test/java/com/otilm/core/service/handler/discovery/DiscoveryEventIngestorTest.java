@@ -1,6 +1,7 @@
 package com.otilm.core.service.handler.discovery;
 
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredItemDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredKeyDto;
@@ -11,10 +12,13 @@ import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
+import com.otilm.core.model.discovery.DiscoveryMessageCode;
+import com.otilm.core.model.discovery.DiscoveryMessageDraft;
 import com.otilm.core.service.handler.CertificateHandler;
 import com.otilm.core.service.writer.discovery.DiscoveryItemWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
+import jakarta.validation.Validation;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -22,11 +26,15 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -59,7 +67,8 @@ class DiscoveryEventIngestorTest {
     @BeforeEach
     void setUp() {
         ingestor = new DiscoveryEventIngestor(discoveryRepository, itemWriter, workWriter, certificateHandler,
-                keyItemRepository, certificateRepository, messageWriter);
+                keyItemRepository, certificateRepository, messageWriter,
+                Validation.buildDefaultValidatorFactory().getValidator());
     }
 
     @Test
@@ -112,6 +121,31 @@ class DiscoveryEventIngestorTest {
 
         verify(keyItemRepository, never()).findKnownFingerprints(any());
         verify(itemWriter).stage(eq(run.getUuid()), any(DiscoveredItemDto.class), eq(true));
+    }
+
+    /**
+     * The wire contract is enforced only where a Validator runs, and the REST and MQ clients deserialize without one.
+     * The ingestor is the last point before a row exists, so it is where a private key a connector must never have sent
+     * is stopped: never staged, named to the operator, and stepped over so the run is not stuck behind it.
+     */
+    @Test
+    void anItemBreakingTheContract_isSkippedWithAMessageRatherThanStaged() {
+        Discovery run = run();
+        DiscoveredItemDto leaked = keyItem(1, "key-a", "fp-a");
+        DiscoveredKeyDto payload = (DiscoveredKeyDto) leaked.getPayload();
+        payload.setType(KeyType.PRIVATE_KEY);
+        payload.setPublicKeyFormat(KeyFormat.PRKI);
+        payload.setPublicKey("MIIBOgIBAAJBAK...");
+
+        boolean advanced = ingestor.applyDrainPage(run.getUuid(), page(leaked));
+
+        verify(itemWriter, never()).stage(any(), any(), anyBoolean());
+        ArgumentCaptor<List<DiscoveryMessageDraft>> filed = ArgumentCaptor.captor();
+        verify(messageWriter, atLeastOnce()).appendAll(eq(run.getUuid()), filed.capture());
+        assertThat(filed.getAllValues().stream().flatMap(List::stream))
+                .extracting(DiscoveryMessageDraft::code)
+                .contains(DiscoveryMessageCode.ITEM_INVALID.code());
+        assertThat(advanced).as("re-sending the same item cannot make it valid, so the cursor steps over it").isTrue();
     }
 
     private Discovery run() {

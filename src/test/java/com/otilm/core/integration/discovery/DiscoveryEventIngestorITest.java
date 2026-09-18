@@ -16,10 +16,13 @@ import com.otilm.api.model.connector.discovery.v2.event.DiscoveryStateChangedEve
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.discovery.DiscoveryMessageSeverity;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
+import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryItem;
 import com.otilm.core.dao.entity.DiscoveryMessage;
 import com.otilm.core.dao.entity.DiscoveryWork;
+import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
+import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
 import com.otilm.core.dao.repository.DiscoveryItemRepository;
 import com.otilm.core.dao.repository.DiscoveryMessageRepository;
@@ -28,6 +31,7 @@ import com.otilm.core.dao.repository.DiscoveryWorkRepository;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
 import com.otilm.core.service.handler.discovery.DiscoveryEventIngestor;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.DiscoveryInterfaceFixture;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.util.List;
@@ -52,6 +56,10 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
     private DiscoveryEventIngestor ingestor;
     @Autowired
     private DiscoveryRepository discoveryRepository;
+    @Autowired
+    private ConnectorRepository connectorRepository;
+    @Autowired
+    private ConnectorInterfaceRepository connectorInterfaceRepository;
     @Autowired
     private DiscoveryItemRepository itemRepository;
     @Autowired
@@ -318,9 +326,11 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
         run.setKind("IP-HostName");
         run.setStatus(status);
         run.setConnectorStatus(status);
-        run.setConnectorUuid(UUID.randomUUID());
+        ConnectorInterfaceEntity discoveryInterface = DiscoveryInterfaceFixture
+                .v2Interface(connectorRepository, connectorInterfaceRepository);
+        run.setConnectorUuid(discoveryInterface.getConnectorUuid());
         run.setConnectorName("network-discovery");
-        run.setConnectorInterfaceUuid(UUID.randomUUID());
+        run.setConnectorInterfaceUuid(discoveryInterface.getUuid());
         run.setResources(List.of(Resource.CERTIFICATE, Resource.CRYPTOGRAPHIC_KEY));
         return discoveryRepository.saveAndFlush(run);
     }

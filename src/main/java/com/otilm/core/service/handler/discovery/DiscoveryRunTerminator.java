@@ -24,6 +24,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -89,9 +90,10 @@ public class DiscoveryRunTerminator {
     }
 
     /**
-     * Ends every live run bound to the given interfaces as cancelled, for a connector being force-deleted. The
-     * connector is not told: the delete holds a transaction, which a connector call must not, and the connector is
-     * usually the reason for the force. Its own idle timeout ends the scan.
+     * Ends every live run bound to the given interfaces as cancelled, inside the caller's transaction: a connector's
+     * force delete goes on to release and delete those interfaces, and the endings stand or fall with it. The connector
+     * is not told: the delete holds a transaction, which a connector call must not, and the connector is usually the
+     * reason for the force. Its own idle timeout ends the scan.
      *
      * @return how many runs were ended
      */
@@ -102,19 +104,26 @@ public class DiscoveryRunTerminator {
         int ended = 0;
         for (UUID runUuid : discoveryRepository
                 .findLiveRunUuidsBoundTo(connectorInterfaceUuids, DiscoveryRunLifecycle.terminalStatuses())) {
-            if (end(runUuid, DiscoveryStatus.CANCELLED, reason)) {
+            if (endIf(runUuid, DiscoveryRunLifecycle::isTerminal, run -> new Ending(DiscoveryStatus.CANCELLED, reason),
+                    true)) {
                 ended++;
             }
         }
         return ended;
     }
 
-    /**
-     * @param alreadyPast states from which this ending is no longer the caller's to make
-     */
     private boolean endIf(UUID discoveryUuid, Predicate<DiscoveryStatus> alreadyPast,
             Function<Discovery, Ending> decide) {
-        return Boolean.TRUE.equals(transactionHandler.runInNewTransaction(() -> {
+        return endIf(discoveryUuid, alreadyPast, decide, false);
+    }
+
+    /**
+     * @param alreadyPast states from which this ending is no longer the caller's to make
+     * @param withCaller whether to end the run inside the caller's transaction rather than one of its own
+     */
+    private boolean endIf(UUID discoveryUuid, Predicate<DiscoveryStatus> alreadyPast,
+            Function<Discovery, Ending> decide, boolean withCaller) {
+        Supplier<Boolean> ending = () -> {
             Discovery run = discoveryRepository.findWithLockByUuid(discoveryUuid).orElse(null);
             if (run == null) {
                 return false;
@@ -128,15 +137,26 @@ public class DiscoveryRunTerminator {
                 logger.debug("Discovery {} is already {}; leaving it alone", discoveryUuid, run.getStatus());
                 return false;
             }
-            Ending ending = decide.apply(run);
-            if (ending == null) {
+            Ending decided = decide.apply(run);
+            if (decided == null) {
                 logger.debug("Discovery {} is not ready to end after all; leaving it alone", discoveryUuid);
                 return false;
             }
-            applyTerminalState(run, ending.status(), ending.reason());
+            applyTerminalState(run, decided.status(), decided.reason());
             workWriter.deleteForRun(discoveryUuid);
+            if (withCaller) {
+                // The ended run leaves the caller's persistence context. The caller goes on to release and delete
+                // the interfaces it points at, and a managed run still pointing at one would be written back with
+                // it at flush: Discovery is not @DynamicUpdate.
+                entityManager.flush();
+                entityManager.detach(run);
+            }
             return true;
-        }));
+        };
+        return Boolean.TRUE
+                .equals(withCaller
+                        ? transactionHandler.runInTransaction(ending)
+                        : transactionHandler.runInNewTransaction(ending));
     }
 
     /** The status and reason a run ends with. */

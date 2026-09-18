@@ -1,5 +1,6 @@
 package com.otilm.core.integration.discovery;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ConnectorProblemException;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
@@ -10,9 +11,12 @@ import com.otilm.api.model.connector.discovery.v2.DiscoveredItemDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredKeyDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryResultsResponseDto;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
+import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryItem;
 import com.otilm.core.dao.entity.DiscoveryWork;
+import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
+import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryItemRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.DiscoveryWorkRepository;
@@ -24,6 +28,7 @@ import com.otilm.core.service.handler.discovery.DiscoveryV2Client;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.DiscoveryCheckpointFixture;
+import com.otilm.core.util.DiscoveryInterfaceFixture;
 import java.net.URI;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -64,6 +69,10 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
     private DiscoveryDrainTickWorker worker;
     @Autowired
     private DiscoveryRepository discoveryRepository;
+    @Autowired
+    private ConnectorRepository connectorRepository;
+    @Autowired
+    private ConnectorInterfaceRepository connectorInterfaceRepository;
     @Autowired
     private DiscoveryItemRepository itemRepository;
     @Autowired
@@ -316,9 +325,9 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
     void unstageablePageWithBudgetLeft_isContainedInsteadOfEscapingToTheListener() throws Exception {
         Discovery run = runStillScanning();
         armDrainRow(run, 0);
-        // A genuinely unstageable page: unique_ref is NOT NULL, so the staging insert fails deterministically
-        // however many times it is retried.
-        when(client.results(any(), anyInt(), anyLong())).thenReturn(page(1L, false, keyItem(1, null)));
+        // A genuinely unstageable page: it passes every contract check, so nothing skips it, and its payload
+        // still cannot be stored, however many times it is retried.
+        when(client.results(any(), anyInt(), anyLong())).thenReturn(page(1L, false, unstageableKeyItem(1)));
 
         worker.tick(run.getUuid(), 0);
 
@@ -334,7 +343,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
     void pageCoreKeepsFailingToStage_endsTheRunWithoutBlamingTheConnector() throws Exception {
         Discovery run = runStillScanning();
         armDrainRow(run, 0);
-        when(client.results(any(), anyInt(), anyLong())).thenReturn(page(1L, false, keyItem(1, null)));
+        when(client.results(any(), anyInt(), anyLong())).thenReturn(page(1L, false, unstageableKeyItem(1)));
 
         worker.tick(run.getUuid(), 99);
 
@@ -374,6 +383,23 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         page.setHighestSequence(highestSequence);
         page.setMore(more);
         return page;
+    }
+
+    /** Conformant on the wire and still unstorable: its payload refuses to serialize, on every attempt. */
+    private static DiscoveredItemDto unstageableKeyItem(long sequence) {
+        DiscoveredKeyDto payload = new DiscoveredKeyDto() {
+            @JsonProperty
+            public String getPoison() {
+                throw new IllegalStateException("payload refuses to serialize");
+            }
+        };
+        payload.setType(KeyType.PUBLIC_KEY);
+        payload.setAlgorithm(KeyAlgorithm.RSA);
+        DiscoveredItemDto item = new DiscoveredItemDto();
+        item.setSequence(sequence);
+        item.setUniqueRef("key-" + sequence);
+        item.setPayload(payload);
+        return item;
     }
 
     private static DiscoveredItemDto keyItem(long sequence, String uniqueRef) {
@@ -439,9 +465,11 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         run.setKind("IP-HostName");
         run.setStatus(DiscoveryStatus.IN_PROGRESS);
         run.setConnectorStatus(DiscoveryStatus.IN_PROGRESS);
-        run.setConnectorUuid(UUID.randomUUID());
+        ConnectorInterfaceEntity discoveryInterface = DiscoveryInterfaceFixture
+                .v2Interface(connectorRepository, connectorInterfaceRepository);
+        run.setConnectorUuid(discoveryInterface.getConnectorUuid());
         run.setConnectorName("network-discovery");
-        run.setConnectorInterfaceUuid(UUID.randomUUID());
+        run.setConnectorInterfaceUuid(discoveryInterface.getUuid());
         run.setConnectorState(connectorState);
         run.setCheckpoint(DiscoveryCheckpointFixture.checkpoint("connectorRunId", "run-42"));
         return discoveryRepository.saveAndFlush(run);

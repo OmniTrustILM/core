@@ -47,7 +47,6 @@ import com.otilm.core.dao.entity.Connector2FunctionGroup;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.Connector_;
 import com.otilm.core.dao.entity.Credential;
-import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.EntityInstanceReference;
 import com.otilm.core.dao.entity.Proxy;
 import com.otilm.core.dao.entity.TokenInstanceReference;
@@ -95,6 +94,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -793,21 +793,35 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
         }
     }
 
+    /** How many live runs a refusal names before it counts the rest. */
+    private static final int DEPENDENT_RUNS_NAMED = 10;
+
     private List<UUID> interfaceUuidsOf(Connector connector) {
         return connector.getInterfaces().stream().map(ConnectorInterfaceEntity::getUuid).toList();
     }
 
     /**
      * A live run is driven through its interface association: released, it would route to the v1 adapter, drop out of
-     * the reaper's view and leave its agenda and the connector-side scan orphaned. A plain delete refuses over these.
+     * the reaper's view and leave its agenda and the connector-side scan orphaned. A plain delete refuses over these,
+     * naming the first so many and counting the rest: an operator needs to know there are many, not to read them all.
+     *
+     * @return the refusal's account of the live runs, or empty when there are none
      */
-    private List<Discovery> liveDiscoveryRunsBoundTo(Connector connector) {
+    private Optional<String> liveDiscoveryRunsBoundTo(Connector connector) {
         if (connector.getInterfaces().isEmpty()) {
-            return List.of();
+            return Optional.empty();
         }
-        return discoveryRepository
-                .findByConnectorInterfaceUuidInAndStatusNotIn(interfaceUuidsOf(connector),
-                        DiscoveryRunLifecycle.terminalStatuses());
+        List<UUID> interfaceUuids = interfaceUuidsOf(connector);
+        List<String> named = discoveryRepository
+                .findLiveRunNamesBoundTo(interfaceUuids, DiscoveryRunLifecycle.terminalStatuses(),
+                        PageRequest.of(0, DEPENDENT_RUNS_NAMED));
+        if (named.isEmpty()) {
+            return Optional.empty();
+        }
+        long unnamed = discoveryRepository
+                .countByConnectorInterfaceUuidInAndStatusNotIn(interfaceUuids, DiscoveryRunLifecycle.terminalStatuses())
+                - named.size();
+        return Optional.of(String.join(", ", named) + (unnamed > 0 ? " and " + unnamed + " more" : ""));
     }
 
     /** A force delete ends the runs a plain delete would refuse over; they stay as cancelled history. */
@@ -902,12 +916,8 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
             errors.add("Dependent Compliance Profiles: " + String.join(", ", complianceProfileNames));
         }
 
-        List<Discovery> liveRuns = liveDiscoveryRunsBoundTo(connector);
-        if (!liveRuns.isEmpty()) {
-            errors
-                    .add("Dependent discovery runs still running: "
-                            + String.join(", ", liveRuns.stream().map(Discovery::getName).collect(Collectors.toSet())));
-        }
+        liveDiscoveryRunsBoundTo(connector)
+                .ifPresent(liveRuns -> errors.add("Dependent discovery runs still running: " + liveRuns));
 
         if (!errors.isEmpty()) {
             throw new ValidationException(ValidationError.create(String.join("\n", errors)));

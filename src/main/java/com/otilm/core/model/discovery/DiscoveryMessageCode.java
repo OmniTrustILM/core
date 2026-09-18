@@ -17,6 +17,9 @@ public enum DiscoveryMessageCode {
     /** A staged item the connector sent without the sequence that staging orders by. */
     ITEM_SEQUENCE_MISSING("itemSequenceMissing"),
 
+    /** An item that broke the wire contract in some other way; the message names the rule it broke. */
+    ITEM_INVALID("itemInvalid"),
+
     /** An item declared a certificate whose payload was not one. */
     CERTIFICATE_PAYLOAD_INVALID("certificatePayloadInvalid"),
 

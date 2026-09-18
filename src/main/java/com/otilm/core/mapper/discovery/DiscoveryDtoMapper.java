@@ -111,7 +111,7 @@ public class DiscoveryDtoMapper {
     }
 
     /**
-     * A staged item, from whichever store holds it. {@code payload} and {@code meta} arrive as JSON text because the
+     * A staged item, from either staging store. {@code payload} and {@code meta} arrive as JSON text because the
      * certificate branch builds its payload at read time from the deduplicated content rather than from a column.
      */
     public static DiscoveryItemDto toItemDto(DiscoveryItemRow row) {

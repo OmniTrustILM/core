@@ -38,8 +38,9 @@ public interface DiscoveryItemRepository extends JpaRepository<DiscoveryItem, UU
             @Param("meta") String meta);
 
     /**
-     * One page of everything the run staged, certificates included, as a union of the two stores. The certificate
-     * branch builds its payload at read time, after the limit, so only the page's rows are detoasted.
+     * One page of everything the run staged, as a union of the two staging stores ({@code DiscoveryDetailCounts} says
+     * why there are two). The certificate branch builds its payload at read time, after the limit, so only the page's
+     * rows are detoasted.
      *
      * <p>
      * Filters apply inside each branch, and {@code newlyDiscovered} after the certificate numbering, so a row keeps its

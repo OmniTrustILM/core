@@ -8,8 +8,9 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The counts a detail response carries that the run row does not hold. Each comes from a table of its own, so the
- * mapper takes them from the caller; they are all longs, so a set handed over in the wrong order would still compile.
+ * The counts a detail response carries that the run row does not hold: the message count from the message table, the
+ * three item counts summed across both staging stores (see {@code DiscoveryDetailCounts}). The mapper takes them from
+ * the caller, and they are all longs, so a set handed over in the wrong order would still compile.
  */
 class DiscoveryDtoMapperTest {
 

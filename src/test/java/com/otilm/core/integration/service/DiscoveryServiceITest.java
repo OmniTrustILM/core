@@ -7,6 +7,8 @@ import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.client.certificate.DiscoveryResponseDto;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
@@ -19,6 +21,9 @@ import com.otilm.api.model.client.discovery.DiscoveryListDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.content.data.CredentialAttributeContentData;
+import com.otilm.api.model.common.attribute.v2.content.CredentialAttributeContentV2;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryProgressDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoverySupportedResourceDto;
 import com.otilm.api.model.core.auth.Resource;
@@ -33,6 +38,7 @@ import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.Connector2FunctionGroup;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
+import com.otilm.core.dao.entity.Credential;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryCertificate;
 import com.otilm.core.dao.entity.FunctionGroup;
@@ -40,6 +46,7 @@ import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.Connector2FunctionGroupRepository;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
+import com.otilm.core.dao.repository.CredentialRepository;
 import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.DiscoveryWorkRepository;
@@ -105,6 +112,8 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
     private ConnectorRepository connectorRepository;
     @Autowired
     private ConnectorInterfaceRepository connectorInterfaceRepository;
+    @Autowired
+    private CredentialRepository credentialRepository;
     @Autowired
     private FunctionGroupRepository functionGroupRepository;
     @Autowired
@@ -763,12 +772,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
                                 + "only to be deleted");
     }
 
-    /**
-     * A stopped run is not producing, so keeping its drain row would ask the connector for results it has already said
-     * it has none of — every 35 seconds, for as long as the reaper lets a run stay stopped, which is days. The status
-     * row stays, because a stopped run can still fail or be cancelled at its connector and because the reaper reads an
-     * empty agenda as lost work.
-     */
+    /** Stopping drops the drain row and keeps the status row; {@code DiscoveryProviderV2Adapter#stop} says why. */
     @Test
     void stoppingARunDropsItsDrainRowAndKeepsItsStatusRow() throws Exception {
         givenV2Run(List.of(Resource.CERTIFICATE));
@@ -789,7 +793,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
                         "an idle drain against a paused run asks for results that cannot arrive");
     }
 
-    /** Resume brings it back: the agenda write is an upsert, so nothing has to remember the row was dropped. */
+    /** The agenda write is an upsert, so nothing has to remember the row was dropped. */
     @Test
     void resumingARunRestoresTheDrainRowItWasStoppedWithout() throws Exception {
         givenV2Run(List.of(Resource.CERTIFICATE));
@@ -910,11 +914,8 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
 
         discoveryInternalService.runDiscovery(discovery.getUuid(), job);
 
-        // The run ends much later in a tick worker that never saw this, so it has to be on the row or the job
-        // hangs open forever.
+        // The execution alone, and why: Discovery#scheduledJobHistoryUuid.
         Discovery persisted = discoveryRepository.findByUuid(discovery.getUuid()).orElseThrow();
-        // Only the execution: the history row already points at the job, so a second copy here would be one more
-        // thing to keep in step.
         Assertions.assertEquals(job.jobHistoryUuid(), persisted.getScheduledJobHistoryUuid());
     }
 
@@ -959,6 +960,89 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         Assertions.assertThrows(AccessDeniedException.class, () -> discoveryService.createDiscovery(request, true));
 
         mockServer.verify(0, WireMock.anyRequestedFor(WireMock.urlPathMatching("/v2/discoveryProvider/.*")));
+    }
+
+    /**
+     * A run's references are dereferenced later, by a tick under the system identity, so create is the only moment the
+     * caller is on the thread to be asked whether they may read what they filed. Authority creation asks the same way.
+     */
+    @Test
+    void creatingAV2RunRefusesACredentialReferenceTheCallerMayNotRead() {
+        giveConnectorAV2DiscoveryInterface();
+        stubSupportedResources("""
+                [{"resource":"certificates"}]""");
+        stubRunAttributes(CREDENTIAL_DEFINITION);
+        denyResourceAccess(Resource.CREDENTIAL, ResourceAction.DETAIL);
+        DiscoveryDto request = v2Request(List.of(Resource.CERTIFICATE));
+        request.setAttributes(List.of(credentialReference(aCredential())));
+
+        Assertions.assertThrows(AccessDeniedException.class, () -> discoveryService.createDiscovery(request, true));
+
+        Assertions
+                .assertTrue(discoveryRepository.findByName(request.getName()).isEmpty(),
+                        "refused before anything was persisted");
+    }
+
+    @Test
+    void creatingAV2RunRefusesAPerResourceCredentialReferenceTheCallerMayNotRead() {
+        giveConnectorAV2DiscoveryInterface();
+        stubSupportedResources("""
+                [{"resource":"certificates"}]""");
+        WireMock
+                .stubFor(WireMock
+                        .get(WireMock.urlPathEqualTo("/v2/discoveryProvider/certificates/attributes"))
+                        .willReturn(WireMock.okJson(CREDENTIAL_DEFINITION)));
+        denyResourceAccess(Resource.CREDENTIAL, ResourceAction.DETAIL);
+        DiscoveryDto request = v2Request(List.of(Resource.CERTIFICATE));
+        request.setResourceAttributes(Map.of(Resource.CERTIFICATE, List.of(credentialReference(aCredential()))));
+
+        Assertions.assertThrows(AccessDeniedException.class, () -> discoveryService.createDiscovery(request, true));
+
+        Assertions.assertTrue(discoveryRepository.findByName(request.getName()).isEmpty());
+    }
+
+    @Test
+    void creatingAV2RunResolvesACredentialReferenceTheCallerMayRead() throws Exception {
+        giveConnectorAV2DiscoveryInterface();
+        stubSupportedResources("""
+                [{"resource":"certificates"}]""");
+        stubRunAttributes(CREDENTIAL_DEFINITION);
+        DiscoveryDto request = v2Request(List.of(Resource.CERTIFICATE));
+        request.setAttributes(List.of(credentialReference(aCredential())));
+
+        DiscoveryDetailDto created = discoveryService.createDiscovery(request, true);
+
+        Assertions.assertNotNull(created.getUuid());
+    }
+
+    private static final String CREDENTIAL_DEFINITION = """
+            [{"uuid":"7f7f0000-0000-4000-8000-000000000002","name":"credential",
+              "type":"data","version":2,"contentType":"credential",
+              "properties":{"label":"Credential","visible":true,"required":false}}]""";
+
+    private void stubRunAttributes(String json) {
+        WireMock
+                .stubFor(WireMock
+                        .get(WireMock.urlPathEqualTo("/v2/discoveryProvider/attributes"))
+                        .willReturn(WireMock.okJson(json)));
+    }
+
+    private Credential aCredential() {
+        Credential credential = new Credential();
+        credential.setName("vault-" + UUID.randomUUID());
+        credential.setKind("Basic");
+        credential.setConnectorUuid(connector.getUuid());
+        return credentialRepository.save(credential);
+    }
+
+    /** What a caller files: the credential's identity, nothing of its content. */
+    private static RequestAttribute credentialReference(Credential credential) {
+        CredentialAttributeContentData identity = new CredentialAttributeContentData();
+        identity.setUuid(credential.getUuid().toString());
+        identity.setName(credential.getName());
+        return new RequestAttributeV2(UUID.fromString("7f7f0000-0000-4000-8000-000000000002"), "credential",
+                AttributeContentType.CREDENTIAL,
+                List.of(new CredentialAttributeContentV2(credential.getName(), identity)));
     }
 
     @Test

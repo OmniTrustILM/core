@@ -248,10 +248,29 @@ public class DiscoveryStatusTickWorker {
                 .connector(locked.getConnectorUuid())
                 .build();
         try {
-            attributeEngine.deleteObjectAttributesContent(AttributeType.META, target);
-            attributeEngine.updateMetadataAttributes(meta, target);
-        } catch (AttributeException e) {
-            logger.warn("Discovery {}: run metadata could not be recorded: {}", locked.getUuid(), e.getMessage());
+            // A transaction of its own: the statement held so far is deleted before the new one is written, so one
+            // the engine refuses part-way takes that deletion back with it and the run keeps what it held. The
+            // message about it is filed in the answer's transaction, which goes on.
+            transactionHandler.runInNewTransaction(() -> {
+                try {
+                    attributeEngine.deleteObjectAttributesContent(AttributeType.META, target);
+                    attributeEngine.updateMetadataAttributes(meta, target);
+                } catch (AttributeException e) {
+                    throw new MetadataRefused(e);
+                }
+            });
+        } catch (MetadataRefused refused) {
+            logger
+                    .warn("Discovery {}: run metadata could not be recorded: {}", locked.getUuid(),
+                            refused.getCause().getMessage());
+            notRecorded(locked, "The connector's metadata about the run was refused and was not recorded.");
+        }
+    }
+
+    /** Carries the engine's checked refusal out of the replacement's transaction, rolling it back on the way. */
+    private static final class MetadataRefused extends RuntimeException {
+        private MetadataRefused(AttributeException cause) {
+            super(cause);
         }
     }
 

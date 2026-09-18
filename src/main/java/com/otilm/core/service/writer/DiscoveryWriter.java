@@ -5,6 +5,7 @@ import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.mapper.discovery.DiscoveryDtoMapper;
+import com.otilm.core.model.discovery.DiscoveryRunLifecycle;
 import com.otilm.core.service.handler.discovery.DiscoveryDetailCounts;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -67,9 +68,14 @@ public class DiscoveryWriter {
     }
 
     /**
-     * Releases every run's hold on the given connector interfaces, so they can cascade away with their connector rather
-     * than being refused by the runs' {@code ON DELETE RESTRICT} reference. A run is history and outlives its
+     * Releases every ended run's hold on the given connector interfaces, so they can cascade away with their connector
+     * rather than being refused by the runs' {@code ON DELETE RESTRICT} reference. A run is history and outlives its
      * connector; what it can no longer say afterwards is which interface drove it.
+     *
+     * <p>
+     * Ended runs only. A live run is driven through the association, and one created between the caller's live-run
+     * check and this release keeps it: the connector's delete then fails on the reference, which is the safe outcome,
+     * rather than the run going on as a v1 run under a connector that is gone.
      *
      * @return how many runs were released
      */
@@ -78,7 +84,7 @@ public class DiscoveryWriter {
         if (interfaceUuids.isEmpty()) {
             return 0;
         }
-        return discoveryRepository.releaseConnectorInterfaces(interfaceUuids);
+        return discoveryRepository.releaseConnectorInterfaces(interfaceUuids, DiscoveryRunLifecycle.terminalStatuses());
     }
 
     /**

@@ -51,15 +51,16 @@ public interface DiscoveryRepository extends SecurityFilterRepository<Discovery,
     void updateMessage(@Param("uuid") UUID uuid, @Param("message") String message);
 
     /**
-     * Clears the interface reference from every run holding one of these interfaces. See
-     * {@code DiscoveryWriter#releaseConnectorInterfaces}, its only caller, for why.
+     * Clears the interface reference from every run in one of {@code statuses} that holds one of these interfaces. See
+     * {@code DiscoveryWriter#releaseConnectorInterfaces}, its only caller, for why and for why only ended runs.
      *
      * @return how many runs were released
      */
     @Modifying
     @Query("UPDATE Discovery d SET d.connectorInterfaceUuid = NULL, d.updated = CURRENT_TIMESTAMP "
-            + "WHERE d.connectorInterfaceUuid IN :interfaceUuids")
-    int releaseConnectorInterfaces(@Param("interfaceUuids") Collection<UUID> interfaceUuids);
+            + "WHERE d.connectorInterfaceUuid IN :interfaceUuids AND d.status IN :statuses")
+    int releaseConnectorInterfaces(@Param("interfaceUuids") Collection<UUID> interfaceUuids,
+            @Param("statuses") Collection<DiscoveryStatus> statuses);
 
     /**
      * Uuids of v2 runs (interface association present) still in one of {@code statuses} whose agenda is empty and that
@@ -89,14 +90,21 @@ public interface DiscoveryRepository extends SecurityFilterRepository<Discovery,
     List<UUID> findExpiredStoppedRunUuids(@Param("threshold") OffsetDateTime threshold, Pageable pageable);
 
     /**
-     * Runs bound to any of the given interfaces that have not ended; a connector delete refuses over them or ends them.
+     * Names of the runs bound to any of the given interfaces that have not ended, for a connector delete to refuse
+     * over. A page of them: the refusal names so many and counts the rest.
      */
-    List<Discovery> findByConnectorInterfaceUuidInAndStatusNotIn(Collection<UUID> connectorInterfaceUuids,
+    @Query("SELECT d.name FROM Discovery d WHERE d.connectorInterfaceUuid IN :interfaceUuids "
+            + "AND d.status NOT IN :statuses ORDER BY d.name")
+    List<String> findLiveRunNamesBoundTo(@Param("interfaceUuids") Collection<UUID> interfaceUuids,
+            @Param("statuses") Collection<DiscoveryStatus> statuses, Pageable pageable);
+
+    long countByConnectorInterfaceUuidInAndStatusNotIn(Collection<UUID> connectorInterfaceUuids,
             Collection<DiscoveryStatus> statuses);
 
     /**
-     * The same runs as uuids only. The caller ends each in a transaction of its own and must not carry the entities in
-     * its own context: a managed run pointing at an interface the caller then deletes fails that caller's flush.
+     * Uuids of the same runs, for a force delete to end. Uuids rather than entities: the caller ends each run inside
+     * its own transaction and then deletes the interfaces they point at, and a managed run still pointing at one would
+     * fail its flush.
      */
     @Query("SELECT d.uuid FROM Discovery d WHERE d.connectorInterfaceUuid IN :interfaceUuids "
             + "AND d.status NOT IN :statuses")

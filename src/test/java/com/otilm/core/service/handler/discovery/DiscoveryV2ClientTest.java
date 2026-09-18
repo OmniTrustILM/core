@@ -1,5 +1,7 @@
 package com.otilm.core.service.handler.discovery;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.interfaces.client.v2.DiscoverySyncApiClient;
 import com.otilm.api.model.client.attribute.RequestAttribute;
@@ -7,16 +9,20 @@ import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.DataAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
+import com.otilm.api.model.common.attribute.v3.content.data.ResourceSecretContentData;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryDrainRequestDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryInitiateResponseDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryResultsResponseDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryRunRequestDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryStatusResponseDto;
+import com.otilm.api.model.connector.secrets.content.ApiKeySecretContent;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.ConnectorDto;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.OutboundSecretContainment;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.Discovery;
@@ -79,7 +85,7 @@ class DiscoveryV2ClientTest {
     @BeforeEach
     void setUp() {
         client = new DiscoveryV2Client(connectorApiFactory, connectorRepository, attributeEngine, credentialService,
-                resourceService, authHelper);
+                resourceService, authHelper, new OutboundSecretContainment(new ObjectMapper()));
         // Runs the elevated body inline: the bare mock returns null without invoking it, so every assertion about
         // what the loaders received would pass while resolving nothing.
         lenient()
@@ -263,6 +269,34 @@ class DiscoveryV2ClientTest {
                 .singleElement()
                 .extracting(RequestAttribute::getName)
                 .isEqualTo("host");
+    }
+
+    /**
+     * Every request carries the run's resolved credentials and secrets, so the connector holds them legitimately; what
+     * it must not do is hand them back in fields Core persists and serves. Refused as the connector call it was, so the
+     * tick spends budget on it like any other bad answer, and nothing of the response is read first.
+     */
+    @Test
+    void aResponseEchoingASecretResolvedForTheRun_isRefusedAsAConnectorFailure() throws Exception {
+        run.setResources(List.of(Resource.CERTIFICATE));
+        when(attributeEngine.getDefinitionObjectAttributeContent(any(), any(), isNull(), any(), any()))
+                .thenReturn(List.of(definition("vaultToken", "reference-only", AttributeContentType.RESOURCE)));
+        doAnswer(invocation -> {
+            List<DataAttribute> resolving = invocation.getArgument(0);
+            resolving
+                    .forEach(attribute -> attribute
+                            .setContent(List
+                                    .of(new ResourceObjectContent("vault", new ResourceSecretContentData("u", "vault",
+                                            new ApiKeySecretContent("s3cr3t-token"))))));
+            return null;
+        }).when(resourceService).loadResourceObjectContentData(anyList());
+        DiscoveryStatusResponseDto echo = new DiscoveryStatusResponseDto();
+        echo.setMeta(DiscoveryCheckpointFixture.checkpoint("lastToken", "s3cr3t-token"));
+        when(apiClient.status(any(), any())).thenReturn(echo);
+
+        assertThatThrownBy(() -> client.status(run))
+                .isInstanceOf(ConnectorException.class)
+                .hasMessageNotContaining("s3cr3t-token");
     }
 
     @Test

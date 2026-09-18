@@ -52,7 +52,8 @@ public class DiscoveryRunWriter {
      *
      * @param discovery the populated, unsaved run
      * @param resourceDefinitions attribute definitions read from the connector and already validated against the
-     * request, one entry per resource the run targets; empty for a v1 run, which targets none
+     * request, one entry per resource the run targets; empty for a v1 run, which targets certificates implicitly and
+     * publishes no per-resource attribute definitions
      */
     // rollbackFor, against the platform's usual default: the writes below are checked-exception paths --
     // AttributeException from the engine, NotFoundException from the trigger associations -- and Spring rolls back

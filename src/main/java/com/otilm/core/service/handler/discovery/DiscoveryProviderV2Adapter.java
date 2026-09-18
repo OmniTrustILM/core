@@ -189,8 +189,7 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
             locked.setStatus(DiscoveryStatus.IN_PROGRESS);
             locked.setConnectorStatus(DiscoveryStatus.IN_PROGRESS);
             locked.setStartTime(OffsetDateTime.now(ZoneOffset.UTC));
-            // Stored because the run ends much later, in a tick worker that no longer has these: without them
-            // the scheduled job never learns the outcome and hangs open.
+            // Why it is stored, and why the execution alone: Discovery#scheduledJobHistoryUuid.
             if (scheduledJobInfo != null) {
                 locked.setScheduledJobHistoryUuid(scheduledJobInfo.jobHistoryUuid());
             }
@@ -355,8 +354,9 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
                     .resetAttempt(discoveryUuid, DiscoveryWorkType.STATUS,
                             workProperties.scheduleFor(DiscoveryWorkType.STATUS).ceilingAttempt());
             // The drain row goes rather than parks. A stopped run is not producing, so an idle drain would ask the
-            // connector for results it has already said it has none of -- every 35 seconds, for as long as the run
-            // stays stopped, which the reaper allows to be days. Resume expedites DRAIN through an upsert, so the row
+            // connector for results it has already said it has none of -- once per claim floor, for as long as the
+            // run stays stopped, which the reaper allows to be days. Resume expedites DRAIN through an upsert, so the
+            // row
             // comes back the moment the run does, and anything the connector still holds is collected then. The
             // status row stays: a stopped run can still fail or be cancelled at its connector, and the reaper reads an
             // empty agenda as lost work.

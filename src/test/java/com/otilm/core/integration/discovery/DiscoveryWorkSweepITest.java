@@ -2,7 +2,10 @@ package com.otilm.core.integration.discovery;
 
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.cluster.ClusterOperationSynchronizer;
+import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.Discovery;
+import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
+import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.DiscoveryWorkRepository;
 import com.otilm.core.messaging.jms.listeners.discovery.DiscoveryRunReaper;
@@ -12,6 +15,7 @@ import com.otilm.core.model.discovery.DiscoveryWorkType;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.DiscoveryCheckpointFixture;
+import com.otilm.core.util.DiscoveryInterfaceFixture;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -47,6 +51,10 @@ class DiscoveryWorkSweepITest extends BaseSpringBootTest {
     private DiscoveryRunReaper reaper;
     @Autowired
     private DiscoveryRepository discoveryRepository;
+    @Autowired
+    private ConnectorRepository connectorRepository;
+    @Autowired
+    private ConnectorInterfaceRepository connectorInterfaceRepository;
     @Autowired
     private DiscoveryWorkRepository workRepository;
     @Autowired
@@ -227,9 +235,11 @@ class DiscoveryWorkSweepITest extends BaseSpringBootTest {
         run.setKind("IP-HostName");
         run.setStatus(status);
         run.setConnectorStatus(status);
-        run.setConnectorUuid(UUID.randomUUID());
+        ConnectorInterfaceEntity discoveryInterface = DiscoveryInterfaceFixture
+                .v2Interface(connectorRepository, connectorInterfaceRepository);
+        run.setConnectorUuid(discoveryInterface.getConnectorUuid());
         run.setConnectorName("network-discovery");
-        run.setConnectorInterfaceUuid(UUID.randomUUID());
+        run.setConnectorInterfaceUuid(discoveryInterface.getUuid());
         return discoveryRepository.saveAndFlush(run);
     }
 

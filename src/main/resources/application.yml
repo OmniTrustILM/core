@@ -81,10 +81,11 @@ discovery:
     # cannot let the sweep publish a competing one. Must exceed one tick's duration.
     continuation-backstop: ${DISCOVERY_WORK_CONTINUATION_BACKSTOP:PT1M}
     # Least time a claimed row waits before the sweep may publish it again, so a tick slower than its own rung is
-    # not published twice while it runs. Above the connector timeouts, and above every ladder's last rung, so an
+    # not published twice while it runs. Above the slowest connector call -- the connection-acquisition, connect
+    # and response timeouts under connector.api-client, taken together -- and above every ladder's last rung, so an
     # idle tick of any type settles here. Only idle ticks wait on it: a drain with more to fetch direct-publishes
     # its continuation.
-    claim-floor: ${DISCOVERY_WORK_CLAIM_FLOOR:PT35S}
+    claim-floor: ${DISCOVERY_WORK_CLAIM_FLOOR:PT50S}
     # How long a stopped run waits between status polls. It reports nothing new while paused, but it is still
     # watched: its connector can still fail or cancel it.
     stopped-poll-interval: ${DISCOVERY_WORK_STOPPED_POLL_INTERVAL:PT5M}

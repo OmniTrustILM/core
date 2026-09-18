@@ -23,9 +23,8 @@ import org.springframework.transaction.annotation.Transactional;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The counts the detail response carries but the run row does not hold. Storage for what a run staged is split —
- * certificates keep their own v1 table, everything else lives in {@code discovery_item} — so a count taken from one
- * table only is right for a certificates-only run and wrong for every other kind.
+ * The counts the detail response carries but the run row does not hold, read across both staging stores;
+ * {@link DiscoveryDetailCounts} explains the split.
  */
 @Transactional
 class DiscoveryDetailCountsITest extends BaseSpringBootTest {
@@ -82,7 +81,6 @@ class DiscoveryDetailCountsITest extends BaseSpringBootTest {
         assertThat(counts.failedItems()).isZero();
     }
 
-    /** Imported, failed and still waiting are three states of the same total, and only the first two are counted. */
     @Test
     void importedAndFailedAreCountedApartFromWhatIsStillWaiting() {
         stageCertificate("fp-done", true, true, null);
@@ -96,7 +94,6 @@ class DiscoveryDetailCountsITest extends BaseSpringBootTest {
         assertThat(counts.failedItems()).isEqualTo(1);
     }
 
-    /** A row stamped with a reason it never reached the pipeline for is failed, not imported. */
     @Test
     void aRowRefusedBeforeThePipelineCountsAsFailed() {
         stageCertificate("fp-never-tried", true, false, "Certificate content could not be parsed");
@@ -108,9 +105,8 @@ class DiscoveryDetailCountsITest extends BaseSpringBootTest {
     }
 
     /**
-     * The defect this class exists for. Only certificates have an import pipeline, so a staged key is waiting, not
-     * imported — a count that subtracted a certificates-only backlog from a both-stores total would report every key as
-     * imported the moment it was staged.
+     * Only certificates have an import pipeline, so a staged key is waiting, not imported — a count that subtracted a
+     * certificates-only backlog from a both-stores total would report every key as imported the moment it was staged.
      */
     @Test
     void aStagedKeyIsNotCountedAsImported() {
@@ -127,7 +123,6 @@ class DiscoveryDetailCountsITest extends BaseSpringBootTest {
         assertThat(counts.failedItems()).isZero();
     }
 
-    /** A keys-only run has imported nothing at all, whatever it staged. */
     @Test
     void aKeysOnlyRunReportsNothingImported() {
         stageItem(Resource.CRYPTOGRAPHIC_KEY.name(), 1, "key-a", true);
@@ -139,7 +134,6 @@ class DiscoveryDetailCountsITest extends BaseSpringBootTest {
         assertThat(counts.processedItems()).isZero();
     }
 
-    /** Nothing new means nothing to import, on every count rather than by way of a negative. */
     @Test
     void aRunWithNothingNewReportsZeroOnEveryOutcome() {
         stageCertificate("fp-known", false, true, null);
