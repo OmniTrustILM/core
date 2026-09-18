@@ -1192,6 +1192,26 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void aProcessingV2RunIsRefusedDeletionWithoutBeingSentToCancel() {
+        givenV2Run(List.of(Resource.CERTIFICATE));
+        Discovery run = discoveryRepository.findByUuid(discovery.getUuid()).orElseThrow();
+        run.setStatus(DiscoveryStatus.PROCESSING);
+        discoveryRepository.saveAndFlush(run);
+
+        SecuredUUID processing = discovery.getSecuredUuid();
+        ValidationException refused = Assertions
+                .assertThrows(ValidationException.class, () -> discoveryService.deleteDiscovery(processing));
+        Assertions
+                .assertFalse(refused.getMessage().contains("cancel"),
+                        "cancel is refused for a processing run, so the refusal must not send the caller there: "
+                                + refused.getMessage());
+        Assertions
+                .assertTrue(refused.getMessage().contains("wait"),
+                        "the only way out of processing is waiting, which the refusal must say: "
+                                + refused.getMessage());
+    }
+
+    @Test
     void aLiveV2RunInABulkDeleteDoesNotStopTheRestBeingDeleted() throws Exception {
         givenV2Run(List.of(Resource.CERTIFICATE));
         Discovery live = discoveryRepository.findByUuid(discovery.getUuid()).orElseThrow();

@@ -733,8 +733,12 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
         // ever end it. PROCESSING is refused too: the connector is done but Core's import runs on those same rows.
         // A v1 run has no agenda and its provider call is over, so it deletes directly.
         if (discovery.getConnectorInterfaceUuid() != null && !DiscoveryRunLifecycle.isTerminal(discovery.getStatus())) {
+            // A PROCESSING run has already left the connector, so cancel refuses it too: waiting is the only way out.
+            String remedy = DiscoveryRunLifecycle.hasLeftTheConnector(discovery.getStatus())
+                    ? "wait for it to end"
+                    : "cancel it first";
             throw new ValidationException("Discovery " + uuid.getValue() + " is " + discovery.getStatus().getLabel()
-                    + " and cannot be deleted; cancel it first");
+                    + " and cannot be deleted; " + remedy);
         }
         Long certsDeleted = discoveryCertificateRepository.deleteByDiscovery(discovery);
         logger.debug("Deleted {} discovery certificates", certsDeleted);
