@@ -396,10 +396,9 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
             try {
                 connector = getConnectorEntity(uuid);
                 UUID connectorUuid = connector.getUuid();
-                // One transaction per connector, with this catch outside it. The bulk contract needs the catch --
-                // one connector that cannot be deleted must not stop the rest -- but inside the caller's transaction
-                // it would commit the runs this ended and the associations it stripped while the connector is still
-                // there.
+                // Its own transaction, with the catch outside it: the bulk contract needs that catch, but inside
+                // the caller's transaction a refused delete still commits the runs this ended and the associations it
+                // stripped.
                 transactionHandler.runInNewTransaction(() -> {
                     Connector deleting = connectorRepository.findByUuid(connectorUuid).orElseThrow();
                     endLiveDiscoveryRuns(deleting);

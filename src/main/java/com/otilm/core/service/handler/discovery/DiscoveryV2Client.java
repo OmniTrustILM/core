@@ -190,17 +190,14 @@ public class DiscoveryV2Client {
     }
 
     /**
-     * Fails closed on a response that hands back a secret Core resolved into the request, or that carries a
-     * secret-bearing shape at all. An echo would make Core the path by which a connector publishes what it was trusted
-     * with. Surfaced as the connector failure it is, so a tick spends budget on it like any other bad answer.
+     * Fails closed on a response that echoes a secret Core resolved into the request, or carries a secret-bearing shape
+     * at all.
      *
      * <p>
-     * Applied to {@code status} and {@code results} only — the answers whose metadata and items the API serves. A
-     * mutating call is not contained: the connector has already opened, paused or restarted the run by the time it
-     * answers, so a refusal would leave an initiate Core never recorded and cannot cancel, or a run Core keeps STOPPED
-     * while the connector runs. Their responses carry only a checkpoint Core stores and shows nobody, and the connector
-     * already holds the secret it would be echoing. {@code AuthorityProviderV3Adapter} draws the same line between its
-     * read-only attribute lists and its operations.
+     * Applied to {@code status} and {@code results}, whose metadata and items the API serves. A mutating call is not:
+     * the connector has already acted by the time it answers, so refusing would strand an initiate Core cannot cancel
+     * or keep a resumed run STOPPED, and its response carries only a checkpoint nobody is shown.
+     * {@code AuthorityProviderV3Adapter} draws the same line.
      */
     private <T> T contained(T response, Set<String> sentSecrets, String operation) throws ConnectorException {
         try {

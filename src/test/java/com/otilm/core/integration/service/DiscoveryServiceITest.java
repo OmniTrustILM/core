@@ -1037,7 +1037,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
               "attributeCallback":{"callbackContext":"/v2/discoveryProvider/vaults","callbackMethod":"GET",
                                    "mappings":[]}}]""";
 
-    /** What a caller files for a resource reference: the object's identity, which the resource loader resolves. */
+    /** What a caller files for a resource reference: the object's identity. */
     private static RequestAttribute resourceReference(Credential credential) {
         ResourceSimpleContentData identity = new ResourceSimpleContentData(AttributeResource.CREDENTIAL);
         identity.setUuid(credential.getUuid().toString());

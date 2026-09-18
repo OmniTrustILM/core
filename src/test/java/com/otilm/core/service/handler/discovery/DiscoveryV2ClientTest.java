@@ -306,8 +306,8 @@ class DiscoveryV2ClientTest {
         echo.setCheckpoint(DiscoveryCheckpointFixture.checkpoint("lastToken", "s3cr3t-token"));
         when(apiClient.initiate(any(), any())).thenReturn(echo);
 
-        // The connector has opened the run by the time this returns. Refusing here would leave it scanning with
-        // nothing in Core to cancel it by, which is what recordOrDrop exists to prevent.
+        // The connector has opened the run by now; refusing would leave it scanning with nothing in Core to
+        // cancel it by.
         assertThat(client.initiate(run).getCheckpoint()).isEqualTo(echo.getCheckpoint());
     }
 
@@ -318,8 +318,7 @@ class DiscoveryV2ClientTest {
         echo.setCheckpoint(DiscoveryCheckpointFixture.checkpoint("lastToken", "s3cr3t-token"));
         when(apiClient.resume(any(), any())).thenReturn(echo);
 
-        // Same divergence in the direction that cannot repair itself: the connector restarts, and only an explicit
-        // resume moves Core out of STOPPED.
+        // The divergence that cannot repair itself: only an explicit resume moves Core out of STOPPED.
         assertThat(client.resume(run).getCheckpoint()).isEqualTo(echo.getCheckpoint());
     }
 

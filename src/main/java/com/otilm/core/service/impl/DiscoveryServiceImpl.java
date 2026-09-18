@@ -435,9 +435,9 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
                                 .getDataAttributesByContent(connector.getUuid(), requestAttributesOrNone(attributes)));
             }
         }
-        // The credential loader authorizes CREDENTIAL:DETAIL at method entry, so a run that names no credential is
-        // kept away from it: the caller would be charged that permission for work the loader walks past. The resource
-        // loader needs no such guard -- it gates per object, inside. Same shape as ConnectorRequestAttributesBuilder.
+        // The credential loader authorizes CREDENTIAL:DETAIL at method entry, so a run naming no credential is kept
+        // away from it rather than charged for a walk-past. The resource loader gates per object, inside, and needs no
+        // such guard. As in ConnectorRequestAttributesBuilder.
         if (referencesACredential(referenced)) {
             credentialService.loadFullCredentialData(referenced);
         }
