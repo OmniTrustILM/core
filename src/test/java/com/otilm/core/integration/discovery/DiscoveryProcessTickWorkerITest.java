@@ -5,6 +5,8 @@ import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredItemDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredKeyDto;
+import com.otilm.api.model.connector.discovery.v2.DiscoveryResultsResponseDto;
+import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.discovery.DiscoveryMessageSeverity;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.dao.entity.CertificateContent;
@@ -29,6 +31,7 @@ import com.otilm.core.messaging.jms.producers.DiscoveryWorkProducer;
 import com.otilm.core.messaging.model.DiscoveryWorkMessage;
 import com.otilm.core.model.discovery.DiscoveryMessageCode;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
+import com.otilm.core.service.handler.discovery.DiscoveryEventIngestor;
 import com.otilm.core.service.handler.discovery.DiscoveryProcessTickWorker;
 import com.otilm.core.service.handler.discovery.DiscoveryRunTerminator;
 import com.otilm.core.service.handler.discovery.DiscoveryRunTerminator.Ending;
@@ -39,9 +42,12 @@ import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.DiscoveryInterfaceFixture;
+import java.security.KeyPairGenerator;
+import java.security.NoSuchAlgorithmException;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -107,6 +113,8 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
     private DiscoveryWriter discoveryWriter;
     @Autowired
     private DiscoveryWorkWriter workWriter;
+    @Autowired
+    private DiscoveryEventIngestor ingestor;
     @Autowired
     private DiscoveryItemRepository itemRepository;
     @Autowired
@@ -197,6 +205,24 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
         // A row that carries a reason is accounted for, so the run finishes rather than stalling on it -- with a
         // warning, because something it discovered never made it in.
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.WARNING);
+    }
+
+    @Test
+    void keysDrainedFromAConnector_reachTheInventoryAndTheListingSaysWhatTheyBecame() throws Exception {
+        Discovery run = processingRun();
+        // The whole way in: what a connector handed over, through staging, to the records an operator sees.
+        ingestor.applyDrainPage(run.getUuid(), drainedKeys(run));
+
+        worker.tick(run.getUuid(), 0);
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.COMPLETED);
+        assertThat(importedKeyItems(run)).isEqualTo(2);
+        assertThat(itemRepository.listItems(run.getUuid(), Resource.CRYPTOGRAPHIC_KEY.name(), null, 10, 0))
+                .allSatisfy(row -> {
+                    assertThat(row.getInventoryUuid()).as("the listing says which record the item became").isNotNull();
+                    assertThat(row.isProcessed()).isTrue();
+                });
     }
 
     @Test
@@ -724,6 +750,42 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
             item.setPayload(payload);
             item.setDiscoveredAt(OffsetDateTime.now(ZoneOffset.UTC));
             itemWriter.stage(run.getUuid(), item, true);
+        }
+    }
+
+    /** One page as a connector hands it over: two keys, each with its own material. */
+    private DiscoveryResultsResponseDto drainedKeys(Discovery run) {
+        DiscoveryResultsResponseDto page = new DiscoveryResultsResponseDto();
+        page.setItems(List.of(drainedKey(1, "ssh://host-a:22"), drainedKey(2, "tls://host-b:443")));
+        page.setHighestSequence(2L);
+        page.setMore(false);
+        return page;
+    }
+
+    private DiscoveredItemDto drainedKey(int sequence, String uniqueRef) {
+        DiscoveredKeyDto payload = new DiscoveredKeyDto();
+        payload.setType(KeyType.PUBLIC_KEY);
+        payload.setAlgorithm(KeyAlgorithm.RSA);
+        payload.setLength(2048);
+        payload.setPublicKeyFormat(KeyFormat.SPKI);
+        payload.setFingerprint("connector-fingerprint-" + uniqueRef);
+        payload.setPublicKey(Base64.getEncoder().encodeToString(publicKeyMaterial(sequence)));
+        DiscoveredItemDto item = new DiscoveredItemDto();
+        item.setSequence((long) sequence);
+        item.setUniqueRef(uniqueRef);
+        item.setPayload(payload);
+        item.setDiscoveredAt(OffsetDateTime.now(ZoneOffset.UTC));
+        return item;
+    }
+
+    /** Distinct material per key, so two keys stay two records rather than deduplicating into one. */
+    private static byte[] publicKeyMaterial(int seed) {
+        try {
+            KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+            generator.initialize(2048);
+            return generator.generateKeyPair().getPublic().getEncoded();
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
         }
     }
 
