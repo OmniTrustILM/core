@@ -54,6 +54,9 @@ public class CbomSyncSkipRetentionSweeper {
         int batches = 0;
         int lastBatch;
         try {
+            // A short batch ends the sweep without proving the table is clean: the delete skips rows a concurrent
+            // writer holds, and a document stored meanwhile takes its own row out of the batch. Whatever is left is a
+            // day older at the next run, which is what running daily is for.
             do {
                 lastBatch = writer.deleteWrittenOffBatch(cutoff, BATCH_SIZE);
                 deleted += lastBatch;

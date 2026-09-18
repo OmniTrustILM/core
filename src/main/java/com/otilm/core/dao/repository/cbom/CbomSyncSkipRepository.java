@@ -95,6 +95,17 @@ public interface CbomSyncSkipRepository
      * {@code limit} of them. Native, because JPQL has no {@code LIMIT} on a delete; the subquery orders by
      * {@code last_attempt_at}, then {@code uuid} for a total order, so each batch takes the oldest rows the index on
      * {@code (state, last_attempt_at)} finds first.
+     *
+     * <p>
+     * <b>Claiming the victims:</b> the subquery locks the rows it picks and the outer statement repeats the predicate,
+     * and neither clause is redundant. Without {@code FOR UPDATE} the outer {@code WHERE} is {@code uuid IN} an
+     * already-computed set, so a row an operator's retry moves to {@code RETRYING}, or a run's fresh failure re-dates,
+     * while this statement waits for its lock is deleted anyway: the qual re-checked under EvalPlanQual still holds.
+     * That would swallow an accepted retry -- the re-read would answer not found for a document whose watermark has
+     * long passed -- or drop a live record and hand its document a fresh budget on the next run. {@code SKIP LOCKED}
+     * rather than a wait, as the batch rule prescribes: this sweep holds the cluster lock, and two sweeps waiting on
+     * victims picked in different index orders can deadlock. A batch may therefore come back short while eligible rows
+     * remain, and the next run takes them.
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(value = """
@@ -103,7 +114,9 @@ public interface CbomSyncSkipRepository
                 SELECT uuid FROM {h-schema}cbom_sync_skip
                 WHERE state = 'PERMANENTLY_SKIPPED' AND last_attempt_at < :cutoff
                 ORDER BY last_attempt_at, uuid
-                LIMIT :limit)
+                LIMIT :limit
+                FOR UPDATE SKIP LOCKED)
+            AND state = 'PERMANENTLY_SKIPPED' AND last_attempt_at < :cutoff
             """, nativeQuery = true)
     int deleteWrittenOffBefore(@Param("cutoff") OffsetDateTime cutoff, @Param("limit") int limit);
 }

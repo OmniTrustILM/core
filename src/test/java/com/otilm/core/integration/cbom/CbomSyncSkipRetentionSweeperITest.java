@@ -7,11 +7,17 @@ import com.otilm.core.dao.repository.cbom.CbomSyncSkipRepository;
 import com.otilm.core.model.cbom.CbomHeaderCounts;
 import com.otilm.core.service.writer.cbom.CbomSyncSkipWriter;
 import com.otilm.core.util.BaseSpringBootTest;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -83,5 +89,52 @@ class CbomSyncSkipRetentionSweeperITest extends BaseSpringBootTest {
         assertThat(outcome.batches()).isEqualTo(3);
         assertThat(outcome.capped()).isFalse();
         assertThat(skipRepository.count()).isZero();
+    }
+
+    /**
+     * The sweep picks its victims, then deletes them: in between, an operator's retry or a run's fresh failure can move
+     * a row out of scope. The delete claims what it picked, so a row another transaction holds is skipped rather than
+     * waited for and then deleted under the change -- which would swallow a retry the database had accepted.
+     *
+     * <p>
+     * The sweep runs on its own thread with a deadline, because the regression this guards against does not fail the
+     * statement: it blocks on the row lock until the other transaction commits.
+     */
+    @Test
+    void aRowAConcurrentWriterHoldsIsSkippedRatherThanDeletedUnderIt() throws Exception {
+        OffsetDateTime longAgo = OffsetDateTime.now().truncatedTo(ChronoUnit.MICROS).minusDays(200);
+        CbomSyncSkip contended = skipWriter
+                .recordAttempt("urn:uuid:contended", 1, "reason", CbomHeaderCounts.ZERO, longAgo, 1);
+        skipWriter.recordAttempt("urn:uuid:free", 1, "reason", CbomHeaderCounts.ZERO, longAgo, 1);
+        assertThat(contended.getState()).isEqualTo(CbomSyncSkipState.PERMANENTLY_SKIPPED);
+
+        ExecutorService sweepThread = Executors.newSingleThreadExecutor();
+        try (Connection retry = Objects.requireNonNull(jdbcTemplate.getDataSource()).getConnection()) {
+            retry.setAutoCommit(false);
+            try {
+                try (PreparedStatement update = retry
+                        .prepareStatement("UPDATE " + dbSchema + ".cbom_sync_skip"
+                                + " SET state = 'RETRYING', attempts = 0 WHERE uuid = ?")) {
+                    update.setObject(1, contended.getUuid());
+                    assertThat(update.executeUpdate()).isEqualTo(1);
+                }
+
+                CbomSyncSkipRetentionSweeper.SweepOutcome outcome = sweepThread
+                        .submit(() -> sweeper.sweep(90))
+                        .get(30, TimeUnit.SECONDS);
+
+                assertThat(outcome.aborted()).isFalse();
+                assertThat(outcome.deleted()).isEqualTo(1);
+            } finally {
+                retry.commit();
+            }
+        } finally {
+            sweepThread.shutdown();
+        }
+
+        assertThat(skipRepository.findAll())
+                .extracting(CbomSyncSkip::getSerialNumber)
+                .containsExactly("urn:uuid:contended");
+        assertThat(skipRepository.findAll().getFirst().getState()).isEqualTo(CbomSyncSkipState.RETRYING);
     }
 }
