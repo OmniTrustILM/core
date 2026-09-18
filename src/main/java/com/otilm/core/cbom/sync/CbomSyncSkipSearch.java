@@ -61,10 +61,12 @@ public final class CbomSyncSkipSearch {
     }
 
     /**
-     * What the searchable-fields operation publishes: the two filter fields, the serial number also orderable. The
-     * three sort-only keys (last attempt, first failure, attempts) are named on the list operation and stay out of the
-     * catalogue: an entry with no condition would be offered as a filter. {@code displayable} is left unset, as the
-     * contract says: the rows have a fixed shape.
+     * What the searchable-fields operation publishes: every field the list may be filtered or ordered by. The two that
+     * take a filter carry their conditions; the three that are ordering keys only carry {@code sortable} with no
+     * conditions, because a client reads the sortable identifiers from here -- the platform binds that rule to
+     * {@code SearchSortRequestDto.fieldIdentifier} and reads an absent flag as false, so an ordering key named in prose
+     * alone would be unreachable. {@code displayable} is left unset throughout, as the contract says: the rows have a
+     * fixed shape and offer no columns.
      */
     public static List<SearchFieldDataByGroupDto> searchableFields() {
         SearchFieldDataDto state = new SearchFieldDataDto();
@@ -85,7 +87,24 @@ public final class CbomSyncSkipSearch {
         serialNumber.setMultiValue(false);
         serialNumber.setSortable(true);
 
-        return List.of(new SearchFieldDataByGroupDto(List.of(serialNumber, state), FilterFieldSource.PROPERTY));
+        return List
+                .of(new SearchFieldDataByGroupDto(List
+                        .of(serialNumber, state, orderingKey(LAST_ATTEMPT_AT, "Last Attempt", FilterFieldType.DATETIME),
+                                orderingKey(FIRST_SKIPPED_AT, "First Failure", FilterFieldType.DATETIME),
+                                orderingKey(ATTEMPTS, "Attempts", FilterFieldType.NUMBER)),
+                        FilterFieldSource.PROPERTY));
+    }
+
+    /** A field the list may be ordered by but not filtered on: sortable, with no condition to offer. */
+    private static SearchFieldDataDto orderingKey(String identifier, String label, FilterFieldType type) {
+        SearchFieldDataDto field = new SearchFieldDataDto();
+        field.setFieldIdentifier(identifier);
+        field.setFieldLabel(label);
+        field.setType(type);
+        field.setConditions(List.of());
+        field.setMultiValue(false);
+        field.setSortable(true);
+        return field;
     }
 
     /** The request's filters as one predicate; an empty list matches everything. */

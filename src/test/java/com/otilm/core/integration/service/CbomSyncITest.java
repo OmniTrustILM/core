@@ -1080,7 +1080,9 @@ class CbomSyncITest extends BaseSpringBootTest {
         List<SearchFieldDataDto> fields = groups.getFirst().getSearchFieldData();
         assertThat(fields)
                 .extracting(SearchFieldDataDto::getFieldIdentifier)
-                .containsExactly(CbomSyncSkipSearch.SERIAL_NUMBER, CbomSyncSkipSearch.STATE);
+                .containsExactly(CbomSyncSkipSearch.SERIAL_NUMBER, CbomSyncSkipSearch.STATE,
+                        CbomSyncSkipSearch.LAST_ATTEMPT_AT, CbomSyncSkipSearch.FIRST_SKIPPED_AT,
+                        CbomSyncSkipSearch.ATTEMPTS);
 
         SearchFieldDataDto serialNumber = fields.getFirst();
         assertThat(serialNumber.getType()).isEqualTo(FilterFieldType.STRING);
@@ -1100,6 +1102,31 @@ class CbomSyncITest extends BaseSpringBootTest {
                 .isEqualTo(
                         List.of(CbomSyncSkipState.RETRYING.getCode(), CbomSyncSkipState.PERMANENTLY_SKIPPED.getCode()));
         assertThat(state.isMultiValue()).isTrue();
+
+        // The three ordering keys are reachable from the catalogue rather than from prose alone, and offer no filter.
+        List<SearchFieldDataDto> orderingKeys = fields.subList(2, fields.size());
+        assertThat(orderingKeys).allSatisfy(field -> {
+            assertThat(field.isSortable()).isTrue();
+            assertThat(field.getConditions()).isEmpty();
+        });
+        assertThat(orderingKeys)
+                .extracting(SearchFieldDataDto::getType)
+                .containsExactly(FilterFieldType.DATETIME, FilterFieldType.DATETIME, FilterFieldType.NUMBER);
+
+        // Every identifier the catalogue marks sortable is one the list actually orders by.
+        for (SearchFieldDataDto field : fields) {
+            if (Boolean.TRUE.equals(field.isSortable())) {
+                assertThat(serialNumbersOrderedBy(field.getFieldIdentifier(), SortDirection.ASC)).isNotNull();
+            }
+        }
+
+        // An ordering key is not a filter: naming one in `filters` is refused, and the message says what is.
+        SearchRequestDto filterOnAnOrderingKey = new SearchRequestDto();
+        filterOnAnOrderingKey
+                .setFilters(List.of(filter(CbomSyncSkipSearch.ATTEMPTS, FilterConditionOperator.EQUALS, "1")));
+        assertThatThrownBy(() -> cbomService.listSyncSkips(filterOnAnOrderingKey))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining(CbomSyncSkipSearch.SERIAL_NUMBER);
 
         // The rows have a fixed shape, so the catalogue offers no columns at all.
         assertThat(fields).extracting(SearchFieldDataDto::isDisplayable).containsOnlyNulls();
