@@ -65,6 +65,7 @@ class SettingServiceITest extends BaseSpringBootTest {
 
     private static final String TEST_TRIGGER_NAME = "testTriggerName";
     private static final String TEST_TRIGGER_UUID = "3a1db3f5-f9eb-4fbf-92c9-c4c1499bfca7";
+    private static final String UNREACHABLE_JWK_SET_URL = "http://127.0.0.1:1/jwks";
 
     @Autowired
     private SettingExternalService settingService;
@@ -474,6 +475,97 @@ class SettingServiceITest extends BaseSpringBootTest {
                                 .findFirst()
                                 .get()
                                 .getPublicKey());
+    }
+
+    @Test
+    void getOAuth2ProviderSettings_returnsStoredSettingsWhenJwkSetUrlIsUnreachable() throws Exception {
+        String providerName = "unreachable-read";
+        OAuth2ProviderSettingsDto providerSettings = createProviderDto(providerName);
+        providerSettings.setJwkSet(null);
+        providerSettings.setJwkSetUrl(UNREACHABLE_JWK_SET_URL);
+
+        Setting setting = new Setting();
+        setting.setValue(new ObjectMapper().writeValueAsString(providerSettings));
+        setting.setName(providerName);
+        setting.setSection(SettingsSection.AUTHENTICATION);
+        setting.setCategory(SettingsSectionCategory.OAUTH2_PROVIDER.getCode());
+        settingRepository.save(setting);
+
+        OAuth2ProviderSettingsResponseDto response = Assertions
+                .assertDoesNotThrow(() -> settingService.getOAuth2ProviderSettings(providerName, false));
+
+        Assertions.assertEquals(UNREACHABLE_JWK_SET_URL, response.getJwkSetUrl());
+        Assertions.assertNotNull(response.getJwkSetKeys());
+        Assertions.assertTrue(response.getJwkSetKeys().isEmpty());
+    }
+
+    @Test
+    void getOAuth2ProviderSettings_rejectsMalformedEmbeddedJwkSet() throws Exception {
+        String providerName = "malformed-embedded-read";
+        OAuth2ProviderSettingsDto providerSettings = createProviderDto(providerName);
+        providerSettings
+                .setJwkSet(Base64.getEncoder().encodeToString("not-a-jwk-set".getBytes(StandardCharsets.UTF_8)));
+
+        Setting setting = new Setting();
+        setting.setValue(new ObjectMapper().writeValueAsString(providerSettings));
+        setting.setName(providerName);
+        setting.setSection(SettingsSection.AUTHENTICATION);
+        setting.setCategory(SettingsSectionCategory.OAUTH2_PROVIDER.getCode());
+        settingRepository.save(setting);
+
+        Assertions
+                .assertThrows(ValidationException.class,
+                        () -> settingService.getOAuth2ProviderSettings(providerName, false));
+    }
+
+    @Test
+    void updateOAuth2ProviderSettings_persistsSettingsWhenJwkSetUrlIsUnreachable() throws Exception {
+        String providerName = "unreachable-update";
+        OAuth2ProviderSettingsUpdateDto providerSettings = createProviderUpdateDto();
+        providerSettings.setJwkSet(null);
+        providerSettings.setJwkSetUrl(UNREACHABLE_JWK_SET_URL);
+
+        Assertions
+                .assertDoesNotThrow(() -> settingService.updateOAuth2ProviderSettings(providerName, providerSettings));
+
+        OAuth2ProviderSettingsDto stored = settingService
+                .getAuthenticationSettings(true)
+                .getOAuth2Providers()
+                .get(providerName);
+        Assertions.assertEquals(UNREACHABLE_JWK_SET_URL, stored.getJwkSetUrl());
+    }
+
+    @Test
+    void updateOAuth2ProviderSettings_rejectsBlankJwkSetUrlWithoutEmbeddedJwkSet() throws Exception {
+        OAuth2ProviderSettingsUpdateDto providerSettings = createProviderUpdateDto();
+        providerSettings.setJwkSet(null);
+        providerSettings.setJwkSetUrl(" ");
+
+        Assertions
+                .assertThrows(ValidationException.class,
+                        () -> settingService.updateOAuth2ProviderSettings("blank-jwk-url", providerSettings));
+    }
+
+    @Test
+    void updateOAuth2ProviderSettings_rejectsMalformedJwkSetUrl() throws Exception {
+        OAuth2ProviderSettingsUpdateDto providerSettings = createProviderUpdateDto();
+        providerSettings.setJwkSet(null);
+        providerSettings.setJwkSetUrl("not a url");
+
+        Assertions
+                .assertThrows(ValidationException.class,
+                        () -> settingService.updateOAuth2ProviderSettings("malformed-jwk-url", providerSettings));
+    }
+
+    @Test
+    void updateOAuth2ProviderSettings_rejectsMalformedEmbeddedJwkSet() throws Exception {
+        OAuth2ProviderSettingsUpdateDto providerSettings = createProviderUpdateDto();
+        providerSettings
+                .setJwkSet(Base64.getEncoder().encodeToString("not-a-jwk-set".getBytes(StandardCharsets.UTF_8)));
+
+        Assertions
+                .assertThrows(ValidationException.class,
+                        () -> settingService.updateOAuth2ProviderSettings("malformed-embedded", providerSettings));
     }
 
     @Test

@@ -58,7 +58,6 @@ import jakarta.annotation.PostConstruct;
 import jakarta.transaction.Transactional;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -82,6 +81,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -780,10 +780,8 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
                 }
             }
 
-            // Validate every provider (this performs a real HTTP fetch for jwkSetUrl-based providers)
-            // before acquiring the advisory lock below, so the lock never spans an external call.
             for (OAuth2ProviderSettingsDto providerDto : authenticationSettingsDto.getOAuth2Providers()) {
-                validateOAuth2ProviderSettings(providerDto, false);
+                validateOAuth2ProviderSettings(providerDto);
             }
 
             settingRepository.lockOAuth2ProviderWrites();
@@ -801,6 +799,7 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
 
     @Override
     @ExternalAuthorization(resource = Resource.SETTINGS, action = ResourceAction.DETAIL)
+    @org.springframework.transaction.annotation.Transactional(propagation = Propagation.NOT_SUPPORTED)
     public OAuth2ProviderSettingsResponseDto getOAuth2ProviderSettings(String providerName, boolean withClientSecret) {
         Setting setting = settingRepository
                 .findBySectionAndCategoryAndName(SettingsSection.AUTHENTICATION,
@@ -815,7 +814,18 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
             } catch (JsonProcessingException e) {
                 throw new ValidationException(DESERIALIZATION_ERROR_MESSAGE.formatted(providerName));
             }
-            settingsDto.setJwkSetKeys(convertJwkToListOfKeyDtos(checkJwkSetValidity(settingsDto)));
+            if (settingsDto.getJwkSetUrl() != null) {
+                try {
+                    settingsDto.setJwkSetKeys(convertJwkToListOfKeyDtos(checkJwkSetValidity(settingsDto)));
+                } catch (ValidationException e) {
+                    logger
+                            .warn("Unable to load JWK Set keys for OAuth2 provider '{}': {}", providerName,
+                                    e.getMessage());
+                    settingsDto.setJwkSetKeys(List.of());
+                }
+            } else {
+                settingsDto.setJwkSetKeys(convertJwkToListOfKeyDtos(checkJwkSetValidity(settingsDto)));
+            }
         }
         return settingsDto;
     }
@@ -823,9 +833,7 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
     @Override
     @ExternalAuthorization(resource = Resource.SETTINGS, action = ResourceAction.UPDATE)
     public void updateOAuth2ProviderSettings(String providerName, OAuth2ProviderSettingsUpdateDto settingsDto) {
-        // Validation performs a real HTTP fetch for jwkSetUrl-based providers; it must complete
-        // before the advisory lock below is acquired so the lock never spans an external call.
-        validateOAuth2ProviderSettings(settingsDto, false);
+        validateOAuth2ProviderSettings(settingsDto);
 
         settingRepository.lockOAuth2ProviderWrites();
         validateIssuerUniqueness(providerName, settingsDto.getIssuerUrl());
@@ -919,29 +927,23 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
         return mapping;
     }
 
-    private void validateOAuth2ProviderSettings(OAuth2ProviderSettingsUpdateDto settingsDto,
-            boolean checkAvailability) {
-        if (settingsDto.getJwkSet() == null && settingsDto.getJwkSetUrl() == null) {
+    private void validateOAuth2ProviderSettings(OAuth2ProviderSettingsUpdateDto settingsDto) {
+        String jwkSetUrl = settingsDto.getJwkSetUrl();
+        if (jwkSetUrl != null && jwkSetUrl.isBlank()) {
+            settingsDto.setJwkSetUrl(null);
+            jwkSetUrl = null;
+        }
+        if (settingsDto.getJwkSet() == null && jwkSetUrl == null) {
             throw new ValidationException("Missing JWK Set URL or encoded JWK Set.");
         }
-        checkJwkSetValidity(settingsDto);
-        if (checkAvailability) {
-            for (String urlString : List
-                    .of(settingsDto.getJwkSetUrl(), settingsDto.getAuthorizationUrl(), settingsDto.getTokenUrl(),
-                            settingsDto.getLogoutUrl())) {
-                URL url;
-                try {
-                    url = new URI(urlString).toURL();
-                    HttpURLConnection huc = (HttpURLConnection) url.openConnection();
-                    huc.setRequestMethod("OPTIONS");
-                    if (huc.getResponseCode() == HttpURLConnection.HTTP_NOT_FOUND) {
-                        throw new ValidationException("URL %s is could not be reached.");
-                    }
-                } catch (IOException | URISyntaxException e) {
-                    throw new ValidationException("Could not verify if URL %s is reachable: %s"
-                            .formatted(urlString, e.getCause().toString()));
-                }
-            }
+        if (jwkSetUrl == null) {
+            checkJwkSetValidity(settingsDto);
+            return;
+        }
+        try {
+            new URI(jwkSetUrl).toURL();
+        } catch (MalformedURLException | URISyntaxException | IllegalArgumentException e) {
+            throw new ValidationException("JWK Set URL is invalid.");
         }
     }
 
@@ -953,16 +955,20 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
                 URLConnection urlConnection = url.openConnection();
                 urlConnection.setConnectTimeout(5000);
                 urlConnection.setReadTimeout(5000);
-                try (InputStream stream = url.openStream()) {
+                try (InputStream stream = urlConnection.getInputStream()) {
                     jwkSet = new String(stream.readAllBytes());
                 }
-            } catch (MalformedURLException | URISyntaxException e) {
+            } catch (MalformedURLException | URISyntaxException | IllegalArgumentException e) {
                 throw new ValidationException("Unable to convert JWK Set URL to URL instance: " + e.getMessage());
             } catch (IOException e) {
                 throw new ValidationException("Unable to open connection for JWK Set URL: " + e.getMessage());
             }
         } else {
-            jwkSet = new String(Base64.getDecoder().decode(settingsDto.getJwkSet()));
+            try {
+                jwkSet = new String(Base64.getDecoder().decode(settingsDto.getJwkSet()));
+            } catch (IllegalArgumentException e) {
+                throw new ValidationException("Encoded JWK Set is invalid.");
+            }
         }
         try {
             return JWKSet.parse(jwkSet);
