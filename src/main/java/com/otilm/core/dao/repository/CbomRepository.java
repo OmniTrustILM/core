@@ -124,10 +124,41 @@ public interface CbomRepository extends SecurityFilterRepository<Cbom, UUID> {
             SELECT c FROM Cbom c
             WHERE c.assetSyncState IN :states
               AND (c.assetSyncAttemptedAt IS NULL OR c.assetSyncAttemptedAt < :retryBefore)
+              AND c.assetSyncContentRefusals < :maxContentRefusals
             ORDER BY c.assetSyncAttemptedAt NULLS FIRST, c.uuid
             """)
     List<Cbom> findAssetIngestRetries(@Param("states") Collection<CbomAssetSyncState> states,
-            @Param("retryBefore") OffsetDateTime retryBefore, Limit limit);
+            @Param("retryBefore") OffsetDateTime retryBefore, @Param("maxContentRefusals") int maxContentRefusals,
+            Limit limit);
+
+    /**
+     * Records a refusal the document's own content earned, counting it against the ingest's bound.
+     *
+     * <p>
+     * The one failure the backlog gives up on. {@link #updateAssetSyncState} is what every other failure is written
+     * through, and it is right that those keep being retried -- a lock, a read or a database error can go the other way
+     * next time. A repeated {@code bom-ref} cannot: the extraction is a pure function of the document, so a retry
+     * spends an HTTP read, an extraction and one of {@code cbom.sync.max-ingest-documents} slots to reach the same
+     * verdict. The producer's fix is a new version, which arrives as its own row.
+     *
+     * <p>
+     * Guarded and stamped exactly as {@link #updateAssetSyncState} is, for the same reasons; the increment is the only
+     * difference, and it is in the statement because a {@code @Modifying} query bypasses dirty checking.
+     *
+     * @return 1 if the refusal was recorded, 0 if the CBOM had been synced in the meantime
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE Cbom c
+            SET c.assetSyncState = :state,
+                c.assetSyncError = :error,
+                c.assetSyncAttemptedAt = CURRENT_TIMESTAMP,
+                c.assetSyncContentRefusals = c.assetSyncContentRefusals + 1
+            WHERE c.uuid = :uuid
+              AND c.assetSyncState IN :expectedStates
+            """)
+    int recordContentRefusal(@Param("uuid") UUID uuid, @Param("state") CbomAssetSyncState state,
+            @Param("error") String error, @Param("expectedStates") Collection<CbomAssetSyncState> expectedStates);
 
     /**
      * Claims one CBOM of the ingest work list for this run, if it is still as the work list saw it.

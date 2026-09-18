@@ -6,8 +6,6 @@ import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Locale;
-import java.util.Objects;
-import java.util.OptionalDouble;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.CRC32;
@@ -32,9 +30,6 @@ public final class BrandingLogoValidator {
     public static final String PNG_MEDIA_TYPE = "image/png";
     public static final String SVG_MEDIA_TYPE = "image/svg+xml";
 
-    static final double MIN_ASPECT_RATIO = 1.0;
-    static final double MAX_ASPECT_RATIO = 3.0;
-
     private static final String SVG_NAMESPACE = "http://www.w3.org/2000/svg";
     private static final String SVG_ROOT_ELEMENT = "svg";
 
@@ -44,14 +39,6 @@ public final class BrandingLogoValidator {
             .formatted(PNG_MEDIA_TYPE, SVG_MEDIA_TYPE);
 
     private static final String UNRECOGNISED_REASON = "is neither a PNG image nor a parseable SVG document";
-
-    /**
-     * A number, then an optional absolute or font-relative unit. A percentage carries no intrinsic size. The whitespace
-     * runs are possessive because the one before the unit and the one after it can otherwise both claim the same spaces
-     * when no unit is present, which is what makes a long run of whitespace take quadratic time.
-     */
-    private static final Pattern SVG_LENGTH = Pattern
-            .compile("^\\s*+(\\d+(?:\\.\\d+)?)\\s*+(px|pt|pc|cm|mm|in|em|ex)?\\s*+$");
 
     private static final byte[] PNG_SIGNATURE = {(byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'};
 
@@ -152,7 +139,9 @@ public final class BrandingLogoValidator {
 
     private static void validatePng(String field, byte[] content) {
         long[] dimensions = pngDimensions(field, content);
-        validateAspectRatio(field, dimensions[0], dimensions[1]);
+        if (dimensions[0] <= 0 || dimensions[1] <= 0) {
+            throw reject(field, "has a zero width or height");
+        }
     }
 
     /**
@@ -224,16 +213,6 @@ public final class BrandingLogoValidator {
      * by which the original — scripts, event handlers, external references and all — reaches the settings table.
      */
     private static String sanitizedSvg(String field, Element root) {
-        OptionalDouble ratio = ratioFromWidthAndHeight(root);
-        if (ratio.isEmpty()) {
-            ratio = ratioFromViewBox(root);
-        }
-        if (ratio.isEmpty()) {
-            throw reject(field, "is an SVG with neither usable width and height nor a viewBox, "
-                    + "so its aspect ratio cannot be determined");
-        }
-        validateRatio(field, ratio.getAsDouble());
-
         Document document = root.getOwnerDocument();
         SvgSanitizer.sanitize(document);
         try {
@@ -265,7 +244,7 @@ public final class BrandingLogoValidator {
 
     /**
      * Entity resolution and DTD processing are off, so an SVG cannot be used to read files off the server or stall the
-     * parser while its dimensions are being read.
+     * parser while it is being sanitized.
      */
     private static DocumentBuilderFactory secureDocumentBuilderFactory() throws ParserConfigurationException {
         DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
@@ -280,63 +259,6 @@ public final class BrandingLogoValidator {
         factory.setExpandEntityReferences(false);
         factory.setNamespaceAware(true);
         return factory;
-    }
-
-    /**
-     * Only used when both lengths carry the same unit. Millimetres against pixels would need a conversion this does not
-     * do, and guessing there would let a badly proportioned logo through; the viewBox answers the same question without
-     * units at all, so that is the fallback.
-     */
-    private static OptionalDouble ratioFromWidthAndHeight(Element root) {
-        Matcher width = SVG_LENGTH.matcher(root.getAttribute("width"));
-        Matcher height = SVG_LENGTH.matcher(root.getAttribute("height"));
-        if (!width.matches() || !height.matches()) {
-            return OptionalDouble.empty();
-        }
-        if (!Objects.equals(width.group(2), height.group(2))) {
-            return OptionalDouble.empty();
-        }
-        return ratioOf(Double.parseDouble(width.group(1)), Double.parseDouble(height.group(1)));
-    }
-
-    /** {@code viewBox="minX minY width height"} — the last two values are the intrinsic proportions. */
-    private static OptionalDouble ratioFromViewBox(Element root) {
-        String[] parts = root.getAttribute("viewBox").trim().split("[\\s,]+");
-        if (parts.length != 4) {
-            return OptionalDouble.empty();
-        }
-        try {
-            return ratioOf(Double.parseDouble(parts[2]), Double.parseDouble(parts[3]));
-        } catch (NumberFormatException e) {
-            return OptionalDouble.empty();
-        }
-    }
-
-    /**
-     * {@code Double.parseDouble} accepts {@code NaN} and {@code Infinity}, and every comparison against {@code NaN} is
-     * false, so a viewBox carrying either would otherwise satisfy the range check by failing both halves of it. A
-     * dimension that is not a finite positive number leaves the ratio undetermined, which is the caller's fallback.
-     */
-    private static OptionalDouble ratioOf(double width, double height) {
-        if (!Double.isFinite(width) || !Double.isFinite(height) || width <= 0 || height <= 0) {
-            return OptionalDouble.empty();
-        }
-        double ratio = width / height;
-        return Double.isFinite(ratio) ? OptionalDouble.of(ratio) : OptionalDouble.empty();
-    }
-
-    private static void validateAspectRatio(String field, long width, long height) {
-        if (width <= 0 || height <= 0) {
-            throw reject(field, "has a zero width or height");
-        }
-        validateRatio(field, (double) width / height);
-    }
-
-    private static void validateRatio(String field, double ratio) {
-        if (ratio < MIN_ASPECT_RATIO || ratio > MAX_ASPECT_RATIO) {
-            throw reject(field, "has an aspect ratio of %.2f:1; it must be between %.0f:1 and %.0f:1"
-                    .formatted(ratio, MIN_ASPECT_RATIO, MAX_ASPECT_RATIO));
-        }
     }
 
     private static ValidationException invalidPng(String field) {

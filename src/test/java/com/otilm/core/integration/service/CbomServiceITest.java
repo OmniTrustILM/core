@@ -29,6 +29,7 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.cbom.asset.AssetRowKeys;
 import com.otilm.core.cbom.asset.CryptoAssetIdentityFields;
 import com.otilm.core.cbom.ingest.CbomAssetDetachService;
+import com.otilm.core.cbom.ingest.CbomAssetIngestService;
 import com.otilm.core.dao.entity.Cbom;
 import com.otilm.core.dao.entity.ScheduledJob;
 import com.otilm.core.dao.entity.ScheduledJobHistory;
@@ -1171,7 +1172,7 @@ class CbomServiceITest extends BaseSpringBootTest {
         SearchFieldDataByGroupDto propertyGroup = result.get(result.size() - 1);
 
         assertNotNull(propertyGroup);
-        assertEquals(11, propertyGroup.getSearchFieldData().size());
+        assertEquals(12, propertyGroup.getSearchFieldData().size());
 
         // Verify all expected fields are present
         List<String> fieldNames = propertyGroup
@@ -1191,6 +1192,47 @@ class CbomServiceITest extends BaseSpringBootTest {
         assertTrue(fieldNames.contains(FilterField.CBOM_TOTAL_ASSETS_COUNT.name()));
         assertTrue(fieldNames.contains(FilterField.CBOM_ASSET_SYNC_STATE.name()));
         assertTrue(fieldNames.contains(FilterField.CBOM_ASSETS_SYNCED_AT.name()));
+        // Advertised like every other member of SearchHelper.ABSENT_FROM_LISTING: that set means "filterable but not
+        // a column", and it is what stops the registered field being offered as one -- not an alternative to
+        // registering it.
+        assertTrue(fieldNames.contains(FilterField.CBOM_ASSET_SYNC_ERROR.name()));
+    }
+
+    /**
+     * A refusal the document earned is deterministic -- the same bytes produce the same verdict -- so the backlog gives
+     * up on it once it has been reached {@link CbomAssetIngestService#MAX_CONTENT_REFUSALS} times. Before the count
+     * existed, such a document was re-read over HTTP, re-extracted and re-refused every run for ever, taking one of
+     * {@code cbom.sync.max-ingest-documents} slots each time.
+     */
+    @Test
+    void theRetryListStopsOfferingADocumentThatKeepsEarningItsRefusal() {
+        Cbom exhausted = failedIngest("urn:uuid:refused", CbomAssetIngestService.MAX_CONTENT_REFUSALS);
+        Cbom oneLeft = failedIngest("urn:uuid:nearly", CbomAssetIngestService.MAX_CONTENT_REFUSALS - 1);
+        Cbom transientFailure = failedIngest("urn:uuid:transient", 0);
+
+        List<UUID> offered = cbomRepository
+                .findAssetIngestRetries(List.of(CbomAssetSyncState.FAILED), OffsetDateTime.now().plusDays(1),
+                        CbomAssetIngestService.MAX_CONTENT_REFUSALS, Limit.of(10))
+                .stream()
+                .map(Cbom::getUuid)
+                .toList();
+
+        // A transient failure is still retried for ever; only the refusals the document earned are bounded.
+        assertEquals(2, offered.size());
+        assertTrue(offered.contains(oneLeft.getUuid()));
+        assertTrue(offered.contains(transientFailure.getUuid()));
+        assertFalse(offered.contains(exhausted.getUuid()));
+    }
+
+    private Cbom failedIngest(String serialNumber, int contentRefusals) {
+        Cbom cbom = new Cbom();
+        cbom.setSerialNumber(serialNumber);
+        cbom.setVersion(1);
+        cbom.setSpecVersion("1.6");
+        cbom.setAssetSyncState(CbomAssetSyncState.FAILED);
+        cbom.setAssetSyncAttemptedAt(OffsetDateTime.now().minusHours(1));
+        cbom.setAssetSyncContentRefusals(contentRefusals);
+        return cbomRepository.save(cbom);
     }
 
     @Test
@@ -1661,6 +1703,76 @@ class CbomServiceITest extends BaseSpringBootTest {
         assertTrue(result.contains("stored 0 new entries"));
         assertTrue(result.contains("1 entries an operator had deleted were not stored again"));
         assertTrue(cbomRepository.findAll().isEmpty());
+    }
+
+    /**
+     * The reach the hourly pass does not have. {@code cbom.sync.overlap} and the skip retry cover an entry the feed
+     * offered and Core then failed on; neither covers one the feed only ever offered behind the watermark. The
+     * repository is stubbed for {@code after=0} alone, so a run that asked for the hourly window would get no answer at
+     * all.
+     */
+    @Test
+    void reconcile_listsTheWholeListingRatherThanTheWatermarkWindow() throws Exception {
+        recordASuccessfulHourlySync();
+
+        BomEntryDto entry = entry("serial-behind-the-watermark", "1", OffsetDateTime.now().minusDays(30));
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock.urlPathEqualTo("/api/v1/bom"))
+                        .withQueryParam("after", WireMock.equalTo("0"))
+                        .willReturn(WireMock
+                                .aResponse()
+                                .withStatus(200)
+                                .withHeader("Content-Type", "application/json")
+                                .withBody(objectMapper.writeValueAsString(List.of(entry)))));
+        mockEntrySpecVersionSource(entry, "1.6", "source");
+
+        String result = cbomInternalService.reconcile();
+
+        assertTrue(result.startsWith("Reconciled against the whole listing."));
+        assertTrue(result.contains("stored 1 new entries"));
+        assertEquals(1, cbomRepository.findAll().size());
+    }
+
+    /**
+     * What makes a full re-list safe to run at all: deletion in Core is not deletion in the repository, so the whole
+     * listing still offers every document an operator removed.
+     */
+    @Test
+    void reconcile_doesNotStoreAgainWhatAnOperatorDeleted() throws Exception {
+        String serialNumber = "serial-tombstoned-reconcile";
+        Cbom deleted = new Cbom();
+        deleted.setSerialNumber(serialNumber);
+        deleted.setVersion(1);
+        deleted.setSpecVersion("1.6");
+        cbomService.deleteCbom(cbomRepository.save(deleted).getUuid());
+
+        BomEntryDto entry = entry(serialNumber, "1", OffsetDateTime.now().minusDays(30));
+        mockSearchResponse(List.of(entry));
+        mockEntrySpecVersionSource(entry, "1.6", "source");
+
+        String result = cbomInternalService.reconcile();
+
+        assertTrue(result.contains("stored 0 new entries"));
+        assertTrue(result.contains("1 entries an operator had deleted were not stored again"));
+        assertTrue(cbomRepository.findAll().isEmpty());
+    }
+
+    /** A successful hourly run an hour ago, which is what the watermark is read from. */
+    private void recordASuccessfulHourlySync() {
+        ScheduledJob scheduledJob = new ScheduledJob();
+        scheduledJob.setJobName(CbomSyncTask.NAME);
+        scheduledJob.setJobClassName(CbomSyncTask.class.getName());
+        scheduledJob.setEnabled(true);
+        scheduledJob = scheduledJobsRepository.save(scheduledJob);
+
+        Date anHourAgo = new Date(System.currentTimeMillis() - 3600 * 1000);
+        ScheduledJobHistory history = new ScheduledJobHistory();
+        history.setScheduledJobUuid(scheduledJob.getUuid());
+        history.setJobExecution(anHourAgo);
+        history.setJobEndTime(anHourAgo);
+        history.setSchedulerExecutionStatus(SchedulerJobExecutionStatus.SUCCESS);
+        scheduledJobHistoryRepository.save(history);
     }
 
     @Test

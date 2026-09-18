@@ -19,6 +19,7 @@ import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.model.cbom.PqcStaleVerdictRow;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.writer.cbom.CbomAssetSyncStateWriter;
+import com.otilm.core.service.writer.cbom.CbomIngestFindingWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetAliasWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetSourceWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetWriter;
@@ -87,11 +88,30 @@ public class CbomAssetIngestService {
     /** Shared: building one per document is measurable on a large inventory. */
     private static final ObjectMapper JSON_COLUMN = ObjectMapperFactory.jsonColumn();
 
+    /**
+     * How many refusals earned by the document's own content a CBOM is offered before the backlog gives up on it.
+     *
+     * <p>
+     * Not a deployment tunable, and not in {@code cbom.sync.*}: it is not a judgement about an estate but about the two
+     * refusals it bounds, both of which are verdicts on bytes that do not change between attempts. A repeated
+     * {@code bom-ref} is a pure function of the document and one attempt would do; an unavailable document scope is
+     * raised by an extraction that <em>threw</em>, which could have been the moment rather than the document, so the
+     * bound is the smallest number that gives that one a second and third chance rather than the smallest number that
+     * is correct for the other.
+     *
+     * <p>
+     * Reaching it is not a state: the row stays {@code FAILED}, carrying the reason an operator can read and filter on,
+     * and a run that ingests the CBOM by any other route settles it normally. Nothing re-opens it otherwise -- the
+     * producer's fix is a new version, which arrives as its own row and its own ingest.
+     */
+    public static final int MAX_CONTENT_REFUSALS = 3;
+
     private final CbomAssetExtractor extractor;
     private final CryptoAssetWriter assetWriter;
     private final CryptoAssetSourceWriter sourceWriter;
     private final CbomAssetDetachService detachService;
     private final CbomAssetSyncStateWriter stateWriter;
+    private final CbomIngestFindingWriter findingWriter;
     private final CbomRepository cbomRepository;
     private final CryptoAssetRepository assetRepository;
     private final PqcEvaluator evaluator;
@@ -103,14 +123,16 @@ public class CbomAssetIngestService {
 
     public CbomAssetIngestService(CbomAssetExtractor extractor, CryptoAssetWriter assetWriter,
             CryptoAssetSourceWriter sourceWriter, CbomAssetDetachService detachService,
-            CbomAssetSyncStateWriter stateWriter, CbomRepository cbomRepository, CryptoAssetRepository assetRepository,
-            PqcEvaluator evaluator, ClusterOperationSynchronizer clusterSynchronizer,
-            TransactionHandler transactionHandler, MeterRegistry meterRegistry, CbomSyncProperties properties) {
+            CbomAssetSyncStateWriter stateWriter, CbomIngestFindingWriter findingWriter, CbomRepository cbomRepository,
+            CryptoAssetRepository assetRepository, PqcEvaluator evaluator,
+            ClusterOperationSynchronizer clusterSynchronizer, TransactionHandler transactionHandler,
+            MeterRegistry meterRegistry, CbomSyncProperties properties) {
         this.extractor = extractor;
         this.assetWriter = assetWriter;
         this.sourceWriter = sourceWriter;
         this.detachService = detachService;
         this.stateWriter = stateWriter;
+        this.findingWriter = findingWriter;
         this.cbomRepository = cbomRepository;
         this.assetRepository = assetRepository;
         this.evaluator = evaluator;
@@ -231,14 +253,38 @@ public class CbomAssetIngestService {
             extraction = extractor.extract(document);
         } catch (RuntimeException e) {
             log.warn("CBOM asset ingest: extracting the document failed for CBOM {}", cbomUuid, e);
+            // The only refusal that reaches no recordReport, so it is the only one that has to drop the last
+            // attempt's report itself. Leaving it would put findings from a read that worked beside a state saying
+            // the document could not be read at all.
+            clearReport(cbomUuid);
             return refuse(cbomUuid, "the document could not be read for cryptographic assets (see the Core log)");
+        }
+
+        try {
+            recordReport(cbomUuid, extraction);
+        } catch (RuntimeException e) {
+            // One document's report must not cost the run. Nothing above CbomServiceImpl.store or ingestOnePending
+            // wraps this call, so an escaping exception would abandon the remaining feed pages, the skip retries and
+            // the backlog pass, and strand this CBOM at IN_PROGRESS until the retry window expires.
+            log.warn("CBOM asset ingest: recording the ingest report failed for CBOM {}", cbomUuid, e);
+            return fail(cbomUuid, "the cryptographic asset ingest report could not be stored (see the Core log)");
+        }
+
+        if (!extraction.ambiguousRefs().isEmpty()) {
+            // CycloneDX requires bom-ref to be unique, so a document that repeats one is invalid input rather than a
+            // shape to resolve -- and both readings of a repeat are wrong in a way that moves keys. The refused
+            // document keeps its row and its reason; the producer's fix is a new version.
+            return refuseForContent(cbomUuid,
+                    "the document defines %d bom-ref value%s more than once, which CycloneDX requires to be unique; the ingest findings name them"
+                            .formatted(extraction.ambiguousRefs().size(),
+                                    extraction.ambiguousRefs().size() == 1 ? "" : "s"));
         }
 
         if (extraction.documentScopeUnavailable()) {
             // Refused rather than ingested: without the whole-document scope a fabricated placeholder digest is
             // trusted and every certificate's public-key slot empties, which merges rows that are not the same asset.
             // An over-merge cannot be undone without re-keying the inventory; not ingesting can be retried.
-            return refuse(cbomUuid,
+            return refuseForContent(cbomUuid,
                     "the document's cross-component scope could not be built, so its assets cannot be keyed safely");
         }
 
@@ -281,6 +327,40 @@ public class CbomAssetIngestService {
     }
 
     /**
+     * Replaces this CBOM's ingest report with what the current extraction has to say.
+     *
+     * <p>
+     * In its own transaction, and before any refusal: a document refused for what the report names owes the operator
+     * that report most of all, and enrolling it in the asset writes would roll it back with them.
+     */
+    private void recordReport(UUID cbomUuid, CbomAssetExtractor.Extraction extraction) {
+        final IngestFindingRollup.Rollup report = IngestFindingRollup.of(extraction);
+        transactionHandler.runInNewTransaction(() -> {
+            findingWriter.clear(cbomUuid);
+            for (IngestFindingRollup.Row row : report.rows()) {
+                findingWriter
+                        .record(cbomUuid, row.kind().name(), row.componentName(), row.detail(), row.occurrences(),
+                                OffsetDateTime.now());
+            }
+        });
+        if (report.dropped() > 0) {
+            log
+                    .warn("CBOM asset ingest: CBOM {} raised more distinct messages than a report holds; {} were counted and not stored",
+                            cbomUuid, report.dropped());
+        }
+    }
+
+    /** Drops this CBOM's ingest report, for an attempt that produces none of its own. */
+    private void clearReport(UUID cbomUuid) {
+        try {
+            transactionHandler.runInNewTransaction(() -> findingWriter.clear(cbomUuid));
+        } catch (RuntimeException e) {
+            // Stale rows beside a correct state are worth less than the outcome they would cost; see recordReport.
+            log.warn("CBOM asset ingest: clearing the ingest report failed for CBOM {}", cbomUuid, e);
+        }
+    }
+
+    /**
      * Hands the URN to this version: every earlier version's links are withdrawn, and the assets they leave without a
      * source are settled by {@link CbomAssetDetachService}'s orphan rule.
      *
@@ -288,6 +368,10 @@ public class CbomAssetIngestService {
      * After the new version's own sources are written, not before. A run that dies in between leaves an asset sourced
      * by two revisions of one document -- a count too high, which the next run corrects -- where the other order would
      * leave the inventory saying nothing about a document that still exists.
+     *
+     * <p>
+     * Each superseded revision's ingest report goes with its links, for the reason {@link #supersede} gives: findings
+     * describe a contribution, and a revision that contributes nothing has nothing for them to describe.
      *
      * @return false when another node holds the cluster lock, which leaves the CBOM owing the whole unit: it is not
      * marked synced, and the next run redoes it idempotently
@@ -303,6 +387,10 @@ public class CbomAssetIngestService {
             if (!withdrawn.complete()) {
                 return false;
             }
+            // After the completeness check, so an abandoned withdrawal keeps the report beside the links it still
+            // describes. This is the ordinary supersession path -- an earlier revision reading SYNCED from its own
+            // ingest is on neither work list, so supersede() never runs for it and nothing else would clear it.
+            clearReport(superseded);
         }
         return true;
     }
@@ -397,6 +485,11 @@ public class CbomAssetIngestService {
      * <p>
      * An incomplete withdrawal leaves the row owing the unit rather than marking it synced, so the next run finishes
      * what this one started.
+     *
+     * <p>
+     * The ingest report goes with the contribution. A revision refused for a repeated bom-ref carries findings saying
+     * so; once a later version owns the URN this row reports {@code SYNCED}, and findings left beside that state
+     * describe an attempt whose outcome no longer stands.
      */
     private IngestOutcome supersede(UUID cbomUuid, CbomAssetSyncState entryState) {
         final CbomAssetDetachService.Withdrawal withdrawn = detachService.withdraw(cbomUuid);
@@ -408,6 +501,7 @@ public class CbomAssetIngestService {
                     .debug("CBOM asset ingest: CBOM {} is superseded; withdrew the {} links it had already contributed",
                             cbomUuid, withdrawn.detached());
         }
+        clearReport(cbomUuid);
         runInOwnTransaction(() -> stateWriter.markSuperseded(cbomUuid));
         return IngestOutcome.SUPERSEDED;
     }
@@ -471,6 +565,21 @@ public class CbomAssetIngestService {
 
     private IngestOutcome refuse(UUID cbomUuid, String reason) {
         runInOwnTransaction(() -> stateWriter.markFailed(cbomUuid, reason));
+        return IngestOutcome.REFUSED;
+    }
+
+    /**
+     * Refuses the document for what the document says, and counts the refusal towards {@link #MAX_CONTENT_REFUSALS}.
+     *
+     * <p>
+     * Both callers are verdicts on the document rather than on the moment -- a repeated {@code bom-ref}, a
+     * cross-component scope that could not be built -- and the backlog would otherwise re-read, re-extract and
+     * re-refuse them every run for ever, because the asset ingest has no terminal state to settle at. The retry list
+     * stops offering a row at the bound; every transient failure still goes through {@link #refuse} and is retried as
+     * it always was.
+     */
+    private IngestOutcome refuseForContent(UUID cbomUuid, String reason) {
+        runInOwnTransaction(() -> stateWriter.markRefusedForContent(cbomUuid, reason));
         return IngestOutcome.REFUSED;
     }
 

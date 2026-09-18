@@ -9,6 +9,7 @@ import com.otilm.core.service.writer.cbom.CryptoAssetSourceWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetWriter;
 import java.util.List;
 import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
@@ -40,6 +41,32 @@ class CbomAssetDetachServiceTest {
     private final CryptoAssetSourceRepository sourceRepository = mock(CryptoAssetSourceRepository.class);
     private final CryptoAssetRepository assetRepository = mock(CryptoAssetRepository.class);
     private final ClusterOperationSynchronizer synchronizer = mock(ClusterOperationSynchronizer.class);
+
+    /**
+     * The collection statement answers 1 for the row it took. It is conditional -- it refuses a row a source came back
+     * to or an alias was pointed at -- so a test that left it at Mockito's default 0 would read every collection as a
+     * refusal and prove the opposite of what it says. The refusal itself is a case of its own, below.
+     */
+    @BeforeEach
+    void theCollectionStatementTakesTheRow() {
+        when(assetWriter.delete(any())).thenReturn(1);
+    }
+
+    /**
+     * The delete carries its own condition, so it can decline: a source came back, or an alias was pointed at the row,
+     * between the page read and the statement. The row is then kept rather than counted as collected -- what the run
+     * reports has to be what happened to the rows, not what the read predicted.
+     */
+    @Test
+    void anOrphanTheStatementDeclinesIsCountedAsKept() {
+        UUID asset = sourcedAsset();
+        when(synchronizer.tryLock(anyString())).thenReturn(true);
+        when(assetRepository.orphansAmong(List.of(asset)))
+                .thenReturn(List.of(new CryptoAssetRepository.OrphanRow(asset, false)));
+        when(assetWriter.delete(asset)).thenReturn(0);
+
+        assertThat(service(100).withdraw(CBOM)).isEqualTo(new CbomAssetDetachService.Withdrawal(1, 0, 1, true));
+    }
 
     @Test
     void theAliasLockIsTakenBeforeTheFirstAssetRowLock() {
