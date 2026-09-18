@@ -323,8 +323,9 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
     void deletingAConnectorIsRefusedWhileADiscoveryRunBoundToItIsLive() {
         Discovery run = liveRunBoundTo(discoveryInterfaceOf(connector));
 
+        SecuredUUID connectorUuid = connector.getSecuredUuid();
         ValidationException refused = assertThrows(ValidationException.class,
-                () -> connectorService.deleteConnector(connector.getSecuredUuid()));
+                () -> connectorService.deleteConnector(connectorUuid));
 
         assertThat(refused.getMessage()).contains("discovery run").contains(run.getName());
         Discovery untouched = discoveryRepository.findByUuid(run.getUuid()).orElseThrow();
@@ -772,6 +773,27 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
         Assertions.assertEquals("00000000-0000-0000-0000-000000000001", messages.getFirst().getUuid());
         Assertions.assertNotNull(messages.getFirst().getMessage());
         Assertions.assertEquals("", messages.getFirst().getName());
+    }
+
+    @Test
+    void testForceDeleteConnector_deleteFailure_rollsBackWhatItAlreadyDestroyed() {
+        Discovery run = liveRunBoundTo(discoveryInterfaceOf(connector));
+        Credential credential = new Credential();
+        credential.setName("attached-" + UUID.randomUUID());
+        credential.setKind("Basic");
+        credential.setConnectorUuid(connector.getUuid());
+        credential = credentialRepository.saveAndFlush(credential);
+        doThrow(new RuntimeException("DB delete error")).when(connectorRepositorySpy).delete(any());
+
+        List<BulkActionMessageDto> messages = connectorService
+                .forceDeleteConnector(List.of(connector.getSecuredUuid()));
+
+        assertThat(messages).hasSize(1);
+        Discovery stillLive = discoveryRepository.findByUuid(run.getUuid()).orElseThrow();
+        assertThat(stillLive.getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
+        assertThat(stillLive.getConnectorInterfaceUuid()).isNotNull();
+        assertThat(credentialRepository.findByUuid(credential.getUuid()).orElseThrow().getConnectorUuid())
+                .isEqualTo(connector.getUuid());
     }
 
     @Test
