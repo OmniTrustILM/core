@@ -49,9 +49,14 @@ public class CryptographicOperationControllerImpl implements CryptographicOperat
     }
 
     @Override
+    @AuditLogged(module = Module.CRYPTOGRAPHIC_KEYS, resource = Resource.ATTRIBUTE, name = "decrypt",
+            affiliatedResource = Resource.CRYPTOGRAPHIC_KEY_ITEM, operation = Operation.LIST_ATTRIBUTES)
     public List<BaseAttribute> listDecryptAttributes(String tokenInstanceUuid, String tokenProfileUuid, String uuid,
-            String keyItemUuid) throws ConnectorException, NotFoundException {
-        return List.of();
+            @LogResource(uuid = true, affiliated = true) String keyItemUuid)
+            throws ConnectorException, NotFoundException {
+        return cryptographicOperationService
+                .listDecryptAttributes(SecuredParentUUID.fromString(tokenInstanceUuid),
+                        SecuredUUID.fromString(tokenProfileUuid), UUID.fromString(uuid), UUID.fromString(keyItemUuid));
     }
 
     @Override
@@ -77,9 +82,14 @@ public class CryptographicOperationControllerImpl implements CryptographicOperat
     }
 
     @Override
+    @AuditLogged(module = Module.CRYPTOGRAPHIC_KEYS, resource = Resource.ATTRIBUTE, name = "verify",
+            affiliatedResource = Resource.CRYPTOGRAPHIC_KEY_ITEM, operation = Operation.LIST_ATTRIBUTES)
     public List<BaseAttribute> listVerifyAttributes(String tokenInstanceUuid, String tokenProfileUuid, String uuid,
-            String keyItemUuid) throws ConnectorException, NotFoundException {
-        return List.of();
+            @LogResource(uuid = true, affiliated = true) String keyItemUuid)
+            throws ConnectorException, NotFoundException {
+        return cryptographicOperationService
+                .listVerifyAttributes(SecuredParentUUID.fromString(tokenInstanceUuid),
+                        SecuredUUID.fromString(tokenProfileUuid), UUID.fromString(uuid), UUID.fromString(keyItemUuid));
     }
 
     @Override
@@ -113,9 +123,14 @@ public class CryptographicOperationControllerImpl implements CryptographicOperat
     }
 
     @Override
+    @AuditLogged(module = Module.CRYPTOGRAPHIC_KEYS, resource = Resource.ATTRIBUTE, name = "sign",
+            affiliatedResource = Resource.CRYPTOGRAPHIC_KEY_ITEM, operation = Operation.LIST_ATTRIBUTES)
     public List<BaseAttribute> listSignAttributes(String tokenInstanceUuid, String tokenProfileUuid, String uuid,
-            String keyItemUuid) throws ConnectorException, NotFoundException {
-        return List.of();
+            @LogResource(uuid = true, affiliated = true) String keyItemUuid)
+            throws ConnectorException, NotFoundException {
+        return cryptographicOperationService
+                .listSignAttributes(SecuredParentUUID.fromString(tokenInstanceUuid),
+                        SecuredUUID.fromString(tokenProfileUuid), UUID.fromString(uuid), UUID.fromString(keyItemUuid));
     }
 
     @Override
@@ -131,9 +146,14 @@ public class CryptographicOperationControllerImpl implements CryptographicOperat
     }
 
     @Override
+    @AuditLogged(module = Module.CRYPTOGRAPHIC_KEYS, resource = Resource.ATTRIBUTE, name = "encrypt",
+            affiliatedResource = Resource.CRYPTOGRAPHIC_KEY_ITEM, operation = Operation.LIST_ATTRIBUTES)
     public List<BaseAttribute> listEncryptAttributes(String tokenInstanceUuid, String tokenProfileUuid, String uuid,
-            String keyItemUuid) throws ConnectorException, NotFoundException {
-        return List.of();
+            @LogResource(uuid = true, affiliated = true) String keyItemUuid)
+            throws ConnectorException, NotFoundException {
+        return cryptographicOperationService
+                .listEncryptAttributes(SecuredParentUUID.fromString(tokenInstanceUuid),
+                        SecuredUUID.fromString(tokenProfileUuid), UUID.fromString(uuid), UUID.fromString(keyItemUuid));
     }
 
     @Override

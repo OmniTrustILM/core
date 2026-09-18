@@ -4,10 +4,20 @@ import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.api.exception.ConnectorEntityNotFoundException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.interfaces.client.v1.CryptographicOperationsSyncApiClient;
 import com.otilm.api.interfaces.client.v1.KeyManagementSyncApiClient;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
+import com.otilm.api.model.client.cryptography.operations.CipherDataRequestDto;
+import com.otilm.api.model.client.cryptography.operations.CipherRequestData;
+import com.otilm.api.model.client.cryptography.operations.DecryptDataResponseDto;
+import com.otilm.api.model.client.cryptography.operations.EncryptDataResponseDto;
+import com.otilm.api.model.client.cryptography.operations.SignDataRequestDto;
+import com.otilm.api.model.client.cryptography.operations.SignDataResponseDto;
+import com.otilm.api.model.client.cryptography.operations.SignatureRequestData;
+import com.otilm.api.model.client.cryptography.operations.VerifyDataRequestDto;
+import com.otilm.api.model.client.cryptography.operations.VerifyDataResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
@@ -22,14 +32,20 @@ import com.otilm.api.model.connector.cryptography.key.KeyDataResponseDto;
 import com.otilm.api.model.connector.cryptography.key.KeyPairDataResponseDto;
 import com.otilm.api.model.connector.cryptography.key.value.RawKeyValue;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.cryptography.key.KeyState;
+import com.otilm.api.model.core.cryptography.key.KeyUsage;
+import com.otilm.core.attribute.RsaSignatureAttributes;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
 import com.otilm.core.model.crypto.ImmutableTokenInstanceFullModel;
 import com.otilm.core.model.crypto.ImmutableTokenProfileFullModel;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.RemoteKeyReference;
+import com.otilm.core.service.handler.LegacyOperationFixtures;
+import java.util.Base64;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -46,6 +62,7 @@ import org.mockito.ArgumentCaptor;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -62,6 +79,7 @@ class KeyProviderV1AdapterTest {
 
     private ApiClientConnectorInfo connector;
     private KeyManagementSyncApiClient client;
+    private CryptographicOperationsSyncApiClient operationsClient;
     private KeyProviderV1Adapter adapter;
     private ImmutableTokenProfileFullModel profile;
     private ImmutableCryptographicKeyFullModel cryptographicKey;
@@ -73,6 +91,8 @@ class KeyProviderV1AdapterTest {
         client = mock(KeyManagementSyncApiClient.class);
         ConnectorApiFactory factory = mock(ConnectorApiFactory.class);
         when(factory.getKeyManagementApiClient(connector)).thenReturn(client);
+        operationsClient = mock(CryptographicOperationsSyncApiClient.class);
+        when(factory.getCryptographicOperationsApiClient(connector)).thenReturn(operationsClient);
         attributeEngine = mock(AttributeEngine.class);
         adapter = new KeyProviderV1Adapter(factory, connector, attributeEngine);
         UUID connectorUuid = UUID.randomUUID();
@@ -307,6 +327,259 @@ class KeyProviderV1AdapterTest {
 
         // then
         assertSame(expectedDefinitions, definitions);
+    }
+
+    @Test
+    void signData_forwardsRemoteUuids_andMapsSignatures() throws Exception {
+        // given
+        UUID remoteUuid = UUID.randomUUID();
+        UUID remoteToken = UUID.randomUUID();
+        OperationKeyContext context = OperationKeyContext
+                .legacy(keyItem(KeyAlgorithm.MLDSA, new RemoteKeyReference.UuidReference(remoteUuid), remoteToken));
+        SignDataRequestDto request = new SignDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        SignatureRequestData item = new SignatureRequestData();
+        item.setData(Base64.getEncoder().encodeToString(new byte[]{1, 2}));
+        item.setIdentifier("a");
+        request.setData(List.of(item));
+        when(operationsClient.signData(eq(connector), eq(remoteToken.toString()), eq(remoteUuid.toString()), any()))
+                .thenReturn(LegacyOperationFixtures.signResponse(new byte[]{9}, "a"));
+
+        // when
+        SignDataResponseDto response = adapter.signData(context, request);
+
+        // then
+        assertEquals("a", response.getSignatures().get(0).getIdentifier());
+        assertEquals(Base64.getEncoder().encodeToString(new byte[]{9}), response.getSignatures().get(0).getData());
+    }
+
+    @Test
+    void signData_rejectsMetadataReference_beforeCallingConnector() {
+        // given
+        OperationKeyContext context = OperationKeyContext
+                .legacy(keyItem(KeyAlgorithm.MLDSA, new RemoteKeyReference.MetadataReference(List.of()),
+                        UUID.randomUUID()));
+        SignDataRequestDto request = new SignDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        request.setData(List.of());
+
+        // when
+        Executable sign = () -> adapter.signData(context, request);
+
+        // then
+        ConnectorException failure = assertThrows(ConnectorException.class, sign);
+        assertEquals(
+                "This cryptographic operation requires a v1 remote key UUID; metadata references are not supported.",
+                failure.getMessage());
+        verifyNoInteractions(operationsClient);
+    }
+
+    @Test
+    void signData_rejectsMissingTokenInstanceUuid_beforeCallingConnector() {
+        // given
+        OperationKeyContext context = OperationKeyContext
+                .legacy(keyItem(KeyAlgorithm.MLDSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()), null));
+        SignDataRequestDto request = new SignDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        request.setData(List.of());
+
+        // when
+        Executable sign = () -> adapter.signData(context, request);
+
+        // then
+        ConnectorException failure = assertThrows(ConnectorException.class, sign);
+        assertEquals("This cryptographic operation requires a v1 remote token UUID.", failure.getMessage());
+        verifyNoInteractions(operationsClient);
+    }
+
+    @Test
+    void signData_rejectsUnknownSignatureAttribute_forRsaKey() {
+        // given
+        OperationKeyContext context = OperationKeyContext
+                .legacy(keyItem(KeyAlgorithm.RSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
+                        UUID.randomUUID()));
+        SignDataRequestDto request = new SignDataRequestDto();
+        RequestAttributeV2 unknown = new RequestAttributeV2();
+        unknown.setName("not-an-rsa-attribute");
+        request.setSignatureAttributes(List.of(unknown));
+        request.setData(List.of());
+
+        // when
+        Executable sign = () -> adapter.signData(context, request);
+
+        // then
+        assertThrows(ValidationException.class, sign);
+        verifyNoInteractions(operationsClient);
+    }
+
+    @Test
+    void encryptData_mapsEncryptedItems() throws Exception {
+        // given
+        OperationKeyContext context = OperationKeyContext
+                .legacy(keyItem(KeyAlgorithm.RSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
+                        UUID.randomUUID()));
+        CipherDataRequestDto request = new CipherDataRequestDto();
+        request.setCipherAttributes(List.of());
+        CipherRequestData item = new CipherRequestData();
+        item.setData("AQ==");
+        item.setIdentifier("c");
+        request.setCipherData(List.of(item));
+        when(operationsClient.encryptData(any(), any(), any(), any()))
+                .thenReturn(LegacyOperationFixtures.encryptResponse(new byte[]{5}, "c"));
+
+        // when
+        EncryptDataResponseDto response = adapter.encryptData(context, request);
+
+        // then
+        assertEquals("c", response.getEncryptedData().get(0).getIdentifier());
+        assertEquals(Base64.getEncoder().encodeToString(new byte[]{5}), response.getEncryptedData().get(0).getData());
+    }
+
+    @Test
+    void decryptData_mapsDecryptedItems() throws Exception {
+        // given
+        OperationKeyContext context = OperationKeyContext
+                .legacy(keyItem(KeyAlgorithm.RSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
+                        UUID.randomUUID()));
+        CipherDataRequestDto request = new CipherDataRequestDto();
+        request.setCipherAttributes(List.of());
+        CipherRequestData item = new CipherRequestData();
+        item.setData("AQ==");
+        item.setIdentifier("c");
+        request.setCipherData(List.of(item));
+        when(operationsClient.decryptData(any(), any(), any(), any()))
+                .thenReturn(LegacyOperationFixtures.decryptResponse(new byte[]{5}, "c"));
+
+        // when
+        DecryptDataResponseDto response = adapter.decryptData(context, request);
+
+        // then
+        assertEquals("c", response.getDecryptedData().get(0).getIdentifier());
+        assertEquals(Base64.getEncoder().encodeToString(new byte[]{5}), response.getDecryptedData().get(0).getData());
+    }
+
+    @Test
+    void verifyData_mapsVerificationResult() throws Exception {
+        // given
+        OperationKeyContext context = OperationKeyContext
+                .legacy(keyItem(KeyAlgorithm.MLDSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
+                        UUID.randomUUID()));
+        VerifyDataRequestDto request = new VerifyDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        SignatureRequestData signature = new SignatureRequestData();
+        signature.setData("AQ==");
+        signature.setIdentifier("v");
+        request.setSignatures(List.of(signature));
+        when(operationsClient.verifyData(any(), any(), any(), any()))
+                .thenReturn(LegacyOperationFixtures.verifyResponse(true, "v"));
+
+        // when
+        VerifyDataResponseDto response = adapter.verifyData(context, request);
+
+        // then
+        assertTrue(response.getVerifications().get(0).isResult());
+        assertEquals("v", response.getVerifications().get(0).getIdentifier());
+    }
+
+    @Test
+    void encryptData_leavesDataNull_whenConnectorOmitsIt() throws Exception {
+        // given
+        OperationKeyContext context = OperationKeyContext
+                .legacy(keyItem(KeyAlgorithm.RSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
+                        UUID.randomUUID()));
+        CipherDataRequestDto request = new CipherDataRequestDto();
+        request.setCipherAttributes(List.of());
+        request.setCipherData(List.of());
+        when(operationsClient.encryptData(any(), any(), any(), any()))
+                .thenReturn(LegacyOperationFixtures.encryptResponseWithoutData());
+
+        // when
+        EncryptDataResponseDto response = adapter.encryptData(context, request);
+
+        // then
+        assertNull(response.getEncryptedData());
+    }
+
+    @Test
+    void signData_leavesSignaturesNull_whenConnectorOmitsThem() throws Exception {
+        // given
+        OperationKeyContext context = OperationKeyContext
+                .legacy(keyItem(KeyAlgorithm.MLDSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
+                        UUID.randomUUID()));
+        SignDataRequestDto request = new SignDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        request.setData(List.of());
+        when(operationsClient.signData(any(), any(), any(), any()))
+                .thenReturn(LegacyOperationFixtures.signResponseWithoutSignatures());
+
+        // when
+        SignDataResponseDto response = adapter.signData(context, request);
+
+        // then
+        assertNull(response.getSignatures());
+    }
+
+    @Test
+    void verifyData_leavesVerificationsNull_whenConnectorOmitsThem() throws Exception {
+        // given
+        OperationKeyContext context = OperationKeyContext
+                .legacy(keyItem(KeyAlgorithm.MLDSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
+                        UUID.randomUUID()));
+        VerifyDataRequestDto request = new VerifyDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        request.setSignatures(List.of());
+        when(operationsClient.verifyData(any(), any(), any(), any()))
+                .thenReturn(LegacyOperationFixtures.verifyResponseWithoutVerifications());
+
+        // when
+        VerifyDataResponseDto response = adapter.verifyData(context, request);
+
+        // then
+        assertNull(response.getVerifications());
+    }
+
+    @Test
+    void listSignAttributes_returnsCoreSchema_byAlgorithm() {
+        // given
+        OperationKeyContext rsa = OperationKeyContext
+                .legacy(keyItem(KeyAlgorithm.RSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
+                        UUID.randomUUID()));
+        OperationKeyContext mldsa = OperationKeyContext
+                .legacy(keyItem(KeyAlgorithm.MLDSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
+                        UUID.randomUUID()));
+
+        // when
+        List<BaseAttribute> rsaSchema = adapter.listSignAttributes(rsa);
+        List<BaseAttribute> mldsaSchema = adapter.listSignAttributes(mldsa);
+
+        // then
+        // DataAttributeV2.equals() delegates to DataAttributeProperties, which has no equals/hashCode override in
+        // the interfaces library, so independently built schemas are never equal by value; toString() carries the
+        // same field data and does compare by value.
+        assertEquals(RsaSignatureAttributes.getRsaSignatureAttributes().toString(), rsaSchema.toString());
+        assertTrue(mldsaSchema.isEmpty());
+        verifyNoInteractions(operationsClient);
+    }
+
+    @Test
+    void listEncryptAttributes_rejectsUnsupportedAlgorithm() {
+        // given
+        OperationKeyContext ecdsa = OperationKeyContext
+                .legacy(keyItem(KeyAlgorithm.ECDSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
+                        UUID.randomUUID()));
+
+        // when
+        Executable list = () -> adapter.listEncryptAttributes(ecdsa);
+
+        // then
+        assertThrows(ValidationException.class, list);
+    }
+
+    private static CryptographicKeyItemOperationModel keyItem(KeyAlgorithm algorithm, RemoteKeyReference reference,
+            UUID tokenInstanceUuid) {
+        return new CryptographicKeyItemOperationModel(UUID.randomUUID(), true, algorithm, KeyState.ACTIVE,
+                KeyType.PRIVATE_KEY, List.of(KeyUsage.SIGN, KeyUsage.ENCRYPT), null, reference, UUID.randomUUID(),
+                tokenInstanceUuid, UUID.randomUUID(), null, null);
     }
 
     private static RequestAttribute requestAttribute(String name) {

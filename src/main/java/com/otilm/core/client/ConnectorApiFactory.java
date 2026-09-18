@@ -183,7 +183,11 @@ public class ConnectorApiFactory {
         return restClient;
     }
 
-    private <T> T getClient(ApiClientConnectorInfo connector, T restClient, Optional<? extends T> mqClient) {
+    /**
+     * Public so version-specific client holders such as {@link CryptographyV2ApiClients} reuse the proxy selection rule
+     * instead of duplicating it.
+     */
+    public <T> T getClient(ApiClientConnectorInfo connector, T restClient, Optional<? extends T> mqClient) {
         Objects.requireNonNull(connector, "connector must not be null");
         return getClient(connector.getProxy(), connector.getName(), restClient, mqClient);
     }

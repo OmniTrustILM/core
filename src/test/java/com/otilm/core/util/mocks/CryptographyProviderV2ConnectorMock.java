@@ -9,8 +9,52 @@ import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 /** WireMock connector for the stateless cryptography-provider v2 token API. */
 public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
 
+    private static final String OPERATIONS = "/v2/cryptographyProvider/operations/";
+
     CryptographyProviderV2ConnectorMock() {
         stubV2Info(List.of(ConnectorInterface.CRYPTOGRAPHY));
+    }
+
+    public CryptographyProviderV2ConnectorMock stubOperationAttributes(String operation, String responseJson) {
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo(OPERATIONS + operation + "/attributes"))
+                        .willReturn(WireMock.okJson(responseJson)));
+        return this;
+    }
+
+    public CryptographyProviderV2ConnectorMock stubOperation(String operation, String responseJson) {
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo(OPERATIONS + operation))
+                        .willReturn(WireMock.okJson(responseJson)));
+        return this;
+    }
+
+    public CryptographyProviderV2ConnectorMock stubOperationAccepted(String operation, String responseJson) {
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo(OPERATIONS + operation))
+                        .willReturn(WireMock.jsonResponse(responseJson, 202)));
+        return this;
+    }
+
+    public CryptographyProviderV2ConnectorMock stubOperationError(String operation) {
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo(OPERATIONS + operation))
+                        .willReturn(WireMock.serverError()));
+        return this;
+    }
+
+    public void verifyOperationRequestContaining(String operation, String expectedRequestJson) {
+        server
+                .verify(postRequestedFor(WireMock.urlPathEqualTo(OPERATIONS + operation))
+                        .withRequestBody(WireMock.equalToJson(expectedRequestJson, true, true)));
+    }
+
+    public void verifyNoOperationRequest(String operation) {
+        server.verify(0, postRequestedFor(WireMock.urlPathEqualTo(OPERATIONS + operation)));
     }
 
     public CryptographyProviderV2ConnectorMock stubTokenAttributes(String responseJson) {

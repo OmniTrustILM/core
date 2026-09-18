@@ -85,7 +85,9 @@ public class TokenInstanceServiceImpl implements TokenInstanceExternalService, T
         return new ImmutableTokenInstanceBasicModel(UUID.randomUUID(),
                 creationResult != null ? creationResult.getUuid() : null, request.getName(),
                 TokenInstanceStatus.UNKNOWN, request.getKind(), connector.uuid(), connector.name(),
-                binding.connectorInterface() == null ? null : binding.connectorInterface().uuid(), 0);
+                binding.connectorInterface() == null ? null : binding.connectorInterface().uuid(),
+                binding.connectorInterface() == null ? null : binding.connectorInterface().code(),
+                binding.connectorInterface() == null ? null : binding.connectorInterface().version(), 0);
     }
 
     @Autowired

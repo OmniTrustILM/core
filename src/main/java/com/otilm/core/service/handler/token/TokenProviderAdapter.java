@@ -2,6 +2,8 @@ package com.otilm.core.service.handler.token;
 
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
+import com.otilm.api.model.client.cryptography.operations.RandomDataRequestDto;
+import com.otilm.api.model.client.cryptography.operations.RandomDataResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.cryptography.token.TokenInstanceStatusDetailDto;
@@ -64,5 +66,10 @@ public interface TokenProviderAdapter {
      * @throws ConnectorException if the connector operation fails
      */
     List<KeyRequestType> listSupportedKeyRequestTypes(TokenProfileBasicModel tokenProfile) throws ConnectorException;
+
+    List<BaseAttribute> listRandomAttributes(TokenInstanceBasicModel tokenInstance) throws ConnectorException;
+
+    RandomDataResponseDto randomData(TokenInstanceBasicModel tokenInstance, RandomDataRequestDto request)
+            throws ConnectorException;
 
 }

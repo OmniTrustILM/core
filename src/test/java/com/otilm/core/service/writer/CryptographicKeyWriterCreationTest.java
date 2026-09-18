@@ -62,7 +62,7 @@ class CryptographicKeyWriterCreationTest {
     @BeforeEach
     void setUp() {
         token = new ImmutableTokenInstanceBasicModel(UUID.randomUUID(), UUID.randomUUID().toString(), "token",
-                TokenInstanceStatus.ACTIVATED, null, UUID.randomUUID(), "provider", null, 0);
+                TokenInstanceStatus.ACTIVATED, null, UUID.randomUUID(), "provider", null, null, null, 0);
         CryptographicKey savedKey = aCryptographicKey().withName("created-key").build();
         savedKey.setUuid(UUID.randomUUID());
         when(keys.save(any())).thenReturn(savedKey);

@@ -13,7 +13,7 @@ class ContextSignatureGuardTest {
     /**
      * Committed baseline: the exact current distinct count. Update in lock-step with any change.
      */
-    static final int BASELINE = 61;
+    static final int BASELINE = 62;
 
     private static final Path TEST_ROOT = Path.of("src/test/java");
 
