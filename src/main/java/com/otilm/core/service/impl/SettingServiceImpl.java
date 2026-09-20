@@ -30,6 +30,7 @@ import com.otilm.api.model.core.settings.UtilsSettingsDto;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsUpdateDto;
 import com.otilm.api.model.core.settings.authentication.JwkDto;
+import com.otilm.api.model.core.settings.authentication.JwkSetLoadFailure;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsResponseDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsUpdateDto;
@@ -109,6 +110,7 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
     public static final String AUTHENTICATION_DISABLE_LOCALHOST_NAME = "disableLocalhostUser";
 
     private static final String DESERIALIZATION_ERROR_MESSAGE = "Cannot deserialize OAuth2 Provider Settings for provider '%s'.";
+    private static final int MAX_JWK_SET_SIZE_BYTES = 1024 * 1024;
     private static final Logger logger = LoggerFactory.getLogger(SettingServiceImpl.class);
 
     /**
@@ -870,11 +872,23 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
             } catch (JsonProcessingException e) {
                 throw new ValidationException(DESERIALIZATION_ERROR_MESSAGE.formatted(providerName));
             }
+            if (settingsDto.getJwkSetUrl() == null && settingsDto.getJwkSet() == null) {
+                settingsDto.setJwkSetKeys(List.of());
+                settingsDto.setJwkSetLoadFailure(null);
+                return settingsDto;
+            }
             try {
                 settingsDto.setJwkSetKeys(convertJwkToListOfKeyDtos(checkJwkSetValidity(settingsDto)));
+                settingsDto.setJwkSetLoadFailure(null);
             } catch (ValidationException e) {
-                logger.warn("Unable to load JWK Set keys for OAuth2 provider '{}': {}", providerName, e.getMessage());
+                JwkSetLoadFailure failure = e instanceof JwkSetLoadException loadException
+                        ? loadException.getFailure()
+                        : JwkSetLoadFailure.INVALID;
+                logger
+                        .warn("Unable to load JWK Set keys for OAuth2 provider '{}' ({}): {}", providerName,
+                                failure.getCode(), e.getMessage());
                 settingsDto.setJwkSetKeys(List.of());
+                settingsDto.setJwkSetLoadFailure(failure);
             }
         }
         return settingsDto;
@@ -978,12 +992,17 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
     }
 
     private void normalizeAndValidateOAuth2ProviderSettings(OAuth2ProviderSettingsUpdateDto settingsDto) {
+        String jwkSet = settingsDto.getJwkSet();
+        if (jwkSet != null && jwkSet.isBlank()) {
+            settingsDto.setJwkSet(null);
+            jwkSet = null;
+        }
         String jwkSetUrl = settingsDto.getJwkSetUrl();
         if (jwkSetUrl != null && jwkSetUrl.isBlank()) {
             settingsDto.setJwkSetUrl(null);
             jwkSetUrl = null;
         }
-        if (settingsDto.getJwkSet() == null && jwkSetUrl == null) {
+        if (jwkSet == null && jwkSetUrl == null) {
             throw new ValidationException("Missing JWK Set URL or encoded JWK Set.");
         }
         if (jwkSetUrl == null) {
@@ -994,14 +1013,27 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
     }
 
     private URL parseJwkSetUrl(String jwkSetUrl) {
+        URI uri;
         try {
-            URI uri = new URI(jwkSetUrl);
+            uri = new URI(jwkSetUrl);
+        } catch (URISyntaxException e) {
+            throw new ValidationException(
+                    "JWK Set URL is invalid: %s at index %d.".formatted(e.getReason(), e.getIndex()));
+        }
+        try {
             String scheme = uri.getScheme();
             if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
                 throw new ValidationException("JWK Set URL must use http or https.");
             }
-            return uri.toURL();
-        } catch (MalformedURLException | URISyntaxException | IllegalArgumentException e) {
+            URL url = uri.toURL();
+            if (url.getHost() == null || url.getHost().isBlank()) {
+                throw new ValidationException("JWK Set URL must include a host.");
+            }
+            if (uri.getPort() > 65535) {
+                throw new ValidationException("JWK Set URL port must be between 0 and 65535.");
+            }
+            return url;
+        } catch (MalformedURLException | IllegalArgumentException e) {
             throw new ValidationException("JWK Set URL is invalid.");
         }
     }
@@ -1015,22 +1047,28 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
                 urlConnection.setConnectTimeout(5000);
                 urlConnection.setReadTimeout(5000);
                 try (InputStream stream = urlConnection.getInputStream()) {
-                    jwkSet = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+                    byte[] body = stream.readNBytes(MAX_JWK_SET_SIZE_BYTES + 1);
+                    if (body.length > MAX_JWK_SET_SIZE_BYTES) {
+                        throw new JwkSetLoadException(JwkSetLoadFailure.TOO_LARGE,
+                                "JWK Set response exceeds the 1 MiB limit.");
+                    }
+                    jwkSet = new String(body, StandardCharsets.UTF_8);
                 }
             } catch (IOException e) {
-                throw new ValidationException("Unable to open connection for JWK Set URL: " + e.getMessage());
+                throw new JwkSetLoadException(JwkSetLoadFailure.UNAVAILABLE,
+                        "Unable to retrieve JWK Set from the configured URL.");
             }
         } else {
             try {
                 jwkSet = new String(Base64.getDecoder().decode(settingsDto.getJwkSet()), StandardCharsets.UTF_8);
             } catch (IllegalArgumentException e) {
-                throw new ValidationException("Encoded JWK Set is invalid.");
+                throw new JwkSetLoadException(JwkSetLoadFailure.INVALID, "Encoded JWK Set is invalid.");
             }
         }
         try {
             return JWKSet.parse(jwkSet);
         } catch (ParseException e) {
-            throw new ValidationException("JWK Set is invalid: " + e.getMessage());
+            throw new JwkSetLoadException(JwkSetLoadFailure.INVALID, "JWK Set is invalid.");
         }
 
     }
@@ -1053,14 +1091,29 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
                     default -> publicKeyBytes = new byte[0];
                 }
             } catch (JOSEException e) {
-                throw new ValidationException("Could not convert %s key with KID %s to Public key"
-                        .formatted(jwk.getKeyType().getValue(), jwk.getKeyID()));
+                throw new JwkSetLoadException(JwkSetLoadFailure.INVALID,
+                        "Could not convert %s key with KID %s to Public key"
+                                .formatted(jwk.getKeyType().getValue(), jwk.getKeyID()));
             }
 
             jwkDto.setPublicKey(Base64.getEncoder().encodeToString(publicKeyBytes));
             jwkSetKeys.add(jwkDto);
         }
         return jwkSetKeys;
+    }
+
+    private static final class JwkSetLoadException extends ValidationException {
+
+        private final JwkSetLoadFailure failure;
+
+        private JwkSetLoadException(JwkSetLoadFailure failure, String message) {
+            super(message);
+            this.failure = failure;
+        }
+
+        private JwkSetLoadFailure getFailure() {
+            return failure;
+        }
     }
 
 }

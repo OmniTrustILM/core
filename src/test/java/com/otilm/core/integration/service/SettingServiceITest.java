@@ -35,6 +35,7 @@ import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.SettingsSectionCategory;
 import com.otilm.api.model.core.settings.UtilsSettingsDto;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsUpdateDto;
+import com.otilm.api.model.core.settings.authentication.JwkSetLoadFailure;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsResponseDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsUpdateDto;
@@ -59,7 +60,9 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
@@ -70,6 +73,9 @@ class SettingServiceITest extends BaseSpringBootTest {
     private static final String TEST_TRIGGER_NAME = "testTriggerName";
     private static final String TEST_TRIGGER_UUID = "3a1db3f5-f9eb-4fbf-92c9-c4c1499bfca7";
     private static final String UNREACHABLE_JWK_SET_URL = "http://127.0.0.1:1/jwks";
+    private static final int MAX_JWK_SET_SIZE_BYTES = 1024 * 1024;
+
+    private static WireMockServer jwkSetServer;
 
     @Autowired
     private SettingExternalService settingService;
@@ -80,8 +86,20 @@ class SettingServiceITest extends BaseSpringBootTest {
     @Autowired
     private TriggerRepository triggerRepository;
 
+    @BeforeAll
+    static void startJwkSetServer() {
+        jwkSetServer = LoopbackWireMock.start();
+    }
+
+    @AfterAll
+    static void stopJwkSetServer() {
+        jwkSetServer.stop();
+    }
+
     @BeforeEach
     void setUp() {
+        jwkSetServer.resetAll();
+
         Trigger trigger = new Trigger();
         trigger.setUuid(UUID.fromString(TEST_TRIGGER_UUID));
         trigger.setName(TEST_TRIGGER_NAME);
@@ -589,6 +607,7 @@ class SettingServiceITest extends BaseSpringBootTest {
             Assertions.assertEquals(UNREACHABLE_JWK_SET_URL, response.getJwkSetUrl());
             Assertions.assertNotNull(response.getJwkSetKeys());
             Assertions.assertTrue(response.getJwkSetKeys().isEmpty());
+            Assertions.assertEquals(JwkSetLoadFailure.UNAVAILABLE, response.getJwkSetLoadFailure());
             assertSingleJwkLoadWarning(logged, providerName);
         } finally {
             detachSettingServiceLogAppender(logged);
@@ -610,6 +629,7 @@ class SettingServiceITest extends BaseSpringBootTest {
 
             Assertions.assertEquals(providerName, response.getName());
             Assertions.assertTrue(response.getJwkSetKeys().isEmpty());
+            Assertions.assertEquals(JwkSetLoadFailure.INVALID, response.getJwkSetLoadFailure());
             assertSingleJwkLoadWarning(logged, providerName);
         } finally {
             detachSettingServiceLogAppender(logged);
@@ -629,6 +649,7 @@ class SettingServiceITest extends BaseSpringBootTest {
                     .assertDoesNotThrow(() -> settingService.getOAuth2ProviderSettings(providerName, false));
 
             Assertions.assertTrue(response.getJwkSetKeys().isEmpty());
+            Assertions.assertEquals(JwkSetLoadFailure.INVALID, response.getJwkSetLoadFailure());
             assertSingleJwkLoadWarning(logged, providerName);
         } finally {
             detachSettingServiceLogAppender(logged);
@@ -637,81 +658,67 @@ class SettingServiceITest extends BaseSpringBootTest {
 
     @Test
     void getOAuth2ProviderSettings_returnsKeysFromReachableJwkSetUrl() throws Exception {
-        WireMockServer server = LoopbackWireMock.start();
-        try {
-            String providerName = "reachable-jwk-set";
-            String jwkSetJson = new String(Base64.getDecoder().decode(encodedJwkSet()), StandardCharsets.UTF_8);
-            server.stubFor(WireMock.get(WireMock.urlEqualTo("/jwks")).willReturn(WireMock.okJson(jwkSetJson)));
-            OAuth2ProviderSettingsDto providerSettings = createProviderDto(providerName);
-            providerSettings.setJwkSet(null);
-            providerSettings.setJwkSetUrl(LoopbackWireMock.url(server) + "/jwks");
-            storeOAuth2Provider(providerName, providerSettings);
+        String providerName = "reachable-jwk-set";
+        String jwkSetJson = new String(Base64.getDecoder().decode(encodedJwkSet()), StandardCharsets.UTF_8);
+        jwkSetServer.stubFor(WireMock.get(WireMock.urlEqualTo("/jwks")).willReturn(WireMock.okJson(jwkSetJson)));
+        OAuth2ProviderSettingsDto providerSettings = createProviderDto(providerName);
+        providerSettings.setJwkSet(null);
+        providerSettings.setJwkSetUrl(LoopbackWireMock.url(jwkSetServer) + "/jwks");
+        storeOAuth2Provider(providerName, providerSettings);
 
-            OAuth2ProviderSettingsResponseDto response = settingService.getOAuth2ProviderSettings(providerName, false);
+        OAuth2ProviderSettingsResponseDto response = settingService.getOAuth2ProviderSettings(providerName, false);
 
-            Assertions.assertEquals(1, response.getJwkSetKeys().size());
-            Assertions.assertEquals("test-key", response.getJwkSetKeys().getFirst().getKid());
-        } finally {
-            server.stop();
-        }
+        Assertions.assertEquals(1, response.getJwkSetKeys().size());
+        Assertions.assertEquals("test-key", response.getJwkSetKeys().getFirst().getKid());
+        Assertions.assertNull(response.getJwkSetLoadFailure());
     }
 
     @Test
     void getOAuth2ProviderSettings_returnsEmptyKeysAndWarnsForInvalidRemoteContent() throws Exception {
-        WireMockServer server = LoopbackWireMock.start();
+        String providerName = "invalid-remote-jwk-set";
+        jwkSetServer
+                .stubFor(WireMock
+                        .get(WireMock.urlEqualTo("/jwks"))
+                        .willReturn(WireMock
+                                .aResponse()
+                                .withStatus(200)
+                                .withHeader("Content-Type", "text/html")
+                                .withBody("<html>not a JWK Set</html>")));
+        OAuth2ProviderSettingsDto providerSettings = createProviderDto(providerName);
+        providerSettings.setJwkSet(null);
+        providerSettings.setJwkSetUrl(LoopbackWireMock.url(jwkSetServer) + "/jwks");
+        storeOAuth2Provider(providerName, providerSettings);
+
+        ListAppender<ILoggingEvent> logged = attachSettingServiceLogAppender();
         try {
-            String providerName = "invalid-remote-jwk-set";
-            server
-                    .stubFor(WireMock
-                            .get(WireMock.urlEqualTo("/jwks"))
-                            .willReturn(WireMock
-                                    .aResponse()
-                                    .withStatus(200)
-                                    .withHeader("Content-Type", "text/html")
-                                    .withBody("<html>not a JWK Set</html>")));
-            OAuth2ProviderSettingsDto providerSettings = createProviderDto(providerName);
-            providerSettings.setJwkSet(null);
-            providerSettings.setJwkSetUrl(LoopbackWireMock.url(server) + "/jwks");
-            storeOAuth2Provider(providerName, providerSettings);
+            OAuth2ProviderSettingsResponseDto response = settingService.getOAuth2ProviderSettings(providerName, false);
 
-            ListAppender<ILoggingEvent> logged = attachSettingServiceLogAppender();
-            try {
-                OAuth2ProviderSettingsResponseDto response = settingService
-                        .getOAuth2ProviderSettings(providerName, false);
-
-                Assertions.assertTrue(response.getJwkSetKeys().isEmpty());
-                assertSingleJwkLoadWarning(logged, providerName);
-            } finally {
-                detachSettingServiceLogAppender(logged);
-            }
+            Assertions.assertTrue(response.getJwkSetKeys().isEmpty());
+            Assertions.assertEquals(JwkSetLoadFailure.INVALID, response.getJwkSetLoadFailure());
+            assertSingleJwkLoadWarning(logged, providerName);
         } finally {
-            server.stop();
+            detachSettingServiceLogAppender(logged);
         }
     }
 
     @Test
     void getOAuth2ProviderSettings_returnsEmptyKeysAndWarnsForRemoteServerError() throws Exception {
-        WireMockServer server = LoopbackWireMock.start();
+        String providerName = "failed-remote-jwk-set";
+        jwkSetServer.stubFor(WireMock.get(WireMock.urlEqualTo("/jwks")).willReturn(WireMock.serverError()));
+        OAuth2ProviderSettingsDto providerSettings = createProviderDto(providerName);
+        providerSettings.setJwkSet(null);
+        providerSettings.setJwkSetUrl(LoopbackWireMock.url(jwkSetServer) + "/jwks");
+        storeOAuth2Provider(providerName, providerSettings);
+
+        ListAppender<ILoggingEvent> logged = attachSettingServiceLogAppender();
         try {
-            String providerName = "failed-remote-jwk-set";
-            server.stubFor(WireMock.get(WireMock.urlEqualTo("/jwks")).willReturn(WireMock.serverError()));
-            OAuth2ProviderSettingsDto providerSettings = createProviderDto(providerName);
-            providerSettings.setJwkSet(null);
-            providerSettings.setJwkSetUrl(LoopbackWireMock.url(server) + "/jwks");
-            storeOAuth2Provider(providerName, providerSettings);
+            OAuth2ProviderSettingsResponseDto response = settingService.getOAuth2ProviderSettings(providerName, false);
 
-            ListAppender<ILoggingEvent> logged = attachSettingServiceLogAppender();
-            try {
-                OAuth2ProviderSettingsResponseDto response = settingService
-                        .getOAuth2ProviderSettings(providerName, false);
-
-                Assertions.assertTrue(response.getJwkSetKeys().isEmpty());
-                assertSingleJwkLoadWarning(logged, providerName);
-            } finally {
-                detachSettingServiceLogAppender(logged);
-            }
+            Assertions.assertTrue(response.getJwkSetKeys().isEmpty());
+            Assertions.assertEquals(JwkSetLoadFailure.UNAVAILABLE, response.getJwkSetLoadFailure());
+            assertSingleJwkLoadWarning(logged, providerName);
         } finally {
-            server.stop();
+            detachSettingServiceLogAppender(logged);
         }
     }
 
@@ -730,7 +737,74 @@ class SettingServiceITest extends BaseSpringBootTest {
 
             Assertions.assertEquals("file:///tmp/jwks.json", response.getJwkSetUrl());
             Assertions.assertTrue(response.getJwkSetKeys().isEmpty());
+            Assertions.assertEquals(JwkSetLoadFailure.INVALID, response.getJwkSetLoadFailure());
             assertSingleJwkLoadWarning(logged, providerName);
+        } finally {
+            detachSettingServiceLogAppender(logged);
+        }
+    }
+
+    @Test
+    void getOAuth2ProviderSettings_returnsInvalidFailureForStoredJwkSetUrlWithOutOfRangePort() throws Exception {
+        String providerName = "legacy-out-of-range-port";
+        OAuth2ProviderSettingsDto providerSettings = createProviderDto(providerName);
+        providerSettings.setJwkSet(null);
+        providerSettings.setJwkSetUrl("http://127.0.0.1:99999/jwks");
+        storeOAuth2Provider(providerName, providerSettings);
+
+        ListAppender<ILoggingEvent> logged = attachSettingServiceLogAppender();
+        try {
+            OAuth2ProviderSettingsResponseDto response = Assertions
+                    .assertDoesNotThrow(() -> settingService.getOAuth2ProviderSettings(providerName, false));
+
+            Assertions.assertTrue(response.getJwkSetKeys().isEmpty());
+            Assertions.assertEquals(JwkSetLoadFailure.INVALID, response.getJwkSetLoadFailure());
+            assertSingleJwkLoadWarning(logged, providerName);
+        } finally {
+            detachSettingServiceLogAppender(logged);
+        }
+    }
+
+    @Test
+    void getOAuth2ProviderSettings_returnsTooLargeFailureForOversizedRemoteJwkSet() throws Exception {
+        String providerName = "oversized-remote-jwk-set";
+        jwkSetServer
+                .stubFor(WireMock
+                        .get(WireMock.urlEqualTo("/oversized-jwks"))
+                        .willReturn(WireMock.ok().withBody(new byte[MAX_JWK_SET_SIZE_BYTES + 1])));
+        OAuth2ProviderSettingsDto providerSettings = createProviderDto(providerName);
+        providerSettings.setJwkSet(null);
+        providerSettings.setJwkSetUrl(LoopbackWireMock.url(jwkSetServer) + "/oversized-jwks");
+        storeOAuth2Provider(providerName, providerSettings);
+
+        ListAppender<ILoggingEvent> logged = attachSettingServiceLogAppender();
+        try {
+            OAuth2ProviderSettingsResponseDto response = settingService.getOAuth2ProviderSettings(providerName, false);
+
+            Assertions.assertTrue(response.getJwkSetKeys().isEmpty());
+            Assertions.assertEquals(JwkSetLoadFailure.TOO_LARGE, response.getJwkSetLoadFailure());
+            assertSingleJwkLoadWarning(logged, providerName);
+        } finally {
+            detachSettingServiceLogAppender(logged);
+        }
+    }
+
+    @Test
+    void getOAuth2ProviderSettings_returnsEmptyKeysForLegacyProviderWithoutJwkSetSource() throws Exception {
+        String providerName = "legacy-provider-without-jwk-set";
+        OAuth2ProviderSettingsDto providerSettings = createProviderDto(providerName);
+        providerSettings.setJwkSet(null);
+        providerSettings.setJwkSetUrl(null);
+        storeOAuth2Provider(providerName, providerSettings);
+
+        ListAppender<ILoggingEvent> logged = attachSettingServiceLogAppender();
+        try {
+            OAuth2ProviderSettingsResponseDto response = Assertions
+                    .assertDoesNotThrow(() -> settingService.getOAuth2ProviderSettings(providerName, false));
+
+            Assertions.assertTrue(response.getJwkSetKeys().isEmpty());
+            Assertions.assertNull(response.getJwkSetLoadFailure());
+            Assertions.assertTrue(logged.list.stream().noneMatch(event -> event.getLevel() == Level.WARN));
         } finally {
             detachSettingServiceLogAppender(logged);
         }
@@ -755,18 +829,13 @@ class SettingServiceITest extends BaseSpringBootTest {
 
     @Test
     void updateOAuth2ProviderSettings_doesNotFetchJwkSetUrl() throws Exception {
-        WireMockServer server = LoopbackWireMock.start();
-        try {
-            OAuth2ProviderSettingsUpdateDto providerSettings = createProviderUpdateDto();
-            providerSettings.setJwkSet(null);
-            providerSettings.setJwkSetUrl(LoopbackWireMock.url(server) + "/jwks");
+        OAuth2ProviderSettingsUpdateDto providerSettings = createProviderUpdateDto();
+        providerSettings.setJwkSet(null);
+        providerSettings.setJwkSetUrl(LoopbackWireMock.url(jwkSetServer) + "/jwks");
 
-            settingService.updateOAuth2ProviderSettings("network-free-update", providerSettings);
+        settingService.updateOAuth2ProviderSettings("network-free-update", providerSettings);
 
-            Assertions.assertTrue(server.getAllServeEvents().isEmpty());
-        } finally {
-            server.stop();
-        }
+        Assertions.assertTrue(jwkSetServer.getAllServeEvents().isEmpty());
     }
 
     @Test
@@ -789,26 +858,21 @@ class SettingServiceITest extends BaseSpringBootTest {
 
     @Test
     void updateAuthenticationSettings_doesNotFetchJwkSetUrl() throws Exception {
-        WireMockServer server = LoopbackWireMock.start();
-        try {
-            String providerName = "network-free-bulk-update";
-            OAuth2ProviderSettingsDto providerSettings = createProviderDto(providerName);
-            providerSettings.setJwkSet(null);
-            providerSettings.setJwkSetUrl(LoopbackWireMock.url(server) + "/jwks");
-            AuthenticationSettingsUpdateDto update = new AuthenticationSettingsUpdateDto();
-            update.setOAuth2Providers(List.of(providerSettings));
+        String providerName = "network-free-bulk-update";
+        OAuth2ProviderSettingsDto providerSettings = createProviderDto(providerName);
+        providerSettings.setJwkSet(null);
+        providerSettings.setJwkSetUrl(LoopbackWireMock.url(jwkSetServer) + "/jwks");
+        AuthenticationSettingsUpdateDto update = new AuthenticationSettingsUpdateDto();
+        update.setOAuth2Providers(List.of(providerSettings));
 
-            settingService.updateAuthenticationSettings(update);
+        settingService.updateAuthenticationSettings(update);
 
-            OAuth2ProviderSettingsDto stored = settingService
-                    .getAuthenticationSettings(true)
-                    .getOAuth2Providers()
-                    .get(providerName);
-            Assertions.assertEquals(LoopbackWireMock.url(server) + "/jwks", stored.getJwkSetUrl());
-            Assertions.assertTrue(server.getAllServeEvents().isEmpty());
-        } finally {
-            server.stop();
-        }
+        OAuth2ProviderSettingsDto stored = settingService
+                .getAuthenticationSettings(true)
+                .getOAuth2Providers()
+                .get(providerName);
+        Assertions.assertEquals(LoopbackWireMock.url(jwkSetServer) + "/jwks", stored.getJwkSetUrl());
+        Assertions.assertTrue(jwkSetServer.getAllServeEvents().isEmpty());
     }
 
     @Test
@@ -817,9 +881,10 @@ class SettingServiceITest extends BaseSpringBootTest {
         providerSettings.setJwkSet(null);
         providerSettings.setJwkSetUrl("");
 
-        Assertions
+        ValidationException exception = Assertions
                 .assertThrows(ValidationException.class,
                         () -> settingService.updateOAuth2ProviderSettings("blank-jwk-url", providerSettings));
+        Assertions.assertEquals("Missing JWK Set URL or encoded JWK Set.", exception.getMessage());
     }
 
     @Test
@@ -840,14 +905,45 @@ class SettingServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void updateOAuth2ProviderSettings_normalizesBlankEmbeddedJwkSetWhenUrlIsPresent() throws Exception {
+        String providerName = "blank-embedded-with-url";
+        OAuth2ProviderSettingsUpdateDto providerSettings = createProviderUpdateDto();
+        providerSettings.setJwkSet("");
+        providerSettings.setJwkSetUrl(UNREACHABLE_JWK_SET_URL);
+
+        settingService.updateOAuth2ProviderSettings(providerName, providerSettings);
+
+        OAuth2ProviderSettingsDto stored = settingService
+                .getAuthenticationSettings(true)
+                .getOAuth2Providers()
+                .get(providerName);
+        Assertions.assertNull(stored.getJwkSet());
+        Assertions.assertEquals(UNREACHABLE_JWK_SET_URL, stored.getJwkSetUrl());
+    }
+
+    @Test
+    void updateOAuth2ProviderSettings_rejectsBlankEmbeddedJwkSetWithoutUrl() throws Exception {
+        OAuth2ProviderSettingsUpdateDto providerSettings = createProviderUpdateDto();
+        providerSettings.setJwkSet("");
+        providerSettings.setJwkSetUrl(null);
+
+        ValidationException exception = Assertions
+                .assertThrows(ValidationException.class,
+                        () -> settingService.updateOAuth2ProviderSettings("blank-embedded", providerSettings));
+        Assertions.assertEquals("Missing JWK Set URL or encoded JWK Set.", exception.getMessage());
+    }
+
+    @Test
     void updateOAuth2ProviderSettings_rejectsMalformedJwkSetUrl() throws Exception {
         OAuth2ProviderSettingsUpdateDto providerSettings = createProviderUpdateDto();
         providerSettings.setJwkSet(null);
-        providerSettings.setJwkSetUrl("not a url");
+        providerSettings.setJwkSetUrl("http://example.test/jwk set");
 
-        Assertions
+        ValidationException exception = Assertions
                 .assertThrows(ValidationException.class,
                         () -> settingService.updateOAuth2ProviderSettings("malformed-jwk-url", providerSettings));
+        Assertions
+                .assertEquals("JWK Set URL is invalid: Illegal character in path at index 23.", exception.getMessage());
     }
 
     @Test
@@ -863,14 +959,39 @@ class SettingServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void updateOAuth2ProviderSettings_rejectsJwkSetUrlWithoutHost() throws Exception {
+        OAuth2ProviderSettingsUpdateDto providerSettings = createProviderUpdateDto();
+        providerSettings.setJwkSet(null);
+        providerSettings.setJwkSetUrl("http:///jwks");
+
+        ValidationException exception = Assertions
+                .assertThrows(ValidationException.class,
+                        () -> settingService.updateOAuth2ProviderSettings("hostless-jwk-url", providerSettings));
+        Assertions.assertEquals("JWK Set URL must include a host.", exception.getMessage());
+    }
+
+    @Test
+    void updateOAuth2ProviderSettings_rejectsJwkSetUrlWithOutOfRangePort() throws Exception {
+        OAuth2ProviderSettingsUpdateDto providerSettings = createProviderUpdateDto();
+        providerSettings.setJwkSet(null);
+        providerSettings.setJwkSetUrl("http://127.0.0.1:99999/jwks");
+
+        ValidationException exception = Assertions
+                .assertThrows(ValidationException.class,
+                        () -> settingService.updateOAuth2ProviderSettings("out-of-range-port", providerSettings));
+        Assertions.assertEquals("JWK Set URL port must be between 0 and 65535.", exception.getMessage());
+    }
+
+    @Test
     void updateOAuth2ProviderSettings_rejectsMalformedEmbeddedJwkSet() throws Exception {
         OAuth2ProviderSettingsUpdateDto providerSettings = createProviderUpdateDto();
         providerSettings
                 .setJwkSet(Base64.getEncoder().encodeToString("not-a-jwk-set".getBytes(StandardCharsets.UTF_8)));
 
-        Assertions
+        ValidationException exception = Assertions
                 .assertThrows(ValidationException.class,
                         () -> settingService.updateOAuth2ProviderSettings("malformed-embedded", providerSettings));
+        Assertions.assertEquals("JWK Set is invalid.", exception.getMessage());
     }
 
     @Test
@@ -878,9 +999,10 @@ class SettingServiceITest extends BaseSpringBootTest {
         OAuth2ProviderSettingsUpdateDto providerSettings = createProviderUpdateDto();
         providerSettings.setJwkSet(encodedJwkSetWithTooSmallRsaKey());
 
-        Assertions
+        ValidationException exception = Assertions
                 .assertThrows(ValidationException.class,
                         () -> settingService.updateOAuth2ProviderSettings("invalid-embedded-key", providerSettings));
+        Assertions.assertEquals("Could not convert RSA key with KID small to Public key", exception.getMessage());
     }
 
     @Test
