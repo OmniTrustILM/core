@@ -2,8 +2,12 @@ package com.otilm.core.service.handler.discovery;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredKeyDto;
+import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryItem;
+import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.security.authz.AuthorizationEnforcer;
+import com.otilm.core.security.authz.ExternalAuthorizationProgrammatic;
 import com.otilm.core.service.writer.discovery.DiscoveredKeyWriter;
 import java.util.List;
 import org.slf4j.Logger;
@@ -24,10 +28,13 @@ public class KeyDiscoveredHandler {
     private static final Logger logger = LoggerFactory.getLogger(KeyDiscoveredHandler.class);
 
     private final DiscoveredKeyWriter keyWriter;
+    private final AuthorizationEnforcer authorizationEnforcer;
     private final ObjectMapper objectMapper;
 
-    public KeyDiscoveredHandler(DiscoveredKeyWriter keyWriter, ObjectMapper objectMapper) {
+    public KeyDiscoveredHandler(DiscoveredKeyWriter keyWriter, AuthorizationEnforcer authorizationEnforcer,
+            ObjectMapper objectMapper) {
         this.keyWriter = keyWriter;
+        this.authorizationEnforcer = authorizationEnforcer;
         this.objectMapper = objectMapper;
     }
 
@@ -36,7 +43,15 @@ public class KeyDiscoveredHandler {
      *
      * @return how the batch went, for the caller to report on the run
      */
+    @ExternalAuthorizationProgrammatic(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.CREATE)
     public KeyImportOutcome importBatch(Discovery run, List<DiscoveryItem> items) {
+        if (items.isEmpty()) {
+            return new KeyImportOutcome(0, 0);
+        }
+        // Once per page, not per key, and before anything is written: enforcement is a blocking call, and a page
+        // that may not be imported must leave no half-filled inventory behind. Creating a discovery run is not
+        // permission to create keys -- the certificate half enforces CERTIFICATE:CREATE for the same reason.
+        authorizationEnforcer.enforce(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.CREATE);
         int imported = 0;
         int failed = 0;
         for (DiscoveryItem item : items) {

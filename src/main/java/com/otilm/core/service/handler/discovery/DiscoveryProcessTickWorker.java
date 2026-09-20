@@ -245,6 +245,9 @@ public class DiscoveryProcessTickWorker {
         if (keys.isEmpty()) {
             return;
         }
+        // The key pipeline enforces CRYPTOGRAPHIC_KEY:CREATE, and a tick arrives on a JMS thread with no
+        // principal, so the run's own user goes on first -- as it does for the certificate batch.
+        authenticateAsTheRunsUser(run);
         KeyImportOutcome outcome = keyImportHandler.importBatch(run, keys);
         if (outcome.failed() == 0) {
             return;

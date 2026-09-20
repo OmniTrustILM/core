@@ -22,6 +22,7 @@ import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.DiscoveryItemRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
+import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.service.handler.discovery.KeyDiscoveredHandler;
 import com.otilm.core.service.writer.CertificateKeyWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryItemWriter;
@@ -40,8 +41,10 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.security.access.AccessDeniedException;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * What a staged key item becomes. The pipeline's job is one key record per key, whichever run or connector reported it,
@@ -115,6 +118,20 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
         assertThat(kept.getName()).isEqualTo("ipAddress");
         assertThat(kept.getContent()).hasSize(1);
         assertThat(kept.getContent().getFirst().getData()).isEqualTo("10.0.0.7");
+    }
+
+    @Test
+    void aRunWhoseUserMayNotCreateKeys_importsNothing() {
+        Discovery run = processingRun();
+        stageKey(run, "ssh://host-a:22", SPKI_BASE64, "connector-a");
+        // Creating a discovery is not permission to fill the inventory with keys: the certificate half of this
+        // pipeline enforces CERTIFICATE:CREATE for the same reason.
+        denyResourceAccess(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.CREATE);
+
+        List<DiscoveryItem> staged = pendingKeys(run);
+        assertThatThrownBy(() -> handler.importBatch(run, staged)).isInstanceOf(AccessDeniedException.class);
+
+        assertThat(itemOf(run, "ssh://host-a:22").getInventoryUuid()).isNull();
     }
 
     @Test
