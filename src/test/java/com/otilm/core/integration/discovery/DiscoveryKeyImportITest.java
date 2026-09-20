@@ -1,5 +1,11 @@
 package com.otilm.core.integration.discovery;
 
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeProperties;
+import com.otilm.api.model.common.attribute.v3.MetadataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
@@ -88,6 +94,27 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
         assertThat(keyRepository.findByUuid(imported.getInventoryUuid()).orElseThrow().getTokenInstanceReferenceUuid())
                 .as("a discovered key belongs to no token instance")
                 .isNull();
+    }
+
+    @Test
+    void whereTheProviderFoundTheKey_isKeptWithTheKey() {
+        Discovery run = processingRun();
+        // The staged row is the only place this exists: a key record without it cannot say where the key was seen.
+        stageKeyWithMeta(run, "ssh://host-a:22", SPKI_BASE64, location("ipAddress", "10.0.0.7"));
+
+        handler.importBatch(run, pendingKeys(run));
+
+        CryptographicKeyItem stored = keyRepository
+                .findWithKeyItemsAndTokenByUuid(itemOf(run, "ssh://host-a:22").getInventoryUuid())
+                .orElseThrow()
+                .getItems()
+                .iterator()
+                .next();
+        assertThat(stored.getKeyMeta()).hasSize(1);
+        MetadataAttributeV3 kept = (MetadataAttributeV3) stored.getKeyMeta().getFirst();
+        assertThat(kept.getName()).isEqualTo("ipAddress");
+        assertThat(kept.getContent()).hasSize(1);
+        assertThat(kept.getContent().getFirst().getData()).isEqualTo("10.0.0.7");
     }
 
     @Test
@@ -244,6 +271,37 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
         payload.setLength(256);
         payload.setFingerprint(connectorFingerprint);
         stage(run, uniqueRef, payload);
+    }
+
+    private void stageKeyWithMeta(Discovery run, String uniqueRef, String publicKey, MetadataAttribute... meta) {
+        DiscoveredKeyDto payload = new DiscoveredKeyDto();
+        payload.setType(KeyType.PUBLIC_KEY);
+        payload.setAlgorithm(KeyAlgorithm.RSA);
+        payload.setLength(2048);
+        payload.setPublicKeyFormat(KeyFormat.SPKI);
+        payload.setPublicKey(publicKey);
+        DiscoveredItemDto item = new DiscoveredItemDto();
+        item.setSequence(1L);
+        item.setUniqueRef(uniqueRef);
+        item.setPayload(payload);
+        item.setMeta(List.of(meta));
+        item.setDiscoveredAt(OffsetDateTime.now(ZoneOffset.UTC));
+        itemWriter.stage(run.getUuid(), item, true);
+    }
+
+    /** Where a provider says it found something, as it reports it. */
+    private static MetadataAttribute location(String name, String value) {
+        MetadataAttributeV3 attribute = new MetadataAttributeV3();
+        attribute.setUuid(UUID.nameUUIDFromBytes(name.getBytes(StandardCharsets.UTF_8)).toString());
+        attribute.setName(name);
+        attribute.setType(AttributeType.META);
+        attribute.setContentType(AttributeContentType.STRING);
+        MetadataAttributeProperties properties = new MetadataAttributeProperties();
+        properties.setLabel(name);
+        properties.setVisible(true);
+        attribute.setProperties(properties);
+        attribute.setContent(List.of(new StringAttributeContentV3(value)));
+        return attribute;
     }
 
     private void stage(Discovery run, String uniqueRef, DiscoveredKeyDto payload) {

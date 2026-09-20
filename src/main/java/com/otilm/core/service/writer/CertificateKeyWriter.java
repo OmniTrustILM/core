@@ -46,7 +46,9 @@ public class CertificateKeyWriter {
         parent.setName(name);
         keyRepository.save(parent);
         CryptographicKeyItem item = publicKeyItem(parent, publicKey, keyLength, fingerprint);
-        if (itemRepository.insertWithFingerprintConflictResolve(item) == 1) {
+        // No metadata: a certificate's public key is known by the certificate that carries it, not by where
+        // something found it.
+        if (itemRepository.insertWithFingerprintConflictResolve(item, null) == 1) {
             return parent.getUuid();
         }
 

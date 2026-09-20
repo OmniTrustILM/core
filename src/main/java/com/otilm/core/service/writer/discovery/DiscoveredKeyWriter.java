@@ -1,5 +1,8 @@
 package com.otilm.core.service.writer.discovery;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredKeyDto;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.core.dao.entity.CryptographicKey;
@@ -9,10 +12,12 @@ import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.DiscoveryItemRepository;
 import com.otilm.core.service.handler.discovery.DiscoveredKeyIdentity;
+import com.otilm.core.service.handler.discovery.UnusableDiscoveredKeyException;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -31,12 +36,15 @@ public class DiscoveredKeyWriter {
     private final CryptographicKeyRepository keyRepository;
     private final CryptographicKeyItemRepository keyItemRepository;
     private final DiscoveryItemRepository itemRepository;
+    private final ObjectMapper objectMapper;
 
     public DiscoveredKeyWriter(CryptographicKeyRepository keyRepository,
-            CryptographicKeyItemRepository keyItemRepository, DiscoveryItemRepository itemRepository) {
+            CryptographicKeyItemRepository keyItemRepository, DiscoveryItemRepository itemRepository,
+            ObjectMapper objectMapper) {
         this.keyRepository = keyRepository;
         this.keyItemRepository = keyItemRepository;
         this.itemRepository = itemRepository;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -70,7 +78,7 @@ public class DiscoveredKeyWriter {
         keyRepository.save(parent);
 
         CryptographicKeyItem keyItem = keyItem(parent, item, key, fingerprint);
-        if (keyItemRepository.insertWithFingerprintConflictResolve(keyItem) == 1) {
+        if (keyItemRepository.insertWithFingerprintConflictResolve(keyItem, asJson(item.getMeta())) == 1) {
             return parent.getUuid();
         }
         UUID surviving = keyItemRepository
@@ -80,6 +88,21 @@ public class DiscoveredKeyWriter {
                         "A key with the same fingerprint was committed concurrently but could no longer be read"));
         keyRepository.delete(parent);
         return surviving;
+    }
+
+    /**
+     * The provider's metadata as the column holds it. A native insert binds text, not an entity graph, so the list the
+     * entity carries would be dropped silently — {@code key_meta} is written from here or not at all.
+     */
+    private String asJson(List<MetadataAttribute> meta) {
+        if (meta == null || meta.isEmpty()) {
+            return null;
+        }
+        try {
+            return objectMapper.writeValueAsString(meta);
+        } catch (JsonProcessingException e) {
+            throw new UnusableDiscoveredKeyException("The metadata reported with the key could not be stored.", e);
+        }
     }
 
     private CryptographicKeyItem keyItem(CryptographicKey parent, DiscoveryItem item, DiscoveredKeyDto key,
