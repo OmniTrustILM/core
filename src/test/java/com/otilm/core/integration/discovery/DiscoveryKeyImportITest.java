@@ -250,6 +250,21 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
         }
     }
 
+    @Test
+    void theKeyAStagedItemBroughtFirst_isTheOneTheCertificateLandsOn() {
+        Discovery run = processingRun();
+        stageKey(run, "tls://host-c:443", SPKI_BASE64, "a-fingerprint-of-the-connectors-own-devising");
+        handler.importBatch(run, pendingKeys(run));
+        UUID fromDiscovery = itemOf(run, "tls://host-c:443").getInventoryUuid();
+
+        // The other order: the certificate arrives second and must land on the key discovery already recorded.
+        UUID fromCertificate = certificateKeyWriter
+                .uploadCertificatePublicKey("certKey_example", PUBLIC_KEY, 2048, certificatePathFingerprint());
+
+        assertThat(fromCertificate).isEqualTo(fromDiscovery);
+        assertThat(keyRepository.findWithKeyItemsAndTokenByUuid(fromDiscovery).orElseThrow().getItems()).hasSize(1);
+    }
+
     private List<DiscoveryItem> pendingKeys(Discovery run) {
         return itemRepository
                 .findByDiscoveryUuidAndResourceAndProcessedAtIsNullAndProcessedErrorIsNull(run.getUuid(),
