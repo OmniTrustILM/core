@@ -248,7 +248,18 @@ public class DiscoveryProcessTickWorker {
         // The key pipeline enforces CRYPTOGRAPHIC_KEY:CREATE, and a tick arrives on a JMS thread with no
         // principal, so the run's own user goes on first -- as it does for the certificate batch.
         authenticateAsTheRunsUser(run);
-        KeyImportOutcome outcome = keyImportHandler.importBatch(run, keys);
+        KeyImportOutcome outcome;
+        try {
+            outcome = keyImportHandler.importBatch(run, keys);
+        } catch (Exception e) {
+            // Swallowed, not rethrown, and nothing is stamped: an unchanged backlog sends these rows to the bounded
+            // stall path, which backs off and ends the run itself if they never import. The same shape the
+            // certificate batch uses, and the reason a transient failure must not reach the item.
+            logger
+                    .error("Importing staged keys for discovery {} did not complete: {}", run.getUuid(), e.getMessage(),
+                            e);
+            return;
+        }
         if (outcome.failed() == 0) {
             return;
         }

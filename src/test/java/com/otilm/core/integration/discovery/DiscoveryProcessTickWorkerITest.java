@@ -29,6 +29,7 @@ import com.otilm.core.events.handlers.discovery.DiscoveryRunCounts;
 import com.otilm.core.messaging.jms.configuration.DiscoveryWorkProperties;
 import com.otilm.core.messaging.jms.producers.DiscoveryWorkProducer;
 import com.otilm.core.messaging.model.DiscoveryWorkMessage;
+import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.discovery.DiscoveryMessageCode;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
 import com.otilm.core.service.handler.discovery.DiscoveryEventIngestor;
@@ -223,6 +224,22 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
                     assertThat(row.getInventoryUuid()).as("the listing says which record the item became").isNotNull();
                     assertThat(row.isProcessed()).isTrue();
                 });
+    }
+
+    @Test
+    void keyImportThatCouldNotRun_leavesItsRowsForTheNextTick() throws Exception {
+        Discovery run = processingRun();
+        stageKeys(run, 1);
+        // Any failure of the page as a whole, rather than of one key: here the run may not create keys at all.
+        denyResourceAccess(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.CREATE);
+
+        worker.tick(run.getUuid(), 0);
+
+        DiscoveryItem untouched = keyItemsOf(run).getFirst();
+        assertThat(untouched.getProcessedError()).as("a row the tick never judged carries no reason").isNull();
+        assertThat(untouched.getInventoryUuid()).isNull();
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.PROCESSING);
+        assertThat(processRow(run).getAttempt()).as("a tick that accounted for nothing backs off").isEqualTo(1);
     }
 
     @Test

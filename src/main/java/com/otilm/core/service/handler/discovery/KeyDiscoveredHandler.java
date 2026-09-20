@@ -64,27 +64,36 @@ public class KeyDiscoveredHandler {
         return new KeyImportOutcome(imported, failed);
     }
 
+    /**
+     * Imports one key, or records why that key will never import.
+     *
+     * <p>
+     * Only a payload nothing can make sense of is the item's own failure. A reason stamped on a staged row is final —
+     * the backlog never offers that row again — so a database that was briefly unavailable must not earn one: it is the
+     * attempt's failure, and the tick that catches it leaves the backlog alone for the ladder to bring back.
+     */
     private boolean importOne(Discovery run, DiscoveryItem item) {
+        DiscoveredKeyDto key;
         try {
-            DiscoveredKeyDto key = objectMapper.convertValue(item.getPayload(), DiscoveredKeyDto.class);
+            key = objectMapper.convertValue(item.getPayload(), DiscoveredKeyDto.class);
+        } catch (IllegalArgumentException e) {
+            return refuse(run, item, "The key's payload could not be read.", e);
+        }
+        try {
             keyWriter.importKey(item, key);
             return true;
-        } catch (Exception e) {
-            // The reason a person reads is curated here; the connector's own words and the stack stay in the log,
-            // where they are evidence rather than something the API hands back.
-            logger
-                    .warn("Discovery {} could not import key item {}: {}", run.getUuid(), item.getUniqueRef(),
-                            e.getMessage(), e);
-            keyWriter.markFailed(item.getUuid(), reasonFor(e));
-            return false;
+        } catch (UnusableDiscoveredKeyException e) {
+            return refuse(run, item, e.getMessage(), e);
         }
     }
 
-    private String reasonFor(Exception e) {
-        if (e instanceof UnusableDiscoveredKeyException unusable) {
-            return unusable.getMessage();
-        }
-        return "The key could not be imported.";
+    /** Records the reason on the item. The connector's own words and the stack stay in the log. */
+    private boolean refuse(Discovery run, DiscoveryItem item, String reason, RuntimeException cause) {
+        logger
+                .warn("Discovery {} could not import key item {}: {}", run.getUuid(), item.getUniqueRef(),
+                        cause.getMessage(), cause);
+        keyWriter.markFailed(item.getUuid(), reason);
+        return false;
     }
 
     /** What one batch produced. */
