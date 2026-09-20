@@ -1,6 +1,5 @@
 package com.otilm.core.service.writer.discovery;
 
-import com.otilm.api.exception.PlatformException;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredKeyDto;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.core.dao.entity.CryptographicKey;
@@ -9,14 +8,11 @@ import com.otilm.core.dao.entity.DiscoveryItem;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.DiscoveryItemRepository;
-import com.otilm.core.util.CertificateUtil;
-import java.nio.charset.StandardCharsets;
-import java.security.NoSuchAlgorithmException;
+import com.otilm.core.service.handler.discovery.DiscoveredKeyIdentity;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
-import java.util.Base64;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -46,11 +42,11 @@ public class DiscoveredKeyWriter {
     /**
      * Records the key this item reported, or finds the record it already is, and stamps the item with it.
      *
-     * @throws UnusableKeyException when the payload cannot identify a key at all
+     * @throws UnusableDiscoveredKeyException when the payload cannot identify a key at all
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void importKey(DiscoveryItem item, DiscoveredKeyDto key) {
-        String fingerprint = identityOf(key);
+        String fingerprint = DiscoveredKeyIdentity.of(key);
         UUID keyUuid = keyItemRepository
                 .findByFingerprint(fingerprint)
                 .map(CryptographicKeyItem::getKeyUuid)
@@ -61,37 +57,6 @@ public class DiscoveredKeyWriter {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void markFailed(UUID itemUuid, String reason) {
         itemRepository.markFailed(itemUuid, reason, OffsetDateTime.now(ZoneOffset.UTC));
-    }
-
-    /**
-     * What identifies a key across everything that reports it.
-     *
-     * <p>
-     * Computed from the material whenever there is material, with the call {@code CertificateHandler} makes for a
-     * certificate's public key: the v2 contract asks a connector for an intrinsic fingerprint but does not say how to
-     * compute one, so trusting the connector's string would file the same key twice — once as a key, once as the key of
-     * a certificate carrying it. A connector's own value identifies only the key types that have no public part, which
-     * no certificate can collide with.
-     */
-    private String identityOf(DiscoveredKeyDto key) {
-        String material = key.getPublicKey();
-        if (material != null && !material.isBlank()) {
-            try {
-                byte[] encoded = Base64.getDecoder().decode(material);
-                return CertificateUtil
-                        .getThumbprint(Base64.getEncoder().encodeToString(encoded).getBytes(StandardCharsets.UTF_8));
-            } catch (IllegalArgumentException e) {
-                throw new UnusableKeyException("The reported public key was not valid Base64.", e);
-            } catch (NoSuchAlgorithmException e) {
-                throw new UnusableKeyException("The key's fingerprint could not be computed.", e);
-            }
-        }
-        if (key.getFingerprint() == null || key.getFingerprint().isBlank()) {
-            throw new UnusableKeyException(
-                    "The key was reported without public key material and without a fingerprint, so it cannot be "
-                            + "told apart from any other.");
-        }
-        return key.getFingerprint();
     }
 
     /**
@@ -151,18 +116,4 @@ public class DiscoveredKeyWriter {
         return "discovered_%s_%s".formatted(item.getUniqueRef(), head);
     }
 
-    /**
-     * A payload that cannot identify a key. Platform shaped because its message is written for the operator who reads
-     * the item, and reaches them through {@code processed_error}.
-     */
-    public static class UnusableKeyException extends IllegalArgumentException implements PlatformException {
-
-        public UnusableKeyException(String message) {
-            super(message);
-        }
-
-        public UnusableKeyException(String message, Throwable cause) {
-            super(message, cause);
-        }
-    }
 }

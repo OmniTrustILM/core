@@ -66,7 +66,7 @@ public class KeyDiscoveredHandler {
     }
 
     private String reasonFor(Exception e) {
-        if (e instanceof DiscoveredKeyWriter.UnusableKeyException unusable) {
+        if (e instanceof UnusableDiscoveredKeyException unusable) {
             return unusable.getMessage();
         }
         return "The key could not be imported.";

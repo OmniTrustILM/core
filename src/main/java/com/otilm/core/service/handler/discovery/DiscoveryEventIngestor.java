@@ -380,12 +380,20 @@ public class DiscoveryEventIngestor {
      * Whether the item was absent from inventory when staged; only keys correlate by fingerprint, so anything else
      * counts as new.
      */
+    /**
+     * Whether the inventory was without this item when the run staged it. Asked of the identity the import will
+     * compute, not of the fingerprint the connector reported: the two differ whenever a key carries material, and a row
+     * staged under one and imported under the other says the run found something new when it found what was already
+     * there.
+     */
     private static boolean isNewlyDiscovered(DiscoveredItemDto item, Set<String> knownKeyFingerprints) {
-        if (!(item.getPayload() instanceof DiscoveredKeyDto key) || key.getFingerprint() == null
-                || key.getFingerprint().isBlank()) {
+        if (!(item.getPayload() instanceof DiscoveredKeyDto key)) {
             return true;
         }
-        return !knownKeyFingerprints.contains(key.getFingerprint());
+        return DiscoveredKeyIdentity
+                .ofQuietly(key)
+                .map(identity -> !knownKeyFingerprints.contains(identity))
+                .orElse(true);
     }
 
     /**
@@ -396,8 +404,8 @@ public class DiscoveryEventIngestor {
                 .stream()
                 .map(DiscoveredItemDto::getPayload)
                 .filter(DiscoveredKeyDto.class::isInstance)
-                .map(payload -> ((DiscoveredKeyDto) payload).getFingerprint())
-                .filter(fingerprint -> fingerprint != null && !fingerprint.isBlank())
+                .map(payload -> DiscoveredKeyIdentity.ofQuietly((DiscoveredKeyDto) payload))
+                .flatMap(Optional::stream)
                 .collect(Collectors.toSet());
         if (fingerprints.isEmpty()) {
             return Set.of();

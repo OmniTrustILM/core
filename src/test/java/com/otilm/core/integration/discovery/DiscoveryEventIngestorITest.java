@@ -1,6 +1,7 @@
 package com.otilm.core.integration.discovery;
 
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredCertificateDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredItemDto;
@@ -30,10 +31,17 @@ import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.DiscoveryWorkRepository;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
 import com.otilm.core.service.handler.discovery.DiscoveryEventIngestor;
+import com.otilm.core.service.writer.CertificateKeyWriter;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.DiscoveryInterfaceFixture;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import java.nio.charset.StandardCharsets;
+import java.security.KeyPairGenerator;
+import java.security.NoSuchAlgorithmException;
+import java.security.PublicKey;
+import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -63,6 +71,8 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
     @Autowired
     private DiscoveryItemRepository itemRepository;
     @Autowired
+    private CertificateKeyWriter certificateKeyWriter;
+    @Autowired
     private DiscoveryCertificateRepository certificateRepository;
     @Autowired
     private DiscoveryWorkRepository workRepository;
@@ -70,6 +80,30 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
     private DiscoveryMessageRepository messageRepository;
     @PersistenceContext
     private EntityManager entityManager;
+
+    @Test
+    void keyTheInventoryAlreadyHolds_isNotStagedAsNewlyDiscovered() throws Exception {
+        PublicKey material = rsaPublicKey();
+        // The record a certificate carrying this key would have left behind, under the identity that path computes.
+        certificateKeyWriter
+                .uploadCertificatePublicKey("certKey_example", material, 2048, certificatePathFingerprint(material));
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+
+        // The connector reports its own fingerprint, computed however it likes. Staging has to reach the same
+        // conclusion the import will: this key is already in the inventory.
+        ingestor.applyDrainPage(run.getUuid(), page(1L, false, keyWithMaterial(1, "ssh://host-a:22", material)));
+
+        assertThat(stagedItems(run)).singleElement().satisfies(item -> assertThat(item.isNewlyDiscovered()).isFalse());
+    }
+
+    @Test
+    void keyTheInventoryDoesNotHold_isStagedAsNewlyDiscovered() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+
+        ingestor.applyDrainPage(run.getUuid(), page(1L, false, keyWithMaterial(1, "ssh://host-b:22", rsaPublicKey())));
+
+        assertThat(stagedItems(run)).singleElement().satisfies(item -> assertThat(item.isNewlyDiscovered()).isTrue());
+    }
 
     @Test
     void drainPage_stagesItsItemsAndAdvancesTheCursorToTheHighestOneReceived() {
@@ -301,6 +335,36 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
         payload.setLength(2048);
         payload.setFingerprint("fingerprint-" + uniqueRef);
         return item(sequence, uniqueRef, payload);
+    }
+
+    private DiscoveredItemDto keyWithMaterial(long sequence, String uniqueRef, PublicKey material) {
+        DiscoveredKeyDto payload = new DiscoveredKeyDto();
+        payload.setType(KeyType.PUBLIC_KEY);
+        payload.setAlgorithm(KeyAlgorithm.RSA);
+        payload.setLength(2048);
+        payload.setPublicKeyFormat(KeyFormat.SPKI);
+        payload.setPublicKey(Base64.getEncoder().encodeToString(material.getEncoded()));
+        payload.setFingerprint("whatever-the-connector-computed-" + uniqueRef);
+        return item(sequence, uniqueRef, payload);
+    }
+
+    /** What {@code CertificateHandler} computes for a certificate's public key. */
+    private static String certificatePathFingerprint(PublicKey material) throws NoSuchAlgorithmException {
+        return CertificateUtil
+                .getThumbprint(
+                        Base64.getEncoder().encodeToString(material.getEncoded()).getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static PublicKey rsaPublicKey() throws NoSuchAlgorithmException {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+        generator.initialize(2048);
+        return generator.generateKeyPair().getPublic();
+    }
+
+    private List<DiscoveryItem> stagedItems(Discovery run) {
+        entityManager.flush();
+        entityManager.clear();
+        return itemRepository.findAll().stream().filter(item -> item.getDiscoveryUuid().equals(run.getUuid())).toList();
     }
 
     private DiscoveredItemDto certificateItem(long sequence, String uniqueRef) {
