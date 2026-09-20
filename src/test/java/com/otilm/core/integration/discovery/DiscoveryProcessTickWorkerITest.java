@@ -205,7 +205,10 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
                 .contains(DiscoveryMessageCode.KEY_IMPORT_FAILED.code());
         // A row that carries a reason is accounted for, so the run finishes rather than stalling on it -- with a
         // warning, because something it discovered never made it in.
-        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.WARNING);
+        Discovery ended = reload(run);
+        assertThat(ended.getStatus()).isEqualTo(DiscoveryStatus.WARNING);
+        // A keys-only run has nothing in the certificate list to look at.
+        assertThat(ended.getMessage()).contains("items").doesNotContain("certificate list");
     }
 
     @Test

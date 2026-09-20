@@ -235,6 +235,24 @@ public class DiscoveryProcessTickWorker {
     }
 
     /**
+     * Where the run's own evidence is. Named by what actually carries a reason: a keys-only run sent to the certificate
+     * list would find nothing there to look at.
+     */
+    private static String endingReason(boolean certificatesFailed, boolean itemsFailed) {
+        String where;
+        if (certificatesFailed && itemsFailed) {
+            where = ", and the discovery certificate list and the run's items for per-row detail";
+        } else if (certificatesFailed) {
+            where = ", and the discovery certificate list for per-certificate detail";
+        } else if (itemsFailed) {
+            where = ", and the run's items for per-item detail";
+        } else {
+            where = "";
+        }
+        return "Discovery completed with warnings. See this run's messages%s.".formatted(where);
+    }
+
+    /**
      * Imports one bounded page of the run's staged keys. Each key stands alone: one that cannot be identified stamps
      * its own row and the rest of the page goes in, so a single bad payload never costs the run its other keys.
      */
@@ -362,16 +380,13 @@ public class DiscoveryProcessTickWorker {
         // message log is checked too -- by severity, not by whether it holds anything. A run collects messages for
         // things it recovered from, and ending a run whose every row imported on the strength of one of those
         // would report a warning about nothing an operator can act on.
-        boolean rowsFailed = certificateRepository.existsByDiscoveryUuidAndProcessedErrorIsNotNull(run.getUuid())
-                || itemRepository.existsByDiscoveryUuidAndProcessedErrorIsNotNull(run.getUuid());
+        boolean certificatesFailed = certificateRepository
+                .existsByDiscoveryUuidAndProcessedErrorIsNotNull(run.getUuid());
+        boolean itemsFailed = itemRepository.existsByDiscoveryUuidAndProcessedErrorIsNotNull(run.getUuid());
         boolean runLevelGaps = messageRepository.existsByDiscoveryUuidAndSeverityIn(run.getUuid(), UNRECOVERED);
-        if (!rowsFailed && !runLevelGaps) {
+        if (!certificatesFailed && !itemsFailed && !runLevelGaps) {
             return new Ending(DiscoveryStatus.COMPLETED, "Discovery completed successfully.");
         }
-        // Points to the certificate list only when a row actually carries a reason.
-        return new Ending(DiscoveryStatus.WARNING, rowsFailed
-                ? "Discovery completed with warnings. See this run's messages, and the discovery certificate list "
-                        + "for per-certificate detail."
-                : "Discovery completed with warnings. See this run's messages.");
+        return new Ending(DiscoveryStatus.WARNING, endingReason(certificatesFailed, itemsFailed));
     }
 }
