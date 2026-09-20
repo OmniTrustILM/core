@@ -18,7 +18,6 @@ import org.mockito.Mockito;
 import org.springframework.dao.CannotAcquireLockException;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
@@ -65,10 +64,30 @@ class KeyDiscoveredHandlerTest {
         DiscoveryItem item = keyItem();
 
         // Stamped, the row would be lost for good: a lock this tick could not take is the agenda's business, and
-        // the tick that catches this leaves the backlog alone so the ladder brings the row back.
-        assertThatThrownBy(() -> handler.importBatch(run, List.of(item)))
-                .isInstanceOf(CannotAcquireLockException.class);
+        // the caller leaves the backlog alone so the ladder brings the row back.
+        KeyDiscoveredHandler.KeyImportOutcome outcome = handler.importBatch(run, List.of(item));
+
+        assertThat(outcome.aborted()).isTrue();
+        assertThat(outcome.failed()).isZero();
         verify(writer, never()).markFailed(any(), any());
+    }
+
+    @Test
+    void refusalAheadOfATransientFailure_isStillCountedForTheRunToReport() {
+        DiscoveryItem refused = keyItem();
+        DiscoveryItem unreachable = keyItem();
+        doThrow(new UnusableDiscoveredKeyException("The key was reported without anything to identify it."))
+                .when(writer)
+                .importKey(Mockito.eq(refused), any());
+        doThrow(new CannotAcquireLockException("lock timeout")).when(writer).importKey(Mockito.eq(unreachable), any());
+
+        KeyDiscoveredHandler.KeyImportOutcome outcome = handler.importBatch(run, List.of(refused, unreachable));
+
+        // The refusal committed and its row will never be offered again, so the count that reports it has to
+        // survive the page ending early -- otherwise that key is lost from the run's messages for good.
+        assertThat(outcome.failed()).isEqualTo(1);
+        assertThat(outcome.aborted()).isTrue();
+        verify(writer).markFailed(Mockito.eq(refused.getUuid()), any());
     }
 
     private DiscoveryItem keyItem() {

@@ -270,19 +270,17 @@ public class DiscoveryProcessTickWorker {
         try {
             outcome = keyImportHandler.importBatch(run, keys);
         } catch (Exception e) {
-            // Swallowed, not rethrown, and nothing is stamped: an unchanged backlog sends these rows to the bounded
-            // stall path, which backs off and ends the run itself if they never import. The same shape the
-            // certificate batch uses, and the reason a transient failure must not reach the item.
-            logger
-                    .error("Importing staged keys for discovery {} did not complete: {}", run.getUuid(), e.getMessage(),
-                            e);
+            // Nothing was refused, so there is nothing to report: the page never started. Swallowed rather than
+            // rethrown so the unchanged backlog goes to the bounded stall path, as the certificate batch does.
+            logger.error("Importing staged keys for discovery {} did not start: {}", run.getUuid(), e.getMessage(), e);
             return;
         }
         if (outcome.failed() == 0) {
             return;
         }
         // Filed once for the page rather than once per key: the run's message log aggregates by code and text, and
-        // what an operator acts on is that keys were lost, with the per-key reason on the item itself.
+        // what an operator acts on is that keys were lost, with the per-key reason on the item itself. Filed even
+        // when the page ended early -- those refusals are final, and no later tick will see those rows again.
         recordQuietly(run.getUuid(), "keys that could not be imported",
                 () -> messageWriter
                         .append(run.getUuid(),

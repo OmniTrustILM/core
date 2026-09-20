@@ -46,7 +46,7 @@ public class KeyDiscoveredHandler {
     @ExternalAuthorizationProgrammatic(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.CREATE)
     public KeyImportOutcome importBatch(Discovery run, List<DiscoveryItem> items) {
         if (items.isEmpty()) {
-            return new KeyImportOutcome(0, 0);
+            return new KeyImportOutcome(0, 0, false);
         }
         // Once per page, not per key, and before anything is written: enforcement is a blocking call, and a page
         // that may not be imported must leave no half-filled inventory behind. Creating a discovery run is not
@@ -55,13 +55,23 @@ public class KeyDiscoveredHandler {
         int imported = 0;
         int failed = 0;
         for (DiscoveryItem item : items) {
-            if (importOne(run, item)) {
-                imported++;
-            } else {
-                failed++;
+            try {
+                if (importOne(run, item)) {
+                    imported++;
+                } else {
+                    failed++;
+                }
+            } catch (RuntimeException e) {
+                // This key's turn ended, not this key: the rest of the page waits for the next tick, and what the
+                // page already refused is carried out so the run can still report it. A refusal commits on its own
+                // and its row is never offered again, so a count dropped here is a key lost from the run's log.
+                logger
+                        .error("Discovery {} stopped importing keys at item {}: {}", run.getUuid(), item.getUniqueRef(),
+                                e.getMessage(), e);
+                return new KeyImportOutcome(imported, failed, true);
             }
         }
-        return new KeyImportOutcome(imported, failed);
+        return new KeyImportOutcome(imported, failed, false);
     }
 
     /**
@@ -96,11 +106,12 @@ public class KeyDiscoveredHandler {
         return false;
     }
 
-    /** What one batch produced. */
-    public record KeyImportOutcome(int imported, int failed) {
-
-        public boolean isEmpty() {
-            return imported == 0 && failed == 0;
-        }
+    /**
+     * What one batch produced, and whether it got through the page.
+     *
+     * @param aborted the page stopped early on something that is not any one key's fault; its remaining rows are still
+     * pending and the caller leaves them to the next tick
+     */
+    public record KeyImportOutcome(int imported, int failed, boolean aborted) {
     }
 }
