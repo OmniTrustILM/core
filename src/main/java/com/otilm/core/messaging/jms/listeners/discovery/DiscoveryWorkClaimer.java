@@ -5,6 +5,7 @@ import com.otilm.core.dao.entity.DiscoveryWork;
 import com.otilm.core.dao.repository.DiscoveryWorkRepository;
 import com.otilm.core.messaging.jms.configuration.DiscoveryWorkProperties;
 import com.otilm.core.messaging.model.DiscoveryWorkMessage;
+import com.otilm.core.model.discovery.DiscoveryWorkType;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import java.time.Duration;
 import java.time.OffsetDateTime;
@@ -13,6 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
@@ -38,14 +40,16 @@ public class DiscoveryWorkClaimer {
     private final DiscoveryWorkRepository workRepository;
     private final DiscoveryWorkWriter workWriter;
     private final DiscoveryWorkProperties workProperties;
+    private final Duration claimFloor;
 
     public DiscoveryWorkClaimer(ClusterOperationSynchronizer clusterSynchronizer,
             DiscoveryWorkRepository workRepository, DiscoveryWorkWriter workWriter,
-            DiscoveryWorkProperties workProperties) {
+            DiscoveryWorkProperties workProperties, @Value("${discovery.work.claim-floor:PT35S}") Duration claimFloor) {
         this.clusterSynchronizer = clusterSynchronizer;
         this.workRepository = workRepository;
         this.workWriter = workWriter;
         this.workProperties = workProperties;
+        this.claimFloor = claimFloor;
     }
 
     /**
@@ -60,8 +64,8 @@ public class DiscoveryWorkClaimer {
      * transaction.
      *
      * <p>
-     * <b>Duplicate prevention:</b> the caller passes one cutoff for its whole sweep. A claimed row is rescheduled at
-     * least the first backoff rung past its claim, so no batch of the same sweep can claim it again.
+     * <b>Duplicate prevention:</b> the caller passes one cutoff for its whole sweep, and a claimed row is parked past a
+     * tick's expected worst case — see {@link #parkFor}.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public List<DiscoveryWorkMessage> claimDueBatch(int batchSize, OffsetDateTime dueCutoff) {
@@ -76,11 +80,25 @@ public class DiscoveryWorkClaimer {
             messages.add(new DiscoveryWorkMessage(work.getDiscoveryUuid(), work.getWorkType(), work.getAttempt()));
 
             int nextAttempt = work.getAttempt() + 1;
-            Duration nextDelay = workProperties.scheduleFor(work.getWorkType()).delayFor(nextAttempt);
             workWriter
                     .reschedule(work.getDiscoveryUuid(), work.getWorkType(), nextAttempt,
-                            OffsetDateTime.now(ZoneOffset.UTC).plus(nextDelay));
+                            OffsetDateTime.now(ZoneOffset.UTC).plus(parkFor(work.getWorkType(), nextAttempt)));
         }
         return messages;
+    }
+
+    /**
+     * How far out a claimed row is parked. Nothing marks a row as being worked, so the sweep republishes any row that
+     * comes due again; the early rungs are seconds against a connector call that may take its full timeout, and two
+     * ticks draining the same page would spend the run's budget on the one that stages nothing.
+     *
+     * <p>
+     * A floor, not a replacement: a rung above it is kept. A tick with more to fetch direct-publishes its continuation
+     * and never waits on a rung. It does not cover a tick outliving the floor itself; that would take a lease column
+     * the agenda lacks.
+     */
+    private Duration parkFor(DiscoveryWorkType workType, int nextAttempt) {
+        Duration rung = workProperties.scheduleFor(workType).delayFor(nextAttempt);
+        return rung.compareTo(claimFloor) >= 0 ? rung : claimFloor;
     }
 }

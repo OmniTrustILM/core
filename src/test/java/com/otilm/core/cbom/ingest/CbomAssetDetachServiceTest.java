@@ -65,7 +65,7 @@ class CbomAssetDetachServiceTest {
                 .thenReturn(List.of(new CryptoAssetRepository.OrphanRow(asset, false)));
         when(assetWriter.delete(asset)).thenReturn(0);
 
-        assertThat(service(100).withdraw(CBOM)).isEqualTo(new CbomAssetDetachService.Withdrawal(1, 0, 1, true));
+        assertThat(service().withdraw(CBOM, 100)).isEqualTo(new CbomAssetDetachService.Withdrawal(1, 0, 1, true));
     }
 
     @Test
@@ -74,7 +74,7 @@ class CbomAssetDetachServiceTest {
         when(synchronizer.tryLock(anyString())).thenReturn(true);
         when(assetRepository.orphansAmong(any())).thenReturn(List.of());
 
-        service(100).withdraw(CBOM);
+        service().withdraw(CBOM, 100);
 
         InOrder order = inOrder(synchronizer, sourceWriter);
         order.verify(synchronizer).lock(CryptoAssetAliasWriter.ALIAS_DECISION_LOCK);
@@ -86,7 +86,7 @@ class CbomAssetDetachServiceTest {
         sourcedAsset();
         when(synchronizer.tryLock(anyString())).thenReturn(false);
 
-        CbomAssetDetachService.Withdrawal withdrawal = service(100).withdraw(CBOM);
+        CbomAssetDetachService.Withdrawal withdrawal = service().withdraw(CBOM, 100);
 
         assertThat(withdrawal).isEqualTo(new CbomAssetDetachService.Withdrawal(0, 0, 0, false));
         verify(sourceWriter, never()).detachCbom(any(), any());
@@ -107,7 +107,7 @@ class CbomAssetDetachServiceTest {
         when(synchronizer.tryLock(anyString())).thenReturn(true);
         when(assetRepository.orphansAmong(any())).thenReturn(List.of());
 
-        service(2).withdraw(CBOM);
+        service().withdraw(CBOM, 2);
 
         verify(sourceWriter).detachCbom(first, CBOM);
         verify(sourceWriter).detachCbom(second, CBOM);
@@ -141,7 +141,7 @@ class CbomAssetDetachServiceTest {
         when(assetRepository.orphansAmong(List.of(second)))
                 .thenReturn(List.of(new CryptoAssetRepository.OrphanRow(second, true)));
 
-        CbomAssetDetachService.Withdrawal withdrawal = service(1).withdraw(CBOM);
+        CbomAssetDetachService.Withdrawal withdrawal = service().withdraw(CBOM, 1);
 
         assertThat(withdrawal).isEqualTo(new CbomAssetDetachService.Withdrawal(2, 1, 1, true));
     }
@@ -161,7 +161,7 @@ class CbomAssetDetachServiceTest {
         when(assetRepository.orphansAmong(List.of(first)))
                 .thenReturn(List.of(new CryptoAssetRepository.OrphanRow(first, false)));
 
-        CbomAssetDetachService.Withdrawal withdrawal = service(1).withdraw(CBOM);
+        CbomAssetDetachService.Withdrawal withdrawal = service().withdraw(CBOM, 1);
 
         assertThat(withdrawal).isEqualTo(new CbomAssetDetachService.Withdrawal(1, 1, 0, false));
         verify(sourceWriter, never()).detachCbom(second, CBOM);
@@ -174,7 +174,7 @@ class CbomAssetDetachServiceTest {
         when(synchronizer.tryLock(anyString())).thenReturn(true);
         when(assetRepository.orphansAmong(List.of(asset))).thenReturn(List.of());
 
-        CbomAssetDetachService.Withdrawal withdrawal = service(100).withdraw(CBOM);
+        CbomAssetDetachService.Withdrawal withdrawal = service().withdraw(CBOM, 100);
 
         assertThat(withdrawal).isEqualTo(new CbomAssetDetachService.Withdrawal(1, 0, 0, true));
         verify(assetWriter, never()).delete(any());
@@ -188,7 +188,7 @@ class CbomAssetDetachServiceTest {
         when(assetRepository.orphansAmong(List.of(asset)))
                 .thenReturn(List.of(new CryptoAssetRepository.OrphanRow(asset, false)));
 
-        CbomAssetDetachService.Withdrawal withdrawal = service(100).withdraw(CBOM);
+        CbomAssetDetachService.Withdrawal withdrawal = service().withdraw(CBOM, 100);
 
         assertThat(withdrawal).isEqualTo(new CbomAssetDetachService.Withdrawal(1, 1, 0, true));
         verify(assetWriter).delete(asset);
@@ -202,7 +202,7 @@ class CbomAssetDetachServiceTest {
         when(assetRepository.orphansAmong(List.of(asset)))
                 .thenReturn(List.of(new CryptoAssetRepository.OrphanRow(asset, true)));
 
-        CbomAssetDetachService.Withdrawal withdrawal = service(100).withdraw(CBOM);
+        CbomAssetDetachService.Withdrawal withdrawal = service().withdraw(CBOM, 100);
 
         assertThat(withdrawal).isEqualTo(new CbomAssetDetachService.Withdrawal(1, 0, 1, true));
         verify(assetWriter, never()).delete(any());
@@ -213,7 +213,7 @@ class CbomAssetDetachServiceTest {
     void anOperatorsDeleteWaitsForTheClusterLockRatherThanSkippingTheWithdrawal() {
         UUID asset = sourcedAsset();
 
-        service(100).withdrawWaiting(CBOM);
+        service().withdrawWaiting(CBOM, 100);
 
         verify(synchronizer).lock(CbomAssetIngestService.assetSyncLockKey(CBOM));
         verify(synchronizer, never()).tryLock(anyString());
@@ -238,7 +238,7 @@ class CbomAssetDetachServiceTest {
     void aCbomThatSourcesNothingIsStillWithdrawnUnderTheLock() {
         pages(100, List.of());
 
-        CbomAssetDetachService.Withdrawal withdrawal = service(100).withdrawWaiting(CBOM);
+        CbomAssetDetachService.Withdrawal withdrawal = service().withdrawWaiting(CBOM, 100);
 
         assertThat(withdrawal).isEqualTo(new CbomAssetDetachService.Withdrawal(0, 0, 0, true));
         InOrder ranked = inOrder(synchronizer, sourceRepository);
@@ -262,7 +262,7 @@ class CbomAssetDetachServiceTest {
         when(sourceWriter.detachCbom(any(), any())).thenReturn(1);
         when(assetRepository.orphansAmong(any())).thenReturn(List.of());
 
-        CbomAssetDetachService.Withdrawal withdrawal = service(1).withdrawWaiting(CBOM);
+        CbomAssetDetachService.Withdrawal withdrawal = service().withdrawWaiting(CBOM, 1);
 
         assertThat(withdrawal).isEqualTo(new CbomAssetDetachService.Withdrawal(2, 0, 0, true));
         verify(sourceWriter).detachCbom(attachedInTheGap, CBOM);
@@ -287,7 +287,7 @@ class CbomAssetDetachServiceTest {
         when(assetRepository.orphansAmong(List.of(first)))
                 .thenReturn(List.of(new CryptoAssetRepository.OrphanRow(first, false)));
 
-        assertThatThrownBy(() -> service(1).withdrawWaiting(CBOM))
+        assertThatThrownBy(() -> service().withdrawWaiting(CBOM, 1))
                 .isInstanceOf(CbomAssetDetachService.WithdrawalFailedException.class)
                 .hasCauseInstanceOf(IllegalStateException.class)
                 .extracting(e -> ((CbomAssetDetachService.WithdrawalFailedException) e).committed())
@@ -301,7 +301,7 @@ class CbomAssetDetachServiceTest {
         pages(1, List.of(asset));
         when(sourceWriter.detachCbom(asset, CBOM)).thenThrow(new IllegalStateException("connection lost"));
 
-        assertThatThrownBy(() -> service(1).withdrawWaiting(CBOM))
+        assertThatThrownBy(() -> service().withdrawWaiting(CBOM, 1))
                 .isInstanceOf(CbomAssetDetachService.WithdrawalFailedException.class)
                 .matches(e -> !((CbomAssetDetachService.WithdrawalFailedException) e).withdrewSomething());
     }
@@ -327,8 +327,8 @@ class CbomAssetDetachServiceTest {
         when(sourceRepository.findAssetUuidsByCbomUuid(CBOM, Limit.of(batchSize))).thenReturn(first, rest);
     }
 
-    private CbomAssetDetachService service(int batchSize) {
+    private CbomAssetDetachService service() {
         return new CbomAssetDetachService(sourceWriter, assetWriter, sourceRepository, assetRepository, synchronizer,
-                new TransactionHandler(), CbomIngestTestFixtures.properties(batchSize));
+                new TransactionHandler());
     }
 }

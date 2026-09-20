@@ -54,7 +54,7 @@ public class CbomAssetSyncStateWriter {
      * <p>
      * Guarded on {@link #NOT_YET_SYNCED} for the same reason {@link #markFailed} is, and it is not the same guard as
      * {@link #claimForIngest}'s. The attempt timestamp is a retry window, never an ownership token: a run whose ingest
-     * outlives {@code cbom.sync.ingest-retry-after} loses its claim to another node without being told, and an
+     * outlives {@code cbomSyncIngestRetryAfterSeconds} loses its claim to another node without being told, and an
      * unconditional write here would then walk a row that node has since finished back from {@code SYNCED} to
      * {@code IN_PROGRESS}. What the two nodes write to {@code crypto_asset} still converges -- every write is an
      * idempotent upsert, and the cluster lock admits one of them at a time -- so the state column is the only thing

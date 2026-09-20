@@ -200,6 +200,9 @@ public class CertificateHandler {
                 discoveryCertificate.setMeta(certificate.getMeta());
                 if (refsDedupeWithinRun) {
                     discoveryCertificate.setUniqueRef(certificate.getUuid());
+                    // The v2 path alone carries these; see DiscoveryCertificate#sequence for what a v1 row gets.
+                    discoveryCertificate.setSequence(certificate.getSequence());
+                    discoveryCertificate.setDiscoveredAt(certificate.getDiscoveredAt());
                 }
 
                 if (existingCertificate == null) {

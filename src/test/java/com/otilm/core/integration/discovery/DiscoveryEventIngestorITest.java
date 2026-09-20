@@ -16,10 +16,13 @@ import com.otilm.api.model.connector.discovery.v2.event.DiscoveryStateChangedEve
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.discovery.DiscoveryMessageSeverity;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
+import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryItem;
 import com.otilm.core.dao.entity.DiscoveryMessage;
 import com.otilm.core.dao.entity.DiscoveryWork;
+import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
+import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
 import com.otilm.core.dao.repository.DiscoveryItemRepository;
 import com.otilm.core.dao.repository.DiscoveryMessageRepository;
@@ -28,6 +31,7 @@ import com.otilm.core.dao.repository.DiscoveryWorkRepository;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
 import com.otilm.core.service.handler.discovery.DiscoveryEventIngestor;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.DiscoveryInterfaceFixture;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.util.List;
@@ -52,6 +56,10 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
     private DiscoveryEventIngestor ingestor;
     @Autowired
     private DiscoveryRepository discoveryRepository;
+    @Autowired
+    private ConnectorRepository connectorRepository;
+    @Autowired
+    private ConnectorInterfaceRepository connectorInterfaceRepository;
     @Autowired
     private DiscoveryItemRepository itemRepository;
     @Autowired
@@ -129,6 +137,34 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
         assertThat(certificateRepository.countByDiscovery(reload(run))).isEqualTo(1);
         assertThat(stagedRefs(run)).containsExactly("key-b");
         assertThat(reload(run).getLastAppliedSequence()).isEqualTo(2);
+    }
+
+    /** The certificate total is the only yield figure the discovery listing carries. */
+    @Test
+    void certificateTotal_movesAsPagesLandRatherThanOnlyAtTheEnd() {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+
+        ingestor.applyDrainPage(run.getUuid(), page(1L, true, certificateItem(1, "cert-a")));
+        entityManager.flush();
+        assertThat(reload(run).getTotalCertificatesDiscovered()).isEqualTo(1);
+
+        ingestor.applyDrainPage(run.getUuid(), page(3L, false, certificateItem(2, "cert-b"), keyItem(3, "key-a")));
+        entityManager.flush();
+        assertThat(reload(run).getTotalCertificatesDiscovered())
+                .as("keys are staged too, but this figure counts certificates")
+                .isEqualTo(2);
+    }
+
+    /** Counted, not accumulated: a re-sent certificate stages nothing, so the total must not creep upward. */
+    @Test
+    void certificateTotal_doesNotCountARepeatTwice() {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        ingestor.applyDrainPage(run.getUuid(), page(1L, true, certificateItem(1, "cert-a")));
+
+        ingestor.applyDrainPage(run.getUuid(), page(2L, false, certificateItem(2, "cert-a")));
+
+        entityManager.flush();
+        assertThat(reload(run).getTotalCertificatesDiscovered()).isEqualTo(1);
     }
 
     @Test
@@ -211,17 +247,21 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
     void progressEvent_storesTheSnapshotAndNothingElse() {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
         DiscoveryProgressEvent event = new DiscoveryProgressEvent();
-        event.setProcessed(12L);
-        event.setTotalEstimate(40L);
+        event.setTargetsProcessed(12L);
+        event.setTargetsTotal(40L);
         event.setPhase("scanning");
+        event.setTargetsFailed(28L);
 
         ingestor.applyAdvisoryEvent(run.getUuid(), event);
 
         Discovery reloaded = reload(run);
         assertThat(reloaded.getProgress()).isNotNull();
-        assertThat(reloaded.getProgress().getProcessed()).isEqualTo(12L);
-        assertThat(reloaded.getProgress().getTotalEstimate()).isEqualTo(40L);
+        assertThat(reloaded.getProgress().getTargetsProcessed()).isEqualTo(12L);
+        assertThat(reloaded.getProgress().getTargetsTotal()).isEqualTo(40L);
         assertThat(reloaded.getProgress().getPhase()).isEqualTo("scanning");
+        // The snapshot is copied field by field rather than mapped, so a counter added to the contract is
+        // dropped here silently until someone remembers to copy it too.
+        assertThat(reloaded.getProgress().getTargetsFailed()).isEqualTo(28L);
         assertThat(agenda(run)).isEmpty();
     }
 
@@ -283,9 +323,11 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
         run.setKind("IP-HostName");
         run.setStatus(status);
         run.setConnectorStatus(status);
-        run.setConnectorUuid(UUID.randomUUID());
+        ConnectorInterfaceEntity discoveryInterface = DiscoveryInterfaceFixture
+                .v2Interface(connectorRepository, connectorInterfaceRepository);
+        run.setConnectorUuid(discoveryInterface.getConnectorUuid());
         run.setConnectorName("network-discovery");
-        run.setConnectorInterfaceUuid(UUID.randomUUID());
+        run.setConnectorInterfaceUuid(discoveryInterface.getUuid());
         run.setResources(List.of(Resource.CERTIFICATE, Resource.CRYPTOGRAPHIC_KEY));
         return discoveryRepository.saveAndFlush(run);
     }

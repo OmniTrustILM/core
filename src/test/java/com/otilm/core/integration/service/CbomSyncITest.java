@@ -30,8 +30,9 @@ import com.otilm.api.model.core.search.SortDirection;
 import com.otilm.api.model.core.settings.PlatformSettingsDto;
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.UtilsSettingsDto;
+import com.otilm.core.cbom.sync.CbomSyncPolicy;
+import com.otilm.core.cbom.sync.CbomSyncPolicyProvider;
 import com.otilm.core.cbom.sync.CbomSyncSkipSearch;
-import com.otilm.core.config.CbomSyncProperties;
 import com.otilm.core.dao.entity.Cbom;
 import com.otilm.core.dao.entity.cbom.CbomSyncSkip;
 import com.otilm.core.dao.repository.CbomRepository;
@@ -85,7 +86,7 @@ class CbomSyncITest extends BaseSpringBootTest {
     private SettingsCache settingsCache;
 
     @Autowired
-    private CbomSyncProperties syncProperties;
+    private CbomSyncPolicyProvider syncPolicyProvider;
 
     @Autowired
     private CbomSyncSkipWriter skipWriter;
@@ -122,15 +123,47 @@ class CbomSyncITest extends BaseSpringBootTest {
         }
     }
 
-    // ---- bound properties ----
+    // ---- the policy the sync reads ----
 
+    /**
+     * A section that carries only the repository URL -- which is what {@link #startRepository} caches, and what a
+     * deployment that has never opened the CBOM form holds -- leaves every tunable at its documented default. Nothing
+     * is bound from {@code application.yml} any more, so this is the only place the defaults come from.
+     */
     @Test
-    void theSyncPropertiesBindTheDocumentedDefaults() {
-        // The deploy-time half only; the operator policy is a platform setting, which SettingServiceITest covers.
-        assertThat(syncProperties.pageSize()).isEqualTo(1000);
-        assertThat(syncProperties.assetIngestEnabled()).isTrue();
-        assertThat(syncProperties.assetBatchSize()).isEqualTo(100);
-        assertThat(syncProperties.ingestRetryAfter()).isEqualTo(Duration.ofMinutes(30));
+    void anUnconfiguredSectionLeavesEveryTunableAtItsDocumentedDefault() {
+        CbomSyncPolicy policy = syncPolicyProvider.current();
+
+        assertThat(policy.overlap()).isEqualTo(Duration.ofSeconds(60));
+        assertThat(policy.skippedRetryRuns()).isEqualTo(3);
+        assertThat(policy.maxIngestDocuments()).isEqualTo(50);
+        assertThat(policy.pageSize()).isEqualTo(1000);
+        assertThat(policy.assetIngestEnabled()).isTrue();
+        assertThat(policy.assetBatchSize()).isEqualTo(100);
+        assertThat(policy.ingestRetryAfter()).isEqualTo(Duration.ofMinutes(30));
+    }
+
+    /**
+     * The kill switch is a platform setting, so turning it off reaches a running node at its next run -- no restart and
+     * no redeploy, which is the whole point of core#2268. Two runs on the same bean instance: the first leaves the CBOM
+     * owing an ingest, the second settles it, so turning the switch back on resumes rather than repairs.
+     */
+    @Test
+    void theKillSwitchTakesEffectAtTheNextRunWithoutARestart() throws Exception {
+        cacheAssetIngestEnabled(false);
+        stubSearchAtAnyWatermark("[" + entry("urn:uuid:kill", "1", STATS, null) + "]");
+        stubDocument("urn:uuid:kill", 1);
+
+        cbomInternalService.sync();
+
+        Cbom stored = cbomRepository.findAll().getFirst();
+        assertThat(stored.getAssetSyncState()).isEqualTo(CbomAssetSyncState.PENDING);
+
+        cacheAssetIngestEnabled(true);
+        cbomInternalService.sync();
+
+        assertThat(cbomRepository.findById(stored.getUuid()).orElseThrow().getAssetSyncState())
+                .isEqualTo(CbomAssetSyncState.SYNCED);
     }
 
     // ---- paging ----
@@ -836,6 +869,27 @@ class CbomSyncITest extends BaseSpringBootTest {
 
     private static String next(String cursor) {
         return "<bom?cursor=" + cursor + "&limit=1000>; rel=\"next\"";
+    }
+
+    /** One search stub that answers whatever watermark a run opens with, for the tests that run the sync twice. */
+    private void stubSearchAtAnyWatermark(String body) {
+        repository
+                .stubFor(WireMock
+                        .get(WireMock.urlPathEqualTo(SEARCH))
+                        .withQueryParam("after", WireMock.matching(".*"))
+                        .willReturn(WireMock
+                                .aResponse()
+                                .withStatus(200)
+                                .withHeader("Content-Type", "application/json")
+                                .withBody(body)));
+    }
+
+    private void cacheAssetIngestEnabled(boolean enabled) {
+        PlatformSettingsDto settings = new PlatformSettingsDto();
+        settings.setUtils(new UtilsSettingsDto());
+        settings.getUtils().setCbomRepositoryUrl("http://localhost:" + repository.port());
+        settings.getUtils().setCbomSyncAssetIngestEnabled(enabled);
+        settingsCache.cacheSettings(SettingsSection.PLATFORM, settings);
     }
 
     private void stubPage(String param, String value, String body, String linkHeader) {

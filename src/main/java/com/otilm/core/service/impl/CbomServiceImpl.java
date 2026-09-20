@@ -35,10 +35,10 @@ import com.otilm.core.cbom.client.CbomRepositoryClient;
 import com.otilm.core.cbom.ingest.CbomAssetDetachService;
 import com.otilm.core.cbom.ingest.CbomAssetIngestService;
 import com.otilm.core.cbom.sync.CbomSyncPolicy;
+import com.otilm.core.cbom.sync.CbomSyncPolicyProvider;
 import com.otilm.core.cbom.sync.CbomSyncSkipSearch;
 import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.comparator.SearchFieldDataComparator;
-import com.otilm.core.config.CbomSyncProperties;
 import com.otilm.core.dao.CryptoAssetConstraintTranslator;
 import com.otilm.core.dao.entity.Cbom;
 import com.otilm.core.dao.entity.Cbom_;
@@ -133,8 +133,8 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      * <p>
      * Nothing else bounds it: {@link SyncRun#deferred} grows with the listing, and the whole-listing pass lists the
      * estate. A repository that serves its listing but not its documents would otherwise charge every entry Core does
-     * not already hold, once a Sunday, and write the estate off in as few as {@code cbom.sync.skipped-retry-runs + 1}
-     * of them -- one, at the {@code 0} that configuration allows.
+     * not already hold, once a Sunday, and write the estate off in as few as {@code cbomSyncSkippedRetryRuns + 1} of
+     * them -- one, at the {@code 0} that configuration allows.
      *
      * <p>
      * A thousand rather than a fraction of the listing, because the quantity the budget is spent in is entries, not
@@ -173,7 +173,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
 
     private ListingSortResolver listingSortResolver;
 
-    private CbomSyncProperties syncProperties;
+    private CbomSyncPolicyProvider syncPolicyProvider;
 
     private CbomSyncSkipWriter syncSkipWriter;
 
@@ -229,8 +229,8 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
     }
 
     @Autowired
-    public void setSyncProperties(CbomSyncProperties syncProperties) {
-        this.syncProperties = syncProperties;
+    public void setSyncPolicyProvider(CbomSyncPolicyProvider syncPolicyProvider) {
+        this.syncPolicyProvider = syncPolicyProvider;
     }
 
     @Autowired
@@ -490,7 +490,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      */
     private void withdrawForDeletion(UUID uuid) {
         try {
-            assetDetachService.withdrawWaiting(uuid);
+            assetDetachService.withdrawWaiting(uuid, syncPolicyProvider.current().assetBatchSize());
         } catch (RuntimeException e) {
             recordPartialWithdrawal(uuid, e);
             final String safeMessage = safeDeleteFailureMessage(e);
@@ -641,7 +641,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
                 continue;
             }
             try {
-                assetDetachService.withdrawWaiting(uuid);
+                assetDetachService.withdrawWaiting(uuid, syncPolicyProvider.current().assetBatchSize());
             } catch (RuntimeException ex) {
                 // Only if it withdrew something. Every batch commits on its own, so a withdrawal that threw may have
                 // emptied part of the inventory -- but one that threw before its first commit did not, and recording
@@ -862,12 +862,13 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      */
     private String runSync(SyncScope scope) throws CbomRepositoryException {
         // Read once, here: a policy changed in the Settings UI applies to the next run, never to half of this one.
-        final CbomSyncPolicy policy = CbomSyncPolicy.fromSettingsCache();
+        final CbomSyncPolicy policy = syncPolicyProvider.current();
         final SyncRun run = new SyncRun(OffsetDateTime.now(), policy);
         logger
                 .getLogger()
-                .info("CBOM Sync: started with an overlap of {} seconds, a retry budget of {} runs and an ingest budget of {} documents",
-                        policy.overlap().toSeconds(), policy.skippedRetryRuns(), policy.maxIngestDocuments());
+                .info("CBOM Sync: started with an overlap of {} seconds, a retry budget of {} runs, an ingest budget of {} documents and asset ingest {}",
+                        policy.overlap().toSeconds(), policy.skippedRetryRuns(), policy.maxIngestDocuments(),
+                        policy.assetIngestEnabled() ? "on" : "off");
         final Map<SyncIdentity, CbomSyncSkip> skips = loadSkipRecords();
 
         readFeed(run, skips, scope);
@@ -937,7 +938,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         // The whole-listing pass opens at 0, so the overlap the hourly pass needs against a late-arriving entry is
         // not read at all: there is no watermark to step back from.
         query.setAfter(scope == SyncScope.THE_WHOLE_LISTING ? 0L : getLastSyncTimestamp(run.policy.overlap()));
-        query.setLimit(syncProperties.pageSize());
+        query.setLimit(run.policy.pageSize());
         logger.getLogger().debug("CBOM sync: listing entries created after {}", query.getAfter());
 
         final Set<URI> requestedPages = new HashSet<>();
@@ -983,7 +984,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      * a clean run over what may be only the first {@code page-size} entries of the listing.
      */
     private void warnIfTheOpeningPageLooksUnpaged(SyncRun run, BomSearchPage page) {
-        if (run.pages == 1 && page.entries().size() >= syncProperties.pageSize()) {
+        if (run.pages == 1 && page.entries().size() >= run.policy.pageSize()) {
             logger
                     .getLogger()
                     .warn("CBOM Sync: the opening page holds {} entries (the requested limit) but carries no Link header; a cbom-repository older than 0.3.0 does not page, so this run may have been truncated. Upgrade every repository replica to 0.3.0 or newer",
@@ -1212,11 +1213,11 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      * got no skip record at all, skip the backlog pass, and leave the watermark to re-read the whole window next run.
      */
     private void ingestInline(UUID cbomUuid, Map<String, Object> document, SyncRun run) {
-        if (!syncProperties.assetIngestEnabled()) {
+        if (!run.policy.assetIngestEnabled()) {
             return;
         }
         try {
-            countIngest(assetIngestService.ingest(cbomUuid, document, run.startedAt), run);
+            countIngest(assetIngestService.ingest(cbomUuid, document, run.startedAt, run.policy), run);
         } catch (RuntimeException e) {
             logger
                     .getLogger()
@@ -1293,7 +1294,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      * to charge, and an estate's worth of them is the document store. Nothing else bounds that -- {@code deferred}
      * grows with the listing, and this pass lists the estate -- so a repository serving its listing but not its
      * documents would charge every entry Core does not hold, once a Sunday, and write the estate off in as few as
-     * {@code cbom.sync.skipped-retry-runs + 1} of them.
+     * {@code cbomSyncSkippedRetryRuns + 1} of them.
      *
      * <p>
      * <b>The cap does not sit ahead of the other arms</b>, and that ordering is the rule rather than an accident. A run
@@ -1568,14 +1569,14 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      * holds must never span an HTTP call.
      */
     private void ingestPending(SyncRun run) {
-        if (!syncProperties.assetIngestEnabled() || run.policy.maxIngestDocuments() == 0) {
+        if (!run.policy.assetIngestEnabled() || run.policy.maxIngestDocuments() == 0) {
             return;
         }
         final int budget = run.policy.maxIngestDocuments();
         final List<Cbom> workList = new ArrayList<>(
                 cbomRepository.findPendingAssetIngests(CbomAssetSyncState.PENDING, Limit.of(budget)));
         if (workList.size() < budget) {
-            final OffsetDateTime retryBefore = run.startedAt.minus(syncProperties.ingestRetryAfter());
+            final OffsetDateTime retryBefore = run.startedAt.minus(run.policy.ingestRetryAfter());
             workList
                     .addAll(cbomRepository
                             .findAssetIngestRetries(INGEST_RETRY_STATES, retryBefore,
@@ -1655,7 +1656,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
                     .warn("CBOM asset ingest: the CBOM Repository answered no document read of this run ({} documents); leaving them for a later run",
                             deferred.size());
             // The claims bought nothing, so they are given back: a row left IN_PROGRESS by an outage claims work no
-            // node is doing, and it would wait out cbom.sync.ingest-retry-after instead of being offered again at
+            // node is doing, and it would wait out cbomSyncIngestRetryAfterSeconds instead of being offered again at
             // once.
             deferred.forEach(entry -> assetSyncStateWriter.releaseClaim(entry.cbom().getUuid(), entry.claimedFrom()));
             return;
@@ -1695,7 +1696,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         // documents discarded on arrival. It also settles a superseded revision whose old document has since been
         // removed upstream, which the read would otherwise report as a 404 failure retried for ever.
         final Optional<CbomAssetIngestService.IngestOutcome> settled = assetIngestService
-                .settleWithoutReading(cbom.getUuid());
+                .settleWithoutReading(cbom.getUuid(), run.policy);
         if (settled.isPresent()) {
             countIngest(settled.get(), run);
             return;
@@ -1731,7 +1732,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
             assetSyncStateWriter.markFailed(cbom.getUuid(), "the document could not be read (see the Core log)");
             return;
         }
-        countIngest(assetIngestService.ingest(cbom.getUuid(), document, run.startedAt), run);
+        countIngest(assetIngestService.ingest(cbom.getUuid(), document, run.startedAt, run.policy), run);
     }
 
     /** Whether the repository said nothing about this document in particular -- see {@link #store}'s same reading. */

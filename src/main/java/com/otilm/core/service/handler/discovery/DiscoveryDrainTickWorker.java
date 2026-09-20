@@ -197,7 +197,7 @@ public class DiscoveryDrainTickWorker {
         // Strictly after the handover commits. The acknowledgement lets the connector discard the run's whole
         // state, so sending it before a swap that might roll back would licence throwing away a run Core never
         // finished taking over. The handle is replayed onto the detached entity purely to make this one call.
-        run.setRunMeta(handover.get().releasedHandle());
+        run.setCheckpoint(handover.get().releasedHandle());
         sendFullAck(run, page.getHighestSequence());
         workProducer.produceMessage(new DiscoveryWorkMessage(discoveryUuid, DiscoveryWorkType.PROCESS, 0));
     }
@@ -249,7 +249,7 @@ public class DiscoveryDrainTickWorker {
      *
      * @return empty when no handover happened — the cursor is still behind, or another tick got there first; otherwise
      * a {@link Handover} carrying the released connector handle, which may itself be absent since the contract marks a
-     * run's {@code meta} optional
+     * run's {@code checkpoint} optional
      */
     private Optional<Handover> swapToProcessing(UUID discoveryUuid, Long highestSequence) {
         return transactionHandler.runInNewTransaction(() -> {
@@ -268,11 +268,11 @@ public class DiscoveryDrainTickWorker {
                                 acknowledged, highestSequence);
                 return Optional.empty();
             }
-            List<MetadataAttribute> handle = locked.getRunMeta();
+            List<MetadataAttribute> handle = locked.getCheckpoint();
             locked.setStatus(DiscoveryStatus.PROCESSING);
             // The connector owns nothing from here on, so its run handle is released with the same write
             // that hands the run to processing.
-            locked.setRunMeta(null);
+            locked.setCheckpoint(null);
             // Delete then schedule inside one transaction: a live run's agenda must never be observably
             // empty, or the reaper would read it as lost work.
             workWriter.deleteForRun(discoveryUuid);
@@ -328,9 +328,9 @@ public class DiscoveryDrainTickWorker {
      *
      * <p>
      * A type rather than a nullable handle, because the handle itself is legitimately absent: the contract marks a
-     * run's {@code meta} optional, so "no handle" and "no handover" are different answers that a bare null conflated —
-     * and reading a handle-less handover as "no swap" skipped both the {@code PROCESS} publication and the full
-     * acknowledgement for a run that had in fact handed over.
+     * run's {@code checkpoint} optional, so "no handle" and "no handover" are different answers that a bare null
+     * conflated — and reading a handle-less handover as "no swap" skipped both the {@code PROCESS} publication and the
+     * full acknowledgement for a run that had in fact handed over.
      */
     private record Handover(List<MetadataAttribute> releasedHandle) {
     }

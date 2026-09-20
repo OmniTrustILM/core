@@ -31,10 +31,12 @@ import com.otilm.api.model.core.connector.v2.ConnectorDetailDto;
 import com.otilm.api.model.core.connector.v2.ConnectorDto;
 import com.otilm.api.model.core.connector.v2.ConnectorRequestDto;
 import com.otilm.api.model.core.connector.v2.ConnectorUpdateRequestDto;
+import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.Credential;
+import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.EntityInstanceReference;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.VaultInstance;
@@ -42,6 +44,7 @@ import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.CredentialRepository;
+import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.EntityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.VaultInstanceRepository;
@@ -51,6 +54,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.v2.ConnectorExternalService;
 import com.otilm.core.service.v2.ConnectorInternalService;
+import com.otilm.core.service.writer.DiscoveryWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import java.util.ArrayList;
 import java.util.List;
@@ -90,6 +94,8 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
 
     @Autowired
     private ConnectorInterfaceRepository connectorInterfaceRepository;
+    @Autowired
+    private DiscoveryWriter discoveryWriter;
 
     @Autowired
     private CredentialRepository credentialRepository;
@@ -105,6 +111,8 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
 
     @Autowired
     private AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;
+    @Autowired
+    private DiscoveryRepository discoveryRepository;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -275,6 +283,123 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
         Assertions
                 .assertThrows(NotFoundException.class, () -> connectorService
                         .deleteConnector(SecuredUUID.fromString("abfbc322-29e1-11ed-a261-0242ac120002")));
+    }
+
+    /**
+     * A discovery run is history and outlives its connector, as v1 runs always have. In production its interface
+     * reference is a RESTRICT foreign key, so a plain delete has to release it or the connector's interfaces cannot
+     * cascade away and the delete fails.
+     */
+    @Test
+    void deletingAConnectorReleasesTheDiscoveryRunsBoundToItsInterfaces() throws NotFoundException {
+        ConnectorInterfaceEntity discoveryInterface = new ConnectorInterfaceEntity();
+        discoveryInterface.setConnectorUuid(connector.getUuid());
+        discoveryInterface.setInterfaceCode(ConnectorInterface.DISCOVERY);
+        discoveryInterface.setVersion("v2");
+        discoveryInterface = connectorInterfaceRepository.save(discoveryInterface);
+        Discovery run = new Discovery();
+        run.setName("finished-run");
+        run.setConnectorUuid(connector.getUuid());
+        run.setConnectorName(CONNECTOR_NAME);
+        run.setStatus(DiscoveryStatus.COMPLETED);
+        run.setConnectorStatus(DiscoveryStatus.COMPLETED);
+        run.setConnectorInterfaceUuid(discoveryInterface.getUuid());
+        run = discoveryRepository.save(run);
+
+        connectorService.deleteConnector(connector.getSecuredUuid());
+
+        Discovery kept = discoveryRepository.findByUuid(run.getUuid()).orElseThrow();
+        Assertions.assertNull(kept.getConnectorInterfaceUuid(), "a run may not keep pointing at a deleted interface");
+        Assertions.assertEquals(CONNECTOR_NAME, kept.getConnectorName(), "the run stays as history");
+        Assertions.assertTrue(connectorInterfaceRepository.findById(discoveryInterface.getUuid()).isEmpty());
+    }
+
+    /**
+     * A live run is driven by its interface association: releasing it would route the run to the v1 adapter, hide it
+     * from the reaper and leave its agenda and the connector-side scan orphaned. So a plain delete refuses, as it does
+     * for every other dependent.
+     */
+    @Test
+    void deletingAConnectorIsRefusedWhileADiscoveryRunBoundToItIsLive() {
+        Discovery run = liveRunBoundTo(discoveryInterfaceOf(connector));
+
+        SecuredUUID connectorUuid = connector.getSecuredUuid();
+        ValidationException refused = assertThrows(ValidationException.class,
+                () -> connectorService.deleteConnector(connectorUuid));
+
+        assertThat(refused.getMessage()).contains("discovery run").contains(run.getName());
+        Discovery untouched = discoveryRepository.findByUuid(run.getUuid()).orElseThrow();
+        assertThat(untouched.getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
+        assertThat(untouched.getConnectorInterfaceUuid()).isNotNull();
+        assertThat(connectorRepository.findByUuid(connector.getUuid())).isPresent();
+    }
+
+    /** Force delete is for a connector that is gone or broken, so it ends the live runs itself rather than refusing. */
+    @Test
+    void forceDeletingAConnectorEndsItsLiveDiscoveryRunsBeforeReleasingThem() {
+        Discovery run = liveRunBoundTo(discoveryInterfaceOf(connector));
+
+        List<BulkActionMessageDto> messages = connectorService
+                .forceDeleteConnector(List.of(connector.getSecuredUuid()));
+
+        assertThat(messages).isEmpty();
+        Discovery ended = discoveryRepository.findByUuid(run.getUuid()).orElseThrow();
+        assertThat(ended.getStatus()).isEqualTo(DiscoveryStatus.CANCELLED);
+        assertThat(ended.getMessage()).contains("was deleted");
+        assertThat(ended.getConnectorInterfaceUuid()).isNull();
+        assertThat(connectorRepository.findByUuid(connector.getUuid())).isEmpty();
+    }
+
+    /**
+     * Only what has ended is released. A run created between the live-run check and the release would otherwise lose
+     * its association and go on as a v1 run; keeping it bound makes the connector's delete fail on the reference
+     * instead.
+     */
+    @Test
+    void releasingInterfacesLeavesALiveRunBound() {
+        ConnectorInterfaceEntity discoveryInterface = discoveryInterfaceOf(connector);
+        Discovery live = liveRunBoundTo(discoveryInterface);
+
+        int released = discoveryWriter.releaseConnectorInterfaces(List.of(discoveryInterface.getUuid()));
+
+        assertThat(released).isZero();
+        assertThat(discoveryRepository.findByUuid(live.getUuid()).orElseThrow().getConnectorInterfaceUuid())
+                .isEqualTo(discoveryInterface.getUuid());
+    }
+
+    /**
+     * The refusal names the runs in the way, up to a point: an operator needs to know there are many, not all of them.
+     */
+    @Test
+    void aRefusalOverManyLiveRunsNamesOnlySoMany() {
+        ConnectorInterfaceEntity discoveryInterface = discoveryInterfaceOf(connector);
+        for (int i = 0; i < 12; i++) {
+            liveRunBoundTo(discoveryInterface);
+        }
+
+        ValidationException refused = assertThrows(ValidationException.class,
+                () -> connectorService.deleteConnector(connector.getSecuredUuid()));
+
+        assertThat(refused.getMessage()).contains("and 2 more");
+    }
+
+    private ConnectorInterfaceEntity discoveryInterfaceOf(Connector owner) {
+        ConnectorInterfaceEntity discoveryInterface = new ConnectorInterfaceEntity();
+        discoveryInterface.setConnectorUuid(owner.getUuid());
+        discoveryInterface.setInterfaceCode(ConnectorInterface.DISCOVERY);
+        discoveryInterface.setVersion("v2");
+        return connectorInterfaceRepository.save(discoveryInterface);
+    }
+
+    private Discovery liveRunBoundTo(ConnectorInterfaceEntity discoveryInterface) {
+        Discovery run = new Discovery();
+        run.setName("live-run-" + UUID.randomUUID());
+        run.setConnectorUuid(connector.getUuid());
+        run.setConnectorName(CONNECTOR_NAME);
+        run.setStatus(DiscoveryStatus.IN_PROGRESS);
+        run.setConnectorStatus(DiscoveryStatus.IN_PROGRESS);
+        run.setConnectorInterfaceUuid(discoveryInterface.getUuid());
+        return discoveryRepository.save(run);
     }
 
     @Test
@@ -648,6 +773,27 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
         Assertions.assertEquals("00000000-0000-0000-0000-000000000001", messages.getFirst().getUuid());
         Assertions.assertNotNull(messages.getFirst().getMessage());
         Assertions.assertEquals("", messages.getFirst().getName());
+    }
+
+    @Test
+    void testForceDeleteConnector_deleteFailure_rollsBackWhatItAlreadyDestroyed() {
+        Discovery run = liveRunBoundTo(discoveryInterfaceOf(connector));
+        Credential credential = new Credential();
+        credential.setName("attached-" + UUID.randomUUID());
+        credential.setKind("Basic");
+        credential.setConnectorUuid(connector.getUuid());
+        credential = credentialRepository.saveAndFlush(credential);
+        doThrow(new RuntimeException("DB delete error")).when(connectorRepositorySpy).delete(any());
+
+        List<BulkActionMessageDto> messages = connectorService
+                .forceDeleteConnector(List.of(connector.getSecuredUuid()));
+
+        assertThat(messages).hasSize(1);
+        Discovery stillLive = discoveryRepository.findByUuid(run.getUuid()).orElseThrow();
+        assertThat(stillLive.getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
+        assertThat(stillLive.getConnectorInterfaceUuid()).isNotNull();
+        assertThat(credentialRepository.findByUuid(credential.getUuid()).orElseThrow().getConnectorUuid())
+                .isEqualTo(connector.getUuid());
     }
 
     @Test

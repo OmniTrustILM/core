@@ -19,12 +19,15 @@ import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.model.discovery.DiscoveryMessageCode;
 import com.otilm.core.model.discovery.DiscoveryMessageDraft;
+import com.otilm.core.model.discovery.DiscoveryProgressSnapshot;
 import com.otilm.core.model.discovery.DiscoveryRunLifecycle;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
 import com.otilm.core.service.handler.CertificateHandler;
 import com.otilm.core.service.writer.discovery.DiscoveryItemWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Validator;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -63,11 +66,12 @@ public class DiscoveryEventIngestor {
     private final CryptographicKeyItemRepository keyItemRepository;
     private final DiscoveryCertificateRepository certificateRepository;
     private final DiscoveryMessageWriter messageWriter;
+    private final Validator validator;
 
     public DiscoveryEventIngestor(DiscoveryRepository discoveryRepository, DiscoveryItemWriter itemWriter,
             DiscoveryWorkWriter workWriter, CertificateHandler certificateHandler,
             CryptographicKeyItemRepository keyItemRepository, DiscoveryCertificateRepository certificateRepository,
-            DiscoveryMessageWriter messageWriter) {
+            DiscoveryMessageWriter messageWriter, Validator validator) {
         this.discoveryRepository = discoveryRepository;
         this.itemWriter = itemWriter;
         this.workWriter = workWriter;
@@ -75,6 +79,7 @@ public class DiscoveryEventIngestor {
         this.keyItemRepository = keyItemRepository;
         this.certificateRepository = certificateRepository;
         this.messageWriter = messageWriter;
+        this.validator = validator;
     }
 
     /**
@@ -102,19 +107,34 @@ public class DiscoveryEventIngestor {
             return false;
         }
         recordMalformed(run, items);
+        List<DiscoveredItemDto> conformant = dropNonConformant(run, items);
 
         long cursor = run.getLastAppliedSequence();
-        List<DiscoveredItemDto> fresh = items.stream().filter(item -> sequenceOf(item) > cursor).toList();
+        List<DiscoveredItemDto> fresh = conformant.stream().filter(item -> sequenceOf(item) > cursor).toList();
         stage(run, fresh);
 
         long highestReceived = items.stream().mapToLong(DiscoveryEventIngestor::sequenceOf).max().orElse(cursor);
         if (highestReceived > cursor) {
             run.setLastAppliedSequence(highestReceived);
         }
+        recordCertificatesStagedSoFar(run);
         logger
                 .debug("Staged {} of {} drained items for discovery {}; cursor {} -> {}", fresh.size(), items.size(),
                         discoveryUuid, cursor, run.getLastAppliedSequence());
         return run.getLastAppliedSequence() > cursor;
+    }
+
+    /**
+     * Keeps the run's certificate total current as pages land: it is the only yield figure the discovery listing
+     * carries, so a live run must not show none until it ends.
+     *
+     * <p>
+     * Counted rather than accumulated: staging skips a certificate already staged for this run, so adding the page size
+     * would drift upward on every re-send. The terminal write in {@code DiscoveryRunTerminator} has the last word and
+     * agrees with this by then.
+     */
+    private void recordCertificatesStagedSoFar(Discovery run) {
+        run.setTotalCertificatesDiscovered(certificateRepository.countByDiscovery(run).intValue());
     }
 
     /**
@@ -136,7 +156,7 @@ public class DiscoveryEventIngestor {
             return;
         }
         switch (event.getType()) {
-            case PROGRESS -> run.setProgress(snapshotOf((DiscoveryProgressEvent) event));
+            case PROGRESS -> applyProgress(run, (DiscoveryProgressEvent) event);
             case ERROR -> {
                 DiscoveryErrorEvent error = (DiscoveryErrorEvent) event;
                 // The connector's code identifies the problem; its prose goes to the log rather than to the
@@ -183,6 +203,51 @@ public class DiscoveryEventIngestor {
                         new DiscoveryMessageDraft(DiscoveryMessageSeverity.WARNING,
                                 DiscoveryMessageCode.ITEM_SEQUENCE_MISSING,
                                 "A discovered item arrived without a sequence and was skipped.", refs.size()));
+    }
+
+    /**
+     * Holds each item to the wire contract before anything of it is stored. The REST and MQ clients deserialize without
+     * a validator, so the contract's constraints, above all that a key item carries no private key material, run
+     * nowhere else. A violating item is skipped and named to the operator by the rule it broke; the cursor still steps
+     * over it, since the connector re-sending it cannot make it valid. An item already recorded as sequence-less is not
+     * reported a second time.
+     */
+    private List<DiscoveredItemDto> dropNonConformant(Discovery run, List<DiscoveredItemDto> items) {
+        List<DiscoveredItemDto> conformant = new ArrayList<>(items.size());
+        Map<String, Long> skippedByRule = new LinkedHashMap<>();
+        for (DiscoveredItemDto item : items) {
+            if (item.getSequence() == null) {
+                continue;
+            }
+            Set<ConstraintViolation<DiscoveredItemDto>> violations = validator.validate(item);
+            if (violations.isEmpty()) {
+                conformant.add(item);
+                continue;
+            }
+            String rule = violations
+                    .stream()
+                    .map(ConstraintViolation::getMessage)
+                    .sorted()
+                    .collect(Collectors.joining("; "));
+            skippedByRule.merge(rule, 1L, Long::sum);
+        }
+        if (!skippedByRule.isEmpty()) {
+            logger
+                    .warn("Discovery {} received {} item(s) breaking the wire contract; skipped", run.getUuid(),
+                            skippedByRule.values().stream().mapToLong(Long::longValue).sum());
+            messageWriter
+                    .appendAll(run.getUuid(),
+                            skippedByRule
+                                    .entrySet()
+                                    .stream()
+                                    .map(byRule -> new DiscoveryMessageDraft(DiscoveryMessageSeverity.WARNING,
+                                            DiscoveryMessageCode.ITEM_INVALID,
+                                            "A discovered item broke the contract and was skipped: %s."
+                                                    .formatted(byRule.getKey()),
+                                            byRule.getValue()))
+                                    .toList());
+        }
+        return conformant;
     }
 
     /**
@@ -305,6 +370,9 @@ public class DiscoveryEventIngestor {
         data.setUuid(item.getUniqueRef());
         data.setBase64Content(certificate.getCertificateData());
         data.setMeta(item.getMeta() == null ? List.of() : item.getMeta());
+        // The connector's own run-wide number and timestamp; DiscoveryCertificate#sequence says what a v1 row gets.
+        data.setSequence(item.getSequence());
+        data.setDiscoveredAt(item.getDiscoveredAt());
         return data;
     }
 
@@ -350,13 +418,25 @@ public class DiscoveryEventIngestor {
     }
 
     /**
+     * A pushed report is held to the same bar as a polled one, and for the same reason — see
+     * {@link DiscoveryProgressSnapshot#reportsSomething}.
+     */
+    private static void applyProgress(Discovery run, DiscoveryProgressEvent event) {
+        DiscoveryProgressDto snapshot = snapshotOf(event);
+        if (DiscoveryProgressSnapshot.reportsSomething(snapshot)) {
+            run.setProgress(DiscoveryProgressSnapshot.recorded(snapshot));
+        }
+    }
+
+    /**
      * Copies fields rather than storing the event as-is, since the column holds the plain snapshot shape.
      */
     private static DiscoveryProgressDto snapshotOf(DiscoveryProgressEvent event) {
         DiscoveryProgressDto snapshot = new DiscoveryProgressDto();
-        snapshot.setProcessed(event.getProcessed());
-        snapshot.setTotalEstimate(event.getTotalEstimate());
+        snapshot.setTargetsProcessed(event.getTargetsProcessed());
+        snapshot.setTargetsTotal(event.getTargetsTotal());
         snapshot.setPhase(event.getPhase());
+        snapshot.setTargetsFailed(event.getTargetsFailed());
         snapshot.setByResource(event.getByResource());
         return snapshot;
     }

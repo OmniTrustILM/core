@@ -30,6 +30,7 @@ import com.otilm.core.cbom.asset.AssetRowKeys;
 import com.otilm.core.cbom.asset.CryptoAssetIdentityFields;
 import com.otilm.core.cbom.ingest.CbomAssetDetachService;
 import com.otilm.core.cbom.ingest.CbomAssetIngestService;
+import com.otilm.core.cbom.sync.CbomSyncPolicy;
 import com.otilm.core.dao.entity.Cbom;
 import com.otilm.core.dao.entity.ScheduledJob;
 import com.otilm.core.dao.entity.ScheduledJobHistory;
@@ -1247,7 +1248,7 @@ class CbomServiceITest extends BaseSpringBootTest {
      * A refusal the document earned is deterministic -- the same bytes produce the same verdict -- so the backlog gives
      * up on it once it has been reached {@link CbomAssetIngestService#MAX_CONTENT_REFUSALS} times. Before the count
      * existed, such a document was re-read over HTTP, re-extracted and re-refused every run for ever, taking one of
-     * {@code cbom.sync.max-ingest-documents} slots each time.
+     * {@code cbomSyncMaxIngestDocuments} slots each time.
      */
     @Test
     void theRetryListStopsOfferingADocumentThatKeepsEarningItsRefusal() {
@@ -1751,8 +1752,8 @@ class CbomServiceITest extends BaseSpringBootTest {
     }
 
     /**
-     * The reach the hourly pass does not have. {@code cbom.sync.overlap} and the skip retry cover an entry the feed
-     * offered and Core then failed on; neither covers one the feed only ever offered behind the watermark. The
+     * The reach the hourly pass does not have. {@code cbomSyncOverlapSeconds} and the skip retry cover an entry the
+     * feed offered and Core then failed on; neither covers one the feed only ever offered behind the watermark. The
      * repository is stubbed for {@code after=0} alone, so a run that asked for the hourly window would get no answer at
      * all.
      */
@@ -1975,7 +1976,9 @@ class CbomServiceITest extends BaseSpringBootTest {
         cbom.setAssetSyncState(CbomAssetSyncState.SYNCED);
         final UUID savedUuid = cbomRepository.save(cbom).getUuid();
 
-        doThrow(new RuntimeException("advisory lock error")).when(detachServiceSpy).withdrawWaiting(savedUuid);
+        doThrow(new RuntimeException("advisory lock error"))
+                .when(detachServiceSpy)
+                .withdrawWaiting(savedUuid, CbomSyncPolicy.DEFAULT_ASSET_BATCH_SIZE);
 
         List<BulkActionMessageDto> messages = cbomService.bulkDeleteCbom(List.of(savedUuid));
 
@@ -2106,7 +2109,7 @@ class CbomServiceITest extends BaseSpringBootTest {
         doThrow(new CbomAssetDetachService.WithdrawalFailedException(
                 new CbomAssetDetachService.Withdrawal(100, 4, 0, false), new RuntimeException("deadlock victim")))
                 .when(detachServiceSpy)
-                .withdrawWaiting(savedUuid);
+                .withdrawWaiting(savedUuid, CbomSyncPolicy.DEFAULT_ASSET_BATCH_SIZE);
 
         List<BulkActionMessageDto> messages = cbomService.bulkDeleteCbom(List.of(savedUuid));
 
@@ -2121,7 +2124,7 @@ class CbomServiceITest extends BaseSpringBootTest {
      *
      * <p>
      * Flipping PENDING to FAILED would move the row off the fast pending list onto the retry list -- a
-     * {@code cbom.sync.ingest-retry-after} window of delay -- under a sentence that is untrue of it: nothing was
+     * {@code cbomSyncIngestRetryAfterSeconds} window of delay -- under a sentence that is untrue of it: nothing was
      * withdrawn.
      */
     @Test
@@ -2221,7 +2224,7 @@ class CbomServiceITest extends BaseSpringBootTest {
         // survives into the header delete, which is how a real refusal is reached without a second node.
         doReturn(new CbomAssetDetachService.Withdrawal(0, 0, 0, true))
                 .when(detachServiceSpy)
-                .withdrawWaiting(savedUuid);
+                .withdrawWaiting(savedUuid, CbomSyncPolicy.DEFAULT_ASSET_BATCH_SIZE);
 
         List<BulkActionMessageDto> messages = cbomService.bulkDeleteCbom(List.of(savedUuid));
 
@@ -2307,7 +2310,7 @@ class CbomServiceITest extends BaseSpringBootTest {
 
         Cbom stored = cbomRepository.findAll().getFirst();
         syncStateWriter.markFailed(stored.getUuid(), "interrupted");
-        // The retry list holds a failed row back until cbom.sync.ingest-retry-after has passed, so the attempt is
+        // The retry list holds a failed row back until cbomSyncIngestRetryAfterSeconds has passed, so the attempt is
         // aged deliberately: this test is about redoing the unit, not about when a run offers to.
         Cbom failed = cbomRepository.findById(stored.getUuid()).orElseThrow();
         failed.setAssetSyncAttemptedAt(OffsetDateTime.now().minusHours(2));

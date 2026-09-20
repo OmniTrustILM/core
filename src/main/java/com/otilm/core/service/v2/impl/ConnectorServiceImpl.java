@@ -44,6 +44,7 @@ import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.ComplianceProfile;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.Connector2FunctionGroup;
+import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.Connector_;
 import com.otilm.core.dao.entity.Credential;
 import com.otilm.core.dao.entity.EntityInstanceReference;
@@ -57,6 +58,7 @@ import com.otilm.core.dao.repository.ComplianceProfileRuleRepository;
 import com.otilm.core.dao.repository.Connector2FunctionGroupRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.CredentialRepository;
+import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.EntityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.ProxyRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
@@ -68,14 +70,17 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.connector.ImmutableConnectorBasicModel;
 import com.otilm.core.model.connector.ImmutableConnectorFullModel;
 import com.otilm.core.model.connector.ImmutableConnectorInfo;
+import com.otilm.core.model.discovery.DiscoveryRunLifecycle;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CommentInternalService;
 import com.otilm.core.service.ConnectorAuthInternalService;
 import com.otilm.core.service.handler.ConnectorAdapter;
+import com.otilm.core.service.handler.discovery.DiscoveryRunTerminator;
 import com.otilm.core.service.v2.ConnectorExternalService;
 import com.otilm.core.service.v2.ConnectorInternalService;
+import com.otilm.core.service.writer.DiscoveryWriter;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import com.otilm.core.util.RequestValidatorHelper;
@@ -89,6 +94,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -119,6 +125,9 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
     private EntityInstanceReferenceRepository entityInstanceReferenceRepository;
     private TokenInstanceReferenceRepository tokenInstanceReferenceRepository;
     private VaultInstanceRepository vaultInstanceRepository;
+    private DiscoveryWriter discoveryWriter;
+    private DiscoveryRepository discoveryRepository;
+    private DiscoveryRunTerminator discoveryRunTerminator;
     private ComplianceProfileRepository complianceProfileRepository;
     private ComplianceProfileRuleRepository complianceProfileRuleRepository;
     private ProxyRepository proxyRepository;
@@ -161,6 +170,21 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
     @Autowired
     public void setCacheEvictor(CacheEvictor cacheEvictor) {
         this.cacheEvictor = cacheEvictor;
+    }
+
+    @Autowired
+    public void setDiscoveryWriter(DiscoveryWriter discoveryWriter) {
+        this.discoveryWriter = discoveryWriter;
+    }
+
+    @Autowired
+    public void setDiscoveryRepository(DiscoveryRepository discoveryRepository) {
+        this.discoveryRepository = discoveryRepository;
+    }
+
+    @Autowired
+    public void setDiscoveryRunTerminator(DiscoveryRunTerminator discoveryRunTerminator) {
+        this.discoveryRunTerminator = discoveryRunTerminator;
     }
 
     @Autowired
@@ -371,8 +395,16 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
             Connector connector = null;
             try {
                 connector = getConnectorEntity(uuid);
-                removeConnectorAssociations(connector);
-                deleteConnector(connector);
+                UUID connectorUuid = connector.getUuid();
+                // Its own transaction, with the catch outside it: the bulk contract needs that catch, but inside
+                // the caller's transaction a refused delete still commits the runs this ended and the associations it
+                // stripped.
+                transactionHandler.runInNewTransaction(() -> {
+                    Connector deleting = connectorRepository.findByUuid(connectorUuid).orElseThrow();
+                    endLiveDiscoveryRuns(deleting);
+                    removeConnectorAssociations(deleting);
+                    deleteConnector(deleting);
+                });
             } catch (Exception e) {
                 logger.error("Unable to force delete Connector", e);
                 messages
@@ -768,6 +800,51 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
         }
     }
 
+    /** How many live runs a refusal names before it counts the rest. */
+    private static final int DEPENDENT_RUNS_NAMED = 10;
+
+    private List<UUID> interfaceUuidsOf(Connector connector) {
+        return connector.getInterfaces().stream().map(ConnectorInterfaceEntity::getUuid).toList();
+    }
+
+    /**
+     * A live run is driven through its interface association: released, it would route to the v1 adapter, drop out of
+     * the reaper's view and leave its agenda and the connector-side scan orphaned. A plain delete refuses over these.
+     *
+     * @return the refusal's account of the live runs, or empty when there are none
+     */
+    private Optional<String> liveDiscoveryRunsBoundTo(Connector connector) {
+        if (connector.getInterfaces().isEmpty()) {
+            return Optional.empty();
+        }
+        List<UUID> interfaceUuids = interfaceUuidsOf(connector);
+        List<String> named = discoveryRepository
+                .findLiveRunNamesBoundTo(interfaceUuids, DiscoveryRunLifecycle.terminalStatuses(),
+                        PageRequest.of(0, DEPENDENT_RUNS_NAMED));
+        if (named.isEmpty()) {
+            return Optional.empty();
+        }
+        long unnamed = discoveryRepository
+                .countByConnectorInterfaceUuidInAndStatusNotIn(interfaceUuids, DiscoveryRunLifecycle.terminalStatuses())
+                - named.size();
+        return Optional.of(String.join(", ", named) + (unnamed > 0 ? " and " + unnamed + " more" : ""));
+    }
+
+    /** A force delete ends the runs a plain delete would refuse over; they stay as cancelled history. */
+    private void endLiveDiscoveryRuns(Connector connector) {
+        if (connector.getInterfaces().isEmpty()) {
+            return;
+        }
+        int ended = discoveryRunTerminator
+                .endRunsBoundTo(interfaceUuidsOf(connector),
+                        "Connector " + connector.getName() + " was deleted while this run was live");
+        if (ended > 0) {
+            logger
+                    .info("Ended {} live discovery run(s) of connector {} before deleting it", ended,
+                            connector.getUuid());
+        }
+    }
+
     private void deleteConnector(Connector connector) {
         List<String> errors = new ArrayList<>();
         if (!connector.getCredentials().isEmpty()) {
@@ -845,8 +922,23 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
             errors.add("Dependent Compliance Profiles: " + String.join(", ", complianceProfileNames));
         }
 
+        liveDiscoveryRunsBoundTo(connector)
+                .ifPresent(liveRuns -> errors.add("Dependent discovery runs still running: " + liveRuns));
+
         if (!errors.isEmpty()) {
             throw new ValidationException(ValidationError.create(String.join("\n", errors)));
+        }
+
+        // Runs stay as history; only their hold on the interfaces goes, see DiscoveryWriter#releaseConnectorInterfaces.
+        if (!connector.getInterfaces().isEmpty()) {
+            int released = discoveryWriter
+                    .releaseConnectorInterfaces(
+                            connector.getInterfaces().stream().map(ConnectorInterfaceEntity::getUuid).toList());
+            if (released > 0) {
+                logger
+                        .debug("Released {} discovery run(s) from the interfaces of connector {}", released,
+                                connector.getUuid());
+            }
         }
 
         // remove connector attribute definitions and content if they are only dependent resources

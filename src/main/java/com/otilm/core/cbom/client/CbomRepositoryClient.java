@@ -4,7 +4,7 @@ import com.otilm.api.exception.CbomRepositoryException;
 import com.otilm.api.model.core.cbom.CbomUploadRequestDto;
 import com.otilm.api.model.core.settings.PlatformSettingsDto;
 import com.otilm.api.model.core.settings.SettingsSection;
-import com.otilm.core.config.CbomSyncProperties;
+import com.otilm.api.model.core.settings.UtilsSettingsDto;
 import com.otilm.core.model.cbom.BomCreateResponseDto;
 import com.otilm.core.model.cbom.BomEntryDto;
 import com.otilm.core.model.cbom.BomResponseDto;
@@ -87,9 +87,11 @@ public class CbomRepositoryClient {
      */
     public BomSearchPage search(final BomSearchRequestDto query) throws CbomRepositoryException {
         final Integer limit = query.getLimit();
-        if (limit != null && (limit < CbomSyncProperties.MIN_PAGE_SIZE || limit > CbomSyncProperties.MAX_PAGE_SIZE)) {
+        if (limit != null && (limit < UtilsSettingsDto.MIN_CBOM_SYNC_PAGE_SIZE
+                || limit > UtilsSettingsDto.MAX_CBOM_SYNC_PAGE_SIZE)) {
             throw new IllegalArgumentException("CBOM Repository search limit must be within %d..%d, was %d"
-                    .formatted(CbomSyncProperties.MIN_PAGE_SIZE, CbomSyncProperties.MAX_PAGE_SIZE, limit));
+                    .formatted(UtilsSettingsDto.MIN_CBOM_SYNC_PAGE_SIZE, UtilsSettingsDto.MAX_CBOM_SYNC_PAGE_SIZE,
+                            limit));
         }
         final String baseUrl = getCbomRepositoryBaseUrl();
         final UriComponentsBuilder builder = UriComponentsBuilder

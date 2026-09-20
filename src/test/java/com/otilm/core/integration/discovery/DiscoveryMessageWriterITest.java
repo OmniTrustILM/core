@@ -3,14 +3,18 @@ package com.otilm.core.integration.discovery;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.discovery.DiscoveryMessageSeverity;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
+import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryMessage;
+import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
+import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryMessageRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.model.discovery.DiscoveryMessageCode;
 import com.otilm.core.model.discovery.DiscoveryMessageDraft;
 import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.DiscoveryInterfaceFixture;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.util.List;
@@ -46,6 +50,10 @@ class DiscoveryMessageWriterITest extends BaseSpringBootTest {
     private DiscoveryMessageRepository messageRepository;
     @Autowired
     private DiscoveryRepository discoveryRepository;
+    @Autowired
+    private ConnectorRepository connectorRepository;
+    @Autowired
+    private ConnectorInterfaceRepository connectorInterfaceRepository;
     @PersistenceContext
     private EntityManager entityManager;
 
@@ -240,9 +248,11 @@ class DiscoveryMessageWriterITest extends BaseSpringBootTest {
         run.setKind("IP-HostName");
         run.setStatus(DiscoveryStatus.IN_PROGRESS);
         run.setConnectorStatus(DiscoveryStatus.IN_PROGRESS);
-        run.setConnectorUuid(UUID.randomUUID());
+        ConnectorInterfaceEntity discoveryInterface = DiscoveryInterfaceFixture
+                .v2Interface(connectorRepository, connectorInterfaceRepository);
+        run.setConnectorUuid(discoveryInterface.getConnectorUuid());
         run.setConnectorName("network-discovery");
-        run.setConnectorInterfaceUuid(UUID.randomUUID());
+        run.setConnectorInterfaceUuid(discoveryInterface.getUuid());
         run.setResources(List.of(Resource.CERTIFICATE));
         return discoveryRepository.saveAndFlush(run);
     }

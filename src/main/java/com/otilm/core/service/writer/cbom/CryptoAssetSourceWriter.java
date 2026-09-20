@@ -116,12 +116,11 @@ public class CryptoAssetSourceWriter {
      * operator's merge decision along with it.
      *
      * <p>
-     * <b>The API's delete path still does not call this.</b> {@code CbomServiceImpl} must withdraw every asset a CBOM
-     * contributes to before deleting the row, because {@code crypto_asset_source_to_cbom_key} is RESTRICT; until it
-     * does, a CBOM that has acquired a source cannot be deleted through the API at all. Ingest is what writes those
-     * rows, so the exposure is live from core#2073 and {@code cbom.sync.asset-ingest-enabled} is what bounds it:
-     * turning ingest off stops any further CBOM acquiring sources. The supersede path here is the first caller of this
-     * unit of work, not the deletion lifecycle.
+     * <b>Two callers, and they reach this for opposite reasons.</b> The supersede path withdraws a revision a later one
+     * has taken the URN from. The API's delete path withdraws everything a CBOM contributed before deleting its row,
+     * because {@code crypto_asset_source_to_cbom_key} is RESTRICT and the row cannot go while a source names it. Both
+     * arrive through {@code CbomAssetDetachService}, which is what holds the cluster lock and applies the orphan rule;
+     * neither calls this directly.
      *
      * @return 1 if a source row was removed, 0 if there was none
      */
