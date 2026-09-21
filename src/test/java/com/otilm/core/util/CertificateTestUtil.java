@@ -17,6 +17,7 @@ import java.security.Signature;
 import java.security.SignatureException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -72,7 +73,7 @@ public class CertificateTestUtil {
         defaultKeyGen.initialize(2048);
         KeyPair defaultKeyPair = defaultKeyGen.generateKeyPair();
         Date notBefore = new Date();
-        Date notAfter = new Date(Long.MAX_VALUE);
+        Date notAfter = Date.from(Instant.parse("9999-12-31T23:59:59Z"));
         X509v3CertificateBuilder certBuilder = new JcaX509v3CertificateBuilder(new X500Name("CN=issuer"),
                 BigInteger.ONE, notBefore, notAfter, new X500Name("CN=subject"), defaultKeyPair.getPublic());
 
@@ -306,9 +307,9 @@ public class CertificateTestUtil {
     }
 
     /**
-     * Builds a self-signed RSA certificate with the given subject and, when any are supplied, a SAN extension holding
-     * the given general names verbatim. Converted through the BouncyCastle provider so SAN kinds a stricter JDK parser
-     * would reject survive into the certificate.
+     * Builds an RSA certificate with the given subject and, when any are supplied, a SAN extension holding the given
+     * general names verbatim. Self-signed unless the subject is empty, in which case a test issuer is used. Converted
+     * through the BouncyCastle provider so SAN kinds a stricter JDK parser would reject survive into the certificate.
      */
     public static X509Certificate createCertificateWithSubjectAndSans(String subjectDn, GeneralName... sans)
             throws NoSuchAlgorithmException, OperatorCreationException, CertificateException, IOException {
@@ -324,7 +325,8 @@ public class CertificateTestUtil {
         KeyPair keyPair = keyGen.generateKeyPair();
         Date notBefore = new Date();
         Date notAfter = new Date(System.currentTimeMillis() + 365L * 24 * 60 * 60 * 1000);
-        JcaX509v3CertificateBuilder certBuilder = new JcaX509v3CertificateBuilder(subject, BigInteger.ONE, notBefore,
+        X500Name issuer = subject.getRDNs().length == 0 ? new X500Name("CN=test-issuer") : subject;
+        JcaX509v3CertificateBuilder certBuilder = new JcaX509v3CertificateBuilder(issuer, BigInteger.ONE, notBefore,
                 notAfter, subject, keyPair.getPublic());
         if (sans.length > 0) {
             certBuilder.addExtension(Extension.subjectAlternativeName, false, new GeneralNames(sans));

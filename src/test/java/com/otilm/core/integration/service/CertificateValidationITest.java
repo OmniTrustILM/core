@@ -70,6 +70,7 @@ import java.security.cert.CertificateException;
 import java.security.cert.X509CRL;
 import java.security.cert.X509Certificate;
 import java.security.spec.InvalidKeySpecException;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -826,7 +827,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
 
         X500Name x500Name = new X500Name("CN=" + commonName);
         X509v3CertificateBuilder certificateBuilder = new X509v3CertificateBuilder(x500Name, serialNumber, new Date(0),
-                new Date(Long.MAX_VALUE), x500Name, subjectPublicKeyInfo);
+                Date.from(Instant.parse("9999-12-31T23:59:59Z")), x500Name, subjectPublicKeyInfo);
         CRLDistPoint crlDistPoint = new CRLDistPoint(createCrlDistributionPoints(crlUrls));
         certificateBuilder.addExtension(Extension.cRLDistributionPoints, false, crlDistPoint);
         if (deltaCrlUrls != null) {

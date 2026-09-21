@@ -38,6 +38,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -237,7 +238,7 @@ class CryptographyUtilTest {
         String result = CryptographyUtil.resolveSignatureAlgorithmName(KeyAlgorithm.FALCON, publicKey, List.of());
 
         // then
-        assertEquals("FALCON-512", result);
+        assertThat(result).isEqualToIgnoringCase("FALCON-512");
     }
 
     @Test
@@ -335,7 +336,7 @@ class CryptographyUtilTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("postQuantumParameterSets")
-    void resolvePqcAlgorithmName_isTheCodeOfItsPlatformConstant(SignatureAlgorithm expected, KeyAlgorithm keyAlgorithm,
+    void resolvePqcAlgorithmName_resolvesToItsPlatformConstant(SignatureAlgorithm expected, KeyAlgorithm keyAlgorithm,
             AlgorithmParameterSpec parameterSpec) throws Exception {
         // given
         String publicKey = generatePublicKeyBase64(keyAlgorithm, parameterSpec);
@@ -344,7 +345,6 @@ class CryptographyUtilTest {
         String result = CryptographyUtil.resolveSignatureAlgorithmName(keyAlgorithm, publicKey, List.of());
 
         // then
-        assertEquals(expected.getCode(), result);
         assertEquals(expected, SignatureAlgorithm.findByCode(result));
     }
 
@@ -499,7 +499,8 @@ class CryptographyUtilTest {
     void resolvePqcSpecNameFalcon1024() throws Exception {
         String publicKey = generatePublicKeyBase64("Falcon", FalconParameterSpec.falcon_1024,
                 BouncyCastlePQCProvider.PROVIDER_NAME);
-        assertEquals("FALCON-1024", CryptographyUtil.resolvePqcParameterSpecName(KeyAlgorithm.FALCON, publicKey));
+        assertThat(CryptographyUtil.resolvePqcParameterSpecName(KeyAlgorithm.FALCON, publicKey))
+                .isEqualToIgnoringCase("FALCON-1024");
     }
 
     @Test

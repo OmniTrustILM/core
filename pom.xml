@@ -19,6 +19,9 @@
              when a PR body carries a Depends-On or Interfaces-Version marker. -->
         <interfaces.version>2.20.0-SNAPSHOT</interfaces.version>
         <archunit.version>1.4.2</archunit.version>
+        <!-- CVE-2026-8763 and CVE-2026-13506 in Bouncy Castle 1.84.
+             Remove when the parent BOM manages at least this version. -->
+        <bouncycastle.version>1.85</bouncycastle.version>
         <!-- CVE-2026-65182, CVE-2026-65905, CVE-2026-68525 (auth/constraint bypasses in embedded Tomcat).
              The announced fix version 10.1.58 was never published; 10.1.59 is its released successor.
              Remove when the parent BOM manages at least this version. -->
