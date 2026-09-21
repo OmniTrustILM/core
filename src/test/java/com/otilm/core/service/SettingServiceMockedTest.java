@@ -1,18 +1,23 @@
 package com.otilm.core.service;
 
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.core.settings.CertificateRegistrationSettingsUpdateDto;
 import com.otilm.api.model.core.settings.CertificateSettingsUpdateDto;
 import com.otilm.api.model.core.settings.PlatformSettingsUpdateDto;
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.UtilsSettingsDto;
+import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsUpdateDto;
 import com.otilm.core.dao.repository.SettingRepository;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.impl.SettingServiceImpl;
 import com.otilm.core.settings.SettingsCache;
 import java.util.List;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -23,10 +28,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/**
- * The advisory locks a platform settings update takes, and their order. The integration tests are single-threaded, so
- * they would stay green with the locks gone or swapped; this pins what they cannot.
- */
+/** Unit coverage for settings service behavior that does not require a Spring context. */
 @ExtendWith(MockitoExtension.class)
 class SettingServiceMockedTest {
 
@@ -40,12 +42,13 @@ class SettingServiceMockedTest {
     @BeforeEach
     void setUp() {
         settingService = new SettingServiceImpl(settingsCache, settingRepository, ObjectMapperFactory.wire());
-        when(settingRepository.findBySection(SettingsSection.PLATFORM)).thenReturn(List.of());
     }
 
     /** Utils first, then certificates, both before the rows are read: a fixed order is what keeps two keys acyclic. */
     @Test
     void aPlatformUpdateTakesTheUtilsLockThenTheCertificatesLockBeforeReadingTheRows() {
+        when(settingRepository.findBySection(SettingsSection.PLATFORM)).thenReturn(List.of());
+
         settingService.updatePlatformSettings(bothSections());
 
         InOrder inOrder = inOrder(settingRepository);
@@ -56,6 +59,8 @@ class SettingServiceMockedTest {
 
     @Test
     void aSectionLeftOutOfTheUpdateTakesNoLock() {
+        when(settingRepository.findBySection(SettingsSection.PLATFORM)).thenReturn(List.of());
+
         PlatformSettingsUpdateDto utilsOnly = new PlatformSettingsUpdateDto();
         utilsOnly.setUtils(new UtilsSettingsDto());
         settingService.updatePlatformSettings(utilsOnly);
@@ -68,6 +73,21 @@ class SettingServiceMockedTest {
         settingService.updatePlatformSettings(certificatesOnly);
         verify(settingRepository).lockCertificateWrites();
         verify(settingRepository, never()).lockUtilsWrites();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"http://example.com:-1/jwks", "http://example.com:+1/jwks"})
+    void anOAuth2ProviderUpdateRejectsAJwkSetUrlWithASignedPort(String jwkSetUrl) {
+        OAuth2ProviderSettingsUpdateDto providerSettings = new OAuth2ProviderSettingsUpdateDto();
+        providerSettings.setJwkSetUrl(jwkSetUrl);
+
+        ValidationException exception = Assertions
+                .assertThrows(ValidationException.class,
+                        () -> settingService.updateOAuth2ProviderSettings("signed-port-jwk-url", providerSettings));
+
+        Assertions
+                .assertEquals("JWK Set URL is invalid: Illegal character in port number at index 19.",
+                        exception.getMessage());
     }
 
     private static PlatformSettingsUpdateDto bothSections() {

@@ -1015,7 +1015,7 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
     private URL parseJwkSetUrl(String jwkSetUrl) {
         URI uri;
         try {
-            uri = new URI(jwkSetUrl);
+            uri = new URI(jwkSetUrl).parseServerAuthority();
         } catch (URISyntaxException e) {
             throw new ValidationException(
                     "JWK Set URL is invalid: %s at index %d.".formatted(e.getReason(), e.getIndex()));
