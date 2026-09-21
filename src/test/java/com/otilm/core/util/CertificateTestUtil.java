@@ -17,6 +17,7 @@ import java.security.Signature;
 import java.security.SignatureException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -72,7 +73,7 @@ public class CertificateTestUtil {
         defaultKeyGen.initialize(2048);
         KeyPair defaultKeyPair = defaultKeyGen.generateKeyPair();
         Date notBefore = new Date();
-        Date notAfter = new Date(Long.MAX_VALUE);
+        Date notAfter = Date.from(Instant.parse("9999-12-31T23:59:59Z"));
         X509v3CertificateBuilder certBuilder = new JcaX509v3CertificateBuilder(new X500Name("CN=issuer"),
                 BigInteger.ONE, notBefore, notAfter, new X500Name("CN=subject"), defaultKeyPair.getPublic());
 
