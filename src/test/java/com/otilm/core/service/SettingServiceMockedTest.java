@@ -28,7 +28,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/** Unit coverage for settings service behavior that does not require a Spring context. */
 @ExtendWith(MockitoExtension.class)
 class SettingServiceMockedTest {
 
@@ -44,7 +43,10 @@ class SettingServiceMockedTest {
         settingService = new SettingServiceImpl(settingsCache, settingRepository, ObjectMapperFactory.wire());
     }
 
-    /** Utils first, then certificates, both before the rows are read: a fixed order is what keeps two keys acyclic. */
+    /**
+     * Integration tests are single-threaded, so they stay green if the locks are removed or swapped. This pins the
+     * fixed order that keeps two keys acyclic: utils first, then certificates, both before the rows are read.
+     */
     @Test
     void aPlatformUpdateTakesTheUtilsLockThenTheCertificatesLockBeforeReadingTheRows() {
         when(settingRepository.findBySection(SettingsSection.PLATFORM)).thenReturn(List.of());
@@ -57,6 +59,7 @@ class SettingServiceMockedTest {
         inOrder.verify(settingRepository).findBySection(SettingsSection.PLATFORM);
     }
 
+    /** Integration tests are single-threaded, so they do not detect an unnecessary lock for an omitted section. */
     @Test
     void aSectionLeftOutOfTheUpdateTakesNoLock() {
         when(settingRepository.findBySection(SettingsSection.PLATFORM)).thenReturn(List.of());

@@ -56,7 +56,6 @@ import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.SecretEncodingVersion;
 import com.otilm.core.util.SecretsUtil;
 import jakarta.annotation.PostConstruct;
-import jakarta.transaction.Transactional;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.MalformedURLException;
@@ -84,6 +83,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -857,7 +857,7 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
 
     @Override
     @ExternalAuthorization(resource = Resource.SETTINGS, action = ResourceAction.DETAIL)
-    @org.springframework.transaction.annotation.Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public OAuth2ProviderSettingsResponseDto getOAuth2ProviderSettings(String providerName, boolean withClientSecret) {
         Setting setting = settingRepository
                 .findBySectionAndCategoryAndName(SettingsSection.AUTHENTICATION,
@@ -1020,20 +1020,19 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
             throw new ValidationException(
                     "JWK Set URL is invalid: %s at index %d.".formatted(e.getReason(), e.getIndex()));
         }
+        String scheme = uri.getScheme();
+        if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
+            throw new ValidationException("JWK Set URL must use http or https.");
+        }
+        if (uri.getHost() == null || uri.getHost().isBlank()) {
+            throw new ValidationException("JWK Set URL must include a host.");
+        }
+        if (uri.getPort() > 65535) {
+            throw new ValidationException("JWK Set URL port must be between 0 and 65535.");
+        }
         try {
-            String scheme = uri.getScheme();
-            if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
-                throw new ValidationException("JWK Set URL must use http or https.");
-            }
-            URL url = uri.toURL();
-            if (url.getHost() == null || url.getHost().isBlank()) {
-                throw new ValidationException("JWK Set URL must include a host.");
-            }
-            if (uri.getPort() > 65535) {
-                throw new ValidationException("JWK Set URL port must be between 0 and 65535.");
-            }
-            return url;
-        } catch (MalformedURLException | IllegalArgumentException e) {
+            return uri.toURL();
+        } catch (MalformedURLException e) {
             throw new ValidationException("JWK Set URL is invalid.");
         }
     }
