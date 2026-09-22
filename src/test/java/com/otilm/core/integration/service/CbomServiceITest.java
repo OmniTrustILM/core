@@ -1154,6 +1154,46 @@ class CbomServiceITest extends BaseSpringBootTest {
         assertEquals(0, messages.size());
     }
 
+    /**
+     * A null element is what the API layer produces from an empty string in the request body, so the bulk delete has to
+     * answer for it per item and still act on the identifiers around it.
+     */
+    @Test
+    void testBulkDeleteCbom_NullElement() {
+        // Given
+        Cbom cbom = new Cbom();
+        cbom.setSerialNumber("urn:uuid:bulk-delete-null-element");
+        cbom.setVersion(1);
+        cbom.setSpecVersion("1.6");
+        cbom.setTimestamp(OffsetDateTime.now());
+        final UUID savedUuid = cbomRepository.save(cbom).getUuid();
+
+        List<UUID> uuids = new ArrayList<>();
+        uuids.add(null);
+        uuids.add(savedUuid);
+
+        // When
+        List<BulkActionMessageDto> messages = cbomService.bulkDeleteCbom(uuids);
+
+        // Then
+        assertEquals(1, messages.size());
+        assertEquals("", messages.getFirst().getUuid());
+        assertEquals("Missing CBOM identifier", messages.getFirst().getMessage());
+        assertTrue(cbomRepository.findById(savedUuid).isEmpty());
+    }
+
+    @Test
+    void testBulkDeleteCbom_OnlyNullElements() {
+        List<UUID> uuids = new ArrayList<>();
+        uuids.add(null);
+        uuids.add(null);
+
+        List<BulkActionMessageDto> messages = cbomService.bulkDeleteCbom(uuids);
+
+        assertEquals(2, messages.size());
+        assertTrue(messages.stream().allMatch(m -> "Missing CBOM identifier".equals(m.getMessage())));
+    }
+
     @Test
     void testGetSearchableFieldInformationByGroup() {
         // given
