@@ -5,6 +5,7 @@ import com.otilm.api.model.connector.discovery.v2.DiscoveredKeyDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryItem;
+import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorizationProgrammatic;
@@ -30,12 +31,14 @@ public class KeyDiscoveredHandler {
     private final DiscoveredKeyWriter keyWriter;
     private final AuthorizationEnforcer authorizationEnforcer;
     private final ObjectMapper objectMapper;
+    private final TransactionHandler transactionHandler;
 
     public KeyDiscoveredHandler(DiscoveredKeyWriter keyWriter, AuthorizationEnforcer authorizationEnforcer,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper, TransactionHandler transactionHandler) {
         this.keyWriter = keyWriter;
         this.authorizationEnforcer = authorizationEnforcer;
         this.objectMapper = objectMapper;
+        this.transactionHandler = transactionHandler;
     }
 
     /**
@@ -90,7 +93,9 @@ public class KeyDiscoveredHandler {
             return refuse(run, item, "The key's payload could not be read.", e);
         }
         try {
-            keyWriter.importKey(item, key);
+            // One transaction per key, opened here rather than in the writer: a key that commits is never revisited,
+            // and a refusal further down the page must not take it back out.
+            transactionHandler.runInNewTransaction(() -> keyWriter.importKey(item, key));
             return true;
         } catch (UnusableDiscoveredKeyException e) {
             return refuse(run, item, e.getMessage(), e);
@@ -102,7 +107,8 @@ public class KeyDiscoveredHandler {
         logger
                 .warn("Discovery {} could not import key item {}: {}", run.getUuid(), item.getUniqueRef(),
                         cause.getMessage(), cause);
-        keyWriter.markFailed(item.getUuid(), reason);
+        // The reason outlives whatever the caller does next, which is the point of recording it.
+        transactionHandler.runInNewTransaction(() -> keyWriter.markFailed(item.getUuid(), reason));
         return false;
     }
 

@@ -7,6 +7,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredKeyDto;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryItem;
+import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.service.writer.discovery.DiscoveredKeyWriter;
 import java.util.List;
@@ -40,7 +41,7 @@ class KeyDiscoveredHandlerTest {
 
     @BeforeEach
     void setUp() {
-        handler = new KeyDiscoveredHandler(writer, enforcer, new ObjectMapper());
+        handler = new KeyDiscoveredHandler(writer, enforcer, new ObjectMapper(), new TransactionHandler());
         run = new Discovery();
         run.setUuid(UUID.randomUUID());
     }

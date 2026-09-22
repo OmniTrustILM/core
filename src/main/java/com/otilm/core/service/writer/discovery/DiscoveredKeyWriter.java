@@ -20,15 +20,16 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Writes a discovered key into the inventory and stamps the staged row that produced it.
  *
  * <p>
- * {@code REQUIRES_NEW} per item: one key that cannot be written must not take the batch's other keys with it, and the
- * stamp has to survive whatever the caller does next.
+ * Both entry points are one item's unit of work, and the caller runs each in its own transaction: one key that cannot
+ * be written must not take the batch's other keys with it, and the stamp has to survive whatever the caller does next.
+ * The boundary is the caller's because a writer holds @Modifying calls, which need an ambient transaction rather than
+ * one they open themselves.
  */
 @Service
 public class DiscoveredKeyWriter {
@@ -52,7 +53,7 @@ public class DiscoveredKeyWriter {
      *
      * @throws UnusableDiscoveredKeyException when the payload cannot identify a key at all
      */
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Transactional
     public void importKey(DiscoveryItem item, DiscoveredKeyDto key) {
         String fingerprint = DiscoveredKeyIdentity.of(key);
         UUID keyUuid = keyItemRepository
@@ -62,7 +63,7 @@ public class DiscoveredKeyWriter {
         itemRepository.markImported(item.getUuid(), keyUuid, OffsetDateTime.now(ZoneOffset.UTC));
     }
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Transactional
     public void markFailed(UUID itemUuid, String reason) {
         itemRepository.markFailed(itemUuid, reason, OffsetDateTime.now(ZoneOffset.UTC));
     }
