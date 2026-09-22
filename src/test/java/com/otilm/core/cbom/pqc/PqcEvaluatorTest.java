@@ -57,6 +57,81 @@ class PqcEvaluatorTest {
     }
 
     /**
+     * {@link PqcRules#MIN_SYMMETRIC_KEY_BITS} gated the three material size arms and nothing else, so an algorithm
+     * reached {@code ready} through its family alone: {@code AES-64} read {@code SYMMETRIC-READY} with
+     * {@code parameterSet = 64} sitting unread in the input. Measured on develop-02, not one AES row's evidence named a
+     * size.
+     */
+    @Test
+    void anAlgorithmIsDecidedByTheSizeItRecords() {
+        for (String undersized : new String[]{"AES-64", "RC6-64"}) {
+            PqcDecision decision = verdictOf(algorithm(undersized));
+            assertThat(decision.verdict()).describedAs("algorithm %s", undersized).isEqualTo(PqcVerdict.NOT_READY);
+            assertThat(decision.ruleId()).describedAs("algorithm %s", undersized).isEqualTo("SYMMETRIC-UNDERSIZED");
+            assertThat(decision.evaluatedFields()).describedAs("algorithm %s", undersized).containsKey("parameterSet");
+        }
+        for (String adequate : new String[]{"AES", "AES-128", "AES-256", "aes128-gcm", "AES-256-GCM"}) {
+            assertThat(verdictOf(algorithm(adequate)).ruleId())
+                    .describedAs("algorithm %s", adequate)
+                    .isEqualTo("SYMMETRIC-READY");
+        }
+    }
+
+    /**
+     * {@code key} is deliberately outside {@link PqcRules#SYMMETRIC_MATERIAL} -- CycloneDX defines it as material that
+     * processes cryptographic data, so it covers a private key too -- and the size arms are the only readers of
+     * {@code materialSize}. The same 64-bit AES key therefore read {@code ready} typed {@code key} and {@code notReady}
+     * typed {@code secret-key}. The family path reads the recorded size whatever slot carries it, and the material arms
+     * keep their own rule id for the rows they do claim.
+     */
+    @Test
+    void aSizedKeyIsDecidedByItsSizeWhateverTypeItCarries() {
+        assertThat(verdictOf(material("AES", "key", 64)).ruleId()).isEqualTo("SYMMETRIC-UNDERSIZED");
+        assertThat(verdictOf(material("AES", "key", 256)).ruleId()).isEqualTo("SYMMETRIC-READY");
+        assertThat(verdictOf(material("AES", "secret-key", 64)).ruleId())
+                .describedAs("a row the material arms do claim keeps the rule id an operator already queries")
+                .isEqualTo("MATERIAL-SYMMETRIC-WEAK");
+        assertThat(verdictOf(material("RSA-2048", "key", 2048)).ruleId())
+                .describedAs("the size floor is a symmetric question, and a private key typed `key` is not one")
+                .isEqualTo("CLASSICAL-SHOR");
+    }
+
+    /**
+     * SP 800-56C is a key-derivation construction; its strength is the strength of the hash it is instantiated with.
+     * Observed on develop-02: {@code concatenationkdf} carried family {@code SP800-56C}, no parameter set, no variant
+     * and no OID, and was served "Symmetric or hash-based, so no quantum algorithm breaks it outright" -- an assertion
+     * nothing in the row supports.
+     */
+    @Test
+    void aConstructionWithNoRecordedPrimitiveIsUnknownRatherThanReady() {
+        for (String uninstantiated : new String[]{"concatenationkdf", "HMAC", "CMAC", "HKDF", "PBKDF2", "PBES2"}) {
+            PqcDecision decision = verdictOf(algorithm(uninstantiated));
+            assertThat(decision.verdict()).describedAs("algorithm %s", uninstantiated).isEqualTo(PqcVerdict.UNKNOWN);
+            assertThat(decision.ruleId())
+                    .describedAs("algorithm %s", uninstantiated)
+                    .isEqualTo("CONSTRUCTION-UNINSTANTIATED");
+        }
+        assertThat(verdictOf(algorithm("PBKDF2-HMAC")).ruleId())
+                .describedAs("a construction named over another construction is no more instantiated than either half")
+                .isEqualTo("CONSTRUCTION-UNINSTANTIATED");
+        for (String instantiated : new String[]{
+                "HMAC-SHA256",
+                "hmacsha2",
+                "AES-CMAC",
+                "HKDF-SHA256",
+                "PBKDF2-HMAC-SHA256"}) {
+            assertThat(verdictOf(algorithm(instantiated)).ruleId())
+                    .describedAs("algorithm %s", instantiated)
+                    .isEqualTo("SYMMETRIC-READY");
+        }
+        for (String fixesItsOwn : new String[]{"Argon2id", "bcrypt", "scrypt", "Fernet", "Poly1305"}) {
+            assertThat(verdictOf(algorithm(fixesItsOwn)).ruleId())
+                    .describedAs("algorithm %s fixes its primitive in its own specification", fixesItsOwn)
+                    .isEqualTo("SYMMETRIC-READY");
+        }
+    }
+
+    /**
      * An adjudication this rule set makes rather than inherits: reporting DES as post-quantum ready is true and
      * useless, so a classically broken primitive is not ready either -- under its own rule id, because the migration it
      * needs is a different one.

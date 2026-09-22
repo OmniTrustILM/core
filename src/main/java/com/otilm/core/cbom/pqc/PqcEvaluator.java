@@ -113,7 +113,7 @@ public class PqcEvaluator {
      * finding, and a finding must reach the row whatever tier it was keyed on.
      */
     private boolean nameCarriesNoFinding(PqcRuleInput input) {
-        return nameDecision(input, null).verdict() != PqcVerdict.NOT_READY;
+        return nameDecision(input.withoutMaterialSize(), null).verdict() != PqcVerdict.NOT_READY;
     }
 
     /**
@@ -284,6 +284,12 @@ public class PqcEvaluator {
                     List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.CURVE, PqcRules.VARIANT), input,
                     nistQuantumSecurityLevel);
         }
+        if (disposition == FamilyClass.QUANTUM_RESISTANT_SYMMETRIC) {
+            PqcDecision strength = symmetricStrengthDecision(input, nistQuantumSecurityLevel);
+            if (strength != null) {
+                return strength;
+            }
+        }
         if (disposition == FamilyClass.PQC_STANDARDIZED && isOneTimeSignature(input)) {
             return decision(PqcVerdict.UNKNOWN, "PQC-ONE-TIME-SIGNATURE",
                     "A one-time signature scheme, which SP 800-208 approves only as a component within LMS or XMSS and "
@@ -292,6 +298,72 @@ public class PqcEvaluator {
         }
         return decision(disposition.verdict(), disposition.ruleId(), disposition.reason(),
                 List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.VARIANT), input, nistQuantumSecurityLevel);
+    }
+
+    /**
+     * What an unbroken symmetric or hash-based family's <em>recorded strength</em> says, or {@code null} when the
+     * family verdict stands.
+     *
+     * <p>
+     * Membership alone answers "symmetric or hash-based and not classically broken", which is not the same claim as
+     * "this instance has adequate strength". A construction cannot make the second claim without naming the primitive
+     * it is built on, and a sized primitive cannot make it below the floor.
+     */
+    private PqcDecision symmetricStrengthDecision(PqcRuleInput input, Integer nistQuantumSecurityLevel) {
+        if (PqcFamilies.isConstruction(ratifiedFamily(input.algorithmFamily()))) {
+            return namesAPrimitive(input)
+                    ? null
+                    : decision(PqcVerdict.UNKNOWN, "CONSTRUCTION-UNINSTANTIATED",
+                            "A construction whose strength is that of the primitive it is built on, which this record "
+                                    + "does not name",
+                            List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.VARIANT, PqcRules.PARAMETER_SET), input,
+                            nistQuantumSecurityLevel);
+        }
+        Integer bits = recordedSizeBits(input);
+        return bits == null || bits >= PqcRules.MIN_SYMMETRIC_KEY_BITS
+                ? null
+                : decision(PqcVerdict.NOT_READY, "SYMMETRIC-UNDERSIZED",
+                        "A symmetric or hash-based primitive whose recorded size is below 128 bits, so Grover's "
+                                + "algorithm leaves it with no adequate strength",
+                        List
+                                .of(PqcRules.ALGORITHM_FAMILY, PqcRules.PARAMETER_SET, PqcRules.MATERIAL_SIZE,
+                                        PqcRules.VARIANT),
+                        input, nistQuantumSecurityLevel);
+    }
+
+    /**
+     * Whether any secondary token names a primitive this construction could be built on.
+     *
+     * <p>
+     * A token resolving to another construction does not count: {@code PBKDF2-HMAC} names a PRF family that is itself
+     * uninstantiated, so the pair says no more than either half. A bare parameter set does not count either -- a size
+     * says how long the output is, never which primitive produced it.
+     */
+    private boolean namesAPrimitive(PqcRuleInput input) {
+        for (String token : secondaryTokens(input)) {
+            String family = ratifiedFamilyOfToken(token);
+            if (PqcFamilies.of(family) != null && !PqcFamilies.isConstruction(family)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The size the row records, whichever slot carries it, and only inside the ratified size band.
+     *
+     * <p>
+     * An algorithm's size is its parameter set, which the material arms cannot reach. The band is what those arms
+     * already apply to {@code materialSize}: below 64 a bit count cannot be told from a byte count, and a number
+     * outside it is not a size at all but a cost factor or a round count that would read as a broken key.
+     */
+    private Integer recordedSizeBits(PqcRuleInput input) {
+        if (input.materialSize() != null) {
+            return input.materialSize();
+        }
+        Integer parameterSet = input.parameterSet();
+        return parameterSet != null && parameterSet >= normalizer.tables().sizeMin()
+                && parameterSet <= normalizer.tables().sizeMax() ? parameterSet : null;
     }
 
     /**
@@ -321,11 +393,15 @@ public class PqcEvaluator {
      * -- so {@code HMAC-SHA1} read {@code ready}. The normalizer documents the same trap on its own token folding.
      */
     private FamilyClass dispositionOfToken(String token) {
-        FamilyClass whole = PqcFamilies.of(ratifiedFamily(token));
-        if (whole != null) {
-            return whole;
-        }
-        return dispositionOfComponent(token);
+        return PqcFamilies.of(ratifiedFamilyOfToken(token));
+    }
+
+    /** The same resolution, stopping at the family rather than its disposition. */
+    private String ratifiedFamilyOfToken(String token) {
+        String whole = ratifiedFamily(token);
+        return PqcFamilies.of(whole) != null
+                ? whole
+                : ratifiedFamily(FAMILY_SIZE_SUFFIX.matcher(token).replaceFirst(""));
     }
 
     // ---- The input shape ------------------------------------------------------------------------------------------

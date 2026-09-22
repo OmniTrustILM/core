@@ -2,6 +2,7 @@ package com.otilm.core.cbom.pqc;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Every ratified algorithm family and what it means for post-quantum readiness, keyed on the ratified spelling.
@@ -20,6 +21,21 @@ public final class PqcFamilies {
 
     private static final Map<String, FamilyClass> DISPOSITION = build();
 
+    /**
+     * Families that are constructions over another primitive rather than primitives in their own right. Their strength
+     * is the strength of whatever they are instantiated with, and the family name alone does not say which: SP 800-56C
+     * is a key-derivation construction, and a row carrying nothing but that family name does not support the claim that
+     * it is ready.
+     *
+     * <p>
+     * Only the families whose primitive genuinely varies. Argon2, bcrypt, scrypt, yescrypt, Fortuna, Poly1305, SipHash,
+     * Fernet, Ascon, MILENAGE and TUAK are constructions too, and each fixes its own primitive in its own specification
+     * -- so for those the name does say, and they are decided by their family like any other primitive.
+     */
+    private static final Set<String> CONSTRUCTIONS = Set
+            .of("HMAC", "CMAC", "UMAC", "HKDF", "ANSI-KDF", "SP800-108", "SP800-56C", "SSH-KDF", "TLS-PRF", "IKE-PRF",
+                    "PBKDF2", "PBES2", "PBMAC1", "CTR_DRBG", "HMAC_DRBG", "Hash_DRBG");
+
     private PqcFamilies() {
     }
 
@@ -30,6 +46,17 @@ public final class PqcFamilies {
 
     public static Map<String, FamilyClass> dispositions() {
         return DISPOSITION;
+    }
+
+    /**
+     * Whether a ratified family spelling names a construction whose strength comes from a primitive it does not fix.
+     */
+    public static boolean isConstruction(String ratifiedSpelling) {
+        return ratifiedSpelling != null && CONSTRUCTIONS.contains(ratifiedSpelling);
+    }
+
+    public static Set<String> constructions() {
+        return CONSTRUCTIONS;
     }
 
     private static Map<String, FamilyClass> build() {

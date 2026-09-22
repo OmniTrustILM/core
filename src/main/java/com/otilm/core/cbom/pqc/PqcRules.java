@@ -77,7 +77,8 @@ public final class PqcRules {
 
     /** The size arms' own fields, and every field the name decision they consult can read. */
     private static final List<String> SYMMETRIC_MATERIAL_FIELDS = List
-            .of(ASSET_TYPE, MATERIAL_TYPE, MATERIAL_SIZE, ALGORITHM_FAMILY, NAME, VARIANT, HYBRID_COMPONENTS, CURVE);
+            .of(ASSET_TYPE, MATERIAL_TYPE, MATERIAL_SIZE, ALGORITHM_FAMILY, NAME, VARIANT, HYBRID_COMPONENTS, CURVE,
+                    PARAMETER_SET);
 
     private PqcRules() {
     }

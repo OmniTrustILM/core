@@ -63,6 +63,31 @@ class PqcFamiliesTest {
                         .isNotNull());
     }
 
+    /**
+     * A construction is a family like any other, so a spelling that drifted from the ratified one would silently stop
+     * gating -- the row would read ready on its family again and nothing would say so.
+     */
+    @Test
+    void everyConstructionIsARatifiedUnbrokenSymmetricFamily() {
+        assertThat(PqcFamilies.constructions())
+                .allSatisfy(construction -> assertThat(PqcFamilies.of(construction))
+                        .describedAs("construction %s", construction)
+                        .isEqualTo(FamilyClass.QUANTUM_RESISTANT_SYMMETRIC));
+    }
+
+    /**
+     * The other half of that gate. Each of these is a construction too, and each fixes its own primitive in its own
+     * specification -- Argon2 on BLAKE2b, Fortuna on SHA-256 and AES, Fernet on AES-128-CBC and HMAC-SHA256 -- so the
+     * family name does say what it is built on, and demanding a recorded primitive would answer unknown for a row that
+     * is fully determined.
+     */
+    @Test
+    void aConstructionThatFixesItsOwnPrimitiveIsNotOneOfThem() {
+        assertThat(PqcFamilies.constructions())
+                .doesNotContain("Argon2", "bcrypt", "scrypt", "yescrypt", "Fortuna", "Poly1305", "SipHash", "Fernet",
+                        "Ascon", "MILENAGE", "TUAK");
+    }
+
     @Test
     void theBrokenCandidatesAreSeparatedFromTheMerelySuperseded() {
         assertThat(PqcFamilies.of("SIKE")).isEqualTo(FamilyClass.PQC_BROKEN);
