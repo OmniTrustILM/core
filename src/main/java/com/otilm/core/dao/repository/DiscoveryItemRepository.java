@@ -62,6 +62,8 @@ public interface DiscoveryItemRepository extends JpaRepository<DiscoveryItem, UU
     // Aliases on the outer select are quoted: Postgres folds an unquoted one to lower case and the projection binds
     // by exact label. Ordering inside the union is positional -- only the first branch's labels are in scope there --
     // and the outer ORDER BY repeats it by name, since a CTE's ordering need not survive into the query above it.
+    // inventory_name is joined per resource because the name lives in the resource's own table; a resource with no
+    // branch here lists unnamed rather than unlisted, which is the same way an undecodable payload behaves.
     @Query(value = """
             WITH page AS (
             SELECT i.uuid AS uuid,
@@ -75,15 +77,17 @@ public interface DiscoveryItemRepository extends JpaRepository<DiscoveryItem, UU
                    i.newly_discovered AS newly_discovered,
                    (i.processed_at IS NOT NULL) AS processed,
                    i.processed_error AS processed_error,
-                   i.meta #>> '{}' AS meta
+                   i.meta #>> '{}' AS meta,
+                   ck.name AS inventory_name
               FROM {h-schema}discovery_item i
+              LEFT JOIN {h-schema}cryptographic_key ck ON ck.uuid = i.inventory_uuid
              WHERE i.discovery_uuid = :discoveryUuid
                AND (CAST(:resource AS VARCHAR) IS NULL OR i.resource = CAST(:resource AS VARCHAR))
                AND (CAST(:newlyDiscovered AS BOOLEAN) IS NULL
                     OR i.newly_discovered = CAST(:newlyDiscovered AS BOOLEAN))
             UNION ALL
             SELECT c.uuid, c.inventory_uuid, c.sequence, c.unique_ref, c.resource, c.discovered_at, c.staged_payload,
-                   c.content_id, c.newly_discovered, c.processed, c.processed_error, c.meta
+                   c.content_id, c.newly_discovered, c.processed, c.processed_error, c.meta, c.inventory_name
               FROM (
                 SELECT dc.uuid AS uuid,
                        cert.uuid AS inventory_uuid,
@@ -97,7 +101,8 @@ public interface DiscoveryItemRepository extends JpaRepository<DiscoveryItem, UU
                        dc.newly_discovered AS newly_discovered,
                        dc.processed AS processed,
                        dc.processed_error AS processed_error,
-                       dc.meta #>> '{}' AS meta
+                       dc.meta #>> '{}' AS meta,
+                       cert.common_name AS inventory_name
                   FROM {h-schema}discovery_certificate dc
                   JOIN {h-schema}certificate_content cc ON cc.id = dc.certificate_content_id
                   LEFT JOIN {h-schema}certificate cert ON cert.certificate_content_id = cc.id
@@ -121,7 +126,8 @@ public interface DiscoveryItemRepository extends JpaRepository<DiscoveryItem, UU
                    p.newly_discovered AS "newlyDiscovered",
                    p.processed AS "processed",
                    p.processed_error AS "processedError",
-                   p.meta AS "meta"
+                   p.meta AS "meta",
+                   p.inventory_name AS "inventoryName"
               FROM page p
               LEFT JOIN {h-schema}certificate_content cc ON cc.id = p.content_id
              ORDER BY p.sequence, p.discovered_at, p.uuid

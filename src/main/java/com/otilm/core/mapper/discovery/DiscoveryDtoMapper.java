@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.model.client.discovery.DiscoveryDetailDto;
 import com.otilm.api.model.client.discovery.DiscoveryListDto;
+import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredItemPayloadDto;
 import com.otilm.api.model.core.auth.Resource;
@@ -16,6 +17,7 @@ import com.otilm.core.dao.entity.workflows.Trigger;
 import com.otilm.core.dao.repository.DiscoveryItemRow;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.util.AttributeDefinitionUtils;
+import com.otilm.core.util.CertificateUtil;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
@@ -109,13 +111,26 @@ public class DiscoveryDtoMapper {
     }
 
     /**
+     * The object the item became, or nothing at all while it is unprocessed or failed. The name runs through the same
+     * helper the certificate listing uses, so an object with none of its own reads the same in both listings rather
+     * than arriving empty in one of them.
+     */
+    private static NameAndUuidDto inventoryOf(DiscoveryItemRow row) {
+        if (row.getInventoryUuid() == null) {
+            return null;
+        }
+        return new NameAndUuidDto(row.getInventoryUuid(), CertificateUtil.formatCommonName(row.getInventoryName()));
+    }
+
+    /**
      * A staged item, from either staging store; {@link DiscoveryItemRow} says why {@code payload} and {@code meta}
      * arrive as JSON text.
      */
     public static DiscoveryItemDto toItemDto(DiscoveryItemRow row) {
         DiscoveryItemDto dto = new DiscoveryItemDto();
         dto.setUuid(row.getUuid().toString());
-        dto.setInventoryUuid(row.getInventoryUuid() == null ? null : row.getInventoryUuid().toString());
+        dto.setInventory(inventoryOf(row));
+        dto.setResource(Resource.valueOf(row.getResource()));
         dto.setSequence(row.getSequence());
         dto.setUniqueRef(row.getUniqueRef());
         dto.setDiscoveredAt(row.getDiscoveredAt() == null ? null : row.getDiscoveredAt().atOffset(ZoneOffset.UTC));

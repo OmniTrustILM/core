@@ -1,7 +1,12 @@
 package com.otilm.core.mapper.discovery;
 
 import com.otilm.api.model.client.discovery.DiscoveryDetailDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.discovery.DiscoveryItemDto;
 import com.otilm.core.dao.entity.Discovery;
+import com.otilm.core.dao.repository.DiscoveryItemRow;
+import com.otilm.core.util.CertificateUtil;
+import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -34,6 +39,99 @@ class DiscoveryDtoMapperTest {
         assertThat(dto.getItemsNewlyDiscovered()).isZero();
         assertThat(dto.getItemsProcessed()).isZero();
         assertThat(dto.getItemsFailed()).isZero();
+    }
+
+    @Test
+    void anImportedItemPointsAtTheObjectWithTheResourceItBelongsTo() {
+        UUID keyUuid = UUID.randomUUID();
+
+        DiscoveryItemDto dto = DiscoveryDtoMapper.toItemDto(row("CRYPTOGRAPHIC_KEY", keyUuid, "discovered_key-a"));
+
+        // The resource comes off the staged row, not the payload, so this row answers for it while carrying none.
+        assertThat(dto.getResource()).isEqualTo(Resource.CRYPTOGRAPHIC_KEY);
+        assertThat(dto.getInventory().getUuid()).isEqualTo(keyUuid.toString());
+        assertThat(dto.getInventory().getName()).isEqualTo("discovered_key-a");
+    }
+
+    @Test
+    void anObjectWithNoNameOfItsOwnReadsAsTheCertificateListingReadsIt() {
+        // A certificate with no common name -- a SAN-only one -- has nothing to be called, and the certificate
+        // listing already answers that with a placeholder. Two listings of the same object must not disagree.
+        DiscoveryItemDto dto = DiscoveryDtoMapper.toItemDto(row("CERTIFICATE", UUID.randomUUID(), null));
+
+        assertThat(dto.getInventory().getName()).isEqualTo(CertificateUtil.EMPTY_COMMON_NAME_PLACEHOLDER);
+    }
+
+    @Test
+    void anItemThatBecameNothingCarriesNoReferenceAtAll() {
+        DiscoveryItemDto dto = DiscoveryDtoMapper.toItemDto(row("CRYPTOGRAPHIC_KEY", null, null));
+
+        assertThat(dto.getInventory()).isNull();
+    }
+
+    private static DiscoveryItemRow row(String resource, UUID inventoryUuid, String inventoryName) {
+        return new DiscoveryItemRow() {
+
+            @Override
+            public UUID getUuid() {
+                return UUID.randomUUID();
+            }
+
+            @Override
+            public UUID getInventoryUuid() {
+                return inventoryUuid;
+            }
+
+            @Override
+            public String getInventoryName() {
+                return inventoryName;
+            }
+
+            @Override
+            public long getSequence() {
+                return 1L;
+            }
+
+            @Override
+            public String getUniqueRef() {
+                return "ref-1";
+            }
+
+            @Override
+            public String getResource() {
+                return resource;
+            }
+
+            @Override
+            public Instant getDiscoveredAt() {
+                return null;
+            }
+
+            @Override
+            public String getPayload() {
+                return null;
+            }
+
+            @Override
+            public boolean isNewlyDiscovered() {
+                return true;
+            }
+
+            @Override
+            public boolean isProcessed() {
+                return inventoryUuid != null;
+            }
+
+            @Override
+            public String getProcessedError() {
+                return null;
+            }
+
+            @Override
+            public String getMeta() {
+                return null;
+            }
+        };
     }
 
     private static Discovery run() {
