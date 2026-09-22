@@ -908,10 +908,10 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
         }
         if (!secret.getSourceVaultProfile().isEnabled()) {
             throw new ValidationException(
-                    "Source vault profile" + secret.getSourceVaultProfile().getName() + " is not enabled");
+                    "Source vault profile %s is not enabled".formatted(secret.getSourceVaultProfile().getName()));
         }
         if (!secret.isEnabled()) {
-            throw new ValidationException("Secret" + secret.getName() + " is not enabled");
+            throw new ValidationException("Secret %s is not enabled".formatted(secret.getName()));
         }
         SecretVersion latestVersion = secret.getLatestVersion();
 

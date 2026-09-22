@@ -3,7 +3,6 @@ package com.otilm.core.service.handler;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
-import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.core.attribute.engine.ConnectorRequestAttributesBuilder;
@@ -28,6 +27,13 @@ import org.springframework.stereotype.Component;
  * <b>Placement:</b> this lives outside {@code com.otilm.core.attribute.engine} because the reference expander's
  * ArchUnit fence forbids that package from touching {@link AuthHelper}; the callback path stays per-object
  * caller-authorized and only this operation path elevates.
+ * <p>
+ * <b>Failures:</b> an unresolvable stored reference surfaces as {@link ConnectorException}, the one checked type the
+ * elevated body may declare. A {@link com.otilm.api.exception.ValidationException} — a disabled or invalid-state secret
+ * or vault profile — propagates unwrapped: it names the object the operator has to fix and maps to 422, which wrapping
+ * would turn into a 500 carrying no message. A caller that cannot recover from an unchecked exception has to wrap it
+ * itself; {@code AuthorityProviderV3Adapter.pollStatus} does, because the poll listener recovers only from
+ * {@link ConnectorException}.
  */
 @Component
 public class OperationAttributeResolver {
@@ -56,10 +62,8 @@ public class OperationAttributeResolver {
         return authHelper.runAsSystem(AuthHelper.ATTRIBUTE_CONTENT_RESOLVER_USERNAME, () -> {
             try {
                 return connectorRequestAttributesBuilder.dereferenceForConnectorRequest(connectorUuid, stored);
-            } catch (AttributeException | NotFoundException | ValidationException e) {
-                // A stored reference may be unresolvable, or point at a disabled/invalid-state secret or vault profile
-                // (unchecked ValidationException). Surface all through the declared ConnectorException contract so the
-                // operation fails cleanly instead of escaping as a raw RuntimeException.
+            } catch (AttributeException | NotFoundException e) {
+                // ValidationException is deliberately not caught here — see the class Javadoc's Failures paragraph.
                 throw new ConnectorException(
                         "Unable to resolve stored attribute references for connector request (connector "
                                 + connectorUuid + ")",

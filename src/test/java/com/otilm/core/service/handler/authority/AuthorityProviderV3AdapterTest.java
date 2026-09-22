@@ -1177,6 +1177,20 @@ class AuthorityProviderV3AdapterTest {
         assertEquals("rejected upstream", result.reason());
     }
 
+    @Test
+    void pollStatusWrapsReferenceValidationAsConnectorException() throws ConnectorException {
+        // CertificateStatusPollListener recovers only from ConnectorException, and that catch is the sole path by
+        // which a failing poll fails the certificate out. An unwrapped ValidationException escapes it and leaves the
+        // poll row for the sweeper to re-enqueue forever.
+        when(operationAttributeResolver.resolveForConnectorRequestAsSystem(eq(authority.getConnectorUuid()), any()))
+                .thenThrow(new ValidationException("Secret test-secret is not enabled"));
+
+        ConnectorException thrown = assertThrows(ConnectorException.class,
+                () -> adapter.pollStatus(cert, CertificateOperation.ISSUE));
+
+        assertInstanceOf(ValidationException.class, thrown.getCause());
+    }
+
     // ---- cancel: revoke branch ----
 
     @Test

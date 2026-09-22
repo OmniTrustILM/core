@@ -102,16 +102,18 @@ class OperationAttributeResolverTest {
     }
 
     @Test
-    void wrapsUnresolvableReferenceValidationAsConnectorException() throws Exception {
+    void propagatesValidationFromDerefUnwrapped() throws Exception {
         runElevationInline();
         UUID connectorUuid = UUID.randomUUID();
         List<RequestAttribute> stored = List.of(referenceAttribute());
-        // a disabled/invalid-state secret or vault profile throws an unchecked ValidationException from the deref
+        ValidationException original = new ValidationException("Secret test-secret is not enabled");
         when(connectorRequestAttributesBuilder.dereferenceForConnectorRequest(connectorUuid, stored))
-                .thenThrow(new ValidationException("Secret is not enabled"));
+                .thenThrow(original);
 
-        assertThrows(ConnectorException.class,
+        ValidationException thrown = assertThrows(ValidationException.class,
                 () -> resolver.resolveForConnectorRequestAsSystem(connectorUuid, stored));
+        assertSame(original, thrown,
+                "a ValidationException from the deref must reach the 422 handler, not be wrapped as a 500");
     }
 
     @Test

@@ -400,8 +400,18 @@ public class AuthorityProviderV3Adapter extends AbstractAuthorityProviderAdapter
 
         CertificateOperationStatusRequestDtoV3 wire = new CertificateOperationStatusRequestDtoV3();
         wire.setMeta(loadMeta(cert, authority));
-        wire.setAuthorityAttributes(authorityAttributesFor(authority));
-        wire.setRaProfileAttributes(resolvedRaProfileAttributes(raProfile, authority));
+        try {
+            wire.setAuthorityAttributes(authorityAttributesFor(authority));
+            wire.setRaProfileAttributes(resolvedRaProfileAttributes(raProfile, authority));
+        } catch (ValidationException e) {
+            // The poll runs on the listener thread, which recovers only from ConnectorException — and that catch is
+            // the sole path by which a failing poll fails the certificate out on its last attempt. An unchecked
+            // exception escapes it, and the poll row it leaves behind is re-enqueued by the sweeper indefinitely.
+            // The request-scoped callers of the resolver want the 422 this would otherwise carry; this one cannot use
+            // it, since no caller here renders a response.
+            throw new ConnectorException("Unable to resolve stored attribute references for the " + op + " status poll",
+                    e);
+        }
 
         CertificateSyncApiClient v3Client = connectorApiFactory.getCertificateApiClientV3(connectorDto);
         CertificateOperationStatusResponseDto resp = switch (op) {

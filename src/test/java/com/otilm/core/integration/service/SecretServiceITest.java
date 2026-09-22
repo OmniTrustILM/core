@@ -799,16 +799,30 @@ class SecretServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void testGetSecretContentDisabled() {
+    void getSecretContent_whenSecretDisabled_shouldNameTheSecret() {
         secret.setEnabled(false);
         secretRepository.save(secret);
         UUID secretUuid = secret.getUuid();
-        Assertions.assertThrows(ValidationException.class, () -> secretService.getSecretContent(secretUuid));
-        secret.setEnabled(true);
-        secretRepository.save(secret);
+
+        // act + assert
+        // the message reaches the operator as the 422 body, so it has to name the secret readably
+        ValidationException thrown = Assertions
+                .assertThrows(ValidationException.class, () -> secretService.getSecretContent(secretUuid));
+        Assertions.assertEquals("Secret %s is not enabled".formatted(secret.getName()), thrown.getMessage());
+    }
+
+    @Test
+    void getSecretContent_whenVaultProfileDisabled_shouldNameTheProfile() {
         vaultProfile.setEnabled(false);
         vaultProfileRepository.save(vaultProfile);
-        Assertions.assertThrows(ValidationException.class, () -> secretService.getSecretContent(secretUuid));
+        UUID secretUuid = secret.getUuid();
+
+        // act + assert
+        ValidationException thrown = Assertions
+                .assertThrows(ValidationException.class, () -> secretService.getSecretContent(secretUuid));
+        Assertions
+                .assertEquals("Source vault profile %s is not enabled".formatted(vaultProfile.getName()),
+                        thrown.getMessage());
     }
 
     @Test
