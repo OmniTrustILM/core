@@ -1154,10 +1154,7 @@ class CbomServiceITest extends BaseSpringBootTest {
         assertEquals(0, messages.size());
     }
 
-    /**
-     * A null element is what the API layer produces from an empty string in the request body, so the bulk delete has to
-     * answer for it per item and still act on the identifiers around it.
-     */
+    /** The identifiers surrounding the null element are still deleted. */
     @Test
     void testBulkDeleteCbom_NullElement() {
         // Given

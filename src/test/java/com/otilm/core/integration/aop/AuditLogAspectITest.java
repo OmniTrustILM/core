@@ -282,11 +282,6 @@ class AuditLogAspectITest extends BaseSpringBootTest {
                         auditLogs.getFirst().getMessage());
     }
 
-    /**
-     * core#2293: an empty string in the request body reaches the controller as a null list element, and the aspect
-     * reads the uuid parameters before the advised method runs. The audit entry names the identifiers that were acted
-     * on, and the call still answers with its own per-item verdict rather than failing inside the advice.
-     */
     @Test
     void nullUuidElement_isSkippedByTheAudit_andTheCallStillAnswers() {
         // given

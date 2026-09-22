@@ -328,7 +328,11 @@ public class AuditLogAspect {
                 // runs, so dereferencing it would turn the caller's malformed element into a 500 the endpoint
                 // never gets to answer for. Jackson produces one from an empty JSON string (core#2293).
                 return parameterValue instanceof List<?> listValues
-                        ? listValues.stream().filter(Objects::nonNull).map(v -> UUID.fromString(v.toString())).toList()
+                        ? new ArrayList<>(listValues
+                                .stream()
+                                .filter(Objects::nonNull)
+                                .map(v -> UUID.fromString(v.toString()))
+                                .toList())
                         : (parameterValue instanceof Optional<?> optional && optional.isPresent()
                                 ? new ArrayList<>(List.of(UUID.fromString(optional.get().toString())))
                                 : new ArrayList<>(List.of(UUID.fromString(parameterValue.toString()))));
