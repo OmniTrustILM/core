@@ -173,15 +173,79 @@ class PqcEvaluatorTest {
         }
     }
 
-    /** A key's name may record the hybrid KEX that produced it; a 256-bit session key is still a 256-bit key. */
+    /**
+     * A key's name may record the hybrid KEX that produced it, and a 256-bit session key is still a 256-bit key --
+     * while that KEX is one a migration would keep. SIKE was broken classically in 2022, so a secret agreed with it is
+     * recoverable today, and reporting it as 256 bits of symmetric strength states the opposite of the finding.
+     */
     @Test
-    void aSessionKeyNamedAfterItsHybridKexIsDecidedAsAKey() {
-        PqcDecision sessionKey = verdictOf(material("sntrup761x25519-sha512", "shared-secret", 256));
+    void aSessionKeyIsItsOwnStrengthOnlyWhileItsHybridKexHolds() {
+        PqcDecision sessionKey = verdictOf(material("X25519-ML-KEM-768", "shared-secret", 256));
         assertThat(sessionKey.verdict()).isEqualTo(PqcVerdict.READY);
         assertThat(sessionKey.ruleId()).isEqualTo("MATERIAL-SYMMETRIC-READY");
+        assertThat(sessionKey.evaluatedFields())
+                .describedAs("the size arms consulted the name, so the name is evidence")
+                .containsEntry("name", "x25519-ml-kem-768");
+
+        for (String[] kexAndRuleId : new String[][]{
+                {"ecdh-nistp384-sike-p434-sha384@openquantumsafe.org", "PQC-HYBRID-PQC-BROKEN"},
+                {"X25519-SIKEp434", "PQC-HYBRID-PQC-BROKEN"},
+                {"X25519-Kyber768", "PQC-HYBRID-PQC-PRESTANDARD"},
+                {"sntrup761x25519-sha512", "PQC-HYBRID-PQC-PRESTANDARD"}}) {
+            PqcDecision secret = verdictOf(material(kexAndRuleId[0], "shared-secret", 256));
+            assertThat(secret.verdict()).describedAs("secret from %s", kexAndRuleId[0]).isEqualTo(PqcVerdict.NOT_READY);
+            assertThat(secret.ruleId())
+                    .describedAs("a key takes the rule id the algorithm of its own name takes")
+                    .isEqualTo(kexAndRuleId[1])
+                    .isEqualTo(verdictOf(algorithm(kexAndRuleId[0])).ruleId());
+        }
         assertThat(verdictOf(material("X25519-Kyber768", "private-key", null)).ruleId())
                 .describedAs("the private key of a hybrid KEM is still decided by its post-quantum half")
                 .isEqualTo("PQC-HYBRID-PQC-PRESTANDARD");
+    }
+
+    /**
+     * The material tier derives no variant, and the weak-component doctrine reads exactly that field -- so each of
+     * these read {@code MATERIAL-SYMMETRIC-READY} on its declared 256 bits while the algorithm of the same name carried
+     * the finding. A key and an algorithm spelt identically must not be served opposite answers.
+     */
+    @Test
+    void aKeyInheritsTheFindingItsOwnNameCarries() {
+        for (String name : new String[]{
+                "HMAC-MD5",
+                "HmacSHA1",
+                "3DES-CMAC",
+                "CKM_RSA_AES_KEY_WRAP",
+                "ECIES-X25519-XSalsa20-Poly1305"}) {
+            PqcDecision key = verdictOf(material(name, "shared-secret", 256));
+            assertThat(key.verdict()).describedAs("key %s", name).isEqualTo(PqcVerdict.NOT_READY);
+            assertThat(key.ruleId()).describedAs("key %s", name).isEqualTo(verdictOf(algorithm(name)).ruleId());
+        }
+    }
+
+    /**
+     * A hybrid's classical half is Shor-breakable by design -- that is what the construction is for -- so only a
+     * classically broken component overrules it. The hybrid path ran the component check on its not-a-hybrid escape
+     * alone, so {@code X25519-ML-KEM-768-MD5} read ready while {@code ML-KEM-MD5}, the same broken digest without the
+     * classical half, read {@code CLASSICAL-LEGACY-COMPONENT}.
+     */
+    @Test
+    void aBrokenDigestInsideAHybridIsNotMaskedByItsPostQuantumHalf() {
+        assertThat(verdictOf(algorithm("X25519-ML-KEM-768-MD5")).ruleId()).isEqualTo("CLASSICAL-LEGACY-COMPONENT");
+        assertThat(verdictOf(algorithm("ML-KEM-MD5")).ruleId()).isEqualTo("CLASSICAL-LEGACY-COMPONENT");
+        PqcDecision electedLegacy = verdictOf(algorithm("PBKDF1-X25519-ML-KEM-768"));
+        assertThat(electedLegacy.ruleId())
+                .describedAs("a broken primitive the grammar elected as the family is in no secondary token")
+                .isEqualTo("CLASSICAL-LEGACY-COMPONENT");
+        assertThat(electedLegacy.evaluatedFields()).containsEntry("algorithmFamily", "PBKDF1");
+        assertThat(verdictOf(material("PBKDF1-X25519-ML-KEM-768", "shared-secret", 256)).ruleId())
+                .isEqualTo("CLASSICAL-LEGACY-COMPONENT");
+        assertThat(verdictOf(algorithm("X25519-ML-KEM-768")).ruleId())
+                .describedAs("the classical half is what a hybrid is for, and never the finding")
+                .isEqualTo("PQC-HYBRID-PQC-STANDARDIZED");
+        assertThat(verdictOf(algorithm("SLH-DSA-SHAKE-256f")).ruleId())
+                .describedAs("every FIPS 205 parameter-set name carries a hash token, and none of them is a finding")
+                .isEqualTo("PQC-STANDARDIZED");
     }
 
     @Test
@@ -240,8 +304,8 @@ class PqcEvaluatorTest {
         assertThat(verdictOf(material("AES-256", "secret-key", 256)).ruleId())
                 .describedAs("an unbroken family must still be decided by the size it states")
                 .isEqualTo("MATERIAL-SYMMETRIC-READY");
-        assertThat(verdictOf(material("sntrup761x25519-sha512", "shared-secret", 256)).ruleId())
-                .describedAs("a session key labelled with its hybrid KEX is its own strength, not the KEX's")
+        assertThat(verdictOf(material("X25519-ML-KEM-768", "shared-secret", 256)).ruleId())
+                .describedAs("a session key labelled with a hybrid KEX a migration would keep is its own strength")
                 .isEqualTo("MATERIAL-SYMMETRIC-READY");
     }
 

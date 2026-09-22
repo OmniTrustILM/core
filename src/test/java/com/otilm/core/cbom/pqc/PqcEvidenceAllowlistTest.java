@@ -39,7 +39,7 @@ class PqcEvidenceAllowlistTest {
 
     @Test
     void everyRuleDeclaresOnlyAllowlistedFields() {
-        assertThat(PqcRules.rulesFor(normalizer))
+        assertThat(PqcRules.rulesFor(normalizer, input -> true))
                 .allSatisfy(rule -> assertThat(PqcRules.EVIDENCE_FIELDS)
                         .describedAs("rule %s declares %s", rule.id(), rule.readsFields())
                         .containsAll(rule.readsFields()));

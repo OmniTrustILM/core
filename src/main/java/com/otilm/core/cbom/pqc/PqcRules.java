@@ -6,6 +6,7 @@ import com.otilm.core.cbom.asset.identity.AssetNormalizer;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * The rule table: first match wins, and the last rule matches everything.
@@ -74,10 +75,20 @@ public final class PqcRules {
 
     public static final String HYBRID = "PQC-HYBRID";
 
+    /** The size arms' own fields, and every field the name decision they consult can read. */
+    private static final List<String> SYMMETRIC_MATERIAL_FIELDS = List
+            .of(ASSET_TYPE, MATERIAL_TYPE, MATERIAL_SIZE, ALGORITHM_FAMILY, NAME, VARIANT, HYBRID_COMPONENTS, CURVE);
+
     private PqcRules() {
     }
 
-    static List<PqcRule> rulesFor(AssetNormalizer normalizer) {
+    /**
+     * The symmetric size arms defer to {@link PqcEvaluator}'s decision for the asset's name, so a key and the algorithm
+     * of the same name cannot be served opposite verdicts.
+     *
+     * @param nameCarriesNoFinding whether the asset's own name is free of a weak-crypto finding
+     */
+    static List<PqcRule> rulesFor(AssetNormalizer normalizer, Predicate<PqcRuleInput> nameCarriesNoFinding) {
         return List
                 .of(
                         // ---- Asset types that carry no algorithm of their own -------------------------------------
@@ -126,43 +137,47 @@ public final class PqcRules {
                                 List.of(ASSET_TYPE, ALGORITHM_FAMILY, NAME)),
 
                         // ---- Hybrids, before any family rule ------------------------------------------------------
-                        // Algorithms only: a key's name may record the construction that produced it, and a 256-bit
-                        // session key labelled with its hybrid KEX is decided by the symmetric rules below, not by the
-                        // KEX. The verdict is the post-quantum component's, so the evaluator resolves it rather than
-                        // this table. See PqcEvaluator#hybridDecision.
+                        // Algorithms only: a key's name may record the construction that produced it. A 256-bit
+                        // session key labelled with a hybrid KEX whose name carries no finding is decided by the
+                        // symmetric rules below; one whose KEX carries a finding inherits it. The verdict is the
+                        // post-quantum component's, so the evaluator resolves it rather than this table. See
+                        // PqcEvaluator#hybridDecision.
                         new PqcRule(HYBRID,
                                 input -> input.assetType() == CryptographicAssetType.ALGORITHM && input.isHybrid(),
                                 PqcVerdict.READY,
                                 "A hybrid construction; its readiness is that of its post-quantum component",
-                                List.of(ASSET_TYPE, ALGORITHM_FAMILY, HYBRID_COMPONENTS, NAME)),
+                                List.of(ASSET_TYPE, ALGORITHM_FAMILY, HYBRID_COMPONENTS, NAME, VARIANT)),
 
                         // ---- Symmetric key material ---------------------------------------------------------------
-                        // A key named after a broken primitive is decided by its family, not by its size. Measured:
-                        // a secret-key named DES declaring 56 bits read UNKNOWN here, because a size under the
-                        // ratified floor reads as absent and these arms never ask what the key is.
+                        // A key whose name carries a finding is decided by that name, not by its size. Measured: a
+                        // secret-key named DES declaring 56 bits read UNKNOWN here, because a size under the ratified
+                        // floor reads as absent and these arms never ask what the key is. Below 64 a bit count cannot
+                        // be told from a byte count -- 32 is either AES-256 in bytes or a broken key in bits -- so the
+                        // name carries the finding without that ambiguity, and falling through to the name's own
+                        // decision keeps the row under the rule id an operator already queries for that primitive.
                         new PqcRule("MATERIAL-SYMMETRIC-READY",
-                                input -> isMaterial(SYMMETRIC_MATERIAL, input) && !namesABrokenPrimitive(input)
+                                input -> isMaterial(SYMMETRIC_MATERIAL, input) && nameCarriesNoFinding.test(input)
                                         && input.materialSize() != null
                                         && input.materialSize() >= MIN_SYMMETRIC_KEY_BITS,
                                 PqcVerdict.READY,
                                 "A symmetric key of at least 128 bits; Grover's algorithm halves its strength but does not "
                                         + "break it",
-                                List.of(ASSET_TYPE, MATERIAL_TYPE, MATERIAL_SIZE, ALGORITHM_FAMILY)),
+                                SYMMETRIC_MATERIAL_FIELDS),
                         new PqcRule("MATERIAL-SYMMETRIC-WEAK",
-                                input -> isMaterial(SYMMETRIC_MATERIAL, input) && !namesABrokenPrimitive(input)
+                                input -> isMaterial(SYMMETRIC_MATERIAL, input) && nameCarriesNoFinding.test(input)
                                         && input.materialSize() != null
                                         && input.materialSize() < MIN_SYMMETRIC_KEY_BITS,
                                 PqcVerdict.NOT_READY,
                                 "A symmetric key whose declared size is below 128 bits, so Grover's algorithm leaves it "
                                         + "with no adequate strength",
-                                List.of(ASSET_TYPE, MATERIAL_TYPE, MATERIAL_SIZE, ALGORITHM_FAMILY)),
+                                SYMMETRIC_MATERIAL_FIELDS),
                         new PqcRule("MATERIAL-SYMMETRIC-UNSIZED",
-                                input -> isMaterial(SYMMETRIC_MATERIAL, input)
-                                        && !namesABrokenPrimitive(input) && input.materialSize() == null,
+                                input -> isMaterial(SYMMETRIC_MATERIAL, input) && nameCarriesNoFinding.test(input)
+                                        && input.materialSize() == null,
                                 PqcVerdict.UNKNOWN,
                                 "A symmetric key whose declared size is absent or implausible, so its strength cannot "
                                         + "be affirmed",
-                                List.of(ASSET_TYPE, MATERIAL_TYPE, MATERIAL_SIZE, ALGORITHM_FAMILY)));
+                                SYMMETRIC_MATERIAL_FIELDS));
     }
 
     /**
@@ -186,24 +201,6 @@ public final class PqcRules {
                     "openpgp", "keystore", "truststore", "block cipher", "stream cipher", "kem", "mac", "aead", "kdf",
                     "prf", "drbg", "signature", "hash", "digest", "cipher", "key exchange", "key agreement",
                     "public key", "private key", "symmetric", "asymmetric");
-
-    /**
-     * A key whose own name resolves to a classically broken or Shor-breakable family is decided by that family rather
-     * than by its declared size. {@code DES} is broken because it is DES, and the size arms cannot say so: a stated
-     * size below the ratified floor reads as absent, and under 64 a bit count cannot be told from a byte count -- 32 is
-     * either AES-256 in bytes or a broken key in bits. The name carries the finding without that ambiguity, and falling
-     * through to the family rules keeps the row under the same {@code CLASSICAL-LEGACY} / {@code
-     * CLASSICAL-SHOR} ids an operator already queries.
-     */
-    static boolean namesABrokenPrimitive(PqcRuleInput input) {
-        if (input.isHybrid()) {
-            // A session key labelled with the hybrid KEX that produced it is the key's own strength, not the KEX's,
-            // and the elected family is whichever half the grammar picked. Leave those to the size arms.
-            return false;
-        }
-        FamilyClass disposition = PqcFamilies.of(input.algorithmFamily());
-        return disposition == FamilyClass.CLASSICAL_LEGACY || disposition == FamilyClass.SHOR_BREAKABLE;
-    }
 
     static boolean isMaterial(Set<String> types, PqcRuleInput input) {
         // The asset-type gate is not redundant. A producer bug observed in the corpus stamps

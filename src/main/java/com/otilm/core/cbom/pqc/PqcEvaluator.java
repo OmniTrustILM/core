@@ -70,7 +70,7 @@ public class PqcEvaluator {
 
     public PqcEvaluator(AssetNormalizer normalizer) {
         this.normalizer = normalizer;
-        this.rules = PqcRules.rulesFor(normalizer);
+        this.rules = PqcRules.rulesFor(normalizer, this::nameCarriesNoFinding);
     }
 
     /**
@@ -85,14 +85,35 @@ public class PqcEvaluator {
                                 nistQuantumSecurityLevel);
             }
         }
-        // Past the table: an algorithm the grammar did not record as a hybrid, or key material the material rules did
-        // not claim. A hybrid still decides before its family, because the family is whichever half the grammar
-        // elected.
+        return nameDecision(input, nistQuantumSecurityLevel);
+    }
+
+    /**
+     * What the asset's own name says about it. A hybrid decides before its family, because the family is whichever half
+     * the grammar elected; a weak component decides before an unbroken family.
+     *
+     * <p>
+     * Reached two ways. Past the rule table it is the answer -- an algorithm the grammar did not record as a hybrid, or
+     * key material the material rules did not claim. And the size arms consult it before claiming a row, so a key and
+     * the algorithm of the same name cannot be served opposite findings.
+     */
+    private PqcDecision nameDecision(PqcRuleInput input, Integer nistQuantumSecurityLevel) {
         List<String> hybrid = hybridComponentsOf(input);
         if (!hybrid.isEmpty()) {
             return hybridDecision(input, hybrid, HYBRID_RULE, nistQuantumSecurityLevel);
         }
         return componentOrFamilyDecision(input, nistQuantumSecurityLevel);
+    }
+
+    /**
+     * Whether the asset's own name is free of a weak-crypto finding -- which is not the same as clearing as ready, and
+     * the difference is the common case. A 256-bit secret key naming no family at all resolves to
+     * {@code FAMILY-UNRESOLVED}, and 376 of the corpus's 378 secret keys name no family, so gating the size arms on a
+     * ready verdict would empty them. An {@code unknown} name says nothing about the key; a {@code notReady} one is the
+     * finding, and a finding must reach the row whatever tier it was keyed on.
+     */
+    private boolean nameCarriesNoFinding(PqcRuleInput input) {
+        return nameDecision(input, null).verdict() != PqcVerdict.NOT_READY;
     }
 
     /**
@@ -198,6 +219,12 @@ public class PqcEvaluator {
             return componentOrFamilyDecision(input, nistQuantumSecurityLevel);
         }
         PqcRuleInput hybrid = input.withHybridComponents(components);
+        if (namesAClassicallyBrokenComponent(input)) {
+            FamilyClass legacy = FamilyClass.CLASSICAL_LEGACY;
+            return decision(legacy.verdict(), legacy.ruleId() + "-COMPONENT", componentReason(legacy),
+                    List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.HYBRID_COMPONENTS, PqcRules.VARIANT, PqcRules.NAME),
+                    hybrid, nistQuantumSecurityLevel);
+        }
         FamilyClass decisive = components
                 .stream()
                 .map(this::dispositionOfComponent)
@@ -217,6 +244,17 @@ public class PqcEvaluator {
                 : "A hybrid construction whose post-quantum component is not standardised: " + decisive.reason();
         return decision(decisive.verdict(), rule.id() + "-" + decisive.ruleId(), reason, rule.readsFields(), hybrid,
                 nistQuantumSecurityLevel);
+    }
+
+    /**
+     * A hybrid's classical half is Shor-breakable by design -- that is what the construction is for -- so only a
+     * classically broken component overrules it. The MD5 in {@code X25519-ML-KEM-768-MD5} is not that classical half
+     * but a broken digest inside the construction. The elected family counts too: the secondary tokens exclude it, so
+     * the PBKDF1 that {@code PBKDF1-X25519-ML-KEM-768} elects appears in neither the variant nor those tokens.
+     */
+    private boolean namesAClassicallyBrokenComponent(PqcRuleInput input) {
+        return PqcFamilies.of(ratifiedFamily(input.algorithmFamily())) == FamilyClass.CLASSICAL_LEGACY
+                || weakSecondaryTokens(input).containsValue(FamilyClass.CLASSICAL_LEGACY);
     }
 
     private boolean isShorBreakable(String component) {
@@ -307,10 +345,23 @@ public class PqcEvaluator {
         if (family == null && fields.assetType() == CryptographicAssetType.RELATED_CRYPTO_MATERIAL) {
             family = ratifiedFamily(normalizer.familyFromName(fields.name()));
         }
-        List<String> hybrid = normalizer.hybridComponents(family, normalizer.secondaryTokens(fields.name(), family));
+        String secondary = normalizer.secondaryTokens(fields.name(), family);
+        List<String> hybrid = normalizer.hybridComponents(family, secondary);
         return new PqcRuleInput(fields.assetType(), family, parameterSet(fields.parameterSet()), fields.curve(),
-                fields.mode(), fields.padding(), fields.variant(), fields.name(), hybrid,
+                fields.mode(), fields.padding(), variantOf(fields, secondary), fields.name(), hybrid,
                 materialType(mergedCryptoProperties), materialSize(mergedCryptoProperties));
+    }
+
+    /**
+     * The material tier derives no variant, and the weak-component doctrine reads exactly that field -- so it never
+     * reached a key. The name is a column, so the tokens are available to every caller, and a material row has no
+     * derived variant of its own to overwrite.
+     */
+    private static String variantOf(CryptoAssetIdentityFields fields, String secondaryTokens) {
+        if (fields.variant() != null || fields.assetType() != CryptographicAssetType.RELATED_CRYPTO_MATERIAL) {
+            return fields.variant();
+        }
+        return secondaryTokens == null || secondaryTokens.isEmpty() ? null : secondaryTokens;
     }
 
     /** The normalizer's routing vocabulary onto the column's enum; the unroutable tier has no producer spelling. */
