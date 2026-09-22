@@ -636,8 +636,8 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         }
 
         // Jackson deserialises an empty JSON string to a null UUID, so the list can carry an element that identifies
-        // nothing. It stays out of the existence query, and the loop reports it per item like any other entry it
-        // cannot delete -- the endpoint answers with a verdict for every element, not a rejection of the whole call.
+        // nothing. It stays out of the existence query, and the loop reports a per-item failure without rejecting the
+        // whole call.
         final List<UUID> identifiers = uuids.stream().filter(Objects::nonNull).toList();
         final Set<UUID> existingUuids = identifiers.isEmpty()
                 ? Set.of()
