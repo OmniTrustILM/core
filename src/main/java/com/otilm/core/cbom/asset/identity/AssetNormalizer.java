@@ -292,7 +292,7 @@ public record AssetNormalizer(IdentityTables tables) {
         String secondary = secondaryTokens(norm.name(), norm.family());
         String variant = joinNonEmpty("+", residue, secondary);
         norm.setVariant(variant == null || variant.isEmpty() ? null : variant);
-        norm.addHybridComponents(hybridComponents(norm.family(), secondary));
+        norm.addHybridComponents(hybridComponents(norm.name(), norm.family(), secondary));
         if (!norm.hybridComponents().isEmpty()) {
             norm
                     .note("L10: hybrid construction (" + String.join(" + ", norm.hybridComponents())
@@ -456,8 +456,40 @@ public record AssetNormalizer(IdentityTables tables) {
         return tables.cipherSuitePatterns().stream().anyMatch(pattern -> pattern.matcher(stripped).find());
     }
 
+    /**
+     * Words that make a name a plan or an alternation rather than one construction. {@code replac} covers replaces,
+     * replaced, replacing and replacement; {@code migrat} covers migrate, migrated, migrating and migration.
+     */
+    private static final Pattern ALTERNATION_WORDS = Pattern
+            .compile("(?<![a-z0-9])(?:or|either|vs|versus|instead|replac[a-z]*|fallback|fall back|migrat[a-z]*|"
+                    + "dual[ -]?stack)(?![a-z0-9])", Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Separators that join two names rather than spell one. A slash counts only when it is spaced: {@code SHA-512/224}
+     * and {@code A5/1} are single families whose own spelling carries one, where {@code ECDSA-P256 / ML-DSA-44} names
+     * two schemes. {@code and} and {@code with} are deliberately absent -- {@code X25519 with ML-KEM-768} is a genuine
+     * hybrid, and refusing it would lose a completed migration from the ready set.
+     */
+    private static final Pattern LIST_SEPARATORS = Pattern.compile("[,;]|\\s/\\s");
+
+    /**
+     * Whether the name alternates between constructions, or lists them, rather than combining them into one.
+     *
+     * <p>
+     * Hybridity is decided by co-presence and nothing else, so a name that merely mentions both kinds --
+     * {@code ML-KEM-768 with RSA-2048 fallback} -- was read as a hybrid while its RSA half still stands alone
+     * somewhere. Free-text component names in real CBOMs make this reachable. Refusing the name leaves it to the
+     * component doctrine, which answers on the Shor half: the accurate finding, and a stronger answer than an unknown.
+     */
+    public boolean namesAnAlternation(String name) {
+        return name != null && (ALTERNATION_WORDS.matcher(name).find() || LIST_SEPARATORS.matcher(name).find());
+    }
+
     /** The constructions a hybrid name names, when it names both kinds. Out-of-key by construction. */
-    public List<String> hybridComponents(String family, String secondary) {
+    public List<String> hybridComponents(String name, String family, String secondary) {
+        if (namesAnAlternation(name)) {
+            return List.of();
+        }
         Set<String> unique = new TreeSet<>();
         if (family != null && !family.isEmpty()) {
             unique.add(AsciiText.fold(family));

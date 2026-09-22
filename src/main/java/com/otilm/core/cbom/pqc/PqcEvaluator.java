@@ -129,7 +129,10 @@ public class PqcEvaluator {
         if (!input.hybridComponents().isEmpty()) {
             return input.hybridComponents();
         }
-        if (PqcFamilies.of(ratifiedFamily(input.algorithmFamily())) != FamilyClass.SHOR_BREAKABLE) {
+        if (PqcFamilies.of(ratifiedFamily(input.algorithmFamily())) != FamilyClass.SHOR_BREAKABLE
+                || normalizer.namesAnAlternation(input.name())) {
+            // The widening is subject to the same refusal as the normalizer's own derivation: a name that alternates
+            // between a classical and a post-quantum scheme names neither one construction.
             return List.of();
         }
         List<String> components = new ArrayList<>();
@@ -437,7 +440,7 @@ public class PqcEvaluator {
             family = ratifiedFamily(normalizer.familyFromName(fields.name()));
         }
         String secondary = normalizer.secondaryTokens(fields.name(), family);
-        List<String> hybrid = normalizer.hybridComponents(family, secondary);
+        List<String> hybrid = normalizer.hybridComponents(fields.name(), family, secondary);
         return new PqcRuleInput(fields.assetType(), family, parameterSet(fields.parameterSet()), fields.curve(),
                 fields.mode(), fields.padding(), variantOf(fields, secondary), fields.name(), hybrid,
                 materialType(mergedCryptoProperties), materialSize(mergedCryptoProperties));

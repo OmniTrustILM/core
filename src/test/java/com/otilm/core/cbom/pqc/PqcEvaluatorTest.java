@@ -227,6 +227,53 @@ class PqcEvaluatorTest {
         assertThat(decision.ruleId()).isEqualTo("PQC-HYBRID-PQC-PRESTANDARD");
     }
 
+    /**
+     * Hybridity was decided by co-presence of a classical and a post-quantum token and nothing else, so a name that
+     * merely mentions both was served "a hybrid construction; its readiness is that of its post-quantum component"
+     * while its RSA half still stands alone somewhere. Free-text component names in real CBOMs make this reachable.
+     */
+    @Test
+    void aNameThatAlternatesBetweenSchemesIsNotAHybrid() {
+        for (String alternation : new String[]{
+                "RSA-2048 to be replaced by ML-DSA-65",
+                "RSA-2048 or ML-DSA-65",
+                "ML-KEM-768 with RSA-2048 fallback",
+                "ECDSA-P256 / ML-DSA-44 (dual stack)",
+                "ML-KEM-768 (encapsulation), RSA-2048 (signature)",
+                "RSA-2048 or Kyber768"}) {
+            PqcDecision decision = verdictOf(algorithm(alternation));
+            assertThat(decision.verdict()).describedAs("name %s", alternation).isEqualTo(PqcVerdict.NOT_READY);
+            assertThat(decision.ruleId())
+                    .describedAs("the classical half stands alone, which is a finding rather than an unknown")
+                    .isEqualTo("CLASSICAL-SHOR-COMPONENT");
+        }
+    }
+
+    /**
+     * The other direction, and the one a marker list can get wrong: refusing a genuine hybrid loses a completed
+     * migration from the ready set. {@code and} and {@code with} are therefore not markers, a slash counts only when it
+     * is spaced, and every marker word is bounded so that the {@code or} in {@code 3GPP-XOR} and {@code Fortuna} does
+     * not match.
+     */
+    @Test
+    void aGenuineHybridIsStillAHybrid() {
+        for (String hybrid : new String[]{
+                "X25519-ML-KEM-768",
+                "X25519MLKEM768",
+                "mlkem768x25519-sha256",
+                "X25519 with ML-KEM-768",
+                "X25519 and ML-KEM-768"}) {
+            assertThat(verdictOf(algorithm(hybrid)).ruleId())
+                    .describedAs("hybrid %s", hybrid)
+                    .isEqualTo("PQC-HYBRID-PQC-STANDARDIZED");
+        }
+        assertThat(verdictOf(algorithm("X25519-Kyber768")).ruleId()).isEqualTo("PQC-HYBRID-PQC-PRESTANDARD");
+        assertThat(verdictOf(algorithm("SHA-512/224")).ruleId())
+                .describedAs("a family whose own spelling carries a slash is not a list")
+                .isEqualTo("SYMMETRIC-READY");
+        assertThat(verdictOf(algorithm("Yarrow")).ruleId()).isEqualTo("CLASSICAL-LEGACY");
+    }
+
     // ---- correctly outside the question ----------------------------------------------------------------------------
 
     @Test
