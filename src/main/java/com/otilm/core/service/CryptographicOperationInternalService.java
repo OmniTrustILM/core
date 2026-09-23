@@ -72,9 +72,7 @@ public interface CryptographicOperationInternalService {
             InvalidKeySpecException, IOException, AttributeException;
 
     /**
-     * Names the algorithm a signature made with this key and these attributes will carry, for a caller that must name
-     * it in a structure it builds itself before the signature exists -- the {@code SignerInfo} of a CMS signature, for
-     * instance.
+     * Resolves a signature algorithm from the key and attributes.
      *
      * @param privateKeyItem the signing key item
      * @param publicKeyItem the matching public key item, which carries the parameter set of a PQC key
