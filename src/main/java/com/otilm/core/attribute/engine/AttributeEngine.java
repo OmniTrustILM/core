@@ -1023,6 +1023,7 @@ public class AttributeEngine {
                         dataAttribute.getUuid(), dataAttribute.getName(), dataAttribute.getType(),
                         connectorUuid.toString());
             }
+            claimUnknownOperation(attributeDefinition, operation);
         } else {
             logger
                     .debug("Registering new data attribute with UUID {} and name {} for connector {}",
@@ -1057,6 +1058,16 @@ public class AttributeEngine {
             attributeDefinition.setDefinition(dataAttribute);
         }
         attributeDefinitionRepository.save(attributeDefinition);
+    }
+
+    /**
+     * A listing call can publish a definition before anything says what it serves; the first write that knows claims
+     * it.
+     */
+    private static void claimUnknownOperation(AttributeDefinition definition, String operation) {
+        if (definition.getOperation() == null) {
+            definition.setOperation(operation);
+        }
     }
 
     private static DataAttribute copyWithoutContent(DataAttribute dataAttribute) {

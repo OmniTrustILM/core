@@ -14,6 +14,7 @@ import com.otilm.api.model.client.cryptography.operations.SignDataResponseDto;
 import com.otilm.api.model.client.cryptography.operations.VerifyDataRequestDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
+import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.MetadataAttributeV3;
 import com.otilm.api.model.common.enums.BitMaskEnum;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
@@ -34,6 +35,7 @@ import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.crypto.ImmutableTokenInstanceBasicModel;
 import com.otilm.core.model.crypto.ImmutableTokenProfileBasicModel;
 import com.otilm.core.model.crypto.KeyOperationScope;
+import com.otilm.core.model.crypto.OperationAttributeSchema;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
@@ -596,6 +598,27 @@ class CryptographicOperationServiceImplTest {
     }
 
     @Test
+    void listSignAttributeSchema_servesCoresRegistry_forALegacyKey_withoutLoadingScope() throws Exception {
+        // given
+        CryptographicKeyItemOperationModel key = legacyKey();
+        List<BaseAttribute> registry = List.of(new DataAttributeV3());
+        when(keyService.getPrivateKeyItemModel(key.keyUuid())).thenReturn(key);
+        when(keyProviderAdapterFactory.forKeyItem(key)).thenReturn(adapter);
+        when(adapter.listSignAttributes(any())).thenReturn(registry);
+
+        // when
+        OperationAttributeSchema schema = service.listSignAttributeSchema(key.keyUuid());
+
+        // then
+        assertNull(schema.ownerConnectorUuid());
+        assertSame(registry, schema.definitions());
+        ArgumentCaptor<OperationKeyContext> context = ArgumentCaptor.forClass(OperationKeyContext.class);
+        verify(adapter).listSignAttributes(context.capture());
+        assertNull(context.getValue().tokenProfile());
+        verifyNoInteractions(cryptographicKeyRepository);
+    }
+
+    @Test
     void resolveSignatureAlgorithm_refusesAnAlgorithmThePlatformHasNoEntryFor() throws Exception {
         // given
         CryptographicKeyItemOperationModel key = legacyKey();
@@ -609,6 +632,43 @@ class CryptographicOperationServiceImplTest {
         // then
         ValidationException failure = assertThrows(ValidationException.class, resolve);
         assertTrue(failure.getMessage().contains("SHA1WITHRSA"));
+    }
+
+    @Test
+    void listSignAttributeSchema_asksTheConnector_andNamesItTheOwner_forAV2Key() throws Exception {
+        // given
+        CryptographicKeyItemOperationModel key = v2Key();
+        KeyOperationScope scope = scope();
+        List<BaseAttribute> connectorSchema = List.of(new DataAttributeV3());
+        when(keyService.getPrivateKeyItemModel(key.keyUuid())).thenReturn(key);
+        when(cryptographicKeyRepository.findOperationScopeByUuid(key.keyUuid())).thenReturn(Optional.of(scope));
+        when(keyProviderAdapterFactory.forKeyItem(key)).thenReturn(adapter);
+        when(adapter.listSignAttributes(any())).thenReturn(connectorSchema);
+
+        // when
+        OperationAttributeSchema schema = service.listSignAttributeSchema(key.keyUuid());
+
+        // then
+        assertEquals(key.connectorUuid(), schema.ownerConnectorUuid());
+        assertSame(connectorSchema, schema.definitions());
+        ArgumentCaptor<OperationKeyContext> context = ArgumentCaptor.forClass(OperationKeyContext.class);
+        verify(adapter).listSignAttributes(context.capture());
+        assertEquals(scope.tokenProfileUuid(), context.getValue().tokenProfile().uuid());
+    }
+
+    @Test
+    void listSignAttributeSchema_throwsNotFound_forAV2KeyWithoutScope() throws Exception {
+        // given
+        CryptographicKeyItemOperationModel key = v2Key();
+        when(keyService.getPrivateKeyItemModel(key.keyUuid())).thenReturn(key);
+        when(cryptographicKeyRepository.findOperationScopeByUuid(key.keyUuid())).thenReturn(Optional.empty());
+
+        // when
+        Executable list = () -> service.listSignAttributeSchema(key.keyUuid());
+
+        // then
+        assertThrows(NotFoundException.class, list);
+        verifyNoInteractions(keyProviderAdapterFactory);
     }
 
     private static CryptographicKeyItemOperationModel legacyKey() {

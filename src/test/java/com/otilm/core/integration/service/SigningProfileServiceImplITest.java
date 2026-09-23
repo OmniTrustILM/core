@@ -10,8 +10,10 @@ import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.attribute.ResponseAttribute;
-import com.otilm.api.model.client.attribute.ResponseAttributeV2;
 import com.otilm.api.model.client.attribute.ResponseAttributeV3;
+import com.otilm.api.model.client.connector.v2.ConnectorInterface;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.client.signing.profile.SigningProfileDto;
 import com.otilm.api.model.client.signing.profile.SigningProfileListDto;
@@ -30,22 +32,33 @@ import com.otilm.api.model.client.signing.protocols.tsp.TspProfileDto;
 import com.otilm.api.model.client.signing.timequality.TimeQualityConfigurationDto;
 import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.common.PaginationResponseDto;
+import com.otilm.api.model.common.attribute.common.AttributeContent;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.properties.CustomAttributeProperties;
+import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
+import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.MetadataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyFormat;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.enums.cryptography.RsaSignatureScheme;
 import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
+import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.signatures.contentsigning.common.ContentSigningFormattingOperation;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateKeyUsage;
+import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.connector.v2.ConnectorDetailDto;
 import com.otilm.api.model.core.cryptography.key.KeyDetailDto;
+import com.otilm.api.model.core.cryptography.key.KeyState;
+import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.cryptography.token.TokenInstanceDetailDto;
 import com.otilm.api.model.core.cryptography.tokenprofile.TokenProfileDetailDto;
 import com.otilm.api.model.core.signing.SigningProtocol;
@@ -56,10 +69,23 @@ import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.AttributeDefinition;
 import com.otilm.core.dao.entity.AttributeRelation;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.Connector;
+import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
+import com.otilm.core.dao.entity.CryptographicKey;
+import com.otilm.core.dao.entity.CryptographicKeyItem;
+import com.otilm.core.dao.entity.TokenInstanceReference;
+import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.entity.signing.SigningProfile;
+import com.otilm.core.dao.repository.AttributeContent2ObjectRepository;
 import com.otilm.core.dao.repository.AttributeDefinitionRepository;
 import com.otilm.core.dao.repository.AttributeRelationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
+import com.otilm.core.dao.repository.ConnectorRepository;
+import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
+import com.otilm.core.dao.repository.CryptographicKeyRepository;
+import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
+import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.helpers.TestCertificateAuthority;
@@ -81,18 +107,26 @@ import com.otilm.core.service.TspProfileExternalService;
 import com.otilm.core.service.v2.ConnectorExternalService;
 import com.otilm.core.service.writer.signingrecord.SigningRecordWriter;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.builders.ContentSigningWorkflowRequestDtoBuilder;
+import com.otilm.core.util.builders.DataAttributeV3Builder;
 import com.otilm.core.util.mocks.ConnectorMockFactory;
 import com.otilm.core.util.mocks.ContentSigningFormattingMock;
 import com.otilm.core.util.mocks.CryptographyProviderConnectorMock;
+import com.otilm.core.util.mocks.CryptographyProviderV2ConnectorMock;
 import com.otilm.core.util.mocks.SignerConnectorMock;
 import com.otilm.core.util.mocks.TimestampingFormattingConnectorMock;
+import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
+import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.UnaryOperator;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert;
 import org.junit.jupiter.api.AfterEach;
@@ -205,6 +239,27 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
     @Autowired
     private CertificateRepository certificateRepository;
 
+    @Autowired
+    private ConnectorRepository connectorRepository;
+
+    @Autowired
+    private ConnectorInterfaceRepository connectorInterfaceRepository;
+
+    @Autowired
+    private TokenInstanceReferenceRepository tokenInstanceReferenceRepository;
+
+    @Autowired
+    private TokenProfileRepository tokenProfileRepository;
+
+    @Autowired
+    private CryptographicKeyRepository cryptographicKeyRepository;
+
+    @Autowired
+    private CryptographicKeyItemRepository cryptographicKeyItemRepository;
+
+    @Autowired
+    private AttributeContent2ObjectRepository attributeContent2ObjectRepository;
+
     /**
      * The row is re-read because the field's instance predates {@code certificateUploader.validate} and would write a
      * stale NOT_CHECKED validation status back.
@@ -245,12 +300,13 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
     }
 
     private static String extractStringAttrValue(List<ResponseAttribute> attrs, String name) {
-        ResponseAttributeV2 attr = (ResponseAttributeV2) attrs
+        ResponseAttribute attr = attrs
                 .stream()
                 .filter(a -> name.equals(a.getName()))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Attribute '" + name + "' not found in: " + attrs));
-        return attr.getContent().getFirst().getData().toString();
+        List<? extends AttributeContent> content = attr.getContent();
+        return content.getFirst().getData().toString();
     }
 
     private static RequestAttribute aStringAttribute(UUID uuid, String name, String value) {
@@ -260,6 +316,85 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         attr.setContentType(AttributeContentType.STRING);
         attr.setContent(List.of(new StringAttributeContentV2(value, value)));
         return attr;
+    }
+
+    private Connector persistV2Connector(String url) {
+        Connector value = new Connector();
+        value.setName("pkcs11-like-provider-v2");
+        value.setUrl(url);
+        value.setVersion(ConnectorVersion.V2);
+        value.setStatus(ConnectorStatus.CONNECTED);
+        return connectorRepository.save(value);
+    }
+
+    private ConnectorInterfaceEntity persistCryptographyInterface(Connector owner) {
+        ConnectorInterfaceEntity value = new ConnectorInterfaceEntity();
+        value.setConnector(owner);
+        value.setConnectorUuid(owner.getUuid());
+        value.setInterfaceCode(ConnectorInterface.CRYPTOGRAPHY);
+        value.setVersion("v2");
+        value.setFeatures(List.of(FeatureFlag.STATELESS));
+        value = connectorInterfaceRepository.save(value);
+        owner.getInterfaces().add(value);
+        return value;
+    }
+
+    private TokenInstanceReference persistV2Token(ConnectorInterfaceEntity iface) {
+        TokenInstanceReference value = new TokenInstanceReference();
+        value.setName("v2-token");
+        value.setConnector(iface.getConnector());
+        value.setConnectorUuid(iface.getConnectorUuid());
+        value.setConnectorInterface(iface);
+        value.setKind("HSM");
+        value.setStatus(TokenInstanceStatus.ACTIVATED);
+        return tokenInstanceReferenceRepository.save(value);
+    }
+
+    private TokenProfile persistV2Profile(TokenInstanceReference token) {
+        TokenProfile value = new TokenProfile();
+        value.setName("v2-token-profile");
+        value.setTokenInstanceReference(token);
+        value.setTokenInstanceName(token.getName());
+        value.setEnabled(true);
+        value.setUsage(List.of(KeyUsage.SIGN, KeyUsage.VERIFY));
+        return tokenProfileRepository.save(value);
+    }
+
+    private void persistV2KeyPair(TokenInstanceReference token, TokenProfile profile, KeyPair keyPair)
+            throws NoSuchAlgorithmException {
+        CryptographicKey key = new CryptographicKey();
+        key.setName("v2-key");
+        key.setTokenProfile(profile);
+        key.setTokenInstanceReference(token);
+        key = cryptographicKeyRepository.save(key);
+        String publicKeyData = Base64.getEncoder().encodeToString(keyPair.getPublic().getEncoded());
+        persistV2KeyItem(key, KeyType.PRIVATE_KEY, null, null);
+        persistV2KeyItem(key, KeyType.PUBLIC_KEY, publicKeyData,
+                CertificateUtil.getThumbprint(publicKeyData.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    private void persistV2KeyItem(CryptographicKey key, KeyType type, String keyData, String fingerprint) {
+        MetadataAttributeV3 handle = new MetadataAttributeV3();
+        handle.setUuid(UUID.randomUUID().toString());
+        handle.setName("provider-handle");
+        handle.setType(AttributeType.META);
+        handle.setContentType(AttributeContentType.STRING);
+        handle.setProperties(new MetadataAttributeProperties());
+        handle.setContent(List.of(new StringAttributeContentV3("hsm-" + type)));
+        CryptographicKeyItem value = new CryptographicKeyItem();
+        value.setKey(key);
+        value.setKeyUuid(key.getUuid());
+        value.setType(type);
+        value.setKeyAlgorithm(KeyAlgorithm.RSA);
+        value.setFormat(type == KeyType.PUBLIC_KEY ? KeyFormat.SPKI : KeyFormat.PRKI);
+        value.setLength(2048);
+        value.setState(KeyState.ACTIVE);
+        value.setEnabled(true);
+        value.setUsage(type == KeyType.PUBLIC_KEY ? List.of(KeyUsage.VERIFY) : List.of(KeyUsage.SIGN));
+        value.setKeyMeta(List.of(handle));
+        value.setKeyData(keyData);
+        value.setFingerprint(fingerprint);
+        cryptographicKeyItemRepository.save(value);
     }
 
     @BeforeEach
@@ -504,7 +639,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
     class ListSignatureAttributesTests {
 
         @Test
-        void allowedCert_returnsAttributes() throws NotFoundException {
+        void allowedCert_returnsAttributes() throws Exception {
             // given: signingCertificate from setUp (access allowed by default)
 
             // when
@@ -514,6 +649,19 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             // then
             assertNotNull(attrs);
             assertFalse(attrs.isEmpty(), "RSA certificate should produce non-empty signature attributes");
+        }
+
+        @Test
+        void certWithoutAPrivateKey_returnsNoAttributes() throws Exception {
+            // given: an uploaded certificate, whose key holds only the public half
+            Certificate publicOnly = testCertificateAuthority.issueUntrustedCertificate();
+
+            // when
+            List<BaseAttribute> attrs = signingProfileService
+                    .listSignatureAttributesForCertificate(SecuredUUID.fromUUID(publicOnly.getUuid()));
+
+            // then
+            assertTrue(attrs.isEmpty());
         }
 
         @Test
@@ -528,6 +676,230 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
 
             // then
             assertThrows(AccessDeniedException.class, listAttributes);
+        }
+    }
+
+    @Nested
+    class V2KeySigningAttributes {
+
+        private static final UUID SCHEME_UUID = UUID.fromString("0b6f2a5e-2317-4c1e-9d11-000000000001");
+        private static final UUID DIGEST_UUID = UUID.fromString("0b6f2a5e-2317-4c1e-9d11-000000000002");
+        private static final UUID SALT_LENGTH_UUID = UUID.fromString("0b6f2a5e-2317-4c1e-9d11-000000000003");
+        private static final String PKCS11_SCHEMA = "[" + stringAttribute(SCHEME_UUID, "signatureScheme") + ","
+                + stringAttribute(DIGEST_UUID, "digestAlgorithm") + "]";
+
+        private CryptographyProviderV2ConnectorMock v2Mock;
+        private Connector v2Connector;
+        private Certificate v2SigningCertificate;
+        private Certificate v2TimestampingCertificate;
+
+        @BeforeEach
+        void setUpV2Key() throws Exception {
+            v2Mock = connectorMockFactory.startCryptographyProviderV2();
+            v2Mock.stubOperationAttributes("sign", PKCS11_SCHEMA);
+            v2Connector = persistV2Connector(v2Mock.getUrl());
+            TokenInstanceReference token = persistV2Token(persistCryptographyInterface(v2Connector));
+            TokenProfile profile = persistV2Profile(token);
+            KeyPair v2KeyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+            persistV2KeyPair(token, profile, v2KeyPair);
+            TestCertificateAuthority.TrustedCa ca = testCertificateAuthority.createTrustedCa("CN=V2 Root CA");
+            v2SigningCertificate = ca.issueSigningCertificate(v2KeyPair, "CN=V2 Signing");
+            v2TimestampingCertificate = ca.issueTimestampingCertificate(v2KeyPair, "CN=V2 TSA");
+        }
+
+        @AfterEach
+        void stopV2Mock() {
+            v2Mock.stop();
+        }
+
+        @Test
+        void listSignatureAttributesForCertificate_servesTheConnectorsVocabulary() throws Exception {
+            // when
+            List<BaseAttribute> attributes = signingProfileService
+                    .listSignatureAttributesForCertificate(SecuredUUID.fromUUID(v2SigningCertificate.getUuid()));
+
+            // then
+            assertEquals(List.of("signatureScheme", "digestAlgorithm"),
+                    attributes.stream().map(BaseAttribute::getName).toList());
+        }
+
+        @Test
+        void create_v1Key_storesTheSigningAttributesWithoutAnOwner() {
+            // when
+            List<?> ownerless = attributeContent2ObjectRepository
+                    .getObjectDataAttributesContentNoConnector(AttributeType.DATA, AttributeOperation.SIGN, null,
+                            Resource.SIGNING_PROFILE, UUID.fromString(defaultManagedStaticKeySigningProfile.getUuid()),
+                            defaultManagedStaticKeySigningProfile.getVersion());
+
+            // then
+            assertEquals(2, ownerless.size());
+        }
+
+        @Test
+        void create_v2Key_persistsTheConnectorsAttributes_andReadsThemBack() throws Exception {
+            // when
+            SigningProfileDto created = signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("v2-static-key")
+                            .withStaticKeyManagedSigning(v2SigningCertificate.getUuid(), pkcs11Attributes("PSS"))
+                            .withRawSigning()
+                            .build());
+
+            // then
+            List<ResponseAttribute> stored = assertInstanceOf(StaticKeyManagedSigningDto.class,
+                    created.getSigningScheme()).getSigningOperationAttributes();
+            assertEquals("PSS", extractStringAttrValue(stored, "signatureScheme"));
+            assertEquals("SHA-256", extractStringAttrValue(stored, "digestAlgorithm"));
+            assertEquals(created,
+                    signingProfileService.getSigningProfile(SecuredUUID.fromString(created.getUuid()), null));
+        }
+
+        @Test
+        void loadSigningProfileModel_v2Key_carriesTheConnectorsAttributes() throws Exception {
+            // given
+            timestampingFormattingMock.stubFormattingAttributes();
+            signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("v2-timestamping")
+                            .withStaticKeyManagedSigning(v2TimestampingCertificate.getUuid(),
+                                    pkcs11Attributes("PKCS1-v1_5"))
+                            .withTimestamping(aTimestampingWorkflow()
+                                    .withSignatureFormattingConnector(
+                                            UUID.fromString(timestampingFormattingConnector.getUuid()))
+                                    .build())
+                            .build());
+
+            // when
+            SigningProfileModel<?, ?> model = signingProfileInternalService.loadSigningProfileModel("v2-timestamping");
+
+            // then: read back in the definition's schema version, which pkcs11 requires
+            StaticKeyManagedSigning scheme = assertInstanceOf(StaticKeyManagedSigning.class, model.signingScheme());
+            assertEquals(Set.of("signatureScheme", "digestAlgorithm"),
+                    scheme
+                            .signingOperationAttributes()
+                            .stream()
+                            .map(RequestAttribute::getName)
+                            .collect(Collectors.toSet()));
+            scheme
+                    .signingOperationAttributes()
+                    .forEach(attribute -> assertInstanceOf(RequestAttributeV3.class, attribute));
+        }
+
+        @Test
+        void create_v2Key_persistsAnAttributeAGroupCallbackDelivered() throws Exception {
+            // given: a group callback delivered this child, so Core stored its definition without an operation
+            DataAttributeV3 saltLength = DataAttributeV3Builder
+                    .aDataAttribute()
+                    .withUuid(SALT_LENGTH_UUID)
+                    .withName("pssSaltLength")
+                    .build();
+            attributeEngine.updateDataAttributeDefinitions(v2Connector.getUuid(), null, List.of(saltLength));
+            List<RequestAttribute> attributes = new ArrayList<>(pkcs11Attributes("PSS"));
+            attributes.add(aStringAttributeV3(SALT_LENGTH_UUID, "pssSaltLength", "32"));
+
+            // when
+            SigningProfileDto created = signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("v2-callback-child")
+                            .withStaticKeyManagedSigning(v2SigningCertificate.getUuid(), attributes)
+                            .withRawSigning()
+                            .build());
+
+            // then
+            List<ResponseAttribute> stored = assertInstanceOf(StaticKeyManagedSigningDto.class,
+                    created.getSigningScheme()).getSigningOperationAttributes();
+            assertEquals("32", extractStringAttrValue(stored, "pssSaltLength"));
+        }
+
+        @Test
+        void create_v2Key_rejectsAnAttributeTheConnectorDoesNotOffer() {
+            // given: Core's legacy RSA names, which this connector does not publish
+            SigningProfileRequestDto request = aSigningProfileRequest()
+                    .withName("v2-legacy-names")
+                    .withStaticKeyManagedSigning(v2SigningCertificate.getUuid(), RsaSignatureScheme.PKCS1_v1_5,
+                            DigestAlgorithm.SHA_256)
+                    .withRawSigning()
+                    .build();
+
+            // when
+            Executable create = () -> signingProfileService.createSigningProfile(request);
+
+            // then
+            ValidationException failure = assertThrows(ValidationException.class, create);
+            assertTrue(firstErrorMessage(failure).contains(RsaSignatureAttributes.ATTRIBUTE_DATA_RSA_SIG_SCHEME));
+        }
+
+        @Test
+        void update_swappingAV1KeyForAV2Key_replacesTheSigningAttributes() throws Exception {
+            // given: a v1-backed profile holding Core's RSA attributes
+            SigningProfileDto created = signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("v1-then-v2")
+                            .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                            .withRawSigning()
+                            .build());
+
+            // when: updated in place onto the v2-backed certificate
+            SigningProfileDto updated = signingProfileService
+                    .updateSigningProfile(SecuredUUID.fromString(created.getUuid()),
+                            aSigningProfileRequestFromExistingProfile(created)
+                                    .withStaticKeyManagedSigning(v2SigningCertificate.getUuid(),
+                                            pkcs11Attributes("PSS"))
+                                    .build());
+
+            // then
+            List<ResponseAttribute> stored = assertInstanceOf(StaticKeyManagedSigningDto.class,
+                    updated.getSigningScheme()).getSigningOperationAttributes();
+            assertEquals(Set.of("signatureScheme", "digestAlgorithm"),
+                    stored.stream().map(ResponseAttribute::getName).collect(Collectors.toSet()));
+            assertEquals(updated,
+                    signingProfileService.getSigningProfile(SecuredUUID.fromString(created.getUuid()), null));
+            assertTrue(attributeContent2ObjectRepository
+                    .getObjectDataAttributesContentNoConnector(AttributeType.DATA, AttributeOperation.SIGN, null,
+                            Resource.SIGNING_PROFILE, UUID.fromString(created.getUuid()), updated.getVersion())
+                    .isEmpty());
+        }
+
+        @Test
+        void update_v2KeyToNonStaticScheme_clearsTheConnectorOwnedAttributes() throws Exception {
+            // given
+            SigningProfileDto created = signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("v2-then-delegated")
+                            .withStaticKeyManagedSigning(v2SigningCertificate.getUuid(), pkcs11Attributes("PSS"))
+                            .withRawSigning()
+                            .build());
+
+            // when
+            signingProfileService
+                    .updateSigningProfile(SecuredUUID.fromString(created.getUuid()),
+                            aSigningProfileRequestFromExistingProfile(created)
+                                    .withDelegatedSigning(signerConnector.getUuid())
+                                    .build());
+
+            // then
+            assertTrue(attributeContent2ObjectRepository
+                    .getObjectDataAttributesContent(AttributeType.DATA, v2Connector.getUuid(), AttributeOperation.SIGN,
+                            null, Resource.SIGNING_PROFILE, UUID.fromString(created.getUuid()), created.getVersion())
+                    .isEmpty());
+        }
+
+        private List<RequestAttribute> pkcs11Attributes(String scheme) {
+            return List
+                    .of(aStringAttributeV3(SCHEME_UUID, "signatureScheme", scheme),
+                            aStringAttributeV3(DIGEST_UUID, "digestAlgorithm", "SHA-256"));
+        }
+
+        /** pkcs11 publishes schema-v3 definitions, so a client answers them in v3. */
+        private static RequestAttribute aStringAttributeV3(UUID uuid, String name, String value) {
+            return new RequestAttributeV3(uuid, name, AttributeContentType.STRING,
+                    List.of(new StringAttributeContentV3(value)));
+        }
+
+        private static String stringAttribute(UUID uuid, String name) {
+            return "{\"uuid\":\"" + uuid + "\",\"name\":\"" + name + "\",\"type\":\"data\",\"contentType\":\"string\","
+                    + "\"version\":3,\"properties\":{\"label\":\"" + name + "\",\"visible\":true,\"required\":true,"
+                    + "\"readOnly\":false,\"list\":false,\"multiSelect\":false}}";
         }
     }
 

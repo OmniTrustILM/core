@@ -99,6 +99,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityResourceFilter;
 import com.otilm.core.service.CertificateExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.builders.DataAttributeV3Builder;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.PersistenceContext;
@@ -2725,5 +2726,45 @@ class AttributeEngineITest extends BaseSpringBootTest {
                     .cacheOidCategory(OidCategory.CERTIFICATE_EXTENSION,
                             savedCache != null ? new HashMap<>(savedCache) : new HashMap<>());
         }
+    }
+
+    @Test
+    void validateUpdateDataAttributes_claimsTheOperation_ofADefinitionPublishedWithoutOne() throws AttributeException {
+        // given: a listing call published the definition before anything said what it serves
+        UUID connectorUuid = connectorDiscovery.getUuid();
+        DataAttributeV3 definition = DataAttributeV3Builder.aDataAttribute().withName("digestAlgorithm").build();
+        attributeEngine.updateDataAttributeDefinitions(connectorUuid, null, List.of(definition));
+
+        // when
+        attributeEngine
+                .validateUpdateDataAttributes(connectorUuid, AttributeOperation.SIGN, List.of(definition), List.of());
+
+        // then
+        Assertions.assertEquals(AttributeOperation.SIGN, storedOperation(connectorUuid, definition));
+    }
+
+    @Test
+    void updateDataAttributeDefinitions_keepsAnOperationAlreadyClaimed() throws AttributeException {
+        // given
+        UUID connectorUuid = connectorDiscovery.getUuid();
+        DataAttributeV3 definition = DataAttributeV3Builder.aDataAttribute().withName("digestAlgorithm").build();
+        attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.SIGN, List.of(definition));
+
+        // when: a later listing republishes it without an operation, then another operation validates against it
+        attributeEngine.updateDataAttributeDefinitions(connectorUuid, null, List.of(definition));
+        attributeEngine
+                .validateUpdateDataAttributes(connectorUuid, AttributeOperation.WORKFLOW_FORMATTING,
+                        List.of(definition), List.of());
+
+        // then
+        Assertions.assertEquals(AttributeOperation.SIGN, storedOperation(connectorUuid, definition));
+    }
+
+    private String storedOperation(UUID connectorUuid, DataAttributeV3 definition) {
+        return attributeDefinitionRepository
+                .findByTypeAndConnectorUuidAndAttributeUuidAndName(AttributeType.DATA, connectorUuid,
+                        UUID.fromString(definition.getUuid()), definition.getName())
+                .orElseThrow()
+                .getOperation();
     }
 }

@@ -202,4 +202,18 @@ public interface CryptographicKeyItemRepository extends SecurityFilterRepository
             WHERE item.uuid = :uuid
             """)
     Optional<CryptographicKeyItemOperationRow> findOperationRowByUuid(@Param("uuid") UUID uuid);
+
+    @Query("""
+            SELECT new com.otilm.core.model.crypto.CryptographicKeyItemOperationRow(
+                item.uuid, item.enabled, item.keyAlgorithm, item.state, item.type, item.usage, item.keyData,
+                item.keyReferenceUuid, item.keyMeta, key.uuid, token.connectorUuid, token.tokenInstanceUuid,
+                iface.interfaceCode, iface.version)
+            FROM CryptographicKeyItem item
+            JOIN item.key key
+            JOIN key.tokenInstanceReference token
+            LEFT JOIN token.connectorInterface iface
+            WHERE key.uuid = :keyUuid
+              AND item.type = com.otilm.api.model.common.enums.cryptography.KeyType.PRIVATE_KEY
+            """)
+    Optional<CryptographicKeyItemOperationRow> findPrivateOperationRowByKeyUuid(@Param("keyUuid") UUID keyUuid);
 }
