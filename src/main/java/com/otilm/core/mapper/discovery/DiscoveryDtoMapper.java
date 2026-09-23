@@ -111,9 +111,8 @@ public class DiscoveryDtoMapper {
     }
 
     /**
-     * The object the item became, or nothing at all while it is unprocessed or failed. The name runs through the same
-     * helper the certificate listing uses, so an object with none of its own reads the same in both listings rather
-     * than arriving empty in one of them.
+     * The object the item became, or null while unprocessed or failed. Named through the certificate listing's helper,
+     * so a nameless object reads the same in both listings.
      */
     private static NameAndUuidDto inventoryOf(DiscoveryItemRow row) {
         if (row.getInventoryUuid() == null) {

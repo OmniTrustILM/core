@@ -18,10 +18,9 @@ import org.springframework.transaction.annotation.Transactional;
  * Files a discovered public key in the inventory and stamps the staged row that produced it.
  *
  * <p>
- * Both entry points are one item's unit of work, and the caller runs each in its own transaction: one key that cannot
- * be written must not take the batch's other keys with it, and the stamp has to survive whatever the caller does next.
- * The boundary is the caller's because a writer holds @Modifying calls, which need an ambient transaction rather than
- * one they open themselves.
+ * Each method is one item's unit of work, which the caller runs in its own transaction: one key cannot take the batch's
+ * other keys with it, and a stamp survives whatever the caller does next. Writer methods join the caller's transaction
+ * because their @Modifying calls need an ambient one.
  */
 @Service
 public class DiscoveredKeyWriter {
@@ -38,10 +37,8 @@ public class DiscoveredKeyWriter {
     }
 
     /**
-     * Files the public key under the record that already holds it, or a new one, and stamps the item with that record.
-     * A new record is written by the insert a certificate's public key goes through, so a key discovered on its own and
-     * the same key inside a certificate get one record, the same attributes and the same handling of a concurrent
-     * import.
+     * Files the public key under the record that already holds it, or a new one written by the certificate public-key
+     * insert, and stamps the item with that record.
      *
      * @return the key record the item became
      */

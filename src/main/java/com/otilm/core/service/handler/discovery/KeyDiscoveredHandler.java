@@ -22,13 +22,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * Turns staged key items into key records. One record per key, whichever run or connector reported it: the item is
- * stamped with the record it became, so a repeat lands on what already exists instead of growing the inventory.
- *
- * <p>
- * Only a key with a public part Core can read is onboarded (see {@link DiscoveredKeyIdentity}); any other is listed on
- * the run with a reason on its item. A key that cannot be imported stops at its own row and the rest of the batch
- * carries on, the way a certificate that fails to parse does.
+ * Turns staged key items into key records, one per key whichever run or connector reported it. Only a key with a public
+ * part Core can read is onboarded (see {@link DiscoveredKeyIdentity}); any other is listed with a reason on its item,
+ * and one key's failure never costs the batch its other keys.
  */
 @Service
 public class KeyDiscoveredHandler {
@@ -97,12 +93,8 @@ public class KeyDiscoveredHandler {
     }
 
     /**
-     * Imports one key, or records why that key will never import.
-     *
-     * <p>
-     * Only a key Core will not or cannot onboard earns a reason. A reason stamped on a staged row is final — the
-     * backlog never offers that row again — so a database that was briefly unavailable must not earn one: it is the
-     * attempt's failure, and the row stays pending for a later tick.
+     * Imports one key, or records why it never will. A reason is final, so only the key itself earns one; a failure of
+     * the attempt leaves the row pending for a later tick.
      */
     private boolean importOne(Discovery run, DiscoveryItem item) {
         PublicKey publicKey;
@@ -126,9 +118,8 @@ public class KeyDiscoveredHandler {
     }
 
     /**
-     * Keeps where the provider found the key on the key itself, the way a discovered certificate keeps it: as metadata
-     * from this run, beside whatever earlier runs recorded. Not in {@code key_meta}, which is a token's reference to
-     * the key, and which a key held without a token does not have.
+     * Keeps where the provider found the key as metadata from this run, as a discovered certificate does. Not in
+     * {@code key_meta}: that is a token's reference to the key.
      */
     private void recordWhereFound(Discovery run, UUID keyUuid, List<MetadataAttribute> meta) {
         if (meta == null || meta.isEmpty()) {
@@ -144,8 +135,7 @@ public class KeyDiscoveredHandler {
                                     .sourceName(run.getName())
                                     .build());
         } catch (AttributeException e) {
-            // As for a certificate: the key is in the inventory either way, and losing where it was seen is no reason
-            // to lose the key.
+            // As for a certificate: a lost location does not cost the key.
             logger
                     .warn("Discovery {} could not record where key {} was found: {}", run.getUuid(), keyUuid,
                             e.getMessage());
@@ -163,7 +153,7 @@ public class KeyDiscoveredHandler {
                     .warn("Discovery {} could not import key item {}: {}", run.getUuid(), item.getUniqueRef(),
                             cause.getMessage(), cause);
         }
-        // The reason outlives whatever the caller does next, which is the point of recording it.
+        // Committed on its own, so the reason outlives the caller.
         transactionHandler.runInNewTransaction(() -> keyWriter.markFailed(item.getUuid(), reason));
         return false;
     }

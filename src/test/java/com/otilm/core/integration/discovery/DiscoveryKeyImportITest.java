@@ -283,8 +283,7 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
 
         KeyDiscoveredHandler.KeyImportOutcome outcome = handler.importBatch(run, pendingKeys(run));
 
-        // Not fallen back to the connector's fingerprint: material that cannot be read is a broken report, and
-        // recording it under a name nothing else computes would bury the break in the inventory.
+        // Material that cannot be read is a broken report: refused, never filed.
         assertThat(outcome.failed()).isEqualTo(1);
         DiscoveryItem refused = itemOf(run, "ssh://host-d:22");
         assertThat(refused.getProcessedError()).contains("Base64");

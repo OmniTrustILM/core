@@ -377,10 +377,7 @@ public class DiscoveryEventIngestor {
     }
 
     /**
-     * Whether the inventory was without this item when the run staged it. Asked of the identity the import will
-     * compute, not of the fingerprint the connector reported: the two differ whenever a key carries material, and a row
-     * staged under one and imported under the other says the run found something new when it found what was already
-     * there.
+     * Whether the inventory lacked this item when the run staged it, judged by the identity the import computes.
      */
     private static boolean isNewlyDiscovered(DiscoveredItemDto item, Set<String> knownKeyFingerprints) {
         if (!(item.getPayload() instanceof DiscoveredKeyDto key)) {

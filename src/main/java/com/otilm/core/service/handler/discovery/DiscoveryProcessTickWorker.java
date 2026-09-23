@@ -165,8 +165,8 @@ public class DiscoveryProcessTickWorker {
     }
 
     /**
-     * What the run still owes, across both staging stores. Certificates alone would end a run whose keys are all still
-     * staged the moment it starts processing — with nothing in the inventory and nothing to say why.
+     * What the run still owes across both staging stores. Counting certificates alone would end a keys run the moment
+     * it starts processing.
      */
     private long backlogOf(UUID discoveryUuid) {
         return certificateRepository
@@ -266,9 +266,8 @@ public class DiscoveryProcessTickWorker {
         }
         KeyImportOutcome outcome;
         try {
-            // The key pipeline enforces CRYPTOGRAPHIC_KEY:CREATE, and a tick arrives on a JMS thread with no
-            // principal, so the run's own user goes on first. Inside the try, as for the certificate batch: a user
-            // that cannot be put on the thread must end up on the stall path, not out of the tick.
+            // A tick carries no principal and the key pipeline enforces CRYPTOGRAPHIC_KEY:CREATE, so the run's user
+            // goes on first -- inside the try, so a user who cannot be installed reaches the stall path.
             authenticateAsTheRunsUser(run);
             outcome = keyImportHandler.importBatch(run, keys);
         } catch (Exception e) {
@@ -283,9 +282,8 @@ public class DiscoveryProcessTickWorker {
         if (outcome.failed() == 0) {
             return;
         }
-        // Filed once for the page rather than once per key: the run's message log aggregates by code and text, and
-        // what an operator acts on is that keys were lost, with the per-key reason on the item itself. Filed even
-        // when the page ended early -- those refusals are final, and no later tick will see those rows again.
+        // Once per page, not per key: the per-key reason is on the item. Refusals are final, so this is filed
+        // whenever the page refused any.
         recordQuietly(run.getUuid(), "keys that could not be imported", () -> messageWriter
                 .append(run.getUuid(), new DiscoveryMessageDraft(DiscoveryMessageSeverity.WARNING,
                         DiscoveryMessageCode.KEY_IMPORT_FAILED,

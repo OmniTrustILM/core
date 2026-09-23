@@ -17,15 +17,13 @@ import org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter;
  * What a discovered key is, when Core can know it.
  *
  * <p>
- * Core onboards a discovered key by its public part, read from SubjectPublicKeyInfo material — the form a certificate
- * carries — and files it under the fingerprint {@code CertificateHandler} computes for a certificate's public key. A
- * key discovered on its own and the same key inside a certificate are then one record, whichever arrives first. A key
- * with no public part, or a public part in another encoding, has nothing Core can identify it by: the connector's own
- * fingerprint is a claim the contract does not define, so such a key is listed on the run and not onboarded.
+ * A discovered key is onboarded by its SubjectPublicKeyInfo public part and filed under the fingerprint
+ * {@code CertificateHandler} computes for a certificate's public key, so a key found on its own and the same key inside
+ * a certificate are one record. The connector's own fingerprint is undefined by the contract and never used; a key
+ * without such a public part is listed on the run and not onboarded.
  *
  * <p>
- * Staging and import both ask here. Asked different questions they would disagree: a key the inventory already holds
- * would be staged as newly discovered and then imported onto the record that was there all along.
+ * Staging and import both call here, so a key the inventory already holds is never staged as newly discovered.
  */
 public final class DiscoveredKeyIdentity {
 

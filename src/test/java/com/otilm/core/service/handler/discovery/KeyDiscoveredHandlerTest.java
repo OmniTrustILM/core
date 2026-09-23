@@ -31,12 +31,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 /**
- * Which failures belong to the item and which belong to the attempt.
- *
- * <p>
- * A reason stamped on a staged row is final — the backlog never offers that row again — so only a payload nothing can
- * make sense of earns one. A database that was briefly unavailable is the agenda's problem, and the row has to stay
- * where the next tick can find it.
+ * Which failures belong to the item and which to the attempt. A reason on a staged row is final, so only the key itself
+ * earns one; a database that was briefly unavailable leaves the row for the next tick.
  */
 class KeyDiscoveredHandlerTest {
 
@@ -71,8 +67,6 @@ class KeyDiscoveredHandlerTest {
         doThrow(new CannotAcquireLockException("lock timeout")).when(writer).importKey(any(), any(), any());
         DiscoveryItem item = keyItem(SPKI);
 
-        // Stamped, the row would be lost for good: a lock this tick could not take is the agenda's business, and
-        // the row stays pending so a later tick brings it back.
         KeyDiscoveredHandler.KeyImportOutcome outcome = handler.importBatch(run, List.of(item));
 
         assertThat(outcome.deferred()).isEqualTo(1);

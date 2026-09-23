@@ -199,8 +199,7 @@ class DiscoveryItemListingITest extends BaseSpringBootTest {
 
         DiscoveryItemRow row = listAll().getFirst();
 
-        // The two listings name the same object the same way: the certificate listing has carried the common name
-        // all along, and an operator moving between them must not meet a second spelling of it.
+        // Both listings must name the same object the same way.
         assertThat(row.getInventoryName()).isEqualTo("CN=discovered.example.com");
     }
 
