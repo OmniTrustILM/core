@@ -2,11 +2,13 @@ package com.otilm.core.integration.aop;
 
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.interfaces.core.web.CbomController;
 import com.otilm.api.interfaces.core.web.CryptographicKeyController;
 import com.otilm.api.interfaces.core.web.SettingController;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.client.cryptography.key.BulkCompromiseKeyRequestDto;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
+import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.logging.enums.AuditLogOutput;
 import com.otilm.api.model.core.logging.enums.Module;
@@ -27,6 +29,7 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.service.SettingExternalService;
 import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.BaseSpringBootTest;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -102,6 +105,9 @@ class AuditLogAspectITest extends BaseSpringBootTest {
 
     @Autowired
     private CryptographicKeyController keyController;
+
+    @Autowired
+    private CbomController cbomController;
 
     @Autowired
     private SwallowsAndOverridesBean swallowsAndOverridesBean;
@@ -274,6 +280,30 @@ class AuditLogAspectITest extends BaseSpringBootTest {
         Assertions
                 .assertEquals("Access Denied. Required 'List' action permission for resource 'Signing Record'",
                         auditLogs.getFirst().getMessage());
+    }
+
+    @Test
+    void nullUuidElement_isSkippedByTheAudit_andTheCallStillAnswers() {
+        // given
+        Mockito.doAnswer(invocation -> {
+            auditLogsListener.processMessage(invocation.getArgument(0));
+            return null;
+        }).when(auditLogsProducer).produceMessage(Mockito.any());
+        turnOnLogging();
+
+        List<UUID> uuids = new ArrayList<>();
+        uuids.add(null);
+
+        // when
+        List<BulkActionMessageDto> messages = cbomController.bulkDeleteCbom(uuids);
+
+        // then
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals("Missing CBOM identifier", messages.getFirst().getMessage());
+
+        List<AuditLog> auditLogs = auditLogRepository.findAll();
+        Assertions.assertEquals(1, auditLogs.size());
+        Assertions.assertEquals(Resource.CBOM, auditLogs.getFirst().getLogRecord().resource().type());
     }
 
     private void runInRequestScope(Runnable action) {

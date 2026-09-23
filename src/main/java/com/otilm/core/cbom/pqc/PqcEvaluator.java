@@ -108,9 +108,9 @@ public class PqcEvaluator {
     /**
      * Whether the asset's own name is free of a weak-crypto finding -- which is not the same as clearing as ready, and
      * the difference is the common case. A 256-bit secret key naming no family at all resolves to
-     * {@code FAMILY-UNRESOLVED}, and 376 of the corpus's 378 secret keys name no family, so gating the size arms on a
-     * ready verdict would empty them. An {@code unknown} name says nothing about the key; a {@code notReady} one is the
-     * finding, and a finding must reach the row whatever tier it was keyed on.
+     * {@code FAMILY-UNRESOLVED}, and nearly every secret key in the corpus names no family, so gating the size arms on
+     * a ready verdict would empty them. An {@code unknown} name says nothing about the key; a {@code notReady} one is
+     * the finding, and a finding must reach the row whatever tier it was keyed on.
      */
     private boolean nameCarriesNoFinding(PqcRuleInput input) {
         return nameDecision(input.withoutMaterialSize(), null).verdict() != PqcVerdict.NOT_READY;
@@ -429,9 +429,8 @@ public class PqcEvaluator {
     }
 
     /**
-     * The material tier derives no variant, and the weak-component doctrine reads exactly that field -- so it never
-     * reached a key. The name is a column, so the tokens are available to every caller, and a material row has no
-     * derived variant of its own to overwrite.
+     * Related material takes its variant from the secondary tokens of its name, because the weak-component doctrine
+     * reads that field and the material tier derives none of its own.
      */
     private static String variantOf(CryptoAssetIdentityFields fields, String secondaryTokens) {
         if (fields.variant() != null || fields.assetType() != CryptographicAssetType.RELATED_CRYPTO_MATERIAL) {

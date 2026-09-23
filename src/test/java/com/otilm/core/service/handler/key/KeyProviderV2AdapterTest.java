@@ -3,14 +3,28 @@ package com.otilm.core.service.handler.key;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.exception.ConnectorEntityNotFoundException;
 import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.interfaces.client.v2.CryptographicOperationsSyncApiClient;
 import com.otilm.api.interfaces.client.v2.KeySyncApiClient;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV2;
+import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
+import com.otilm.api.model.client.cryptography.operations.CipherDataRequestDto;
+import com.otilm.api.model.client.cryptography.operations.CipherRequestData;
+import com.otilm.api.model.client.cryptography.operations.DecryptDataResponseDto;
+import com.otilm.api.model.client.cryptography.operations.EncryptDataResponseDto;
+import com.otilm.api.model.client.cryptography.operations.SignDataRequestDto;
+import com.otilm.api.model.client.cryptography.operations.SignDataResponseDto;
+import com.otilm.api.model.client.cryptography.operations.SignatureRequestData;
+import com.otilm.api.model.client.cryptography.operations.VerifyDataRequestDto;
+import com.otilm.api.model.client.cryptography.operations.VerifyDataResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.content.data.SecretAttributeContentData;
+import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.content.SecretAttributeContentV2;
@@ -32,8 +46,18 @@ import com.otilm.api.model.connector.cryptography.v2.key.PublicKeyDataResponseV2
 import com.otilm.api.model.connector.cryptography.v2.key.PublicKeyDataV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyDataV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.operations.DecryptDataResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.operations.EncryptDataResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.operations.SignDataRequestV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.operations.SignDataResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.operations.VerifyDataRequestV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.operations.VerifyDataResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.operations.data.CipherDataV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.operations.data.SignatureDataV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.operations.data.VerificationResponseItemV2Dto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.OutboundSecretContainment;
@@ -41,6 +65,7 @@ import com.otilm.core.attribute.engine.OutboundSecretLeakException;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.model.connector.ImmutableConnectorFullModel;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
 import com.otilm.core.model.crypto.ImmutableTokenInstanceFullModel;
 import com.otilm.core.model.crypto.ImmutableTokenProfileFullModel;
@@ -61,6 +86,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.http.ResponseEntity;
 
@@ -75,13 +102,16 @@ import static org.junit.jupiter.api.Named.named;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 class KeyProviderV2AdapterTest {
 
     private KeySyncApiClient client;
+    private CryptographicOperationsSyncApiClient operationsClient;
     private KeyProviderV2Adapter adapter;
     private ImmutableTokenProfileFullModel profile;
     private ImmutableCryptographicKeyFullModel cryptographicKey;
@@ -105,11 +135,20 @@ class KeyProviderV2AdapterTest {
         attributes = mock(AttributeEngine.class);
         resolver = mock(OperationAttributeResolver.class);
         client = mock(KeySyncApiClient.class);
+        operationsClient = mock(CryptographicOperationsSyncApiClient.class);
         when(factory.getKeyManagementApiClientV2(connector)).thenReturn(client);
         when(attributes.getRequestObjectDataAttributesContent(any())).thenReturn(List.of());
         when(resolver.resolveForConnectorRequestAsSystem(connectorUuid, List.of())).thenReturn(List.of());
         adapter = new KeyProviderV2Adapter(factory, connector, attributes, resolver,
-                new OutboundSecretContainment(new ObjectMapper()));
+                new OutboundSecretContainment(new ObjectMapper()), operationsClient);
+    }
+
+    private OperationKeyContext v2Context(List<MetadataAttribute> keyMeta) {
+        CryptographicKeyItemOperationModel item = new CryptographicKeyItemOperationModel(UUID.randomUUID(), true,
+                KeyAlgorithm.RSA, KeyState.ACTIVE, KeyType.PRIVATE_KEY, List.of(KeyUsage.SIGN, KeyUsage.ENCRYPT), null,
+                new RemoteKeyReference.MetadataReference(keyMeta), profile.connectorUuid(), null, UUID.randomUUID(),
+                ConnectorInterface.CRYPTOGRAPHY, "v2");
+        return new OperationKeyContext(item, profile);
     }
 
     @Test
@@ -258,18 +297,556 @@ class KeyProviderV2AdapterTest {
         assertSame(failure, assertThrows(IllegalStateException.class, destroy));
     }
 
+    @Test
+    void signData_sendsKeyScope_validatesAttributes_andMapsSynchronousResult() throws Exception {
+        // given
+        List<MetadataAttribute> keyMeta = metadata("durable-key-handle");
+        List<RequestAttribute> resolvedToken = List.of(requestAttribute("resolved-token"));
+        List<RequestAttribute> resolvedProfile = List.of(requestAttribute("resolved-profile"));
+        stubAttributes(Resource.TOKEN, profile.tokenInstanceReferenceUuid(), List.of(requestAttribute("stored-token")),
+                resolvedToken);
+        stubAttributes(Resource.TOKEN_PROFILE, profile.uuid(), List.of(requestAttribute("stored-profile")),
+                resolvedProfile);
+        when(operationsClient.listSignAttributes(any(), any()))
+                .thenReturn(List.of(dataAttributeDefinition("digest", true)));
+        SignDataResponseV2Dto body = new SignDataResponseV2Dto();
+        body.setSignatures(List.of(new SignatureDataV2Dto(new byte[]{7}, "0")));
+        when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
+        SignDataRequestDto request = new SignDataRequestDto();
+        request.setSignatureAttributes(List.of(stringAttribute("digest", "SHA256")));
+        SignatureRequestData item = new SignatureRequestData();
+        item.setData(Base64.getEncoder().encodeToString(new byte[]{1}));
+        request.setData(List.of(item));
+
+        // when
+        SignDataResponseDto response = adapter.signData(v2Context(keyMeta), request);
+
+        // then
+        ArgumentCaptor<SignDataRequestV2Dto> sent = ArgumentCaptor.forClass(SignDataRequestV2Dto.class);
+        verify(operationsClient).signData(any(), sent.capture());
+        assertSame(keyMeta, sent.getValue().getKeyMeta());
+        assertSame(resolvedToken, sent.getValue().getTokenAttributes());
+        assertSame(resolvedProfile, sent.getValue().getTokenProfileAttributes());
+        assertEquals(Set.copyOf(profile.usages()), sent.getValue().getKeyUsages());
+        assertEquals(OperationExecutionMode.SYNCHRONOUS, sent.getValue().getExecutionMode());
+        assertEquals("0", sent.getValue().getData().get(0).getIdentifier());
+        assertNull(response.getSignatures().get(0).getIdentifier());
+        assertEquals(Base64.getEncoder().encodeToString(new byte[]{7}), response.getSignatures().get(0).getData());
+    }
+
+    @ParameterizedTest
+    @MethodSource("nonSynchronousSignResponses")
+    void signData_rejectsResponseWithoutSynchronousResult(ResponseEntity<SignDataResponseV2Dto> response)
+            throws Exception {
+        // given
+        when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of());
+        when(operationsClient.signData(any(), any())).thenReturn(response);
+        SignDataRequestDto request = new SignDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        SignatureRequestData item = new SignatureRequestData();
+        item.setData("AQ==");
+        request.setData(List.of(item));
+
+        // when
+        Executable sign = () -> adapter.signData(v2Context(metadata("handle")), request);
+
+        // then
+        ConnectorException failure = assertThrows(ConnectorException.class, sign);
+        assertEquals("Connector did not return a synchronous signing result.", failure.getMessage());
+    }
+
+    private static Stream<ResponseEntity<SignDataResponseV2Dto>> nonSynchronousSignResponses() {
+        SignDataResponseV2Dto tracking = new SignDataResponseV2Dto();
+        tracking.setOperationMeta(metadata("operation-handle"));
+        SignDataResponseV2Dto empty = new SignDataResponseV2Dto();
+        SignDataResponseV2Dto withSignaturesAndOperationMeta = new SignDataResponseV2Dto();
+        withSignaturesAndOperationMeta.setSignatures(List.of(new SignatureDataV2Dto(new byte[]{7}, "0")));
+        withSignaturesAndOperationMeta.setOperationMeta(metadata("operation-handle"));
+        SignDataResponseV2Dto withEmptySignatureList = new SignDataResponseV2Dto();
+        withEmptySignatureList.setSignatures(List.of());
+        return Stream
+                .of(ResponseEntity.accepted().body(tracking), ResponseEntity.ok(empty), ResponseEntity.ok(null),
+                        ResponseEntity.ok(withSignaturesAndOperationMeta), ResponseEntity.ok(withEmptySignatureList));
+    }
+
+    @Test
+    void signData_rejectsInvalidAttributes_beforeCallingConnector() throws Exception {
+        // given
+        when(operationsClient.listSignAttributes(any(), any()))
+                .thenReturn(List.of(dataAttributeDefinition("digest", true)));
+        SignDataRequestDto request = new SignDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        SignatureRequestData item = new SignatureRequestData();
+        item.setData("AQ==");
+        request.setData(List.of(item));
+
+        // when
+        Executable sign = () -> adapter.signData(v2Context(metadata("handle")), request);
+
+        // then
+        assertThrows(ValidationException.class, sign);
+        verify(operationsClient, never()).signData(any(), any());
+    }
+
+    @Test
+    void signData_rejectsEmptyMetadataHandle_beforeCallingConnector() {
+        // given
+        SignDataRequestDto request = new SignDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        request.setData(List.of());
+
+        // when
+        Executable sign = () -> adapter.signData(v2Context(List.of()), request);
+
+        // then
+        assertThrows(ValidationException.class, sign);
+        verifyNoInteractions(operationsClient);
+    }
+
+    @Test
+    void verifyData_pairsDataAndSignaturesByPosition_andRestoresIdentifiers() throws Exception {
+        // given
+        when(operationsClient.listVerifyAttributes(any(), any())).thenReturn(List.of());
+        VerifyDataResponseV2Dto body = new VerifyDataResponseV2Dto();
+        body.setVerifications(List.of(new VerificationResponseItemV2Dto(true, "0", null)));
+        when(operationsClient.verifyData(any(), any())).thenReturn(body);
+        VerifyDataRequestDto request = new VerifyDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        SignatureRequestData data = new SignatureRequestData();
+        data.setData("AQ==");
+        SignatureRequestData signature = new SignatureRequestData();
+        signature.setData("Ag==");
+        request.setData(List.of(data));
+        request.setSignatures(List.of(signature));
+
+        // when
+        VerifyDataResponseDto response = adapter.verifyData(v2Context(metadata("handle")), request);
+
+        // then
+        ArgumentCaptor<VerifyDataRequestV2Dto> sent = ArgumentCaptor.forClass(VerifyDataRequestV2Dto.class);
+        verify(operationsClient).verifyData(any(), sent.capture());
+        assertEquals("0", sent.getValue().getData().get(0).getIdentifier());
+        assertEquals("0", sent.getValue().getSignatures().get(0).getIdentifier());
+        assertTrue(response.getVerifications().get(0).isResult());
+        assertNull(response.getVerifications().get(0).getIdentifier());
+    }
+
+    @Test
+    void verifyData_rejectsMismatchedBatchSizes() throws Exception {
+        // given
+        when(operationsClient.listVerifyAttributes(any(), any())).thenReturn(List.of());
+        VerifyDataRequestDto request = new VerifyDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        SignatureRequestData one = new SignatureRequestData();
+        one.setData("AQ==");
+        request.setData(List.of(one));
+        request.setSignatures(List.of());
+
+        // when
+        Executable verifyCall = () -> adapter.verifyData(v2Context(metadata("handle")), request);
+
+        // then
+        ValidationException failure = assertThrows(ValidationException.class, verifyCall);
+        assertTrue(failure.getMessage().contains("one signature per data item"));
+        verify(operationsClient, never()).verifyData(any(), any());
+    }
+
+    @Test
+    void verifyData_sendsMatchingIdentifierSets_whenOnlyDataIsIdentified() throws Exception {
+        // given
+        when(operationsClient.listVerifyAttributes(any(), any())).thenReturn(List.of());
+        VerifyDataResponseV2Dto body = new VerifyDataResponseV2Dto();
+        body
+                .setVerifications(List
+                        .of(new VerificationResponseItemV2Dto(true, "0", null),
+                                new VerificationResponseItemV2Dto(false, "1", null)));
+        when(operationsClient.verifyData(any(), any())).thenReturn(body);
+        VerifyDataRequestDto request = new VerifyDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        request.setData(List.of(signatureItem("AQ==", "a"), signatureItem("Ag==", "b")));
+        request.setSignatures(List.of(signatureItem("Aw==", null), signatureItem("BA==", null)));
+
+        // when
+        VerifyDataResponseDto response = adapter.verifyData(v2Context(metadata("handle")), request);
+
+        // then
+        ArgumentCaptor<VerifyDataRequestV2Dto> sent = ArgumentCaptor.forClass(VerifyDataRequestV2Dto.class);
+        verify(operationsClient).verifyData(any(), sent.capture());
+        assertEquals(List.of("0", "1"), sentIdentifiers(sent.getValue().getData()));
+        assertEquals(List.of("0", "1"), sentIdentifiers(sent.getValue().getSignatures()));
+        assertEquals("a", response.getVerifications().get(0).getIdentifier());
+        assertEquals("b", response.getVerifications().get(1).getIdentifier());
+    }
+
+    @Test
+    void signData_numbersEveryItemPositionally_andRestoresCallerIdentifiers() throws Exception {
+        // given
+        when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of());
+        SignDataResponseV2Dto body = new SignDataResponseV2Dto();
+        body
+                .setSignatures(List
+                        .of(new SignatureDataV2Dto(new byte[]{1}, "0"), new SignatureDataV2Dto(new byte[]{2}, "1"),
+                                new SignatureDataV2Dto(new byte[]{3}, "2")));
+        when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
+        SignDataRequestDto request = new SignDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        request
+                .setData(List
+                        .of(signatureItem("AQ==", "custom"), signatureItem("Ag==", null), signatureItem("Aw==", "1")));
+
+        // when
+        SignDataResponseDto response = adapter.signData(v2Context(metadata("handle")), request);
+
+        // then
+        ArgumentCaptor<SignDataRequestV2Dto> sent = ArgumentCaptor.forClass(SignDataRequestV2Dto.class);
+        verify(operationsClient).signData(any(), sent.capture());
+        assertEquals(List.of("0", "1", "2"), sentIdentifiers(sent.getValue().getData()));
+        assertEquals("custom", response.getSignatures().get(0).getIdentifier());
+        assertNull(response.getSignatures().get(1).getIdentifier());
+        assertEquals("1", response.getSignatures().get(2).getIdentifier());
+    }
+
+    @Test
+    void signData_restoresRequestOrder_whenConnectorReordersTheBatch() throws Exception {
+        // given
+        when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of());
+        SignDataResponseV2Dto body = new SignDataResponseV2Dto();
+        body
+                .setSignatures(List
+                        .of(new SignatureDataV2Dto(new byte[]{2}, "1"), new SignatureDataV2Dto(new byte[]{1}, "0")));
+        when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
+        SignDataRequestDto request = new SignDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        request.setData(List.of(signatureItem("AQ==", "first"), signatureItem("Ag==", "second")));
+
+        // when
+        SignDataResponseDto response = adapter.signData(v2Context(metadata("handle")), request);
+
+        // then
+        assertEquals("first", response.getSignatures().get(0).getIdentifier());
+        assertEquals(Base64.getEncoder().encodeToString(new byte[]{1}), response.getSignatures().get(0).getData());
+        assertEquals("second", response.getSignatures().get(1).getIdentifier());
+        assertEquals(Base64.getEncoder().encodeToString(new byte[]{2}), response.getSignatures().get(1).getData());
+    }
+
+    @Test
+    void signData_rejectsRepeatedPosition() throws Exception {
+        // given
+        when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of());
+        SignDataResponseV2Dto body = new SignDataResponseV2Dto();
+        body
+                .setSignatures(List
+                        .of(new SignatureDataV2Dto(new byte[]{1}, "0"), new SignatureDataV2Dto(new byte[]{2}, "0")));
+        when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
+        SignDataRequestDto request = new SignDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        request.setData(List.of(signatureItem("AQ==", null), signatureItem("Ag==", null)));
+
+        // when
+        Executable sign = () -> adapter.signData(v2Context(metadata("handle")), request);
+
+        // then
+        assertThrows(ConnectorException.class, sign);
+    }
+
+    @Test
+    void signData_rejectsResultWithFewerItemsThanTheRequest() throws Exception {
+        // given
+        when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of());
+        SignDataResponseV2Dto body = new SignDataResponseV2Dto();
+        body.setSignatures(List.of(new SignatureDataV2Dto(new byte[]{1}, "0")));
+        when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
+        SignDataRequestDto request = new SignDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        request.setData(List.of(signatureItem("AQ==", null), signatureItem("Ag==", null)));
+
+        // when
+        Executable sign = () -> adapter.signData(v2Context(metadata("handle")), request);
+
+        // then
+        assertThrows(ConnectorException.class, sign);
+    }
+
+    @Test
+    void verifyData_rejectsCallerIdentifiersThatDoNotLineUp_beforeCallingConnector() throws Exception {
+        // given
+        VerifyDataRequestDto request = new VerifyDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        request.setData(List.of(signatureItem("AQ==", "a"), signatureItem("Ag==", "b")));
+        request.setSignatures(List.of(signatureItem("Aw==", "b"), signatureItem("BA==", "a")));
+
+        // when
+        Executable verify = () -> adapter.verifyData(v2Context(metadata("handle")), request);
+
+        // then
+        assertThrows(ValidationException.class, verify);
+        verifyNoInteractions(operationsClient);
+    }
+
+    @Test
+    void verifyData_rejectsResultEchoingAnExpandedSecret() throws Exception {
+        // given
+        String expandedSecret = "resolved-provider-password";
+        stubExpandedSecret(Resource.TOKEN, expandedSecret);
+        when(operationsClient.listVerifyAttributes(any(), any())).thenReturn(List.of());
+        VerifyDataResponseV2Dto response = new VerifyDataResponseV2Dto();
+        response.setVerifications(List.of(new VerificationResponseItemV2Dto(false, "0", expandedSecret)));
+        when(operationsClient.verifyData(any(), any())).thenReturn(response);
+        VerifyDataRequestDto request = new VerifyDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        request.setData(List.of(signatureItem("AQ==", null)));
+        request.setSignatures(List.of(signatureItem("Ag==", null)));
+
+        // when
+        Executable verify = () -> adapter.verifyData(v2Context(metadata("handle")), request);
+
+        // then
+        assertThrows(OutboundSecretLeakException.class, verify);
+    }
+
+    @Test
+    void signData_resolvesScopeOnce_andNeverTouchesTheAttributeEngineForTheSchema() throws Exception {
+        // given
+        when(operationsClient.listSignAttributes(any(), any()))
+                .thenReturn(List.of(dataAttributeDefinition("digest", false)));
+        SignDataResponseV2Dto body = new SignDataResponseV2Dto();
+        body.setSignatures(List.of(new SignatureDataV2Dto(new byte[]{7}, "0")));
+        when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
+        SignDataRequestDto request = new SignDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        request.setData(List.of(signatureItem("AQ==", null)));
+
+        // when
+        adapter.signData(v2Context(metadata("handle")), request);
+
+        // then
+        verify(attributes)
+                .getRequestObjectDataAttributesContent(
+                        attributeScope(Resource.TOKEN, profile.tokenInstanceReferenceUuid()));
+        verify(attributes)
+                .getRequestObjectDataAttributesContent(attributeScope(Resource.TOKEN_PROFILE, profile.uuid()));
+        verify(attributes, never()).updateDataAttributeDefinitions(any(), any(), any());
+        verify(attributes, never()).validateUpdateDataAttributes(any(), any(), any(), any());
+        verifyNoMoreInteractions(attributes);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"not-a-position", "1", "-1"})
+    void signData_rejectsIdentifierThatWasNotPartOfTheRequest(String returnedIdentifier) throws Exception {
+        // given
+        when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of());
+        SignDataResponseV2Dto body = new SignDataResponseV2Dto();
+        body.setSignatures(List.of(new SignatureDataV2Dto(new byte[]{7}, returnedIdentifier)));
+        when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
+        SignDataRequestDto request = new SignDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        request.setData(List.of(signatureItem("AQ==", "caller")));
+
+        // when
+        Executable sign = () -> adapter.signData(v2Context(metadata("handle")), request);
+
+        // then
+        ConnectorException failure = assertThrows(ConnectorException.class, sign);
+        assertEquals("Connector returned an identifier that was not part of the request.", failure.getMessage());
+    }
+
+    @Test
+    void encryptData_mapsBatch_andKeepsCallerIdentifiers() throws Exception {
+        // given
+        when(operationsClient.listEncryptAttributes(any(), any())).thenReturn(List.of());
+        EncryptDataResponseV2Dto body = new EncryptDataResponseV2Dto();
+        body.setEncryptedData(List.of(new CipherDataV2Dto(new byte[]{5}, "0")));
+        when(operationsClient.encryptData(any(), any())).thenReturn(body);
+        CipherDataRequestDto request = new CipherDataRequestDto();
+        request.setCipherAttributes(List.of());
+        CipherRequestData item = new CipherRequestData();
+        item.setData("AQ==");
+        item.setIdentifier("custom");
+        request.setCipherData(List.of(item));
+
+        // when
+        EncryptDataResponseDto response = adapter.encryptData(v2Context(metadata("handle")), request);
+
+        // then
+        assertEquals("custom", response.getEncryptedData().get(0).getIdentifier());
+        assertEquals(Base64.getEncoder().encodeToString(new byte[]{5}), response.getEncryptedData().get(0).getData());
+    }
+
+    @Test
+    void decryptData_mapsBatch_andKeepsCallerIdentifiers() throws Exception {
+        // given
+        when(operationsClient.listDecryptAttributes(any(), any())).thenReturn(List.of());
+        DecryptDataResponseV2Dto body = new DecryptDataResponseV2Dto();
+        body.setDecryptedData(List.of(new CipherDataV2Dto(new byte[]{9}, "0")));
+        when(operationsClient.decryptData(any(), any())).thenReturn(body);
+        CipherDataRequestDto request = new CipherDataRequestDto();
+        request.setCipherAttributes(List.of());
+        CipherRequestData item = new CipherRequestData();
+        item.setData("AQ==");
+        item.setIdentifier("custom");
+        request.setCipherData(List.of(item));
+
+        // when
+        DecryptDataResponseDto response = adapter.decryptData(v2Context(metadata("handle")), request);
+
+        // then
+        assertEquals("custom", response.getDecryptedData().get(0).getIdentifier());
+        assertEquals(Base64.getEncoder().encodeToString(new byte[]{9}), response.getDecryptedData().get(0).getData());
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("operationAttributeListings")
+    void listOperationAttributes_persistsDefinitionsFromItsOwnConnectorEndpoint(String operation,
+            ClientListing clientListing, AdapterListing adapterListing) throws Exception {
+        // given
+        List<BaseAttribute> schema = List.of(new DataAttributeV2());
+        when(clientListing.list(operationsClient)).thenReturn(schema);
+
+        // when
+        List<BaseAttribute> result = adapterListing.list(adapter, v2Context(metadata("handle")));
+
+        // then
+        assertSame(schema, result);
+        verify(attributes).updateDataAttributeDefinitions(profile.connectorUuid(), null, schema);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Resource.class, names = {"TOKEN", "TOKEN_PROFILE"})
+    void listSignAttributes_rejectsSchemaEchoingAnExpandedSecret(Resource secretScope) throws Exception {
+        // given
+        String expandedSecret = "resolved-provider-password";
+        stubExpandedSecret(secretScope, expandedSecret);
+        when(operationsClient.listSignAttributes(any(), any())).thenReturn(definitionsWithDefault(expandedSecret));
+
+        // when
+        Executable listDefinitions = () -> adapter.listSignAttributes(v2Context(metadata("handle")));
+
+        // then
+        assertThrows(OutboundSecretLeakException.class, listDefinitions);
+    }
+
+    @Test
+    void signData_rejectsOperationSchemaEchoingAnExpandedSecret() throws Exception {
+        // given
+        String expandedSecret = "resolved-provider-password";
+        stubExpandedSecret(Resource.TOKEN, expandedSecret);
+        when(operationsClient.listSignAttributes(any(), any())).thenReturn(definitionsWithDefault(expandedSecret));
+        SignDataRequestDto request = new SignDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        request.setData(List.of(signatureItem("AQ==", null)));
+
+        // when
+        Executable sign = () -> adapter.signData(v2Context(metadata("handle")), request);
+
+        // then
+        assertThrows(OutboundSecretLeakException.class, sign);
+        verify(operationsClient, never()).signData(any(), any());
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    void signData_rejectsItemWithoutData_beforeCallingConnector(String data) throws Exception {
+        // given
+        when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of());
+        SignDataRequestDto request = new SignDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        request.setData(List.of(signatureItem(data, null)));
+
+        // when
+        Executable sign = () -> adapter.signData(v2Context(metadata("handle")), request);
+
+        // then
+        assertThrows(ValidationException.class, sign);
+        verify(operationsClient, never()).signData(any(), any());
+    }
+
+    @Test
+    void signData_rejectsSignatureWithoutData() throws Exception {
+        // given
+        when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of());
+        SignDataResponseV2Dto body = new SignDataResponseV2Dto();
+        body.setSignatures(List.of(new SignatureDataV2Dto(new byte[0], "0")));
+        when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
+        SignDataRequestDto request = new SignDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        request.setData(List.of(signatureItem("AQ==", null)));
+
+        // when
+        Executable sign = () -> adapter.signData(v2Context(metadata("handle")), request);
+
+        // then
+        assertThrows(ConnectorException.class, sign);
+    }
+
+    private static Stream<Arguments> operationAttributeListings() {
+        return Stream
+                .of(Arguments
+                        .of("encrypt", (ClientListing) client -> client.listEncryptAttributes(any(), any()),
+                                (AdapterListing) KeyProviderV2Adapter::listEncryptAttributes),
+                        Arguments
+                                .of("decrypt", (ClientListing) client -> client.listDecryptAttributes(any(), any()),
+                                        (AdapterListing) KeyProviderV2Adapter::listDecryptAttributes),
+                        Arguments
+                                .of("sign", (ClientListing) client -> client.listSignAttributes(any(), any()),
+                                        (AdapterListing) KeyProviderV2Adapter::listSignAttributes),
+                        Arguments
+                                .of("verify", (ClientListing) client -> client.listVerifyAttributes(any(), any()),
+                                        (AdapterListing) KeyProviderV2Adapter::listVerifyAttributes));
+    }
+
+    @FunctionalInterface
+    interface ClientListing {
+        List<BaseAttribute> list(CryptographicOperationsSyncApiClient client) throws ConnectorException;
+    }
+
+    @FunctionalInterface
+    interface AdapterListing {
+        List<BaseAttribute> list(KeyProviderV2Adapter adapter, OperationKeyContext context) throws ConnectorException;
+    }
+
+    private static DataAttributeV2 dataAttributeDefinition(String name, boolean required) {
+        DataAttributeProperties properties = new DataAttributeProperties();
+        properties.setLabel(name);
+        properties.setRequired(required);
+        DataAttributeV2 definition = new DataAttributeV2();
+        definition.setUuid(UUID.randomUUID().toString());
+        definition.setName(name);
+        definition.setContentType(AttributeContentType.STRING);
+        definition.setProperties(properties);
+        return definition;
+    }
+
+    private static RequestAttribute stringAttribute(String name, String value) {
+        RequestAttributeV2 attribute = new RequestAttributeV2();
+        attribute.setName(name);
+        attribute.setContent(List.of(new StringAttributeContentV2(value)));
+        return attribute;
+    }
+
     private static RequestAttribute requestAttribute(String name) {
         RequestAttributeV2 attribute = new RequestAttributeV2();
         attribute.setName(name);
         return attribute;
     }
 
+    private static SignatureRequestData signatureItem(String base64, String identifier) {
+        SignatureRequestData item = new SignatureRequestData();
+        item.setData(base64);
+        item.setIdentifier(identifier);
+        return item;
+    }
+
+    private static List<String> sentIdentifiers(List<SignatureDataV2Dto> items) {
+        return items.stream().map(SignatureDataV2Dto::getIdentifier).toList();
+    }
+
+    private ObjectAttributeContentInfo attributeScope(Resource resource, UUID uuid) {
+        return ObjectAttributeContentInfo.builder(resource, uuid).connector(profile.connectorUuid()).build();
+    }
+
     private void stubAttributes(Resource resource, UUID uuid, List<RequestAttribute> stored,
             List<RequestAttribute> resolved) throws ConnectorException {
-        ObjectAttributeContentInfo info = ObjectAttributeContentInfo
-                .builder(resource, uuid)
-                .connector(profile.connectorUuid())
-                .build();
+        ObjectAttributeContentInfo info = attributeScope(resource, uuid);
         when(attributes.getRequestObjectDataAttributesContent(info)).thenReturn(stored);
         when(resolver.resolveForConnectorRequestAsSystem(profile.connectorUuid(), stored)).thenReturn(resolved);
     }

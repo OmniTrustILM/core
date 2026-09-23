@@ -73,6 +73,7 @@ import com.otilm.core.model.crypto.CryptographicKeyBasicModel;
 import com.otilm.core.model.crypto.CryptographicKeyFullModel;
 import com.otilm.core.model.crypto.CryptographicKeyItemBasicModel;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationRow;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyListModel;
 import com.otilm.core.model.crypto.KeyMaterial;
 import com.otilm.core.model.crypto.ProviderKeyItem;
@@ -1034,34 +1035,13 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     @Override
     @Cacheable(value = CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE, key = "#keyItemUuid", sync = true)
     public CryptographicKeyItemOperationModel getKeyItemModel(UUID keyItemUuid) throws NotFoundException {
-        CryptographicKeyItem keyItem = cryptographicKeyItemRepository
-                .findWithConnectorByUuid(keyItemUuid)
+        CryptographicKeyItemOperationRow row = cryptographicKeyItemRepository
+                .findOperationRowByUuid(keyItemUuid)
                 .orElseThrow(() -> new NotFoundException(CryptographicKeyItem.class, keyItemUuid));
-
-        if (keyItem.getKey() == null) {
-            throw new NotFoundException("Cryptographic Key associated with the Key Item is not found");
-        }
-        TokenInstanceReference tokenInstanceReference = keyItem.getKey().getTokenInstanceReference();
-        if (tokenInstanceReference == null) {
-            throw new NotFoundException("Token Instance associated with the Key is not found");
-        }
-        if (tokenInstanceReference.getConnector() == null) {
+        if (row.connectorUuid() == null) {
             throw new NotFoundException("Connector associated to the Key is not found");
         }
-        UUID tokenInstanceUuid = tokenInstanceReference.getTokenInstanceUuid() == null
-                ? null
-                : UUID.fromString(tokenInstanceReference.getTokenInstanceUuid());
-        RemoteKeyReference reference = keyItem.getKeyMeta() == null
-                ? new RemoteKeyReference.UuidReference(keyItem.getKeyReferenceUuid())
-                : new RemoteKeyReference.MetadataReference(keyItem.getKeyMeta());
-
-        String pqcParameterSpecName = keyItem.getType() == KeyType.PUBLIC_KEY
-                ? CryptographyUtil.resolvePqcParameterSpecName(keyItem.getKeyAlgorithm(), keyItem.getKeyData())
-                : null;
-
-        return new CryptographicKeyItemOperationModel(keyItem.getUuid(), keyItem.isEnabled(), keyItem.getKeyAlgorithm(),
-                keyItem.getState(), keyItem.getType(), keyItem.getUsage(), pqcParameterSpecName, reference,
-                tokenInstanceReference.getConnectorUuid(), tokenInstanceUuid);
+        return row.toModel();
     }
 
     @Override

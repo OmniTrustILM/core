@@ -324,8 +324,15 @@ public class AuditLogAspect {
                     parameterValue = optional.get();
                 }
 
+                // A null element carries no identity to audit -- and this read happens before the advised method
+                // runs, so dereferencing it would turn the caller's malformed element into a 500 the endpoint
+                // never gets to answer for. Jackson produces one from an empty JSON string (core#2293).
                 return parameterValue instanceof List<?> listValues
-                        ? listValues.stream().map(v -> UUID.fromString(v.toString())).toList()
+                        ? new ArrayList<>(listValues
+                                .stream()
+                                .filter(Objects::nonNull)
+                                .map(v -> UUID.fromString(v.toString()))
+                                .toList())
                         : (parameterValue instanceof Optional<?> optional && optional.isPresent()
                                 ? new ArrayList<>(List.of(UUID.fromString(optional.get().toString())))
                                 : new ArrayList<>(List.of(UUID.fromString(parameterValue.toString()))));

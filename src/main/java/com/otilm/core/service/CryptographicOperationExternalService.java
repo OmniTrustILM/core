@@ -103,10 +103,73 @@ public interface CryptographicOperationExternalService {
 
     /**
      * @param tokenInstanceUuid UUID of the token instance
+     * @param tokenProfileUuid UUID of the token profile
+     * @return List of attributes for random data generation, scoped by token profile
+     * @throws NotFoundException when the token instance or token profile with the specified UUID is not found
+     */
+    List<BaseAttribute> listRandomAttributes(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid)
+            throws ConnectorException, NotFoundException;
+
+    /**
+     * @param tokenInstanceUuid UUID of the token instance
+     * @param tokenProfileUuid UUID of the token profile
+     * @param uuid UUID of the cryptographic key
+     * @param keyItemUuid UUID of the Item inside the key Object
+     * @return List of attributes for encryption
+     * @throws NotFoundException when the key item with the specified UUID is not found
+     */
+    List<BaseAttribute> listEncryptAttributes(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid,
+            UUID uuid, UUID keyItemUuid) throws ConnectorException, NotFoundException;
+
+    /**
+     * @param tokenInstanceUuid UUID of the token instance
+     * @param tokenProfileUuid UUID of the token profile
+     * @param uuid UUID of the cryptographic key
+     * @param keyItemUuid UUID of the Item inside the key Object
+     * @return List of attributes for decryption
+     * @throws NotFoundException when the key item with the specified UUID is not found
+     */
+    List<BaseAttribute> listDecryptAttributes(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid,
+            UUID uuid, UUID keyItemUuid) throws ConnectorException, NotFoundException;
+
+    /**
+     * @param tokenInstanceUuid UUID of the token instance
+     * @param tokenProfileUuid UUID of the token profile
+     * @param uuid UUID of the cryptographic key
+     * @param keyItemUuid UUID of the Item inside the key Object
+     * @return List of attributes for signing
+     * @throws NotFoundException when the key item with the specified UUID is not found
+     */
+    List<BaseAttribute> listSignAttributes(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid, UUID uuid,
+            UUID keyItemUuid) throws ConnectorException, NotFoundException;
+
+    /**
+     * @param tokenInstanceUuid UUID of the token instance
+     * @param tokenProfileUuid UUID of the token profile
+     * @param uuid UUID of the cryptographic key
+     * @param keyItemUuid UUID of the Item inside the key Object
+     * @return List of attributes for verification
+     * @throws NotFoundException when the key item with the specified UUID is not found
+     */
+    List<BaseAttribute> listVerifyAttributes(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid,
+            UUID uuid, UUID keyItemUuid) throws ConnectorException, NotFoundException;
+
+    /**
+     * @param tokenInstanceUuid UUID of the token instance
      * @param request DTO containing the information for generating a strong random data {@link RandomDataRequestDto}
      * @return Random generated data {@link RandomDataResponseDto}
      * @throws NotFoundException when the token instance with the specified UUID is not found
      */
     RandomDataResponseDto randomData(SecuredUUID tokenInstanceUuid, RandomDataRequestDto request)
             throws ConnectorException, NotFoundException;
+
+    /**
+     * @param tokenInstanceUuid UUID of the token instance
+     * @param tokenProfileUuid UUID of the token profile
+     * @param request DTO containing the information for generating a strong random data {@link RandomDataRequestDto}
+     * @return Random generated data {@link RandomDataResponseDto}
+     * @throws NotFoundException when the token instance or token profile with the specified UUID is not found
+     */
+    RandomDataResponseDto randomData(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid,
+            RandomDataRequestDto request) throws ConnectorException, NotFoundException;
 }
