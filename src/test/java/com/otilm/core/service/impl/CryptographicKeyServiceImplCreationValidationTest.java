@@ -330,10 +330,6 @@ class CryptographicKeyServiceImplCreationValidationTest {
         return SecuredParentUUID.fromUUID(profile.uuid());
     }
 
-    /**
-     * The permission is set once and never raised, so a key the connector could never export has to be refused before
-     * it exists rather than created and found unexportable later.
-     */
     @Test
     void createKey_refusesAnExportableKeyOnAConnectorThatCannotExport() {
         // given
@@ -348,7 +344,6 @@ class CryptographicKeyServiceImplCreationValidationTest {
         verifyNoInteractions(client);
     }
 
-    /** The other side of the gate: a connector that advertises export must not have the request refused. */
     @Test
     void createKey_acceptsAnExportableKeyOnAConnectorThatCanExport() throws Exception {
         // given

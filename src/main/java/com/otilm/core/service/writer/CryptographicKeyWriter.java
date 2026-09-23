@@ -308,8 +308,7 @@ public class CryptographicKeyWriter {
     }
 
     /**
-     * Withdraws the export permission from a key item. The permission is one-way: it is set when the key is created or
-     * imported and only ever cleared afterwards.
+     * Withdraws the export permission from a key item and records the change in its history.
      *
      * @param keyItemUuid UUID of the key item
      * @return {@code true} if the item was exportable and is no longer

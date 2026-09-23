@@ -119,7 +119,6 @@ class CryptographicKeyDtoMapperTest {
         });
     }
 
-    /** The parent key's items answer the export permission, so they agree with the key item read on its own. */
     @Test
     void mapItemToDetailDto_statesTheExportPermission() {
         // given

@@ -82,6 +82,8 @@ import org.springframework.http.ResponseEntity;
 @Slf4j
 public class KeyProviderV2Adapter implements KeyProviderAdapter {
 
+    private static final UUID EXPORTABLE_INTENT_UUID = UUID.fromString(KeyExportableAttribute.definition().getUuid());
+
     private final ApiClientConnectorInfo connectorInfo;
     private final KeySyncApiClient keyManagementSyncApiClient;
     private final AttributeEngine attributeEngine;
@@ -199,6 +201,7 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
      */
     private static List<RequestAttribute> withExportableIntent(List<RequestAttribute> attributes, boolean exportable) {
         RequestAttributeV2 intent = new RequestAttributeV2();
+        intent.setUuid(EXPORTABLE_INTENT_UUID);
         intent.setName(KeyExportableAttribute.NAME);
         intent.setContentType(AttributeContentType.BOOLEAN);
         intent.setContent(List.of(new BooleanAttributeContentV2(exportable)));
@@ -249,7 +252,12 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
                 .recordExpandedSecretsFromRequest(attributes.getTokenProfileAttributes(), expandedSecrets);
         List<BaseAttribute> definitions = keyManagementSyncApiClient.listCreateKeyAttributes(connectorInfo, attributes);
         outboundSecretContainment.assertNoExpandedSecretOutbound(definitions, expandedSecrets);
-        return definitions;
+        // Core takes the intent from the request's own field and states it on the wire itself, so offering the reserved
+        // attribute as well would give a caller a second control that the stated intent then overrides.
+        return definitions
+                .stream()
+                .filter(definition -> !KeyExportableAttribute.NAME.equals(definition.getName()))
+                .toList();
     }
 
     private TokenProfileScopedRequestV2Dto tokenProfileScopedRequest(TokenProfileBasicModel tokenProfile)

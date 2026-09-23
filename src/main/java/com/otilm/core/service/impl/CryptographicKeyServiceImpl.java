@@ -472,7 +472,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
         // failed after it had happened.
         String operation = "disable export of key item %s".formatted(keyItemUuid);
         authorizationEnforcer.enforce(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.DETAIL, uuid);
-        verifyPermissionsForAssociatedToken(key, operation, ResourceAction.UPDATE);
+        verifyPermissionsForAssociatedToken(key, operation, ResourceAction.DETAIL);
         verifyPermissionsForAssociatedToken(key, operation, ResourceAction.MEMBERS);
         // Checked without loading the item: a managed copy taken before the update would still say the key is
         // exportable when the answer is read back from it.
@@ -482,6 +482,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
         }
 
         cryptographicKeyWriter.disableKeyItemExport(item);
+        evictKeyItemCache(item);
         return getKeyItem(uuid, keyItemUuid);
     }
 
@@ -1241,8 +1242,9 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
             throws ValidationException {
         if (exportable && !connectorCapabilityService
                 .supports(tokenProfile.tokenInstance().connectorInterface(), FeatureFlag.KEY_EXPORT)) {
-            throw new ValidationException(
-                    "Token instance " + tokenProfile.tokenInstance().name() + " does not support key export.");
+            TokenInstanceFullModel tokenInstance = tokenProfile.tokenInstance();
+            throw new ValidationException("Connector %s of token instance %s does not support key export."
+                    .formatted(tokenInstance.connectorName(), tokenInstance.name()));
         }
     }
 

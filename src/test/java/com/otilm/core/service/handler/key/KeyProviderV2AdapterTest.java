@@ -939,6 +939,10 @@ class KeyProviderV2AdapterTest {
         // then
         ArgumentCaptor<CreateKeyRequestV2Dto> request = ArgumentCaptor.forClass(CreateKeyRequestV2Dto.class);
         verify(client).createKey(any(), request.capture());
+        RequestAttribute intent = request.getValue().getCreateKeyAttributes().getFirst();
+        assertEquals(UUID.fromString(KeyExportableAttribute.definition().getUuid()), intent.getUuid());
+        assertEquals(KeyExportableAttribute.NAME, intent.getName());
+        assertEquals(AttributeContentType.BOOLEAN, intent.getContentType());
         assertTrue(KeyExportableAttribute.isRequested(request.getValue().getCreateKeyAttributes()));
     }
 
@@ -957,7 +961,6 @@ class KeyProviderV2AdapterTest {
         assertEquals(1, request.getValue().getCreateKeyAttributes().size());
     }
 
-    /** A request may carry no attributes at all; the intent still has to reach the connector. */
     @Test
     void createKey_statesTheExportableIntentWhenTheRequestCarriesNoAttributes() throws Exception {
         // given
@@ -1053,7 +1056,7 @@ class KeyProviderV2AdapterTest {
         List<BaseAttribute> definitions = adapter.listCreateKeyAttributes(profile, type);
 
         // then
-        assertSame(expectedDefinitions, definitions);
+        assertEquals(expectedDefinitions, definitions);
         ArgumentCaptor<CreateKeyAttributesRequestV2Dto> request = ArgumentCaptor
                 .forClass(CreateKeyAttributesRequestV2Dto.class);
         verify(client).listCreateKeyAttributes(any(), request.capture());
@@ -1094,6 +1097,21 @@ class KeyProviderV2AdapterTest {
     }
 
     @Test
+    void listCreateKeyAttributes_leavesTheReservedExportableAttributeOut() throws Exception {
+        // given
+        DataAttributeV2 keySize = new DataAttributeV2();
+        keySize.setName("key-size");
+        when(client.listCreateKeyAttributes(any(), any()))
+                .thenReturn(List.of(keySize, KeyExportableAttribute.definition()));
+
+        // when
+        List<BaseAttribute> definitions = adapter.listCreateKeyAttributes(profile, KeyRequestType.SECRET);
+
+        // then
+        assertEquals(List.of(keySize), definitions);
+    }
+
+    @Test
     void listCreateKeyAttributes_allowsOrdinaryDefaultsAfterSecretExpansion() throws Exception {
         // given
         stubExpandedSecret(Resource.TOKEN, "resolved-token-password");
@@ -1105,7 +1123,7 @@ class KeyProviderV2AdapterTest {
         List<BaseAttribute> definitions = adapter.listCreateKeyAttributes(profile, KeyRequestType.KEY_PAIR);
 
         // then
-        assertSame(expectedDefinitions, definitions);
+        assertEquals(expectedDefinitions, definitions);
     }
 
     private void stubExpandedSecret(Resource resource, String secret) throws Exception {

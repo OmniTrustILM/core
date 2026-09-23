@@ -43,7 +43,7 @@ public interface CryptographicKeyItemRepository extends SecurityFilterRepository
     int updateEnabledIfChanged(@Param("uuid") UUID uuid, @Param("enabled") boolean enabled);
 
     /**
-     * Clears the export permission. The permission is only ever narrowed, so there is no counterpart that sets it.
+     * Clears the export permission.
      *
      * @param uuid non-null UUID of the key item
      * @return one if the item was exportable and is no longer; zero if it does not exist or already was not

@@ -136,10 +136,6 @@ class CryptographicKeyWriterCreationTest {
         assertThat(savedItem().isExportable()).isFalse();
     }
 
-    /**
-     * Core owns the permission. Discovery describes what a connector already holds, so the permission is withheld from
-     * a discovered key even when the request asks for it.
-     */
     @Test
     void createKeyWithItems_withholdsExportFromADiscoveredKeyEvenWhenAsked() throws AttributeException {
         // given
