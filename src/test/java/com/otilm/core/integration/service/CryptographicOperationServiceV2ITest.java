@@ -522,9 +522,10 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
 
     private static String signSchema(String... otherDefinitions) {
         String signatureAlgorithm = "{\"uuid\":\"" + SignatureAlgorithmAttribute.ATTRIBUTE_UUID + "\",\"name\":\""
-                + SignatureAlgorithmAttribute.NAME + "\",\"type\":\"data\",\"contentType\":\"string\",\"version\":2,"
+                + SignatureAlgorithmAttribute.NAME + "\",\"type\":\"data\",\"contentType\":\"string\",\"version\":3,"
                 + "\"properties\":{\"label\":\"Signature Algorithm\",\"visible\":true,\"required\":true,"
-                + "\"readOnly\":false,\"list\":true,\"multiSelect\":false},\"content\":[{\"data\":\"SHA256withRSA\"}]}";
+                + "\"readOnly\":false,\"list\":true,\"multiSelect\":false},"
+                + "\"content\":[{\"contentType\":\"string\",\"data\":\"SHA256withRSA\"}]}";
         return Stream
                 .concat(Stream.of(signatureAlgorithm), Stream.of(otherDefinitions))
                 .collect(Collectors.joining(",", "[", "]"));
