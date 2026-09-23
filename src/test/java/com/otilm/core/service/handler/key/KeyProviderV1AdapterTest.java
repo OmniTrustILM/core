@@ -22,9 +22,12 @@ import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
+import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.common.enums.cryptography.RsaSignatureScheme;
+import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.cryptography.key.CreateKeyRequestDto;
 import com.otilm.api.model.connector.cryptography.key.KeyData;
@@ -65,6 +68,7 @@ import org.mockito.ArgumentCaptor;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -597,6 +601,52 @@ class KeyProviderV1AdapterTest {
         assertEquals(RsaSignatureAttributes.getRsaSignatureAttributes().toString(), rsaSchema.toString());
         assertTrue(mldsaSchema.isEmpty());
         verifyNoInteractions(operationsClient);
+    }
+
+    /** A legacy provider publishes no signing schema, so Core's own registry is what names the algorithm. */
+    @Test
+    void resolveSignatureAlgorithm_readsCoreRegistry_withoutTouchingTheConnector() {
+        // given
+        OperationKeyContext rsa = OperationKeyContext
+                .legacy(keyItem(KeyAlgorithm.RSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
+                        UUID.randomUUID()));
+        List<RequestAttribute> attributes = List
+                .of(RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PKCS1_v1_5),
+                        RsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_384));
+
+        // when
+        ResolvedSignatureAlgorithm resolved = adapter
+                .resolveSignatureAlgorithm(rsa, keyItem(KeyAlgorithm.RSA, null, UUID.randomUUID()), attributes);
+
+        // then
+        assertEquals(SignatureAlgorithm.SHA384_WITH_RSA, resolved.platformAlgorithm());
+        assertEquals(SignatureAlgorithm.SHA384_WITH_RSA.getAlgorithmIdentifier(), resolved.identifier());
+        verifyNoInteractions(operationsClient);
+    }
+
+    /**
+     * The registry admits digests the platform has no signature-algorithm entry for. Such a selection still names
+     * something a certificate request can carry, so an identifier is returned and only the platform entry is absent.
+     */
+    @Test
+    void resolveSignatureAlgorithm_namesAnIdentifierEvenWithoutAPlatformEntry() {
+        // given
+        OperationKeyContext rsa = OperationKeyContext
+                .legacy(keyItem(KeyAlgorithm.RSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
+                        UUID.randomUUID()));
+        List<RequestAttribute> attributes = List
+                .of(RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PKCS1_v1_5),
+                        RsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_1));
+
+        // when
+        ResolvedSignatureAlgorithm resolved = adapter
+                .resolveSignatureAlgorithm(rsa, keyItem(KeyAlgorithm.RSA, null, UUID.randomUUID()), attributes);
+
+        // then
+        assertEquals("SHA1WITHRSA", resolved.name());
+        assertNotNull(resolved.identifier());
+        assertNull(resolved.platformAlgorithm());
+        assertThrows(ValidationException.class, resolved::requirePlatformAlgorithm);
     }
 
     @Test

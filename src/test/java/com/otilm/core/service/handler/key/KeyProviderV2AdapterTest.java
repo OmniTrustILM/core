@@ -32,6 +32,7 @@ import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.connector.common.v2.OperationExecutionMode;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.cryptography.v2.key.CreateKeyAttributesRequestV2Dto;
@@ -51,6 +52,8 @@ import com.otilm.api.model.connector.cryptography.v2.operations.DecryptDataRespo
 import com.otilm.api.model.connector.cryptography.v2.operations.EncryptDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignDataRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignDataResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorithmRequestV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorithmResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.VerifyDataRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.VerifyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.data.CipherDataV2Dto;
@@ -297,6 +300,66 @@ class KeyProviderV2AdapterTest {
 
         // then
         assertSame(failure, assertThrows(IllegalStateException.class, destroy));
+    }
+
+    /**
+     * The signing vocabulary is the connector's own, so the connector is asked. Core relays the answer without
+     * interpreting the attributes that produced it.
+     */
+    @Test
+    void resolveSignatureAlgorithm_asksTheConnector_andRelaysItsAnswer() throws Exception {
+        // given
+        List<MetadataAttribute> keyMeta = metadata("durable-key-handle");
+        when(operationsClient.listSignAttributes(any(), any()))
+                .thenReturn(List.of(dataAttributeDefinition("signatureScheme", true)));
+        SignatureAlgorithmResponseV2Dto body = new SignatureAlgorithmResponseV2Dto();
+        body.setSignatureAlgorithm(SignatureAlgorithm.SHA384_WITH_RSA);
+        when(operationsClient.resolveSignatureAlgorithm(any(), any())).thenReturn(body);
+        List<RequestAttribute> attributes = List.of(stringAttribute("signatureScheme", "PKCS1-v1_5"));
+
+        // when
+        ResolvedSignatureAlgorithm resolved = adapter.resolveSignatureAlgorithm(v2Context(keyMeta), null, attributes);
+
+        // then
+        assertEquals(SignatureAlgorithm.SHA384_WITH_RSA, resolved.platformAlgorithm());
+        assertEquals(SignatureAlgorithm.SHA384_WITH_RSA.getAlgorithmIdentifier(), resolved.identifier());
+        ArgumentCaptor<SignatureAlgorithmRequestV2Dto> sent = ArgumentCaptor
+                .forClass(SignatureAlgorithmRequestV2Dto.class);
+        verify(operationsClient).resolveSignatureAlgorithm(any(), sent.capture());
+        assertSame(keyMeta, sent.getValue().getKeyMeta());
+        assertSame(attributes, sent.getValue().getSignatureAttributes());
+    }
+
+    /** An attribute the connector's own schema does not offer is refused before the connector is asked. */
+    @Test
+    void resolveSignatureAlgorithm_rejectsAnAttributeTheSchemaDoesNotOffer() throws Exception {
+        // given
+        when(operationsClient.listSignAttributes(any(), any()))
+                .thenReturn(List.of(dataAttributeDefinition("signatureScheme", true)));
+
+        // when
+        Executable resolve = () -> adapter
+                .resolveSignatureAlgorithm(v2Context(metadata("handle")), null,
+                        List.of(stringAttribute("notSignatureScheme", "x")));
+
+        // then
+        assertThrows(ValidationException.class, resolve);
+        verify(operationsClient, never()).resolveSignatureAlgorithm(any(), any());
+    }
+
+    @Test
+    void resolveSignatureAlgorithm_rejectsAnAnswerThatNamesNoAlgorithm() throws Exception {
+        // given
+        when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of());
+        when(operationsClient.resolveSignatureAlgorithm(any(), any()))
+                .thenReturn(new SignatureAlgorithmResponseV2Dto());
+
+        // when
+        Executable resolve = () -> adapter.resolveSignatureAlgorithm(v2Context(metadata("handle")), null, List.of());
+
+        // then
+        ConnectorException failure = assertThrows(ConnectorException.class, resolve);
+        assertTrue(failure.getMessage().contains("named no signature algorithm"));
     }
 
     @Test

@@ -1,6 +1,7 @@
 package com.otilm.core.signing.engine.signer;
 
-import com.otilm.api.exception.ValidationException;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
@@ -13,7 +14,6 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CryptographicOperationInternalService;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
-import com.otilm.core.util.CryptographyUtil;
 import java.util.List;
 import org.springframework.stereotype.Component;
 
@@ -72,36 +72,26 @@ public class StaticManagedKeySignerCreator implements SignerCreator {
     }
 
     /**
-     * A key algorithm and digest an operator may configure can name a signature algorithm the platform has no entry for
-     * -- a SHA-1 digest, or a PQC parameter set outside the enum. That is a Signing Profile the operator can fix, so it
-     * is refused as MISCONFIGURED rather than escaping as the unchecked throw a caller would log as a platform fault.
+     * The algorithm is resolved on the provider boundary, because a cryptography provider v2 owns the signing
+     * vocabulary its attributes are drawn from and is the only party that can read a selection made from it. A legacy
+     * key is answered from Core's own registry by the same call.
+     *
+     * <p>
+     * Operator-supplied attributes can name a signature algorithm the platform has no entry for -- a SHA-1 digest, or a
+     * PQC parameter set outside the enum. That is a Signing Profile the operator can fix, so it is refused as
+     * MISCONFIGURED rather than escaping as the unchecked throw a caller would log as a platform fault.
+     * </p>
      */
-    private static SignatureAlgorithm resolveSignatureAlgorithm(CryptographicKeyItemOperationModel privateKeyItem,
-            CryptographicKeyItemOperationModel publicKeyItem, List<RequestAttribute> requestAttributes)
-            throws SigningEngineException {
-        String algorithmName = resolveSignatureAlgorithmName(privateKeyItem, publicKeyItem, requestAttributes);
-        try {
-            return SignatureAlgorithm.findByCode(algorithmName);
-        } catch (ValidationException e) {
-            throw new SigningEngineException(SigningEngineFailure.MISCONFIGURED,
-                    "signing key algorithm '%s' and its signing attributes resolve to signature algorithm '%s', which the platform does not support"
-                            .formatted(privateKeyItem.keyAlgorithm(), algorithmName),
-                    e, "Signing key algorithm is not supported.");
-        }
-    }
-
-    /** The signing attributes are operator-supplied, so a missing or unreadable one names no algorithm at all. */
-    private static String resolveSignatureAlgorithmName(CryptographicKeyItemOperationModel privateKeyItem,
+    private SignatureAlgorithm resolveSignatureAlgorithm(CryptographicKeyItemOperationModel privateKeyItem,
             CryptographicKeyItemOperationModel publicKeyItem, List<RequestAttribute> requestAttributes)
             throws SigningEngineException {
         try {
-            return CryptographyUtil
-                    .resolveSignatureAlgorithmName(privateKeyItem.keyAlgorithm(), requestAttributes,
-                            publicKeyItem.pqcParameterSpecName());
-        } catch (RuntimeException e) {
+            return cryptographicOperationService
+                    .resolveSignatureAlgorithm(privateKeyItem, publicKeyItem, requestAttributes);
+        } catch (ConnectorException | NotFoundException | RuntimeException e) {
             throw new SigningEngineException(SigningEngineFailure.MISCONFIGURED,
-                    "signing key algorithm '%s' and its signing attributes name no signature algorithm"
-                            .formatted(privateKeyItem.keyAlgorithm()),
+                    "signing key algorithm '%s' and its signing attributes name no signature algorithm the platform supports: %s"
+                            .formatted(privateKeyItem.keyAlgorithm(), e.getMessage()),
                     e, "Signing key algorithm is not supported.");
         }
     }

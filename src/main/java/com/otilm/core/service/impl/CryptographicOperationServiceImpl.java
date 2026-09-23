@@ -19,6 +19,7 @@ import com.otilm.api.model.client.cryptography.operations.VerifyDataResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cryptography.key.KeyEvent;
 import com.otilm.api.model.core.cryptography.key.KeyEventStatus;
@@ -371,6 +372,28 @@ public class CryptographicOperationServiceImpl
 
     private KeyProviderAdapter adapterFor(OperationKeyContext context) throws NotFoundException {
         return keyProviderAdapterFactory.forKeyItem(context.keyItem());
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public SignatureAlgorithm resolveSignatureAlgorithm(CryptographicKeyItemOperationModel privateKeyItem,
+            CryptographicKeyItemOperationModel publicKeyItem, List<RequestAttribute> signatureAttributes)
+            throws NotFoundException, ConnectorException {
+        OperationKeyContext context = operationContext(privateKeyItem);
+        return keyProviderAdapterFactory
+                .forKeyItem(context.keyItem())
+                .resolveSignatureAlgorithm(context, publicKeyItem, signatureAttributes)
+                .requirePlatformAlgorithm();
+    }
+
+    private OperationKeyContext operationContext(CryptographicKeyItemOperationModel model) throws NotFoundException {
+        if (!model.hasConnectorInterface()) {
+            return OperationKeyContext.legacy(model);
+        }
+        KeyOperationScope scope = cryptographicKeyRepository
+                .findOperationScopeByUuid(model.keyUuid())
+                .orElseThrow(() -> new NotFoundException(CryptographicKey.class, model.keyUuid()));
+        return new OperationKeyContext(model, scope.tokenProfile());
     }
 
     private <T> T recordEvent(CryptographicKeyItemOperationModel key, KeyEvent event, String successMessage,

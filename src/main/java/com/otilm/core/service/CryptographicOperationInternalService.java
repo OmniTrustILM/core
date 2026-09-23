@@ -9,6 +9,8 @@ import com.otilm.api.model.client.cryptography.operations.SignDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.SignDataResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import java.io.IOException;
@@ -68,4 +70,21 @@ public interface CryptographicOperationInternalService {
             List<RequestAttribute> signatureAttributes, UUID altKeyUUid, UUID altTokenProfileUuid,
             List<RequestAttribute> altSignatureAttributes) throws NotFoundException, NoSuchAlgorithmException,
             InvalidKeySpecException, IOException, AttributeException;
+
+    /**
+     * Names the algorithm a signature made with this key and these attributes will carry, for a caller that must name
+     * it in a structure it builds itself before the signature exists -- the {@code SignerInfo} of a CMS signature, for
+     * instance. A legacy key is answered from Core's own signature registry; a key on a cryptography provider v2 is
+     * answered by the provider, which is the only party that can read a selection from the vocabulary it owns.
+     *
+     * @param privateKeyItem the signing key item
+     * @param publicKeyItem the matching public key item, which carries the parameter set of a PQC key
+     * @param signatureAttributes the attributes the caller intends to sign with
+     * @return the signature algorithm the selection produces
+     * @throws NotFoundException when the key's token profile scope cannot be resolved
+     * @throws ConnectorException when the provider cannot be reached or names no algorithm
+     */
+    SignatureAlgorithm resolveSignatureAlgorithm(CryptographicKeyItemOperationModel privateKeyItem,
+            CryptographicKeyItemOperationModel publicKeyItem, List<RequestAttribute> signatureAttributes)
+            throws NotFoundException, ConnectorException;
 }

@@ -1,6 +1,8 @@
 package com.otilm.core.signing.engine.signer;
 
-import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ValidationError;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.core.model.crypto.CryptographicKeyItemModelFixtures;
@@ -9,7 +11,6 @@ import com.otilm.core.model.signing.resolved.ResolvedStaticKeyManagedSigning;
 import com.otilm.core.service.CryptographicOperationInternalService;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
-import com.otilm.core.util.builders.RsaSignatureAttributesBuilder;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -20,6 +21,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.then;
 
 @ExtendWith(MockitoExtension.class)
 class StaticManagedKeySignerCreatorTest {
@@ -82,15 +87,22 @@ class StaticManagedKeySignerCreatorTest {
                             .isEqualTo(SigningEngineFailure.MISCONFIGURED));
         }
 
+        /**
+         * Reading the signing attributes is the provider's job now, so a selection it cannot turn into an algorithm the
+         * platform supports arrives here as a failure to relay, carrying the detail the operator has to act on.
+         */
         @Test
-        void throwsMisconfigured_whenTheSigningAttributesNameNoSignatureAlgorithm() {
-            // given — no signing attributes at all, so no digest or RSA scheme can be read for an RSA key
+        void throwsMisconfigured_carryingTheProvidersReason_whenNoAlgorithmIsNamed() throws Exception {
+            // given
             ResolvedStaticKeyManagedSigning scheme = new ResolvedStaticKeyManagedSigning(
                     SigningCertificateBuilder.valid(),
                     List
                             .of(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA),
                                     CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA)),
                     null, List.of());
+            given(cryptographicOperationService.resolveSignatureAlgorithm(any(), any(), anyList()))
+                    .willThrow(new ValidationException(ValidationError
+                            .create("Signature algorithm SHA1WITHRSA is not one the platform supports.")));
 
             // when / then
             assertThatThrownBy(() -> creator.create(scheme))
@@ -98,33 +110,30 @@ class StaticManagedKeySignerCreatorTest {
                     .satisfies(ex -> {
                         assertThat(((SigningEngineException) ex).failure())
                                 .isEqualTo(SigningEngineFailure.MISCONFIGURED);
-                        assertThat(((SigningEngineException) ex).operatorMessage())
-                                .contains("name no signature algorithm");
+                        assertThat(((SigningEngineException) ex).operatorMessage()).contains("SHA1WITHRSA");
+                        assertThat(((SigningEngineException) ex).clientMessage())
+                                .isEqualTo("Signing key algorithm is not supported.");
                     });
         }
 
+        /** A provider that cannot be reached is a configuration the operator can fix, not a platform fault. */
         @Test
-        void throwsMisconfigured_whenTheAttributesNameAnUnsupportedSignatureAlgorithm() {
-            // given — SHA-1 with RSA resolves to SHA1WITHRSA, outside the SignatureAlgorithm enum
+        void throwsMisconfigured_whenTheProviderCannotBeReached() throws Exception {
+            // given
             ResolvedStaticKeyManagedSigning scheme = new ResolvedStaticKeyManagedSigning(
                     SigningCertificateBuilder.valid(),
                     List
                             .of(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA),
                                     CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA)),
-                    null,
-                    RsaSignatureAttributesBuilder.rsaSignatureAttributes().withDigest(DigestAlgorithm.SHA_1).build());
+                    null, List.of());
+            given(cryptographicOperationService.resolveSignatureAlgorithm(any(), any(), anyList()))
+                    .willThrow(new ConnectorException("provider unreachable"));
 
             // when / then
             assertThatThrownBy(() -> creator.create(scheme))
                     .isInstanceOf(SigningEngineException.class)
-                    .satisfies(ex -> {
-                        assertThat(((SigningEngineException) ex).failure())
-                                .isEqualTo(SigningEngineFailure.MISCONFIGURED);
-                        assertThat(((SigningEngineException) ex).operatorMessage())
-                                .contains("SHA1WITHRSA", "which the platform does not support");
-                        assertThat(((SigningEngineException) ex).clientMessage())
-                                .isEqualTo("Signing key algorithm is not supported.");
-                    });
+                    .satisfies(ex -> assertThat(((SigningEngineException) ex).failure())
+                            .isEqualTo(SigningEngineFailure.MISCONFIGURED));
         }
 
         @Test
@@ -143,8 +152,9 @@ class StaticManagedKeySignerCreatorTest {
                             .isEqualTo(SigningEngineFailure.MISCONFIGURED));
         }
 
+        /** Whatever the provider names is what the signer carries; the creator adds no opinion of its own. */
         @Test
-        void readsThePostQuantumParameterSetFromThePublicKeyItem() throws SigningEngineException {
+        void carriesTheAlgorithmTheProviderNames() throws Exception {
             // given
             ResolvedStaticKeyManagedSigning scheme = new ResolvedStaticKeyManagedSigning(
                     SigningCertificateBuilder.valid(),
@@ -153,6 +163,8 @@ class StaticManagedKeySignerCreatorTest {
                                     CryptographicKeyItemModelFixtures
                                             .publicKey(KeyAlgorithm.MLDSA, SignatureAlgorithm.ML_DSA_65.getCode())),
                     null, List.of());
+            given(cryptographicOperationService.resolveSignatureAlgorithm(any(), any(), anyList()))
+                    .willReturn(SignatureAlgorithm.ML_DSA_65);
 
             // when
             Signer signer = creator.create(scheme);
@@ -161,27 +173,24 @@ class StaticManagedKeySignerCreatorTest {
             assertThat(signer.getSignatureAlgorithm()).isEqualTo(SignatureAlgorithm.ML_DSA_65);
         }
 
+        /** The public key item is what carries a PQC parameter set, so the provider is told which one it is. */
         @Test
-        void throwsMisconfigured_whenPostQuantumParameterSetIsNotAPlatformConstant() {
+        void passesBothKeyItemsAndTheAttributesToTheProvider() throws Exception {
             // given
+            var privateKey = CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.MLDSA);
+            var publicKey = CryptographicKeyItemModelFixtures
+                    .publicKey(KeyAlgorithm.MLDSA, SignatureAlgorithm.ML_DSA_65.getCode());
             ResolvedStaticKeyManagedSigning scheme = new ResolvedStaticKeyManagedSigning(
-                    SigningCertificateBuilder.valid(),
-                    List
-                            .of(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.MLDSA),
-                                    CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.MLDSA, "ML-DSA-99")),
-                    null, List.of());
+                    SigningCertificateBuilder.valid(), List.of(privateKey, publicKey), null, List.of());
+            given(cryptographicOperationService.resolveSignatureAlgorithm(any(), any(), anyList()))
+                    .willReturn(SignatureAlgorithm.ML_DSA_65);
 
-            // when / then
-            assertThatThrownBy(() -> creator.create(scheme))
-                    .isInstanceOf(SigningEngineException.class)
-                    .satisfies(ex -> {
-                        assertThat(((SigningEngineException) ex).failure())
-                                .isEqualTo(SigningEngineFailure.MISCONFIGURED);
-                        assertThat(((SigningEngineException) ex).operatorMessage())
-                                .contains("ML-DSA-99", "which the platform does not support");
-                        assertThat(((SigningEngineException) ex).clientMessage())
-                                .isEqualTo("Signing key algorithm is not supported.");
-                    });
+            // when
+            creator.create(scheme);
+
+            // then
+            then(cryptographicOperationService).should().resolveSignatureAlgorithm(privateKey, publicKey, List.of());
         }
+
     }
 }

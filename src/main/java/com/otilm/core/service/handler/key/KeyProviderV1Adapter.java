@@ -23,6 +23,7 @@ import com.otilm.api.model.client.cryptography.operations.VerifyDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.VerifyDataResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.cryptography.key.CreateKeyRequestDto;
 import com.otilm.api.model.connector.cryptography.key.KeyData;
@@ -47,6 +48,7 @@ import com.otilm.core.service.handler.OperationDataItem;
 import com.otilm.core.service.handler.OperationResultItem;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.CryptographicHelper;
+import com.otilm.core.util.CryptographyUtil;
 import java.util.List;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
@@ -209,6 +211,25 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
             result.setDecryptedData(toCipherResponse(LegacyOperationCodec.cipherResults(response.getDecryptedData())));
         }
         return result;
+    }
+
+    /** A legacy provider publishes no signing schema, so the answer comes from Core's own signature registry. */
+    @Override
+    public ResolvedSignatureAlgorithm resolveSignatureAlgorithm(OperationKeyContext context,
+            CryptographicKeyItemOperationModel publicKeyItem, List<RequestAttribute> signatureAttributes) {
+        String name = CryptographyUtil
+                .resolveSignatureAlgorithmName(context.keyItem().keyAlgorithm(), signatureAttributes,
+                        publicKeyItem.pqcParameterSpecName());
+        SignatureAlgorithm platformAlgorithm;
+        try {
+            platformAlgorithm = SignatureAlgorithm.findByCode(name);
+        } catch (ValidationException e) {
+            // The registry admits digests the platform has no signature-algorithm entry for; such a name can still be
+            // written into a certificate request, so it is not refused here but where an entry is actually required.
+            platformAlgorithm = null;
+        }
+        return new ResolvedSignatureAlgorithm(name, CryptographyUtil.getAlgorithmIdentifierInstance(name),
+                platformAlgorithm);
     }
 
     @Override

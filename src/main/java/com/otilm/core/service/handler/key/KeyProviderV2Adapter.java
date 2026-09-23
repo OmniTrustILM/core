@@ -47,6 +47,8 @@ import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyDataResponseV2
 import com.otilm.api.model.connector.cryptography.v2.operations.CipherDataRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignDataRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignDataResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorithmRequestV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorithmResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.VerifyDataRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.VerifyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.data.CipherDataV2Dto;
@@ -58,6 +60,7 @@ import com.otilm.core.attribute.engine.OutboundSecretContainment;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.model.crypto.CryptographicKeyFullModel;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.crypto.KeyMaterial;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.RemoteKeyReference;
@@ -324,6 +327,28 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
             data.setIdentifier(identifier);
             return data;
         });
+    }
+
+    /**
+     * The signing vocabulary belongs to the connector, so the connector is asked. The selection is validated against
+     * the connector's own schema first, exactly as signing does, so an unreadable selection is refused here rather than
+     * producing an algorithm the eventual signature would not match.
+     */
+    @Override
+    public ResolvedSignatureAlgorithm resolveSignatureAlgorithm(OperationKeyContext context,
+            CryptographicKeyItemOperationModel publicKeyItem, List<RequestAttribute> signatureAttributes)
+            throws ConnectorException {
+        List<RequestAttribute> attributes = orEmpty(signatureAttributes);
+        TokenProfileScopedRequestV2Dto scope = validatedScope(context,
+                schemaRequest -> operationsApiClient.listSignAttributes(connectorInfo, schemaRequest), attributes);
+        SignatureAlgorithmRequestV2Dto body = keyScoped(new SignatureAlgorithmRequestV2Dto(), context, scope);
+        body.setSignatureAttributes(attributes);
+        SignatureAlgorithmResponseV2Dto response = operationsApiClient.resolveSignatureAlgorithm(connectorInfo, body);
+        if (response == null || response.getSignatureAlgorithm() == null) {
+            throw new ConnectorException("Connector named no signature algorithm for the supplied key and attributes.",
+                    connectorInfo);
+        }
+        return ResolvedSignatureAlgorithm.of(response.getSignatureAlgorithm());
     }
 
     @Override
