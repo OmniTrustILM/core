@@ -301,13 +301,9 @@ public class PqcEvaluator {
     }
 
     /**
-     * What an unbroken symmetric or hash-based family's <em>recorded strength</em> says, or {@code null} when the
-     * family verdict stands.
-     *
-     * <p>
-     * Membership alone answers "symmetric or hash-based and not classically broken", which is not the same claim as
-     * "this instance has adequate strength". A construction cannot make the second claim without naming the primitive
-     * it is built on, and a sized primitive cannot make it below the floor.
+     * What an unbroken symmetric or hash-based family's recorded strength says, or {@code null} when the family verdict
+     * stands. Family membership is not a strength claim: a construction cannot make one without naming its primitive,
+     * and a sized primitive cannot make one below the floor.
      */
     private PqcDecision symmetricStrengthDecision(PqcRuleInput input, Integer nistQuantumSecurityLevel) {
         if (PqcFamilies.isConstruction(ratifiedFamily(input.algorithmFamily()))) {
@@ -332,12 +328,8 @@ public class PqcEvaluator {
     }
 
     /**
-     * Whether any secondary token names a primitive this construction could be built on.
-     *
-     * <p>
-     * A token resolving to another construction does not count: {@code PBKDF2-HMAC} names a PRF family that is itself
-     * uninstantiated, so the pair says no more than either half. A bare parameter set does not count either -- a size
-     * says how long the output is, never which primitive produced it.
+     * Whether any secondary token names a primitive this construction could be built on. Another construction does not
+     * count, since the pair says no more than either half, and a bare parameter set does not either.
      */
     private boolean namesAPrimitive(PqcRuleInput input) {
         for (String token : secondaryTokens(input)) {
@@ -350,12 +342,8 @@ public class PqcEvaluator {
     }
 
     /**
-     * The size the row records, whichever slot carries it, and only inside the ratified size band.
-     *
-     * <p>
-     * An algorithm's size is its parameter set, which the material arms cannot reach. The band is what those arms
-     * already apply to {@code materialSize}: below 64 a bit count cannot be told from a byte count, and a number
-     * outside it is not a size at all but a cost factor or a round count that would read as a broken key.
+     * The size the row records, from whichever slot carries it, and only inside the ratified band: below 64 a bit count
+     * cannot be told from a byte count, and a number above it is a cost or round count rather than a size.
      */
     private Integer recordedSizeBits(PqcRuleInput input) {
         if (input.materialSize() != null) {

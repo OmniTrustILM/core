@@ -76,10 +76,9 @@ class PqcFamiliesTest {
     }
 
     /**
-     * The other half of that gate. Each of these is a construction too, and each fixes its own primitive in its own
-     * specification -- Argon2 on BLAKE2b, Fortuna on SHA-256 and AES, Fernet on AES-128-CBC and HMAC-SHA256 -- so the
-     * family name does say what it is built on, and demanding a recorded primitive would answer unknown for a row that
-     * is fully determined.
+     * The other half of that gate. Each of these fixes its own primitive in its own specification -- Argon2 on BLAKE2b,
+     * Fortuna on SHA-256 and AES, Fernet on AES-128-CBC and HMAC-SHA256 -- so demanding a recorded primitive would
+     * answer unknown for a row that is already fully determined.
      */
     @Test
     void aConstructionThatFixesItsOwnPrimitiveIsNotOneOfThem() {

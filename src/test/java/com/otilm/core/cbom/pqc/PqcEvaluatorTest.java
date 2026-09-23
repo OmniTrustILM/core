@@ -57,10 +57,8 @@ class PqcEvaluatorTest {
     }
 
     /**
-     * {@link PqcRules#MIN_SYMMETRIC_KEY_BITS} gated the three material size arms and nothing else, so an algorithm
-     * reached {@code ready} through its family alone: {@code AES-64} read {@code SYMMETRIC-READY} with
-     * {@code parameterSet = 64} sitting unread in the input. Measured on develop-02, not one AES row's evidence named a
-     * size.
+     * {@link PqcRules#MIN_SYMMETRIC_KEY_BITS} gated the material size arms and nothing else, so an algorithm reached
+     * {@code ready} on its family alone with {@code parameterSet = 64} sitting unread in the input.
      */
     @Test
     void anAlgorithmIsDecidedByTheSizeItRecords() {
@@ -78,11 +76,9 @@ class PqcEvaluatorTest {
     }
 
     /**
-     * {@code key} is deliberately outside {@link PqcRules#SYMMETRIC_MATERIAL} -- CycloneDX defines it as material that
-     * processes cryptographic data, so it covers a private key too -- and the size arms are the only readers of
-     * {@code materialSize}. The same 64-bit AES key therefore read {@code ready} typed {@code key} and {@code notReady}
-     * typed {@code secret-key}. The family path reads the recorded size whatever slot carries it, and the material arms
-     * keep their own rule id for the rows they do claim.
+     * {@code key} is outside {@link PqcRules#SYMMETRIC_MATERIAL} because CycloneDX lets it cover a private key too, and
+     * only the size arms read {@code materialSize} -- so one 64-bit AES key read ready under one type and notReady
+     * under the other. The material arms keep their own rule id for the rows they do claim.
      */
     @Test
     void aSizedKeyIsDecidedByItsSizeWhateverTypeItCarries() {
@@ -97,10 +93,9 @@ class PqcEvaluatorTest {
     }
 
     /**
-     * SP 800-56C is a key-derivation construction; its strength is the strength of the hash it is instantiated with.
-     * Observed on develop-02: {@code concatenationkdf} carried family {@code SP800-56C}, no parameter set, no variant
-     * and no OID, and was served "Symmetric or hash-based, so no quantum algorithm breaks it outright" -- an assertion
-     * nothing in the row supports.
+     * SP 800-56C is a key-derivation construction, so its strength is the hash it is instantiated with. A row carrying
+     * the family and no parameter set, variant or OID was served "no quantum algorithm breaks it outright" -- an
+     * assertion nothing in the row supports.
      */
     @Test
     void aConstructionWithNoRecordedPrimitiveIsUnknownRatherThanReady() {
