@@ -124,8 +124,6 @@ public class DiscoveredKeyWriter {
         // what is true of the key itself rather than of anything this platform does with it.
         keyItem.setState(KeyState.ACTIVE);
         keyItem.setEnabled(true);
-        // Where the provider found it. Dropped here it is unrecoverable: the staged row is the only place it exists.
-        keyItem.setKeyMeta(item.getMeta());
         keyItem.setCreatedAt(now);
         keyItem.setUpdatedAt(now);
         return keyItem;

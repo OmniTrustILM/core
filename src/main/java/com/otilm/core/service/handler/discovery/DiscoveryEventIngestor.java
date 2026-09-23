@@ -377,10 +377,6 @@ public class DiscoveryEventIngestor {
     }
 
     /**
-     * Whether the item was absent from inventory when staged; only keys correlate by fingerprint, so anything else
-     * counts as new.
-     */
-    /**
      * Whether the inventory was without this item when the run staged it. Asked of the identity the import will
      * compute, not of the fingerprint the connector reported: the two differ whenever a key carries material, and a row
      * staged under one and imported under the other says the run found something new when it found what was already
