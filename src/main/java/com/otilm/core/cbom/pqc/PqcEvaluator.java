@@ -353,9 +353,8 @@ public class PqcEvaluator {
     }
 
     /**
-     * The material tier derives no variant, and the weak-component doctrine reads exactly that field -- so it never
-     * reached a key. The name is a column, so the tokens are available to every caller, and a material row has no
-     * derived variant of its own to overwrite.
+     * Related material takes its variant from the secondary tokens of its name, because the weak-component doctrine
+     * reads that field and the material tier derives none of its own.
      */
     private static String variantOf(CryptoAssetIdentityFields fields, String secondaryTokens) {
         if (fields.variant() != null || fields.assetType() != CryptographicAssetType.RELATED_CRYPTO_MATERIAL) {

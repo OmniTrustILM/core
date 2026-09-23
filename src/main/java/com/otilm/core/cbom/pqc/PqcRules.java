@@ -149,12 +149,11 @@ public final class PqcRules {
                                 List.of(ASSET_TYPE, ALGORITHM_FAMILY, HYBRID_COMPONENTS, NAME, VARIANT)),
 
                         // ---- Symmetric key material ---------------------------------------------------------------
-                        // A key whose name carries a finding is decided by that name, not by its size. Measured: a
-                        // secret-key named DES declaring 56 bits read UNKNOWN here, because a size under the ratified
-                        // floor reads as absent and these arms never ask what the key is. Below 64 a bit count cannot
-                        // be told from a byte count -- 32 is either AES-256 in bytes or a broken key in bits -- so the
-                        // name carries the finding without that ambiguity, and falling through to the name's own
-                        // decision keeps the row under the rule id an operator already queries for that primitive.
+                        // A key whose name carries a finding is decided by that name, not by its size. Below 64 a
+                        // bit count cannot be told from a byte count -- 32 is either AES-256 in bytes or a broken key
+                        // in bits -- so the name carries the finding without that ambiguity, and falling through to
+                        // the name's own decision keeps the row under the rule id an operator already queries for
+                        // that primitive.
                         new PqcRule("MATERIAL-SYMMETRIC-READY",
                                 input -> isMaterial(SYMMETRIC_MATERIAL, input) && nameCarriesNoFinding.test(input)
                                         && input.materialSize() != null
