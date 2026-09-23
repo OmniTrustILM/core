@@ -329,11 +329,6 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         });
     }
 
-    /**
-     * The signing vocabulary belongs to the connector, so the connector is asked. The selection is validated against
-     * the connector's own schema first, exactly as signing does, so an unreadable selection is refused here rather than
-     * producing an algorithm the eventual signature would not match.
-     */
     @Override
     public ResolvedSignatureAlgorithm resolveSignatureAlgorithm(OperationKeyContext context,
             CryptographicKeyItemOperationModel publicKeyItem, List<RequestAttribute> signatureAttributes)
