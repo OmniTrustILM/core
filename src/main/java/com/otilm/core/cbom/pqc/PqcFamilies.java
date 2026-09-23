@@ -22,15 +22,9 @@ public final class PqcFamilies {
     private static final Map<String, FamilyClass> DISPOSITION = build();
 
     /**
-     * Families that are constructions over another primitive rather than primitives in their own right. Their strength
-     * is the strength of whatever they are instantiated with, and the family name alone does not say which: SP 800-56C
-     * is a key-derivation construction, and a row carrying nothing but that family name does not support the claim that
-     * it is ready.
-     *
-     * <p>
-     * Only the families whose primitive genuinely varies. Argon2, bcrypt, scrypt, yescrypt, Fortuna, Poly1305, SipHash,
-     * Fernet, Ascon, MILENAGE and TUAK are constructions too, and each fixes its own primitive in its own specification
-     * -- so for those the name does say, and they are decided by their family like any other primitive.
+     * Families that are constructions over a primitive the family name does not fix, so the name alone does not support
+     * a readiness claim. Only those whose primitive genuinely varies: a construction that fixes its own primitive in
+     * its specification is decided by its family like any other, and {@code PqcFamiliesTest} names them.
      */
     private static final Set<String> CONSTRUCTIONS = Set
             .of("HMAC", "CMAC", "UMAC", "HKDF", "ANSI-KDF", "SP800-108", "SP800-56C", "SSH-KDF", "TLS-PRF", "IKE-PRF",
