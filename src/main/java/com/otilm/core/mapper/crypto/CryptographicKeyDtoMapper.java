@@ -192,6 +192,7 @@ public final class CryptographicKeyDtoMapper {
         dto.setReason(item.reason());
         dto.setKeyData(item.keyData() == null ? PROVIDER_MANAGED_KEY_DATA : item.keyData());
         dto.setComplianceStatus(item.complianceStatus());
+        dto.setExportable(item.exportable());
         return dto;
     }
 

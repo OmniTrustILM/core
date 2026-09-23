@@ -137,17 +137,19 @@ class CryptographicKeyWriterCreationTest {
     }
 
     /**
-     * Core owns the permission. A discovered key states nothing about it, and nothing a connector reports can grant it
-     * - {@link ProviderKeyItem} carries no such field for a sync to read.
+     * Core owns the permission. Discovery describes what a connector already holds, so the permission is withheld from
+     * a discovered key even when the request asks for it.
      */
     @Test
-    void createKeyWithItems_withholdsExportFromADiscoveredKey() throws AttributeException {
+    void createKeyWithItems_withholdsExportFromADiscoveredKeyEvenWhenAsked() throws AttributeException {
         // given
+        KeyRequestDto request = keyRequest();
+        request.setExportable(true);
         TokenProfileBasicModel absentProfile = null;
         boolean discovered = true;
 
         // when
-        writer.createKeyWithItems(keyRequest(), absentProfile, token, List.of(providerItem()), discovered, false);
+        writer.createKeyWithItems(request, absentProfile, token, List.of(providerItem()), discovered, false);
 
         // then
         assertThat(savedItem().isExportable()).isFalse();

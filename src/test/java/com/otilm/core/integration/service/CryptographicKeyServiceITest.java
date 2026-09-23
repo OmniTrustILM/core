@@ -2319,18 +2319,35 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
     @Test
     void disableKeyExport_withdrawsThePermissionAndReportsItBack() throws NotFoundException {
         // given
-        privateKeyItem.setExportable(true);
-        cryptographicKeyItemRepository.saveAndFlush(privateKeyItem);
+        CryptographicKeyItem exportable = createExportableKeyItem();
 
         // when
         KeyItemDetailDto afterwards = cryptographicKeyService
-                .disableKeyExport(key.getSecuredUuid(), privateKeyItem.getUuid().toString());
+                .disableKeyExport(key.getSecuredUuid(), exportable.getUuid().toString());
 
         // then
         Assertions.assertFalse(afterwards.isExportable(), "the answer must not be read from a pre-update copy");
         Assertions
-                .assertFalse(cryptographicKeyItemRepository
-                        .findByUuid(privateKeyItem.getUuid())
+                .assertFalse(
+                        cryptographicKeyItemRepository.findByUuid(exportable.getUuid()).orElseThrow().isExportable());
+    }
+
+    /** The parent key answers the permission too, so a caller reading the key sees what the key item reports. */
+    @Test
+    void getKey_reportsTheExportPermissionOnItsItems() throws NotFoundException {
+        // given
+        CryptographicKeyItem exportable = createExportableKeyItem();
+
+        // when
+        KeyDetailDto detail = cryptographicKeyService.getKey(key.getSecuredUuid());
+
+        // then
+        Assertions
+                .assertTrue(detail
+                        .getItems()
+                        .stream()
+                        .filter(item -> item.getUuid().equals(exportable.getUuid().toString()))
+                        .findFirst()
                         .orElseThrow()
                         .isExportable());
     }
@@ -2357,12 +2374,11 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
     @Test
     void disableKeyExport_isNotUndoneByAStaleCopySavedElsewhere() throws NotFoundException {
         // given
-        privateKeyItem.setExportable(true);
-        cryptographicKeyItemRepository.saveAndFlush(privateKeyItem);
+        CryptographicKeyItem exportable = createExportableKeyItem();
         CryptographicKeyItem loadedBeforeWithdrawal = cryptographicKeyItemRepository
-                .findByUuid(privateKeyItem.getUuid())
+                .findByUuid(exportable.getUuid())
                 .orElseThrow();
-        cryptographicKeyService.disableKeyExport(key.getSecuredUuid(), privateKeyItem.getUuid().toString());
+        cryptographicKeyService.disableKeyExport(key.getSecuredUuid(), exportable.getUuid().toString());
 
         // when the holder of that copy writes it back for an unrelated reason
         loadedBeforeWithdrawal.setComplianceStatus(ComplianceStatus.OK);
@@ -2370,10 +2386,9 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
 
         // then
         Assertions
-                .assertFalse(cryptographicKeyItemRepository
-                        .findByUuid(privateKeyItem.getUuid())
-                        .orElseThrow()
-                        .isExportable(), "a stale copy must not restore the export permission");
+                .assertFalse(
+                        cryptographicKeyItemRepository.findByUuid(exportable.getUuid()).orElseThrow().isExportable(),
+                        "a stale copy must not restore the export permission");
     }
 
     @Test
@@ -2402,6 +2417,21 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         CryptographicKeyItem item = createKeyItem(key, KeyType.PUBLIC_KEY, KeyState.ACTIVE, true);
         item.setKeyReferenceUuid(remoteReference);
         cryptographicKeyItemRepository.saveAndFlush(item);
+    }
+
+    /**
+     * Inserts a key item that already carries the export permission. The column is not updatable, so the permission
+     * cannot be added to a row that already exists — production sets it the same way, when the key is created.
+     */
+    private CryptographicKeyItem createExportableKeyItem() {
+        CryptographicKeyItem item = new CryptographicKeyItem();
+        item.setKey(key);
+        item.setKeyUuid(key.getUuid());
+        item.setType(KeyType.PRIVATE_KEY);
+        item.setState(KeyState.ACTIVE);
+        item.setEnabled(true);
+        item.setExportable(true);
+        return cryptographicKeyItemRepository.saveAndFlush(item);
     }
 
     private CryptographicKeyItem createKeyItem(CryptographicKey key, KeyType type, KeyState state, boolean enabled) {

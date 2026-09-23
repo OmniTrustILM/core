@@ -106,7 +106,8 @@ public class CryptographicKeyWriter {
             throws AttributeException {
         UUID tokenProfileUuid = tokenProfile == null ? null : tokenProfile.uuid();
         CryptographicKeyBasicModel savedKey = save(request, tokenProfileUuid, tokenInstance.uuid());
-        boolean exportable = Boolean.TRUE.equals(request.getExportable());
+        // Core owns the permission: nothing reported by a connector may grant it, whatever the request states.
+        boolean exportable = !isDiscovered && Boolean.TRUE.equals(request.getExportable());
         for (ProviderKeyItem item : items) {
             createKeyContent(tokenProfile, tokenInstance, item, savedKey, isDiscovered, enabled, exportable);
         }
