@@ -224,8 +224,6 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
         try {
             platformAlgorithm = SignatureAlgorithm.findByCode(name);
         } catch (ValidationException e) {
-            // The registry admits digests the platform has no signature-algorithm entry for; such a name can still be
-            // written into a certificate request, so it is not refused here but where an entry is actually required.
             platformAlgorithm = null;
         }
         return new ResolvedSignatureAlgorithm(name, CryptographyUtil.getAlgorithmIdentifierInstance(name),
