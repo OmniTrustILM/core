@@ -49,9 +49,11 @@ public final class PqcRules {
 
     public static final String NIST_QUANTUM_SECURITY_LEVEL = "nistQuantumSecurityLevel";
 
+    public static final String OID = "oid";
+
     public static final Set<String> EVIDENCE_FIELDS = Set
             .of(ASSET_TYPE, ALGORITHM_FAMILY, PARAMETER_SET, CURVE, "mode", "padding", VARIANT, NAME, HYBRID_COMPONENTS,
-                    MATERIAL_TYPE, MATERIAL_SIZE, NIST_QUANTUM_SECURITY_LEVEL);
+                    MATERIAL_TYPE, MATERIAL_SIZE, NIST_QUANTUM_SECURITY_LEVEL, OID);
 
     /** Symmetric key or shared secret: quantum-resistant if long enough. */
     public static final Set<String> SYMMETRIC_MATERIAL = Set.of("secret-key", "symmetric-key", "shared-secret");
@@ -78,7 +80,7 @@ public final class PqcRules {
     /** The size arms' own fields, and every field the name decision they consult can read. */
     private static final List<String> SYMMETRIC_MATERIAL_FIELDS = List
             .of(ASSET_TYPE, MATERIAL_TYPE, MATERIAL_SIZE, ALGORITHM_FAMILY, NAME, VARIANT, HYBRID_COMPONENTS, CURVE,
-                    PARAMETER_SET);
+                    PARAMETER_SET, OID);
 
     private PqcRules() {
     }
@@ -88,8 +90,11 @@ public final class PqcRules {
      * of the same name cannot be served opposite verdicts.
      *
      * @param nameCarriesNoFinding whether the asset's own name is free of a weak-crypto finding
+     * @param nameLeavesStrengthToSize whether the name clears or resolves no family at all, so that a size may vouch
+     * for the key; an ambiguous or uninstantiated name is a question no key length answers
      */
-    static List<PqcRule> rulesFor(AssetNormalizer normalizer, Predicate<PqcRuleInput> nameCarriesNoFinding) {
+    static List<PqcRule> rulesFor(AssetNormalizer normalizer, Predicate<PqcRuleInput> nameCarriesNoFinding,
+            Predicate<PqcRuleInput> nameLeavesStrengthToSize) {
         return List
                 .of(
                         // ---- Asset types that carry no algorithm of their own -------------------------------------
@@ -156,7 +161,7 @@ public final class PqcRules {
                         // the name's own decision keeps the row under the rule id an operator already queries for
                         // that primitive.
                         new PqcRule("MATERIAL-SYMMETRIC-READY",
-                                input -> isMaterial(SYMMETRIC_MATERIAL, input) && nameCarriesNoFinding.test(input)
+                                input -> isMaterial(SYMMETRIC_MATERIAL, input) && nameLeavesStrengthToSize.test(input)
                                         && input.materialSize() != null
                                         && input.materialSize() >= MIN_SYMMETRIC_KEY_BITS,
                                 PqcVerdict.READY,
@@ -172,7 +177,7 @@ public final class PqcRules {
                                         + "with no adequate strength",
                                 SYMMETRIC_MATERIAL_FIELDS),
                         new PqcRule("MATERIAL-SYMMETRIC-UNSIZED",
-                                input -> isMaterial(SYMMETRIC_MATERIAL, input) && nameCarriesNoFinding.test(input)
+                                input -> isMaterial(SYMMETRIC_MATERIAL, input) && nameLeavesStrengthToSize.test(input)
                                         && input.materialSize() == null,
                                 PqcVerdict.UNKNOWN,
                                 "A symmetric key whose declared size is absent or implausible, so its strength cannot "

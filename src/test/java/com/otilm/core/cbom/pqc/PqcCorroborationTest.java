@@ -94,7 +94,7 @@ class PqcCorroborationTest {
                 .describedAs("keeping it out of the predicate's input is what makes 'corroborates, never decides' a "
                         + "property of the design rather than a convention")
                 .containsExactly("assetType", "algorithmFamily", "parameterSet", "curve", "mode", "padding", "variant",
-                        "name", "hybridComponents", "materialType", "materialSize");
+                        "name", "hybridComponents", "materialType", "materialSize", "oid");
     }
 
     private PqcDecision decide(String name, String level) {

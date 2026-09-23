@@ -100,12 +100,13 @@ public final class IdentityTables {
      * The strand's {@code primitive} column is deliberately not read: the arc never supplies the primitive, because a
      * correct arc contributing {@code block-cipher} where an OID-less producer had nothing made adding an OID change
      * the key. The column stays in the artifact as the arc's documentation and decides nothing here.
+     * {@code impliedDigest} is outside the key for the same reason: only the PQC rules read it.
      */
-    public record OidEntry(String family, Integer parameterSet, String mode, String curve, String matchedArc,
-            List<String> residualArcs) {
+    public record OidEntry(String family, Integer parameterSet, String mode, String curve, String impliedDigest,
+            String matchedArc, List<String> residualArcs) {
 
         OidEntry matchedAt(String arc, List<String> residual) {
-            return new OidEntry(family, parameterSet, mode, curve, arc, residual);
+            return new OidEntry(family, parameterSet, mode, curve, impliedDigest, arc, residual);
         }
     }
 
@@ -486,7 +487,8 @@ public final class IdentityTables {
             entries
                     .put(entry.getKey(),
                             new OidEntry(value.optionalText("family"), value.optionalInteger("parameterSet"),
-                                    value.optionalText("mode"), value.optionalText("curve"), null, List.of()));
+                                    value.optionalText("mode"), value.optionalText("curve"),
+                                    value.optionalText("impliedDigest"), null, List.of()));
         }
         return Map.copyOf(entries);
     }

@@ -6,6 +6,7 @@ import com.otilm.api.model.core.cryptoasset.PqcVerdict;
 import com.otilm.core.cbom.asset.CryptoAssetIdentityFields;
 import com.otilm.core.cbom.asset.identity.AsciiText;
 import com.otilm.core.cbom.asset.identity.AssetNormalizer;
+import com.otilm.core.cbom.asset.identity.IdentityTables;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -33,6 +34,9 @@ public class PqcEvaluator {
     /** The {@code -768} a hybrid component may carry, which the family tables do not spell. */
     private static final Pattern FAMILY_SIZE_SUFFIX = Pattern.compile("-\\d+$");
 
+    /** The {@code /256} of the ratified {@code SHA-2/256} spelling, where the family is the part before the slash. */
+    private static final Pattern DIGEST_SIZE_SUFFIX = Pattern.compile("/.*$");
+
     /**
      * {@code variant} is {@code residue|sizes+token,token}, so three separators -- and {@code +} is also the last
      * character of the {@code sphincs+} token, which is why a {@code +} splits only when a token follows it.
@@ -44,6 +48,9 @@ public class PqcEvaluator {
      * {@code otsnw}.
      */
     private static final String ONE_TIME_SIGNATURE = "ots";
+
+    /** Appended to the disposition's rule id when a component, not the family, decides. */
+    private static final String COMPONENT_RULE_SUFFIX = "-COMPONENT";
 
     private static final Set<String> STATEFUL_HASH_SIGNATURES = Set.of("LMS", "XMSS");
 
@@ -70,7 +77,7 @@ public class PqcEvaluator {
 
     public PqcEvaluator(AssetNormalizer normalizer) {
         this.normalizer = normalizer;
-        this.rules = PqcRules.rulesFor(normalizer, this::nameCarriesNoFinding);
+        this.rules = PqcRules.rulesFor(normalizer, this::nameCarriesNoFinding, this::nameLeavesStrengthToSize);
     }
 
     /**
@@ -114,6 +121,11 @@ public class PqcEvaluator {
      */
     private boolean nameCarriesNoFinding(PqcRuleInput input) {
         return nameDecision(input.withoutMaterialSize(), null).verdict() != PqcVerdict.NOT_READY;
+    }
+
+    private boolean nameLeavesStrengthToSize(PqcRuleInput input) {
+        PqcDecision byName = nameDecision(input.withoutMaterialSize(), null);
+        return byName.verdict() == PqcVerdict.READY || PqcRules.FAMILY_UNRESOLVED.equals(byName.ruleId());
     }
 
     /**
@@ -171,7 +183,7 @@ public class PqcEvaluator {
         FamilyClass weakest = weak.containsValue(FamilyClass.CLASSICAL_LEGACY)
                 ? FamilyClass.CLASSICAL_LEGACY
                 : FamilyClass.SHOR_BREAKABLE;
-        return decision(weakest.verdict(), weakest.ruleId() + "-COMPONENT", componentReason(weakest),
+        return decision(weakest.verdict(), weakest.ruleId() + COMPONENT_RULE_SUFFIX, componentReason(weakest),
                 List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.VARIANT, PqcRules.NAME), input, nistQuantumSecurityLevel);
     }
 
@@ -221,7 +233,7 @@ public class PqcEvaluator {
         PqcRuleInput hybrid = input.withHybridComponents(components);
         if (namesAClassicallyBrokenComponent(input)) {
             FamilyClass legacy = FamilyClass.CLASSICAL_LEGACY;
-            return decision(legacy.verdict(), legacy.ruleId() + "-COMPONENT", componentReason(legacy),
+            return decision(legacy.verdict(), legacy.ruleId() + COMPONENT_RULE_SUFFIX, componentReason(legacy),
                     List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.HYBRID_COMPONENTS, PqcRules.VARIANT, PqcRules.NAME),
                     hybrid, nistQuantumSecurityLevel);
         }
@@ -309,51 +321,86 @@ public class PqcEvaluator {
         boolean construction = PqcFamilies.isConstruction(ratifiedFamily(input.algorithmFamily()));
         if (construction) {
             FamilyClass primitive = namedPrimitive(input);
+            if (primitive == FamilyClass.CLASSICAL_LEGACY) {
+                return decision(primitive.verdict(), primitive.ruleId() + COMPONENT_RULE_SUFFIX,
+                        componentReason(primitive), List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.VARIANT, PqcRules.OID),
+                        input, nistQuantumSecurityLevel);
+            }
             if (primitive == FamilyClass.FAMILY_AMBIGUOUS) {
-                return decision(PqcVerdict.UNKNOWN, FamilyClass.FAMILY_AMBIGUOUS.ruleId() + "-COMPONENT",
+                return decision(PqcVerdict.UNKNOWN, FamilyClass.FAMILY_AMBIGUOUS.ruleId() + COMPONENT_RULE_SUFFIX,
                         "A construction built on a primitive whose family covers both a classically broken and an "
                                 + "unbroken member, and the recorded properties do not say which",
-                        List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.VARIANT), input, nistQuantumSecurityLevel);
+                        List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.VARIANT, PqcRules.OID), input,
+                        nistQuantumSecurityLevel);
             }
             if (primitive == null) {
                 return decision(PqcVerdict.UNKNOWN, "CONSTRUCTION-UNINSTANTIATED",
                         "A construction whose strength is that of the primitive it is built on, which this record "
                                 + "does not name",
-                        List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.VARIANT, PqcRules.PARAMETER_SET), input,
-                        nistQuantumSecurityLevel);
+                        List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.VARIANT, PqcRules.PARAMETER_SET, PqcRules.OID),
+                        input, nistQuantumSecurityLevel);
             }
         }
         Integer bits = recordedSizeBits(input, construction);
-        return bits == null || bits >= PqcRules.MIN_SYMMETRIC_KEY_BITS
-                ? null
-                : decision(PqcVerdict.NOT_READY, "SYMMETRIC-UNDERSIZED",
-                        "A symmetric or hash-based primitive whose recorded size is below 128 bits, so Grover's "
-                                + "algorithm leaves it with no adequate strength",
-                        List
-                                .of(PqcRules.ALGORITHM_FAMILY, PqcRules.PARAMETER_SET, PqcRules.MATERIAL_SIZE,
-                                        PqcRules.VARIANT),
-                        input, nistQuantumSecurityLevel);
+        FamilyClass ready = FamilyClass.QUANTUM_RESISTANT_SYMMETRIC;
+        if (bits == null) {
+            return construction
+                    ? decision(ready.verdict(), ready.ruleId(), ready.reason(),
+                            List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.VARIANT, PqcRules.OID), input,
+                            nistQuantumSecurityLevel)
+                    : null;
+        }
+        List<String> sized = List
+                .of(PqcRules.ALGORITHM_FAMILY, PqcRules.PARAMETER_SET, PqcRules.MATERIAL_SIZE, PqcRules.VARIANT,
+                        PqcRules.OID);
+        if (bits >= PqcRules.MIN_SYMMETRIC_KEY_BITS) {
+            return decision(ready.verdict(), ready.ruleId(), ready.reason(), sized, input, nistQuantumSecurityLevel);
+        }
+        return decision(PqcVerdict.NOT_READY, "SYMMETRIC-UNDERSIZED",
+                "A symmetric or hash-based primitive whose recorded size is below 128 bits, so Grover's algorithm "
+                        + "leaves it with no adequate strength",
+                sized, input, nistQuantumSecurityLevel);
     }
 
     /**
      * The disposition of the primitive a construction's secondary tokens name, or {@code null} when they name none.
      * Another construction does not count, since the pair says no more than either half, and a bare parameter set does
-     * not either. An ambiguous primitive outranks an unbroken one: a construction cannot be vouched for over a part
-     * that may be the broken member.
+     * not either. A broken primitive outranks an ambiguous one, and an ambiguous one an unbroken one: a construction
+     * cannot be vouched for over a part that may be the broken member. A broken name token never gets here, because the
+     * component rule claims it first; a broken digest fixed by the OID does.
      */
     private FamilyClass namedPrimitive(PqcRuleInput input) {
         FamilyClass named = null;
-        for (String token : secondaryTokens(input)) {
+        for (String token : primitiveTokens(input)) {
             String family = ratifiedFamilyOfToken(token);
             FamilyClass disposition = PqcFamilies.of(family);
-            if (disposition == FamilyClass.FAMILY_AMBIGUOUS) {
+            if (disposition == FamilyClass.CLASSICAL_LEGACY) {
                 return disposition;
             }
-            if (disposition == FamilyClass.QUANTUM_RESISTANT_SYMMETRIC && !PqcFamilies.isConstruction(family)) {
+            if (disposition == FamilyClass.FAMILY_AMBIGUOUS) {
+                named = disposition;
+            }
+            if (disposition == FamilyClass.QUANTUM_RESISTANT_SYMMETRIC && !PqcFamilies.isConstruction(family)
+                    && named == null) {
                 named = disposition;
             }
         }
         return named;
+    }
+
+    /**
+     * The name's secondary tokens and the digest the OID fixes, since {@code hmacWithSHA1} instantiates HMAC exactly as
+     * the name {@code HMAC-SHA1} does. Only an exact arc counts: under a prefix match the residual arcs may say
+     * something else.
+     */
+    private List<String> primitiveTokens(PqcRuleInput input) {
+        IdentityTables.OidEntry arc = normalizer.oidLookup(input.oid());
+        if (arc == null || arc.impliedDigest() == null || !arc.residualArcs().isEmpty()) {
+            return secondaryTokens(input);
+        }
+        List<String> tokens = new ArrayList<>(secondaryTokens(input));
+        tokens.add(DIGEST_SIZE_SUFFIX.matcher(arc.impliedDigest()).replaceFirst(""));
+        return tokens;
     }
 
     /**
@@ -440,7 +487,7 @@ public class PqcEvaluator {
         List<String> hybrid = normalizer.hybridComponents(family, secondary);
         return new PqcRuleInput(fields.assetType(), family, parameterSet(fields.parameterSet()), fields.curve(),
                 fields.mode(), fields.padding(), variantOf(fields, secondary), fields.name(), hybrid,
-                materialType(mergedCryptoProperties), materialSize(mergedCryptoProperties));
+                materialType(mergedCryptoProperties), materialSize(mergedCryptoProperties), fields.oid());
     }
 
     /**
@@ -575,6 +622,7 @@ public class PqcEvaluator {
             case PqcRules.MATERIAL_TYPE -> input.materialType();
             case PqcRules.MATERIAL_SIZE -> input.materialSize();
             case PqcRules.NIST_QUANTUM_SECURITY_LEVEL -> nistQuantumSecurityLevel;
+            case PqcRules.OID -> input.oid();
             default -> throw new IllegalStateException("Unhandled evaluated field: " + field);
         };
     }

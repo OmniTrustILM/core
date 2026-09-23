@@ -2,6 +2,7 @@ package com.otilm.core.cbom.pqc;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetType;
 import com.otilm.api.model.core.cryptoasset.PqcVerdict;
 import com.otilm.core.cbom.asset.CryptoAssetIdentityFields;
@@ -124,6 +125,75 @@ class PqcEvaluatorTest {
                     .describedAs("algorithm %s fixes its primitive in its own specification", fixesItsOwn)
                     .isEqualTo("SYMMETRIC-READY");
         }
+    }
+
+    /**
+     * An OID can instantiate a construction the name leaves bare: {@code hmacWithSHA1} fixes SHA-1 exactly as
+     * {@code HMAC-SHA1} does, so the two spellings of one asset must not answer differently.
+     */
+    @Test
+    void anOidThatFixesTheDigestInstantiatesTheConstruction() {
+        PqcDecision legacy = verdictOf(withOid(algorithm("HMAC"), "1.2.840.113549.2.7"));
+        assertThat(legacy.ruleId()).isEqualTo(verdictOf(algorithm("HMAC-SHA1")).ruleId());
+        assertThat(legacy.evaluatedFields()).containsEntry(PqcRules.OID, "1.2.840.113549.2.7");
+        PqcDecision sound = verdictOf(withOid(algorithm("HMAC"), "1.2.840.113549.2.9"));
+        assertThat(sound.ruleId()).isEqualTo("SYMMETRIC-READY");
+        assertThat(sound.evaluatedFields()).containsEntry(PqcRules.OID, "1.2.840.113549.2.9");
+        assertThat(verdictOf(withOid(algorithm("HMAC"), "2.16.840.1.101.3.4.2.14")).ruleId())
+                .describedAs("a SHA-3 digest spelt SHA-3/256 in the table")
+                .isEqualTo("SYMMETRIC-READY");
+        assertThat(verdictOf(withOid(algorithm("HKDF"), "1.2.840.113549.1.9.16.3.28")).ruleId())
+                .describedAs("the table records no implied digest for this arc, so the OID fixes nothing")
+                .isEqualTo("CONSTRUCTION-UNINSTANTIATED");
+        assertThat(verdictOf(withOid(algorithm("HMAC"), "1.2.840.113549.2.7.1")).ruleId())
+                .describedAs("a prefix match says only that the arc is under hmacWithSHA1, not that it is it")
+                .isEqualTo("CONSTRUCTION-UNINSTANTIATED");
+    }
+
+    /**
+     * A key length cannot say which RIPEMD a key is for, nor which digest an HMAC key was built on, so a large enough
+     * {@code secret-key} must not clear a name that could not clear as an algorithm. Too short a key is weak whichever
+     * member it is, so that finding still reaches the row.
+     */
+    @Test
+    void aKeysSizeCannotResolveWhatItsNameLeavesOpen() {
+        for (String open : new String[]{
+                "HMAC-RIPEMD",
+                "HMAC-RIPEMD160",
+                "PBKDF2-HMAC-RIPEMD160",
+                "HMAC-GOST",
+                "HMAC",
+                "RIPEMD",
+                "GOST"}) {
+            String asAlgorithm = verdictOf(algorithm(open)).ruleId();
+            for (Integer size : new Integer[]{256, null}) {
+                PqcDecision key = verdictOf(material(open, "secret-key", size));
+                assertThat(key.verdict())
+                        .describedAs("a %s-bit %s secret key", size, open)
+                        .isEqualTo(PqcVerdict.UNKNOWN);
+                assertThat(key.ruleId()).describedAs("a %s-bit %s secret key", size, open).isEqualTo(asAlgorithm);
+            }
+            assertThat(verdictOf(material(open, "secret-key", 64)).ruleId())
+                    .describedAs("a 64-bit %s secret key", open)
+                    .isEqualTo("MATERIAL-SYMMETRIC-WEAK");
+        }
+        assertThat(verdictOf(material("unnamed", "secret-key", 256)).ruleId())
+                .describedAs("a name that resolves no family leaves the size to decide")
+                .isEqualTo("MATERIAL-SYMMETRIC-READY");
+    }
+
+    /** The size that cleared the floor decided the verdict, so it is part of the evidence for it. */
+    @Test
+    void anAdequateSizeIsEvidenceForTheReadyVerdict() {
+        PqcDecision algorithm = verdictOf(algorithm("AES-128"));
+        assertThat(algorithm.ruleId()).isEqualTo("SYMMETRIC-READY");
+        assertThat(algorithm.evaluatedFields()).containsEntry(PqcRules.PARAMETER_SET, 128);
+        PqcDecision key = verdictOf(material("AES", "secret-key", 256));
+        assertThat(key.verdict()).isEqualTo(PqcVerdict.READY);
+        assertThat(key.evaluatedFields()).containsEntry(PqcRules.MATERIAL_SIZE, 256);
+        PqcDecision constructionKey = verdictOf(material("HMAC-SHA256", "key", 256));
+        assertThat(constructionKey.ruleId()).isEqualTo("SYMMETRIC-READY");
+        assertThat(constructionKey.evaluatedFields()).containsEntry(PqcRules.MATERIAL_SIZE, 256);
     }
 
     /**
@@ -858,6 +928,11 @@ class PqcEvaluatorTest {
 
     static JsonNode algorithm(String name) {
         return component("algorithm", name, "{\"algorithmProperties\":{}}");
+    }
+
+    private static JsonNode withOid(JsonNode component, String oid) {
+        ((ObjectNode) component.get("cryptoProperties")).put("oid", oid);
+        return component;
     }
 
     static JsonNode material(String name, String type, Integer size) {
