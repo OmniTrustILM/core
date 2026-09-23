@@ -315,19 +315,19 @@ class KeyProviderV2AdapterTest {
         SignatureAlgorithmResponseV2Dto body = new SignatureAlgorithmResponseV2Dto();
         body.setSignatureAlgorithm(SignatureAlgorithm.SHA384_WITH_RSA);
         when(operationsClient.resolveSignatureAlgorithm(any(), any())).thenReturn(body);
-        List<RequestAttribute> attributes = List.of(stringAttribute("signatureScheme", "PKCS1-v1_5"));
+        List<RequestAttribute> signatureAttributes = List.of(stringAttribute("signatureScheme", "PKCS1-v1_5"));
 
         // when
-        ResolvedSignatureAlgorithm resolved = adapter.resolveSignatureAlgorithm(v2Context(keyMeta), null, attributes);
+        ResolvedSignatureAlgorithm resolved = adapter
+                .resolveSignatureAlgorithm(v2Context(keyMeta), null, signatureAttributes);
 
         // then
         assertEquals(SignatureAlgorithm.SHA384_WITH_RSA, resolved.platformAlgorithm());
-        assertEquals(SignatureAlgorithm.SHA384_WITH_RSA.getAlgorithmIdentifier(), resolved.identifier());
         ArgumentCaptor<SignatureAlgorithmRequestV2Dto> sent = ArgumentCaptor
                 .forClass(SignatureAlgorithmRequestV2Dto.class);
         verify(operationsClient).resolveSignatureAlgorithm(any(), sent.capture());
         assertSame(keyMeta, sent.getValue().getKeyMeta());
-        assertSame(attributes, sent.getValue().getSignatureAttributes());
+        assertSame(signatureAttributes, sent.getValue().getSignatureAttributes());
     }
 
     @Test

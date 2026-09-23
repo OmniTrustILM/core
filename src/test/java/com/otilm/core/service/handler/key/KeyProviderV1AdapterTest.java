@@ -68,7 +68,6 @@ import org.mockito.ArgumentCaptor;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -619,12 +618,11 @@ class KeyProviderV1AdapterTest {
 
         // then
         assertEquals(SignatureAlgorithm.SHA384_WITH_RSA, resolved.platformAlgorithm());
-        assertEquals(SignatureAlgorithm.SHA384_WITH_RSA.getAlgorithmIdentifier(), resolved.identifier());
         verifyNoInteractions(operationsClient);
     }
 
     @Test
-    void resolveSignatureAlgorithm_namesAnIdentifierEvenWithoutAPlatformEntry() {
+    void resolveSignatureAlgorithm_namesTheAlgorithmEvenWithoutAPlatformEntry() {
         // given
         OperationKeyContext rsa = OperationKeyContext
                 .legacy(keyItem(KeyAlgorithm.RSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
@@ -639,7 +637,26 @@ class KeyProviderV1AdapterTest {
 
         // then
         assertEquals("SHA1WITHRSA", resolved.name());
-        assertNotNull(resolved.identifier());
+        assertNull(resolved.platformAlgorithm());
+        assertThrows(ValidationException.class, resolved::requirePlatformAlgorithm);
+    }
+
+    @Test
+    void resolveSignatureAlgorithm_refusesADigestAndSchemeNoPlatformEntryCovers() {
+        // given
+        OperationKeyContext rsa = OperationKeyContext
+                .legacy(keyItem(KeyAlgorithm.RSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
+                        UUID.randomUUID()));
+        List<RequestAttribute> attributes = List
+                .of(RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PSS),
+                        RsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.MD5));
+
+        // when
+        ResolvedSignatureAlgorithm resolved = adapter
+                .resolveSignatureAlgorithm(rsa, keyItem(KeyAlgorithm.RSA, null, UUID.randomUUID()), attributes);
+
+        // then
+        assertEquals("MD5WITHRSAANDMGF1", resolved.name());
         assertNull(resolved.platformAlgorithm());
         assertThrows(ValidationException.class, resolved::requirePlatformAlgorithm);
     }

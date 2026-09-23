@@ -226,8 +226,7 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
         } catch (ValidationException e) {
             platformAlgorithm = null;
         }
-        return new ResolvedSignatureAlgorithm(name, CryptographyUtil.getAlgorithmIdentifierInstance(name),
-                platformAlgorithm);
+        return new ResolvedSignatureAlgorithm(name, platformAlgorithm);
     }
 
     @Override

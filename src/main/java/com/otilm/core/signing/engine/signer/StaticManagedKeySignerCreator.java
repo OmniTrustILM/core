@@ -85,12 +85,12 @@ public class StaticManagedKeySignerCreator implements SignerCreator {
                     e, "Signing key algorithm is not supported.");
         } catch (NotFoundException e) {
             throw new SigningEngineException(SigningEngineFailure.MISCONFIGURED,
-                    "no operation scope is recorded for signing key '%s': %s"
+                    "signing configuration for key '%s' refers to a record that does not exist: %s"
                             .formatted(privateKeyItem.keyUuid(), e.getMessage()),
                     e, "Internal error: signing configuration is invalid");
         } catch (ConnectorException e) {
             throw new SigningEngineException(SigningEngineFailure.CONNECTOR_FAULT,
-                    "cryptography provider named no signature algorithm for signing key '%s': %s"
+                    "cryptography provider failed to resolve the signature algorithm for signing key '%s': %s"
                             .formatted(privateKeyItem.keyUuid(), e.getMessage()),
                     e, "Internal error");
         }
