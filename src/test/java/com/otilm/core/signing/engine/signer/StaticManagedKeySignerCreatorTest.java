@@ -90,10 +90,6 @@ class StaticManagedKeySignerCreatorTest {
                             .isEqualTo(SigningEngineFailure.MISCONFIGURED));
         }
 
-        /**
-         * Reading the signing attributes is the provider's job now, so a selection it cannot turn into an algorithm the
-         * platform supports arrives here as a failure to relay, carrying the detail the operator has to act on.
-         */
         @Test
         void throwsMisconfigured_carryingTheProvidersReason_whenNoAlgorithmIsNamed() throws Exception {
             // given
@@ -119,7 +115,6 @@ class StaticManagedKeySignerCreatorTest {
                     });
         }
 
-        /** A provider that was reached but did not deliver is a connector fault, not an operator-fixable setting. */
         @Test
         void throwsConnectorFault_whenTheProviderCannotBeReached() throws Exception {
             // given
@@ -142,7 +137,6 @@ class StaticManagedKeySignerCreatorTest {
                     });
         }
 
-        /** A defect that is neither a bad selection nor a connector failure must reach the engine unwrapped. */
         @Test
         void letsAnUnexpectedDefectEscape_ratherThanCallingItMisconfigured() throws Exception {
             // given
