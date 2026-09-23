@@ -19,6 +19,10 @@ import com.otilm.core.service.writer.discovery.DiscoveryItemWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import jakarta.validation.Validation;
+import java.security.KeyPairGenerator;
+import java.security.NoSuchAlgorithmException;
+import java.security.PublicKey;
+import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -46,6 +50,8 @@ import static org.mockito.Mockito.when;
  */
 @ExtendWith(MockitoExtension.class)
 class DiscoveryEventIngestorTest {
+
+    private static final String SPKI = Base64.getEncoder().encodeToString(rsaPublicKey().getEncoded());
 
     @Mock
     private DiscoveryRepository discoveryRepository;
@@ -96,9 +102,11 @@ class DiscoveryEventIngestorTest {
     @Test
     void keyAlreadyInInventory_isStagedAsNotNewlyDiscovered() {
         Discovery run = run();
-        when(keyItemRepository.findKnownFingerprints(Set.of("fp-known"))).thenReturn(List.of("fp-known"));
+        DiscoveredItemDto known = keyItem(1, "key-a", SPKI);
+        String identity = DiscoveredKeyIdentity.of((DiscoveredKeyDto) known.getPayload());
+        when(keyItemRepository.findKnownFingerprints(Set.of(identity))).thenReturn(List.of(identity));
 
-        ingestor.applyDrainPage(run.getUuid(), page(keyItem(1, "key-a", "fp-known")));
+        ingestor.applyDrainPage(run.getUuid(), page(known));
 
         verify(itemWriter).stage(eq(run.getUuid()), any(DiscoveredItemDto.class), eq(false));
     }
@@ -106,15 +114,15 @@ class DiscoveryEventIngestorTest {
     @Test
     void keyMissingFromInventory_isStagedAsNewlyDiscovered() {
         Discovery run = run();
-        when(keyItemRepository.findKnownFingerprints(Set.of("fp-new"))).thenReturn(List.of());
+        when(keyItemRepository.findKnownFingerprints(any())).thenReturn(List.of());
 
-        ingestor.applyDrainPage(run.getUuid(), page(keyItem(1, "key-a", "fp-new")));
+        ingestor.applyDrainPage(run.getUuid(), page(keyItem(1, "key-a", SPKI)));
 
         verify(itemWriter).stage(eq(run.getUuid()), any(DiscoveredItemDto.class), eq(true));
     }
 
     @Test
-    void keyWithoutAFingerprint_isStagedAsNewlyDiscoveredWithoutAnInventoryLookup() {
+    void keyWithoutAPublicPart_isStagedAsNewlyDiscoveredWithoutAnInventoryLookup() {
         Discovery run = run();
 
         ingestor.applyDrainPage(run.getUuid(), page(keyItem(1, "key-a", null)));
@@ -164,15 +172,32 @@ class DiscoveryEventIngestorTest {
         return page;
     }
 
-    private DiscoveredItemDto keyItem(long sequence, String uniqueRef, String fingerprint) {
+    /**
+     * A key with public material, or with none when {@code publicKey} is null: only material gives Core an identity.
+     */
+    private DiscoveredItemDto keyItem(long sequence, String uniqueRef, String publicKey) {
         DiscoveredKeyDto payload = new DiscoveredKeyDto();
         payload.setType(KeyType.PUBLIC_KEY);
         payload.setAlgorithm(KeyAlgorithm.RSA);
-        payload.setFingerprint(fingerprint);
+        payload.setFingerprint("whatever-the-connector-computed");
+        if (publicKey != null) {
+            payload.setPublicKeyFormat(KeyFormat.SPKI);
+            payload.setPublicKey(publicKey);
+        }
         DiscoveredItemDto item = new DiscoveredItemDto();
         item.setSequence(sequence);
         item.setUniqueRef(uniqueRef);
         item.setPayload(payload);
         return item;
+    }
+
+    private static PublicKey rsaPublicKey() {
+        try {
+            KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+            generator.initialize(2048);
+            return generator.generateKeyPair().getPublic();
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 }

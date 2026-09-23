@@ -185,6 +185,19 @@ public interface DiscoveryItemRepository extends JpaRepository<DiscoveryItem, UU
     void markFailed(@Param("uuid") UUID uuid, @Param("reason") String reason,
             @Param("processedAt") OffsetDateTime processedAt);
 
+    /** Stamps every item of one resource that the run ended without reaching. */
+    @Modifying
+    @Query(value = """
+            UPDATE {h-schema}discovery_item
+               SET processed_error = :reason, processed_at = :processedAt
+             WHERE discovery_uuid = :discoveryUuid
+               AND resource = :resource
+               AND processed_at IS NULL
+               AND processed_error IS NULL
+            """, nativeQuery = true)
+    int markPendingNotImported(@Param("discoveryUuid") UUID discoveryUuid, @Param("resource") String resource,
+            @Param("reason") String reason, @Param("processedAt") OffsetDateTime processedAt);
+
     /**
      * Key items the import pipeline still owes a verdict. A row carries one either way once it has been through:
      * {@code processed_at} when it became a key, {@code processed_error} when it could not.

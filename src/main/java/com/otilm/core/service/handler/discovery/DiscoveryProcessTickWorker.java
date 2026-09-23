@@ -277,7 +277,7 @@ public class DiscoveryProcessTickWorker {
             reportUnfinishedKeyPage(run, e instanceof AccessDeniedException);
             return;
         }
-        if (outcome.aborted()) {
+        if (outcome.deferred() > 0) {
             reportUnfinishedKeyPage(run, false);
         }
         if (outcome.failed() == 0) {
@@ -286,13 +286,10 @@ public class DiscoveryProcessTickWorker {
         // Filed once for the page rather than once per key: the run's message log aggregates by code and text, and
         // what an operator acts on is that keys were lost, with the per-key reason on the item itself. Filed even
         // when the page ended early -- those refusals are final, and no later tick will see those rows again.
-        recordQuietly(run.getUuid(), "keys that could not be imported",
-                () -> messageWriter
-                        .append(run.getUuid(),
-                                new DiscoveryMessageDraft(DiscoveryMessageSeverity.WARNING,
-                                        DiscoveryMessageCode.KEY_IMPORT_FAILED,
-                                        "A discovered key could not be imported. The item listing says which, and why.",
-                                        outcome.failed())));
+        recordQuietly(run.getUuid(), "keys that could not be imported", () -> messageWriter
+                .append(run.getUuid(), new DiscoveryMessageDraft(DiscoveryMessageSeverity.WARNING,
+                        DiscoveryMessageCode.KEY_IMPORT_FAILED,
+                        "A discovered key was not imported. The item listing says which, and why.", outcome.failed())));
     }
 
     /**
@@ -306,8 +303,8 @@ public class DiscoveryProcessTickWorker {
                         refused
                                 ? "Discovered keys could not be imported: the user who started this run is "
                                         + "not allowed to create keys."
-                                : "A batch of discovered keys did not complete and went back for another "
-                                        + "attempt."));
+                                : "Some discovered keys could not be imported on this attempt and will be tried "
+                                        + "again."));
     }
 
     /**
@@ -356,6 +353,8 @@ public class DiscoveryProcessTickWorker {
     private void stall(UUID discoveryUuid, int attempt, long remaining) {
         int next = attempt + 1;
         if (next >= workProperties.scheduleFor(DiscoveryWorkType.PROCESS).maxAttempts()) {
+            recordQuietly(discoveryUuid, "the keys this run never reached",
+                    () -> keyImportHandler.markUnreached(discoveryUuid));
             terminator
                     .end(discoveryUuid, DiscoveryStatus.WARNING,
                             ("Processing stopped with %d discovered item(s) that could not be imported. See this "

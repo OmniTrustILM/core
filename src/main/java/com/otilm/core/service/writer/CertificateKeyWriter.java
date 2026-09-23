@@ -30,8 +30,9 @@ public class CertificateKeyWriter {
     }
 
     /**
-     * Imports a certificate's public key, adopting the existing parent when its fingerprint is already stored. Parent
-     * creation, item insertion, and unused-parent cleanup commit or roll back together with the caller.
+     * Imports a public key Core holds without a token — a certificate's, or one a discovery found on its own — adopting
+     * the existing parent when its fingerprint is already stored. Parent creation, item insertion, and unused-parent
+     * cleanup commit or roll back together with the caller.
      *
      * @param name name for a newly created parent and public-key item
      * @param publicKey non-null public key to import
@@ -46,8 +47,7 @@ public class CertificateKeyWriter {
         parent.setName(name);
         keyRepository.save(parent);
         CryptographicKeyItem item = publicKeyItem(parent, publicKey, keyLength, fingerprint);
-        // No metadata: a certificate's public key is known by the certificate that carries it, not by where
-        // something found it.
+        // No key_meta: it is a token's reference to the key, and a key held without a token has none.
         if (itemRepository.insertWithFingerprintConflictResolve(item, null) == 1) {
             return parent.getUuid();
         }

@@ -14,6 +14,8 @@ import com.otilm.api.model.connector.discovery.v2.DiscoveredItemDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredKeyDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
+import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.Discovery;
@@ -64,6 +66,9 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
     /** Real key material: the identity this pipeline computes has to be the one a certificate's key gets. */
     private static final PublicKey PUBLIC_KEY = generateRsaPublicKey();
     private static final String SPKI_BASE64 = Base64.getEncoder().encodeToString(PUBLIC_KEY.getEncoded());
+    private static final String OTHER_SPKI_BASE64 = Base64
+            .getEncoder()
+            .encodeToString(generateRsaPublicKey().getEncoded());
 
     @Autowired
     private KeyDiscoveredHandler handler;
@@ -91,6 +96,8 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
     private TransactionHandler transactionHandler;
     @Autowired
     private PlatformTransactionManager transactionManager;
+    @Autowired
+    private AttributeEngine attributeEngine;
 
     @Test
     void aStagedKey_becomesAKeyRecordTheItemPointsAt() {
@@ -121,22 +128,97 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
     @Test
     void whereTheProviderFoundTheKey_isKeptWithTheKey() {
         Discovery run = processingRun();
-        // The staged row is the only place this exists: a key record without it cannot say where the key was seen.
         stageKeyWithMeta(run, "ssh://host-a:22", SPKI_BASE64, location("ipAddress", "10.0.0.7"));
 
         handler.importBatch(run, pendingKeys(run));
 
-        CryptographicKeyItem stored = keyRepository
-                .findWithKeyItemsAndTokenByUuid(itemOf(run, "ssh://host-a:22").getInventoryUuid())
-                .orElseThrow()
-                .getItems()
-                .iterator()
-                .next();
-        assertThat(stored.getKeyMeta()).hasSize(1);
-        MetadataAttributeV3 kept = (MetadataAttributeV3) stored.getKeyMeta().getFirst();
-        assertThat(kept.getName()).isEqualTo("ipAddress");
-        assertThat(kept.getContent()).hasSize(1);
-        assertThat(kept.getContent().getFirst().getData()).isEqualTo("10.0.0.7");
+        UUID keyUuid = itemOf(run, "ssh://host-a:22").getInventoryUuid();
+        assertThat(locationsRecordedBy(run, keyUuid)).containsExactly("10.0.0.7");
+        // key_meta is a token's reference to the key, and a key held without a token must not appear to have one.
+        assertThat(storedItem(keyUuid).getKeyMeta()).isNull();
+    }
+
+    @Test
+    void theSameKeyFoundByAnotherRun_keepsWhereEachRunFoundIt() {
+        Discovery first = processingRun();
+        stageKeyWithMeta(first, "ssh://host-a:22", SPKI_BASE64, location("ipAddress", "10.0.0.7"));
+        handler.importBatch(first, pendingKeys(first));
+        Discovery second = processingRun();
+        second.setConnectorUuid(first.getConnectorUuid());
+        second.setConnectorInterfaceUuid(first.getConnectorInterfaceUuid());
+        second = discoveryRepository.saveAndFlush(second);
+        stageKeyWithMeta(second, "ssh://host-b:22", SPKI_BASE64, location("ipAddress", "10.0.0.8"));
+
+        handler.importBatch(second, pendingKeys(second));
+
+        // Landing on the record that exists must not drop where this run saw the key: a discovered certificate keeps
+        // one entry per discovery too.
+        UUID keyUuid = itemOf(first, "ssh://host-a:22").getInventoryUuid();
+        assertThat(itemOf(second, "ssh://host-b:22").getInventoryUuid()).isEqualTo(keyUuid);
+        assertThat(locationsRecordedBy(first, keyUuid)).containsExactly("10.0.0.7");
+        assertThat(locationsRecordedBy(second, keyUuid)).containsExactly("10.0.0.8");
+    }
+
+    @Test
+    void publicKeyMaterialThatIsNotAKey_isRefusedWithAReasonOnTheItem() {
+        Discovery run = processingRun();
+        // Valid Base64 and nothing more: it must not land in the inventory as an active key.
+        stageKey(run, "ssh://host-f:22", "AA==", "connector-f");
+
+        KeyDiscoveredHandler.KeyImportOutcome outcome = handler.importBatch(run, pendingKeys(run));
+
+        DiscoveryItem refused = itemOf(run, "ssh://host-f:22");
+        assertThat(outcome.failed()).isEqualTo(1);
+        assertThat(refused.getProcessedError()).isEqualTo("The reported public key could not be read as a public key.");
+        assertThat(refused.getInventoryUuid()).isNull();
+    }
+
+    @Test
+    void publicKeyInAnotherEncoding_isListedButNotOnboarded() {
+        Discovery run = processingRun();
+        DiscoveredKeyDto payload = spkiKey(SPKI_BASE64);
+        payload.setPublicKeyFormat(KeyFormat.RAW);
+        stage(run, "ssh://host-g:22", payload);
+
+        handler.importBatch(run, pendingKeys(run));
+
+        DiscoveryItem listed = itemOf(run, "ssh://host-g:22");
+        assertThat(listed.getInventoryUuid()).isNull();
+        assertThat(listed.getProcessedError()).startsWith("Listed, not added to the inventory");
+    }
+
+    @Test
+    void whatTheKeyIs_comesFromItsMaterialRatherThanFromTheReport() {
+        Discovery run = processingRun();
+        DiscoveredKeyDto payload = spkiKey(SPKI_BASE64);
+        // The material is a 2048-bit RSA key; the report says otherwise.
+        payload.setAlgorithm(KeyAlgorithm.ECDSA);
+        payload.setLength(256);
+        stage(run, "ssh://host-h:22", payload);
+
+        handler.importBatch(run, pendingKeys(run));
+
+        CryptographicKeyItem stored = storedItem(itemOf(run, "ssh://host-h:22").getInventoryUuid());
+        assertThat(stored.getKeyAlgorithm()).isEqualTo(KeyAlgorithm.RSA);
+        assertThat(stored.getLength()).isEqualTo(2048);
+        assertThat(stored.getFormat()).isEqualTo(KeyFormat.SPKI);
+    }
+
+    private CryptographicKeyItem storedItem(UUID keyUuid) {
+        return keyRepository.findWithKeyItemsAndTokenByUuid(keyUuid).orElseThrow().getItems().iterator().next();
+    }
+
+    private List<Object> locationsRecordedBy(Discovery run, UUID keyUuid) {
+        return attributeEngine
+                .getMetadataAttributesDefinitionContent(ObjectAttributeContentInfo
+                        .builder(Resource.CRYPTOGRAPHIC_KEY, keyUuid)
+                        .connector(run.getConnectorUuid())
+                        .source(Resource.DISCOVERY, run.getUuid())
+                        .build())
+                .stream()
+                .flatMap(attribute -> ((MetadataAttributeV3) attribute).getContent().stream())
+                .map(content -> (Object) content.getData())
+                .toList();
     }
 
     @Test
@@ -210,24 +292,19 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
     }
 
     @Test
-    void aKeyWithNoPublicPart_isIdentifiedByWhatTheConnectorCalledIt() {
+    void aKeyWithNoPublicPart_isListedButNotOnboarded() {
         Discovery run = processingRun();
-        // A secret key has nothing to compute an identity from, and no certificate can ever carry one, so the
-        // connector's own fingerprint is the only identity there is -- and it is enough.
+        // A secret key has nothing Core can identify it by: the connector's fingerprint is a claim the contract does
+        // not define, and filing a key under it would let two connectors' ids alias one another.
         stageSecretKey(run, "vault://kv/app-signing", "connector-fingerprint-42");
 
-        handler.importBatch(run, pendingKeys(run));
+        KeyDiscoveredHandler.KeyImportOutcome outcome = handler.importBatch(run, pendingKeys(run));
 
-        UUID keyUuid = itemOf(run, "vault://kv/app-signing").getInventoryUuid();
-        assertThat(keyUuid).isNotNull();
-        CryptographicKeyItem stored = keyRepository
-                .findWithKeyItemsAndTokenByUuid(keyUuid)
-                .orElseThrow()
-                .getItems()
-                .iterator()
-                .next();
-        assertThat(stored.getFingerprint()).isEqualTo("connector-fingerprint-42");
-        assertThat(stored.getKeyData()).isNull();
+        DiscoveryItem listed = itemOf(run, "vault://kv/app-signing");
+        assertThat(outcome.failed()).isEqualTo(1);
+        assertThat(listed.getInventoryUuid()).isNull();
+        assertThat(listed.getProcessedError()).startsWith("Listed, not added to the inventory");
+        assertThat(keyItemRepository.findByFingerprint("connector-fingerprint-42")).isEmpty();
     }
 
     @Test
@@ -288,21 +365,21 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
         Discovery run = processingRun();
         stageKey(run, "ssh://host-a:22", SPKI_BASE64, "connector-a");
         stageUnusableKey(run, "vault://unnamed");
-        stageSecretKey(run, "vault://unreachable", "secret-unreachable");
+        stageKey(run, "vault://unreachable", OTHER_SPKI_BASE64, "connector-c");
         // The writer's own methods join whatever transaction is open; the handler is what opens one per key. Built
         // by hand so a single key can fail the way a locked row would, without a mocked bean that forks the context.
-        DiscoveredKeyWriter unreachableThird = new DiscoveredKeyWriter(keyRepository, keyItemRepository, itemRepository,
-                objectMapper) {
+        DiscoveredKeyWriter unreachableThird = new DiscoveredKeyWriter(keyItemRepository, itemRepository,
+                certificateKeyWriter) {
             @Override
-            public void importKey(DiscoveryItem item, DiscoveredKeyDto key) {
+            public UUID importKey(DiscoveryItem item, PublicKey publicKey, String fingerprint) {
                 if ("vault://unreachable".equals(item.getUniqueRef())) {
                     throw new CannotAcquireLockException("lock timeout");
                 }
-                super.importKey(item, key);
+                return super.importKey(item, publicKey, fingerprint);
             }
         };
         KeyDiscoveredHandler perKey = new KeyDiscoveredHandler(unreachableThird, authorizationEnforcer, objectMapper,
-                transactionHandler);
+                transactionHandler, attributeEngine);
         List<DiscoveryItem> page = List
                 .of(itemOf(run, "ssh://host-a:22"), itemOf(run, "vault://unnamed"), itemOf(run, "vault://unreachable"));
 
@@ -312,7 +389,7 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
             status.setRollbackOnly();
         });
 
-        assertThat(outcome[0].aborted()).isTrue();
+        assertThat(outcome[0].deferred()).isEqualTo(1);
         assertThat(itemOf(run, "ssh://host-a:22").getInventoryUuid())
                 .as("imported in its own transaction, so the caller's rollback cannot take it back")
                 .isNotNull();

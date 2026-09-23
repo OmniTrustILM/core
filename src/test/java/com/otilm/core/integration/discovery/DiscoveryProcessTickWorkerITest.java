@@ -254,6 +254,21 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
     }
 
     @Test
+    void runThatEndsOnItsBudget_saysWhyTheKeysItNeverReachedStayedOut() throws Exception {
+        Discovery run = processingRun();
+        stageKeys(run, 1);
+        denyResourceAccess(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.CREATE);
+        int lastAttempt = workProperties.scheduleFor(DiscoveryWorkType.PROCESS).maxAttempts() - 1;
+
+        worker.tick(run.getUuid(), lastAttempt);
+
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.WARNING);
+        // Left without a reason, the row would read as waiting on a run that has ended.
+        assertThat(keyItemsOf(run).getFirst().getProcessedError())
+                .isEqualTo("Not imported: processing stopped before this key could be imported.");
+    }
+
+    @Test
     void keyImportWhoseUserCannotBeInstalled_backsOffRatherThanRetryingForever() throws Exception {
         Discovery run = processingRun();
         stageKeys(run, 1);
@@ -786,7 +801,8 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
             payload.setLength(2048);
             payload.setPublicKeyFormat(KeyFormat.SPKI);
             payload.setFingerprint("fp-" + UUID.randomUUID());
-            payload.setPublicKey("MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE");
+            // Real material: a key is onboarded only once Core can read its public part.
+            payload.setPublicKey(Base64.getEncoder().encodeToString(publicKeyMaterial(i)));
             DiscoveredItemDto item = new DiscoveredItemDto();
             item.setSequence((long) i);
             item.setUniqueRef("key-" + i);
