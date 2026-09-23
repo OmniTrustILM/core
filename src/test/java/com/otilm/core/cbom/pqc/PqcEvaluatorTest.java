@@ -581,6 +581,16 @@ class PqcEvaluatorTest {
         JsonNode undersized = component("algorithm", "ML-KEM-768",
                 "{\"relatedCryptoMaterialProperties\":{\"type\":\"secret-key\",\"size\":64}}");
         assertThat(verdictOf(undersized).ruleId()).isEqualTo("PQC-STANDARDIZED");
+
+        JsonNode overstated = component("algorithm", "AES-64",
+                "{\"relatedCryptoMaterialProperties\":{\"type\":\"secret-key\",\"size\":256}}");
+        assertThat(verdictOf(overstated).ruleId())
+                .describedAs("an algorithm's size is its parameter set; a strayed block must not overrule it")
+                .isEqualTo("SYMMETRIC-UNDERSIZED");
+
+        JsonNode understated = component("algorithm", "AES-256",
+                "{\"relatedCryptoMaterialProperties\":{\"type\":\"secret-key\",\"size\":64}}");
+        assertThat(verdictOf(understated).ruleId()).isEqualTo("SYMMETRIC-READY");
     }
 
     /**

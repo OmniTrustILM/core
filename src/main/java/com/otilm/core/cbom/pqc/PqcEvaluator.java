@@ -344,9 +344,14 @@ public class PqcEvaluator {
     /**
      * The size the row records, from whichever slot carries it, and only inside the ratified band: below 64 a bit count
      * cannot be told from a byte count, and a number above it is a cost or round count rather than a size.
+     *
+     * <p>
+     * {@code materialSize} counts only on a material row. A producer bug stamps the material block onto algorithms too,
+     * and there the row's own size is its parameter set -- a strayed size would otherwise decide {@code AES-64} ready
+     * and {@code AES-256} undersized.
      */
     private Integer recordedSizeBits(PqcRuleInput input) {
-        if (input.materialSize() != null) {
+        if (input.assetType() == CryptographicAssetType.RELATED_CRYPTO_MATERIAL && input.materialSize() != null) {
             return input.materialSize();
         }
         Integer parameterSet = input.parameterSet();
