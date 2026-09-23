@@ -127,10 +127,6 @@ class PqcEvaluatorTest {
         }
     }
 
-    /**
-     * An OID can instantiate a construction the name leaves bare: {@code hmacWithSHA1} fixes SHA-1 exactly as
-     * {@code HMAC-SHA1} does, so the two spellings of one asset must not answer differently.
-     */
     @Test
     void anOidThatFixesTheDigestInstantiatesTheConstruction() {
         PqcDecision legacy = verdictOf(withOid(algorithm("HMAC"), "1.2.840.113549.2.7"));
@@ -145,16 +141,17 @@ class PqcEvaluatorTest {
         assertThat(verdictOf(withOid(algorithm("HKDF"), "1.2.840.113549.1.9.16.3.28")).ruleId())
                 .describedAs("the table records no implied digest for this arc, so the OID fixes nothing")
                 .isEqualTo("CONSTRUCTION-UNINSTANTIATED");
+        for (String signatureArc : new String[]{"1.2.840.113549.1.1.5", "1.2.840.113549.1.1.11"}) {
+            assertThat(verdictOf(withOid(algorithm("HMAC"), signatureArc)).ruleId())
+                    .describedAs("an RSA signature arc %s on an HMAC row fixes nothing about the HMAC", signatureArc)
+                    .isEqualTo("CONSTRUCTION-UNINSTANTIATED");
+        }
         assertThat(verdictOf(withOid(algorithm("HMAC"), "1.2.840.113549.2.7.1")).ruleId())
                 .describedAs("a prefix match says only that the arc is under hmacWithSHA1, not that it is it")
                 .isEqualTo("CONSTRUCTION-UNINSTANTIATED");
     }
 
-    /**
-     * A key length cannot say which RIPEMD a key is for, nor which digest an HMAC key was built on, so a large enough
-     * {@code secret-key} must not clear a name that could not clear as an algorithm. Too short a key is weak whichever
-     * member it is, so that finding still reaches the row.
-     */
+    /** Too short a key is weak whichever member it is, so that finding still reaches the row. */
     @Test
     void aKeysSizeCannotResolveWhatItsNameLeavesOpen() {
         for (String open : new String[]{
@@ -182,7 +179,6 @@ class PqcEvaluatorTest {
                 .isEqualTo("MATERIAL-SYMMETRIC-READY");
     }
 
-    /** The size that cleared the floor decided the verdict, so it is part of the evidence for it. */
     @Test
     void anAdequateSizeIsEvidenceForTheReadyVerdict() {
         PqcDecision algorithm = verdictOf(algorithm("AES-128"));

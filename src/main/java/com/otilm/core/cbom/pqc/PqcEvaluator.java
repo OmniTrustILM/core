@@ -390,12 +390,14 @@ public class PqcEvaluator {
 
     /**
      * The name's secondary tokens and the digest the OID fixes, since {@code hmacWithSHA1} instantiates HMAC exactly as
-     * the name {@code HMAC-SHA1} does. Only an exact arc counts: under a prefix match the residual arcs may say
-     * something else.
+     * the name {@code HMAC-SHA1} does. Only an exact arc of the row's own family counts: under a prefix match the
+     * residual arcs may say something else, and a {@code sha1WithRSAEncryption} arc on an HMAC row is a refuted OID
+     * that says nothing about the HMAC.
      */
     private List<String> primitiveTokens(PqcRuleInput input) {
         IdentityTables.OidEntry arc = normalizer.oidLookup(input.oid());
-        if (arc == null || arc.impliedDigest() == null || !arc.residualArcs().isEmpty()) {
+        if (arc == null || arc.impliedDigest() == null || !arc.residualArcs().isEmpty()
+                || !Objects.equals(ratifiedFamily(arc.family()), ratifiedFamily(input.algorithmFamily()))) {
             return secondaryTokens(input);
         }
         List<String> tokens = new ArrayList<>(secondaryTokens(input));
