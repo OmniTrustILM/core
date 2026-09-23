@@ -491,10 +491,20 @@ class PqcEvaluatorTest {
     /** A family with no grammar rule survives into the variant as its own name; it is the family, not a component. */
     @Test
     void aFamilyWithoutAGrammarRuleIsServedAsTheFamily() {
-        for (String name : new String[]{"CMEA", "Yarrow"}) {
+        for (String name : new String[]{"SRP", "MQV"}) {
             PqcDecision decision = verdictOf(algorithm(name));
-            assertThat(decision.ruleId()).describedAs("name %s", name).isEqualTo("CLASSICAL-LEGACY");
+            assertThat(decision.ruleId()).describedAs("name %s", name).isEqualTo("CLASSICAL-SHOR");
             assertThat(decision.evaluatedFields()).containsEntry("algorithmFamily", name);
+        }
+    }
+
+    /** A family the grammar has no rule for lives in the residue alone, and a key of that name holds its finding. */
+    @Test
+    void aKeyNamedForAFamilyOnlyTheResidueCarriesInheritsItsFinding() {
+        for (String name : new String[]{"BLS", "HPKE", "J-PAKE", "MQV", "OPAQUE", "SM9", "SRP"}) {
+            PqcDecision key = verdictOf(material(name, "secret-key", 256));
+            assertThat(key.verdict()).describedAs("key %s", name).isEqualTo(PqcVerdict.NOT_READY);
+            assertThat(key.ruleId()).describedAs("key %s", name).isEqualTo(verdictOf(algorithm(name)).ruleId());
         }
     }
 
