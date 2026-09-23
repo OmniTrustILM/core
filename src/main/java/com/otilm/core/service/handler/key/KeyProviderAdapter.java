@@ -62,15 +62,7 @@ public interface KeyProviderAdapter {
     SignDataResponseDto signData(OperationKeyContext context, SignDataRequestDto request) throws ConnectorException;
 
     /**
-     * Names the algorithm a signature made with this key and these attributes will carry.
-     *
-     * <p>
-     * A caller needs this before it signs whenever it has to name the algorithm in a structure it builds itself: the
-     * {@code AlgorithmIdentifier} of a PKCS#10 request, or the {@code SignerInfo} of a CMS signature. The two
-     * generations answer from different places, which is the whole reason this sits on the version boundary: a v1
-     * provider publishes no signing schema of its own, so the answer comes from Core's own registry, while a v2
-     * provider owns its signing vocabulary and is the only party that can read a selection made from it.
-     * </p>
+     * Resolves a signature algorithm from the key and attributes.
      *
      * @param context the signing (private) key and the scope a stateless provider needs
      * @param publicKeyItem the matching public key item, which carries the parameter set of a PQC key
