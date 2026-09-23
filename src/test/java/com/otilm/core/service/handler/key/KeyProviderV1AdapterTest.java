@@ -603,7 +603,6 @@ class KeyProviderV1AdapterTest {
         verifyNoInteractions(operationsClient);
     }
 
-    /** A legacy provider publishes no signing schema, so Core's own registry is what names the algorithm. */
     @Test
     void resolveSignatureAlgorithm_readsCoreRegistry_withoutTouchingTheConnector() {
         // given
@@ -624,10 +623,6 @@ class KeyProviderV1AdapterTest {
         verifyNoInteractions(operationsClient);
     }
 
-    /**
-     * The registry admits digests the platform has no signature-algorithm entry for. Such a selection still names
-     * something a certificate request can carry, so an identifier is returned and only the platform entry is absent.
-     */
     @Test
     void resolveSignatureAlgorithm_namesAnIdentifierEvenWithoutAPlatformEntry() {
         // given
