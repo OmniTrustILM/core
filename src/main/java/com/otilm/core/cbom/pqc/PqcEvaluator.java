@@ -304,25 +304,29 @@ public class PqcEvaluator {
     }
 
     /**
-     * What an unbroken symmetric or hash-based family's <em>recorded strength</em> says, or {@code null} when the
-     * family verdict stands.
-     *
-     * <p>
-     * Membership alone answers "symmetric or hash-based and not classically broken", which is not the same claim as
-     * "this instance has adequate strength". A construction cannot make the second claim without naming the primitive
-     * it is built on, and a sized primitive cannot make it below the floor.
+     * What an unbroken symmetric or hash-based family's recorded strength says, or {@code null} when the family verdict
+     * stands. Family membership is not a strength claim: a construction cannot make one without naming its primitive,
+     * and a sized primitive cannot make one below the floor.
      */
     private PqcDecision symmetricStrengthDecision(PqcRuleInput input, Integer nistQuantumSecurityLevel) {
-        if (PqcFamilies.isConstruction(ratifiedFamily(input.algorithmFamily()))) {
-            return namesAPrimitive(input)
-                    ? null
-                    : decision(PqcVerdict.UNKNOWN, "CONSTRUCTION-UNINSTANTIATED",
-                            "A construction whose strength is that of the primitive it is built on, which this record "
-                                    + "does not name",
-                            List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.VARIANT, PqcRules.PARAMETER_SET), input,
-                            nistQuantumSecurityLevel);
+        boolean construction = PqcFamilies.isConstruction(ratifiedFamily(input.algorithmFamily()));
+        if (construction) {
+            FamilyClass primitive = namedPrimitive(input);
+            if (primitive == FamilyClass.FAMILY_AMBIGUOUS) {
+                return decision(PqcVerdict.UNKNOWN, FamilyClass.FAMILY_AMBIGUOUS.ruleId() + "-COMPONENT",
+                        "A construction built on a primitive whose family covers both a classically broken and an "
+                                + "unbroken member, and the recorded properties do not say which",
+                        List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.VARIANT), input, nistQuantumSecurityLevel);
+            }
+            if (primitive == null) {
+                return decision(PqcVerdict.UNKNOWN, "CONSTRUCTION-UNINSTANTIATED",
+                        "A construction whose strength is that of the primitive it is built on, which this record "
+                                + "does not name",
+                        List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.VARIANT, PqcRules.PARAMETER_SET), input,
+                        nistQuantumSecurityLevel);
+            }
         }
-        Integer bits = recordedSizeBits(input);
+        Integer bits = recordedSizeBits(input, construction);
         return bits == null || bits >= PqcRules.MIN_SYMMETRIC_KEY_BITS
                 ? null
                 : decision(PqcVerdict.NOT_READY, "SYMMETRIC-UNDERSIZED",
@@ -335,38 +339,50 @@ public class PqcEvaluator {
     }
 
     /**
-     * Whether any secondary token names a primitive this construction could be built on.
-     *
-     * <p>
-     * A token resolving to another construction does not count: {@code PBKDF2-HMAC} names a PRF family that is itself
-     * uninstantiated, so the pair says no more than either half. A bare parameter set does not count either -- a size
-     * says how long the output is, never which primitive produced it.
+     * The disposition of the primitive a construction's secondary tokens name, or {@code null} when they name none.
+     * Another construction does not count, since the pair says no more than either half, and a bare parameter set does
+     * not either. An ambiguous primitive outranks an unbroken one: a construction cannot be vouched for over a part
+     * that may be the broken member.
      */
-    private boolean namesAPrimitive(PqcRuleInput input) {
+    private FamilyClass namedPrimitive(PqcRuleInput input) {
+        FamilyClass named = null;
         for (String token : secondaryTokens(input)) {
             String family = ratifiedFamilyOfToken(token);
-            if (PqcFamilies.of(family) != null && !PqcFamilies.isConstruction(family)) {
-                return true;
+            FamilyClass disposition = PqcFamilies.of(family);
+            if (disposition == FamilyClass.FAMILY_AMBIGUOUS) {
+                return disposition;
+            }
+            if (disposition == FamilyClass.QUANTUM_RESISTANT_SYMMETRIC && !PqcFamilies.isConstruction(family)) {
+                named = disposition;
             }
         }
-        return false;
+        return named;
     }
 
     /**
-     * The size the row records, whichever slot carries it, and only inside the ratified size band.
+     * The size the row records, from whichever slot carries it, and only inside the ratified size band.
      *
      * <p>
-     * An algorithm's size is its parameter set, which the material arms cannot reach. The band is what those arms
-     * already apply to {@code materialSize}: below 64 a bit count cannot be told from a byte count, and a number
-     * outside it is not a size at all but a cost factor or a round count that would read as a broken key.
+     * {@code materialSize} counts only on a material row. A producer bug stamps the material block onto algorithms too,
+     * and there the row's own size is its parameter set -- a strayed size would otherwise decide {@code AES-64} ready
+     * and {@code AES-256} undersized. On a construction the parameter set is not a key size but its primitive's digest
+     * or a tag length, so only a material row's key counts.
      */
-    private Integer recordedSizeBits(PqcRuleInput input) {
-        if (input.materialSize() != null) {
+    private Integer recordedSizeBits(PqcRuleInput input, boolean construction) {
+        if (input.assetType() == CryptographicAssetType.RELATED_CRYPTO_MATERIAL && input.materialSize() != null) {
             return input.materialSize();
         }
-        Integer parameterSet = input.parameterSet();
-        return parameterSet != null && parameterSet >= normalizer.tables().sizeMin()
-                && parameterSet <= normalizer.tables().sizeMax() ? parameterSet : null;
+        return construction ? null : withinRatifiedSizeBand(input.parameterSet());
+    }
+
+    /**
+     * Below the floor bits and bytes cannot be told apart: {@code 32} is AES-256 in bytes and a broken key in bits, and
+     * the rules must not guess. Above the ceiling a number is a cost or round count rather than a size.
+     */
+    private Integer withinRatifiedSizeBand(Integer bits) {
+        return bits != null && bits >= normalizer.tables().sizeMin() && bits <= normalizer.tables().sizeMax()
+                ? bits
+                : null;
     }
 
     /**
@@ -387,6 +403,10 @@ public class PqcEvaluator {
         return normalizer.tables().familyToken(anySpelling);
     }
 
+    private FamilyClass dispositionOfToken(String token) {
+        return PqcFamilies.of(ratifiedFamilyOfToken(token));
+    }
+
     /**
      * A component token onto its ratified family, whole spelling first.
      *
@@ -395,11 +415,6 @@ public class PqcEvaluator {
      * stripping first turns {@code sha-1} into {@code sha} and {@code sha-2} into {@code sha}, which resolve to nothing
      * -- so {@code HMAC-SHA1} read {@code ready}. The normalizer documents the same trap on its own token folding.
      */
-    private FamilyClass dispositionOfToken(String token) {
-        return PqcFamilies.of(ratifiedFamilyOfToken(token));
-    }
-
-    /** The same resolution, stopping at the family rather than its disposition. */
     private String ratifiedFamilyOfToken(String token) {
         String whole = ratifiedFamily(token);
         return PqcFamilies.of(whole) != null
@@ -502,8 +517,7 @@ public class PqcEvaluator {
 
     /**
      * Held to the ratified size band the normalizer applies to name-derived sizes, so {@code -1}, {@code 0} and a byte
-     * count are absent rather than republished as a strength. Below the floor bits and bytes cannot be told apart:
-     * {@code 32} is AES-256 in bytes and a broken key in bits, and the rules must not guess.
+     * count are absent rather than republished as a strength.
      */
     Integer materialSize(JsonNode cryptoProperties) {
         JsonNode material = cryptoProperties == null ? null : cryptoProperties.get(RELATED_MATERIAL);
@@ -515,8 +529,7 @@ public class PqcEvaluator {
         if (size == null || !size.isIntegralNumber() || !size.canConvertToInt()) {
             return null;
         }
-        int bits = size.intValue();
-        return bits >= normalizer.tables().sizeMin() && bits <= normalizer.tables().sizeMax() ? bits : null;
+        return withinRatifiedSizeBand(size.intValue());
     }
 
     /** Non-integral reads as absent: one producer wrote a string there, and the wire field promises a level. */

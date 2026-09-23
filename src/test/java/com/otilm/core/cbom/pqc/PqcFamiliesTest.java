@@ -76,16 +76,33 @@ class PqcFamiliesTest {
     }
 
     /**
-     * The other half of that gate. Each of these is a construction too, and each fixes its own primitive in its own
-     * specification -- Argon2 on BLAKE2b, Fortuna on SHA-256 and AES, Fernet on AES-128-CBC and HMAC-SHA256 -- so the
-     * family name does say what it is built on, and demanding a recorded primitive would answer unknown for a row that
-     * is fully determined.
+     * The other half of that gate, closed so a new symmetric family fails the build until it is classified. Outside the
+     * constructions a family reads ready on membership alone, which is safe only for a primitive or for a construction
+     * that fixes its own -- Argon2 on BLAKE2b, Fortuna on SHA-256 and AES, Fernet on AES-128-CBC and HMAC-SHA256.
      */
     @Test
-    void aConstructionThatFixesItsOwnPrimitiveIsNotOneOfThem() {
+    void everyUnbrokenSymmetricFamilyIsAConstructionAPrimitiveOrFixesItsOwn() {
+        Set<String> primitives = Set
+                .of("AES", "ARIA", "CAMELLIA", "SEED", "SM4", "Serpent", "Twofish", "CAST6", "RC6", "Ascon", "ChaCha",
+                        "ChaCha20", "Salsa20", "RABBIT", "HC", "SNOW3G", "ZUC", "SHA-2", "SHA-3", "BLAKE2", "BLAKE3",
+                        "SM3", "Whirlpool", "SipHash", "Poly1305");
+        Set<String> fixTheirOwnPrimitive = Set
+                .of("Argon2", "bcrypt", "scrypt", "yescrypt", "Fortuna", "Fernet", "MILENAGE", "TUAK");
+
+        Set<String> symmetric = new TreeSet<>();
+        PqcFamilies.dispositions().forEach((family, disposition) -> {
+            if (disposition == FamilyClass.QUANTUM_RESISTANT_SYMMETRIC) {
+                symmetric.add(family);
+            }
+        });
+        Set<String> classified = new TreeSet<>(PqcFamilies.constructions());
+        classified.addAll(primitives);
+        classified.addAll(fixTheirOwnPrimitive);
+
+        assertThat(symmetric).isEqualTo(classified);
         assertThat(PqcFamilies.constructions())
-                .doesNotContain("Argon2", "bcrypt", "scrypt", "yescrypt", "Fortuna", "Poly1305", "SipHash", "Fernet",
-                        "Ascon", "MILENAGE", "TUAK");
+                .doesNotContainAnyElementsOf(primitives)
+                .doesNotContainAnyElementsOf(fixTheirOwnPrimitive);
     }
 
     @Test
