@@ -72,18 +72,6 @@ public class StaticManagedKeySignerCreator implements SignerCreator {
                 privateKeyItem.keyItemUuid(), requestAttributes, signatureAlgorithm);
     }
 
-    /**
-     * Operator-supplied attributes can name a signature algorithm the platform has no entry for -- a SHA-1 digest, or a
-     * PQC parameter set outside the enum. That is a Signing Profile the operator can fix, so it is refused as
-     * MISCONFIGURED rather than escaping as the unchecked throw a caller would log as a platform fault.
-     *
-     * <p>
-     * Resolution reaches a repository and, for a cryptography provider v2, the connector, so the failure classes are
-     * kept apart rather than collapsed: a provider that was reached but did not deliver is a CONNECTOR_FAULT, and any
-     * other unexpected defect is deliberately left to escape so the engine logs it with a stack trace instead of
-     * reporting it as an operator-fixable setting.
-     * </p>
-     */
     private SignatureAlgorithm resolveSignatureAlgorithm(CryptographicKeyItemOperationModel privateKeyItem,
             CryptographicKeyItemOperationModel publicKeyItem, List<RequestAttribute> requestAttributes)
             throws SigningEngineException {
