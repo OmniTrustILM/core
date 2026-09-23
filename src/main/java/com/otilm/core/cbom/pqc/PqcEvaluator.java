@@ -158,9 +158,9 @@ public class PqcEvaluator {
      * finding -- the one outcome an inventory must never produce", and the verdict path was doing exactly that.
      *
      * <p>
-     * A family with no grammar rule -- {@code CMEA}, {@code Yarrow} -- survives into the variant as the asset's own
-     * name, and the component rule then blamed a component the asset does not have. When that is the only weak token,
-     * the asset <em>is</em> the family and is served as one.
+     * A family with no grammar rule -- {@code SRP}, {@code MQV} -- survives into the variant as the asset's own name,
+     * and the component rule then blamed a component the asset does not have. When that is the only weak token, the
+     * asset <em>is</em> the family and is served as one.
      */
     private PqcDecision componentOrFamilyDecision(PqcRuleInput input, Integer nistQuantumSecurityLevel) {
         Map<String, FamilyClass> weak = weakSecondaryTokens(input);
@@ -442,19 +442,27 @@ public class PqcEvaluator {
         String secondary = normalizer.secondaryTokens(fields.name(), family);
         List<String> hybrid = normalizer.hybridComponents(fields.name(), family, secondary);
         return new PqcRuleInput(fields.assetType(), family, parameterSet(fields.parameterSet()), fields.curve(),
-                fields.mode(), fields.padding(), variantOf(fields, secondary), fields.name(), hybrid,
+                fields.mode(), fields.padding(), variantOf(fields, family, secondary), fields.name(), hybrid,
                 materialType(mergedCryptoProperties), materialSize(mergedCryptoProperties));
     }
 
     /**
-     * Related material takes its variant from the secondary tokens of its name, because the weak-component doctrine
-     * reads that field and the material tier derives none of its own.
+     * Related material takes its variant from its name the way an algorithm row does, residue and secondary tokens
+     * both, because the weak-component doctrine reads that field and the material tier derives none of its own. The
+     * residue is where a family with no grammar rule survives: {@code SRP} and {@code MQV} are in nothing else.
      */
-    private static String variantOf(CryptoAssetIdentityFields fields, String secondaryTokens) {
+    private String variantOf(CryptoAssetIdentityFields fields, String family, String secondaryTokens) {
         if (fields.variant() != null || fields.assetType() != CryptographicAssetType.RELATED_CRYPTO_MATERIAL) {
             return fields.variant();
         }
-        return secondaryTokens == null || secondaryTokens.isEmpty() ? null : secondaryTokens;
+        String residue = normalizer
+                .variantResidue(fields.name(), parameterSet(fields.parameterSet()), fields.mode(), family, null,
+                        new ArrayList<>());
+        String variant = Stream
+                .of(residue, secondaryTokens)
+                .filter(part -> part != null && !part.isEmpty())
+                .collect(Collectors.joining("+"));
+        return variant.isEmpty() ? null : variant;
     }
 
     /** The normalizer's routing vocabulary onto the column's enum; the unroutable tier has no producer spelling. */
