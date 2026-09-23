@@ -1,5 +1,6 @@
 package com.otilm.core.model.crypto;
 
+import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.model.connector.ImmutableConnectorInterface;
@@ -31,5 +32,15 @@ public record ImmutableTokenInstanceFullModel(UUID uuid, String tokenInstanceUui
     @Override
     public long tokenProfileCount() {
         return tokenProfiles.size();
+    }
+
+    @Override
+    public ConnectorInterface connectorInterfaceCode() {
+        return connectorInterface == null ? null : connectorInterface.code();
+    }
+
+    @Override
+    public String connectorInterfaceVersion() {
+        return connectorInterface == null ? null : connectorInterface.version();
     }
 }

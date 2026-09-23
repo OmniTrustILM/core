@@ -3,6 +3,13 @@ package com.otilm.core.service.handler.key;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
+import com.otilm.api.model.client.cryptography.operations.CipherDataRequestDto;
+import com.otilm.api.model.client.cryptography.operations.DecryptDataResponseDto;
+import com.otilm.api.model.client.cryptography.operations.EncryptDataResponseDto;
+import com.otilm.api.model.client.cryptography.operations.SignDataRequestDto;
+import com.otilm.api.model.client.cryptography.operations.SignDataResponseDto;
+import com.otilm.api.model.client.cryptography.operations.VerifyDataRequestDto;
+import com.otilm.api.model.client.cryptography.operations.VerifyDataResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.core.model.crypto.CryptographicKeyFullModel;
 import com.otilm.core.model.crypto.ProviderKeyItem;
@@ -39,5 +46,24 @@ public interface KeyProviderAdapter {
     /** Lists the attribute schema for creating a secret key or key pair. */
     List<BaseAttribute> listCreateKeyAttributes(TokenProfileFullModel tokenProfile, KeyRequestType type)
             throws ConnectorException;
+
+    EncryptDataResponseDto encryptData(OperationKeyContext context, CipherDataRequestDto request)
+            throws ConnectorException;
+
+    DecryptDataResponseDto decryptData(OperationKeyContext context, CipherDataRequestDto request)
+            throws ConnectorException;
+
+    SignDataResponseDto signData(OperationKeyContext context, SignDataRequestDto request) throws ConnectorException;
+
+    VerifyDataResponseDto verifyData(OperationKeyContext context, VerifyDataRequestDto request)
+            throws ConnectorException;
+
+    List<BaseAttribute> listEncryptAttributes(OperationKeyContext context) throws ConnectorException;
+
+    List<BaseAttribute> listDecryptAttributes(OperationKeyContext context) throws ConnectorException;
+
+    List<BaseAttribute> listSignAttributes(OperationKeyContext context) throws ConnectorException;
+
+    List<BaseAttribute> listVerifyAttributes(OperationKeyContext context) throws ConnectorException;
 
 }

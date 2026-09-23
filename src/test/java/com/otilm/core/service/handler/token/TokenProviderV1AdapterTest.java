@@ -2,18 +2,25 @@ package com.otilm.core.service.handler.token;
 
 import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.api.interfaces.client.v1.AttributeSyncApiClient;
+import com.otilm.api.interfaces.client.v1.CryptographicOperationsSyncApiClient;
 import com.otilm.api.interfaces.client.v1.TokenInstanceSyncApiClient;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
+import com.otilm.api.model.client.cryptography.operations.RandomDataRequestDto;
+import com.otilm.api.model.client.cryptography.operations.RandomDataResponseDto;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.model.crypto.ImmutableTokenProfileBasicModel;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
+import com.otilm.core.service.handler.LegacyOperationFixtures;
+import java.util.Base64;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -57,5 +64,34 @@ class TokenProviderV1AdapterTest {
         // then
         assertEquals(EnumSet.allOf(KeyUsage.class), EnumSet.copyOf(usages));
         verifyNoInteractions(tokenApiClient, attributeApiClient, token);
+    }
+
+    @Test
+    void randomData_callsV1EndpointWithTokenInstanceUuid_andEncodesResult() throws Exception {
+        // given
+        ConnectorApiFactory connectorApiFactory = mock(ConnectorApiFactory.class);
+        ApiClientConnectorInfo connectorInfo = mock(ApiClientConnectorInfo.class);
+        CryptographicOperationsSyncApiClient operationsClient = mock(CryptographicOperationsSyncApiClient.class);
+        TokenInstanceSyncApiClient tokenApiClient = mock(TokenInstanceSyncApiClient.class);
+        AttributeSyncApiClient attributeApiClient = mock(AttributeSyncApiClient.class);
+        when(connectorApiFactory.getTokenInstanceApiClient(connectorInfo)).thenReturn(tokenApiClient);
+        when(connectorApiFactory.getAttributeApiClient(connectorInfo)).thenReturn(attributeApiClient);
+        when(connectorApiFactory.getCryptographicOperationsApiClient(connectorInfo)).thenReturn(operationsClient);
+        TokenInstanceBasicModel token = mock(TokenInstanceBasicModel.class);
+        when(token.tokenInstanceUuid()).thenReturn("remote-token");
+        when(operationsClient.randomData(eq(connectorInfo), eq("remote-token"), any()))
+                .thenReturn(LegacyOperationFixtures.randomResponse(new byte[]{1, 2, 3}));
+        TokenProviderV1Adapter adapter = new TokenProviderV1Adapter(connectorApiFactory, connectorInfo);
+        var profile = new ImmutableTokenProfileBasicModel(UUID.randomUUID(), "profile", null, "token",
+                UUID.randomUUID(), true, List.of());
+        RandomDataRequestDto request = new RandomDataRequestDto();
+        request.setLength(3);
+        request.setAttributes(List.of());
+
+        // when
+        RandomDataResponseDto response = adapter.randomData(token, profile, request);
+
+        // then
+        assertEquals(Base64.getEncoder().encodeToString(new byte[]{1, 2, 3}), response.getData());
     }
 }
