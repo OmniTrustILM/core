@@ -28,6 +28,7 @@ import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.client.cryptography.key.UpdateKeyUsageRequestDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeProperties;
 import com.otilm.api.model.common.attribute.v3.MetadataAttributeV3;
@@ -36,9 +37,11 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
+import com.otilm.api.model.connector.cryptography.v2.key.KeyExportableAttribute;
 import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyDataV2Dto;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.cryptography.key.KeyDetailDto;
 import com.otilm.api.model.core.cryptography.key.KeyDto;
@@ -56,6 +59,7 @@ import com.otilm.core.dao.entity.Comment;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.CryptographicKey;
+import com.otilm.core.dao.entity.CryptographicKeyEventHistory;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.Group;
 import com.otilm.core.dao.entity.OwnerAssociation;
@@ -641,6 +645,36 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
                                 .matchingJsonPath("$.keyMeta[0].content[0].data", WireMock.equalTo(opaqueHandle))));
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void createKey_statesTheExportableIntentToAV2ConnectorThatRequiresIt(boolean exportable) throws Exception {
+        // given
+        configureV2Token(List.of(FeatureFlag.STATELESS, FeatureFlag.KEY_EXPORT));
+        stubV2SecretCreation("exportable-provider-key", List.of(KeyExportableAttribute.definition()));
+        KeyRequestDto request = keyCreationRequest("v2-exportable-" + exportable);
+        request.setExportable(exportable);
+
+        // when
+        KeyDetailDto created = cryptographicKeyService
+                .createKey(tokenInstanceReference.getUuid(), tokenProfile.getSecuredParentUuid(), KeyRequestType.SECRET,
+                        request);
+
+        // then
+        UUID createdItemUuid = UUID.fromString(created.getItems().getFirst().getUuid());
+        Assertions.assertEquals(exportable, created.getItems().getFirst().isExportable());
+        Assertions
+                .assertEquals(exportable,
+                        cryptographicKeyItemRepository.findByUuid(createdItemUuid).orElseThrow().isExportable());
+        mockServer
+                .verify(WireMock
+                        .postRequestedFor(WireMock.urlPathEqualTo("/v2/cryptographyProvider/keys"))
+                        .withRequestBody(WireMock
+                                .matchingJsonPath(
+                                        "$.createKeyAttributes[?(@.name == '%s' && @.uuid == '%s' && @.content[0].data == %s)]"
+                                                .formatted(KeyExportableAttribute.NAME,
+                                                        KeyExportableAttribute.definition().getUuid(), exportable))));
+    }
+
     @Test
     void createKey_suspendsAndRestoresCallerTransaction() {
         // given
@@ -674,6 +708,10 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
     }
 
     private void configureV2Token() {
+        configureV2Token(List.of(FeatureFlag.STATELESS));
+    }
+
+    private void configureV2Token(List<FeatureFlag> features) {
         connector.setVersion(ConnectorVersion.V2);
         connectorRepository.saveAndFlush(connector);
         ConnectorInterfaceEntity providerInterface = new ConnectorInterfaceEntity();
@@ -681,13 +719,17 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         providerInterface.setConnector(connector);
         providerInterface.setInterfaceCode(ConnectorInterface.CRYPTOGRAPHY);
         providerInterface.setVersion("v2");
-        providerInterface.setFeatures(List.of(FeatureFlag.STATELESS));
+        providerInterface.setFeatures(features);
         connectorInterfaceRepository.saveAndFlush(providerInterface);
         tokenInstanceReference.setConnectorInterface(providerInterface);
         tokenInstanceReferenceRepository.saveAndFlush(tokenInstanceReference);
     }
 
     private void stubV2SecretCreation(String opaqueHandle) throws Exception {
+        stubV2SecretCreation(opaqueHandle, List.of());
+    }
+
+    private void stubV2SecretCreation(String opaqueHandle, List<BaseAttribute> createKeyAttributes) throws Exception {
         MetadataAttributeV3 handle = new MetadataAttributeV3();
         handle.setUuid(UUID.randomUUID().toString());
         handle.setName("provider-handle");
@@ -706,7 +748,8 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         mockServer
                 .stubFor(WireMock
                         .post(WireMock.urlPathEqualTo("/v2/cryptographyProvider/keys/create/attributes"))
-                        .willReturn(WireMock.okJson("[]")));
+                        .willReturn(
+                                WireMock.okJson(ObjectMapperFactory.wire().writeValueAsString(createKeyAttributes))));
         mockServer
                 .stubFor(WireMock
                         .post(WireMock.urlPathEqualTo("/v2/cryptographyProvider/keys"))
@@ -2315,6 +2358,105 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
                         .willReturn(WireMock.ok()));
     }
 
+    @Test
+    void disableKeyExport_withdrawsThePermissionAndReportsItBack() throws NotFoundException {
+        // given
+        CryptographicKeyItem exportable = createExportableKeyItem();
+
+        // when
+        KeyItemDetailDto afterwards = cryptographicKeyService
+                .disableKeyExport(key.getSecuredUuid(), exportable.getUuid().toString());
+
+        // then
+        Assertions.assertFalse(afterwards.isExportable(), "the answer must not be read from a pre-update copy");
+        CryptographicKeyItem stored = cryptographicKeyItemRepository.findByUuid(exportable.getUuid()).orElseThrow();
+        Assertions.assertFalse(stored.isExportable());
+        List<CryptographicKeyEventHistory> events = exportDisabledEvents(stored);
+        Assertions.assertEquals(1, events.size());
+        Assertions.assertEquals(KeyEventStatus.SUCCESS, events.getFirst().getStatus());
+    }
+
+    @Test
+    void disableKeyExport_doesNotRequireTokenUpdateAccess() throws NotFoundException {
+        // given
+        CryptographicKeyItem exportable = createExportableKeyItem();
+        denyResourceAccess(Resource.TOKEN, ResourceAction.UPDATE);
+
+        // when
+        KeyItemDetailDto afterwards = cryptographicKeyService
+                .disableKeyExport(key.getSecuredUuid(), exportable.getUuid().toString());
+
+        // then
+        Assertions.assertFalse(afterwards.isExportable());
+    }
+
+    @Test
+    void getKey_reportsTheExportPermissionOnItsItems() throws NotFoundException {
+        // given
+        CryptographicKeyItem exportable = createExportableKeyItem();
+
+        // when
+        KeyDetailDto detail = cryptographicKeyService.getKey(key.getSecuredUuid());
+
+        // then
+        Assertions
+                .assertTrue(detail
+                        .getItems()
+                        .stream()
+                        .filter(item -> item.getUuid().equals(exportable.getUuid().toString()))
+                        .findFirst()
+                        .orElseThrow()
+                        .isExportable());
+    }
+
+    @Test
+    void disableKeyExport_isAnsweredForAKeyThatCouldNotBeExportedAnyway() throws NotFoundException {
+        // given
+        Assertions.assertFalse(privateKeyItem.isExportable());
+
+        // when
+        KeyItemDetailDto afterwards = cryptographicKeyService
+                .disableKeyExport(key.getSecuredUuid(), privateKeyItem.getUuid().toString());
+
+        // then
+        Assertions.assertFalse(afterwards.isExportable());
+        Assertions.assertTrue(exportDisabledEvents(privateKeyItem).isEmpty());
+    }
+
+    /** The compliance pass saves key items it loaded earlier, so a copy taken before the withdrawal is realistic. */
+    @Test
+    void disableKeyExport_isNotUndoneByAStaleCopySavedElsewhere() throws NotFoundException {
+        // given
+        CryptographicKeyItem exportable = createExportableKeyItem();
+        CryptographicKeyItem loadedBeforeWithdrawal = cryptographicKeyItemRepository
+                .findByUuid(exportable.getUuid())
+                .orElseThrow();
+        cryptographicKeyService.disableKeyExport(key.getSecuredUuid(), exportable.getUuid().toString());
+
+        // when the holder of that copy writes it back for an unrelated reason
+        loadedBeforeWithdrawal.setComplianceStatus(ComplianceStatus.OK);
+        cryptographicKeyItemRepository.saveAndFlush(loadedBeforeWithdrawal);
+
+        // then
+        Assertions
+                .assertFalse(
+                        cryptographicKeyItemRepository.findByUuid(exportable.getUuid()).orElseThrow().isExportable(),
+                        "a stale copy must not restore the export permission");
+    }
+
+    @Test
+    void disableKeyExport_rejectsAKeyItemOfAnotherKey() {
+        // given
+        String itemOfAnotherKey = privateKeyItem.getUuid().toString();
+        SecuredUUID otherKey = createKey("unrelated key", tokenProfile, tokenInstanceReference).getSecuredUuid();
+
+        // when
+        Executable disable = () -> cryptographicKeyService.disableKeyExport(otherKey, itemOfAnotherKey);
+
+        // then
+        Assertions.assertThrows(NotFoundException.class, disable);
+    }
+
     private CryptographicKey createKey(String name, TokenProfile tokenProfile,
             TokenInstanceReference tokenInstanceReference) {
         CryptographicKey newKey = new CryptographicKey();
@@ -2328,6 +2470,29 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         CryptographicKeyItem item = createKeyItem(key, KeyType.PUBLIC_KEY, KeyState.ACTIVE, true);
         item.setKeyReferenceUuid(remoteReference);
         cryptographicKeyItemRepository.saveAndFlush(item);
+    }
+
+    /**
+     * Inserts a key item that already carries the export permission. The column is not updatable, so the permission
+     * cannot be added to a row that already exists — production sets it the same way, when the key is created.
+     */
+    private CryptographicKeyItem createExportableKeyItem() {
+        CryptographicKeyItem item = new CryptographicKeyItem();
+        item.setKey(key);
+        item.setKeyUuid(key.getUuid());
+        item.setType(KeyType.PRIVATE_KEY);
+        item.setState(KeyState.ACTIVE);
+        item.setEnabled(true);
+        item.setExportable(true);
+        return cryptographicKeyItemRepository.saveAndFlush(item);
+    }
+
+    private List<CryptographicKeyEventHistory> exportDisabledEvents(CryptographicKeyItem item) {
+        return cryptographicKeyEventHistoryRepository
+                .findByKeyOrderByCreatedDesc(item)
+                .stream()
+                .filter(event -> event.getEvent() == KeyEvent.EXPORT_DISABLED)
+                .toList();
     }
 
     private CryptographicKeyItem createKeyItem(CryptographicKey key, KeyType type, KeyState state, boolean enabled) {

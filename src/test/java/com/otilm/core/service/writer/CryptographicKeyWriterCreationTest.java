@@ -107,6 +107,57 @@ class CryptographicKeyWriterCreationTest {
         assertThat(savedItem().getUsage()).isEmpty();
     }
 
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("exportPermissionPerKeyType")
+    void createKeyWithItems_grantsExportOnlyToTheHalvesThatHoldPrivateMaterial(KeyType type, boolean expected)
+            throws AttributeException {
+        // given
+        KeyRequestDto request = keyRequest();
+        request.setExportable(true);
+
+        // when
+        writer
+                .createKeyWithItems(request, profile(List.of()), token, List.of(providerItem(type, KeyAlgorithm.RSA)),
+                        false, true);
+
+        // then
+        assertThat(savedItem().isExportable()).isEqualTo(expected);
+    }
+
+    @Test
+    void createKeyWithItems_withholdsExportWhenTheRequestDoesNotAskForIt() throws AttributeException {
+        // given
+        KeyRequestDto request = keyRequest();
+
+        // when
+        writer.createKeyWithItems(request, profile(List.of()), token, List.of(providerItem()), false, true);
+
+        // then
+        assertThat(savedItem().isExportable()).isFalse();
+    }
+
+    @Test
+    void createKeyWithItems_withholdsExportFromADiscoveredKeyEvenWhenAsked() throws AttributeException {
+        // given
+        KeyRequestDto request = keyRequest();
+        request.setExportable(true);
+        TokenProfileBasicModel absentProfile = null;
+        boolean discovered = true;
+
+        // when
+        writer.createKeyWithItems(request, absentProfile, token, List.of(providerItem()), discovered, false);
+
+        // then
+        assertThat(savedItem().isExportable()).isFalse();
+    }
+
+    private static Stream<Arguments> exportPermissionPerKeyType() {
+        return Stream
+                .of(arguments(named("private key may be exported", KeyType.PRIVATE_KEY), true),
+                        arguments(named("secret key may be exported", KeyType.SECRET_KEY), true),
+                        arguments(named("public key never carries the permission", KeyType.PUBLIC_KEY), false));
+    }
+
     private CryptographicKeyItem savedItem() {
         ArgumentCaptor<CryptographicKeyItem> savedItem = ArgumentCaptor.forClass(CryptographicKeyItem.class);
         verify(items).save(savedItem.capture());

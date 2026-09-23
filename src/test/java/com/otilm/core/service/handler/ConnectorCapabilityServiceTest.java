@@ -4,7 +4,9 @@ import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
+import com.otilm.core.model.connector.ImmutableConnectorInterface;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -26,6 +28,25 @@ class ConnectorCapabilityServiceTest {
         AuthorityInstanceReference authority = new AuthorityInstanceReference();
         authority.setConnectorInterface(iface);
         return authority;
+    }
+
+    @Test
+    void snapshotOverloadReadsTheFeaturesTheModelCarries() {
+        ImmutableConnectorInterface advertising = snapshot(List.of(FeatureFlag.KEY_EXPORT));
+        ImmutableConnectorInterface silent = snapshot(List.of());
+
+        assertTrue(service.supports(advertising, FeatureFlag.KEY_EXPORT));
+        assertFalse(service.supports(silent, FeatureFlag.KEY_EXPORT));
+        assertFalse(service.supports((ImmutableConnectorInterface) null, FeatureFlag.KEY_EXPORT));
+    }
+
+    @Test
+    void snapshotOverloadPassesInformationalFlagsThrough() {
+        assertTrue(service.supports(snapshot(List.of()), FeatureFlag.STATELESS));
+    }
+
+    private ImmutableConnectorInterface snapshot(List<FeatureFlag> features) {
+        return new ImmutableConnectorInterface(UUID.randomUUID(), ConnectorInterface.CRYPTOGRAPHY, "v2", features);
     }
 
     @Test

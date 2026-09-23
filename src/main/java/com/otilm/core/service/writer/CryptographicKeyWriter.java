@@ -106,15 +106,22 @@ public class CryptographicKeyWriter {
             throws AttributeException {
         UUID tokenProfileUuid = tokenProfile == null ? null : tokenProfile.uuid();
         CryptographicKeyBasicModel savedKey = save(request, tokenProfileUuid, tokenInstance.uuid());
+        // Core owns the permission: nothing reported by a connector may grant it, whatever the request states.
+        boolean exportable = !isDiscovered && Boolean.TRUE.equals(request.getExportable());
         for (ProviderKeyItem item : items) {
-            createKeyContent(tokenProfile, tokenInstance, item, savedKey, isDiscovered, enabled);
+            createKeyContent(tokenProfile, tokenInstance, item, savedKey, isDiscovered, enabled, exportable);
         }
         return savedKey;
     }
 
+    /** Only the halves Core would ever hand out carry the permission; a public key is readable regardless. */
+    private static boolean holdsPrivateMaterial(KeyType type) {
+        return type == KeyType.PRIVATE_KEY || type == KeyType.SECRET_KEY;
+    }
+
     private void createKeyContent(TokenProfileBasicModel tokenProfile, TokenInstanceBasicModel tokenInstance,
-            ProviderKeyItem item, CryptographicKeyBasicModel cryptographicKey, boolean isDiscovered, boolean enabled)
-            throws AttributeException {
+            ProviderKeyItem item, CryptographicKeyBasicModel cryptographicKey, boolean isDiscovered, boolean enabled,
+            boolean exportable) throws AttributeException {
         logger.atDebug().addArgument(cryptographicKey::toIdentifierString).log("Creating the Key Content for {}");
         CryptographicKeyItem keyItem = new CryptographicKeyItem();
         keyItem.setName(item.name());
@@ -136,6 +143,7 @@ public class CryptographicKeyWriter {
         }
         keyItem.setState(KeyState.ACTIVE);
         keyItem.setEnabled(enabled);
+        keyItem.setExportable(exportable && holdsPrivateMaterial(item.type()));
         if (tokenProfile != null) {
             keyItem
                     .setUsage(tokenProfile
@@ -295,6 +303,23 @@ public class CryptographicKeyWriter {
             keyEventHistoryService
                     .addEventHistory(enabled ? KeyEvent.ENABLE : KeyEvent.DISABLE, KeyEventStatus.SUCCESS,
                             "Key " + (enabled ? "enabled." : "disabled."), null, uuid);
+        }
+        return hasChanged;
+    }
+
+    /**
+     * Withdraws the export permission from a key item and records the change in its history.
+     *
+     * @param keyItemUuid UUID of the key item
+     * @return {@code true} if the item was exportable and is no longer
+     */
+    @Transactional
+    public boolean disableKeyItemExport(UUID keyItemUuid) {
+        boolean hasChanged = cryptographicKeyItemRepository.clearExportableIfSet(keyItemUuid) > 0;
+        if (hasChanged) {
+            keyEventHistoryService
+                    .addEventHistory(KeyEvent.EXPORT_DISABLED, KeyEventStatus.SUCCESS, "Key export disabled.", null,
+                            keyItemUuid);
         }
         return hasChanged;
     }

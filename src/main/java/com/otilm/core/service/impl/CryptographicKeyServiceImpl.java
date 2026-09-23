@@ -11,6 +11,7 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.cryptography.CryptographicKeyResponseDto;
 import com.otilm.api.model.client.cryptography.key.BulkCompromiseKeyItemRequestDto;
 import com.otilm.api.model.client.cryptography.key.BulkCompromiseKeyRequestDto;
@@ -93,6 +94,7 @@ import com.otilm.core.service.CryptographicKeyEventHistoryService;
 import com.otilm.core.service.CryptographicKeyExternalService;
 import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.service.ResourceObjectAssociationService;
+import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.key.KeyCreationValidationCapability;
 import com.otilm.core.service.handler.key.KeyProviderAdapter;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
@@ -160,6 +162,8 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     private AttributeColumnProjector attributeColumnProjector;
     private ListingSortResolver listingSortResolver;
     private CryptographicKeyEventHistoryService keyEventHistoryService;
+
+    private ConnectorCapabilityService connectorCapabilityService;
     private AuthorizationEnforcer authorizationEnforcer;
     private ResourceObjectAssociationService objectAssociationService;
     private NotificationProducer notificationProducer;
@@ -224,6 +228,11 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     @Autowired
     public void setKeyEventHistoryService(CryptographicKeyEventHistoryService keyEventHistoryService) {
         this.keyEventHistoryService = keyEventHistoryService;
+    }
+
+    @Autowired
+    public void setConnectorCapabilityService(ConnectorCapabilityService connectorCapabilityService) {
+        this.connectorCapabilityService = connectorCapabilityService;
     }
 
     @Autowired
@@ -436,12 +445,15 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
         logger.atDebug().addArgument(tokenProfile::toIdentifierString).log("Token Profile: {}");
         throwIfTokenProfileNotEnabled(tokenProfile);
 
+        boolean exportable = Boolean.TRUE.equals(request.getExportable());
+        requireExportSupportedWhenRequested(tokenProfile, exportable);
+
         attributeEngine.validateCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, request.getCustomAttributes());
         mergeAndValidateAttributes(type, tokenProfile, request.getAttributes());
 
         List<ProviderKeyItem> remotelyCreatedKeyItems = keyProviderAdapterFactory
                 .forToken(tokenProfile.tokenInstance())
-                .createKey(tokenProfile, type, request.getAttributes(), request.getName());
+                .createKey(tokenProfile, type, request.getAttributes(), request.getName(), exportable);
 
         CryptographicKeyFullModel key = persistCreatedKey(tokenProfile, request, remotelyCreatedKeyItems);
         key = updateOwnerAndGroups(request, key);
@@ -449,6 +461,29 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
         logger.atDebug().addArgument(key::toIdentifierString).log("Key creation is successful: {}");
 
         return assembleKeyDetailDto(request, key, tokenProfile);
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.UPDATE)
+    public KeyItemDetailDto disableKeyExport(SecuredUUID uuid, String keyItemUuid) throws NotFoundException {
+        CryptographicKeyBasicModel key = getCryptographicKeyBasicModel(uuid.getValue());
+        // Everything the answer needs is settled before anything is written: the answer carries the item's detail, and
+        // withdrawing the permission cannot be undone, so a caller refused afterwards would be told the operation
+        // failed after it had happened.
+        String operation = "disable export of key item %s".formatted(keyItemUuid);
+        authorizationEnforcer.enforce(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.DETAIL, uuid);
+        verifyPermissionsForAssociatedToken(key, operation, ResourceAction.DETAIL);
+        verifyPermissionsForAssociatedToken(key, operation, ResourceAction.MEMBERS);
+        // Checked without loading the item: a managed copy taken before the update would still say the key is
+        // exportable when the answer is read back from it.
+        UUID item = UUID.fromString(keyItemUuid);
+        if (!cryptographicKeyItemRepository.isItemOfKey(item, key.uuid())) {
+            throw new NotFoundException(CryptographicKeyItem.class, keyItemUuid);
+        }
+
+        cryptographicKeyWriter.disableKeyItemExport(item);
+        evictKeyItemCache(item);
+        return getKeyItem(uuid, keyItemUuid);
     }
 
     @Override
@@ -1197,6 +1232,20 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
         List<BaseAttribute> definitions = adapter.listCreateKeyAttributes(tokenProfile, keyType);
 
         attributeEngine.validateUpdateDataAttributes(tokenInstance.connectorUuid(), null, definitions, attributes);
+    }
+
+    /**
+     * Refuses an exportable key on a connector that cannot export one. The permission is set once and never raised, so
+     * a key created here could never be exported afterwards and the request has to fail before the key exists.
+     */
+    private void requireExportSupportedWhenRequested(TokenProfileFullModel tokenProfile, boolean exportable)
+            throws ValidationException {
+        if (exportable && !connectorCapabilityService
+                .supports(tokenProfile.tokenInstance().connectorInterface(), FeatureFlag.KEY_EXPORT)) {
+            TokenInstanceFullModel tokenInstance = tokenProfile.tokenInstance();
+            throw new ValidationException("Connector %s of token instance %s does not support key export."
+                    .formatted(tokenInstance.connectorName(), tokenInstance.name()));
+        }
     }
 
     private CryptographicKeyFullModel persistCreatedKey(TokenProfileFullModel tokenProfile, KeyRequestDto request,

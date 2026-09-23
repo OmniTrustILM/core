@@ -155,8 +155,11 @@ public class CryptographicKeyControllerImpl implements CryptographicKeyControlle
     }
 
     @Override
-    public KeyItemDetailDto disableKeyExport(String uuid, String keyItemUuid) throws NotFoundException {
-        return null;
+    @AuditLogged(module = Module.CRYPTOGRAPHIC_KEYS, resource = Resource.CRYPTOGRAPHIC_KEY_ITEM,
+            operation = Operation.UPDATE)
+    public KeyItemDetailDto disableKeyExport(String uuid, @LogResource(uuid = true) String keyItemUuid)
+            throws NotFoundException {
+        return cryptographicKeyService.disableKeyExport(SecuredUUID.fromString(uuid), keyItemUuid);
     }
 
     @Override

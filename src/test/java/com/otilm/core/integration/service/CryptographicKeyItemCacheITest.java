@@ -236,6 +236,20 @@ class CryptographicKeyItemCacheITest extends BaseSpringBootTest {
     }
 
     @Test
+    void cacheIsEvictedAfterDisablingKeyItemExport() throws NotFoundException {
+        // given - cache is warm
+        cryptographicKeyInternalService.getKeyItemModel(keyItem.getUuid());
+        Cache cache = cacheManager.getCache(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE);
+        assertThat(cache.get(keyItem.getUuid(), CryptographicKeyItemOperationModel.class)).isNotNull();
+
+        // when - export of the key item is disabled
+        cryptographicKeyService.disableKeyExport(SecuredUUID.fromUUID(key.getUuid()), keyItem.getUuid().toString());
+
+        // then - stale entry is gone
+        assertThat(cache.get(keyItem.getUuid(), CryptographicKeyItemOperationModel.class)).isNull();
+    }
+
+    @Test
     void cacheIsEvictedAfterEditingKeyItem() throws NotFoundException {
         // given - cache is warm
         cryptographicKeyInternalService.getKeyItemModel(keyItem.getUuid());

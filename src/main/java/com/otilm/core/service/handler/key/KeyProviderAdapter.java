@@ -39,9 +39,14 @@ public interface KeyProviderAdapter {
     void destroyKeyItem(CryptographicKeyFullModel cryptographicKey, RemoteKeyReference reference)
             throws ConnectorException;
 
-    /** Creates a secret key or key pair and returns its items for persistence by Core. */
+    /**
+     * Creates a secret key or key pair and returns its items for persistence by Core.
+     *
+     * @param exportable whether the key may later be exported; only the v2 contract carries it, and the caller has
+     * already refused the request when a connector without {@code KEY_EXPORT} was asked for an exportable key
+     */
     List<ProviderKeyItem> createKey(TokenProfileFullModel tokenProfile, KeyRequestType type,
-            List<RequestAttribute> attributes, String keyName) throws ConnectorException;
+            List<RequestAttribute> attributes, String keyName, boolean exportable) throws ConnectorException;
 
     /** Lists the attribute schema for creating a secret key or key pair. */
     List<BaseAttribute> listCreateKeyAttributes(TokenProfileFullModel tokenProfile, KeyRequestType type)

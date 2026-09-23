@@ -103,7 +103,7 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
 
     @Override
     public List<ProviderKeyItem> createKey(TokenProfileFullModel tokenProfile, KeyRequestType type,
-            List<RequestAttribute> attributes, String keyName) throws ConnectorException {
+            List<RequestAttribute> attributes, String keyName, boolean exportable) throws ConnectorException {
         CreateKeyRequestDto request = new CreateKeyRequestDto();
         request.setCreateKeyAttributes(attributes);
         request

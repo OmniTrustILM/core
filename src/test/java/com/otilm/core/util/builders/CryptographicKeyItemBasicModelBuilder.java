@@ -18,6 +18,7 @@ public class CryptographicKeyItemBasicModelBuilder {
     private ComplianceStatus complianceStatus = ComplianceStatus.OK;
     private String keyData;
     private KeyFormat format = KeyFormat.PRKI;
+    private boolean exportable;
 
     public static CryptographicKeyItemBasicModelBuilder aKeyItemSnapshot() {
         return new CryptographicKeyItemBasicModelBuilder();
@@ -41,7 +42,7 @@ public class CryptographicKeyItemBasicModelBuilder {
     public CryptographicKeyItemBasicModel build() {
         return new CryptographicKeyItemBasicModel(UUID.randomUUID(), UUID.randomUUID(), "signing-key", reference,
                 KeyType.PRIVATE_KEY, KeyAlgorithm.RSA, format, keyData, 2048, KeyState.ACTIVE, true, usages, null,
-                complianceStatus);
+                complianceStatus, exportable);
     }
 
     public CryptographicKeyItemBasicModelBuilder withKeyData(String keyData) {
@@ -51,6 +52,11 @@ public class CryptographicKeyItemBasicModelBuilder {
 
     public CryptographicKeyItemBasicModelBuilder withFormat(KeyFormat format) {
         this.format = format;
+        return this;
+    }
+
+    public CryptographicKeyItemBasicModelBuilder withExportable(boolean exportable) {
+        this.exportable = exportable;
         return this;
     }
 }

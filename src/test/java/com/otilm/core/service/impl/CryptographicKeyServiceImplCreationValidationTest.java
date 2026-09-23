@@ -7,6 +7,8 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.client.v1.KeyManagementSyncApiClient;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV2;
+import com.otilm.api.model.client.connector.v2.ConnectorInterface;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.cryptography.key.KeyRequestDto;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
@@ -21,11 +23,13 @@ import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
+import com.otilm.core.model.connector.ImmutableConnectorInterface;
 import com.otilm.core.model.crypto.ImmutableTokenInstanceFullModel;
 import com.otilm.core.model.crypto.ImmutableTokenProfileFullModel;
 import com.otilm.core.model.crypto.KeyMaterial;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.security.authz.SecuredParentUUID;
+import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.key.KeyProviderAdapter;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import com.otilm.core.service.handler.key.KeyProviderV1Adapter;
@@ -48,6 +52,7 @@ import static com.otilm.core.util.builders.ProviderKeyItemBuilder.aProviderKeyIt
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -89,6 +94,7 @@ class CryptographicKeyServiceImplCreationValidationTest {
         service.setCryptographicKeyWriter(writer);
         service.setKeyProviderAdapterFactory(adapters);
         service.setAttributeEngine(attributeEngine);
+        service.setConnectorCapabilityService(new ConnectorCapabilityService());
     }
 
     @ParameterizedTest
@@ -158,7 +164,8 @@ class CryptographicKeyServiceImplCreationValidationTest {
         when(adapters.forToken(profile.tokenInstance())).thenReturn(adapter);
         when(adapter.listCreateKeyAttributes(profile, type)).thenReturn(definitions);
         ConnectorException creationReached = new ConnectorException("Creation endpoint reached");
-        when(adapter.createKey(profile, type, request.getAttributes(), request.getName())).thenThrow(creationReached);
+        when(adapter.createKey(profile, type, request.getAttributes(), request.getName(), false))
+                .thenThrow(creationReached);
 
         // when
         Executable create = () -> createKey(type);
@@ -171,7 +178,7 @@ class CryptographicKeyServiceImplCreationValidationTest {
                 .verify(attributeEngine)
                 .validateUpdateDataAttributes(eq(profile.connectorUuid()), isNull(), same(definitions),
                         same(request.getAttributes()));
-        order.verify(adapter).createKey(profile, type, request.getAttributes(), request.getName());
+        order.verify(adapter).createKey(profile, type, request.getAttributes(), request.getName(), false);
         verifyNoInteractions(client, writer);
     }
 
@@ -248,7 +255,7 @@ class CryptographicKeyServiceImplCreationValidationTest {
         KeyProviderAdapter adapter = mock(KeyProviderAdapter.class);
         when(adapters.forToken(profile.tokenInstance())).thenReturn(adapter);
         when(adapter.listCreateKeyAttributes(profile, KeyRequestType.KEY_PAIR)).thenReturn(definitions);
-        when(adapter.createKey(profile, KeyRequestType.KEY_PAIR, request.getAttributes(), request.getName()))
+        when(adapter.createKey(profile, KeyRequestType.KEY_PAIR, request.getAttributes(), request.getName(), false))
                 .thenReturn(createdItems);
     }
 
@@ -323,11 +330,60 @@ class CryptographicKeyServiceImplCreationValidationTest {
         return SecuredParentUUID.fromUUID(profile.uuid());
     }
 
+    @Test
+    void createKey_refusesAnExportableKeyOnAConnectorThatCannotExport() {
+        // given
+        request.setExportable(true);
+
+        // when
+        Executable create = () -> createKey(KeyRequestType.KEY_PAIR);
+
+        // then
+        ValidationException refused = assertThrows(ValidationException.class, create);
+        assertTrue(refused.getMessage().contains("does not support key export"));
+        verifyNoInteractions(client);
+    }
+
+    @Test
+    void createKey_acceptsAnExportableKeyOnAConnectorThatCanExport() throws Exception {
+        // given
+        ConnectorCapabilityService capabilities = mock(ConnectorCapabilityService.class);
+        when(capabilities.supports(profile.tokenInstance().connectorInterface(), FeatureFlag.KEY_EXPORT))
+                .thenReturn(true);
+        service.setConnectorCapabilityService(capabilities);
+        request.setExportable(true);
+        ConnectorException creationReached = new ConnectorException("Creation endpoint reached");
+        stubDefinitions(KeyRequestType.KEY_PAIR);
+        failAtProviderCreation(KeyRequestType.KEY_PAIR, creationReached);
+
+        // when
+        Executable create = () -> createKey(KeyRequestType.KEY_PAIR);
+
+        // then
+        assertSame(creationReached, assertThrows(ConnectorException.class, create));
+    }
+
+    @Test
+    void createKey_acceptsANonExportableKeyOnAConnectorThatCannotExport() throws Exception {
+        // given
+        ConnectorException creationReached = new ConnectorException("Creation endpoint reached");
+        stubDefinitions(KeyRequestType.KEY_PAIR);
+        failAtProviderCreation(KeyRequestType.KEY_PAIR, creationReached);
+
+        // when
+        Executable create = () -> createKey(KeyRequestType.KEY_PAIR);
+
+        // then
+        assertSame(creationReached, assertThrows(ConnectorException.class, create));
+    }
+
     private static ImmutableTokenProfileFullModel tokenProfile() {
         UUID connectorUuid = UUID.randomUUID();
+        ImmutableConnectorInterface connectorInterface = new ImmutableConnectorInterface(UUID.randomUUID(),
+                ConnectorInterface.CRYPTOGRAPHY, "v2", List.of());
         ImmutableTokenInstanceFullModel token = new ImmutableTokenInstanceFullModel(UUID.randomUUID(),
                 UUID.randomUUID().toString(), "token", TokenInstanceStatus.ACTIVATED, null, connectorUuid, "connector",
-                null, null, Set.of());
+                connectorInterface.uuid(), connectorInterface, Set.of());
         return new ImmutableTokenProfileFullModel(UUID.randomUUID(), "profile", null, token.name(), token.uuid(), true,
                 List.of(), token, connectorUuid);
     }

@@ -4,6 +4,8 @@ import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.connector.v2.FeatureFlag.FeatureFlagBehavior;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
+import com.otilm.core.model.connector.ImmutableConnectorInterface;
+import java.util.List;
 import org.springframework.stereotype.Service;
 
 /**
@@ -31,10 +33,7 @@ public class ConnectorCapabilityService {
      * it is correct even when the connector exposes multiple versions of the same interface.
      */
     public boolean supports(ConnectorInterfaceEntity iface, FeatureFlag flag) {
-        if (flag.getBehavior() == FeatureFlagBehavior.INFORMATIONAL) {
-            return true;
-        }
-        return advertises(iface, flag);
+        return supports(flag, iface == null ? null : iface.getFeatures());
     }
 
     /**
@@ -44,7 +43,17 @@ public class ConnectorCapabilityService {
         return supports(authority != null ? authority.getConnectorInterface() : null, flag);
     }
 
-    private static boolean advertises(ConnectorInterfaceEntity iface, FeatureFlag flag) {
-        return iface != null && iface.getFeatures() != null && iface.getFeatures().contains(flag);
+    /**
+     * Per-snapshot check — for callers holding the immutable interface a model carries rather than the entity.
+     */
+    public boolean supports(ImmutableConnectorInterface iface, FeatureFlag flag) {
+        return supports(flag, iface == null ? null : iface.features());
+    }
+
+    private static boolean supports(FeatureFlag flag, List<FeatureFlag> advertised) {
+        if (flag.getBehavior() == FeatureFlagBehavior.INFORMATIONAL) {
+            return true;
+        }
+        return advertised != null && advertised.contains(flag);
     }
 }

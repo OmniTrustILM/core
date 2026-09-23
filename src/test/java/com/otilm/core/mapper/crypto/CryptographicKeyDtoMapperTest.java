@@ -119,6 +119,21 @@ class CryptographicKeyDtoMapperTest {
         });
     }
 
+    @Test
+    void mapItemToDetailDto_statesTheExportPermission() {
+        // given
+        CryptographicKeyItemBasicModel item = aKeyItemSnapshot().withExportable(true).build();
+        var model = aKeySnapshot().withItems(List.of(item)).build();
+
+        // when
+        var dto = CryptographicKeyDtoMapper.mapItemToDetailDto(item);
+        var nestedItems = CryptographicKeyDtoMapper.getKeyItems(model);
+
+        // then
+        assertThat(dto.isExportable()).isTrue();
+        assertThat(nestedItems).singleElement().satisfies(nested -> assertThat(nested.isExportable()).isTrue());
+    }
+
     @ParameterizedTest(name = "{0}")
     @MethodSource("keyMaterialResponses")
     void getKeyItemsSummary_matchesDetailFormat(CryptographicKeyItemBasicModel item, KeyFormat expectedFormat) {
