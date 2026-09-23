@@ -2,6 +2,7 @@ package com.otilm.core.service.impl;
 
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.cryptography.key.KeyRequestDto;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
@@ -9,6 +10,7 @@ import com.otilm.core.config.cache.CacheEvictor;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
+import com.otilm.core.model.connector.ImmutableConnectorInterface;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyBasicModel;
 import com.otilm.core.model.crypto.ImmutableTokenInstanceFullModel;
 import com.otilm.core.model.crypto.KeyMaterial;
@@ -73,8 +75,8 @@ class CryptographicKeyServiceImplSyncTest {
     @Test
     void syncKeys_skipsProvidersWithoutDiscovery() throws Exception {
         // given
-        UUID v2InterfaceUuid = UUID.randomUUID();
-        var v2Token = token(v2InterfaceUuid);
+        var v2Token = token(
+                new ImmutableConnectorInterface(UUID.randomUUID(), ConnectorInterface.CRYPTOGRAPHY, "v2", List.of()));
         when(tokens.findFullModelByUuid(v2Token.uuid())).thenReturn(Optional.of(v2Token));
 
         // when
@@ -200,9 +202,10 @@ class CryptographicKeyServiceImplSyncTest {
         return SecuredParentUUID.fromUUID(token.uuid());
     }
 
-    private static ImmutableTokenInstanceFullModel token(UUID interfaceUuid) {
+    private static ImmutableTokenInstanceFullModel token(ImmutableConnectorInterface connectorInterface) {
         return new ImmutableTokenInstanceFullModel(UUID.randomUUID(), UUID.randomUUID().toString(), "token",
-                TokenInstanceStatus.ACTIVATED, null, UUID.randomUUID(), "connector", interfaceUuid, null, Set.of());
+                TokenInstanceStatus.ACTIVATED, null, UUID.randomUUID(), "connector",
+                connectorInterface == null ? null : connectorInterface.uuid(), connectorInterface, Set.of());
     }
 
     private static KeyMaterial material() {

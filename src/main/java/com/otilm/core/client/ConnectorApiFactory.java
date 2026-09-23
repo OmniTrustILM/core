@@ -183,7 +183,11 @@ public class ConnectorApiFactory {
         return restClient;
     }
 
-    private <T> T getClient(ApiClientConnectorInfo connector, T restClient, Optional<? extends T> mqClient) {
+    /**
+     * Shared within {@code com.otilm.core.client} so version-specific client holders such as
+     * {@link CryptographyV2ApiClients} reuse the proxy selection rule instead of duplicating it.
+     */
+    <T> T getClient(ApiClientConnectorInfo connector, T restClient, Optional<? extends T> mqClient) {
         Objects.requireNonNull(connector, "connector must not be null");
         return getClient(connector.getProxy(), connector.getName(), restClient, mqClient);
     }

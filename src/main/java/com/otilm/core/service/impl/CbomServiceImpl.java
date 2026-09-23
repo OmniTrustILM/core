@@ -86,6 +86,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -634,8 +635,18 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
             return messages;
         }
 
-        Set<UUID> existingUuids = cbomRepository.findExistingUuids(uuids);
+        // Jackson deserialises an empty JSON string to a null UUID, so the list can carry an element that identifies
+        // nothing. Such an element earns a per-item failure like any other entry that cannot be deleted, rather than
+        // rejecting the whole call.
+        final List<UUID> identifiers = uuids.stream().filter(Objects::nonNull).toList();
+        final Set<UUID> existingUuids = identifiers.isEmpty()
+                ? Set.of()
+                : cbomRepository.findExistingUuids(identifiers);
         for (UUID uuid : uuids) {
+            if (uuid == null) {
+                messages.add(BulkActionMessageDto.failureWithMessage("", "", "Missing CBOM identifier"));
+                continue;
+            }
             if (!existingUuids.contains(uuid)) {
                 messages.add(BulkActionMessageDto.failureWithMessage(uuid.toString(), "", "CBOM entry not found"));
                 continue;

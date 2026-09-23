@@ -5,6 +5,7 @@ import com.otilm.core.model.crypto.CryptographicKeyBasicModel;
 import com.otilm.core.model.crypto.CryptographicKeyFullModel;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyBasicModel;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
+import com.otilm.core.model.crypto.KeyOperationScope;
 import jakarta.persistence.LockModeType;
 import java.util.List;
 import java.util.Optional;
@@ -81,4 +82,14 @@ public interface CryptographicKeyRepository extends SecurityFilterRepository<Cry
 
         long getAssociations();
     }
+
+    @Query("""
+            SELECT new com.otilm.core.model.crypto.KeyOperationScope(
+                profile.uuid, profile.name, profile.description, profile.tokenInstanceName,
+                profile.tokenInstanceReferenceUuid, profile.enabled, profile.usage)
+            FROM CryptographicKey key
+            JOIN key.tokenProfile profile
+            WHERE key.uuid = :uuid
+            """)
+    Optional<KeyOperationScope> findOperationScopeByUuid(@Param("uuid") UUID uuid);
 }
