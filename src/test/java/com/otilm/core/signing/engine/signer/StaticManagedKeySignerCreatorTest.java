@@ -1,10 +1,12 @@
 package com.otilm.core.signing.engine.signer;
 
 import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
+import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.model.crypto.CryptographicKeyItemModelFixtures;
 import com.otilm.core.model.signing.SigningCertificateBuilder;
 import com.otilm.core.model.signing.resolved.ResolvedStaticKeyManagedSigning;
@@ -12,6 +14,7 @@ import com.otilm.core.service.CryptographicOperationInternalService;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -116,9 +119,9 @@ class StaticManagedKeySignerCreatorTest {
                     });
         }
 
-        /** A provider that cannot be reached is a configuration the operator can fix, not a platform fault. */
+        /** A provider that was reached but did not deliver is a connector fault, not an operator-fixable setting. */
         @Test
-        void throwsMisconfigured_whenTheProviderCannotBeReached() throws Exception {
+        void throwsConnectorFault_whenTheProviderCannotBeReached() throws Exception {
             // given
             ResolvedStaticKeyManagedSigning scheme = new ResolvedStaticKeyManagedSigning(
                     SigningCertificateBuilder.valid(),
@@ -132,8 +135,53 @@ class StaticManagedKeySignerCreatorTest {
             // when / then
             assertThatThrownBy(() -> creator.create(scheme))
                     .isInstanceOf(SigningEngineException.class)
-                    .satisfies(ex -> assertThat(((SigningEngineException) ex).failure())
-                            .isEqualTo(SigningEngineFailure.MISCONFIGURED));
+                    .satisfies(ex -> {
+                        assertThat(((SigningEngineException) ex).failure())
+                                .isEqualTo(SigningEngineFailure.CONNECTOR_FAULT);
+                        assertThat(((SigningEngineException) ex).operatorMessage()).contains("provider unreachable");
+                    });
+        }
+
+        /** A defect that is neither a bad selection nor a connector failure must reach the engine unwrapped. */
+        @Test
+        void letsAnUnexpectedDefectEscape_ratherThanCallingItMisconfigured() throws Exception {
+            // given
+            ResolvedStaticKeyManagedSigning scheme = new ResolvedStaticKeyManagedSigning(
+                    SigningCertificateBuilder.valid(),
+                    List
+                            .of(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA),
+                                    CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA)),
+                    null, List.of());
+            given(cryptographicOperationService.resolveSignatureAlgorithm(any(), any(), anyList()))
+                    .willThrow(new IllegalStateException("connection pool exhausted"));
+
+            // when / then
+            assertThatThrownBy(() -> creator.create(scheme))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessage("connection pool exhausted");
+        }
+
+        @Test
+        void throwsMisconfigured_whenTheKeyHasNoOperationScope() throws Exception {
+            // given
+            ResolvedStaticKeyManagedSigning scheme = new ResolvedStaticKeyManagedSigning(
+                    SigningCertificateBuilder.valid(),
+                    List
+                            .of(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA),
+                                    CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA)),
+                    null, List.of());
+            given(cryptographicOperationService.resolveSignatureAlgorithm(any(), any(), anyList()))
+                    .willThrow(new NotFoundException(CryptographicKey.class, UUID.randomUUID()));
+
+            // when / then
+            assertThatThrownBy(() -> creator.create(scheme))
+                    .isInstanceOf(SigningEngineException.class)
+                    .satisfies(ex -> {
+                        assertThat(((SigningEngineException) ex).failure())
+                                .isEqualTo(SigningEngineFailure.MISCONFIGURED);
+                        assertThat(((SigningEngineException) ex).clientMessage())
+                                .isEqualTo("Internal error: signing configuration is invalid");
+                    });
         }
 
         @Test

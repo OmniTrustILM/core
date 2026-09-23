@@ -74,8 +74,7 @@ public interface CryptographicOperationInternalService {
     /**
      * Names the algorithm a signature made with this key and these attributes will carry, for a caller that must name
      * it in a structure it builds itself before the signature exists -- the {@code SignerInfo} of a CMS signature, for
-     * instance. A legacy key is answered from Core's own signature registry; a key on a cryptography provider v2 is
-     * answered by the provider, which is the only party that can read a selection from the vocabulary it owns.
+     * instance.
      *
      * @param privateKeyItem the signing key item
      * @param publicKeyItem the matching public key item, which carries the parameter set of a PQC key

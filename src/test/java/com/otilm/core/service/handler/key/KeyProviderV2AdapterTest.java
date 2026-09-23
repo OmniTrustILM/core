@@ -330,7 +330,6 @@ class KeyProviderV2AdapterTest {
         assertSame(attributes, sent.getValue().getSignatureAttributes());
     }
 
-    /** An attribute the connector's own schema does not offer is refused before the connector is asked. */
     @Test
     void resolveSignatureAlgorithm_rejectsAnAttributeTheSchemaDoesNotOffer() throws Exception {
         // given

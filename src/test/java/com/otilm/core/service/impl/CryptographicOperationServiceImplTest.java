@@ -17,6 +17,7 @@ import com.otilm.api.model.common.attribute.v3.MetadataAttributeV3;
 import com.otilm.api.model.common.enums.BitMaskEnum;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cryptography.key.KeyEvent;
@@ -42,6 +43,7 @@ import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.service.handler.key.KeyProviderAdapter;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import com.otilm.core.service.handler.key.OperationKeyContext;
+import com.otilm.core.service.handler.key.ResolvedSignatureAlgorithm;
 import com.otilm.core.service.handler.token.TokenProviderAdapter;
 import com.otilm.core.service.handler.token.TokenProviderAdapterFactory;
 import java.util.EnumSet;
@@ -571,6 +573,60 @@ class CryptographicOperationServiceImplTest {
         // the interfaces library, so independently built schemas are never equal by value; toString() carries the
         // same field data and does compare by value.
         assertEquals(RsaEncryptionAttributes.getRsaEncryptionAttributes().toString(), result.toString());
+        verifyNoInteractions(keyProviderAdapterFactory);
+    }
+
+    @Test
+    void resolveSignatureAlgorithm_routesLegacyItemToAdapter_withoutLoadingScope() throws Exception {
+        // given
+        CryptographicKeyItemOperationModel key = legacyKey();
+        when(keyProviderAdapterFactory.forKeyItem(key)).thenReturn(adapter);
+        when(adapter.resolveSignatureAlgorithm(any(), any(), any()))
+                .thenReturn(ResolvedSignatureAlgorithm.of(SignatureAlgorithm.SHA384_WITH_RSA));
+
+        // when
+        SignatureAlgorithm resolved = service.resolveSignatureAlgorithm(key, key, List.of());
+
+        // then
+        assertEquals(SignatureAlgorithm.SHA384_WITH_RSA, resolved);
+        ArgumentCaptor<OperationKeyContext> context = ArgumentCaptor.forClass(OperationKeyContext.class);
+        verify(adapter).resolveSignatureAlgorithm(context.capture(), any(), any());
+        assertSame(key, context.getValue().keyItem());
+        assertNull(context.getValue().tokenProfile());
+        verifyNoInteractions(cryptographicKeyRepository);
+    }
+
+    @Test
+    void resolveSignatureAlgorithm_loadsProfileScope_forV2Item() throws Exception {
+        // given
+        CryptographicKeyItemOperationModel key = v2Key();
+        KeyOperationScope scope = scope();
+        when(cryptographicKeyRepository.findOperationScopeByUuid(key.keyUuid())).thenReturn(Optional.of(scope));
+        when(keyProviderAdapterFactory.forKeyItem(key)).thenReturn(adapter);
+        when(adapter.resolveSignatureAlgorithm(any(), any(), any()))
+                .thenReturn(ResolvedSignatureAlgorithm.of(SignatureAlgorithm.ML_DSA_65));
+
+        // when
+        SignatureAlgorithm resolved = service.resolveSignatureAlgorithm(key, key, List.of());
+
+        // then
+        assertEquals(SignatureAlgorithm.ML_DSA_65, resolved);
+        ArgumentCaptor<OperationKeyContext> context = ArgumentCaptor.forClass(OperationKeyContext.class);
+        verify(adapter).resolveSignatureAlgorithm(context.capture(), any(), any());
+        assertEquals(scope.tokenProfileUuid(), context.getValue().tokenProfile().uuid());
+    }
+
+    @Test
+    void resolveSignatureAlgorithm_throwsNotFound_forV2ItemWithoutScope() {
+        // given
+        CryptographicKeyItemOperationModel key = v2Key();
+        when(cryptographicKeyRepository.findOperationScopeByUuid(key.keyUuid())).thenReturn(Optional.empty());
+
+        // when
+        Executable resolve = () -> service.resolveSignatureAlgorithm(key, key, List.of());
+
+        // then
+        assertThrows(NotFoundException.class, resolve);
         verifyNoInteractions(keyProviderAdapterFactory);
     }
 

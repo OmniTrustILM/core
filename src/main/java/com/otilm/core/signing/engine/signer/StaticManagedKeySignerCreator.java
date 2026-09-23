@@ -2,6 +2,7 @@ package com.otilm.core.signing.engine.signer;
 
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
@@ -72,14 +73,15 @@ public class StaticManagedKeySignerCreator implements SignerCreator {
     }
 
     /**
-     * The algorithm is resolved on the provider boundary, because a cryptography provider v2 owns the signing
-     * vocabulary its attributes are drawn from and is the only party that can read a selection made from it. A legacy
-     * key is answered from Core's own registry by the same call.
-     *
-     * <p>
      * Operator-supplied attributes can name a signature algorithm the platform has no entry for -- a SHA-1 digest, or a
      * PQC parameter set outside the enum. That is a Signing Profile the operator can fix, so it is refused as
      * MISCONFIGURED rather than escaping as the unchecked throw a caller would log as a platform fault.
+     *
+     * <p>
+     * Resolution reaches a repository and, for a cryptography provider v2, the connector, so the failure classes are
+     * kept apart rather than collapsed: a provider that was reached but did not deliver is a CONNECTOR_FAULT, and any
+     * other unexpected defect is deliberately left to escape so the engine logs it with a stack trace instead of
+     * reporting it as an operator-fixable setting.
      * </p>
      */
     private SignatureAlgorithm resolveSignatureAlgorithm(CryptographicKeyItemOperationModel privateKeyItem,
@@ -88,11 +90,21 @@ public class StaticManagedKeySignerCreator implements SignerCreator {
         try {
             return cryptographicOperationService
                     .resolveSignatureAlgorithm(privateKeyItem, publicKeyItem, requestAttributes);
-        } catch (ConnectorException | NotFoundException | RuntimeException e) {
+        } catch (ValidationException e) {
             throw new SigningEngineException(SigningEngineFailure.MISCONFIGURED,
                     "signing key algorithm '%s' and its signing attributes name no signature algorithm the platform supports: %s"
                             .formatted(privateKeyItem.keyAlgorithm(), e.getMessage()),
                     e, "Signing key algorithm is not supported.");
+        } catch (NotFoundException e) {
+            throw new SigningEngineException(SigningEngineFailure.MISCONFIGURED,
+                    "no operation scope is recorded for signing key '%s': %s"
+                            .formatted(privateKeyItem.keyUuid(), e.getMessage()),
+                    e, "Internal error: signing configuration is invalid");
+        } catch (ConnectorException e) {
+            throw new SigningEngineException(SigningEngineFailure.CONNECTOR_FAULT,
+                    "cryptography provider named no signature algorithm for signing key '%s': %s"
+                            .formatted(privateKeyItem.keyUuid(), e.getMessage()),
+                    e, "Internal error");
         }
     }
 }
