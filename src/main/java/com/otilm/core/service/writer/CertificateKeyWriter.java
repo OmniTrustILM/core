@@ -47,8 +47,7 @@ public class CertificateKeyWriter {
         parent.setName(name);
         keyRepository.save(parent);
         CryptographicKeyItem item = publicKeyItem(parent, publicKey, keyLength, fingerprint);
-        // No key_meta: it is a token's reference to the key, and a key held without a token has none.
-        if (itemRepository.insertWithFingerprintConflictResolve(item, null) == 1) {
+        if (itemRepository.insertWithFingerprintConflictResolve(item) == 1) {
             return parent.getUuid();
         }
 
