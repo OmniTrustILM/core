@@ -774,11 +774,7 @@ public class AttributeEngine {
                                 UUID.fromString(String.valueOf(RequestAttribute.getUuid())), RequestAttribute.getName())
                         .orElse(null);
                 if (missingDefinition != null) {
-                    // update operation - if attribute is retrieved by callback, we do not know its operation
-                    if (!Objects.equals(missingDefinition.getOperation(), operation)) {
-                        missingDefinition.setOperation(operation);
-                        attributeDefinitionRepository.save(missingDefinition);
-                    }
+                    claimUnknownOperation(missingDefinition, operation);
                     definitionsMapping.put(RequestAttribute.getName(), missingDefinition);
                 }
             }

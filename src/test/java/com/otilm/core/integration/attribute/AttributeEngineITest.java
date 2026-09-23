@@ -100,6 +100,7 @@ import com.otilm.core.security.authz.SecurityResourceFilter;
 import com.otilm.core.service.CertificateExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.builders.DataAttributeV3Builder;
+import com.otilm.core.util.builders.RequestAttributeV3Builder;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.PersistenceContext;
@@ -2758,6 +2759,57 @@ class AttributeEngineITest extends BaseSpringBootTest {
 
         // then
         Assertions.assertEquals(AttributeOperation.SIGN, storedOperation(connectorUuid, definition));
+    }
+
+    @Test
+    void validateUpdateDataAttributes_keepsTheOperationClaimed_whenAnotherOperationFillsACallbackDefinition()
+            throws AttributeException {
+        // given: a callback delivered the definition, and a first write claimed it
+        UUID connectorUuid = connectorDiscovery.getUuid();
+        DataAttributeV3 definition = DataAttributeV3Builder.aDataAttribute().withName("digestAlgorithm").build();
+        attributeEngine.updateDataAttributeDefinitions(connectorUuid, null, List.of(definition));
+        RequestAttribute content = RequestAttributeV3Builder
+                .aCustomAttribute()
+                .withUuid(definition.getUuid())
+                .withName(definition.getName())
+                .withStringContent("SHA-256")
+                .build();
+        attributeEngine
+                .validateUpdateDataAttributes(connectorUuid, AttributeOperation.SIGN, List.of(), List.of(content));
+
+        // when
+        attributeEngine
+                .validateUpdateDataAttributes(connectorUuid, AttributeOperation.WORKFLOW_FORMATTING, List.of(),
+                        List.of(content));
+
+        // then
+        Assertions.assertEquals(AttributeOperation.SIGN, storedOperation(connectorUuid, definition));
+    }
+
+    @Test
+    void updateDataAttributeDefinitions_keepsAClaimThatCommitsWhileARepublishRuns() throws AttributeException {
+        // given
+        UUID connectorUuid = connectorDiscovery.getUuid();
+        DataAttributeV3 definition = DataAttributeV3Builder.aDataAttribute().withName("digestAlgorithm").build();
+        attributeEngine.updateDataAttributeDefinitions(connectorUuid, null, List.of(definition));
+
+        // when: the republish has loaded the definition before the claim commits
+        inNewTransaction(() -> {
+            storedOperation(connectorUuid, definition);
+            inNewTransaction(() -> publish(connectorUuid, AttributeOperation.SIGN, definition));
+            publish(connectorUuid, null, definition);
+        });
+
+        // then
+        Assertions.assertEquals(AttributeOperation.SIGN, storedOperation(connectorUuid, definition));
+    }
+
+    private void publish(UUID connectorUuid, String operation, DataAttributeV3 definition) {
+        try {
+            attributeEngine.updateDataAttributeDefinitions(connectorUuid, operation, List.of(definition));
+        } catch (AttributeException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private String storedOperation(UUID connectorUuid, DataAttributeV3 definition) {

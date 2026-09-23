@@ -40,6 +40,7 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
+import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.Mutability;
 import org.hibernate.proxy.HibernateProxy;
@@ -54,6 +55,7 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 @ToString
 @RequiredArgsConstructor
 @Entity
+@DynamicUpdate
 @Table(name = "attribute_definition")
 @EntityListeners(AuditingEntityListener.class)
 public class AttributeDefinition extends UniquelyIdentified implements ObjectAccessControlMapper<NameAndUuidDto> {
@@ -116,6 +118,10 @@ public class AttributeDefinition extends UniquelyIdentified implements ObjectAcc
     @Column(name = "global")
     private Boolean global;
 
+    /**
+     * Claimed once, by the first write that knows it. {@code @DynamicUpdate} keeps a concurrent writer holding an older
+     * copy from writing a stale value back.
+     */
     @Column(name = "operation")
     private String operation;
 

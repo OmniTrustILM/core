@@ -362,14 +362,14 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
 
     private void persistV2KeyPair(TokenInstanceReference token, TokenProfile profile, KeyPair keyPair)
             throws NoSuchAlgorithmException {
-        CryptographicKey key = new CryptographicKey();
-        key.setName("v2-key");
-        key.setTokenProfile(profile);
-        key.setTokenInstanceReference(token);
-        key = cryptographicKeyRepository.save(key);
+        CryptographicKey v2Key = new CryptographicKey();
+        v2Key.setName("v2-key");
+        v2Key.setTokenProfile(profile);
+        v2Key.setTokenInstanceReference(token);
+        v2Key = cryptographicKeyRepository.save(v2Key);
         String publicKeyData = Base64.getEncoder().encodeToString(keyPair.getPublic().getEncoded());
-        persistV2KeyItem(key, KeyType.PRIVATE_KEY, null, null);
-        persistV2KeyItem(key, KeyType.PUBLIC_KEY, publicKeyData,
+        persistV2KeyItem(v2Key, KeyType.PRIVATE_KEY, null, null);
+        persistV2KeyItem(v2Key, KeyType.PUBLIC_KEY, publicKeyData,
                 CertificateUtil.getThumbprint(publicKeyData.getBytes(StandardCharsets.UTF_8)));
     }
 
@@ -390,7 +390,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         value.setLength(2048);
         value.setState(KeyState.ACTIVE);
         value.setEnabled(true);
-        value.setUsage(type == KeyType.PUBLIC_KEY ? List.of(KeyUsage.VERIFY) : List.of(KeyUsage.SIGN));
+        value.setUsage(List.of(type == KeyType.PUBLIC_KEY ? KeyUsage.VERIFY : KeyUsage.SIGN));
         value.setKeyMeta(List.of(handle));
         value.setKeyData(keyData);
         value.setFingerprint(fingerprint);
