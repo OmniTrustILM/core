@@ -412,13 +412,15 @@ public class PqcEvaluator {
      * {@code materialSize} counts only on a material row. A producer bug stamps the material block onto algorithms too,
      * and there the row's own size is its parameter set -- a strayed size would otherwise decide {@code AES-64} ready
      * and {@code AES-256} undersized. On a construction the parameter set is not a key size but its primitive's digest
-     * or a tag length, so only a material row's key counts.
+     * or a tag length, so only a material row's key counts. When a key's name spells a size too, the smaller decides: a
+     * declared size must not clear a key its own algorithm name fails.
      */
     private Integer recordedSizeBits(PqcRuleInput input, boolean construction) {
+        Integer named = construction ? null : withinRatifiedSizeBand(input.parameterSet());
         if (input.assetType() == CryptographicAssetType.RELATED_CRYPTO_MATERIAL && input.materialSize() != null) {
-            return input.materialSize();
+            return named == null ? input.materialSize() : Math.min(input.materialSize(), named);
         }
-        return construction ? null : withinRatifiedSizeBand(input.parameterSet());
+        return named;
     }
 
     /**
@@ -478,17 +480,23 @@ public class PqcEvaluator {
      * {@code related-crypto-material} component, with or without an {@code algorithmRef} -- so a private key whose own
      * name says {@code RSA-2048} reached the rules with nothing to classify. The name is a column, so reading the
      * family out of it is available to every caller. Confined to material: on an algorithm row a null family is the
-     * normalizer's decision, a cipher suite above all, and stands.
+     * normalizer's decision, a cipher suite above all, and stands. The same goes for the size the name spells, which
+     * the material tier also leaves unread.
      */
     public PqcRuleInput fromStoredRow(CryptoAssetIdentityFields fields, JsonNode mergedCryptoProperties) {
+        boolean material = fields.assetType() == CryptographicAssetType.RELATED_CRYPTO_MATERIAL;
         String family = ratifiedFamily(fields.algorithmFamily());
-        if (family == null && fields.assetType() == CryptographicAssetType.RELATED_CRYPTO_MATERIAL) {
+        if (family == null && material) {
             family = ratifiedFamily(normalizer.familyFromName(fields.name()));
+        }
+        Integer parameterSet = parameterSet(fields.parameterSet());
+        if (parameterSet == null && material) {
+            parameterSet = sizeFromName(fields.name());
         }
         String secondary = normalizer.secondaryTokens(fields.name(), family);
         List<String> hybrid = normalizer.hybridComponents(family, secondary);
-        return new PqcRuleInput(fields.assetType(), family, parameterSet(fields.parameterSet()), fields.curve(),
-                fields.mode(), fields.padding(), variantOf(fields, secondary), fields.name(), hybrid,
+        return new PqcRuleInput(fields.assetType(), family, parameterSet, fields.curve(), fields.mode(),
+                fields.padding(), variantOf(fields, secondary), fields.name(), hybrid,
                 materialType(mergedCryptoProperties), materialSize(mergedCryptoProperties), fields.oid());
     }
 
@@ -501,6 +509,11 @@ public class PqcEvaluator {
             return fields.variant();
         }
         return secondaryTokens == null || secondaryTokens.isEmpty() ? null : secondaryTokens;
+    }
+
+    private Integer sizeFromName(String name) {
+        Integer parsed = normalizer.parseParameterSet(name, null, new ArrayList<>());
+        return parsed != null ? parsed : normalizer.intrinsicParameterSet(name);
     }
 
     /** The normalizer's routing vocabulary onto the column's enum; the unroutable tier has no producer spelling. */

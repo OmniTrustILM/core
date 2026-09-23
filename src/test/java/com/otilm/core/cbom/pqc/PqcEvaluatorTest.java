@@ -179,6 +179,23 @@ class PqcEvaluatorTest {
                 .isEqualTo("MATERIAL-SYMMETRIC-READY");
     }
 
+    /** A declared key size does not outvote the size the name spells, or a key could clear what its algorithm fails. */
+    @Test
+    void aKeyNamedForAnUndersizedAlgorithmIsAsUndersizedAsTheAlgorithm() {
+        for (String undersized : new String[]{"AES-64", "RC6-64"}) {
+            String asAlgorithm = verdictOf(algorithm(undersized)).ruleId();
+            assertThat(asAlgorithm).isEqualTo("SYMMETRIC-UNDERSIZED");
+            for (Integer size : new Integer[]{256, null}) {
+                PqcDecision key = verdictOf(material(undersized, "secret-key", size));
+                assertThat(key.verdict())
+                        .describedAs("a %s-bit %s key", size, undersized)
+                        .isEqualTo(PqcVerdict.NOT_READY);
+                assertThat(key.ruleId()).describedAs("a %s-bit %s key", size, undersized).isEqualTo(asAlgorithm);
+            }
+        }
+        assertThat(verdictOf(material("AES-128", "secret-key", 256)).ruleId()).isEqualTo("MATERIAL-SYMMETRIC-READY");
+    }
+
     @Test
     void anAdequateSizeIsEvidenceForTheReadyVerdict() {
         PqcDecision algorithm = verdictOf(algorithm("AES-128"));
