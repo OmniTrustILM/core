@@ -37,6 +37,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Component;
 
 /**
@@ -241,7 +242,7 @@ public class DiscoveryProcessTickWorker {
     private static String endingReason(boolean certificatesFailed, boolean itemsFailed) {
         String where;
         if (certificatesFailed && itemsFailed) {
-            where = ", and the discovery certificate list and the run's items for per-row detail";
+            where = ", the discovery certificate list and the run's items for per-row detail";
         } else if (certificatesFailed) {
             where = ", and the discovery certificate list for per-certificate detail";
         } else if (itemsFailed) {
@@ -258,22 +259,26 @@ public class DiscoveryProcessTickWorker {
      */
     private void importStagedKeys(Discovery run) {
         List<DiscoveryItem> keys = itemRepository
-                .findByDiscoveryUuidAndResourceAndProcessedAtIsNullAndProcessedErrorIsNull(run.getUuid(),
-                        Resource.CRYPTOGRAPHIC_KEY, PageRequest.of(0, batchSize));
+                .findByDiscoveryUuidAndResourceAndProcessedAtIsNullAndProcessedErrorIsNullOrderBySequenceAscUuidAsc(
+                        run.getUuid(), Resource.CRYPTOGRAPHIC_KEY, PageRequest.of(0, batchSize));
         if (keys.isEmpty()) {
             return;
         }
-        // The key pipeline enforces CRYPTOGRAPHIC_KEY:CREATE, and a tick arrives on a JMS thread with no
-        // principal, so the run's own user goes on first -- as it does for the certificate batch.
-        authenticateAsTheRunsUser(run);
         KeyImportOutcome outcome;
         try {
+            // The key pipeline enforces CRYPTOGRAPHIC_KEY:CREATE, and a tick arrives on a JMS thread with no
+            // principal, so the run's own user goes on first. Inside the try, as for the certificate batch: a user
+            // that cannot be put on the thread must end up on the stall path, not out of the tick.
+            authenticateAsTheRunsUser(run);
             outcome = keyImportHandler.importBatch(run, keys);
         } catch (Exception e) {
-            // Nothing was refused, so there is nothing to report: the page never started. Swallowed rather than
-            // rethrown so the unchanged backlog goes to the bounded stall path, as the certificate batch does.
+            // Swallowed rather than rethrown so the unchanged backlog goes to the bounded stall path.
             logger.error("Importing staged keys for discovery {} did not start: {}", run.getUuid(), e.getMessage(), e);
+            reportUnfinishedKeyPage(run, e instanceof AccessDeniedException);
             return;
+        }
+        if (outcome.aborted()) {
+            reportUnfinishedKeyPage(run, false);
         }
         if (outcome.failed() == 0) {
             return;
@@ -288,6 +293,21 @@ public class DiscoveryProcessTickWorker {
                                         DiscoveryMessageCode.KEY_IMPORT_FAILED,
                                         "A discovered key could not be imported. The item listing says which, and why.",
                                         outcome.failed())));
+    }
+
+    /**
+     * Says why a page of keys did not finish, since the stall path that may end the run sends the operator to the
+     * messages. A refused permission is a warning: it fails the same way on every retry until someone grants it.
+     */
+    private void reportUnfinishedKeyPage(Discovery run, boolean refused) {
+        recordQuietly(run.getUuid(), "a page of keys that did not complete", () -> messageWriter
+                .append(run.getUuid(), refused ? DiscoveryMessageSeverity.WARNING : DiscoveryMessageSeverity.INFO,
+                        DiscoveryMessageCode.BATCH_PROCESSING_FAILED,
+                        refused
+                                ? "Discovered keys could not be imported: the user who started this run is "
+                                        + "not allowed to create keys."
+                                : "A batch of discovered keys did not complete and went back for another "
+                                        + "attempt."));
     }
 
     /**

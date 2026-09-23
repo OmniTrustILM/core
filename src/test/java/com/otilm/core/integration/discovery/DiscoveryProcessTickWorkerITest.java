@@ -243,6 +243,29 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
         assertThat(untouched.getInventoryUuid()).isNull();
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.PROCESSING);
         assertThat(processRow(run).getAttempt()).as("a tick that accounted for nothing backs off").isEqualTo(1);
+        // A refusal no retry can pass: the run will end on its budget, and this is what it will point the operator at.
+        assertThat(messages(run))
+                .filteredOn(message -> DiscoveryMessageCode.BATCH_PROCESSING_FAILED.code().equals(message.getCode()))
+                .singleElement()
+                .satisfies(message -> {
+                    assertThat(message.getSeverity()).isEqualTo(DiscoveryMessageSeverity.WARNING);
+                    assertThat(message.getMessage()).contains("not allowed to create keys");
+                });
+    }
+
+    @Test
+    void keyImportWhoseUserCannotBeInstalled_backsOffRatherThanRetryingForever() throws Exception {
+        Discovery run = processingRun();
+        stageKeys(run, 1);
+        doThrow(new IllegalStateException("no such user")).when(authHelper).authenticateAsUser(RUN_OWNER);
+
+        // Escaping the tick would leave the attempt where it was, so the budget that ends a failing run never runs out.
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(processRow(run).getAttempt()).isEqualTo(1);
+        assertThat(messages(run))
+                .extracting(DiscoveryMessage::getCode)
+                .contains(DiscoveryMessageCode.BATCH_PROCESSING_FAILED.code());
     }
 
     @Test

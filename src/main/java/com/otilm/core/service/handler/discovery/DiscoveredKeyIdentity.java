@@ -14,8 +14,9 @@ import java.util.Optional;
  * Computed from the material whenever there is material, with the call {@code CertificateHandler} makes for a
  * certificate's public key: the v2 contract asks a connector for an intrinsic fingerprint but does not say how to
  * compute one, so trusting the connector's string would file the same key twice — once as a key, once as the key of a
- * certificate carrying it. A connector's own value identifies only the key types that have no public part, which no
- * certificate can collide with.
+ * certificate carrying it. That convergence holds for SubjectPublicKeyInfo material, which is what a certificate
+ * carries; a key reported in another encoding is identified by its own bytes. A connector's own value identifies only
+ * the key types that have no public part, which no certificate can collide with.
  *
  * <p>
  * Staging and import both ask here. Asked different questions they would disagree: a key the inventory already holds
@@ -56,7 +57,9 @@ public final class DiscoveredKeyIdentity {
 
     private static String fromMaterial(String base64Material) {
         try {
-            byte[] encoded = Base64.getDecoder().decode(base64Material);
+            // Whitespace is dropped rather than decoded leniently: wrapped lines are still Base64, anything else is
+            // not.
+            byte[] encoded = Base64.getDecoder().decode(base64Material.replaceAll("\\s", ""));
             return CertificateUtil
                     .getThumbprint(Base64.getEncoder().encodeToString(encoded).getBytes(StandardCharsets.UTF_8));
         } catch (IllegalArgumentException e) {

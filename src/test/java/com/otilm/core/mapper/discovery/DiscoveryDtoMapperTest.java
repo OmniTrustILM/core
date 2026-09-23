@@ -1,10 +1,14 @@
 package com.otilm.core.mapper.discovery;
 
 import com.otilm.api.model.client.discovery.DiscoveryDetailDto;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.connector.discovery.v2.DiscoveredKeyDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.discovery.DiscoveryItemDto;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.repository.DiscoveryItemRow;
+import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.util.CertificateUtil;
 import java.time.Instant;
 import java.util.UUID;
@@ -54,6 +58,20 @@ class DiscoveryDtoMapperTest {
     }
 
     @Test
+    void theResourceAndThePayloadNameTheSameResource() throws Exception {
+        DiscoveredKeyDto key = new DiscoveredKeyDto();
+        key.setType(KeyType.PUBLIC_KEY);
+        key.setAlgorithm(KeyAlgorithm.RSA);
+        String payload = ObjectMapperFactory.jsonColumn().writeValueAsString(key);
+
+        DiscoveryItemDto dto = DiscoveryDtoMapper.toItemDto(row("CRYPTOGRAPHIC_KEY", null, null, payload));
+
+        // Stored side by side rather than one read off the other, so this is the one place they could part company.
+        assertThat(dto.getPayload()).isNotNull();
+        assertThat(dto.getResource()).isEqualTo(dto.getPayload().getResource());
+    }
+
+    @Test
     void anObjectWithNoNameOfItsOwnReadsAsTheCertificateListingReadsIt() {
         // A certificate with no common name -- a SAN-only one -- has nothing to be called, and the certificate
         // listing already answers that with a placeholder. Two listings of the same object must not disagree.
@@ -70,6 +88,10 @@ class DiscoveryDtoMapperTest {
     }
 
     private static DiscoveryItemRow row(String resource, UUID inventoryUuid, String inventoryName) {
+        return row(resource, inventoryUuid, inventoryName, null);
+    }
+
+    private static DiscoveryItemRow row(String resource, UUID inventoryUuid, String inventoryName, String payload) {
         return new DiscoveryItemRow() {
 
             @Override
@@ -109,7 +131,7 @@ class DiscoveryDtoMapperTest {
 
             @Override
             public String getPayload() {
-                return null;
+                return payload;
             }
 
             @Override

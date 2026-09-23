@@ -62,12 +62,13 @@ public interface DiscoveryItemRepository extends JpaRepository<DiscoveryItem, UU
     // Aliases on the outer select are quoted: Postgres folds an unquoted one to lower case and the projection binds
     // by exact label. Ordering inside the union is positional -- only the first branch's labels are in scope there --
     // and the outer ORDER BY repeats it by name, since a CTE's ordering need not survive into the query above it.
-    // inventory_name is joined per resource because the name lives in the resource's own table; a resource with no
-    // branch here lists unnamed rather than unlisted, which is the same way an undecodable payload behaves.
+    // The inventory object is read from the resource's own table, not from the uuid the staged row remembers:
+    // nothing ties the two, so a deleted object drops out here as a deleted certificate does in its branch. A
+    // resource with no join here lists without its object until it gets one.
     @Query(value = """
             WITH page AS (
             SELECT i.uuid AS uuid,
-                   i.inventory_uuid AS inventory_uuid,
+                   ck.uuid AS inventory_uuid,
                    i.sequence AS sequence,
                    i.unique_ref AS unique_ref,
                    i.resource AS resource,
@@ -157,9 +158,9 @@ public interface DiscoveryItemRepository extends JpaRepository<DiscoveryItem, UU
     /** Whether any staged item of this run carries a reason it produced nothing. */
     boolean existsByDiscoveryUuidAndProcessedErrorIsNotNull(UUID discoveryUuid);
 
-    /** One bounded page of key items the import pipeline has not reached yet, oldest first. */
-    List<DiscoveryItem> findByDiscoveryUuidAndResourceAndProcessedAtIsNullAndProcessedErrorIsNull(UUID discoveryUuid,
-            Resource resource, Pageable pageable);
+    /** One bounded page of key items the import pipeline has not reached yet, in run order. */
+    List<DiscoveryItem> findByDiscoveryUuidAndResourceAndProcessedAtIsNullAndProcessedErrorIsNullOrderBySequenceAscUuidAsc(
+            UUID discoveryUuid, Resource resource, Pageable pageable);
 
     /** Stamps the item with the object it became. */
     @Modifying

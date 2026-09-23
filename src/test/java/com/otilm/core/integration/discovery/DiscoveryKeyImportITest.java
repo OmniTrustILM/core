@@ -1,5 +1,6 @@
 package com.otilm.core.integration.discovery;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
@@ -19,12 +20,17 @@ import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryItem;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
+import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.DiscoveryItemRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
+import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.security.authz.AuthorizationEnforcer;
+import com.otilm.core.service.handler.discovery.DiscoveredKeyIdentity;
 import com.otilm.core.service.handler.discovery.KeyDiscoveredHandler;
 import com.otilm.core.service.writer.CertificateKeyWriter;
+import com.otilm.core.service.writer.discovery.DiscoveredKeyWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryItemWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateUtil;
@@ -40,8 +46,11 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -72,6 +81,16 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
     private CryptographicKeyRepository keyRepository;
     @Autowired
     private CertificateKeyWriter certificateKeyWriter;
+    @Autowired
+    private CryptographicKeyItemRepository keyItemRepository;
+    @Autowired
+    private AuthorizationEnforcer authorizationEnforcer;
+    @Autowired
+    private ObjectMapper objectMapper;
+    @Autowired
+    private TransactionHandler transactionHandler;
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @Test
     void aStagedKey_becomesAKeyRecordTheItemPointsAt() {
@@ -257,7 +276,6 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
         handler.importBatch(run, pendingKeys(run));
         UUID fromDiscovery = itemOf(run, "tls://host-c:443").getInventoryUuid();
 
-        // The other order: the certificate arrives second and must land on the key discovery already recorded.
         UUID fromCertificate = certificateKeyWriter
                 .uploadCertificatePublicKey("certKey_example", PUBLIC_KEY, 2048, certificatePathFingerprint());
 
@@ -265,10 +283,75 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
         assertThat(keyRepository.findWithKeyItemsAndTokenByUuid(fromDiscovery).orElseThrow().getItems()).hasSize(1);
     }
 
+    @Test
+    void aKeyThatCommitted_outlivesTheCallerRollingBack() {
+        Discovery run = processingRun();
+        stageKey(run, "ssh://host-a:22", SPKI_BASE64, "connector-a");
+        stageUnusableKey(run, "vault://unnamed");
+        stageSecretKey(run, "vault://unreachable", "secret-unreachable");
+        // The writer's own methods join whatever transaction is open; the handler is what opens one per key. Built
+        // by hand so a single key can fail the way a locked row would, without a mocked bean that forks the context.
+        DiscoveredKeyWriter unreachableThird = new DiscoveredKeyWriter(keyRepository, keyItemRepository, itemRepository,
+                objectMapper) {
+            @Override
+            public void importKey(DiscoveryItem item, DiscoveredKeyDto key) {
+                if ("vault://unreachable".equals(item.getUniqueRef())) {
+                    throw new CannotAcquireLockException("lock timeout");
+                }
+                super.importKey(item, key);
+            }
+        };
+        KeyDiscoveredHandler perKey = new KeyDiscoveredHandler(unreachableThird, authorizationEnforcer, objectMapper,
+                transactionHandler);
+        List<DiscoveryItem> page = List
+                .of(itemOf(run, "ssh://host-a:22"), itemOf(run, "vault://unnamed"), itemOf(run, "vault://unreachable"));
+
+        KeyDiscoveredHandler.KeyImportOutcome[] outcome = new KeyDiscoveredHandler.KeyImportOutcome[1];
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            outcome[0] = perKey.importBatch(run, page);
+            status.setRollbackOnly();
+        });
+
+        assertThat(outcome[0].aborted()).isTrue();
+        assertThat(itemOf(run, "ssh://host-a:22").getInventoryUuid())
+                .as("imported in its own transaction, so the caller's rollback cannot take it back")
+                .isNotNull();
+        assertThat(itemOf(run, "vault://unnamed").getProcessedError())
+                .as("a refusal is final, so it has to be committed the moment it is recorded")
+                .isNotNull();
+        DiscoveryItem unreachable = itemOf(run, "vault://unreachable");
+        assertThat(unreachable.getProcessedAt()).isNull();
+        assertThat(unreachable.getProcessedError()).isNull();
+    }
+
+    @Test
+    void publicKeyMaterialWrappedAcrossLines_isTheSameKey() {
+        Discovery run = processingRun();
+        String wrapped = Base64.getMimeEncoder().encodeToString(PUBLIC_KEY.getEncoded());
+        stageKey(run, "ssh://host-e:22", wrapped, "connector-e");
+
+        handler.importBatch(run, pendingKeys(run));
+
+        // Line-wrapped Base64 is still Base64, and refusing it would stamp a final reason on a key nothing is wrong
+        // with. It must also land on the identity the unwrapped material gets.
+        DiscoveryItem item = itemOf(run, "ssh://host-e:22");
+        assertThat(item.getProcessedError()).isNull();
+        assertThat(keyItemRepository.findByFingerprint(DiscoveredKeyIdentity.of(spkiKey(SPKI_BASE64)))).isPresent();
+    }
+
+    private static DiscoveredKeyDto spkiKey(String publicKey) {
+        DiscoveredKeyDto key = new DiscoveredKeyDto();
+        key.setType(KeyType.PUBLIC_KEY);
+        key.setAlgorithm(KeyAlgorithm.RSA);
+        key.setPublicKeyFormat(KeyFormat.SPKI);
+        key.setPublicKey(publicKey);
+        return key;
+    }
+
     private List<DiscoveryItem> pendingKeys(Discovery run) {
         return itemRepository
-                .findByDiscoveryUuidAndResourceAndProcessedAtIsNullAndProcessedErrorIsNull(run.getUuid(),
-                        Resource.CRYPTOGRAPHIC_KEY, PageRequest.of(0, 50));
+                .findByDiscoveryUuidAndResourceAndProcessedAtIsNullAndProcessedErrorIsNullOrderBySequenceAscUuidAsc(
+                        run.getUuid(), Resource.CRYPTOGRAPHIC_KEY, PageRequest.of(0, 50));
     }
 
     private DiscoveryItem pendingOrImported(Discovery run) {

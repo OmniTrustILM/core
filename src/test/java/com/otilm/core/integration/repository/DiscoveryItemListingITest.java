@@ -175,6 +175,24 @@ class DiscoveryItemListingITest extends BaseSpringBootTest {
     }
 
     @Test
+    void aDeletedKeyLeavesNoReferenceBehind() {
+        UUID itemUuid = stageItem("CRYPTOGRAPHIC_KEY", 1L, "key-a");
+        CryptographicKey key = new CryptographicKey();
+        key.setName("discovered_key-a_2b9c1d4e");
+        key = keyRepository.saveAndFlush(key);
+        itemRepository.markImported(itemUuid, key.getUuid(), OffsetDateTime.now(ZoneOffset.UTC));
+        keyRepository.delete(key);
+        keyRepository.flush();
+
+        DiscoveryItemRow row = listAll().getFirst();
+
+        // Nothing ties the staged row to the key, so the listing reads the key itself -- as the certificate branch
+        // reads the certificate -- rather than a uuid that now points nowhere.
+        assertThat(row.getInventoryUuid()).isNull();
+        assertThat(row.getInventoryName()).isNull();
+    }
+
+    @Test
     void aCertificateListsUnderTheCommonNameItsOwnListingShows() {
         stageCertificate("aa11", "cert-bytes", 1L, OffsetDateTime.now(ZoneOffset.UTC));
         inventoryCertificate("aa11", "CN=discovered.example.com");
