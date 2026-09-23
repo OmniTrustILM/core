@@ -2,6 +2,7 @@ package com.otilm.core.dao.repository;
 
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.model.crypto.CryptographicKeyItemBasicModel;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationRow;
 import jakarta.persistence.LockModeType;
 import java.util.Collection;
 import java.util.List;
@@ -168,6 +169,16 @@ public interface CryptographicKeyItemRepository extends SecurityFilterRepository
         int getAssociations();
     }
 
-    @EntityGraph(attributePaths = {"key", "key.tokenInstanceReference", "key.tokenInstanceReference.connector"})
-    Optional<CryptographicKeyItem> findWithConnectorByUuid(UUID uuid);
+    @Query("""
+            SELECT new com.otilm.core.model.crypto.CryptographicKeyItemOperationRow(
+                item.uuid, item.enabled, item.keyAlgorithm, item.state, item.type, item.usage, item.keyData,
+                item.keyReferenceUuid, item.keyMeta, key.uuid, token.connectorUuid, token.tokenInstanceUuid,
+                iface.interfaceCode, iface.version)
+            FROM CryptographicKeyItem item
+            JOIN item.key key
+            JOIN key.tokenInstanceReference token
+            LEFT JOIN token.connectorInterface iface
+            WHERE item.uuid = :uuid
+            """)
+    Optional<CryptographicKeyItemOperationRow> findOperationRowByUuid(@Param("uuid") UUID uuid);
 }

@@ -326,11 +326,7 @@ class PqcEvaluatorTest {
                 .isEqualTo("PQC-HYBRID-PQC-PRESTANDARD");
     }
 
-    /**
-     * The material tier derives no variant, and the weak-component doctrine reads exactly that field -- so each of
-     * these read {@code MATERIAL-SYMMETRIC-READY} on its declared 256 bits while the algorithm of the same name carried
-     * the finding. A key and an algorithm spelt identically must not be served opposite answers.
-     */
+    /** A key and an algorithm spelt identically are served the same answer, whatever size the key declares. */
     @Test
     void aKeyInheritsTheFindingItsOwnNameCarries() {
         for (String name : new String[]{
@@ -347,9 +343,7 @@ class PqcEvaluatorTest {
 
     /**
      * A hybrid's classical half is Shor-breakable by design -- that is what the construction is for -- so only a
-     * classically broken component overrules it. The hybrid path ran the component check on its not-a-hybrid escape
-     * alone, so {@code X25519-ML-KEM-768-MD5} read ready while {@code ML-KEM-MD5}, the same broken digest without the
-     * classical half, read {@code CLASSICAL-LEGACY-COMPONENT}.
+     * classically broken component overrules it, with or without the classical half present.
      */
     @Test
     void aBrokenDigestInsideAHybridIsNotMaskedByItsPostQuantumHalf() {

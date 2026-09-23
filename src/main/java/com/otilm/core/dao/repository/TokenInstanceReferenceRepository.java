@@ -1,5 +1,7 @@
 package com.otilm.core.dao.repository;
 
+import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
+import com.otilm.core.dao.entity.ConnectorInterfaceEntity_;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenInstanceReference_;
 import com.otilm.core.dao.entity.TokenProfile;
@@ -46,12 +48,15 @@ public interface TokenInstanceReferenceRepository extends SecurityFilterReposito
             SELECT new com.otilm.core.model.crypto.ImmutableTokenInstanceBasicModel(
                 token.uuid, token.tokenInstanceUuid, token.name, token.status, token.kind,
                 token.connectorUuid, token.connectorName, token.connectorInterfaceUuid,
+                iface.interfaceCode, iface.version,
                 count(DISTINCT profile.uuid))
             FROM TokenInstanceReference token
+            LEFT JOIN token.connectorInterface iface
             LEFT JOIN token.tokenProfiles profile
             WHERE token.uuid = :uuid
             GROUP BY token.uuid, token.tokenInstanceUuid, token.name, token.status, token.kind,
-                token.connectorUuid, token.connectorName, token.connectorInterfaceUuid
+                token.connectorUuid, token.connectorName, token.connectorInterfaceUuid,
+                iface.interfaceCode, iface.version
             """)
     Optional<TokenInstanceBasicModel> findBasicModelByUuid(@Param("uuid") UUID uuid);
 
@@ -67,6 +72,8 @@ public interface TokenInstanceReferenceRepository extends SecurityFilterReposito
         return findUsingSecurityFilter(filter, ImmutableTokenInstanceBasicModel.class, (root, cb) -> {
             Join<TokenInstanceReference, TokenProfile> profiles = root
                     .join(TokenInstanceReference_.tokenProfiles, JoinType.LEFT);
+            Join<TokenInstanceReference, ConnectorInterfaceEntity> iface = root
+                    .join(TokenInstanceReference_.connectorInterface, JoinType.LEFT);
 
             Selection<ImmutableTokenInstanceBasicModel> selection = cb
                     .construct(ImmutableTokenInstanceBasicModel.class, root.get(UniquelyIdentifiedAndAudited_.uuid),
@@ -75,6 +82,8 @@ public interface TokenInstanceReferenceRepository extends SecurityFilterReposito
                             root.get(TokenInstanceReference_.connectorUuid),
                             root.get(TokenInstanceReference_.connectorName),
                             root.get(TokenInstanceReference_.connectorInterfaceUuid),
+                            iface.get(ConnectorInterfaceEntity_.interfaceCode),
+                            iface.get(ConnectorInterfaceEntity_.version),
                             cb.countDistinct(profiles.get(UniquelyIdentifiedAndAudited_.uuid)));
 
             List<Expression<?>> groupByExpressions = List
@@ -83,7 +92,9 @@ public interface TokenInstanceReferenceRepository extends SecurityFilterReposito
                             root.get(TokenInstanceReference_.status), root.get(TokenInstanceReference_.kind),
                             root.get(TokenInstanceReference_.connectorUuid),
                             root.get(TokenInstanceReference_.connectorName),
-                            root.get(TokenInstanceReference_.connectorInterfaceUuid));
+                            root.get(TokenInstanceReference_.connectorInterfaceUuid),
+                            iface.get(ConnectorInterfaceEntity_.interfaceCode),
+                            iface.get(ConnectorInterfaceEntity_.version));
 
             return new SecurityFilterProjectionSpec<>(selection, groupByExpressions);
         }).stream().map(value -> (TokenInstanceBasicModel) value).toList();
