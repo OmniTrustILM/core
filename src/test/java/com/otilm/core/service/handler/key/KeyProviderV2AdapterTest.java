@@ -306,14 +306,14 @@ class KeyProviderV2AdapterTest {
     @Test
     void resolveSignatureAlgorithm_readsTheSelection_withoutTouchingTheConnector() {
         // given
-        List<RequestAttribute> attributes = List
+        List<RequestAttribute> signatureAttributes = List
                 .of(stringAttribute("keyLabel", "tsa-key"),
                         SignatureAlgorithmAttribute.request(SignatureAlgorithm.SHA384_WITH_RSA_PSS));
 
         // when
         ResolvedSignatureAlgorithm resolved = adapter
                 .resolveSignatureAlgorithm(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA),
-                        CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA), attributes);
+                        CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA), signatureAttributes);
 
         // then
         assertEquals(SignatureAlgorithm.SHA384_WITH_RSA_PSS, resolved.platformAlgorithm());
