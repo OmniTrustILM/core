@@ -80,9 +80,9 @@ public class StaticManagedKeySignerCreator implements SignerCreator {
                     .resolveSignatureAlgorithm(privateKeyItem, publicKeyItem, requestAttributes);
         } catch (ValidationException e) {
             throw new SigningEngineException(SigningEngineFailure.MISCONFIGURED,
-                    "signing key algorithm '%s' and its signing attributes name no signature algorithm the platform supports: %s"
+                    "signature algorithm cannot be resolved from the signing configuration for key algorithm '%s': %s"
                             .formatted(privateKeyItem.keyAlgorithm(), e.getMessage()),
-                    e, "Signing key algorithm is not supported.");
+                    e, "Signing configuration is not supported.");
         } catch (NotFoundException e) {
             throw new SigningEngineException(SigningEngineFailure.MISCONFIGURED,
                     "signing configuration for key '%s' refers to a record that does not exist: %s"

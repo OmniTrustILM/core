@@ -111,7 +111,34 @@ class StaticManagedKeySignerCreatorTest {
                                 .isEqualTo(SigningEngineFailure.MISCONFIGURED);
                         assertThat(((SigningEngineException) ex).operatorMessage()).contains("SHA1WITHRSA");
                         assertThat(((SigningEngineException) ex).clientMessage())
-                                .isEqualTo("Signing key algorithm is not supported.");
+                                .isEqualTo("Signing configuration is not supported.");
+                    });
+        }
+
+        @Test
+        void throwsMisconfigured_carryingTheProvidersReason_whenTheSigningAttributesAreRejected() throws Exception {
+            // given
+            ResolvedStaticKeyManagedSigning scheme = new ResolvedStaticKeyManagedSigning(
+                    SigningCertificateBuilder.valid(),
+                    List
+                            .of(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA),
+                                    CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA)),
+                    null, List.of());
+            given(cryptographicOperationService.resolveSignatureAlgorithm(any(), any(), anyList()))
+                    .willThrow(new ValidationException(
+                            ValidationError.create("Attribute signatureScheme is not defined in the schema.")));
+
+            // when / then
+            assertThatThrownBy(() -> creator.create(scheme))
+                    .isInstanceOf(SigningEngineException.class)
+                    .satisfies(ex -> {
+                        assertThat(((SigningEngineException) ex).failure())
+                                .isEqualTo(SigningEngineFailure.MISCONFIGURED);
+                        assertThat(((SigningEngineException) ex).operatorMessage())
+                                .contains("signatureScheme")
+                                .doesNotContain("no signature algorithm the platform supports");
+                        assertThat(((SigningEngineException) ex).clientMessage())
+                                .isEqualTo("Signing configuration is not supported.");
                     });
         }
 
