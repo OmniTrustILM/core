@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -78,6 +79,45 @@ class CbomAssetExtractorTest {
         assertThat(extraction.assets())
                 .singleElement()
                 .satisfies(asset -> assertThat(asset.chainStep()).isEqualTo("backstop:unknown-type"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", ",\"cryptoProperties\":null"})
+    void aComponentWithNoCryptoPropertiesRaisesNoFinding(String cryptoProperties) {
+        CbomAssetExtractor.Extraction extraction = EXTRACTOR
+                .extract(read("{\"components\":[{\"type\":\"cryptographic-asset\",\"name\":\"unclassified\""
+                        + cryptoProperties + "}]}"));
+
+        assertThat(extraction.assets().get(0).findings()).isEmpty();
+    }
+
+    /** CycloneDX requires {@code assetType} and closes its vocabulary, so these documents are invalid. */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "\"x\"                         | cryptoProperties is not an object, and CycloneDX requires one",
+            "{}                            | cryptoProperties.assetType is missing, and CycloneDX requires it",
+            "{\"assetType\":null}          | cryptoProperties.assetType is missing, and CycloneDX requires it",
+            "{\"assetType\":\"keypair\"}   | cryptoProperties.assetType is not one of the asset types CycloneDX defines",
+            "{\"assetType\":\"\"}          | cryptoProperties.assetType is not one of the asset types CycloneDX defines",
+            "{\"assetType\":42}            | cryptoProperties.assetType is not one of the asset types CycloneDX defines"})
+    void cryptoPropertiesWithoutAUsableAssetTypeRaiseAFindingWithoutTheValue(String properties, String finding) {
+        CbomAssetExtractor.Extraction extraction = EXTRACTOR
+                .extract(read("{\"components\":[{\"type\":\"cryptographic-asset\",\"name\":\"invalid\","
+                        + "\"cryptoProperties\":" + properties + "}]}"));
+
+        assertThat(extraction.skips()).isEmpty();
+        CbomAssetExtractor.ExtractedAsset asset = extraction.assets().get(0);
+        assertThat(asset.chainStep()).isEqualTo("backstop:unknown-type");
+        assertThat(asset.findings()).containsExactly(finding);
+    }
+
+    @Test
+    void aRoutedAssetTypeRaisesNoAssetTypeFinding() {
+        CbomAssetExtractor.Extraction extraction = EXTRACTOR
+                .extract(read("{\"components\":[{\"type\":\"cryptographic-asset\",\"name\":\"aes\","
+                        + "\"cryptoProperties\":{\"assetType\":\"algorithm\"}}]}"));
+
+        assertThat(extraction.assets().get(0).findings()).noneMatch(finding -> finding.contains("assetType"));
     }
 
     @Test

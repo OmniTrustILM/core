@@ -8,6 +8,7 @@ import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.enums.BitMaskEnum;
 import com.otilm.api.model.common.enums.IPlatformEnum;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.cryptoasset.CryptographicAssetType;
 import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.core.attribute.engine.AttributeColumnProjector;
@@ -421,6 +422,10 @@ public class FilterPredicatesBuilder {
         if (filterField == FilterField.CBOM_ASSET_SOURCE_CBOM) {
             return getCryptoAssetSourceCbomPredicate(criteriaBuilder, query, root, filterDto, filterValues);
         }
+        if (filterField == FilterField.CBOM_ASSET_TYPE && (filterDto.getCondition() == FilterConditionOperator.EMPTY
+                || filterDto.getCondition() == FilterConditionOperator.NOT_EMPTY)) {
+            return untypedCryptoAssetPredicate(criteriaBuilder, from, filterDto.getCondition());
+        }
 
         // An expectedValue field compares one stored constant against the boolean the caller sends, so only EQUALS
         // and NOT_EQUALS are answerable -- exactly what SearchHelper advertises for it. The rest are refused here:
@@ -711,6 +716,18 @@ public class FilterPredicatesBuilder {
             }
         }
         return predicate;
+    }
+
+    /**
+     * The asset type is empty exactly where the wire serves none. The column is never NULL: a row with no CycloneDX
+     * type is stored on the unroutable tier, so testing for NULL would match none of the rows served without a type.
+     */
+    private static Predicate untypedCryptoAssetPredicate(CriteriaBuilder criteriaBuilder, From from,
+            FilterConditionOperator condition) {
+        Expression<CryptographicAssetType> assetType = from.get(CryptoAsset_.assetType);
+        return condition == FilterConditionOperator.EMPTY
+                ? criteriaBuilder.equal(assetType, CryptographicAssetType.UNROUTABLE)
+                : criteriaBuilder.notEqual(assetType, CryptographicAssetType.UNROUTABLE);
     }
 
     /**
