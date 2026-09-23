@@ -250,7 +250,7 @@ class KeyProviderV1AdapterTest {
         when(attributeEngine.getRequestObjectDataAttributesContent(profileScope)).thenReturn(profileAttributes);
 
         // when
-        List<ProviderKeyItem> items = adapter.createKey(profile, type, creationAttributes, profile.name());
+        List<ProviderKeyItem> items = adapter.createKey(profile, type, creationAttributes, profile.name(), false);
 
         // then
         assertEquals(providerKeys.stream().map(KeyDataResponseDto::getName).toList(),

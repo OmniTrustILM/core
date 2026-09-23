@@ -39,6 +39,7 @@ import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyDataV2Dto;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.cryptography.key.KeyDetailDto;
 import com.otilm.api.model.core.cryptography.key.KeyDto;
@@ -2313,6 +2314,79 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
                 .stubFor(WireMock
                         .delete(WireMock.urlPathMatching("/v1/cryptographyProvider/tokens/[^/]+/keys/[^/]+"))
                         .willReturn(WireMock.ok()));
+    }
+
+    @Test
+    void disableKeyExport_withdrawsThePermissionAndReportsItBack() throws NotFoundException {
+        // given
+        privateKeyItem.setExportable(true);
+        cryptographicKeyItemRepository.saveAndFlush(privateKeyItem);
+
+        // when
+        KeyItemDetailDto afterwards = cryptographicKeyService
+                .disableKeyExport(key.getSecuredUuid(), privateKeyItem.getUuid().toString());
+
+        // then
+        Assertions.assertFalse(afterwards.isExportable(), "the answer must not be read from a pre-update copy");
+        Assertions
+                .assertFalse(cryptographicKeyItemRepository
+                        .findByUuid(privateKeyItem.getUuid())
+                        .orElseThrow()
+                        .isExportable());
+    }
+
+    /** The permission is one-way, so withdrawing it again is simply nothing left to withdraw. */
+    @Test
+    void disableKeyExport_isAnsweredForAKeyThatCouldNotBeExportedAnyway() throws NotFoundException {
+        // given
+        Assertions.assertFalse(privateKeyItem.isExportable());
+
+        // when
+        KeyItemDetailDto afterwards = cryptographicKeyService
+                .disableKeyExport(key.getSecuredUuid(), privateKeyItem.getUuid().toString());
+
+        // then
+        Assertions.assertFalse(afterwards.isExportable());
+    }
+
+    /**
+     * Core owns the permission. Another transaction holding a copy loaded before it was withdrawn must not put it back
+     * when it saves that copy for its own reasons — the compliance pass does exactly this, and the entity has neither
+     * dynamic updates nor a version, so every flush writes every column.
+     */
+    @Test
+    void disableKeyExport_isNotUndoneByAStaleCopySavedElsewhere() throws NotFoundException {
+        // given
+        privateKeyItem.setExportable(true);
+        cryptographicKeyItemRepository.saveAndFlush(privateKeyItem);
+        CryptographicKeyItem loadedBeforeWithdrawal = cryptographicKeyItemRepository
+                .findByUuid(privateKeyItem.getUuid())
+                .orElseThrow();
+        cryptographicKeyService.disableKeyExport(key.getSecuredUuid(), privateKeyItem.getUuid().toString());
+
+        // when the holder of that copy writes it back for an unrelated reason
+        loadedBeforeWithdrawal.setComplianceStatus(ComplianceStatus.OK);
+        cryptographicKeyItemRepository.saveAndFlush(loadedBeforeWithdrawal);
+
+        // then
+        Assertions
+                .assertFalse(cryptographicKeyItemRepository
+                        .findByUuid(privateKeyItem.getUuid())
+                        .orElseThrow()
+                        .isExportable(), "a stale copy must not restore the export permission");
+    }
+
+    @Test
+    void disableKeyExport_rejectsAKeyItemOfAnotherKey() {
+        // given
+        String itemOfAnotherKey = privateKeyItem.getUuid().toString();
+        SecuredUUID otherKey = createKey("unrelated key", tokenProfile, tokenInstanceReference).getSecuredUuid();
+
+        // when
+        Executable disable = () -> cryptographicKeyService.disableKeyExport(otherKey, itemOfAnotherKey);
+
+        // then
+        Assertions.assertThrows(NotFoundException.class, disable);
     }
 
     private CryptographicKey createKey(String name, TokenProfile tokenProfile,

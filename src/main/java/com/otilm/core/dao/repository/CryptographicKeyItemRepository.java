@@ -43,6 +43,20 @@ public interface CryptographicKeyItemRepository extends SecurityFilterRepository
     int updateEnabledIfChanged(@Param("uuid") UUID uuid, @Param("enabled") boolean enabled);
 
     /**
+     * Clears the export permission. The permission is only ever narrowed, so there is no counterpart that sets it.
+     *
+     * @param uuid non-null UUID of the key item
+     * @return one if the item was exportable and is no longer; zero if it does not exist or already was not
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            UPDATE CryptographicKeyItem item
+            SET item.exportable = FALSE, item.updatedAt = CURRENT_TIMESTAMP
+            WHERE item.uuid = :uuid AND item.exportable = TRUE
+            """)
+    int clearExportableIfSet(@Param("uuid") UUID uuid);
+
+    /**
      * Clears key material and marks the item destroyed while preserving its current compromise classification.
      *
      * @param uuid non-null UUID of the key item to finalize
@@ -72,6 +86,12 @@ public interface CryptographicKeyItemRepository extends SecurityFilterRepository
     List<String> findKnownFingerprints(@Param("fingerprints") Collection<String> fingerprints);
 
     Optional<CryptographicKeyItem> findByUuidAndKeyUuid(UUID uuid, UUID cryptographicKeyUuid);
+
+    @Query("""
+            SELECT COUNT(item) > 0 FROM CryptographicKeyItem item
+            WHERE item.uuid = :uuid AND item.keyUuid = :keyUuid
+            """)
+    boolean isItemOfKey(@Param("uuid") UUID uuid, @Param("keyUuid") UUID keyUuid);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT item FROM CryptographicKeyItem item WHERE item.uuid = :uuid AND item.keyUuid = :keyUuid")
@@ -130,12 +150,13 @@ public interface CryptographicKeyItemRepository extends SecurityFilterRepository
     @Query(value = """
             INSERT INTO {h-schema}cryptographic_key_item (
                 uuid, name, type, key_reference_uuid, key_uuid, key_algorithm, format, key_data,
-                state, enabled, length, fingerprint, reason, compliance_status, created_at, updated_at, usage
+                state, enabled, length, fingerprint, reason, compliance_status, created_at, updated_at, usage,
+                exportable
             ) VALUES (
                 :#{#cki.uuid}, :#{#cki.name}, :#{#cki.type.name()}, :#{#cki.keyReferenceUuid}, :#{#cki.keyUuid},
                 :#{#cki.keyAlgorithm.name()}, :#{#cki.format?.name() ?: null}, :#{#cki.keyData}, :#{#cki.state.name()}, :#{#cki.enabled},
                 :#{#cki.length}, :#{#cki.fingerprint}, :#{#cki.reason?.name() ?: null}, :#{#cki.complianceStatus.name()}, :#{#cki.createdAt},
-                :#{#cki.updatedAt}, :#{#cki.usageBitmask}
+                :#{#cki.updatedAt}, :#{#cki.usageBitmask}, :#{#cki.exportable}
             ) ON CONFLICT (fingerprint) DO NOTHING
             """,
             nativeQuery = true)

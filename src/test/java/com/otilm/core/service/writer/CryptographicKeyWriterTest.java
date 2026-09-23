@@ -152,6 +152,36 @@ class CryptographicKeyWriterTest {
         verifyNoInteractions(history);
     }
 
+    @Test
+    void disableKeyItemExport_recordsTheWithdrawalWhenTheKeyWasExportable() {
+        // given
+        UUID exportableItem = UUID.randomUUID();
+        when(items.clearExportableIfSet(exportableItem)).thenReturn(1);
+
+        // when
+        boolean changed = writer.disableKeyItemExport(exportableItem);
+
+        // then
+        assertThat(changed).isTrue();
+        verify(history)
+                .addEventHistory(eq(KeyEvent.EXPORT_DISABLED), eq(KeyEventStatus.SUCCESS), any(), any(),
+                        eq(exportableItem));
+    }
+
+    @Test
+    void disableKeyItemExport_recordsNothingWhenTheKeyCouldNotBeExportedAnyway() {
+        // given
+        UUID nonExportableItem = UUID.randomUUID();
+        when(items.clearExportableIfSet(nonExportableItem)).thenReturn(0);
+
+        // when
+        boolean changed = writer.disableKeyItemExport(nonExportableItem);
+
+        // then
+        assertThat(changed).isFalse();
+        verifyNoInteractions(history);
+    }
+
     private CryptographicKeyItem keyItem(KeyState state) {
         CryptographicKeyItem item = aKeyItem().withType(KeyType.PRIVATE_KEY).withState(state).build();
         item.setUuid(UUID.randomUUID());

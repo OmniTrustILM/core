@@ -67,6 +67,17 @@ public interface CryptographicKeyExternalService {
     KeyItemDetailDto getKeyItem(SecuredUUID uuid, String keyItemUuid) throws NotFoundException;
 
     /**
+     * Withdraw the export permission from a key item, so Core will no longer hand its private material out. The
+     * permission is one-way and cannot be granted again.
+     *
+     * @param uuid UUID of the parent key object
+     * @param keyItemUuid UUID of the key item
+     * @return the key item detail after the change
+     * @throws NotFoundException when the key or the key item is not found
+     */
+    KeyItemDetailDto disableKeyExport(SecuredUUID uuid, String keyItemUuid) throws NotFoundException;
+
+    /**
      * @param request DTO containing the information for creating a new key
      * @param tokenInstanceUuid UUID of the token instance
      * @param type Type of the key to be created

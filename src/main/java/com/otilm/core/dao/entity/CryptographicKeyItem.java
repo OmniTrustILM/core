@@ -118,6 +118,19 @@ public class CryptographicKeyItem extends UniquelyIdentified
     @Column(name = "fingerprint", unique = true)
     private String fingerprint;
 
+    /**
+     * Whether Core will hand this key's private material out. Set once when the key is created or imported and only
+     * ever narrowed afterwards, and never written from what a connector reports.
+     *
+     * <p>
+     * Not updatable: this entity carries neither {@code @DynamicUpdate} nor a version, so every flush writes every
+     * column, and a copy loaded before the permission was withdrawn would put it back. Withdrawal is the statement in
+     * {@code CryptographicKeyItemRepository}, which is the only thing that may change it.
+     * </p>
+     */
+    @Column(name = "exportable", nullable = false, updatable = false)
+    private boolean exportable;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "reason")
     private KeyCompromiseReason reason;
@@ -181,6 +194,7 @@ public class CryptographicKeyItem extends UniquelyIdentified
         dto.setReason(reason);
         dto.setKeyData(keyData);
         dto.setComplianceStatus(complianceStatus);
+        dto.setExportable(exportable);
         return dto;
     }
 

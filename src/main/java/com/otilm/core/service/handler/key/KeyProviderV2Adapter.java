@@ -9,6 +9,7 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.client.v2.CryptographicOperationsSyncApiClient;
 import com.otilm.api.interfaces.client.v2.KeySyncApiClient;
 import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.client.cryptography.operations.CipherDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.CipherRequestData;
@@ -24,6 +25,8 @@ import com.otilm.api.model.client.cryptography.operations.VerifyDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.VerifyDataResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.v2.content.BooleanAttributeContentV2;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.common.v2.OperationExecutionMode;
@@ -35,6 +38,7 @@ import com.otilm.api.model.connector.cryptography.v2.key.CreateKeyRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.DestroyKeyRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyCreationResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyDataV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.KeyExportableAttribute;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyOperationResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyPairDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.PrivateKeyDataResponseV2Dto;
@@ -141,8 +145,8 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
 
     @Override
     public List<ProviderKeyItem> createKey(TokenProfileFullModel tokenProfile, KeyRequestType type,
-            List<RequestAttribute> attributes, String keyName) throws ConnectorException {
-        CreateKeyRequestV2Dto request = createKeyRequest(tokenProfile, type, attributes);
+            List<RequestAttribute> attributes, String keyName, boolean exportable) throws ConnectorException {
+        CreateKeyRequestV2Dto request = createKeyRequest(tokenProfile, type, attributes, exportable);
         ResponseEntity<KeyCreationResponseV2Dto> response = keyManagementSyncApiClient
                 .createKey(connectorInfo, request);
         KeyCreationResponseV2Dto body = response.getBody();
@@ -175,7 +179,7 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
     }
 
     private CreateKeyRequestV2Dto createKeyRequest(TokenProfileFullModel tokenProfile, KeyRequestType type,
-            List<RequestAttribute> attributes) throws ConnectorException {
+            List<RequestAttribute> attributes, boolean exportable) throws ConnectorException {
         TokenProfileScopedRequestV2Dto scope = tokenProfileScopedRequest(tokenProfile);
         String keyCreationId = UUID.randomUUID().toString();
         CreateKeyRequestV2Dto request = new CreateKeyRequestV2Dto();
@@ -185,8 +189,24 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         request.setKeyRequestType(type);
         request.setExecutionMode(OperationExecutionMode.SYNCHRONOUS);
         request.setKeyCreationId(keyCreationId);
-        request.setCreateKeyAttributes(attributes);
+        request.setCreateKeyAttributes(withExportableIntent(attributes, exportable));
         return request;
+    }
+
+    /**
+     * The create attributes with the contract-reserved exportable intent stated on them. It travels as an attribute so
+     * that a replay under the same {@code keyCreationId} carries identical terms.
+     */
+    private static List<RequestAttribute> withExportableIntent(List<RequestAttribute> attributes, boolean exportable) {
+        RequestAttributeV2 intent = new RequestAttributeV2();
+        intent.setName(KeyExportableAttribute.NAME);
+        intent.setContentType(AttributeContentType.BOOLEAN);
+        intent.setContent(List.of(new BooleanAttributeContentV2(exportable)));
+
+        List<RequestAttribute> stated = new ArrayList<>(attributes == null ? List.of() : attributes);
+        stated.removeIf(attribute -> KeyExportableAttribute.NAME.equals(attribute.getName()));
+        stated.add(intent);
+        return stated;
     }
 
     private List<ProviderKeyItem> toCreatedKeyPair(KeyPairDataResponseV2Dto response, String keyName) {

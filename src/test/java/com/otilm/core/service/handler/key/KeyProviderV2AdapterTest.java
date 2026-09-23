@@ -38,6 +38,7 @@ import com.otilm.api.model.connector.cryptography.v2.key.CreateKeyAttributesRequ
 import com.otilm.api.model.connector.cryptography.v2.key.CreateKeyRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.DestroyKeyRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyCreationResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.KeyExportableAttribute;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyOperationResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyPairDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.PrivateKeyDataResponseV2Dto;
@@ -94,6 +95,7 @@ import org.springframework.http.ResponseEntity;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -875,7 +877,8 @@ class KeyProviderV2AdapterTest {
         when(client.createKey(any(), any())).thenReturn(ResponseEntity.ok(response));
 
         // when
-        List<ProviderKeyItem> items = adapter.createKey(profile, KeyRequestType.KEY_PAIR, List.of(), wrapperName);
+        List<ProviderKeyItem> items = adapter
+                .createKey(profile, KeyRequestType.KEY_PAIR, List.of(), wrapperName, false);
 
         // then
         assertEquals(2, items.size());
@@ -905,7 +908,7 @@ class KeyProviderV2AdapterTest {
 
         // when
         List<ProviderKeyItem> items = adapter
-                .createKey(profile, KeyRequestType.SECRET, creationAttributes, wrapperName);
+                .createKey(profile, KeyRequestType.SECRET, creationAttributes, wrapperName, false);
 
         // then
         assertEquals(1, items.size());
@@ -921,8 +924,53 @@ class KeyProviderV2AdapterTest {
         verify(client).createKey(any(), request.capture());
         assertEquals(OperationExecutionMode.SYNCHRONOUS, request.getValue().getExecutionMode());
         assertEquals(KeyRequestType.SECRET, request.getValue().getKeyRequestType());
-        assertEquals(creationAttributes, request.getValue().getCreateKeyAttributes());
+        assertTrue(request.getValue().getCreateKeyAttributes().containsAll(creationAttributes));
         assertDoesNotThrow(() -> UUID.fromString(request.getValue().getKeyCreationId()));
+    }
+
+    @Test
+    void createKey_statesTheExportableIntentAsTheReservedAttribute() throws Exception {
+        // given
+        when(client.createKey(any(), any())).thenReturn(ResponseEntity.ok(secretKeyResponse()));
+
+        // when
+        adapter.createKey(profile, KeyRequestType.SECRET, List.of(), profile.name(), true);
+
+        // then
+        ArgumentCaptor<CreateKeyRequestV2Dto> request = ArgumentCaptor.forClass(CreateKeyRequestV2Dto.class);
+        verify(client).createKey(any(), request.capture());
+        assertTrue(KeyExportableAttribute.isRequested(request.getValue().getCreateKeyAttributes()));
+    }
+
+    @Test
+    void createKey_statesANonExportableIntentToo() throws Exception {
+        // given
+        when(client.createKey(any(), any())).thenReturn(ResponseEntity.ok(secretKeyResponse()));
+
+        // when
+        adapter.createKey(profile, KeyRequestType.SECRET, List.of(), profile.name(), false);
+
+        // then
+        ArgumentCaptor<CreateKeyRequestV2Dto> request = ArgumentCaptor.forClass(CreateKeyRequestV2Dto.class);
+        verify(client).createKey(any(), request.capture());
+        assertFalse(KeyExportableAttribute.isRequested(request.getValue().getCreateKeyAttributes()));
+        assertEquals(1, request.getValue().getCreateKeyAttributes().size());
+    }
+
+    /** A request may carry no attributes at all; the intent still has to reach the connector. */
+    @Test
+    void createKey_statesTheExportableIntentWhenTheRequestCarriesNoAttributes() throws Exception {
+        // given
+        when(client.createKey(any(), any())).thenReturn(ResponseEntity.ok(secretKeyResponse()));
+
+        // when
+        adapter.createKey(profile, KeyRequestType.SECRET, null, profile.name(), true);
+
+        // then
+        ArgumentCaptor<CreateKeyRequestV2Dto> request = ArgumentCaptor.forClass(CreateKeyRequestV2Dto.class);
+        verify(client).createKey(any(), request.capture());
+        assertTrue(KeyExportableAttribute.isRequested(request.getValue().getCreateKeyAttributes()));
+        assertEquals(1, request.getValue().getCreateKeyAttributes().size());
     }
 
     @Test
@@ -931,7 +979,8 @@ class KeyProviderV2AdapterTest {
         when(client.createKey(any(), any())).thenReturn(ResponseEntity.accepted().build());
 
         // when
-        Executable createKey = () -> adapter.createKey(profile, KeyRequestType.SECRET, List.of(), profile.name());
+        Executable createKey = () -> adapter
+                .createKey(profile, KeyRequestType.SECRET, List.of(), profile.name(), false);
 
         // then
         ConnectorException exception = assertThrows(ConnectorException.class, createKey);
@@ -950,7 +999,7 @@ class KeyProviderV2AdapterTest {
         when(client.createKey(any(), any())).thenReturn(ResponseEntity.ok(secretKeyResponse()));
 
         // when
-        adapter.createKey(profile, KeyRequestType.SECRET, List.of(), profile.name());
+        adapter.createKey(profile, KeyRequestType.SECRET, List.of(), profile.name(), false);
 
         // then
         ArgumentCaptor<CreateKeyRequestV2Dto> request = ArgumentCaptor.forClass(CreateKeyRequestV2Dto.class);
@@ -967,7 +1016,7 @@ class KeyProviderV2AdapterTest {
         when(client.createKey(any(), any())).thenReturn(response);
 
         // when
-        Executable create = () -> adapter.createKey(profile, KeyRequestType.SECRET, List.of(), profile.name());
+        Executable create = () -> adapter.createKey(profile, KeyRequestType.SECRET, List.of(), profile.name(), false);
 
         // then
         ConnectorException exception = assertThrows(ConnectorException.class, create);
@@ -981,7 +1030,7 @@ class KeyProviderV2AdapterTest {
         when(client.createKey(any(), any())).thenThrow(failure);
 
         // when
-        Executable create = () -> adapter.createKey(profile, KeyRequestType.SECRET, List.of(), profile.name());
+        Executable create = () -> adapter.createKey(profile, KeyRequestType.SECRET, List.of(), profile.name(), false);
 
         // then
         assertSame(failure, assertThrows(ConnectorException.class, create));
