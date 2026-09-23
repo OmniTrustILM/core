@@ -10,6 +10,7 @@ import com.otilm.core.util.KeySizeUtil;
 import java.security.PublicKey;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,21 +38,28 @@ public class DiscoveredKeyWriter {
     }
 
     /**
-     * Files the public key under the record that already holds it, or a new one written by the certificate public-key
-     * insert, and stamps the item with that record.
+     * Claims the item, files the public key under the record that already holds it or a new one written by the
+     * certificate public-key insert, and stamps the item with that record. The claim comes first so a tick that lost
+     * the row to another one, or to the run's ending, touches nothing.
      *
-     * @return the key record the item became
+     * @return the key item the public key is filed as, or empty when the item was no longer pending
      */
     @Transactional
-    public UUID importKey(DiscoveryItem item, PublicKey publicKey, String fingerprint) {
-        UUID keyUuid = keyItemRepository
-                .findByFingerprint(fingerprint)
-                .map(CryptographicKeyItem::getKeyUuid)
-                .orElseGet(() -> publicKeyWriter
-                        .uploadCertificatePublicKey(nameFor(item, fingerprint), publicKey,
-                                KeySizeUtil.getKeyLength(publicKey), fingerprint));
-        itemRepository.markImported(item.getUuid(), keyUuid, OffsetDateTime.now(ZoneOffset.UTC));
-        return keyUuid;
+    public Optional<UUID> importKey(DiscoveryItem item, PublicKey publicKey, String fingerprint) {
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        if (itemRepository.claimPending(item.getUuid(), now) == 0) {
+            return Optional.empty();
+        }
+        CryptographicKeyItem keyItem = keyItemRepository.findByFingerprint(fingerprint).orElseGet(() -> {
+            publicKeyWriter
+                    .uploadCertificatePublicKey(nameFor(item, fingerprint), publicKey,
+                            KeySizeUtil.getKeyLength(publicKey), fingerprint);
+            return keyItemRepository
+                    .findByFingerprint(fingerprint)
+                    .orElseThrow(() -> new IllegalStateException("A public key just filed could not be read back"));
+        });
+        itemRepository.markImported(item.getUuid(), keyItem.getKeyUuid(), now);
+        return Optional.of(keyItem.getUuid());
     }
 
     @Transactional

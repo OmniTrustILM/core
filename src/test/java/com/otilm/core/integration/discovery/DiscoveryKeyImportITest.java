@@ -45,6 +45,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Base64;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -134,6 +135,12 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
 
         UUID keyUuid = itemOf(run, "ssh://host-a:22").getInventoryUuid();
         assertThat(locationsRecordedBy(run, keyUuid)).containsExactly("10.0.0.7");
+        // The lookup key-item detail makes: metadata keyed by anything else never reaches the API.
+        assertThat(attributeEngine
+                .getMappedMetadataContent(ObjectAttributeContentInfo
+                        .builder(Resource.CRYPTOGRAPHIC_KEY, storedItem(keyUuid).getUuid())
+                        .build()))
+                .isNotEmpty();
         // key_meta is a token's reference to the key, and a key held without a token must not appear to have one.
         assertThat(storedItem(keyUuid).getKeyMeta()).isNull();
     }
@@ -157,6 +164,25 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
         assertThat(itemOf(second, "ssh://host-b:22").getInventoryUuid()).isEqualTo(keyUuid);
         assertThat(locationsRecordedBy(first, keyUuid)).containsExactly("10.0.0.7");
         assertThat(locationsRecordedBy(second, keyUuid)).containsExactly("10.0.0.8");
+    }
+
+    @Test
+    void aRowAnotherTickAlreadySettled_isNotImportedAgain() {
+        Discovery run = processingRun();
+        stageKey(run, "ssh://host-a:22", SPKI_BASE64, "connector-a");
+        List<DiscoveryItem> stalePage = pendingKeys(run);
+        // Read before a concurrent tick's final attempt stamped the row: the page still lists it as pending.
+        transactionHandler
+                .runInNewTransaction(() -> itemRepository
+                        .markPendingNotImported(run.getUuid(), Resource.CRYPTOGRAPHIC_KEY.name(), "stamped elsewhere",
+                                OffsetDateTime.now(ZoneOffset.UTC)));
+
+        handler.importBatch(run, stalePage);
+
+        DiscoveryItem settled = itemOf(run, "ssh://host-a:22");
+        assertThat(settled.getInventoryUuid()).isNull();
+        assertThat(settled.getProcessedError()).isEqualTo("stamped elsewhere");
+        assertThat(keyItemRepository.findByFingerprint(certificatePathFingerprint())).isEmpty();
     }
 
     @Test
@@ -208,10 +234,11 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
         return keyRepository.findWithKeyItemsAndTokenByUuid(keyUuid).orElseThrow().getItems().iterator().next();
     }
 
+    /** Read per key item, as the key APIs read metadata, and per run. */
     private List<Object> locationsRecordedBy(Discovery run, UUID keyUuid) {
         return attributeEngine
                 .getMetadataAttributesDefinitionContent(ObjectAttributeContentInfo
-                        .builder(Resource.CRYPTOGRAPHIC_KEY, keyUuid)
+                        .builder(Resource.CRYPTOGRAPHIC_KEY, storedItem(keyUuid).getUuid())
                         .connector(run.getConnectorUuid())
                         .source(Resource.DISCOVERY, run.getUuid())
                         .build())
@@ -370,7 +397,7 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
         DiscoveredKeyWriter unreachableThird = new DiscoveredKeyWriter(keyItemRepository, itemRepository,
                 certificateKeyWriter) {
             @Override
-            public UUID importKey(DiscoveryItem item, PublicKey publicKey, String fingerprint) {
+            public Optional<UUID> importKey(DiscoveryItem item, PublicKey publicKey, String fingerprint) {
                 if ("vault://unreachable".equals(item.getUniqueRef())) {
                     throw new CannotAcquireLockException("lock timeout");
                 }

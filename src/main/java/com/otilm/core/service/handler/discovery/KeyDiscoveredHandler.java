@@ -110,18 +110,18 @@ public class KeyDiscoveredHandler {
         }
         // One transaction per key, opened here rather than in the writer: a key that commits is never revisited,
         // and a refusal further down the page must not take it back out.
-        transactionHandler.runInNewTransaction(() -> {
-            UUID keyUuid = keyWriter.importKey(item, publicKey, fingerprint);
-            recordWhereFound(run, keyUuid, item.getMeta());
-        });
+        transactionHandler
+                .runInNewTransaction(() -> keyWriter
+                        .importKey(item, publicKey, fingerprint)
+                        .ifPresent(keyItemUuid -> recordWhereFound(run, keyItemUuid, item.getMeta())));
         return true;
     }
 
     /**
-     * Keeps where the provider found the key as metadata from this run, as a discovered certificate does. Not in
-     * {@code key_meta}: that is a token's reference to the key.
+     * Keeps where the provider found the key as metadata from this run, on the key item, which is where the key APIs
+     * read metadata. Not in {@code key_meta}: that is a token's reference to the key.
      */
-    private void recordWhereFound(Discovery run, UUID keyUuid, List<MetadataAttribute> meta) {
+    private void recordWhereFound(Discovery run, UUID keyItemUuid, List<MetadataAttribute> meta) {
         if (meta == null || meta.isEmpty()) {
             return;
         }
@@ -129,7 +129,7 @@ public class KeyDiscoveredHandler {
             attributeEngine
                     .updateMetadataAttributes(meta,
                             ObjectAttributeContentInfo
-                                    .builder(Resource.CRYPTOGRAPHIC_KEY, keyUuid)
+                                    .builder(Resource.CRYPTOGRAPHIC_KEY, keyItemUuid)
                                     .connector(run.getConnectorUuid())
                                     .source(Resource.DISCOVERY, run.getUuid())
                                     .sourceName(run.getName())
@@ -137,7 +137,7 @@ public class KeyDiscoveredHandler {
         } catch (AttributeException e) {
             // As for a certificate: a lost location does not cost the key.
             logger
-                    .warn("Discovery {} could not record where key {} was found: {}", run.getUuid(), keyUuid,
+                    .warn("Discovery {} could not record where key {} was found: {}", run.getUuid(), keyItemUuid,
                             e.getMessage());
         }
     }

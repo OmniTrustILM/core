@@ -162,6 +162,22 @@ public interface DiscoveryItemRepository extends JpaRepository<DiscoveryItem, UU
     List<DiscoveryItem> findByDiscoveryUuidAndResourceAndProcessedAtIsNullAndProcessedErrorIsNullOrderBySequenceAscUuidAsc(
             UUID discoveryUuid, Resource resource, Pageable pageable);
 
+    /**
+     * Claims a pending item for import. Postgres re-checks the condition after waiting on the row, so an overlapping
+     * tick, or the run's ending stamping what it never reached, finds it taken.
+     *
+     * @return 1 when this caller holds the item, 0 when it was no longer pending
+     */
+    @Modifying
+    @Query(value = """
+            UPDATE {h-schema}discovery_item
+               SET processed_at = :processedAt
+             WHERE uuid = :uuid
+               AND processed_at IS NULL
+               AND processed_error IS NULL
+            """, nativeQuery = true)
+    int claimPending(@Param("uuid") UUID uuid, @Param("processedAt") OffsetDateTime processedAt);
+
     /** Stamps the item with the object it became. */
     @Modifying
     @Query(value = """
