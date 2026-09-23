@@ -6,9 +6,9 @@ import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import java.util.Objects;
 
 /**
- * What a provider signs with.
+ * The signature algorithm a signing selection produces.
  *
- * @param name the algorithm as the provider named it, kept for the operator who has to act on it
+ * @param name the algorithm as the selection names it, kept for the operator who has to act on it
  * @param platformAlgorithm the platform's entry for it, or null when the platform has none
  */
 public record ResolvedSignatureAlgorithm(String name, SignatureAlgorithm platformAlgorithm) {

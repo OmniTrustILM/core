@@ -62,15 +62,15 @@ public interface KeyProviderAdapter {
     SignDataResponseDto signData(OperationKeyContext context, SignDataRequestDto request) throws ConnectorException;
 
     /**
-     * Resolves a signature algorithm from the key and attributes.
+     * The signature algorithm the signing attributes select, read from the selection itself so it is known before
+     * anything is signed.
      *
-     * @param context the signing (private) key and the scope a stateless provider needs
+     * @param privateKeyItem the signing key item
      * @param publicKeyItem the matching public key item, which carries the parameter set of a PQC key
      * @param signatureAttributes the attributes the caller intends to sign with
      */
-    ResolvedSignatureAlgorithm resolveSignatureAlgorithm(OperationKeyContext context,
-            CryptographicKeyItemOperationModel publicKeyItem, List<RequestAttribute> signatureAttributes)
-            throws ConnectorException;
+    ResolvedSignatureAlgorithm resolveSignatureAlgorithm(CryptographicKeyItemOperationModel privateKeyItem,
+            CryptographicKeyItemOperationModel publicKeyItem, List<RequestAttribute> signatureAttributes);
 
     VerifyDataResponseDto verifyData(OperationKeyContext context, VerifyDataRequestDto request)
             throws ConnectorException;

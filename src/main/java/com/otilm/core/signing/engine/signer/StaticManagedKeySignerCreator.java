@@ -1,6 +1,5 @@
 package com.otilm.core.signing.engine.signer;
 
-import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
@@ -88,11 +87,6 @@ public class StaticManagedKeySignerCreator implements SignerCreator {
                     "signing configuration for key '%s' refers to a record that does not exist: %s"
                             .formatted(privateKeyItem.keyUuid(), e.getMessage()),
                     e, "Internal error: signing configuration is invalid");
-        } catch (ConnectorException e) {
-            throw new SigningEngineException(SigningEngineFailure.CONNECTOR_FAULT,
-                    "cryptography provider failed to resolve the signature algorithm for signing key '%s': %s"
-                            .formatted(privateKeyItem.keyUuid(), e.getMessage()),
-                    e, "Internal error");
         }
     }
 }

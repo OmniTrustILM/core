@@ -1,12 +1,11 @@
 package com.otilm.core.signing.engine.signer;
 
-import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
-import com.otilm.core.dao.entity.CryptographicKey;
+import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.model.crypto.CryptographicKeyItemModelFixtures;
 import com.otilm.core.model.signing.SigningCertificateBuilder;
 import com.otilm.core.model.signing.resolved.ResolvedStaticKeyManagedSigning;
@@ -91,7 +90,7 @@ class StaticManagedKeySignerCreatorTest {
         }
 
         @Test
-        void throwsMisconfigured_carryingTheProvidersReason_whenNoAlgorithmIsNamed() throws Exception {
+        void throwsMisconfigured_carryingTheReason_whenNoAlgorithmIsNamed() throws Exception {
             // given
             ResolvedStaticKeyManagedSigning scheme = new ResolvedStaticKeyManagedSigning(
                     SigningCertificateBuilder.valid(),
@@ -116,7 +115,7 @@ class StaticManagedKeySignerCreatorTest {
         }
 
         @Test
-        void throwsMisconfigured_carryingTheProvidersReason_whenTheSigningAttributesAreRejected() throws Exception {
+        void throwsMisconfigured_carryingTheReason_whenTheSigningAttributesAreRejected() throws Exception {
             // given
             ResolvedStaticKeyManagedSigning scheme = new ResolvedStaticKeyManagedSigning(
                     SigningCertificateBuilder.valid(),
@@ -143,28 +142,6 @@ class StaticManagedKeySignerCreatorTest {
         }
 
         @Test
-        void throwsConnectorFault_whenTheProviderCannotBeReached() throws Exception {
-            // given
-            ResolvedStaticKeyManagedSigning scheme = new ResolvedStaticKeyManagedSigning(
-                    SigningCertificateBuilder.valid(),
-                    List
-                            .of(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA),
-                                    CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA)),
-                    null, List.of());
-            given(cryptographicOperationService.resolveSignatureAlgorithm(any(), any(), anyList()))
-                    .willThrow(new ConnectorException("provider unreachable"));
-
-            // when / then
-            assertThatThrownBy(() -> creator.create(scheme))
-                    .isInstanceOf(SigningEngineException.class)
-                    .satisfies(ex -> {
-                        assertThat(((SigningEngineException) ex).failure())
-                                .isEqualTo(SigningEngineFailure.CONNECTOR_FAULT);
-                        assertThat(((SigningEngineException) ex).operatorMessage()).contains("provider unreachable");
-                    });
-        }
-
-        @Test
         void letsAnUnexpectedDefectEscape_ratherThanCallingItMisconfigured() throws Exception {
             // given
             ResolvedStaticKeyManagedSigning scheme = new ResolvedStaticKeyManagedSigning(
@@ -183,7 +160,7 @@ class StaticManagedKeySignerCreatorTest {
         }
 
         @Test
-        void throwsMisconfigured_whenTheKeyHasNoOperationScope() throws Exception {
+        void throwsMisconfigured_whenTheKeysConnectorIsNotFound() throws Exception {
             // given
             ResolvedStaticKeyManagedSigning scheme = new ResolvedStaticKeyManagedSigning(
                     SigningCertificateBuilder.valid(),
@@ -192,7 +169,7 @@ class StaticManagedKeySignerCreatorTest {
                                     CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA)),
                     null, List.of());
             given(cryptographicOperationService.resolveSignatureAlgorithm(any(), any(), anyList()))
-                    .willThrow(new NotFoundException(CryptographicKey.class, UUID.randomUUID()));
+                    .willThrow(new NotFoundException(Connector.class, UUID.randomUUID()));
 
             // when / then
             assertThatThrownBy(() -> creator.create(scheme))
@@ -221,9 +198,8 @@ class StaticManagedKeySignerCreatorTest {
                             .isEqualTo(SigningEngineFailure.MISCONFIGURED));
         }
 
-        /** Whatever the provider names is what the signer carries; the creator adds no opinion of its own. */
         @Test
-        void carriesTheAlgorithmTheProviderNames() throws Exception {
+        void carriesTheResolvedAlgorithm() throws Exception {
             // given
             ResolvedStaticKeyManagedSigning scheme = new ResolvedStaticKeyManagedSigning(
                     SigningCertificateBuilder.valid(),
@@ -242,9 +218,8 @@ class StaticManagedKeySignerCreatorTest {
             assertThat(signer.getSignatureAlgorithm()).isEqualTo(SignatureAlgorithm.ML_DSA_65);
         }
 
-        /** The public key item is what carries a PQC parameter set, so the provider is told which one it is. */
         @Test
-        void passesBothKeyItemsAndTheAttributesToTheProvider() throws Exception {
+        void resolvesFromBothKeyItemsAndTheAttributes() throws Exception {
             // given
             var privateKey = CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.MLDSA);
             var publicKey = CryptographicKeyItemModelFixtures

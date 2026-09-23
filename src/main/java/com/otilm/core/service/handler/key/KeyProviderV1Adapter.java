@@ -213,12 +213,16 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
         return result;
     }
 
-    /** A legacy provider publishes no signing schema, so the answer comes from Core's own signature registry. */
+    /**
+     * Core's own signature registry is a legacy provider's signing schema, so it both validates the attributes, as
+     * signing does, and names the algorithm.
+     */
     @Override
-    public ResolvedSignatureAlgorithm resolveSignatureAlgorithm(OperationKeyContext context,
+    public ResolvedSignatureAlgorithm resolveSignatureAlgorithm(CryptographicKeyItemOperationModel privateKeyItem,
             CryptographicKeyItemOperationModel publicKeyItem, List<RequestAttribute> signatureAttributes) {
+        validateSignatureAttributes(privateKeyItem.keyAlgorithm(), signatureAttributes);
         String name = CryptographyUtil
-                .resolveSignatureAlgorithmName(context.keyItem().keyAlgorithm(), signatureAttributes,
+                .resolveSignatureAlgorithmName(privateKeyItem.keyAlgorithm(), signatureAttributes,
                         publicKeyItem.pqcParameterSpecName());
         SignatureAlgorithm platformAlgorithm;
         try {

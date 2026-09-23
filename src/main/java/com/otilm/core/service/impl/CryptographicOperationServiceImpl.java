@@ -378,22 +378,11 @@ public class CryptographicOperationServiceImpl
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public SignatureAlgorithm resolveSignatureAlgorithm(CryptographicKeyItemOperationModel privateKeyItem,
             CryptographicKeyItemOperationModel publicKeyItem, List<RequestAttribute> signatureAttributes)
-            throws NotFoundException, ConnectorException {
-        OperationKeyContext context = operationContext(privateKeyItem);
+            throws NotFoundException {
         return keyProviderAdapterFactory
-                .forKeyItem(context.keyItem())
-                .resolveSignatureAlgorithm(context, publicKeyItem, signatureAttributes)
+                .forKeyItem(privateKeyItem)
+                .resolveSignatureAlgorithm(privateKeyItem, publicKeyItem, signatureAttributes)
                 .requirePlatformAlgorithm();
-    }
-
-    private OperationKeyContext operationContext(CryptographicKeyItemOperationModel model) throws NotFoundException {
-        if (!model.hasConnectorInterface()) {
-            return OperationKeyContext.legacy(model);
-        }
-        KeyOperationScope scope = cryptographicKeyRepository
-                .findOperationScopeByUuid(model.keyUuid())
-                .orElseThrow(() -> new NotFoundException(CryptographicKey.class, model.keyUuid()));
-        return new OperationKeyContext(model, scope.tokenProfile());
     }
 
     private <T> T recordEvent(CryptographicKeyItemOperationModel key, KeyEvent event, String successMessage,

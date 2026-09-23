@@ -4,6 +4,7 @@ import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.NotSupportedException;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.cryptography.operations.CipherDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.RandomDataRequestDto;
@@ -577,57 +578,37 @@ class CryptographicOperationServiceImplTest {
     }
 
     @Test
-    void resolveSignatureAlgorithm_routesLegacyItemToAdapter_withoutLoadingScope() throws Exception {
+    void resolveSignatureAlgorithm_asksTheKeyItemsAdapter_withoutLoadingScope() throws Exception {
         // given
-        CryptographicKeyItemOperationModel key = legacyKey();
-        when(keyProviderAdapterFactory.forKeyItem(key)).thenReturn(adapter);
-        when(adapter.resolveSignatureAlgorithm(any(), any(), any()))
-                .thenReturn(ResolvedSignatureAlgorithm.of(SignatureAlgorithm.SHA384_WITH_RSA));
+        CryptographicKeyItemOperationModel privateKey = v2Key();
+        CryptographicKeyItemOperationModel publicKey = v2Key();
+        List<RequestAttribute> attributes = List.of();
+        when(keyProviderAdapterFactory.forKeyItem(privateKey)).thenReturn(adapter);
+        when(adapter.resolveSignatureAlgorithm(privateKey, publicKey, attributes))
+                .thenReturn(ResolvedSignatureAlgorithm.of(SignatureAlgorithm.ML_DSA_65));
 
         // when
-        SignatureAlgorithm resolved = service.resolveSignatureAlgorithm(key, key, List.of());
+        SignatureAlgorithm resolved = service.resolveSignatureAlgorithm(privateKey, publicKey, attributes);
 
         // then
-        assertEquals(SignatureAlgorithm.SHA384_WITH_RSA, resolved);
-        ArgumentCaptor<OperationKeyContext> context = ArgumentCaptor.forClass(OperationKeyContext.class);
-        verify(adapter).resolveSignatureAlgorithm(context.capture(), any(), any());
-        assertSame(key, context.getValue().keyItem());
-        assertNull(context.getValue().tokenProfile());
+        assertEquals(SignatureAlgorithm.ML_DSA_65, resolved);
         verifyNoInteractions(cryptographicKeyRepository);
     }
 
     @Test
-    void resolveSignatureAlgorithm_loadsProfileScope_forV2Item() throws Exception {
+    void resolveSignatureAlgorithm_refusesAnAlgorithmThePlatformHasNoEntryFor() throws Exception {
         // given
-        CryptographicKeyItemOperationModel key = v2Key();
-        KeyOperationScope scope = scope();
-        when(cryptographicKeyRepository.findOperationScopeByUuid(key.keyUuid())).thenReturn(Optional.of(scope));
+        CryptographicKeyItemOperationModel key = legacyKey();
         when(keyProviderAdapterFactory.forKeyItem(key)).thenReturn(adapter);
         when(adapter.resolveSignatureAlgorithm(any(), any(), any()))
-                .thenReturn(ResolvedSignatureAlgorithm.of(SignatureAlgorithm.ML_DSA_65));
-
-        // when
-        SignatureAlgorithm resolved = service.resolveSignatureAlgorithm(key, key, List.of());
-
-        // then
-        assertEquals(SignatureAlgorithm.ML_DSA_65, resolved);
-        ArgumentCaptor<OperationKeyContext> context = ArgumentCaptor.forClass(OperationKeyContext.class);
-        verify(adapter).resolveSignatureAlgorithm(context.capture(), any(), any());
-        assertEquals(scope.tokenProfileUuid(), context.getValue().tokenProfile().uuid());
-    }
-
-    @Test
-    void resolveSignatureAlgorithm_throwsNotFound_forV2ItemWithoutScope() {
-        // given
-        CryptographicKeyItemOperationModel key = v2Key();
-        when(cryptographicKeyRepository.findOperationScopeByUuid(key.keyUuid())).thenReturn(Optional.empty());
+                .thenReturn(new ResolvedSignatureAlgorithm("SHA1WITHRSA", null));
 
         // when
         Executable resolve = () -> service.resolveSignatureAlgorithm(key, key, List.of());
 
         // then
-        assertThrows(NotFoundException.class, resolve);
-        verifyNoInteractions(keyProviderAdapterFactory);
+        ValidationException failure = assertThrows(ValidationException.class, resolve);
+        assertTrue(failure.getMessage().contains("SHA1WITHRSA"));
     }
 
     private static CryptographicKeyItemOperationModel legacyKey() {

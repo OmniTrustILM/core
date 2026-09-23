@@ -27,8 +27,10 @@ import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v2.content.BooleanAttributeContentV2;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.connector.common.v2.OperationExecutionMode;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.cryptography.v2.KeyScopedRequestV2Dto;
@@ -47,8 +49,7 @@ import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyDataResponseV2
 import com.otilm.api.model.connector.cryptography.v2.operations.CipherDataRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignDataRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignDataResponseV2Dto;
-import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorithmRequestV2Dto;
-import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorithmResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorithmAttribute;
 import com.otilm.api.model.connector.cryptography.v2.operations.VerifyDataRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.VerifyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.data.CipherDataV2Dto;
@@ -329,21 +330,38 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         });
     }
 
+    /**
+     * The contract fixes the name and values of the attribute that selects the algorithm, so Core reads the selection
+     * itself. The connector refuses, at signing, a selection its key does not support.
+     */
     @Override
-    public ResolvedSignatureAlgorithm resolveSignatureAlgorithm(OperationKeyContext context,
-            CryptographicKeyItemOperationModel publicKeyItem, List<RequestAttribute> signatureAttributes)
-            throws ConnectorException {
-        List<RequestAttribute> attributes = orEmpty(signatureAttributes);
-        TokenProfileScopedRequestV2Dto scope = validatedScope(context,
-                schemaRequest -> operationsApiClient.listSignAttributes(connectorInfo, schemaRequest), attributes);
-        SignatureAlgorithmRequestV2Dto body = keyScoped(new SignatureAlgorithmRequestV2Dto(), context, scope);
-        body.setSignatureAttributes(attributes);
-        SignatureAlgorithmResponseV2Dto response = operationsApiClient.resolveSignatureAlgorithm(connectorInfo, body);
-        if (response == null || response.getSignatureAlgorithm() == null) {
-            throw new ConnectorException("Connector named no signature algorithm for the supplied key and attributes.",
-                    connectorInfo);
+    public ResolvedSignatureAlgorithm resolveSignatureAlgorithm(CryptographicKeyItemOperationModel privateKeyItem,
+            CryptographicKeyItemOperationModel publicKeyItem, List<RequestAttribute> signatureAttributes) {
+        SignatureAlgorithm algorithm = SignatureAlgorithmAttribute.selectedAlgorithm(signatureAttributes);
+        if (!signsWith(algorithm, privateKeyItem.keyAlgorithm(), publicKeyItem.pqcParameterSpecName())) {
+            String signingKey = publicKeyItem.pqcParameterSpecName() == null
+                    ? privateKeyItem.keyAlgorithm().getCode()
+                    : publicKeyItem.pqcParameterSpecName();
+            throw new ValidationException(ValidationError
+                    .create("Signature algorithm {} does not fit the signing key ({}).", algorithm.getCode(),
+                            signingKey));
         }
-        return ResolvedSignatureAlgorithm.of(response.getSignatureAlgorithm());
+        return ResolvedSignatureAlgorithm.of(algorithm);
+    }
+
+    /** A post-quantum algorithm is its key's parameter set, so it must name the one the key was generated with. */
+    private static boolean signsWith(SignatureAlgorithm algorithm, KeyAlgorithm keyAlgorithm,
+            String pqcParameterSpecName) {
+        return switch (algorithm) {
+            case SHA256_WITH_RSA, SHA384_WITH_RSA, SHA512_WITH_RSA, SHA256_WITH_RSA_PSS, SHA384_WITH_RSA_PSS,
+                    SHA512_WITH_RSA_PSS ->
+                keyAlgorithm == KeyAlgorithm.RSA;
+            case SHA256_WITH_ECDSA, SHA384_WITH_ECDSA, SHA512_WITH_ECDSA -> keyAlgorithm == KeyAlgorithm.ECDSA;
+            case ED25519, ED448 -> false;
+            case FALCON_1024, ML_DSA_44, ML_DSA_65, ML_DSA_87, SLH_DSA_SHA2_128S, SLH_DSA_SHA2_128F, SLH_DSA_SHA2_192S,
+                    SLH_DSA_SHA2_192F, SLH_DSA_SHA2_256S, SLH_DSA_SHA2_256F ->
+                algorithm.getCode().equalsIgnoreCase(pqcParameterSpecName);
+        };
     }
 
     @Override

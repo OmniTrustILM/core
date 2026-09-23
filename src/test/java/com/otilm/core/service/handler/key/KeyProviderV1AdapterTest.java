@@ -22,6 +22,7 @@ import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
+import com.otilm.api.model.common.attribute.v2.content.ObjectAttributeContentV2;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
@@ -41,6 +42,7 @@ import com.otilm.core.attribute.RsaSignatureAttributes;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
+import com.otilm.core.model.crypto.CryptographicKeyItemModelFixtures;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
 import com.otilm.core.model.crypto.ImmutableTokenInstanceFullModel;
@@ -49,6 +51,7 @@ import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.service.handler.LegacyOperationFixtures;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -605,16 +608,14 @@ class KeyProviderV1AdapterTest {
     @Test
     void resolveSignatureAlgorithm_readsCoreRegistry_withoutTouchingTheConnector() {
         // given
-        OperationKeyContext rsa = OperationKeyContext
-                .legacy(keyItem(KeyAlgorithm.RSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
-                        UUID.randomUUID()));
         List<RequestAttribute> attributes = List
                 .of(RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PKCS1_v1_5),
                         RsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_384));
 
         // when
         ResolvedSignatureAlgorithm resolved = adapter
-                .resolveSignatureAlgorithm(rsa, keyItem(KeyAlgorithm.RSA, null, UUID.randomUUID()), attributes);
+                .resolveSignatureAlgorithm(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA),
+                        CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA), attributes);
 
         // then
         assertEquals(SignatureAlgorithm.SHA384_WITH_RSA, resolved.platformAlgorithm());
@@ -624,16 +625,14 @@ class KeyProviderV1AdapterTest {
     @Test
     void resolveSignatureAlgorithm_namesTheAlgorithmEvenWithoutAPlatformEntry() {
         // given
-        OperationKeyContext rsa = OperationKeyContext
-                .legacy(keyItem(KeyAlgorithm.RSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
-                        UUID.randomUUID()));
         List<RequestAttribute> attributes = List
                 .of(RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PKCS1_v1_5),
                         RsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_1));
 
         // when
         ResolvedSignatureAlgorithm resolved = adapter
-                .resolveSignatureAlgorithm(rsa, keyItem(KeyAlgorithm.RSA, null, UUID.randomUUID()), attributes);
+                .resolveSignatureAlgorithm(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA),
+                        CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA), attributes);
 
         // then
         assertEquals("SHA1WITHRSA", resolved.name());
@@ -644,19 +643,61 @@ class KeyProviderV1AdapterTest {
     @Test
     void resolveSignatureAlgorithm_refusesADigestAndSchemeNoPlatformEntryCovers() {
         // given
-        OperationKeyContext rsa = OperationKeyContext
-                .legacy(keyItem(KeyAlgorithm.RSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
-                        UUID.randomUUID()));
         List<RequestAttribute> attributes = List
                 .of(RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PSS),
                         RsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.MD5));
 
         // when
         ResolvedSignatureAlgorithm resolved = adapter
-                .resolveSignatureAlgorithm(rsa, keyItem(KeyAlgorithm.RSA, null, UUID.randomUUID()), attributes);
+                .resolveSignatureAlgorithm(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA),
+                        CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA), attributes);
 
         // then
         assertEquals("MD5WITHRSAANDMGF1", resolved.name());
+        assertNull(resolved.platformAlgorithm());
+        assertThrows(ValidationException.class, resolved::requirePlatformAlgorithm);
+    }
+
+    @Test
+    void resolveSignatureAlgorithm_refusesAnAttributeOfTheWrongContentType_asInvalidInput() {
+        // given
+        RequestAttributeV2 objectDigest = RsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_256);
+        objectDigest.setContent(List.of(new ObjectAttributeContentV2(new HashMap<>(Map.of("digest", "SHA-256")))));
+        List<RequestAttribute> attributes = List
+                .of(RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PKCS1_v1_5), objectDigest);
+
+        // when
+        Executable resolve = () -> adapter
+                .resolveSignatureAlgorithm(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA),
+                        CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA), attributes);
+
+        // then
+        assertThrows(ValidationException.class, resolve);
+    }
+
+    @Test
+    void resolveSignatureAlgorithm_readsThePostQuantumParameterSetFromThePublicKeyItem() {
+        // when
+        ResolvedSignatureAlgorithm resolved = adapter
+                .resolveSignatureAlgorithm(
+                        CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.MLDSA),
+                        CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.MLDSA, "ML-DSA-65"), List.of());
+
+        // then
+        assertEquals(SignatureAlgorithm.ML_DSA_65, resolved.platformAlgorithm());
+    }
+
+    @Test
+    void resolveSignatureAlgorithm_namesAPostQuantumParameterSetOutsideThePlatformEnum() {
+        // when
+        ResolvedSignatureAlgorithm resolved = adapter
+                .resolveSignatureAlgorithm(
+                        CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.SLHDSA),
+                        CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.SLHDSA, "SLH-DSA-SHAKE-128S"),
+                        List.of());
+
+        // then
+        assertEquals("SLH-DSA-SHAKE-128S", resolved.name());
         assertNull(resolved.platformAlgorithm());
         assertThrows(ValidationException.class, resolved::requirePlatformAlgorithm);
     }

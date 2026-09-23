@@ -72,16 +72,14 @@ public interface CryptographicOperationInternalService {
             InvalidKeySpecException, IOException, AttributeException;
 
     /**
-     * Resolves a signature algorithm from the key and attributes.
+     * The signature algorithm the signing attributes select for the key.
      *
      * @param privateKeyItem the signing key item
      * @param publicKeyItem the matching public key item, which carries the parameter set of a PQC key
      * @param signatureAttributes the attributes the caller intends to sign with
-     * @return the signature algorithm the selection produces
-     * @throws NotFoundException when the key's token profile scope cannot be resolved
-     * @throws ConnectorException when the provider cannot be reached or names no algorithm
+     * @throws NotFoundException when the key item's connector cannot be found
      */
     SignatureAlgorithm resolveSignatureAlgorithm(CryptographicKeyItemOperationModel privateKeyItem,
             CryptographicKeyItemOperationModel publicKeyItem, List<RequestAttribute> signatureAttributes)
-            throws NotFoundException, ConnectorException;
+            throws NotFoundException;
 }
