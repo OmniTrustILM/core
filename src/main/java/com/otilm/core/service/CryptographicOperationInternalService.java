@@ -78,6 +78,8 @@ public interface CryptographicOperationInternalService {
      * @param publicKeyItem the matching public key item, which carries the parameter set of a PQC key
      * @param signatureAttributes the attributes the caller intends to sign with
      * @throws NotFoundException when the key item's connector cannot be found
+     * @throws ValidationException when the signing attributes select no algorithm the key and the platform can sign
+     * with
      */
     SignatureAlgorithm resolveSignatureAlgorithm(CryptographicKeyItemOperationModel privateKeyItem,
             CryptographicKeyItemOperationModel publicKeyItem, List<RequestAttribute> signatureAttributes)

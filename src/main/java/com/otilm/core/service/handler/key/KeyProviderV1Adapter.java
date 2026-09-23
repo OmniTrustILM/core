@@ -224,13 +224,7 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
         String name = CryptographyUtil
                 .resolveSignatureAlgorithmName(privateKeyItem.keyAlgorithm(), signatureAttributes,
                         publicKeyItem.pqcParameterSpecName());
-        SignatureAlgorithm platformAlgorithm;
-        try {
-            platformAlgorithm = SignatureAlgorithm.findByCode(name);
-        } catch (ValidationException e) {
-            platformAlgorithm = null;
-        }
-        return new ResolvedSignatureAlgorithm(name, platformAlgorithm);
+        return new ResolvedSignatureAlgorithm(name, SignatureAlgorithm.lookupByCode(name).orElse(null));
     }
 
     @Override

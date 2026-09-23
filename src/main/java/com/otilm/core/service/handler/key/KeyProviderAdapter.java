@@ -1,6 +1,7 @@
 package com.otilm.core.service.handler.key;
 
 import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.client.cryptography.operations.CipherDataRequestDto;
@@ -68,6 +69,7 @@ public interface KeyProviderAdapter {
      * @param privateKeyItem the signing key item
      * @param publicKeyItem the matching public key item, which carries the parameter set of a PQC key
      * @param signatureAttributes the attributes the caller intends to sign with
+     * @throws ValidationException when the signing attributes select no algorithm the key can sign with
      */
     ResolvedSignatureAlgorithm resolveSignatureAlgorithm(CryptographicKeyItemOperationModel privateKeyItem,
             CryptographicKeyItemOperationModel publicKeyItem, List<RequestAttribute> signatureAttributes);

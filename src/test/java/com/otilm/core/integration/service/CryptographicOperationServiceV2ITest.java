@@ -139,7 +139,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
                 .stubOperation("sign", "{\"signatures\":[{\"identifier\":\"0\",\"data\":\"" + SIGNATURE + "\"}]}");
         String expectedRequest = "{\"tokenAttributes\":[{\"name\":\"token-slot\",\"content\":[{\"data\":\"slot-7\"}]}],"
                 + "\"tokenProfileAttributes\":[{\"name\":\"profile-policy\",\"content\":[{\"data\":\"signing\"}]}],"
-                + "\"keyMeta\":[{\"name\":\"provider-handle\"}]," + "\"executionMode\":\"synchronous\","
+                + "\"keyMeta\":[{\"name\":\"provider-handle\"}],\"executionMode\":\"synchronous\","
                 + "\"signatureAttributes\":[{\"name\":\"signatureAlgorithm\",\"content\":[{\"data\":\"SHA256withRSA\"}]}],"
                 + "\"data\":[{\"identifier\":\"0\",\"data\":\"" + DATA + "\"}]}";
 

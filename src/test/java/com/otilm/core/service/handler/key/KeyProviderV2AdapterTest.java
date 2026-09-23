@@ -358,7 +358,7 @@ class KeyProviderV2AdapterTest {
         assertTrue(failure.getMessage().contains(selection.algorithm().getCode()));
     }
 
-    static Stream<Named<UnfitSelection>> selectionsTheKeyCannotSignWith() {
+    private static Stream<Named<UnfitSelection>> selectionsTheKeyCannotSignWith() {
         return Stream
                 .of(named("ECDSA on an RSA key",
                         new UnfitSelection(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA),

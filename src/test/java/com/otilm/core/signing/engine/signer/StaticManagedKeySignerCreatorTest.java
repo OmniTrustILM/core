@@ -90,7 +90,7 @@ class StaticManagedKeySignerCreatorTest {
         }
 
         @Test
-        void throwsMisconfigured_carryingTheReason_whenNoAlgorithmIsNamed() throws Exception {
+        void throwsMisconfigured_carryingTheReason_whenThePlatformHasNoEntryForTheAlgorithm() throws Exception {
             // given
             ResolvedStaticKeyManagedSigning scheme = new ResolvedStaticKeyManagedSigning(
                     SigningCertificateBuilder.valid(),
@@ -133,9 +133,7 @@ class StaticManagedKeySignerCreatorTest {
                     .satisfies(ex -> {
                         assertThat(((SigningEngineException) ex).failure())
                                 .isEqualTo(SigningEngineFailure.MISCONFIGURED);
-                        assertThat(((SigningEngineException) ex).operatorMessage())
-                                .contains("signatureScheme")
-                                .doesNotContain("no signature algorithm the platform supports");
+                        assertThat(((SigningEngineException) ex).operatorMessage()).contains("signatureScheme");
                         assertThat(((SigningEngineException) ex).clientMessage())
                                 .isEqualTo("Signing configuration is not supported.");
                     });

@@ -676,6 +676,17 @@ class KeyProviderV1AdapterTest {
     }
 
     @Test
+    void resolveSignatureAlgorithm_refusesAnRsaKeyWithoutSigningAttributes() {
+        // when
+        Executable resolve = () -> adapter
+                .resolveSignatureAlgorithm(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA),
+                        CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA), List.of());
+
+        // then
+        assertThrows(ValidationException.class, resolve);
+    }
+
+    @Test
     void resolveSignatureAlgorithm_readsThePostQuantumParameterSetFromThePublicKeyItem() {
         // when
         ResolvedSignatureAlgorithm resolved = adapter
