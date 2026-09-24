@@ -1,10 +1,16 @@
 package com.otilm.core.integration.repository;
 
+import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
+import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
+import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryCertificate;
 import com.otilm.core.dao.repository.CertificateContentRepository;
+import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
 import com.otilm.core.dao.repository.DiscoveryItemRepository;
 import com.otilm.core.dao.repository.DiscoveryItemRow;
@@ -36,6 +42,10 @@ class DiscoveryItemListingITest extends BaseSpringBootTest {
     private DiscoveryCertificateRepository certificateRepository;
     @Autowired
     private CertificateContentRepository certificateContentRepository;
+    @Autowired
+    private CertificateRepository certificateInventoryRepository;
+    @Autowired
+    private CryptographicKeyRepository keyRepository;
 
     private Discovery run;
 
@@ -145,6 +155,51 @@ class DiscoveryItemListingITest extends BaseSpringBootTest {
         assertThat(row.isProcessed()).isFalse();
         assertThat(row.getProcessedError()).isNull();
         assertThat(row.getInventoryUuid()).isNull();
+        assertThat(row.getInventoryName()).isNull();
+    }
+
+    @Test
+    void anImportedKeyListsUnderTheNameTheInventoryHolds() {
+        UUID itemUuid = stageItem("CRYPTOGRAPHIC_KEY", 1L, "key-a");
+        CryptographicKey key = new CryptographicKey();
+        key.setName("discovered_key-a_2b9c1d4e");
+        key = keyRepository.saveAndFlush(key);
+        itemRepository.markImported(itemUuid, key.getUuid(), OffsetDateTime.now(ZoneOffset.UTC));
+
+        DiscoveryItemRow row = listAll().getFirst();
+
+        // Without the join a client has the uuid and nothing to label it with, and every other table in the
+        // platform labels an object by its name.
+        assertThat(row.getInventoryUuid()).isEqualTo(key.getUuid());
+        assertThat(row.getInventoryName()).isEqualTo("discovered_key-a_2b9c1d4e");
+    }
+
+    @Test
+    void aDeletedKeyLeavesNoReferenceBehind() {
+        UUID itemUuid = stageItem("CRYPTOGRAPHIC_KEY", 1L, "key-a");
+        CryptographicKey key = new CryptographicKey();
+        key.setName("discovered_key-a_2b9c1d4e");
+        key = keyRepository.saveAndFlush(key);
+        itemRepository.markImported(itemUuid, key.getUuid(), OffsetDateTime.now(ZoneOffset.UTC));
+        keyRepository.delete(key);
+        keyRepository.flush();
+
+        DiscoveryItemRow row = listAll().getFirst();
+
+        // Nothing ties the staged row to the key, so the listing reads the key itself -- as the certificate branch
+        // reads the certificate -- rather than a uuid that now points nowhere.
+        assertThat(row.getInventoryUuid()).isNull();
+        assertThat(row.getInventoryName()).isNull();
+    }
+
+    @Test
+    void aCertificateListsUnderTheCommonNameItsOwnListingShows() {
+        stageCertificate("aa11", "cert-bytes", 1L, OffsetDateTime.now(ZoneOffset.UTC));
+        inventoryCertificate("aa11", "CN=discovered.example.com");
+
+        DiscoveryItemRow row = listAll().getFirst();
+
+        assertThat(row.getInventoryName()).isEqualTo("CN=discovered.example.com");
     }
 
     private List<DiscoveryItemRow> listAll() {
@@ -175,10 +230,24 @@ class DiscoveryItemListingITest extends BaseSpringBootTest {
         certificateRepository.saveAndFlush(staged);
     }
 
-    private void stageItem(String resource, long sequence, String uniqueRef) {
+    private UUID stageItem(String resource, long sequence, String uniqueRef) {
+        UUID uuid = UUID.randomUUID();
         itemRepository
-                .stage(UUID.randomUUID(), run.getUuid(), resource, sequence, uniqueRef,
+                .stage(uuid, run.getUuid(), resource, sequence, uniqueRef,
                         "{\"resource\":\"" + resource + "\",\"keyData\":\"" + uniqueRef + "\"}",
                         OffsetDateTime.now(ZoneOffset.UTC), true, null);
+        return uuid;
+    }
+
+    private void inventoryCertificate(String fingerprint, String commonName) {
+        Certificate certificate = new Certificate();
+        certificate.setCommonName(commonName);
+        certificate.setSubjectDn(commonName);
+        certificate.setIssuerDn("CN=issuer");
+        certificate.setSerialNumber("01");
+        certificate.setState(CertificateState.ISSUED);
+        certificate.setValidationStatus(CertificateValidationStatus.VALID);
+        certificate.setCertificateContentId(certificateContentRepository.findByFingerprint(fingerprint).getId());
+        certificateInventoryRepository.saveAndFlush(certificate);
     }
 }

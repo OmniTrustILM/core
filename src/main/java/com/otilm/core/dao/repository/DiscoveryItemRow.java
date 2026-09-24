@@ -18,6 +18,9 @@ public interface DiscoveryItemRow {
     /** The inventory object this item became, or null while it is unprocessed or failed. */
     UUID getInventoryUuid();
 
+    /** What that object is called, joined from the resource's own table; null wherever the uuid is. */
+    String getInventoryName();
+
     /** Synthesized for a v1 row; see {@code DiscoveryCertificate#sequence}. */
     long getSequence();
 
