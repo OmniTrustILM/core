@@ -462,11 +462,12 @@ public record AssetNormalizer(IdentityTables tables) {
     /**
      * Words that make a name a plan or an alternation rather than one construction. {@code replac} covers replaces,
      * replaced, replacing and replacement; {@code migrat} covers migrate, migrated, migrating and migration. A two-word
-     * marker takes any of the separators the name grammar accepts, so {@code fall-back} and {@code DUAL_STACK} match.
+     * marker takes any run of the separators the name grammar accepts, so {@code fall-back} and {@code DUAL__STACK}
+     * match.
      */
     private static final Pattern ALTERNATION_WORDS = Pattern
-            .compile("(?<![a-z0-9])(?:or|either|vs|versus|instead|replac[a-z]*|fall[ _-]?back|migrat[a-z]*|"
-                    + "dual[ _-]?stack)(?![a-z0-9])", Pattern.CASE_INSENSITIVE);
+            .compile("(?<![a-z0-9])(?:or|either|vs|versus|instead|replac[a-z]*|fall[\\s_-]*back|migrat[a-z]*|"
+                    + "dual[\\s_-]*stack)(?![a-z0-9])", Pattern.CASE_INSENSITIVE);
 
     /**
      * Separators that join two names rather than spell one. A slash counts only when whitespace other than a plain
