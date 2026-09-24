@@ -109,16 +109,20 @@ public class PqcEvaluator {
     }
 
     /**
-     * Whether the asset's own name is free of a weak-crypto finding -- which is not the same as clearing as ready, and
-     * the difference is the common case. A 256-bit secret key naming no family at all resolves to
-     * {@code FAMILY-UNRESOLVED}, and nearly every secret key in the corpus names no family, so gating the size arms on
-     * a ready verdict would empty them. An {@code unknown} name says nothing about the key; a {@code notReady} one is
-     * the finding, and a finding must reach the row whatever tier it was keyed on.
+     * Whether the asset's own name is free of a weak-crypto finding, which gates only the weak size arm: a key under
+     * 128 bits is weak whatever an {@code unknown} name leaves open, while a {@code notReady} name is the finding
+     * itself, and a finding must reach the row whatever tier it was keyed on.
      */
     private boolean nameCarriesNoFinding(PqcRuleInput input) {
         return nameDecision(input.withoutMaterialSize(), null).verdict() != PqcVerdict.NOT_READY;
     }
 
+    /**
+     * Whether the name leaves the key's strength to its size, which gates the ready and unsized arms: the name clears
+     * as ready, or names no family at all. The carve-out is the common case -- nearly every secret key in the corpus
+     * names no family and resolves to {@code FAMILY-UNRESOLVED}, so without it the arms would be empty. An ambiguous,
+     * uninstantiated or unresolved-hybrid name is a question no key length answers, so the name decides it.
+     */
     private boolean nameLeavesStrengthToSize(PqcRuleInput input) {
         PqcDecision byName = nameDecision(input.withoutMaterialSize(), null);
         return byName.verdict() == PqcVerdict.READY || PqcRules.FAMILY_UNRESOLVED.equals(byName.ruleId());
@@ -332,16 +336,12 @@ public class PqcEvaluator {
             }
         }
         Integer bits = recordedSizeBits(input, construction);
-        FamilyClass ready = FamilyClass.QUANTUM_RESISTANT_SYMMETRIC;
         if (bits == null) {
-            return construction
-                    ? decision(ready.verdict(), ready.ruleId(), ready.reason(),
-                            List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.VARIANT), input, nistQuantumSecurityLevel)
-                    : null;
+            return null;
         }
-        List<String> sized = List
-                .of(PqcRules.ALGORITHM_FAMILY, PqcRules.PARAMETER_SET, PqcRules.MATERIAL_SIZE, PqcRules.VARIANT);
+        List<String> sized = sizeEvidence(input, construction);
         if (bits >= PqcRules.MIN_SYMMETRIC_KEY_BITS) {
+            FamilyClass ready = FamilyClass.QUANTUM_RESISTANT_SYMMETRIC;
             return decision(ready.verdict(), ready.ruleId(), ready.reason(), sized, input, nistQuantumSecurityLevel);
         }
         return decision(PqcVerdict.NOT_READY, "SYMMETRIC-UNDERSIZED",
@@ -387,6 +387,19 @@ public class PqcEvaluator {
             return named == null ? input.materialSize() : Math.min(input.materialSize(), named);
         }
         return named;
+    }
+
+    /** The slots {@link #recordedSizeBits} reads for this row, so the evidence names only the size that decided. */
+    private static List<String> sizeEvidence(PqcRuleInput input, boolean construction) {
+        List<String> fields = new ArrayList<>(List.of(PqcRules.ALGORITHM_FAMILY));
+        if (!construction) {
+            fields.add(PqcRules.PARAMETER_SET);
+        }
+        if (input.assetType() == CryptographicAssetType.RELATED_CRYPTO_MATERIAL) {
+            fields.add(PqcRules.MATERIAL_SIZE);
+        }
+        fields.add(PqcRules.VARIANT);
+        return List.copyOf(fields);
     }
 
     /**
@@ -457,7 +470,7 @@ public class PqcEvaluator {
         }
         Integer parameterSet = parameterSet(fields.parameterSet());
         if (parameterSet == null && material) {
-            parameterSet = sizeFromName(fields.name());
+            parameterSet = sizeFromName(fields.name(), family);
         }
         String secondary = normalizer.secondaryTokens(fields.name(), family);
         List<String> hybrid = normalizer.hybridComponents(family, secondary);
@@ -477,9 +490,9 @@ public class PqcEvaluator {
         return secondaryTokens == null || secondaryTokens.isEmpty() ? null : secondaryTokens;
     }
 
-    private Integer sizeFromName(String name) {
-        Integer parsed = normalizer.parseParameterSet(name, null, new ArrayList<>());
-        return parsed != null ? parsed : normalizer.intrinsicParameterSet(name);
+    private Integer sizeFromName(String name, String family) {
+        Integer spelled = normalizer.sizeTheFamilySpells(name, family);
+        return spelled != null ? spelled : normalizer.intrinsicParameterSet(name);
     }
 
     /** The normalizer's routing vocabulary onto the column's enum; the unroutable tier has no producer spelling. */

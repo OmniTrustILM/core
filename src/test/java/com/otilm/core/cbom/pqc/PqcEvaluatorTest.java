@@ -173,7 +173,7 @@ class PqcEvaluatorTest {
     /** A declared key size does not outvote the size the name spells, or a key could clear what its algorithm fails. */
     @Test
     void aKeyNamedForAnUndersizedAlgorithmIsAsUndersizedAsTheAlgorithm() {
-        for (String undersized : new String[]{"AES-64", "RC6-64"}) {
+        for (String undersized : new String[]{"AES-64", "AES64", "AES_64", "RC6-64"}) {
             String asAlgorithm = verdictOf(algorithm(undersized)).ruleId();
             assertThat(asAlgorithm).isEqualTo("SYMMETRIC-UNDERSIZED");
             for (Integer size : new Integer[]{256, null}) {
@@ -187,6 +187,20 @@ class PqcEvaluatorTest {
         assertThat(verdictOf(material("AES-128", "secret-key", 256)).ruleId()).isEqualTo("MATERIAL-SYMMETRIC-READY");
     }
 
+    /**
+     * Only the size the family token itself spells caps a key. A mode's tag length, a tenant label or a hex id is not
+     * the key's length, and {@code Ascon-80pq} names a variant whose 80 is a security level.
+     */
+    @Test
+    void aNumberElsewhereInAKeysNameIsNotItsSize() {
+        for (String name : new String[]{"AES-GCM-96", "AES-CCM-64", "aes-kek-tenant-77", "AES-key-7f3a81c2"}) {
+            assertThat(verdictOf(material(name, "secret-key", 256)).ruleId())
+                    .describedAs("a 256-bit %s key", name)
+                    .isEqualTo("MATERIAL-SYMMETRIC-READY");
+        }
+        assertThat(verdictOf(material("Ascon-80pq", "secret-key", 160)).ruleId()).isEqualTo("MATERIAL-SYMMETRIC-READY");
+    }
+
     @Test
     void anAdequateSizeIsEvidenceForTheReadyVerdict() {
         PqcDecision algorithm = verdictOf(algorithm("AES-128"));
@@ -197,7 +211,10 @@ class PqcEvaluatorTest {
         assertThat(key.evaluatedFields()).containsEntry(PqcRules.MATERIAL_SIZE, 256);
         PqcDecision constructionKey = verdictOf(material("HMAC-SHA256", "key", 256));
         assertThat(constructionKey.ruleId()).isEqualTo("SYMMETRIC-READY");
-        assertThat(constructionKey.evaluatedFields()).containsEntry(PqcRules.MATERIAL_SIZE, 256);
+        assertThat(constructionKey.evaluatedFields())
+                .describedAs("a construction's parameter set is its digest, which the size rule does not read")
+                .containsEntry(PqcRules.MATERIAL_SIZE, 256)
+                .doesNotContainKey(PqcRules.PARAMETER_SET);
     }
 
     /**
@@ -709,7 +726,12 @@ class PqcEvaluatorTest {
 
         JsonNode understated = component("algorithm", "AES-256",
                 "{\"relatedCryptoMaterialProperties\":{\"type\":\"secret-key\",\"size\":64}}");
-        assertThat(verdictOf(understated).ruleId()).isEqualTo("SYMMETRIC-READY");
+        PqcDecision understatedDecision = verdictOf(understated);
+        assertThat(understatedDecision.ruleId()).isEqualTo("SYMMETRIC-READY");
+        assertThat(understatedDecision.evaluatedFields())
+                .describedAs("the evidence names the size that decided, not the strayed one the rule ignored")
+                .containsEntry(PqcRules.PARAMETER_SET, 256)
+                .doesNotContainKey(PqcRules.MATERIAL_SIZE);
 
         JsonNode strayedConstruction = component("algorithm", "HMAC-SHA256",
                 "{\"relatedCryptoMaterialProperties\":{\"type\":\"key\",\"size\":64}}");
