@@ -1,9 +1,11 @@
 package com.otilm.core.dao.repository;
 
+import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.dao.entity.DiscoveryItem;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -47,8 +49,7 @@ public interface DiscoveryItemRepository extends JpaRepository<DiscoveryItem, UU
      * synthesized number whether or not the caller filtered.
      *
      * <p>
-     * {@code processed} and {@code inventoryUuid} on an item row read columns nothing writes until key ingestion lands
-     * (core#1965); they are selected so that pipeline needs no change here.
+     * {@code processed} and {@code inventoryUuid} on an item row are written by {@code KeyDiscoveredHandler}.
      *
      * <p>
      * {@code i_cre} must be a timestamp for the {@code discovered_at} coalesce to plan; tests build their schema from
@@ -60,10 +61,13 @@ public interface DiscoveryItemRepository extends JpaRepository<DiscoveryItem, UU
     // Aliases on the outer select are quoted: Postgres folds an unquoted one to lower case and the projection binds
     // by exact label. Ordering inside the union is positional -- only the first branch's labels are in scope there --
     // and the outer ORDER BY repeats it by name, since a CTE's ordering need not survive into the query above it.
+    // The inventory object is read from the resource's own table, not from the uuid the staged row remembers:
+    // nothing ties the two, so a deleted object drops out here as a deleted certificate does in its branch. A
+    // resource with no join here lists without its object until it gets one.
     @Query(value = """
             WITH page AS (
             SELECT i.uuid AS uuid,
-                   i.inventory_uuid AS inventory_uuid,
+                   ck.uuid AS inventory_uuid,
                    i.sequence AS sequence,
                    i.unique_ref AS unique_ref,
                    i.resource AS resource,
@@ -73,15 +77,17 @@ public interface DiscoveryItemRepository extends JpaRepository<DiscoveryItem, UU
                    i.newly_discovered AS newly_discovered,
                    (i.processed_at IS NOT NULL) AS processed,
                    i.processed_error AS processed_error,
-                   i.meta #>> '{}' AS meta
+                   i.meta #>> '{}' AS meta,
+                   ck.name AS inventory_name
               FROM {h-schema}discovery_item i
+              LEFT JOIN {h-schema}cryptographic_key ck ON ck.uuid = i.inventory_uuid
              WHERE i.discovery_uuid = :discoveryUuid
                AND (CAST(:resource AS VARCHAR) IS NULL OR i.resource = CAST(:resource AS VARCHAR))
                AND (CAST(:newlyDiscovered AS BOOLEAN) IS NULL
                     OR i.newly_discovered = CAST(:newlyDiscovered AS BOOLEAN))
             UNION ALL
             SELECT c.uuid, c.inventory_uuid, c.sequence, c.unique_ref, c.resource, c.discovered_at, c.staged_payload,
-                   c.content_id, c.newly_discovered, c.processed, c.processed_error, c.meta
+                   c.content_id, c.newly_discovered, c.processed, c.processed_error, c.meta, c.inventory_name
               FROM (
                 SELECT dc.uuid AS uuid,
                        cert.uuid AS inventory_uuid,
@@ -95,7 +101,8 @@ public interface DiscoveryItemRepository extends JpaRepository<DiscoveryItem, UU
                        dc.newly_discovered AS newly_discovered,
                        dc.processed AS processed,
                        dc.processed_error AS processed_error,
-                       dc.meta #>> '{}' AS meta
+                       dc.meta #>> '{}' AS meta,
+                       cert.common_name AS inventory_name
                   FROM {h-schema}discovery_certificate dc
                   JOIN {h-schema}certificate_content cc ON cc.id = dc.certificate_content_id
                   LEFT JOIN {h-schema}certificate cert ON cert.certificate_content_id = cc.id
@@ -119,7 +126,8 @@ public interface DiscoveryItemRepository extends JpaRepository<DiscoveryItem, UU
                    p.newly_discovered AS "newlyDiscovered",
                    p.processed AS "processed",
                    p.processed_error AS "processedError",
-                   p.meta AS "meta"
+                   p.meta AS "meta",
+                   p.inventory_name AS "inventoryName"
               FROM page p
               LEFT JOIN {h-schema}certificate_content cc ON cc.id = p.content_id
              ORDER BY p.sequence, p.discovered_at, p.uuid
@@ -146,14 +154,85 @@ public interface DiscoveryItemRepository extends JpaRepository<DiscoveryItem, UU
     long countItems(@Param("discoveryUuid") UUID discoveryUuid, @Param("resource") String resource,
             @Param("newlyDiscovered") Boolean newlyDiscovered);
 
+    /** Whether any staged item of this run carries a reason it produced nothing. */
+    boolean existsByDiscoveryUuidAndProcessedErrorIsNotNull(UUID discoveryUuid);
+
+    /** One bounded page of key items the import pipeline has not reached yet, in run order. */
+    List<DiscoveryItem> findByDiscoveryUuidAndResourceAndProcessedAtIsNullAndProcessedErrorIsNullOrderBySequenceAscUuidAsc(
+            UUID discoveryUuid, Resource resource, Pageable pageable);
+
+    /**
+     * Claims a pending item for import. Postgres re-checks the condition after waiting on the row, so an overlapping
+     * tick, or the run's ending stamping what it never reached, finds it taken.
+     *
+     * @return 1 when this caller holds the item, 0 when it was no longer pending
+     */
+    @Modifying
+    @Query(value = """
+            UPDATE {h-schema}discovery_item
+               SET processed_at = :processedAt
+             WHERE uuid = :uuid
+               AND processed_at IS NULL
+               AND processed_error IS NULL
+            """, nativeQuery = true)
+    int claimPending(@Param("uuid") UUID uuid, @Param("processedAt") OffsetDateTime processedAt);
+
+    /** Stamps the item with the object it became. */
+    @Modifying
+    @Query(value = """
+            UPDATE {h-schema}discovery_item
+               SET inventory_uuid = :inventoryUuid, processed_at = :processedAt
+             WHERE uuid = :uuid
+            """, nativeQuery = true)
+    void markImported(@Param("uuid") UUID uuid, @Param("inventoryUuid") UUID inventoryUuid,
+            @Param("processedAt") OffsetDateTime processedAt);
+
+    /**
+     * Stamps why the item produced nothing. {@code processed_at} is set with it: the item was attempted, and the
+     * backlog must not offer it again.
+     */
+    @Modifying
+    @Query(value = """
+            UPDATE {h-schema}discovery_item
+               SET processed_error = :reason, processed_at = :processedAt
+             WHERE uuid = :uuid
+            """, nativeQuery = true)
+    void markFailed(@Param("uuid") UUID uuid, @Param("reason") String reason,
+            @Param("processedAt") OffsetDateTime processedAt);
+
+    /** Stamps every item of one resource that the run ended without reaching. */
+    @Modifying
+    @Query(value = """
+            UPDATE {h-schema}discovery_item
+               SET processed_error = :reason, processed_at = :processedAt
+             WHERE discovery_uuid = :discoveryUuid
+               AND resource = :resource
+               AND processed_at IS NULL
+               AND processed_error IS NULL
+            """, nativeQuery = true)
+    int markPendingNotImported(@Param("discoveryUuid") UUID discoveryUuid, @Param("resource") String resource,
+            @Param("reason") String reason, @Param("processedAt") OffsetDateTime processedAt);
+
+    /**
+     * Key items the import pipeline still owes a verdict. A row carries one either way once it has been through:
+     * {@code processed_at} when it became a key, {@code processed_error} when it could not.
+     */
+    @Query(value = """
+            SELECT COUNT(*) FROM {h-schema}discovery_item i
+             WHERE i.discovery_uuid = :discoveryUuid
+               AND i.resource = 'CRYPTOGRAPHIC_KEY'
+               AND i.processed_at IS NULL
+               AND i.processed_error IS NULL
+            """, nativeQuery = true)
+    long countPendingKeys(@Param("discoveryUuid") UUID discoveryUuid);
+
     /**
      * How many newly discovered items reached the inventory, across both stores. Cleanly imported only: a certificate
      * row carries its reason alongside {@code processed}, so a row stamped with one is an outcome of its own and is
      * counted by {@link #countNewlyDiscoveredFailed} instead.
      *
      * <p>
-     * The item branch reads {@code processed_at}, unwritten until key ingestion lands (see {@link #listItems}), so a
-     * run staging keys reports none of them imported.
+     * The item branch reads {@code processed_at}, which {@code KeyDiscoveredHandler} writes.
      */
     @Query(value = """
             SELECT (
