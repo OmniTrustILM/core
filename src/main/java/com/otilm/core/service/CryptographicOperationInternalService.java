@@ -9,6 +9,8 @@ import com.otilm.api.model.client.cryptography.operations.SignDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.SignDataResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import java.io.IOException;
@@ -68,4 +70,18 @@ public interface CryptographicOperationInternalService {
             List<RequestAttribute> signatureAttributes, UUID altKeyUUid, UUID altTokenProfileUuid,
             List<RequestAttribute> altSignatureAttributes) throws NotFoundException, NoSuchAlgorithmException,
             InvalidKeySpecException, IOException, AttributeException;
+
+    /**
+     * The signature algorithm the signing attributes select for the key.
+     *
+     * @param privateKeyItem the signing key item
+     * @param publicKeyItem the matching public key item, which carries the parameter set of a PQC key
+     * @param signatureAttributes the attributes the caller intends to sign with
+     * @throws NotFoundException when the key item's connector cannot be found
+     * @throws ValidationException when the signing attributes select no algorithm the key and the platform can sign
+     * with
+     */
+    SignatureAlgorithm resolveSignatureAlgorithm(CryptographicKeyItemOperationModel privateKeyItem,
+            CryptographicKeyItemOperationModel publicKeyItem, List<RequestAttribute> signatureAttributes)
+            throws NotFoundException;
 }

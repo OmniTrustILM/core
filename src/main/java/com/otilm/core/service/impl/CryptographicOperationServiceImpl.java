@@ -19,6 +19,7 @@ import com.otilm.api.model.client.cryptography.operations.VerifyDataResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cryptography.key.KeyEvent;
 import com.otilm.api.model.core.cryptography.key.KeyEventStatus;
@@ -371,6 +372,17 @@ public class CryptographicOperationServiceImpl
 
     private KeyProviderAdapter adapterFor(OperationKeyContext context) throws NotFoundException {
         return keyProviderAdapterFactory.forKeyItem(context.keyItem());
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public SignatureAlgorithm resolveSignatureAlgorithm(CryptographicKeyItemOperationModel privateKeyItem,
+            CryptographicKeyItemOperationModel publicKeyItem, List<RequestAttribute> signatureAttributes)
+            throws NotFoundException {
+        return keyProviderAdapterFactory
+                .forKeyItem(privateKeyItem)
+                .resolveSignatureAlgorithm(privateKeyItem, publicKeyItem, signatureAttributes)
+                .requirePlatformAlgorithm();
     }
 
     private <T> T recordEvent(CryptographicKeyItemOperationModel key, KeyEvent event, String successMessage,
