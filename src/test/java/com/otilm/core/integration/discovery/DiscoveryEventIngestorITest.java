@@ -1,12 +1,8 @@
 package com.otilm.core.integration.discovery;
 
-import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.otilm.api.model.common.enums.cryptography.KeyFormat;
-import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredCertificateDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredItemDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredItemPayloadDto;
-import com.otilm.api.model.connector.discovery.v2.DiscoveredKeyDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryResultsResponseDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryRunState;
 import com.otilm.api.model.connector.discovery.v2.event.DiscoveryErrorEvent;
@@ -38,7 +34,6 @@ import com.otilm.core.util.DiscoveryInterfaceFixture;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.nio.charset.StandardCharsets;
-import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
 import java.util.Base64;
@@ -48,6 +43,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
+import static com.otilm.core.util.TestPublicKeys.rsaPublicKey;
+import static com.otilm.core.util.TestPublicKeys.spkiBase64;
+import static com.otilm.core.util.builders.DiscoveredKeyDtoBuilder.aPublicKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -329,23 +327,15 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
     }
 
     private DiscoveredItemDto keyItem(long sequence, String uniqueRef) {
-        DiscoveredKeyDto payload = new DiscoveredKeyDto();
-        payload.setType(KeyType.PUBLIC_KEY);
-        payload.setAlgorithm(KeyAlgorithm.RSA);
-        payload.setLength(2048);
-        payload.setFingerprint("fingerprint-" + uniqueRef);
-        return item(sequence, uniqueRef, payload);
+        return item(sequence, uniqueRef, aPublicKey().withFingerprint("fingerprint-" + uniqueRef).build());
     }
 
     private DiscoveredItemDto keyWithMaterial(long sequence, String uniqueRef, PublicKey material) {
-        DiscoveredKeyDto payload = new DiscoveredKeyDto();
-        payload.setType(KeyType.PUBLIC_KEY);
-        payload.setAlgorithm(KeyAlgorithm.RSA);
-        payload.setLength(2048);
-        payload.setPublicKeyFormat(KeyFormat.SPKI);
-        payload.setPublicKey(Base64.getEncoder().encodeToString(material.getEncoded()));
-        payload.setFingerprint("whatever-the-connector-computed-" + uniqueRef);
-        return item(sequence, uniqueRef, payload);
+        return item(sequence, uniqueRef,
+                aPublicKey()
+                        .withSpki(spkiBase64(material))
+                        .withFingerprint("whatever-the-connector-computed-" + uniqueRef)
+                        .build());
     }
 
     /** What {@code CertificateHandler} computes for a certificate's public key. */
@@ -353,12 +343,6 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
         return CertificateUtil
                 .getThumbprint(
                         Base64.getEncoder().encodeToString(material.getEncoded()).getBytes(StandardCharsets.UTF_8));
-    }
-
-    private static PublicKey rsaPublicKey() throws NoSuchAlgorithmException {
-        KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
-        generator.initialize(2048);
-        return generator.generateKeyPair().getPublic();
     }
 
     private List<DiscoveryItem> stagedItems(Discovery run) {

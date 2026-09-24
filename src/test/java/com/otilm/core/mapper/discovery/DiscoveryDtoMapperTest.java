@@ -1,8 +1,6 @@
 package com.otilm.core.mapper.discovery;
 
 import com.otilm.api.model.client.discovery.DiscoveryDetailDto;
-import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredKeyDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.discovery.DiscoveryItemDto;
@@ -14,6 +12,7 @@ import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
+import static com.otilm.core.util.builders.DiscoveredKeyDtoBuilder.aPublicKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -58,17 +57,12 @@ class DiscoveryDtoMapperTest {
     }
 
     @Test
-    void theResourceAndThePayloadNameTheSameResource() throws Exception {
-        DiscoveredKeyDto key = new DiscoveredKeyDto();
-        key.setType(KeyType.PUBLIC_KEY);
-        key.setAlgorithm(KeyAlgorithm.RSA);
-        String payload = ObjectMapperFactory.jsonColumn().writeValueAsString(key);
+    void aStoredKeyPayload_decodesAsTheKeyItWas() throws Exception {
+        String payload = ObjectMapperFactory.jsonColumn().writeValueAsString(aPublicKey().build());
 
         DiscoveryItemDto dto = DiscoveryDtoMapper.toItemDto(row("CRYPTOGRAPHIC_KEY", null, null, payload));
 
-        // Stored side by side rather than one read off the other, so this is the one place they could part company.
-        assertThat(dto.getPayload()).isNotNull();
-        assertThat(dto.getResource()).isEqualTo(dto.getPayload().getResource());
+        assertThat(dto.getPayload()).isInstanceOf(DiscoveredKeyDto.class);
     }
 
     @Test

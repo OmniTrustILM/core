@@ -2,9 +2,6 @@ package com.otilm.core.service.handler.discovery;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.otilm.api.model.common.enums.cryptography.KeyFormat;
-import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredKeyDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.dao.entity.Discovery;
@@ -12,21 +9,23 @@ import com.otilm.core.dao.entity.DiscoveryItem;
 import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.service.writer.discovery.DiscoveredKeyWriter;
-import java.security.KeyPairGenerator;
-import java.security.NoSuchAlgorithmException;
-import java.security.PublicKey;
-import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.dao.CannotAcquireLockException;
 
+import static com.otilm.core.util.TestPublicKeys.rsaPublicKey;
+import static com.otilm.core.util.TestPublicKeys.spkiBase64;
+import static com.otilm.core.util.builders.DiscoveredKeyDtoBuilder.aPublicKey;
+import static com.otilm.core.util.builders.DiscoveredKeyDtoBuilder.aSecretKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -36,17 +35,17 @@ import static org.mockito.Mockito.verify;
  */
 class KeyDiscoveredHandlerTest {
 
-    private static final String SPKI = Base64.getEncoder().encodeToString(rsaPublicKey().getEncoded());
+    private static final String SPKI = spkiBase64(rsaPublicKey());
 
-    private final DiscoveredKeyWriter writer = Mockito.mock(DiscoveredKeyWriter.class);
-    private final AuthorizationEnforcer enforcer = Mockito.mock(AuthorizationEnforcer.class);
+    private final DiscoveredKeyWriter writer = mock(DiscoveredKeyWriter.class);
+    private final AuthorizationEnforcer enforcer = mock(AuthorizationEnforcer.class);
     private KeyDiscoveredHandler handler;
     private Discovery run;
 
     @BeforeEach
     void setUp() {
         handler = new KeyDiscoveredHandler(writer, enforcer, new ObjectMapper(), new TransactionHandler(),
-                Mockito.mock(AttributeEngine.class));
+                mock(AttributeEngine.class));
         run = new Discovery();
         run.setUuid(UUID.randomUUID());
     }
@@ -58,7 +57,7 @@ class KeyDiscoveredHandlerTest {
         KeyDiscoveredHandler.KeyImportOutcome outcome = handler.importBatch(run, List.of(item));
 
         assertThat(outcome.failed()).isEqualTo(1);
-        verify(writer).markFailed(Mockito.eq(item.getUuid()), Mockito.startsWith("Listed, not added to the inventory"));
+        verify(writer).markFailed(eq(item.getUuid()), startsWith("Listed, not added to the inventory"));
         verify(writer, never()).importKey(any(), any(), any());
     }
 
@@ -78,31 +77,27 @@ class KeyDiscoveredHandlerTest {
     void keyThatFailsTheAttempt_doesNotHoldBackTheKeysAfterIt() {
         DiscoveryItem unreachable = keyItem(SPKI);
         DiscoveryItem next = keyItem(SPKI);
-        doThrow(new CannotAcquireLockException("lock timeout"))
-                .when(writer)
-                .importKey(Mockito.eq(unreachable), any(), any());
+        doThrow(new CannotAcquireLockException("lock timeout")).when(writer).importKey(eq(unreachable), any(), any());
 
         KeyDiscoveredHandler.KeyImportOutcome outcome = handler.importBatch(run, List.of(unreachable, next));
 
         // Stopping at the first failure would leave one key that always fails in front of the whole backlog.
         assertThat(outcome.deferred()).isEqualTo(1);
         assertThat(outcome.imported()).isEqualTo(1);
-        verify(writer).importKey(Mockito.eq(next), any(), any());
+        verify(writer).importKey(eq(next), any(), any());
     }
 
     @Test
     void refusalAheadOfATransientFailure_isStillCountedForTheRunToReport() {
         DiscoveryItem refused = keyItem(null);
         DiscoveryItem unreachable = keyItem(SPKI);
-        doThrow(new CannotAcquireLockException("lock timeout"))
-                .when(writer)
-                .importKey(Mockito.eq(unreachable), any(), any());
+        doThrow(new CannotAcquireLockException("lock timeout")).when(writer).importKey(eq(unreachable), any(), any());
 
         KeyDiscoveredHandler.KeyImportOutcome outcome = handler.importBatch(run, List.of(refused, unreachable));
 
         assertThat(outcome.failed()).isEqualTo(1);
         assertThat(outcome.deferred()).isEqualTo(1);
-        verify(writer).markFailed(Mockito.eq(refused.getUuid()), any());
+        verify(writer).markFailed(eq(refused.getUuid()), any());
     }
 
     private DiscoveryItem keyItem(String publicKey) {
@@ -110,24 +105,12 @@ class KeyDiscoveredHandlerTest {
         item.setUuid(UUID.randomUUID());
         item.setDiscoveryUuid(run.getUuid());
         item.setUniqueRef("ssh://host-a:22");
-        DiscoveredKeyDto key = new DiscoveredKeyDto();
-        key.setType(publicKey == null ? KeyType.SECRET_KEY : KeyType.PUBLIC_KEY);
-        key.setAlgorithm(KeyAlgorithm.RSA);
-        key.setPublicKey(publicKey);
-        key.setPublicKeyFormat(publicKey == null ? null : KeyFormat.SPKI);
-        key.setFingerprint("whatever-the-connector-computed");
+        DiscoveredKeyDto key = (publicKey == null ? aSecretKey() : aPublicKey().withSpki(publicKey))
+                .withFingerprint("whatever-the-connector-computed")
+                .build();
         item.setPayload(new ObjectMapper().convertValue(key, new TypeReference<Map<String, Object>>() {
         }));
         return item;
     }
 
-    private static PublicKey rsaPublicKey() {
-        try {
-            KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
-            generator.initialize(2048);
-            return generator.generateKeyPair().getPublic();
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException(e);
-        }
-    }
 }

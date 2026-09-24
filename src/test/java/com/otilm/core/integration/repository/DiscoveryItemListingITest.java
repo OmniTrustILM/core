@@ -159,7 +159,7 @@ class DiscoveryItemListingITest extends BaseSpringBootTest {
     }
 
     @Test
-    void animportedKeyListsUnderTheNameTheInventoryHolds() {
+    void anImportedKeyListsUnderTheNameTheInventoryHolds() {
         UUID itemUuid = stageItem("CRYPTOGRAPHIC_KEY", 1L, "key-a");
         CryptographicKey key = new CryptographicKey();
         key.setName("discovered_key-a_2b9c1d4e");
@@ -199,7 +199,6 @@ class DiscoveryItemListingITest extends BaseSpringBootTest {
 
         DiscoveryItemRow row = listAll().getFirst();
 
-        // Both listings must name the same object the same way.
         assertThat(row.getInventoryName()).isEqualTo("CN=discovered.example.com");
     }
 

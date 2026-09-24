@@ -1,10 +1,6 @@
 package com.otilm.core.integration.discovery;
 
-import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.otilm.api.model.common.enums.cryptography.KeyFormat;
-import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredItemDto;
-import com.otilm.api.model.connector.discovery.v2.DiscoveredKeyDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryResultsResponseDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.discovery.DiscoveryMessageSeverity;
@@ -43,12 +39,9 @@ import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.DiscoveryInterfaceFixture;
-import java.security.KeyPairGenerator;
-import java.security.NoSuchAlgorithmException;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -58,6 +51,10 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import static com.otilm.core.util.TestPublicKeys.rsaPublicKey;
+import static com.otilm.core.util.TestPublicKeys.spkiBase64;
+import static com.otilm.core.util.builders.DiscoveredKeyDtoBuilder.aPublicKey;
+import static com.otilm.core.util.builders.DiscoveredKeyDtoBuilder.aSecretKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -146,23 +143,13 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
     }
 
     @Test
-    void runWithOnlyStagedKeys_isNotFinishedJustBecauseItHasNoCertificates() throws Exception {
-        Discovery run = processingRun();
-        stageKeys(run, 2);
-
-        worker.tick(run.getUuid(), 0);
-
-        // The backlog spans both staging stores. Counting certificates alone ends a keys-only run the moment it
-        // starts processing, with every key still staged and nothing in the inventory.
-        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.PROCESSING);
-    }
-
-    @Test
     void stagedKeys_areImportedTickByTickUntilTheRunIsDone() throws Exception {
         Discovery run = processingRun();
         stageKeys(run, 2);
 
         worker.tick(run.getUuid(), 0);
+        // The backlog spans both staging stores. Counting certificates alone ends a keys-only run the moment it
+        // starts processing, with every key still staged and nothing in the inventory.
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.PROCESSING);
 
         worker.tick(run.getUuid(), 0);
@@ -214,8 +201,7 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
     @Test
     void keysDrainedFromAConnector_reachTheInventoryAndTheListingSaysWhatTheyBecame() throws Exception {
         Discovery run = processingRun();
-        // The whole way in: what a connector handed over, through staging, to the records an operator sees.
-        ingestor.applyDrainPage(run.getUuid(), drainedKeys(run));
+        ingestor.applyDrainPage(run.getUuid(), drainedKeys());
 
         worker.tick(run.getUuid(), 0);
         worker.tick(run.getUuid(), 0);
@@ -806,25 +792,22 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
 
     private void stageKeys(Discovery run, int count) {
         for (int i = 1; i <= count; i++) {
-            DiscoveredKeyDto payload = new DiscoveredKeyDto();
-            payload.setType(KeyType.PUBLIC_KEY);
-            payload.setAlgorithm(KeyAlgorithm.RSA);
-            payload.setLength(2048);
-            payload.setPublicKeyFormat(KeyFormat.SPKI);
-            payload.setFingerprint("fp-" + UUID.randomUUID());
-            // Real material: a key is onboarded only once Core can read its public part.
-            payload.setPublicKey(Base64.getEncoder().encodeToString(publicKeyMaterial(i)));
             DiscoveredItemDto item = new DiscoveredItemDto();
             item.setSequence((long) i);
             item.setUniqueRef("key-" + i);
-            item.setPayload(payload);
+            // Real material, a fresh key each: a key is onboarded only once Core can read its public part.
+            item
+                    .setPayload(aPublicKey()
+                            .withSpki(spkiBase64(rsaPublicKey()))
+                            .withFingerprint("fp-" + UUID.randomUUID())
+                            .build());
             item.setDiscoveredAt(OffsetDateTime.now(ZoneOffset.UTC));
             itemWriter.stage(run.getUuid(), item, true);
         }
     }
 
     /** One page as a connector hands it over: two keys, each with its own material. */
-    private DiscoveryResultsResponseDto drainedKeys(Discovery run) {
+    private DiscoveryResultsResponseDto drainedKeys() {
         DiscoveryResultsResponseDto page = new DiscoveryResultsResponseDto();
         page.setItems(List.of(drainedKey(1, "ssh://host-a:22"), drainedKey(2, "tls://host-b:443")));
         page.setHighestSequence(2L);
@@ -833,41 +816,24 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
     }
 
     private DiscoveredItemDto drainedKey(int sequence, String uniqueRef) {
-        DiscoveredKeyDto payload = new DiscoveredKeyDto();
-        payload.setType(KeyType.PUBLIC_KEY);
-        payload.setAlgorithm(KeyAlgorithm.RSA);
-        payload.setLength(2048);
-        payload.setPublicKeyFormat(KeyFormat.SPKI);
-        payload.setFingerprint("connector-fingerprint-" + uniqueRef);
-        payload.setPublicKey(Base64.getEncoder().encodeToString(publicKeyMaterial(sequence)));
         DiscoveredItemDto item = new DiscoveredItemDto();
         item.setSequence((long) sequence);
         item.setUniqueRef(uniqueRef);
-        item.setPayload(payload);
+        item
+                .setPayload(aPublicKey()
+                        .withSpki(spkiBase64(rsaPublicKey()))
+                        .withFingerprint("connector-fingerprint-" + uniqueRef)
+                        .build());
         item.setDiscoveredAt(OffsetDateTime.now(ZoneOffset.UTC));
         return item;
     }
 
-    /** Distinct material per key, so two keys stay two records rather than deduplicating into one. */
-    private static byte[] publicKeyMaterial(int seed) {
-        try {
-            KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
-            generator.initialize(2048);
-            return generator.generateKeyPair().getPublic().getEncoded();
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
     private void stageUnusableKey(Discovery run) {
-        DiscoveredKeyDto payload = new DiscoveredKeyDto();
-        payload.setType(KeyType.SECRET_KEY);
-        payload.setAlgorithm(KeyAlgorithm.UNKNOWN);
-        // No public part and no fingerprint: nothing here tells this key apart from any other.
         DiscoveredItemDto item = new DiscoveredItemDto();
         item.setSequence(1L);
         item.setUniqueRef("vault://unnamed");
-        item.setPayload(payload);
+        // No public part and no fingerprint: nothing here tells this key apart from any other.
+        item.setPayload(aSecretKey().build());
         item.setDiscoveredAt(OffsetDateTime.now(ZoneOffset.UTC));
         itemWriter.stage(run.getUuid(), item, true);
     }

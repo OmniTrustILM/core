@@ -45,7 +45,6 @@ import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.DiscoveryInterfaceFixture;
 import java.nio.charset.StandardCharsets;
-import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
 import java.time.OffsetDateTime;
@@ -64,6 +63,11 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import static com.otilm.core.util.TestPublicKeys.ecPublicKey;
+import static com.otilm.core.util.TestPublicKeys.rsaPublicKey;
+import static com.otilm.core.util.TestPublicKeys.spkiBase64;
+import static com.otilm.core.util.builders.DiscoveredKeyDtoBuilder.aPublicKey;
+import static com.otilm.core.util.builders.DiscoveredKeyDtoBuilder.aSecretKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -74,11 +78,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class DiscoveryKeyImportITest extends BaseSpringBootTest {
 
     /** Real key material: the identity this pipeline computes has to be the one a certificate's key gets. */
-    private static final PublicKey PUBLIC_KEY = generateRsaPublicKey();
-    private static final String SPKI_BASE64 = Base64.getEncoder().encodeToString(PUBLIC_KEY.getEncoded());
-    private static final String OTHER_SPKI_BASE64 = Base64
-            .getEncoder()
-            .encodeToString(generateRsaPublicKey().getEncoded());
+    private static final PublicKey PUBLIC_KEY = rsaPublicKey();
+    private static final String SPKI_BASE64 = spkiBase64(PUBLIC_KEY);
+    private static final String OTHER_SPKI_BASE64 = spkiBase64(rsaPublicKey());
 
     @Autowired
     private KeyDiscoveredHandler handler;
@@ -114,6 +116,8 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
     private CertificateContentRepository certificateContentRepository;
     @Autowired
     private CertificateInternalService certificateService;
+    @Autowired
+    private DiscoveredKeyWriter keyWriter;
 
     @Test
     void aStagedKey_becomesAKeyRecordTheItemPointsAt() {
@@ -156,8 +160,17 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
                         .builder(Resource.CRYPTOGRAPHIC_KEY, storedItem(keyUuid).getUuid())
                         .build()))
                 .isNotEmpty();
+    }
+
+    @Test
+    void aDiscoveredKey_carriesNoTokenReference() {
+        Discovery run = processingRun();
+        stageKeyWithMeta(run, "ssh://host-a:22", SPKI_BASE64, location("ipAddress", "10.0.0.7"));
+
+        handler.importBatch(run, pendingKeys(run));
+
         // key_meta is a token's reference to the key, and a key held without a token must not appear to have one.
-        assertThat(storedItem(keyUuid).getKeyMeta()).isNull();
+        assertThat(storedItem(itemOf(run, "ssh://host-a:22").getInventoryUuid()).getKeyMeta()).isNull();
     }
 
     @Test
@@ -217,9 +230,7 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
     @Test
     void publicKeyInAnotherEncoding_isListedButNotOnboarded() {
         Discovery run = processingRun();
-        DiscoveredKeyDto payload = spkiKey(SPKI_BASE64);
-        payload.setPublicKeyFormat(KeyFormat.RAW);
-        stage(run, "ssh://host-g:22", payload);
+        stage(run, "ssh://host-g:22", aPublicKey().withSpki(SPKI_BASE64).withPublicKeyFormat(KeyFormat.RAW).build());
 
         handler.importBatch(run, pendingKeys(run));
 
@@ -231,11 +242,9 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
     @Test
     void whatTheKeyIs_comesFromItsMaterialRatherThanFromTheReport() {
         Discovery run = processingRun();
-        DiscoveredKeyDto payload = spkiKey(SPKI_BASE64);
         // The material is a 2048-bit RSA key; the report says otherwise.
-        payload.setAlgorithm(KeyAlgorithm.ECDSA);
-        payload.setLength(256);
-        stage(run, "ssh://host-h:22", payload);
+        stage(run, "ssh://host-h:22",
+                aPublicKey().withSpki(SPKI_BASE64).withAlgorithm(KeyAlgorithm.ECDSA).withLength(256).build());
 
         handler.importBatch(run, pendingKeys(run));
 
@@ -243,24 +252,6 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
         assertThat(stored.getKeyAlgorithm()).isEqualTo(KeyAlgorithm.RSA);
         assertThat(stored.getLength()).isEqualTo(2048);
         assertThat(stored.getFormat()).isEqualTo(KeyFormat.SPKI);
-    }
-
-    private CryptographicKeyItem storedItem(UUID keyUuid) {
-        return keyRepository.findWithKeyItemsAndTokenByUuid(keyUuid).orElseThrow().getItems().iterator().next();
-    }
-
-    /** Read per key item, as the key APIs read metadata, and per run. */
-    private List<Object> locationsRecordedBy(Discovery run, UUID keyUuid) {
-        return attributeEngine
-                .getMetadataAttributesDefinitionContent(ObjectAttributeContentInfo
-                        .builder(Resource.CRYPTOGRAPHIC_KEY, storedItem(keyUuid).getUuid())
-                        .connector(run.getConnectorUuid())
-                        .source(Resource.DISCOVERY, run.getUuid())
-                        .build())
-                .stream()
-                .flatMap(attribute -> ((MetadataAttributeV3) attribute).getContent().stream())
-                .map(content -> (Object) content.getData())
-                .toList();
     }
 
     @Test
@@ -315,13 +306,11 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
     @Test
     void publicKeyMaterialThatIsNotBase64_isRefusedWithAReasonOnTheItem() {
         Discovery run = processingRun();
-        DiscoveredKeyDto payload = new DiscoveredKeyDto();
-        payload.setType(KeyType.PUBLIC_KEY);
-        payload.setAlgorithm(KeyAlgorithm.RSA);
-        payload.setPublicKeyFormat(KeyFormat.SPKI);
-        payload.setPublicKey("this is not base64 ****");
-        payload.setFingerprint("connector-would-have-said-this");
-        stage(run, "ssh://host-d:22", payload);
+        stage(run, "ssh://host-d:22",
+                aPublicKey()
+                        .withSpki("this is not base64 ****")
+                        .withFingerprint("connector-would-have-said-this")
+                        .build());
 
         KeyDiscoveredHandler.KeyImportOutcome outcome = handler.importBatch(run, pendingKeys(run));
 
@@ -364,45 +353,11 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
         assertThat(keyRepository.findWithKeyItemsAndTokenByUuid(fromCertificate).orElseThrow().getItems()).hasSize(1);
     }
 
-    /** What {@code CertificateHandler#uploadKeyInternal} computes for a certificate's public key. */
-    private static String certificatePathFingerprint() {
-        try {
-            return CertificateUtil
-                    .getThumbprint(Base64
-                            .getEncoder()
-                            .encodeToString(PUBLIC_KEY.getEncoded())
-                            .getBytes(StandardCharsets.UTF_8));
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
-    private static PublicKey generateEcPublicKey() {
-        try {
-            KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
-            generator.initialize(256);
-            return generator.generateKeyPair().getPublic();
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
-    private static PublicKey generateRsaPublicKey() {
-        try {
-            KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
-            generator.initialize(2048);
-            return generator.generateKeyPair().getPublic();
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
     @Test
     void anEcKey_isNamedTheWayItsCertificateNamesIt() {
         Discovery run = processingRun();
-        DiscoveredKeyDto payload = spkiKey(Base64.getEncoder().encodeToString(generateEcPublicKey().getEncoded()));
-        payload.setAlgorithm(KeyAlgorithm.ECDSA);
-        stage(run, "ssh://host-i:22", payload);
+        stage(run, "ssh://host-i:22",
+                aPublicKey().withSpki(spkiBase64(ecPublicKey())).withAlgorithm(KeyAlgorithm.ECDSA).build());
 
         handler.importBatch(run, pendingKeys(run));
 
@@ -413,9 +368,9 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
 
     @Test
     void anEcKeyStagedFirst_keepsTheAlgorithmTheCertificateWouldHaveGivenIt() throws Exception {
-        PublicKey ecKey = generateEcPublicKey();
+        PublicKey ecKey = ecPublicKey();
         Discovery run = processingRun();
-        stageKey(run, "tls://host-j:443", Base64.getEncoder().encodeToString(ecKey.getEncoded()), "connector-j");
+        stageKey(run, "tls://host-j:443", spkiBase64(ecKey), "connector-j");
         handler.importBatch(run, pendingKeys(run));
         UUID fromDiscovery = itemOf(run, "tls://host-j:443").getInventoryUuid();
 
@@ -473,7 +428,6 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
     void aKeyThatCommitted_outlivesTheCallerRollingBack() {
         Discovery run = processingRun();
         stageKey(run, "ssh://host-a:22", SPKI_BASE64, "connector-a");
-        stageUnusableKey(run, "vault://unnamed");
         stageKey(run, "vault://unreachable", OTHER_SPKI_BASE64, "connector-c");
         // The writer's own methods join whatever transaction is open; the handler is what opens one per key. Built
         // by hand so a single key can fail the way a locked row would, without a mocked bean that forks the context.
@@ -489,25 +443,39 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
         };
         KeyDiscoveredHandler perKey = new KeyDiscoveredHandler(unreachableThird, authorizationEnforcer, objectMapper,
                 transactionHandler, attributeEngine);
-        List<DiscoveryItem> page = List
-                .of(itemOf(run, "ssh://host-a:22"), itemOf(run, "vault://unnamed"), itemOf(run, "vault://unreachable"));
+        List<DiscoveryItem> page = List.of(itemOf(run, "ssh://host-a:22"), itemOf(run, "vault://unreachable"));
 
-        KeyDiscoveredHandler.KeyImportOutcome[] outcome = new KeyDiscoveredHandler.KeyImportOutcome[1];
-        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-            outcome[0] = perKey.importBatch(run, page);
+        KeyDiscoveredHandler.KeyImportOutcome outcome = new TransactionTemplate(transactionManager).execute(status -> {
+            KeyDiscoveredHandler.KeyImportOutcome result = perKey.importBatch(run, page);
             status.setRollbackOnly();
+            return result;
         });
 
-        assertThat(outcome[0].deferred()).isEqualTo(1);
+        assertThat(outcome.deferred()).isEqualTo(1);
         assertThat(itemOf(run, "ssh://host-a:22").getInventoryUuid())
                 .as("imported in its own transaction, so the caller's rollback cannot take it back")
-                .isNotNull();
-        assertThat(itemOf(run, "vault://unnamed").getProcessedError())
-                .as("a refusal is final, so it has to be committed the moment it is recorded")
                 .isNotNull();
         DiscoveryItem unreachable = itemOf(run, "vault://unreachable");
         assertThat(unreachable.getProcessedAt()).isNull();
         assertThat(unreachable.getProcessedError()).isNull();
+    }
+
+    @Test
+    void aRefusal_isCommittedOnItsOwn() {
+        Discovery run = processingRun();
+        stageUnusableKey(run, "vault://unnamed");
+        // Built by hand, so importBatch runs inside the caller's transaction below: only the refusal's own boundary
+        // can commit its reason.
+        KeyDiscoveredHandler inCallerTransaction = new KeyDiscoveredHandler(keyWriter, authorizationEnforcer,
+                objectMapper, transactionHandler, attributeEngine);
+        List<DiscoveryItem> page = List.of(itemOf(run, "vault://unnamed"));
+
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            inCallerTransaction.importBatch(run, page);
+            status.setRollbackOnly();
+        });
+
+        assertThat(itemOf(run, "vault://unnamed").getProcessedError()).isNotNull();
     }
 
     @Test
@@ -522,16 +490,39 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
         // with. It must also land on the identity the unwrapped material gets.
         DiscoveryItem item = itemOf(run, "ssh://host-e:22");
         assertThat(item.getProcessedError()).isNull();
-        assertThat(keyItemRepository.findByFingerprint(DiscoveredKeyIdentity.of(spkiKey(SPKI_BASE64)))).isPresent();
+        assertThat(keyItemRepository
+                .findByFingerprint(DiscoveredKeyIdentity.of(aPublicKey().withSpki(SPKI_BASE64).build()))).isPresent();
     }
 
-    private static DiscoveredKeyDto spkiKey(String publicKey) {
-        DiscoveredKeyDto key = new DiscoveredKeyDto();
-        key.setType(KeyType.PUBLIC_KEY);
-        key.setAlgorithm(KeyAlgorithm.RSA);
-        key.setPublicKeyFormat(KeyFormat.SPKI);
-        key.setPublicKey(publicKey);
-        return key;
+    private CryptographicKeyItem storedItem(UUID keyUuid) {
+        return keyRepository.findWithKeyItemsAndTokenByUuid(keyUuid).orElseThrow().getItems().iterator().next();
+    }
+
+    /** Read per key item, as the key APIs read metadata, and per run. */
+    private List<Object> locationsRecordedBy(Discovery run, UUID keyUuid) {
+        return attributeEngine
+                .getMetadataAttributesDefinitionContent(ObjectAttributeContentInfo
+                        .builder(Resource.CRYPTOGRAPHIC_KEY, storedItem(keyUuid).getUuid())
+                        .connector(run.getConnectorUuid())
+                        .source(Resource.DISCOVERY, run.getUuid())
+                        .build())
+                .stream()
+                .flatMap(attribute -> ((MetadataAttributeV3) attribute).getContent().stream())
+                .map(content -> (Object) content.getData())
+                .toList();
+    }
+
+    /** What {@code CertificateHandler#uploadKeyInternal} computes for a certificate's public key. */
+    private static String certificatePathFingerprint() {
+        try {
+            return CertificateUtil
+                    .getThumbprint(Base64
+                            .getEncoder()
+                            .encodeToString(PUBLIC_KEY.getEncoded())
+                            .getBytes(StandardCharsets.UTF_8));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private List<DiscoveryItem> pendingKeys(Discovery run) {
@@ -559,32 +550,18 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
     }
 
     private void stageUnusableKey(Discovery run, String uniqueRef) {
-        DiscoveredKeyDto payload = new DiscoveredKeyDto();
-        payload.setType(KeyType.SECRET_KEY);
-        payload.setAlgorithm(KeyAlgorithm.UNKNOWN);
-        stage(run, uniqueRef, payload);
+        stage(run, uniqueRef, aSecretKey().build());
     }
 
     private void stageSecretKey(Discovery run, String uniqueRef, String connectorFingerprint) {
-        DiscoveredKeyDto payload = new DiscoveredKeyDto();
-        payload.setType(KeyType.SECRET_KEY);
-        payload.setAlgorithm(KeyAlgorithm.UNKNOWN);
-        payload.setLength(256);
-        payload.setFingerprint(connectorFingerprint);
-        stage(run, uniqueRef, payload);
+        stage(run, uniqueRef, aSecretKey().withLength(256).withFingerprint(connectorFingerprint).build());
     }
 
     private void stageKeyWithMeta(Discovery run, String uniqueRef, String publicKey, MetadataAttribute... meta) {
-        DiscoveredKeyDto payload = new DiscoveredKeyDto();
-        payload.setType(KeyType.PUBLIC_KEY);
-        payload.setAlgorithm(KeyAlgorithm.RSA);
-        payload.setLength(2048);
-        payload.setPublicKeyFormat(KeyFormat.SPKI);
-        payload.setPublicKey(publicKey);
         DiscoveredItemDto item = new DiscoveredItemDto();
         item.setSequence(1L);
         item.setUniqueRef(uniqueRef);
-        item.setPayload(payload);
+        item.setPayload(aPublicKey().withSpki(publicKey).build());
         item.setMeta(List.of(meta));
         item.setDiscoveredAt(OffsetDateTime.now(ZoneOffset.UTC));
         itemWriter.stage(run.getUuid(), item, true);
@@ -615,19 +592,7 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
     }
 
     private void stageKey(Discovery run, String uniqueRef, String publicKey, String connectorFingerprint) {
-        DiscoveredKeyDto payload = new DiscoveredKeyDto();
-        payload.setType(KeyType.PUBLIC_KEY);
-        payload.setAlgorithm(KeyAlgorithm.RSA);
-        payload.setLength(2048);
-        payload.setPublicKeyFormat(KeyFormat.SPKI);
-        payload.setPublicKey(publicKey);
-        payload.setFingerprint(connectorFingerprint);
-        DiscoveredItemDto item = new DiscoveredItemDto();
-        item.setSequence(1L);
-        item.setUniqueRef(uniqueRef);
-        item.setPayload(payload);
-        item.setDiscoveredAt(OffsetDateTime.now(ZoneOffset.UTC));
-        itemWriter.stage(run.getUuid(), item, true);
+        stage(run, uniqueRef, aPublicKey().withSpki(publicKey).withFingerprint(connectorFingerprint).build());
     }
 
     private Discovery processingRun() {

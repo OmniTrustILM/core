@@ -1,6 +1,5 @@
 package com.otilm.core.service.handler.discovery;
 
-import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredItemDto;
@@ -19,10 +18,6 @@ import com.otilm.core.service.writer.discovery.DiscoveryItemWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import jakarta.validation.Validation;
-import java.security.KeyPairGenerator;
-import java.security.NoSuchAlgorithmException;
-import java.security.PublicKey;
-import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -34,6 +29,9 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import static com.otilm.core.util.TestPublicKeys.rsaPublicKey;
+import static com.otilm.core.util.TestPublicKeys.spkiBase64;
+import static com.otilm.core.util.builders.DiscoveredKeyDtoBuilder.aPublicKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -51,7 +49,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class DiscoveryEventIngestorTest {
 
-    private static final String SPKI = Base64.getEncoder().encodeToString(rsaPublicKey().getEncoded());
+    private static final String SPKI = spkiBase64(rsaPublicKey());
 
     @Mock
     private DiscoveryRepository discoveryRepository;
@@ -84,7 +82,7 @@ class DiscoveryEventIngestorTest {
 
         // The agenda row cascaded away with the run, so this is a redelivered obsolete tick, not a fault:
         // throwing would send it round the broker's redelivery loop forever.
-        ingestor.applyDrainPage(gone, page(keyItem(1, "key-a", "fp-a")));
+        ingestor.applyDrainPage(gone, page(keyItem(1, "key-a", null)));
 
         verifyNoInteractions(itemWriter, certificateHandler);
     }
@@ -139,7 +137,7 @@ class DiscoveryEventIngestorTest {
     @Test
     void anItemBreakingTheContract_isSkippedWithAMessageRatherThanStaged() {
         Discovery run = run();
-        DiscoveredItemDto leaked = keyItem(1, "key-a", "fp-a");
+        DiscoveredItemDto leaked = keyItem(1, "key-a", null);
         DiscoveredKeyDto payload = (DiscoveredKeyDto) leaked.getPayload();
         payload.setType(KeyType.PRIVATE_KEY);
         payload.setPublicKeyFormat(KeyFormat.PRKI);
@@ -176,14 +174,9 @@ class DiscoveryEventIngestorTest {
      * A key with public material, or with none when {@code publicKey} is null: only material gives Core an identity.
      */
     private DiscoveredItemDto keyItem(long sequence, String uniqueRef, String publicKey) {
-        DiscoveredKeyDto payload = new DiscoveredKeyDto();
-        payload.setType(KeyType.PUBLIC_KEY);
-        payload.setAlgorithm(KeyAlgorithm.RSA);
-        payload.setFingerprint("whatever-the-connector-computed");
-        if (publicKey != null) {
-            payload.setPublicKeyFormat(KeyFormat.SPKI);
-            payload.setPublicKey(publicKey);
-        }
+        DiscoveredKeyDto payload = (publicKey == null ? aPublicKey() : aPublicKey().withSpki(publicKey))
+                .withFingerprint("whatever-the-connector-computed")
+                .build();
         DiscoveredItemDto item = new DiscoveredItemDto();
         item.setSequence(sequence);
         item.setUniqueRef(uniqueRef);
@@ -191,13 +184,4 @@ class DiscoveryEventIngestorTest {
         return item;
     }
 
-    private static PublicKey rsaPublicKey() {
-        try {
-            KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
-            generator.initialize(2048);
-            return generator.generateKeyPair().getPublic();
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException(e);
-        }
-    }
 }
