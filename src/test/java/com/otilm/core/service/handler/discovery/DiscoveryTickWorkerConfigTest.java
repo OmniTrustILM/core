@@ -53,8 +53,8 @@ class DiscoveryTickWorkerConfigTest {
     }
 
     private static DiscoveryProcessTickWorker processWorkerWith(int batchSize, Duration continuationBackstop) {
-        return new DiscoveryProcessTickWorker(null, null, null, null, null, null, null, null, null, null, null,
-                batchSize, continuationBackstop);
+        return new DiscoveryProcessTickWorker(null, null, null, null, null, null, null, null, null, null, null, null,
+                null, batchSize, continuationBackstop);
     }
 
     private static DiscoveryDrainTickWorker drainWorkerWith(int maxItems, long maxBytes) {

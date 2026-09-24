@@ -1,10 +1,13 @@
 package com.otilm.core.service.handler.discovery;
 
+import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.discovery.DiscoveryMessageSeverity;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryCertificate;
+import com.otilm.core.dao.entity.DiscoveryItem;
 import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
+import com.otilm.core.dao.repository.DiscoveryItemRepository;
 import com.otilm.core.dao.repository.DiscoveryMessageRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.events.handlers.CertificateDiscoveredEventHandler;
@@ -13,9 +16,11 @@ import com.otilm.core.messaging.jms.configuration.DiscoveryWorkProperties;
 import com.otilm.core.messaging.jms.producers.DiscoveryWorkProducer;
 import com.otilm.core.messaging.model.DiscoveryWorkMessage;
 import com.otilm.core.model.discovery.DiscoveryMessageCode;
+import com.otilm.core.model.discovery.DiscoveryMessageDraft;
 import com.otilm.core.model.discovery.DiscoveryRunLifecycle;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
 import com.otilm.core.service.handler.discovery.DiscoveryRunTerminator.Ending;
+import com.otilm.core.service.handler.discovery.KeyDiscoveredHandler.KeyImportOutcome;
 import com.otilm.core.service.writer.DiscoveryWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
@@ -32,11 +37,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Component;
 
 /**
  * The {@code PROCESS} tick: one bounded batch of staged rows through the import pipeline, then either another tick or
- * the end of the run. Only certificates have an import pipeline; other staged resources are skipped.
+ * the end of the run. Certificates and cryptographic keys have import pipelines; other staged resources are skipped.
  */
 @Component
 public class DiscoveryProcessTickWorker {
@@ -52,8 +58,10 @@ public class DiscoveryProcessTickWorker {
 
     private final DiscoveryRepository discoveryRepository;
     private final DiscoveryCertificateRepository certificateRepository;
+    private final DiscoveryItemRepository itemRepository;
     private final DiscoveryMessageRepository messageRepository;
     private final CertificateDiscoveredEventHandler importHandler;
+    private final KeyDiscoveredHandler keyImportHandler;
     private final DiscoveryWorkWriter workWriter;
     private final DiscoveryWorkProducer workProducer;
     private final DiscoveryRunTerminator terminator;
@@ -65,14 +73,17 @@ public class DiscoveryProcessTickWorker {
     private final Duration continuationBackstop;
 
     public DiscoveryProcessTickWorker(DiscoveryRepository discoveryRepository,
-            DiscoveryCertificateRepository certificateRepository, DiscoveryMessageRepository messageRepository,
-            CertificateDiscoveredEventHandler importHandler, DiscoveryWorkWriter workWriter,
-            DiscoveryWorkProducer workProducer, DiscoveryRunTerminator terminator, DiscoveryWriter discoveryWriter,
-            DiscoveryMessageWriter messageWriter, AuthHelper authHelper, DiscoveryWorkProperties workProperties,
+            DiscoveryCertificateRepository certificateRepository, DiscoveryItemRepository itemRepository,
+            DiscoveryMessageRepository messageRepository, CertificateDiscoveredEventHandler importHandler,
+            KeyDiscoveredHandler keyImportHandler, DiscoveryWorkWriter workWriter, DiscoveryWorkProducer workProducer,
+            DiscoveryRunTerminator terminator, DiscoveryWriter discoveryWriter, DiscoveryMessageWriter messageWriter,
+            AuthHelper authHelper, DiscoveryWorkProperties workProperties,
             @Value("${discovery.processing.batch-size:200}") int batchSize,
             @Value("${discovery.work.continuation-backstop:PT1M}") Duration continuationBackstop) {
         this.discoveryRepository = discoveryRepository;
         this.certificateRepository = certificateRepository;
+        this.itemRepository = itemRepository;
+        this.keyImportHandler = keyImportHandler;
         this.messageRepository = messageRepository;
         this.importHandler = importHandler;
         this.workWriter = workWriter;
@@ -121,6 +132,7 @@ public class DiscoveryProcessTickWorker {
         if (!batch.isEmpty()) {
             importBatch(run, attempt, batch);
         }
+        importStagedKeys(run);
 
         long remaining = backlogOf(discoveryUuid);
         if (remaining == 0) {
@@ -152,9 +164,14 @@ public class DiscoveryProcessTickWorker {
         return selected;
     }
 
+    /**
+     * What the run still owes across both staging stores. Counting certificates alone would end a keys run the moment
+     * it starts processing.
+     */
     private long backlogOf(UUID discoveryUuid) {
         return certificateRepository
-                .countByDiscoveryUuidAndNewlyDiscoveredTrueAndProcessedFalseAndProcessedErrorIsNull(discoveryUuid);
+                .countByDiscoveryUuidAndNewlyDiscoveredTrueAndProcessedFalseAndProcessedErrorIsNull(discoveryUuid)
+                + itemRepository.countPendingKeys(discoveryUuid);
     }
 
     /** How much of one batch is still waiting for a verdict. A row stamped with a reason is not waiting. */
@@ -219,6 +236,78 @@ public class DiscoveryProcessTickWorker {
     }
 
     /**
+     * Where the run's own evidence is. Named by what actually carries a reason: a keys-only run sent to the certificate
+     * list would find nothing there to look at.
+     */
+    private static String endingReason(boolean certificatesFailed, boolean itemsFailed) {
+        String where;
+        if (certificatesFailed && itemsFailed) {
+            where = ", the discovery certificate list and the run's items for per-row detail";
+        } else if (certificatesFailed) {
+            where = ", and the discovery certificate list for per-certificate detail";
+        } else if (itemsFailed) {
+            where = ", and the run's items for per-item detail";
+        } else {
+            where = "";
+        }
+        return "Discovery completed with warnings. See this run's messages%s.".formatted(where);
+    }
+
+    /**
+     * Imports one bounded page of the run's staged keys. Each key stands alone: one that cannot be identified stamps
+     * its own row and the rest of the page goes in, so a single bad payload never costs the run its other keys.
+     */
+    private void importStagedKeys(Discovery run) {
+        List<DiscoveryItem> keys = itemRepository
+                .findByDiscoveryUuidAndResourceAndProcessedAtIsNullAndProcessedErrorIsNullOrderBySequenceAscUuidAsc(
+                        run.getUuid(), Resource.CRYPTOGRAPHIC_KEY, PageRequest.of(0, batchSize));
+        if (keys.isEmpty()) {
+            return;
+        }
+        KeyImportOutcome outcome;
+        try {
+            // A tick carries no principal and the key pipeline enforces CRYPTOGRAPHIC_KEY:CREATE, so the run's user
+            // goes on first -- inside the try, so a user who cannot be installed reaches the stall path.
+            authenticateAsTheRunsUser(run);
+            outcome = keyImportHandler.importBatch(run, keys);
+        } catch (Exception e) {
+            // Swallowed rather than rethrown so the unchanged backlog goes to the bounded stall path.
+            logger.error("Importing staged keys for discovery {} did not start: {}", run.getUuid(), e.getMessage(), e);
+            reportUnfinishedKeyPage(run, e instanceof AccessDeniedException);
+            return;
+        }
+        if (outcome.deferred() > 0) {
+            reportUnfinishedKeyPage(run, false);
+        }
+        if (outcome.failed() == 0) {
+            return;
+        }
+        // Once per page, not per key: the per-key reason is on the item. Refusals are final, so this is filed
+        // whenever the page refused any.
+        recordQuietly(run.getUuid(), "keys that could not be imported", () -> messageWriter
+                .append(run.getUuid(), new DiscoveryMessageDraft(DiscoveryMessageSeverity.WARNING,
+                        DiscoveryMessageCode.KEY_IMPORT_FAILED,
+                        "A discovered key was not imported. The item listing says which, and why.", outcome.failed())));
+    }
+
+    /**
+     * Says why a page of keys did not finish, since the stall path that may end the run sends the operator to the
+     * messages. Recorded as recoverable, as a certificate batch is: the rows stay pending, and a denial is also what an
+     * authorization check that could not be made comes back as. Keys that never make it in are stamped when the budget
+     * ends the run.
+     */
+    private void reportUnfinishedKeyPage(Discovery run, boolean refused) {
+        recordQuietly(run.getUuid(), "a page of keys that did not complete", () -> messageWriter
+                .append(run.getUuid(), DiscoveryMessageSeverity.INFO, DiscoveryMessageCode.BATCH_PROCESSING_FAILED,
+                        refused
+                                ? "Discovered keys could not be imported on this attempt: the user who started this "
+                                        + "run may not be allowed to create keys, or authorization could not be "
+                                        + "checked. They will be tried again."
+                                : "Some discovered keys could not be imported on this attempt and will be tried "
+                                        + "again."));
+    }
+
+    /**
      * Records a message that must not take the tick down with it. The same outage that tripped the caller's catch will
      * often trip the write too, and an exception escaping there skips the stall path — so the attempt counter never
      * climbs and the budget never ends a failing run.
@@ -232,12 +321,12 @@ public class DiscoveryProcessTickWorker {
     }
 
     /**
-     * Puts the run's own user on the thread before the import pipeline enforces {@code CERTIFICATE:CREATE}.
+     * Puts the run's own user on the thread before an import pipeline enforces its {@code CREATE} permission.
      */
     private void authenticateAsTheRunsUser(Discovery run) {
         if (run.getStartedByUserUuid() == null) {
             throw new IllegalStateException(
-                    "Discovery %s records no user to act as, so its certificates cannot be imported"
+                    "Discovery %s records no user to act as, so its discovered items cannot be imported"
                             .formatted(run.getUuid()));
         }
         authHelper.authenticateAsUser(run.getStartedByUserUuid());
@@ -247,11 +336,10 @@ public class DiscoveryProcessTickWorker {
      * Commits the agenda row as the backstop, then publishes the next batch directly (see {@link DiscoveryWorkWriter}).
      */
     private void continueProcessing(UUID discoveryUuid, long remaining) {
-        logger.debug("Discovery {} has {} certificates left to process", discoveryUuid, remaining);
+        logger.debug("Discovery {} has {} item(s) left to process", discoveryUuid, remaining);
         // Reported here, not by the pipeline, which sees only one batch and would report each as 100% complete.
         discoveryWriter
-                .updateProgressMessage(discoveryUuid,
-                        "Importing discovered certificates (%d remaining)".formatted(remaining));
+                .updateProgressMessage(discoveryUuid, "Importing discovered items (%d remaining)".formatted(remaining));
         workWriter
                 .reschedule(discoveryUuid, DiscoveryWorkType.PROCESS, 0,
                         OffsetDateTime.now(ZoneOffset.UTC).plus(continuationBackstop));
@@ -265,15 +353,17 @@ public class DiscoveryProcessTickWorker {
     private void stall(UUID discoveryUuid, int attempt, long remaining) {
         int next = attempt + 1;
         if (next >= workProperties.scheduleFor(DiscoveryWorkType.PROCESS).maxAttempts()) {
+            recordQuietly(discoveryUuid, "the keys this run never reached",
+                    () -> keyImportHandler.markUnreached(discoveryUuid));
             terminator
                     .end(discoveryUuid, DiscoveryStatus.WARNING,
-                            ("Processing stopped with %d certificate(s) that could not be imported. See this run's "
-                                    + "messages for what went wrong.").formatted(remaining));
+                            ("Processing stopped with %d discovered item(s) that could not be imported. See this "
+                                    + "run's messages for what went wrong.").formatted(remaining));
             return;
         }
         logger
-                .warn("Process tick {} for discovery {} accounted for none of its {} remaining certificates; backing "
-                        + "off", attempt, discoveryUuid, remaining);
+                .warn("Process tick {} for discovery {} accounted for none of its {} remaining item(s); backing off",
+                        attempt, discoveryUuid, remaining);
         workWriter
                 .reschedule(discoveryUuid, DiscoveryWorkType.PROCESS, next,
                         OffsetDateTime
@@ -307,15 +397,13 @@ public class DiscoveryProcessTickWorker {
         // message log is checked too -- by severity, not by whether it holds anything. A run collects messages for
         // things it recovered from, and ending a run whose every row imported on the strength of one of those
         // would report a warning about nothing an operator can act on.
-        boolean rowsFailed = certificateRepository.existsByDiscoveryUuidAndProcessedErrorIsNotNull(run.getUuid());
+        boolean certificatesFailed = certificateRepository
+                .existsByDiscoveryUuidAndProcessedErrorIsNotNull(run.getUuid());
+        boolean itemsFailed = itemRepository.existsByDiscoveryUuidAndProcessedErrorIsNotNull(run.getUuid());
         boolean runLevelGaps = messageRepository.existsByDiscoveryUuidAndSeverityIn(run.getUuid(), UNRECOVERED);
-        if (!rowsFailed && !runLevelGaps) {
+        if (!certificatesFailed && !itemsFailed && !runLevelGaps) {
             return new Ending(DiscoveryStatus.COMPLETED, "Discovery completed successfully.");
         }
-        // Points to the certificate list only when a row actually carries a reason.
-        return new Ending(DiscoveryStatus.WARNING, rowsFailed
-                ? "Discovery completed with warnings. See this run's messages, and the discovery certificate list "
-                        + "for per-certificate detail."
-                : "Discovery completed with warnings. See this run's messages.");
+        return new Ending(DiscoveryStatus.WARNING, endingReason(certificatesFailed, itemsFailed));
     }
 }

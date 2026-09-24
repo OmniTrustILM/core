@@ -55,6 +55,8 @@ public enum DiscoveryMessageCode {
 
     /** A run metadata statement Core did not record: over the size cap, or malformed. */
     RUN_METADATA_NOT_RECORDED("runMetadataNotRecorded"),
+    /** A discovered key the pipeline could not turn into a key record. */
+    KEY_IMPORT_FAILED("keyImportFailed"),
     /** Stands in for everything a run had no room left to keep, whatever kind it was. */
     MESSAGES_SUPPRESSED("messagesSuppressed");
 
