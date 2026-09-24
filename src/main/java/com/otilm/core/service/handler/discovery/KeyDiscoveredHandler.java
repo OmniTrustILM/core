@@ -20,6 +20,8 @@ import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Turns staged key items into key records, one per key whichever run or connector reported it. Only a key with a public
@@ -52,6 +54,7 @@ public class KeyDiscoveredHandler {
      * @return how the batch went, for the caller to report on the run
      */
     @ExternalAuthorizationProgrammatic(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.CREATE)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public KeyImportOutcome importBatch(Discovery run, List<DiscoveryItem> items) {
         if (items.isEmpty()) {
             return new KeyImportOutcome(0, 0, 0);
