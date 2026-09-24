@@ -4,6 +4,7 @@ import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.NotSupportedException;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.cryptography.operations.CipherDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.RandomDataRequestDto;
@@ -17,6 +18,7 @@ import com.otilm.api.model.common.attribute.v3.MetadataAttributeV3;
 import com.otilm.api.model.common.enums.BitMaskEnum;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cryptography.key.KeyEvent;
@@ -42,6 +44,7 @@ import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.service.handler.key.KeyProviderAdapter;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import com.otilm.core.service.handler.key.OperationKeyContext;
+import com.otilm.core.service.handler.key.ResolvedSignatureAlgorithm;
 import com.otilm.core.service.handler.token.TokenProviderAdapter;
 import com.otilm.core.service.handler.token.TokenProviderAdapterFactory;
 import java.util.EnumSet;
@@ -572,6 +575,40 @@ class CryptographicOperationServiceImplTest {
         // same field data and does compare by value.
         assertEquals(RsaEncryptionAttributes.getRsaEncryptionAttributes().toString(), result.toString());
         verifyNoInteractions(keyProviderAdapterFactory);
+    }
+
+    @Test
+    void resolveSignatureAlgorithm_asksTheKeyItemsAdapter_withoutLoadingScope() throws Exception {
+        // given
+        CryptographicKeyItemOperationModel privateKey = v2Key();
+        CryptographicKeyItemOperationModel publicKey = v2Key();
+        List<RequestAttribute> attributes = List.of();
+        when(keyProviderAdapterFactory.forKeyItem(privateKey)).thenReturn(adapter);
+        when(adapter.resolveSignatureAlgorithm(privateKey, publicKey, attributes))
+                .thenReturn(ResolvedSignatureAlgorithm.of(SignatureAlgorithm.ML_DSA_65));
+
+        // when
+        SignatureAlgorithm resolved = service.resolveSignatureAlgorithm(privateKey, publicKey, attributes);
+
+        // then
+        assertEquals(SignatureAlgorithm.ML_DSA_65, resolved);
+        verifyNoInteractions(cryptographicKeyRepository);
+    }
+
+    @Test
+    void resolveSignatureAlgorithm_refusesAnAlgorithmThePlatformHasNoEntryFor() throws Exception {
+        // given
+        CryptographicKeyItemOperationModel key = legacyKey();
+        when(keyProviderAdapterFactory.forKeyItem(key)).thenReturn(adapter);
+        when(adapter.resolveSignatureAlgorithm(any(), any(), any()))
+                .thenReturn(new ResolvedSignatureAlgorithm("SHA1WITHRSA", null));
+
+        // when
+        Executable resolve = () -> service.resolveSignatureAlgorithm(key, key, List.of());
+
+        // then
+        ValidationException failure = assertThrows(ValidationException.class, resolve);
+        assertTrue(failure.getMessage().contains("SHA1WITHRSA"));
     }
 
     private static CryptographicKeyItemOperationModel legacyKey() {

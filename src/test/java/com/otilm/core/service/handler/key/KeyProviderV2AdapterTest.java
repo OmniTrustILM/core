@@ -32,6 +32,7 @@ import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.connector.common.v2.OperationExecutionMode;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.cryptography.v2.key.CreateKeyAttributesRequestV2Dto;
@@ -51,6 +52,7 @@ import com.otilm.api.model.connector.cryptography.v2.operations.DecryptDataRespo
 import com.otilm.api.model.connector.cryptography.v2.operations.EncryptDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignDataRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignDataResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorithmAttribute;
 import com.otilm.api.model.connector.cryptography.v2.operations.VerifyDataRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.VerifyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.data.CipherDataV2Dto;
@@ -66,6 +68,7 @@ import com.otilm.core.attribute.engine.OutboundSecretLeakException;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.model.connector.ImmutableConnectorFullModel;
+import com.otilm.core.model.crypto.CryptographicKeyItemModelFixtures;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
 import com.otilm.core.model.crypto.ImmutableTokenInstanceFullModel;
@@ -81,6 +84,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -297,6 +301,88 @@ class KeyProviderV2AdapterTest {
 
         // then
         assertSame(failure, assertThrows(IllegalStateException.class, destroy));
+    }
+
+    @Test
+    void resolveSignatureAlgorithm_readsTheSelection_withoutTouchingTheConnector() {
+        // given
+        List<RequestAttribute> signatureAttributes = List
+                .of(stringAttribute("keyLabel", "tsa-key"),
+                        SignatureAlgorithmAttribute.request(SignatureAlgorithm.SHA384_WITH_RSA_PSS));
+
+        // when
+        ResolvedSignatureAlgorithm resolved = adapter
+                .resolveSignatureAlgorithm(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA),
+                        CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA), signatureAttributes);
+
+        // then
+        assertEquals(SignatureAlgorithm.SHA384_WITH_RSA_PSS, resolved.platformAlgorithm());
+        verifyNoInteractions(operationsClient);
+    }
+
+    @Test
+    void resolveSignatureAlgorithm_acceptsThePostQuantumParameterSetOfTheKey() {
+        // when
+        ResolvedSignatureAlgorithm resolved = adapter
+                .resolveSignatureAlgorithm(
+                        CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.MLDSA),
+                        CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.MLDSA, "ML-DSA-65"),
+                        List.of(SignatureAlgorithmAttribute.request(SignatureAlgorithm.ML_DSA_65)));
+
+        // then
+        assertEquals(SignatureAlgorithm.ML_DSA_65, resolved.platformAlgorithm());
+    }
+
+    @Test
+    void resolveSignatureAlgorithm_refusesAMissingSelection() {
+        // when
+        Executable resolve = () -> adapter
+                .resolveSignatureAlgorithm(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA),
+                        CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA),
+                        List.of(stringAttribute("signatureScheme", "PKCS1-v1_5")));
+
+        // then
+        assertThrows(ValidationException.class, resolve);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("selectionsTheKeyCannotSignWith")
+    void resolveSignatureAlgorithm_refusesAnAlgorithmTheKeyCannotSignWith(UnfitSelection selection) {
+        // when
+        Executable resolve = () -> adapter
+                .resolveSignatureAlgorithm(selection.privateKey(), selection.publicKey(),
+                        List.of(SignatureAlgorithmAttribute.request(selection.algorithm())));
+
+        // then
+        ValidationException failure = assertThrows(ValidationException.class, resolve);
+        assertTrue(failure.getMessage().contains(selection.algorithm().getCode()));
+    }
+
+    private static Stream<Named<UnfitSelection>> selectionsTheKeyCannotSignWith() {
+        return Stream
+                .of(named("ECDSA on an RSA key",
+                        new UnfitSelection(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA),
+                                CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA),
+                                SignatureAlgorithm.SHA256_WITH_ECDSA)),
+                        named("ML-DSA on an RSA key",
+                                new UnfitSelection(
+                                        CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA),
+                                        CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA),
+                                        SignatureAlgorithm.ML_DSA_65)),
+                        named("another ML-DSA parameter set",
+                                new UnfitSelection(
+                                        CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.MLDSA),
+                                        CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.MLDSA, "ML-DSA-65"),
+                                        SignatureAlgorithm.ML_DSA_44)),
+                        named("Ed25519, which no platform key algorithm signs with",
+                                new UnfitSelection(
+                                        CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.ECDSA),
+                                        CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.ECDSA),
+                                        SignatureAlgorithm.ED25519)));
+    }
+
+    record UnfitSelection(CryptographicKeyItemOperationModel privateKey, CryptographicKeyItemOperationModel publicKey,
+            SignatureAlgorithm algorithm) {
     }
 
     @Test
