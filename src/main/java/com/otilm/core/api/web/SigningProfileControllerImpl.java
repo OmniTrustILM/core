@@ -148,7 +148,7 @@ public class SigningProfileControllerImpl implements SigningProfileController {
     @Override
     @AuditLogged(module = Module.SIGNING, resource = Resource.SIGNING_PROFILE, operation = Operation.LIST)
     public List<BaseAttribute> listSignatureAttributesForCertificate(@LogResource(uuid = true) UUID certificateUuid)
-            throws NotFoundException {
+            throws NotFoundException, ConnectorException {
         return signingProfileService.listSignatureAttributesForCertificate(SecuredUUID.fromUUID(certificateUuid));
     }
 

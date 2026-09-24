@@ -116,7 +116,8 @@ public class AttributeDefinition extends UniquelyIdentified implements ObjectAcc
     @Column(name = "global")
     private Boolean global;
 
-    @Column(name = "operation")
+    /** Written at insert, or claimed once by {@code AttributeDefinitionRepository.claimOperation} while unknown. */
+    @Column(name = "operation", updatable = false)
     private String operation;
 
     @Column(name = "created_at", nullable = false, updatable = false)
