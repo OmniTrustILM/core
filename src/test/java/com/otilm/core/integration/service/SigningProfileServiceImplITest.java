@@ -101,6 +101,7 @@ import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.serialization.ObjectMapperFactory;
+import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.CryptographicKeyExternalService;
 import com.otilm.core.service.SigningProfileExternalService;
 import com.otilm.core.service.SigningProfileInternalService;
@@ -182,6 +183,9 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
 
     @Autowired
     private SigningProfileInternalService signingProfileInternalService;
+
+    @Autowired
+    private CertificateInternalService certificateInternalService;
 
     @Autowired
     private TspProfileExternalService tspProfileService;
@@ -379,6 +383,10 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
     }
 
     private void persistV2KeyItem(CryptographicKey key, KeyType type, String keyData, String fingerprint) {
+        persistV2KeyItem(key, type, keyData, fingerprint, null);
+    }
+
+    private void persistV2KeyItem(CryptographicKey key, KeyType type, String keyData, String fingerprint, UUID uuid) {
         MetadataAttributeV3 handle = new MetadataAttributeV3();
         handle.setUuid(UUID.randomUUID().toString());
         handle.setName("provider-handle");
@@ -387,6 +395,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         handle.setProperties(new MetadataAttributeProperties());
         handle.setContent(List.of(new StringAttributeContentV3("hsm-" + type)));
         CryptographicKeyItem value = new CryptographicKeyItem();
+        value.setUuid(uuid);
         value.setKey(key);
         value.setKeyUuid(key.getUuid());
         value.setType(type);
@@ -740,6 +749,34 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             // then
             assertEquals(List.of(SignatureAlgorithmAttribute.NAME, "signatureScheme", "digestAlgorithm"),
                     attributes.stream().map(BaseAttribute::getName).toList());
+        }
+
+        @Test
+        void findPrivateOperationRowByKeyUuid_picksThePrivateItemTheSignerUses() throws Exception {
+            // given: PostgreSQL orders 00000000-… first, while Java's signed UUID order puts 80000000-… first
+            persistV2KeyItem(v2Key, KeyType.PRIVATE_KEY, null, null,
+                    UUID.fromString("00000000-0000-4000-8000-000000000000"));
+            persistV2KeyItem(v2Key, KeyType.PRIVATE_KEY, null, null,
+                    UUID.fromString("80000000-0000-4000-8000-000000000000"));
+            UUID signerItemUuid = certificateInternalService
+                    .getSigningCertificate(v2SigningCertificate.getUuid())
+                    .keyItemUuids()
+                    .stream()
+                    .filter(uuid -> cryptographicKeyItemRepository
+                            .findByUuid(uuid)
+                            .orElseThrow()
+                            .getType() == KeyType.PRIVATE_KEY)
+                    .findFirst()
+                    .orElseThrow();
+
+            // when
+            UUID schemaItemUuid = cryptographicKeyItemRepository
+                    .findPrivateOperationRowByKeyUuid(v2Key.getUuid())
+                    .orElseThrow()
+                    .keyItemUuid();
+
+            // then
+            assertEquals(signerItemUuid, schemaItemUuid);
         }
 
         @Test
