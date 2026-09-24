@@ -35,6 +35,13 @@ public interface CryptographicKeyInternalService extends ResourceExtensionServic
     CryptographicKeyItemOperationModel getKeyItemModel(UUID keyItemUuid) throws NotFoundException;
 
     /**
+     * Returns the private item of the key.
+     *
+     * @throws NotFoundException when the key holds no private item, or its token has no connector
+     */
+    CryptographicKeyItemOperationModel getPrivateKeyItemModel(UUID keyUuid) throws NotFoundException;
+
+    /**
      * Upload public key of existing certificate
      *
      * @param name Name of the cryptographic key

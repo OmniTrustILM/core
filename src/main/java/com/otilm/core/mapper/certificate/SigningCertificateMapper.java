@@ -20,7 +20,12 @@ public class SigningCertificateMapper {
         UUID tokenProfileUuid = key != null ? key.getTokenProfileUuid() : null;
         // Sort by UUID so the cached record has a stable, deterministic key-item ordering.
         List<UUID> keyItemUuids = key != null
-                ? key.getItems().stream().map(CryptographicKeyItem::getUuid).sorted().toList()
+                ? key
+                        .getItems()
+                        .stream()
+                        .map(CryptographicKeyItem::getUuid)
+                        .sorted(SigningCertificate.KEY_ITEM_ORDER)
+                        .toList()
                 : List.of();
         return new SigningCertificate(cert.getUuid(), cert.getCommonName(), cert.isArchived(), cert.getState(),
                 cert.getValidationStatus(),

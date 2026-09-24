@@ -45,6 +45,9 @@ public class PqcEvaluator {
      */
     private static final String ONE_TIME_SIGNATURE = "ots";
 
+    /** Appended to the disposition's rule id when a component, not the family, decides. */
+    private static final String COMPONENT_RULE_SUFFIX = "-COMPONENT";
+
     private static final Set<String> STATEFUL_HASH_SIGNATURES = Set.of("LMS", "XMSS");
 
     private static final PqcRule HYBRID_RULE = new PqcRule(PqcRules.HYBRID, PqcRuleInput::isHybrid, PqcVerdict.READY,
@@ -70,7 +73,7 @@ public class PqcEvaluator {
 
     public PqcEvaluator(AssetNormalizer normalizer) {
         this.normalizer = normalizer;
-        this.rules = PqcRules.rulesFor(normalizer, this::nameCarriesNoFinding);
+        this.rules = PqcRules.rulesFor(normalizer, this::nameCarriesNoFinding, this::nameLeavesStrengthToSize);
     }
 
     /**
@@ -106,14 +109,23 @@ public class PqcEvaluator {
     }
 
     /**
-     * Whether the asset's own name is free of a weak-crypto finding -- which is not the same as clearing as ready, and
-     * the difference is the common case. A 256-bit secret key naming no family at all resolves to
-     * {@code FAMILY-UNRESOLVED}, and nearly every secret key in the corpus names no family, so gating the size arms on
-     * a ready verdict would empty them. An {@code unknown} name says nothing about the key; a {@code notReady} one is
-     * the finding, and a finding must reach the row whatever tier it was keyed on.
+     * Whether the asset's own name is free of a weak-crypto finding, which gates only the weak size arm: a key under
+     * 128 bits is weak whatever an {@code unknown} name leaves open, while a {@code notReady} name is the finding
+     * itself, and a finding must reach the row whatever tier it was keyed on.
      */
     private boolean nameCarriesNoFinding(PqcRuleInput input) {
         return nameDecision(input.withoutMaterialSize(), null).verdict() != PqcVerdict.NOT_READY;
+    }
+
+    /**
+     * Whether the name leaves the key's strength to its size, which gates the ready and unsized arms: the name clears
+     * as ready, or names no family at all. The carve-out is the common case -- nearly every secret key in the corpus
+     * names no family and resolves to {@code FAMILY-UNRESOLVED}, so without it the arms would be empty. An ambiguous,
+     * uninstantiated or unresolved-hybrid name is a question no key length answers, so the name decides it.
+     */
+    private boolean nameLeavesStrengthToSize(PqcRuleInput input) {
+        PqcDecision byName = nameDecision(input.withoutMaterialSize(), null);
+        return byName.verdict() == PqcVerdict.READY || PqcRules.FAMILY_UNRESOLVED.equals(byName.ruleId());
     }
 
     /**
@@ -174,7 +186,7 @@ public class PqcEvaluator {
         FamilyClass weakest = weak.containsValue(FamilyClass.CLASSICAL_LEGACY)
                 ? FamilyClass.CLASSICAL_LEGACY
                 : FamilyClass.SHOR_BREAKABLE;
-        return decision(weakest.verdict(), weakest.ruleId() + "-COMPONENT", componentReason(weakest),
+        return decision(weakest.verdict(), weakest.ruleId() + COMPONENT_RULE_SUFFIX, componentReason(weakest),
                 List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.VARIANT, PqcRules.NAME), input, nistQuantumSecurityLevel);
     }
 
@@ -224,7 +236,7 @@ public class PqcEvaluator {
         PqcRuleInput hybrid = input.withHybridComponents(components);
         if (namesAClassicallyBrokenComponent(input)) {
             FamilyClass legacy = FamilyClass.CLASSICAL_LEGACY;
-            return decision(legacy.verdict(), legacy.ruleId() + "-COMPONENT", componentReason(legacy),
+            return decision(legacy.verdict(), legacy.ruleId() + COMPONENT_RULE_SUFFIX, componentReason(legacy),
                     List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.HYBRID_COMPONENTS, PqcRules.VARIANT, PqcRules.NAME),
                     hybrid, nistQuantumSecurityLevel);
         }
@@ -313,7 +325,7 @@ public class PqcEvaluator {
         if (construction) {
             FamilyClass primitive = namedPrimitive(input);
             if (primitive == FamilyClass.FAMILY_AMBIGUOUS) {
-                return decision(PqcVerdict.UNKNOWN, FamilyClass.FAMILY_AMBIGUOUS.ruleId() + "-COMPONENT",
+                return decision(PqcVerdict.UNKNOWN, FamilyClass.FAMILY_AMBIGUOUS.ruleId() + COMPONENT_RULE_SUFFIX,
                         "A construction built on a primitive whose family covers both a classically broken and an "
                                 + "unbroken member, and the recorded properties do not say which",
                         List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.VARIANT), input, nistQuantumSecurityLevel);
@@ -327,15 +339,18 @@ public class PqcEvaluator {
             }
         }
         Integer bits = recordedSizeBits(input, construction);
-        return bits == null || bits >= PqcRules.MIN_SYMMETRIC_KEY_BITS
-                ? null
-                : decision(PqcVerdict.NOT_READY, "SYMMETRIC-UNDERSIZED",
-                        "A symmetric or hash-based primitive whose recorded size is below 128 bits, so Grover's "
-                                + "algorithm leaves it with no adequate strength",
-                        List
-                                .of(PqcRules.ALGORITHM_FAMILY, PqcRules.PARAMETER_SET, PqcRules.MATERIAL_SIZE,
-                                        PqcRules.VARIANT),
-                        input, nistQuantumSecurityLevel);
+        if (bits == null) {
+            return null;
+        }
+        List<String> sized = sizeEvidence(input, construction);
+        if (bits >= PqcRules.MIN_SYMMETRIC_KEY_BITS) {
+            FamilyClass ready = FamilyClass.QUANTUM_RESISTANT_SYMMETRIC;
+            return decision(ready.verdict(), ready.ruleId(), ready.reason(), sized, input, nistQuantumSecurityLevel);
+        }
+        return decision(PqcVerdict.NOT_READY, "SYMMETRIC-UNDERSIZED",
+                "A symmetric or hash-based primitive whose recorded size is below 128 bits, so Grover's algorithm "
+                        + "leaves it with no adequate strength",
+                sized, input, nistQuantumSecurityLevel);
     }
 
     /**
@@ -366,13 +381,28 @@ public class PqcEvaluator {
      * {@code materialSize} counts only on a material row. A producer bug stamps the material block onto algorithms too,
      * and there the row's own size is its parameter set -- a strayed size would otherwise decide {@code AES-64} ready
      * and {@code AES-256} undersized. On a construction the parameter set is not a key size but its primitive's digest
-     * or a tag length, so only a material row's key counts.
+     * or a tag length, so only a material row's key counts. When a key's name spells a size too, the smaller decides: a
+     * declared size must not clear a key its own algorithm name fails.
      */
     private Integer recordedSizeBits(PqcRuleInput input, boolean construction) {
+        Integer named = construction ? null : withinRatifiedSizeBand(input.parameterSet());
         if (input.assetType() == CryptographicAssetType.RELATED_CRYPTO_MATERIAL && input.materialSize() != null) {
-            return input.materialSize();
+            return named == null ? input.materialSize() : Math.min(input.materialSize(), named);
         }
-        return construction ? null : withinRatifiedSizeBand(input.parameterSet());
+        return named;
+    }
+
+    /** The slots {@link #recordedSizeBits} reads for this row, so the evidence names only the size that decided. */
+    private static List<String> sizeEvidence(PqcRuleInput input, boolean construction) {
+        List<String> fields = new ArrayList<>(List.of(PqcRules.ALGORITHM_FAMILY));
+        if (!construction) {
+            fields.add(PqcRules.PARAMETER_SET);
+        }
+        if (input.assetType() == CryptographicAssetType.RELATED_CRYPTO_MATERIAL) {
+            fields.add(PqcRules.MATERIAL_SIZE);
+        }
+        fields.add(PqcRules.VARIANT);
+        return List.copyOf(fields);
     }
 
     /**
@@ -432,17 +462,23 @@ public class PqcEvaluator {
      * {@code related-crypto-material} component, with or without an {@code algorithmRef} -- so a private key whose own
      * name says {@code RSA-2048} reached the rules with nothing to classify. The name is a column, so reading the
      * family out of it is available to every caller. Confined to material: on an algorithm row a null family is the
-     * normalizer's decision, a cipher suite above all, and stands.
+     * normalizer's decision, a cipher suite above all, and stands. The same goes for the size the name spells, which
+     * the material tier also leaves unread.
      */
     public PqcRuleInput fromStoredRow(CryptoAssetIdentityFields fields, JsonNode mergedCryptoProperties) {
+        boolean material = fields.assetType() == CryptographicAssetType.RELATED_CRYPTO_MATERIAL;
         String family = ratifiedFamily(fields.algorithmFamily());
-        if (family == null && fields.assetType() == CryptographicAssetType.RELATED_CRYPTO_MATERIAL) {
+        if (family == null && material) {
             family = ratifiedFamily(normalizer.familyFromName(fields.name()));
+        }
+        Integer parameterSet = parameterSet(fields.parameterSet());
+        if (parameterSet == null && material) {
+            parameterSet = sizeFromName(fields.name(), family);
         }
         String secondary = normalizer.secondaryTokens(fields.name(), family);
         List<String> hybrid = normalizer.hybridComponents(fields.name(), family, secondary);
-        return new PqcRuleInput(fields.assetType(), family, parameterSet(fields.parameterSet()), fields.curve(),
-                fields.mode(), fields.padding(), variantOf(fields, secondary), fields.name(), hybrid,
+        return new PqcRuleInput(fields.assetType(), family, parameterSet, fields.curve(), fields.mode(),
+                fields.padding(), variantOf(fields, secondary), fields.name(), hybrid,
                 materialType(mergedCryptoProperties), materialSize(mergedCryptoProperties));
     }
 
@@ -455,6 +491,11 @@ public class PqcEvaluator {
             return fields.variant();
         }
         return secondaryTokens == null || secondaryTokens.isEmpty() ? null : secondaryTokens;
+    }
+
+    private Integer sizeFromName(String name, String family) {
+        Integer spelled = normalizer.sizeTheFamilySpells(name, family);
+        return spelled != null ? spelled : normalizer.intrinsicParameterSet(name);
     }
 
     /** The normalizer's routing vocabulary onto the column's enum; the unroutable tier has no producer spelling. */

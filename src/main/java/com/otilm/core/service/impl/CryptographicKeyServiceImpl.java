@@ -1080,6 +1080,17 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     }
 
     @Override
+    public CryptographicKeyItemOperationModel getPrivateKeyItemModel(UUID keyUuid) throws NotFoundException {
+        CryptographicKeyItemOperationRow row = cryptographicKeyItemRepository
+                .findPrivateOperationRowByKeyUuid(keyUuid)
+                .orElseThrow(() -> new NotFoundException("Key " + keyUuid + " holds no private key item"));
+        if (row.connectorUuid() == null) {
+            throw new NotFoundException("Connector associated to the Key is not found");
+        }
+        return row.toModel();
+    }
+
+    @Override
     @Transactional
     public UUID uploadCertificatePublicKey(String name, PublicKey publicKey, int keyLength, String fingerprint) {
         return certificateKeyWriter.uploadCertificatePublicKey(name, publicKey, keyLength, fingerprint);

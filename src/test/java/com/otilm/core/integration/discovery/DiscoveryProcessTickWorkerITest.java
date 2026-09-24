@@ -1,17 +1,22 @@
 package com.otilm.core.integration.discovery;
 
+import com.otilm.api.model.connector.discovery.v2.DiscoveredItemDto;
+import com.otilm.api.model.connector.discovery.v2.DiscoveryResultsResponseDto;
+import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.discovery.DiscoveryMessageSeverity;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryCertificate;
+import com.otilm.core.dao.entity.DiscoveryItem;
 import com.otilm.core.dao.entity.DiscoveryMessage;
 import com.otilm.core.dao.entity.DiscoveryWork;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
+import com.otilm.core.dao.repository.DiscoveryItemRepository;
 import com.otilm.core.dao.repository.DiscoveryMessageRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.DiscoveryWorkRepository;
@@ -20,12 +25,15 @@ import com.otilm.core.events.handlers.discovery.DiscoveryRunCounts;
 import com.otilm.core.messaging.jms.configuration.DiscoveryWorkProperties;
 import com.otilm.core.messaging.jms.producers.DiscoveryWorkProducer;
 import com.otilm.core.messaging.model.DiscoveryWorkMessage;
+import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.discovery.DiscoveryMessageCode;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
+import com.otilm.core.service.handler.discovery.DiscoveryEventIngestor;
 import com.otilm.core.service.handler.discovery.DiscoveryProcessTickWorker;
 import com.otilm.core.service.handler.discovery.DiscoveryRunTerminator;
 import com.otilm.core.service.handler.discovery.DiscoveryRunTerminator.Ending;
 import com.otilm.core.service.writer.DiscoveryWriter;
+import com.otilm.core.service.writer.discovery.DiscoveryItemWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.util.AuthHelper;
@@ -43,6 +51,10 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import static com.otilm.core.util.TestPublicKeys.rsaPublicKey;
+import static com.otilm.core.util.TestPublicKeys.spkiBase64;
+import static com.otilm.core.util.builders.DiscoveredKeyDtoBuilder.aPublicKey;
+import static com.otilm.core.util.builders.DiscoveredKeyDtoBuilder.aSecretKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -100,6 +112,12 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
     @Autowired
     private DiscoveryWorkWriter workWriter;
     @Autowired
+    private DiscoveryEventIngestor ingestor;
+    @Autowired
+    private DiscoveryItemRepository itemRepository;
+    @Autowired
+    private DiscoveryItemWriter itemWriter;
+    @Autowired
     private DiscoveryMessageWriter messageWriter;
     @Autowired
     private DiscoveryMessageRepository messageRepository;
@@ -125,6 +143,144 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
     }
 
     @Test
+    void stagedKeys_areImportedTickByTickUntilTheRunIsDone() throws Exception {
+        Discovery run = processingRun();
+        stageKeys(run, 2);
+
+        worker.tick(run.getUuid(), 0);
+        // The backlog spans both staging stores. Counting certificates alone ends a keys-only run the moment it
+        // starts processing, with every key still staged and nothing in the inventory.
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.PROCESSING);
+
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.COMPLETED);
+        assertThat(importedKeyItems(run)).as("both staged keys reached the inventory").isEqualTo(2);
+    }
+
+    @Test
+    void mixedRun_waitsForItsKeysEvenOnceEveryCertificateIsIn() throws Exception {
+        Discovery run = processingRun();
+        stageCertificates(run, 1);
+        // Two keys against a batch size of one, so the run still owes something after the certificate is in.
+        stageKeys(run, 2);
+        importsCleanly();
+
+        worker.tick(run.getUuid(), 0);
+
+        // Ending here would leave the second key staged with nothing to come back for it.
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.PROCESSING);
+
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.COMPLETED);
+        assertThat(importedKeyItems(run)).isEqualTo(2);
+    }
+
+    @Test
+    void keyThatCannotBeIdentified_stopsAtItsOwnRowAndIsReportedOnTheRun() throws Exception {
+        Discovery run = processingRun();
+        stageUnusableKey(run);
+
+        worker.tick(run.getUuid(), 0);
+
+        DiscoveryItem failed = keyItemsOf(run).getFirst();
+        assertThat(failed.getProcessedError()).isNotNull();
+        assertThat(failed.getInventoryUuid()).as("nothing reached the inventory for it").isNull();
+        assertThat(messages(run))
+                .extracting(DiscoveryMessage::getCode)
+                .contains(DiscoveryMessageCode.KEY_IMPORT_FAILED.code());
+        // A row that carries a reason is accounted for, so the run finishes rather than stalling on it -- with a
+        // warning, because something it discovered never made it in.
+        Discovery ended = reload(run);
+        assertThat(ended.getStatus()).isEqualTo(DiscoveryStatus.WARNING);
+        // A keys-only run has nothing in the certificate list to look at.
+        assertThat(ended.getMessage()).contains("items").doesNotContain("certificate list");
+    }
+
+    @Test
+    void keysDrainedFromAConnector_reachTheInventoryAndTheListingSaysWhatTheyBecame() throws Exception {
+        Discovery run = processingRun();
+        ingestor.applyDrainPage(run.getUuid(), drainedKeys());
+
+        worker.tick(run.getUuid(), 0);
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.COMPLETED);
+        assertThat(importedKeyItems(run)).isEqualTo(2);
+        assertThat(itemRepository.listItems(run.getUuid(), Resource.CRYPTOGRAPHIC_KEY.name(), null, 10, 0))
+                .allSatisfy(row -> {
+                    assertThat(row.getInventoryUuid()).as("the listing says which record the item became").isNotNull();
+                    assertThat(row.isProcessed()).isTrue();
+                });
+    }
+
+    @Test
+    void keyImportThatCouldNotRun_leavesItsRowsForTheNextTick() throws Exception {
+        Discovery run = processingRun();
+        stageKeys(run, 1);
+        // Any failure of the page as a whole, rather than of one key: here the run may not create keys at all.
+        denyResourceAccess(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.CREATE);
+
+        worker.tick(run.getUuid(), 0);
+
+        DiscoveryItem untouched = keyItemsOf(run).getFirst();
+        assertThat(untouched.getProcessedError()).as("a row the tick never judged carries no reason").isNull();
+        assertThat(untouched.getInventoryUuid()).isNull();
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.PROCESSING);
+        assertThat(processRow(run).getAttempt()).as("a tick that accounted for nothing backs off").isEqualTo(1);
+        // An AccessDeniedException is also what an authorization check that could not be made comes back as, so the
+        // page's failure is recorded as recoverable; a run whose keys never make it in ends through its budget.
+        assertThat(messages(run))
+                .filteredOn(message -> DiscoveryMessageCode.BATCH_PROCESSING_FAILED.code().equals(message.getCode()))
+                .singleElement()
+                .satisfies(message -> assertThat(message.getSeverity()).isEqualTo(DiscoveryMessageSeverity.INFO));
+    }
+
+    @Test
+    void keyPageRefusedOnceThenAllowed_endsTheRunCompleted() throws Exception {
+        Discovery run = processingRun();
+        stageKeys(run, 1);
+        denyResourceAccess(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.CREATE);
+        worker.tick(run.getUuid(), 0);
+
+        allowResourceAccess(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.CREATE);
+        worker.tick(run.getUuid(), 1);
+
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.COMPLETED);
+    }
+
+    @Test
+    void runThatEndsOnItsBudget_saysWhyTheKeysItNeverReachedStayedOut() throws Exception {
+        Discovery run = processingRun();
+        stageKeys(run, 1);
+        denyResourceAccess(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.CREATE);
+        int lastAttempt = workProperties.scheduleFor(DiscoveryWorkType.PROCESS).maxAttempts() - 1;
+
+        worker.tick(run.getUuid(), lastAttempt);
+
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.WARNING);
+        // Left without a reason, the row would read as waiting on a run that has ended.
+        assertThat(keyItemsOf(run).getFirst().getProcessedError())
+                .isEqualTo("Not imported: processing stopped before this key could be imported.");
+    }
+
+    @Test
+    void keyImportWhoseUserCannotBeInstalled_backsOffRatherThanRetryingForever() throws Exception {
+        Discovery run = processingRun();
+        stageKeys(run, 1);
+        doThrow(new IllegalStateException("no such user")).when(authHelper).authenticateAsUser(RUN_OWNER);
+
+        // Escaping the tick would leave the attempt where it was, so the budget that ends a failing run never runs out.
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(processRow(run).getAttempt()).isEqualTo(1);
+        assertThat(messages(run))
+                .extracting(DiscoveryMessage::getCode)
+                .contains(DiscoveryMessageCode.BATCH_PROCESSING_FAILED.code());
+    }
+
+    @Test
     void importRunsAsTheUserWhoStartedTheRun() throws Exception {
         Discovery run = processingRun();
         stageCertificates(run, 1);
@@ -147,7 +303,7 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
 
         // The import pipeline counts progress against the batch it was handed. For a v2 run that batch is not
         // the run, so every batch would finish at 100% while the backlog is still draining.
-        assertThat(reload(run).getMessage()).isEqualTo("Importing discovered certificates (2 remaining)");
+        assertThat(reload(run).getMessage()).isEqualTo("Importing discovered items (2 remaining)");
     }
 
     @Test
@@ -247,7 +403,7 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
         // The budget ends the run with a reason naming what was left behind, rather than backing off forever.
         Discovery reloaded = reload(run);
         assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.WARNING);
-        assertThat(reloaded.getMessage()).contains("2 certificate(s) that could not be imported");
+        assertThat(reloaded.getMessage()).contains("2 discovered item(s) that could not be imported");
         assertThat(agenda(run)).isEmpty();
     }
 
@@ -632,6 +788,62 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
             staged.setCommonName("host-" + i + ".example.com");
             certificateRepository.saveAndFlush(staged);
         }
+    }
+
+    private void stageKeys(Discovery run, int count) {
+        for (int i = 1; i <= count; i++) {
+            DiscoveredItemDto item = new DiscoveredItemDto();
+            item.setSequence((long) i);
+            item.setUniqueRef("key-" + i);
+            // Real material, a fresh key each: a key is onboarded only once Core can read its public part.
+            item
+                    .setPayload(aPublicKey()
+                            .withSpki(spkiBase64(rsaPublicKey()))
+                            .withFingerprint("fp-" + UUID.randomUUID())
+                            .build());
+            item.setDiscoveredAt(OffsetDateTime.now(ZoneOffset.UTC));
+            itemWriter.stage(run.getUuid(), item, true);
+        }
+    }
+
+    /** One page as a connector hands it over: two keys, each with its own material. */
+    private DiscoveryResultsResponseDto drainedKeys() {
+        DiscoveryResultsResponseDto page = new DiscoveryResultsResponseDto();
+        page.setItems(List.of(drainedKey(1, "ssh://host-a:22"), drainedKey(2, "tls://host-b:443")));
+        page.setHighestSequence(2L);
+        page.setMore(false);
+        return page;
+    }
+
+    private DiscoveredItemDto drainedKey(int sequence, String uniqueRef) {
+        DiscoveredItemDto item = new DiscoveredItemDto();
+        item.setSequence((long) sequence);
+        item.setUniqueRef(uniqueRef);
+        item
+                .setPayload(aPublicKey()
+                        .withSpki(spkiBase64(rsaPublicKey()))
+                        .withFingerprint("connector-fingerprint-" + uniqueRef)
+                        .build());
+        item.setDiscoveredAt(OffsetDateTime.now(ZoneOffset.UTC));
+        return item;
+    }
+
+    private void stageUnusableKey(Discovery run) {
+        DiscoveredItemDto item = new DiscoveredItemDto();
+        item.setSequence(1L);
+        item.setUniqueRef("vault://unnamed");
+        // No public part and no fingerprint: nothing here tells this key apart from any other.
+        item.setPayload(aSecretKey().build());
+        item.setDiscoveredAt(OffsetDateTime.now(ZoneOffset.UTC));
+        itemWriter.stage(run.getUuid(), item, true);
+    }
+
+    private List<DiscoveryItem> keyItemsOf(Discovery run) {
+        return itemRepository.findAll().stream().filter(item -> run.getUuid().equals(item.getDiscoveryUuid())).toList();
+    }
+
+    private long importedKeyItems(Discovery run) {
+        return keyItemsOf(run).stream().filter(item -> item.getInventoryUuid() != null).count();
     }
 
     private Discovery processingRun() {

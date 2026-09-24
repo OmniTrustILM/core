@@ -3,8 +3,10 @@ package com.otilm.core.dao.repository;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.model.crypto.CryptographicKeyItemBasicModel;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationRow;
+import com.otilm.core.model.signing.SigningCertificate;
 import jakarta.persistence.LockModeType;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -202,4 +204,26 @@ public interface CryptographicKeyItemRepository extends SecurityFilterRepository
             WHERE item.uuid = :uuid
             """)
     Optional<CryptographicKeyItemOperationRow> findOperationRowByUuid(@Param("uuid") UUID uuid);
+
+    @Query("""
+            SELECT new com.otilm.core.model.crypto.CryptographicKeyItemOperationRow(
+                item.uuid, item.enabled, item.keyAlgorithm, item.state, item.type, item.usage, item.keyData,
+                item.keyReferenceUuid, item.keyMeta, key.uuid, token.connectorUuid, token.tokenInstanceUuid,
+                iface.interfaceCode, iface.version)
+            FROM CryptographicKeyItem item
+            JOIN item.key key
+            JOIN key.tokenInstanceReference token
+            LEFT JOIN token.connectorInterface iface
+            WHERE key.uuid = :keyUuid
+              AND item.type = com.otilm.api.model.common.enums.cryptography.KeyType.PRIVATE_KEY
+            """)
+    List<CryptographicKeyItemOperationRow> findPrivateOperationRowsByKeyUuid(@Param("keyUuid") UUID keyUuid);
+
+    /** Returns the private item the signer uses, the first in {@link SigningCertificate#KEY_ITEM_ORDER}. */
+    default Optional<CryptographicKeyItemOperationRow> findPrivateOperationRowByKeyUuid(UUID keyUuid) {
+        return findPrivateOperationRowsByKeyUuid(keyUuid)
+                .stream()
+                .min(Comparator
+                        .comparing(CryptographicKeyItemOperationRow::keyItemUuid, SigningCertificate.KEY_ITEM_ORDER));
+    }
 }

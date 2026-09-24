@@ -37,6 +37,7 @@ import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.crypto.KeyOperationScope;
+import com.otilm.core.model.crypto.OperationAttributeSchema;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
 import com.otilm.core.model.crypto.TokenProfileBasicModel;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
@@ -376,6 +377,25 @@ public class CryptographicOperationServiceImpl
 
     @Override
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public OperationAttributeSchema listSignAttributeSchema(UUID keyUuid) throws NotFoundException, ConnectorException {
+        CryptographicKeyItemOperationModel keyItem = cryptographicKeyService.getPrivateKeyItemModel(keyUuid);
+        OperationKeyContext context = operationContext(keyItem);
+        List<BaseAttribute> definitions = adapterFor(context).listSignAttributes(context);
+        return new OperationAttributeSchema(keyItem.operationAttributeOwner(), definitions);
+    }
+
+    private OperationKeyContext operationContext(CryptographicKeyItemOperationModel model) throws NotFoundException {
+        if (!model.hasConnectorInterface()) {
+            return OperationKeyContext.legacy(model);
+        }
+        KeyOperationScope scope = cryptographicKeyRepository
+                .findOperationScopeByUuid(model.keyUuid())
+                .orElseThrow(() -> new NotFoundException(CryptographicKey.class, model.keyUuid()));
+        return new OperationKeyContext(model, scope.tokenProfile());
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public SignatureAlgorithm resolveSignatureAlgorithm(CryptographicKeyItemOperationModel privateKeyItem,
             CryptographicKeyItemOperationModel publicKeyItem, List<RequestAttribute> signatureAttributes)
             throws NotFoundException {
@@ -623,10 +643,5 @@ public class CryptographicOperationServiceImpl
 
         // Convert the data from byte array to string
         return CertificateRequestUtils.byteArrayCsrToString(csr.getEncoded());
-    }
-
-    @Override
-    public List<BaseAttribute> listSignatureAttributes(KeyAlgorithm keyAlgorithm) throws ValidationException {
-        return KeyProviderV1Adapter.signatureAttributes(keyAlgorithm);
     }
 }

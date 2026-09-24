@@ -198,6 +198,8 @@ public record AssetNormalizer(IdentityTables tables) {
 
     private static final Pattern ADJACENT_SIZE_RUN = Pattern.compile("[-_/]?(\\d{2,5})");
 
+    private static final Pattern ADJACENT_KEY_SIZE = Pattern.compile("[-_/]?(\\d{2,5})(?![A-Za-z0-9])");
+
     /**
      * The separators producers use for "either of these", and nothing around them.
      *
@@ -928,6 +930,32 @@ public record AssetNormalizer(IdentityTables tables) {
             return candidate;
         }
         notes.add("size " + candidate + " from " + origin + " outside whitelist");
+        return null;
+    }
+
+    /**
+     * The size the family's own token spells in the name -- {@code AES-64}, {@code AES64}, {@code AES_64},
+     * {@code AES/64} -- or {@code null}. Only the run directly after the family counts, so a mode ({@code AES-GCM-96}),
+     * a tenant label or a hex id elsewhere in a key's name is not read as its length, and a run glued to letters
+     * ({@code Ascon-80pq}) is a variant name rather than a size. The token is matched as {@link #familyFromName} elects
+     * it, word-guarded, so the {@code AES} inside {@code myAESKey} is not the one read, and every such token is tried.
+     */
+    public Integer sizeTheFamilySpells(String name, String family) {
+        if (name == null || family == null) {
+            return null;
+        }
+        for (IdentityTables.GrammarRule rule : tables.nameGrammar()) {
+            if (!rule.family().equals(family)) {
+                continue;
+            }
+            Matcher matcher = rule.strict().matcher(name);
+            while (matcher.find()) {
+                Matcher size = ADJACENT_KEY_SIZE.matcher(name).region(matcher.end(), name.length());
+                if (size.lookingAt()) {
+                    return Integer.valueOf(size.group(1));
+                }
+            }
+        }
         return null;
     }
 
