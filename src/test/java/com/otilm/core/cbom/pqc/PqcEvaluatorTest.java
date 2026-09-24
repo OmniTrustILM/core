@@ -173,7 +173,7 @@ class PqcEvaluatorTest {
     /** A declared key size does not outvote the size the name spells, or a key could clear what its algorithm fails. */
     @Test
     void aKeyNamedForAnUndersizedAlgorithmIsAsUndersizedAsTheAlgorithm() {
-        for (String undersized : new String[]{"AES-64", "AES64", "AES_64", "RC6-64"}) {
+        for (String undersized : new String[]{"AES-64", "AES64", "AES_64", "AES/64", "myAESKey-AES-64", "RC6-64"}) {
             String asAlgorithm = verdictOf(algorithm(undersized)).ruleId();
             assertThat(asAlgorithm).isEqualTo("SYMMETRIC-UNDERSIZED");
             for (Integer size : new Integer[]{256, null}) {
