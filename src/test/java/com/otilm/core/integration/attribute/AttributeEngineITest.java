@@ -2823,6 +2823,36 @@ class AttributeEngineITest extends BaseSpringBootTest {
         Assertions.assertEquals(AttributeOperation.SIGN, storedOperation(connectorUuid, definition));
     }
 
+    @Test
+    void validateUpdateDataAttributes_advancesUpdatedAt_whenItClaimsTheOperation() throws AttributeException {
+        // given: a callback delivered the definition before any operation claimed it
+        UUID connectorUuid = connectorDiscovery.getUuid();
+        DataAttributeV3 definition = DataAttributeV3Builder.aDataAttribute().withName("digestAlgorithm").build();
+        attributeEngine.updateDataAttributeDefinitions(connectorUuid, null, List.of(definition));
+        LocalDateTime published = LocalDateTime.of(2020, 1, 1, 0, 0);
+        UUID definitionUuid = storedDefinition(connectorUuid, definition).getUuid();
+        inNewTransaction(() -> entityManager
+                .createQuery("UPDATE AttributeDefinition ad SET ad.updatedAt = :published WHERE ad.uuid = :uuid")
+                .setParameter("published", published)
+                .setParameter("uuid", definitionUuid)
+                .executeUpdate());
+        RequestAttribute content = RequestAttributeV3Builder
+                .aCustomAttribute()
+                .withUuid(definition.getUuid())
+                .withName(definition.getName())
+                .withStringContent("SHA-256")
+                .build();
+
+        // when
+        attributeEngine
+                .validateUpdateDataAttributes(connectorUuid, AttributeOperation.SIGN, List.of(), List.of(content));
+
+        // then
+        AttributeDefinition claimed = storedDefinition(connectorUuid, definition);
+        Assertions.assertEquals(AttributeOperation.SIGN, claimed.getOperation());
+        Assertions.assertTrue(claimed.getUpdatedAt().isAfter(published), "updated_at: " + claimed.getUpdatedAt());
+    }
+
     private void publish(UUID connectorUuid, String operation, DataAttributeV3 definition) {
         try {
             attributeEngine.updateDataAttributeDefinitions(connectorUuid, operation, List.of(definition));
@@ -2832,10 +2862,13 @@ class AttributeEngineITest extends BaseSpringBootTest {
     }
 
     private String storedOperation(UUID connectorUuid, DataAttributeV3 definition) {
+        return storedDefinition(connectorUuid, definition).getOperation();
+    }
+
+    private AttributeDefinition storedDefinition(UUID connectorUuid, DataAttributeV3 definition) {
         return attributeDefinitionRepository
                 .findByTypeAndConnectorUuidAndAttributeUuidAndName(AttributeType.DATA, connectorUuid,
                         UUID.fromString(definition.getUuid()), definition.getName())
-                .orElseThrow()
-                .getOperation();
+                .orElseThrow();
     }
 }

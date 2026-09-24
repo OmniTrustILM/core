@@ -58,7 +58,11 @@ public interface AttributeDefinitionRepository extends SecurityFilterRepository<
     void removeConnectorByTypeAndConnectorUuid(AttributeType attributeType, UUID connectorUuid);
 
     @Modifying(flushAutomatically = true)
-    @Query("UPDATE AttributeDefinition ad SET ad.operation = ?2 WHERE ad.uuid = ?1 AND ad.operation IS NULL")
+    @Query("""
+            UPDATE AttributeDefinition ad
+            SET ad.operation = ?2, ad.updatedAt = CURRENT_TIMESTAMP
+            WHERE ad.uuid = ?1 AND ad.operation IS NULL
+            """)
     int claimOperation(UUID definitionUuid, String operation);
 
     Long deleteByTypeAndConnectorUuid(AttributeType attributeType, UUID connectorUuid);
