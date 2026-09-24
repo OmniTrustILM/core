@@ -163,6 +163,10 @@ import static org.mockito.Mockito.when;
 
 class CryptographicKeyServiceITest extends BaseSpringBootTest {
 
+    /** A v3 attribute names its version, and each of its content items names its content type. */
+    private static final String EXPORTABLE_INTENT_ON_THE_WIRE = "$.createKeyAttributes[?(@.name == '%s' && @.uuid == '%s'"
+            + " && @.version == 'v3' && @.content[0].contentType == 'boolean' && @.content[0].data == %s)]";
+
     private static final String KEY_NAME = "testKey1";
 
     @Autowired
@@ -683,10 +687,9 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
                 .verify(WireMock
                         .postRequestedFor(WireMock.urlPathEqualTo("/v2/cryptographyProvider/keys"))
                         .withRequestBody(WireMock
-                                .matchingJsonPath(
-                                        "$.createKeyAttributes[?(@.name == '%s' && @.uuid == '%s' && @.content[0].data == %s)]"
-                                                .formatted(KeyExportableAttribute.NAME,
-                                                        KeyExportableAttribute.definition().getUuid(), exportable))));
+                                .matchingJsonPath(EXPORTABLE_INTENT_ON_THE_WIRE
+                                        .formatted(KeyExportableAttribute.NAME, KeyExportableAttribute.ATTRIBUTE_UUID,
+                                                exportable))));
     }
 
     @Test

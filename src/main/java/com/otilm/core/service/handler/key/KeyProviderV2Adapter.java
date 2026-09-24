@@ -9,7 +9,6 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.client.v2.CryptographicOperationsSyncApiClient;
 import com.otilm.api.interfaces.client.v2.KeySyncApiClient;
 import com.otilm.api.model.client.attribute.RequestAttribute;
-import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.client.cryptography.operations.CipherDataRequestDto;
@@ -26,8 +25,6 @@ import com.otilm.api.model.client.cryptography.operations.VerifyDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.VerifyDataResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
-import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
-import com.otilm.api.model.common.attribute.v2.content.BooleanAttributeContentV2;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
@@ -88,8 +85,6 @@ import org.springframework.http.ResponseEntity;
 /** Synchronous stateless cryptography-provider v2 key management. */
 @Slf4j
 public class KeyProviderV2Adapter implements KeyProviderAdapter {
-
-    private static final UUID EXPORTABLE_INTENT_UUID = UUID.fromString(KeyExportableAttribute.definition().getUuid());
 
     private final ApiClientConnectorInfo connectorInfo;
     private final KeySyncApiClient keyManagementSyncApiClient;
@@ -219,12 +214,7 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
                 .supports(tokenProfile.tokenInstance().connectorInterface(), FeatureFlag.KEY_EXPORT)) {
             return stated;
         }
-        RequestAttributeV2 intent = new RequestAttributeV2();
-        intent.setUuid(EXPORTABLE_INTENT_UUID);
-        intent.setName(KeyExportableAttribute.NAME);
-        intent.setContentType(AttributeContentType.BOOLEAN);
-        intent.setContent(List.of(new BooleanAttributeContentV2(exportable)));
-        stated.add(intent);
+        stated.add(KeyExportableAttribute.request(exportable));
         return stated;
     }
 
