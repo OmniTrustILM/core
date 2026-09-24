@@ -77,6 +77,7 @@ import com.otilm.core.service.handler.OperationAttributeResolver;
 import java.security.KeyPairGenerator;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -129,7 +130,7 @@ class KeyProviderV2AdapterTest {
         var token = new ImmutableTokenInstanceFullModel(UUID.randomUUID(), null, "token", TokenInstanceStatus.ACTIVATED,
                 null, connectorUuid, connector.name(), null, null, Set.of());
         profile = new ImmutableTokenProfileFullModel(UUID.randomUUID(), "profile", null, token.name(), token.uuid(),
-                true, List.of(KeyUsage.SIGN), token, connectorUuid);
+                true, List.of(KeyUsage.SIGN), token, connectorUuid, Map.of(), 0);
         cryptographicKey = new ImmutableCryptographicKeyFullModel(UUID.randomUUID(), "key", null, profile.uuid(),
                 profile.tokenInstanceReferenceUuid(), profile, profile.tokenInstance(), Set.of(), null, null, null,
                 List.of(), List.of());

@@ -64,6 +64,7 @@ import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
 import com.otilm.core.model.crypto.TokenProfileBasicModel;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
+import com.otilm.core.model.crypto.TransferableKeyType;
 import com.otilm.core.service.handler.OperationAttributeResolver;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import java.util.ArrayList;
@@ -238,6 +239,16 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         RemoteKeyReference reference = new RemoteKeyReference.MetadataReference(keyMeta);
         return new ProviderKeyItem(name, type, data.getAlgorithm(), data.getLength(), reference, material,
                 data.getMetadata());
+    }
+
+    @Override
+    public List<TransferableKeyType> listExportableKeyTypes(TokenProfileFullModel tokenProfile)
+            throws ConnectorException {
+        return keyManagementSyncApiClient
+                .listExportableKeyTypes(connectorInfo, tokenProfileScopedRequest(tokenProfile))
+                .stream()
+                .map(declared -> new TransferableKeyType(declared.getKeyRequestType(), declared.getAlgorithms()))
+                .toList();
     }
 
     @Override

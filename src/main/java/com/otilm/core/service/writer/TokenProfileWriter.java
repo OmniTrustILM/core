@@ -86,6 +86,7 @@ public class TokenProfileWriter {
         if (request.getUsage() != null) {
             profile.setUsage(request.getUsage());
         }
+        profile.forgetExportableKeyTypes();
         UUID connectorUuid = profile.getTokenInstanceReference().getConnectorUuid();
         updateAttributes(tokenProfileUuid, connectorUuid, request.getCustomAttributes(), request.getAttributes());
         return ImmutableTokenProfileFullModel.from(profile);
@@ -103,12 +104,17 @@ public class TokenProfileWriter {
 
     @Transactional(rollbackFor = Exception.class)
     public void setUsages(UUID profileUuid, List<KeyUsage> usages) throws NotFoundException {
-        findLocked(profileUuid).setUsage(usages);
+        changeUsages(findLocked(profileUuid), usages);
     }
 
     @Transactional(rollbackFor = Exception.class)
     public void setUsagesScoped(UUID parentUuid, UUID profileUuid, List<KeyUsage> usages) throws NotFoundException {
-        findScopedLocked(parentUuid, profileUuid).setUsage(usages);
+        changeUsages(findScopedLocked(parentUuid, profileUuid), usages);
+    }
+
+    private static void changeUsages(TokenProfile profile, List<KeyUsage> usages) {
+        profile.setUsage(usages);
+        profile.forgetExportableKeyTypes();
     }
 
     @Transactional(rollbackFor = Exception.class)

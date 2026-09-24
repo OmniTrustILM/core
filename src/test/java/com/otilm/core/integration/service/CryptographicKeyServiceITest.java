@@ -38,6 +38,11 @@ import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyExportableAttribute;
+import com.otilm.api.model.connector.cryptography.v2.key.KeyPairDataResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.PrivateKeyDataResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.PrivateKeyDataV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.PublicKeyDataResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.PublicKeyDataV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyDataV2Dto;
 import com.otilm.api.model.core.auth.Resource;
@@ -86,6 +91,7 @@ import com.otilm.core.model.crypto.ImmutableTokenInstanceBasicModel;
 import com.otilm.core.model.crypto.ImmutableTokenProfileBasicModel;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.RemoteKeyReference;
+import com.otilm.core.model.crypto.TransferableKeyType;
 import com.otilm.core.model.group.GroupModel;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -114,6 +120,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -650,21 +657,28 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
     void createKey_statesTheExportableIntentToAV2ConnectorThatRequiresIt(boolean exportable) throws Exception {
         // given
         configureV2Token(List.of(FeatureFlag.STATELESS, FeatureFlag.KEY_EXPORT));
-        stubV2SecretCreation("exportable-provider-key", List.of(KeyExportableAttribute.definition()));
+        tokenProfile
+                .setExportableKeyTypes(
+                        List.of(new TransferableKeyType(KeyRequestType.KEY_PAIR, Set.of(KeyAlgorithm.RSA))));
+        tokenProfileRepository.saveAndFlush(tokenProfile);
+        stubV2KeyPairCreation(List.of(KeyExportableAttribute.definition()));
         KeyRequestDto request = keyCreationRequest("v2-exportable-" + exportable);
         request.setExportable(exportable);
 
         // when
         KeyDetailDto created = cryptographicKeyService
-                .createKey(tokenInstanceReference.getUuid(), tokenProfile.getSecuredParentUuid(), KeyRequestType.SECRET,
-                        request);
+                .createKey(tokenInstanceReference.getUuid(), tokenProfile.getSecuredParentUuid(),
+                        KeyRequestType.KEY_PAIR, request);
 
         // then
-        UUID createdItemUuid = UUID.fromString(created.getItems().getFirst().getUuid());
-        Assertions.assertEquals(exportable, created.getItems().getFirst().isExportable());
-        Assertions
-                .assertEquals(exportable,
-                        cryptographicKeyItemRepository.findByUuid(createdItemUuid).orElseThrow().isExportable());
+        Map<KeyType, KeyItemDetailDto> items = created
+                .getItems()
+                .stream()
+                .collect(Collectors.toMap(KeyItemDetailDto::getType, item -> item));
+        Assertions.assertEquals(exportable, items.get(KeyType.PRIVATE_KEY).isExportable());
+        Assertions.assertFalse(items.get(KeyType.PUBLIC_KEY).isExportable());
+        Assertions.assertEquals(exportable, storedExportable(items.get(KeyType.PRIVATE_KEY)));
+        Assertions.assertFalse(storedExportable(items.get(KeyType.PUBLIC_KEY)));
         mockServer
                 .verify(WireMock
                         .postRequestedFor(WireMock.urlPathEqualTo("/v2/cryptographyProvider/keys"))
@@ -730,21 +744,39 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
     }
 
     private void stubV2SecretCreation(String opaqueHandle, List<BaseAttribute> createKeyAttributes) throws Exception {
-        MetadataAttributeV3 handle = new MetadataAttributeV3();
-        handle.setUuid(UUID.randomUUID().toString());
-        handle.setName("provider-handle");
-        handle.setType(AttributeType.META);
-        handle.setContentType(AttributeContentType.STRING);
-        MetadataAttributeProperties properties = new MetadataAttributeProperties();
-        properties.setLabel("Provider handle");
-        handle.setProperties(properties);
-        handle.setContent(List.of(new StringAttributeContentV3(opaqueHandle)));
         SecretKeyDataV2Dto keyData = new SecretKeyDataV2Dto();
         keyData.setAlgorithm(KeyAlgorithm.UNKNOWN);
         keyData.setLength(256);
         SecretKeyDataResponseV2Dto response = new SecretKeyDataResponseV2Dto();
         response.setKeyData(keyData);
-        response.setKeyMeta(List.of(handle));
+        response.setKeyMeta(List.of(providerHandle(opaqueHandle)));
+        stubV2Creation(createKeyAttributes, response);
+    }
+
+    private void stubV2KeyPairCreation(List<BaseAttribute> createKeyAttributes) throws Exception {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+        generator.initialize(2048);
+        PublicKeyDataV2Dto publicData = new PublicKeyDataV2Dto();
+        publicData.setAlgorithm(KeyAlgorithm.RSA);
+        publicData.setLength(2048);
+        publicData.setPublicKeySpki(generator.generateKeyPair().getPublic().getEncoded());
+        PublicKeyDataResponseV2Dto publicKey = new PublicKeyDataResponseV2Dto();
+        publicKey.setKeyData(publicData);
+        publicKey.setKeyMeta(List.of(providerHandle("public-handle")));
+        PrivateKeyDataV2Dto privateData = new PrivateKeyDataV2Dto();
+        privateData.setAlgorithm(KeyAlgorithm.RSA);
+        privateData.setLength(2048);
+        PrivateKeyDataResponseV2Dto privateKey = new PrivateKeyDataResponseV2Dto();
+        privateKey.setKeyData(privateData);
+        privateKey.setKeyMeta(List.of(providerHandle("private-handle")));
+        KeyPairDataResponseV2Dto response = new KeyPairDataResponseV2Dto();
+        response.setPublicKeyData(publicKey);
+        response.setPrivateKeyData(privateKey);
+        response.setKeyPairMeta(List.of(providerHandle("pair-handle")));
+        stubV2Creation(createKeyAttributes, response);
+    }
+
+    private void stubV2Creation(List<BaseAttribute> createKeyAttributes, Object response) throws Exception {
         mockServer
                 .stubFor(WireMock
                         .post(WireMock.urlPathEqualTo("/v2/cryptographyProvider/keys/create/attributes"))
@@ -754,6 +786,19 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
                 .stubFor(WireMock
                         .post(WireMock.urlPathEqualTo("/v2/cryptographyProvider/keys"))
                         .willReturn(WireMock.okJson(ObjectMapperFactory.wire().writeValueAsString(response))));
+    }
+
+    private static MetadataAttributeV3 providerHandle(String opaqueHandle) {
+        MetadataAttributeV3 handle = new MetadataAttributeV3();
+        handle.setUuid(UUID.randomUUID().toString());
+        handle.setName("provider-handle");
+        handle.setType(AttributeType.META);
+        handle.setContentType(AttributeContentType.STRING);
+        MetadataAttributeProperties properties = new MetadataAttributeProperties();
+        properties.setLabel("Provider handle");
+        handle.setProperties(properties);
+        handle.setContent(List.of(new StringAttributeContentV3(opaqueHandle)));
+        return handle;
     }
 
     private void stubV1SecretCreation() {
@@ -2485,6 +2530,10 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         item.setEnabled(true);
         item.setExportable(true);
         return cryptographicKeyItemRepository.saveAndFlush(item);
+    }
+
+    private boolean storedExportable(KeyItemDetailDto item) {
+        return cryptographicKeyItemRepository.findByUuid(UUID.fromString(item.getUuid())).orElseThrow().isExportable();
     }
 
     private List<CryptographicKeyEventHistory> exportDisabledEvents(CryptographicKeyItem item) {

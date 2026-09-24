@@ -95,6 +95,7 @@ import com.otilm.core.service.CryptographicKeyExternalService;
 import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.service.ResourceObjectAssociationService;
 import com.otilm.core.service.handler.ConnectorCapabilityService;
+import com.otilm.core.service.handler.KeyTransferCapabilityService;
 import com.otilm.core.service.handler.key.KeyCreationValidationCapability;
 import com.otilm.core.service.handler.key.KeyProviderAdapter;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
@@ -118,6 +119,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -164,6 +166,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     private CryptographicKeyEventHistoryService keyEventHistoryService;
 
     private ConnectorCapabilityService connectorCapabilityService;
+    private KeyTransferCapabilityService keyTransferCapabilityService;
     private AuthorizationEnforcer authorizationEnforcer;
     private ResourceObjectAssociationService objectAssociationService;
     private NotificationProducer notificationProducer;
@@ -228,6 +231,11 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     @Autowired
     public void setKeyEventHistoryService(CryptographicKeyEventHistoryService keyEventHistoryService) {
         this.keyEventHistoryService = keyEventHistoryService;
+    }
+
+    @Autowired
+    public void setKeyTransferCapabilityService(KeyTransferCapabilityService keyTransferCapabilityService) {
+        this.keyTransferCapabilityService = keyTransferCapabilityService;
     }
 
     @Autowired
@@ -446,7 +454,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
         throwIfTokenProfileNotEnabled(tokenProfile);
 
         boolean exportable = Boolean.TRUE.equals(request.getExportable());
-        requireExportSupportedWhenRequested(tokenProfile, exportable);
+        requireExportSupportedWhenRequested(tokenProfile, type, exportable);
 
         attributeEngine.validateCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, request.getCustomAttributes());
         mergeAndValidateAttributes(type, tokenProfile, request.getAttributes());
@@ -1238,13 +1246,26 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
      * Refuses an exportable key on a connector that cannot export one. The permission is set once and never raised, so
      * a key created here could never be exported afterwards and the request has to fail before the key exists.
      */
-    private void requireExportSupportedWhenRequested(TokenProfileFullModel tokenProfile, boolean exportable)
-            throws ValidationException {
-        if (exportable && !connectorCapabilityService
-                .supports(tokenProfile.tokenInstance().connectorInterface(), FeatureFlag.KEY_EXPORT)) {
-            TokenInstanceFullModel tokenInstance = tokenProfile.tokenInstance();
+    private void requireExportSupportedWhenRequested(TokenProfileFullModel tokenProfile, KeyRequestType type,
+            boolean exportable) throws ValidationException, ConnectorException, NotFoundException {
+        if (!exportable) {
+            return;
+        }
+        TokenInstanceFullModel tokenInstance = tokenProfile.tokenInstance();
+        if (!connectorCapabilityService.supports(tokenInstance.connectorInterface(), FeatureFlag.KEY_EXPORT)) {
             throw new ValidationException("Connector %s of token instance %s does not support key export."
                     .formatted(tokenInstance.connectorName(), tokenInstance.name()));
+        }
+        Optional<Map<KeyRequestType, Set<KeyAlgorithm>>> exportableKeyTypes = keyTransferCapabilityService
+                .exportableKeyTypes(tokenProfile);
+        if (exportableKeyTypes.isEmpty()) {
+            throw new ValidationException(
+                    "Token profile %s changed while its export capability was being checked. Try again."
+                            .formatted(tokenProfile.name()));
+        }
+        if (!exportableKeyTypes.get().containsKey(type)) {
+            throw new ValidationException("Token profile %s does not support exporting a %s."
+                    .formatted(tokenProfile.name(), type.getLabel().toLowerCase(Locale.ROOT)));
         }
     }
 

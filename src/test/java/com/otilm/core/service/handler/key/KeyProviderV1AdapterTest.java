@@ -44,6 +44,7 @@ import com.otilm.core.model.crypto.ImmutableTokenInstanceFullModel;
 import com.otilm.core.model.crypto.ImmutableTokenProfileFullModel;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.RemoteKeyReference;
+import com.otilm.core.model.crypto.TransferableKeyType;
 import com.otilm.core.service.handler.LegacyOperationFixtures;
 import java.util.Base64;
 import java.util.LinkedHashMap;
@@ -103,7 +104,7 @@ class KeyProviderV1AdapterTest {
                 UUID.randomUUID().toString(), "token", TokenInstanceStatus.ACTIVATED, null, connectorUuid, "connector",
                 null, null, Set.of());
         profile = new ImmutableTokenProfileFullModel(UUID.randomUUID(), "profile", null, token.name(), token.uuid(),
-                true, List.of(), token, connectorUuid);
+                true, List.of(), token, connectorUuid, Map.of(), 0);
         cryptographicKey = new ImmutableCryptographicKeyFullModel(UUID.randomUUID(), "key", null, profile.uuid(),
                 token.uuid(), profile, token, Set.of(), null, null, null, List.of(), List.of());
     }
@@ -142,6 +143,15 @@ class KeyProviderV1AdapterTest {
         assertEquals(serializedValue, item.material().serializedValue());
         assertEquals(metadata, item.metadata());
         verify(client).listKeys(connector, remoteTokenUuid);
+    }
+
+    @Test
+    void listExportableKeyTypes_isEmptyForAV1Connector() {
+        // when
+        List<TransferableKeyType> exportable = adapter.listExportableKeyTypes(profile);
+
+        // then
+        assertTrue(exportable.isEmpty());
     }
 
     @Test

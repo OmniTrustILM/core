@@ -38,6 +38,7 @@ import com.otilm.core.service.CredentialInternalService;
 import com.otilm.core.service.ResourceInternalService;
 import com.otilm.core.service.TokenInstanceExternalService;
 import com.otilm.core.service.TokenInstanceInternalService;
+import com.otilm.core.service.handler.KeyTransferCapabilityService;
 import com.otilm.core.service.handler.token.RemoteTokenLifecycleCapability;
 import com.otilm.core.service.handler.token.TokenActivationCapability;
 import com.otilm.core.service.handler.token.TokenConfigurationValidationCapability;
@@ -46,6 +47,7 @@ import com.otilm.core.service.handler.token.TokenProviderAdapter;
 import com.otilm.core.service.handler.token.TokenProviderAdapterFactory;
 import com.otilm.core.service.handler.token.TokenProviderBinding;
 import com.otilm.core.service.v2.ConnectorInternalService;
+import com.otilm.core.service.writer.KeyTransferCapabilityWriter;
 import com.otilm.core.service.writer.TokenInstanceReferenceWriter;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import java.util.ArrayList;
@@ -70,6 +72,8 @@ public class TokenInstanceServiceImpl implements TokenInstanceExternalService, T
     private ConnectorInternalService connectorInternalService;
     private CredentialInternalService credentialService;
     private AttributeEngine attributeEngine;
+    private KeyTransferCapabilityService keyTransferCapabilityService;
+    private KeyTransferCapabilityWriter keyTransferCapabilityWriter;
     private ResourceInternalService resourceService;
     private TokenProviderAdapterFactory tokenProviderAdapterFactory;
 
@@ -93,6 +97,16 @@ public class TokenInstanceServiceImpl implements TokenInstanceExternalService, T
     @Autowired
     public void setResourceService(ResourceInternalService resourceService) {
         this.resourceService = resourceService;
+    }
+
+    @Autowired
+    public void setKeyTransferCapabilityWriter(KeyTransferCapabilityWriter keyTransferCapabilityWriter) {
+        this.keyTransferCapabilityWriter = keyTransferCapabilityWriter;
+    }
+
+    @Autowired
+    public void setKeyTransferCapabilityService(KeyTransferCapabilityService keyTransferCapabilityService) {
+        this.keyTransferCapabilityService = keyTransferCapabilityService;
     }
 
     @Autowired
@@ -327,6 +341,7 @@ public class TokenInstanceServiceImpl implements TokenInstanceExternalService, T
         TokenInstanceFullModel tokenInstance = getTokenInstanceModel(uuid);
         TokenProviderAdapter adapter = tokenProviderAdapterFactory.forToken(tokenInstance);
         TokenInstanceStatusDetailDto refreshedStatus = adapter.getStatus(tokenInstance);
+        keyTransferCapabilityWriter.forgetForToken(tokenInstance.uuid());
         tokenInstanceReferenceWriter.updateStatus(tokenInstance.uuid(), refreshedStatus.getStatus());
         logger.info("Token instance status reloaded. Status of the token instance: '{}'", refreshedStatus.getStatus());
         return assembleTokenInstanceDetail(tokenInstance, refreshedStatus);
@@ -440,6 +455,7 @@ public class TokenInstanceServiceImpl implements TokenInstanceExternalService, T
         if (statusDetail != null) {
             detail.setStatus(statusDetail);
         }
+        detail.setKeyTransfer(keyTransferCapabilityService.availabilityOf(tokenInstanceReference));
         detail
                 .setAttributes(attributeEngine
                         .getObjectDataAttributesContent(ObjectAttributeContentInfo

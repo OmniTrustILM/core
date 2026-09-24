@@ -39,6 +39,27 @@ public interface TokenProfileRepository extends SecurityFilterRepository<TokenPr
     Optional<TokenProfile> findWithTokenInstanceByUuidAndTokenInstanceReferenceUuid(@Param("uuid") UUID uuid,
             @Param("tokenUuid") UUID tokenUuid);
 
+    @EntityGraph(attributePaths = {"tokenInstanceReference.connectorInterface", "tokenInstanceReference.tokenProfiles"})
+    @Query("""
+            SELECT profile FROM TokenProfile profile
+            JOIN FETCH profile.tokenInstanceReference token
+            WHERE profile.tokenInstanceReferenceUuid = :tokenUuid
+            """)
+    List<TokenProfile> findWithTokenInstanceByTokenInstanceReferenceUuid(@Param("tokenUuid") UUID tokenUuid);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT profile FROM TokenProfile profile WHERE profile.tokenInstanceReferenceUuid = :tokenUuid ORDER BY profile.uuid")
+    List<TokenProfile> findWithLockByTokenInstanceReferenceUuid(@Param("tokenUuid") UUID tokenUuid);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            SELECT profile FROM TokenProfile profile
+            WHERE profile.tokenInstanceReferenceUuid IN (
+                SELECT token.uuid FROM TokenInstanceReference token WHERE token.connectorUuid = :connectorUuid)
+            ORDER BY profile.uuid
+            """)
+    List<TokenProfile> findWithLockByConnectorUuid(@Param("connectorUuid") UUID connectorUuid);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT profile FROM TokenProfile profile WHERE profile.uuid = :uuid")
     Optional<TokenProfile> findWithLockByUuid(@Param("uuid") UUID uuid);
@@ -56,6 +77,13 @@ public interface TokenProfileRepository extends SecurityFilterRepository<TokenPr
             UUID tokenUuid) {
         return findWithTokenInstanceByUuidAndTokenInstanceReferenceUuid(uuid, tokenUuid)
                 .map(ImmutableTokenProfileFullModel::from);
+    }
+
+    default List<TokenProfileFullModel> findFullModelsByTokenInstanceReferenceUuid(UUID tokenUuid) {
+        return findWithTokenInstanceByTokenInstanceReferenceUuid(tokenUuid)
+                .stream()
+                .<TokenProfileFullModel>map(ImmutableTokenProfileFullModel::from)
+                .toList();
     }
 
     default List<TokenProfileListModel> findListModelsUsingSecurityFilter(SecurityFilter filter) {
