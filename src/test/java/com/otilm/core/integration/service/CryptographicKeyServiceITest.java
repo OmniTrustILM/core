@@ -690,6 +690,29 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void createKey_statesNoExportableIntentToAV2ConnectorWithoutKeyExport() throws Exception {
+        // given
+        configureV2Token();
+        stubV2SecretCreation("unexported-provider-key");
+        KeyRequestDto request = keyCreationRequest("v2-without-key-export");
+
+        // when
+        cryptographicKeyService
+                .createKey(tokenInstanceReference.getUuid(), tokenProfile.getSecuredParentUuid(), KeyRequestType.SECRET,
+                        request);
+
+        // then
+        mockServer.verify(1, WireMock.postRequestedFor(WireMock.urlPathEqualTo("/v2/cryptographyProvider/keys")));
+        mockServer
+                .verify(0,
+                        WireMock
+                                .postRequestedFor(WireMock.urlPathEqualTo("/v2/cryptographyProvider/keys"))
+                                .withRequestBody(WireMock
+                                        .matchingJsonPath("$.createKeyAttributes[?(@.name == '%s')]"
+                                                .formatted(KeyExportableAttribute.NAME))));
+    }
+
+    @Test
     void createKey_suspendsAndRestoresCallerTransaction() {
         // given
         stubV1SecretCreation();

@@ -10,6 +10,7 @@ import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.client.cryptography.operations.CipherDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.CipherRequestData;
@@ -27,6 +28,7 @@ import com.otilm.api.model.common.attribute.common.content.data.SecretAttributeC
 import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
+import com.otilm.api.model.common.attribute.v2.content.BooleanAttributeContentV2;
 import com.otilm.api.model.common.attribute.v2.content.SecretAttributeContentV2;
 import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
@@ -68,6 +70,7 @@ import com.otilm.core.attribute.engine.OutboundSecretLeakException;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.model.connector.ImmutableConnectorFullModel;
+import com.otilm.core.model.connector.ImmutableConnectorInterface;
 import com.otilm.core.model.crypto.CryptographicKeyItemModelFixtures;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
@@ -76,6 +79,7 @@ import com.otilm.core.model.crypto.ImmutableTokenProfileFullModel;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
+import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.OperationAttributeResolver;
 import java.security.KeyPairGenerator;
 import java.util.Base64;
@@ -147,7 +151,7 @@ class KeyProviderV2AdapterTest {
         when(attributes.getRequestObjectDataAttributesContent(any())).thenReturn(List.of());
         when(resolver.resolveForConnectorRequestAsSystem(connectorUuid, List.of())).thenReturn(List.of());
         adapter = new KeyProviderV2Adapter(factory, connector, attributes, resolver,
-                new OutboundSecretContainment(new ObjectMapper()), operationsClient);
+                new OutboundSecretContainment(new ObjectMapper()), operationsClient, new ConnectorCapabilityService());
     }
 
     private OperationKeyContext v2Context(List<MetadataAttribute> keyMeta) {
@@ -905,6 +909,16 @@ class KeyProviderV2AdapterTest {
         return definition;
     }
 
+    /** The profile on a token whose cryptography interface declares the given features. */
+    private ImmutableTokenProfileFullModel profileDeclaring(FeatureFlag... features) {
+        ImmutableConnectorInterface cryptography = new ImmutableConnectorInterface(UUID.randomUUID(),
+                ConnectorInterface.CRYPTOGRAPHY, "v2", List.of(features));
+        var token = new ImmutableTokenInstanceFullModel(UUID.randomUUID(), null, "token", TokenInstanceStatus.ACTIVATED,
+                null, profile.connectorUuid(), "connector", cryptography.uuid(), cryptography, Set.of());
+        return new ImmutableTokenProfileFullModel(UUID.randomUUID(), "profile", null, token.name(), token.uuid(), true,
+                List.of(KeyUsage.SIGN), token, profile.connectorUuid(), Map.of(), 0);
+    }
+
     private static RequestAttribute stringAttribute(String name, String value) {
         RequestAttributeV2 attribute = new RequestAttributeV2();
         attribute.setName(name);
@@ -1021,7 +1035,9 @@ class KeyProviderV2AdapterTest {
         when(client.createKey(any(), any())).thenReturn(ResponseEntity.ok(secretKeyResponse()));
 
         // when
-        adapter.createKey(profile, KeyRequestType.SECRET, List.of(), profile.name(), true);
+        adapter
+                .createKey(profileDeclaring(FeatureFlag.KEY_EXPORT), KeyRequestType.SECRET, List.of(), profile.name(),
+                        true);
 
         // then
         ArgumentCaptor<CreateKeyRequestV2Dto> request = ArgumentCaptor.forClass(CreateKeyRequestV2Dto.class);
@@ -1039,7 +1055,9 @@ class KeyProviderV2AdapterTest {
         when(client.createKey(any(), any())).thenReturn(ResponseEntity.ok(secretKeyResponse()));
 
         // when
-        adapter.createKey(profile, KeyRequestType.SECRET, List.of(), profile.name(), false);
+        adapter
+                .createKey(profileDeclaring(FeatureFlag.KEY_EXPORT), KeyRequestType.SECRET, List.of(), profile.name(),
+                        false);
 
         // then
         ArgumentCaptor<CreateKeyRequestV2Dto> request = ArgumentCaptor.forClass(CreateKeyRequestV2Dto.class);
@@ -1054,13 +1072,53 @@ class KeyProviderV2AdapterTest {
         when(client.createKey(any(), any())).thenReturn(ResponseEntity.ok(secretKeyResponse()));
 
         // when
-        adapter.createKey(profile, KeyRequestType.SECRET, null, profile.name(), true);
+        adapter.createKey(profileDeclaring(FeatureFlag.KEY_EXPORT), KeyRequestType.SECRET, null, profile.name(), true);
 
         // then
         ArgumentCaptor<CreateKeyRequestV2Dto> request = ArgumentCaptor.forClass(CreateKeyRequestV2Dto.class);
         verify(client).createKey(any(), request.capture());
         assertTrue(KeyExportableAttribute.isRequested(request.getValue().getCreateKeyAttributes()));
         assertEquals(1, request.getValue().getCreateKeyAttributes().size());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void createKey_statesNoExportableIntentToAConnectorWithoutKeyExport(boolean exportable) throws Exception {
+        // given
+        when(client.createKey(any(), any())).thenReturn(ResponseEntity.ok(secretKeyResponse()));
+        RequestAttribute label = requestAttribute("keyLabel");
+
+        // when
+        adapter
+                .createKey(profileDeclaring(FeatureFlag.STATELESS), KeyRequestType.SECRET,
+                        List.of(label, requestAttribute(KeyExportableAttribute.NAME)), profile.name(), exportable);
+
+        // then
+        ArgumentCaptor<CreateKeyRequestV2Dto> request = ArgumentCaptor.forClass(CreateKeyRequestV2Dto.class);
+        verify(client).createKey(any(), request.capture());
+        assertEquals(List.of(label), request.getValue().getCreateKeyAttributes());
+    }
+
+    @Test
+    void createKey_statesItsOwnIntentInPlaceOfOneTheCallerStated() throws Exception {
+        // given
+        when(client.createKey(any(), any())).thenReturn(ResponseEntity.ok(secretKeyResponse()));
+        RequestAttributeV2 statedByTheCaller = new RequestAttributeV2();
+        statedByTheCaller.setUuid(UUID.fromString(KeyExportableAttribute.definition().getUuid()));
+        statedByTheCaller.setName(KeyExportableAttribute.NAME);
+        statedByTheCaller.setContentType(AttributeContentType.BOOLEAN);
+        statedByTheCaller.setContent(List.of(new BooleanAttributeContentV2(true)));
+
+        // when
+        adapter
+                .createKey(profileDeclaring(FeatureFlag.KEY_EXPORT), KeyRequestType.SECRET, List.of(statedByTheCaller),
+                        profile.name(), false);
+
+        // then
+        ArgumentCaptor<CreateKeyRequestV2Dto> request = ArgumentCaptor.forClass(CreateKeyRequestV2Dto.class);
+        verify(client).createKey(any(), request.capture());
+        assertEquals(1, request.getValue().getCreateKeyAttributes().size());
+        assertFalse(KeyExportableAttribute.isRequested(request.getValue().getCreateKeyAttributes()));
     }
 
     @Test
