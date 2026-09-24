@@ -27,7 +27,9 @@ import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
+import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorithmAttribute;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.cryptography.key.KeyEvent;
@@ -59,6 +61,8 @@ import com.otilm.core.util.mocks.CryptographyProviderV2ConnectorMock;
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import javax.security.auth.x500.X500Principal;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -131,12 +135,12 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     void signData_sendsScopedSynchronousRequest_andRecordsSuccess() throws Exception {
         // given
         connectorMock
-                .stubOperationAttributes("sign", "[]")
+                .stubOperationAttributes("sign", signSchema())
                 .stubOperation("sign", "{\"signatures\":[{\"identifier\":\"0\",\"data\":\"" + SIGNATURE + "\"}]}");
         String expectedRequest = "{\"tokenAttributes\":[{\"name\":\"token-slot\",\"content\":[{\"data\":\"slot-7\"}]}],"
                 + "\"tokenProfileAttributes\":[{\"name\":\"profile-policy\",\"content\":[{\"data\":\"signing\"}]}],"
-                + "\"keyMeta\":[{\"name\":\"provider-handle\"}],"
-                + "\"executionMode\":\"synchronous\",\"signatureAttributes\":[],"
+                + "\"keyMeta\":[{\"name\":\"provider-handle\"}],\"executionMode\":\"synchronous\","
+                + "\"signatureAttributes\":[{\"name\":\"signatureAlgorithm\",\"content\":[{\"data\":\"SHA256withRSA\"}]}],"
                 + "\"data\":[{\"identifier\":\"0\",\"data\":\"" + DATA + "\"}]}";
 
         // when
@@ -155,7 +159,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     void signData_failsClearly_whenConnectorAnswersAsynchronously() throws Exception {
         // given
         connectorMock
-                .stubOperationAttributes("sign", "[]")
+                .stubOperationAttributes("sign", signSchema())
                 .stubOperationAccepted("sign", "{\"operationMeta\":[{\"name\":\"tracking\"}]}");
 
         // when
@@ -171,7 +175,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     @Test
     void signData_propagatesConnectorError_andRecordsFailure() throws Exception {
         // given
-        connectorMock.stubOperationAttributes("sign", "[]").stubOperationError("sign");
+        connectorMock.stubOperationAttributes("sign", signSchema()).stubOperationError("sign");
 
         // when
         Executable sign = () -> operationService
@@ -186,8 +190,9 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     @Test
     void signData_rejectsUnknownAttribute_withoutCallingSign() throws Exception {
         // given
-        String schema = "[" + dataAttributeJson("digest", true) + "]";
-        connectorMock.stubOperationAttributes("sign", schema).stubOperation("sign", "{}");
+        connectorMock
+                .stubOperationAttributes("sign", signSchema(dataAttributeJson("digest", true)))
+                .stubOperation("sign", "{}");
         SignDataRequestDto request = signRequest();
         RequestAttributeV3 wrong = new RequestAttributeV3(UUID.randomUUID(), "not-digest", AttributeContentType.STRING,
                 List.of(new StringAttributeContentV3("x")));
@@ -304,7 +309,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     void listSignAttributes_returnsConnectorSchema_andSendsKeyMeta() throws Exception {
         // given
         UUID attributeUuid = UUID.randomUUID();
-        connectorMock.stubOperationAttributes("sign", "[" + dataAttributeJson(attributeUuid, "digest", false) + "]");
+        connectorMock.stubOperationAttributes("sign", signSchema(dataAttributeJson(attributeUuid, "digest", false)));
 
         // when
         List<BaseAttribute> schema = operationService
@@ -312,8 +317,8 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
                         privateKey.getUuid());
 
         // then
-        assertEquals(1, schema.size());
-        assertEquals("digest", schema.get(0).getName());
+        assertEquals(List.of(SignatureAlgorithmAttribute.NAME, "digest"),
+                schema.stream().map(BaseAttribute::getName).toList());
         connectorMock
                 .verifyOperationRequestContaining("sign/attributes", "{\"keyMeta\":[{\"name\":\"provider-handle\"}]}");
     }
@@ -390,7 +395,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     void signDataWithoutEventHistory_reachesV2Connector_withoutHistory() throws Exception {
         // given
         connectorMock
-                .stubOperationAttributes("sign", "[]")
+                .stubOperationAttributes("sign", signSchema())
                 .stubOperation("sign", "{\"signatures\":[{\"identifier\":\"0\",\"data\":\"" + SIGNATURE + "\"}]}");
 
         // when
@@ -492,7 +497,9 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
 
     private static SignDataRequestDto signRequest() {
         SignDataRequestDto request = new SignDataRequestDto();
-        request.setSignatureAttributes(List.of());
+        request
+                .setSignatureAttributes(
+                        List.of(SignatureAlgorithmAttribute.request(SignatureAlgorithm.SHA256_WITH_RSA)));
         request.setData(List.of(signatureData(DATA)));
         return request;
     }
@@ -511,6 +518,17 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
                 .toList();
         assertEquals(1, events.size());
         return events.get(0);
+    }
+
+    private static String signSchema(String... otherDefinitions) {
+        String signatureAlgorithm = "{\"uuid\":\"" + SignatureAlgorithmAttribute.ATTRIBUTE_UUID + "\",\"name\":\""
+                + SignatureAlgorithmAttribute.NAME + "\",\"type\":\"data\",\"contentType\":\"string\",\"version\":3,"
+                + "\"properties\":{\"label\":\"Signature Algorithm\",\"visible\":true,\"required\":true,"
+                + "\"readOnly\":false,\"list\":true,\"multiSelect\":false},"
+                + "\"content\":[{\"contentType\":\"string\",\"data\":\"SHA256withRSA\"}]}";
+        return Stream
+                .concat(Stream.of(signatureAlgorithm), Stream.of(otherDefinitions))
+                .collect(Collectors.joining(",", "[", "]"));
     }
 
     private static String dataAttributeJson(String name, boolean required) {
