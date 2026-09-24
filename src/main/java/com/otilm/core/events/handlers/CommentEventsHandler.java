@@ -83,17 +83,18 @@ public abstract class CommentEventsHandler extends EventHandler<Comment> {
      * learning who acts on the object and what it is called.
      */
     protected List<NotificationRecipient> threadRecipientsExcept(Comment comment, UUID rootUuid, UUID actingUser) {
-        Set<UUID> recipients = new LinkedHashSet<>();
         NameAndUuidDto owner = resourceObjectAssociationService
                 .getOwner(comment.getResource(), comment.getObjectUuid());
-        if (owner != null && !owner.getUuid().equals(String.valueOf(actingUser))) {
-            recipients.add(UUID.fromString(owner.getUuid()));
+        UUID ownerUuid = owner == null ? null : UUID.fromString(owner.getUuid());
+        Set<UUID> recipients = new LinkedHashSet<>();
+        if (ownerUuid != null && !ownerUuid.equals(actingUser)) {
+            recipients.add(ownerUuid);
         }
         SecuredUUID hostUuid = SecuredUUID.fromUUID(comment.getObjectUuid());
         commentRepository
                 .findThreadParticipantUuids(rootUuid)
                 .stream()
-                .filter(participant -> !participant.equals(actingUser) && !recipients.contains(participant))
+                .filter(participant -> !participant.equals(actingUser) && !participant.equals(ownerUuid))
                 .filter(participant -> authorizationEnforcer
                         .isAuthorizedAs(participant, comment.getResource(), ResourceAction.DETAIL, hostUuid))
                 .forEach(recipients::add);
