@@ -11,7 +11,7 @@ package com.otilm.core.cbom.pqc;
  */
 public final class PqcRuleset {
 
-    public static final int VERSION = 8;
+    public static final int VERSION = 7;
 
     private PqcRuleset() {
     }

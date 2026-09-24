@@ -271,7 +271,9 @@ class PqcEvaluatorTest {
         assertThat(verdictOf(algorithm("SHA-512/224")).ruleId())
                 .describedAs("a family whose own spelling carries a slash is not a list")
                 .isEqualTo("SYMMETRIC-READY");
-        assertThat(verdictOf(algorithm("Yarrow")).ruleId()).isEqualTo("CLASSICAL-LEGACY");
+        for (String single : new String[]{"3GPP-XOR", "Fortuna", "Fortuna-AES-256", "A5/1", "SHA-512/224"}) {
+            assertThat(normalizer.namesAnAlternation(single)).describedAs("single family %s", single).isFalse();
+        }
     }
 
     // ---- correctly outside the question ----------------------------------------------------------------------------
