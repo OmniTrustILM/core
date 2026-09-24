@@ -1,5 +1,6 @@
 package com.otilm.core.integration.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
@@ -48,9 +49,11 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.enums.cryptography.RsaSignatureScheme;
+import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
+import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorithmAttribute;
 import com.otilm.api.model.connector.signatures.contentsigning.common.ContentSigningFormattingOperation;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateKeyUsage;
@@ -97,6 +100,7 @@ import com.otilm.core.model.signing.workflow.ManagedTimestampingWorkflow;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
+import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.CryptographicKeyExternalService;
 import com.otilm.core.service.SigningProfileExternalService;
 import com.otilm.core.service.SigningProfileInternalService;
@@ -686,8 +690,6 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         private static final UUID SCHEME_UUID = UUID.fromString("0b6f2a5e-2317-4c1e-9d11-000000000001");
         private static final UUID DIGEST_UUID = UUID.fromString("0b6f2a5e-2317-4c1e-9d11-000000000002");
         private static final UUID SALT_LENGTH_UUID = UUID.fromString("0b6f2a5e-2317-4c1e-9d11-000000000003");
-        private static final String PKCS11_SCHEMA = "[" + stringAttribute(SCHEME_UUID, "signatureScheme") + ","
-                + stringAttribute(DIGEST_UUID, "digestAlgorithm") + "]";
 
         private CryptographyProviderV2ConnectorMock v2Mock;
         private Connector v2Connector;
@@ -698,7 +700,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         @BeforeEach
         void setUpV2Key() throws Exception {
             v2Mock = connectorMockFactory.startCryptographyProviderV2();
-            v2Mock.stubOperationAttributes("sign", PKCS11_SCHEMA);
+            v2Mock.stubOperationAttributes("sign", pkcs11Schema());
             v2Connector = persistV2Connector(v2Mock.getUrl());
             TokenInstanceReference token = persistV2Token(persistCryptographyInterface(v2Connector));
             TokenProfile profile = persistV2Profile(token);
@@ -721,7 +723,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                     .listSignatureAttributesForCertificate(SecuredUUID.fromUUID(v2SigningCertificate.getUuid()));
 
             // then
-            assertEquals(List.of("signatureScheme", "digestAlgorithm"),
+            assertEquals(List.of(SignatureAlgorithmAttribute.NAME, "signatureScheme", "digestAlgorithm"),
                     attributes.stream().map(BaseAttribute::getName).toList());
         }
 
@@ -736,7 +738,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                     .listSignatureAttributesForCertificate(SecuredUUID.fromUUID(v2SigningCertificate.getUuid()));
 
             // then
-            assertEquals(List.of("signatureScheme", "digestAlgorithm"),
+            assertEquals(List.of(SignatureAlgorithmAttribute.NAME, "signatureScheme", "digestAlgorithm"),
                     attributes.stream().map(BaseAttribute::getName).toList());
         }
 
@@ -791,7 +793,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
 
             // then: read back in the definition's schema version, which pkcs11 requires
             StaticKeyManagedSigning scheme = assertInstanceOf(StaticKeyManagedSigning.class, model.signingScheme());
-            assertEquals(Set.of("signatureScheme", "digestAlgorithm"),
+            assertEquals(Set.of(SignatureAlgorithmAttribute.NAME, "signatureScheme", "digestAlgorithm"),
                     scheme
                             .signingOperationAttributes()
                             .stream()
@@ -867,7 +869,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             // then
             List<ResponseAttribute> stored = assertInstanceOf(StaticKeyManagedSigningDto.class,
                     updated.getSigningScheme()).getSigningOperationAttributes();
-            assertEquals(Set.of("signatureScheme", "digestAlgorithm"),
+            assertEquals(Set.of(SignatureAlgorithmAttribute.NAME, "signatureScheme", "digestAlgorithm"),
                     stored.stream().map(ResponseAttribute::getName).collect(Collectors.toSet()));
             assertEquals(updated,
                     signingProfileService.getSigningProfile(SecuredUUID.fromString(created.getUuid()), null));
@@ -902,9 +904,24 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         private List<RequestAttribute> pkcs11Attributes(String scheme) {
+            SignatureAlgorithm algorithm = "PSS".equals(scheme)
+                    ? SignatureAlgorithm.SHA256_WITH_RSA_PSS
+                    : SignatureAlgorithm.SHA256_WITH_RSA;
             return List
-                    .of(aStringAttributeV3(SCHEME_UUID, "signatureScheme", scheme),
+                    .of(SignatureAlgorithmAttribute.request(algorithm),
+                            aStringAttributeV3(SCHEME_UUID, "signatureScheme", scheme),
                             aStringAttributeV3(DIGEST_UUID, "digestAlgorithm", "SHA-256"));
+        }
+
+        /** A v2 provider publishes the reserved signature algorithm attribute beside its own. */
+        private static String pkcs11Schema() throws JsonProcessingException {
+            String signatureAlgorithm = ObjectMapperFactory
+                    .wire()
+                    .writeValueAsString(SignatureAlgorithmAttribute
+                            .definition(List
+                                    .of(SignatureAlgorithm.SHA256_WITH_RSA_PSS, SignatureAlgorithm.SHA256_WITH_RSA)));
+            return "[" + signatureAlgorithm + "," + stringAttribute(SCHEME_UUID, "signatureScheme") + ","
+                    + stringAttribute(DIGEST_UUID, "digestAlgorithm") + "]";
         }
 
         /** pkcs11 publishes schema-v3 definitions, so a client answers them in v3. */
