@@ -469,13 +469,14 @@ public record AssetNormalizer(IdentityTables tables) {
                     + "dual[ _-]?stack)(?![a-z0-9])", Pattern.CASE_INSENSITIVE);
 
     /**
-     * Separators that join two names rather than spell one. A slash counts only when it is spaced: {@code SHA-512/224}
-     * and {@code A5/1} are single families whose own spelling carries one, where {@code ECDSA-P256 / ML-DSA-44} names
-     * two schemes. {@code and} and {@code with} are deliberately absent -- {@code X25519 with ML-KEM-768} is a genuine
-     * hybrid, and refusing it would lose a completed migration from the ready set. Matched outside parentheses only:
-     * the comma in {@code X-Wing (X25519, ML-KEM-768)} lists the parts of one construction.
+     * Separators that join two names rather than spell one. A slash counts only when whitespace other than a plain
+     * space touches it: {@code SHA-512/224} and {@code A5/1} are single families whose own spelling carries one, and
+     * {@code X25519 / ML-KEM-768} is one hybrid, where a tab or a line break around the slash lays out two entries.
+     * {@code and} and {@code with} are deliberately absent -- {@code X25519 with ML-KEM-768} is a genuine hybrid, and
+     * refusing it would lose a completed migration from the ready set. Matched outside parentheses only: the comma in
+     * {@code X-Wing (X25519, ML-KEM-768)} lists the parts of one construction.
      */
-    private static final Pattern LIST_SEPARATORS = Pattern.compile("[,;]|\\s/\\s");
+    private static final Pattern LIST_SEPARATORS = Pattern.compile("[,;]|[\\s&&[^ ]]/\\s|\\s/[\\s&&[^ ]]");
 
     private static final Pattern PARENTHESIZED = Pattern.compile("\\([^()]*\\)");
 

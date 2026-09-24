@@ -346,7 +346,7 @@ class PqcEvaluatorTest {
         for (String alternation : new String[]{
                 "X25519 or HAWK-512",
                 "ECDSA-P256 or HAWK-512",
-                "ECDH-P256 / HAWK-512",
+                "ECDH-P256\\t/\\tHAWK-512", // JSON-escaped: a tab inside the component name
                 "X25519-HAWK-512 fallback"}) {
             PqcDecision decision = verdictOf(algorithm(alternation));
             assertThat(decision.verdict()).describedAs("name %s", alternation).isEqualTo(PqcVerdict.NOT_READY);
@@ -367,7 +367,8 @@ class PqcEvaluatorTest {
                 "X25519MLKEM768",
                 "mlkem768x25519-sha256",
                 "X25519 with ML-KEM-768",
-                "X25519 and ML-KEM-768"}) {
+                "X25519 and ML-KEM-768",
+                "X25519 / ML-KEM-768"}) {
             assertThat(verdictOf(algorithm(hybrid)).ruleId())
                     .describedAs("hybrid %s", hybrid)
                     .isEqualTo("PQC-HYBRID-PQC-STANDARDIZED");
@@ -413,10 +414,18 @@ class PqcEvaluatorTest {
                 "ECDSA_P256_DUAL_STACK_ML_DSA_44",
                 "RSA-2048, ML-DSA-65",
                 "RSA-2048; ML-DSA-65",
-                "RSA-2048 / ML-DSA-65",
-                "ECDSA-P256\u00A0/\u00A0ML-DSA-44",
+                "RSA-2048\t/\tML-DSA-65",
+                "RSA-2048 /\nML-DSA-65",
                 "RSA-2048\uFF0CML-DSA-65"}) {
             assertThat(normalizer.namesAnAlternation(alternation)).describedAs("name %s", alternation).isTrue();
+        }
+        for (String hybrid : new String[]{
+                "X25519 / ML-KEM-768",
+                "X25519  /  ML-KEM-768",
+                "X25519\u00A0/\u00A0ML-KEM-768"}) {
+            assertThat(normalizer.namesAnAlternation(hybrid))
+                    .describedAs("a slash between plain spaces, after the fold, joins one hybrid: %s", hybrid)
+                    .isFalse();
         }
         assertThat(normalizer.namesAnAlternation("X-Wing (X25519, ML-KEM-768)"))
                 .describedAs("a separator inside parentheses lists one construction's parts")
