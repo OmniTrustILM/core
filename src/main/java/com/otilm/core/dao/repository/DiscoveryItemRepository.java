@@ -49,8 +49,7 @@ public interface DiscoveryItemRepository extends JpaRepository<DiscoveryItem, UU
      * synthesized number whether or not the caller filtered.
      *
      * <p>
-     * {@code processed} and {@code inventoryUuid} on an item row read columns nothing writes until key ingestion lands
-     * (core#1965); they are selected so that pipeline needs no change here.
+     * {@code processed} and {@code inventoryUuid} on an item row are written by {@code KeyDiscoveredHandler}.
      *
      * <p>
      * {@code i_cre} must be a timestamp for the {@code discovered_at} coalesce to plan; tests build their schema from
@@ -233,8 +232,7 @@ public interface DiscoveryItemRepository extends JpaRepository<DiscoveryItem, UU
      * counted by {@link #countNewlyDiscoveredFailed} instead.
      *
      * <p>
-     * The item branch reads {@code processed_at}, unwritten until key ingestion lands (see {@link #listItems}), so a
-     * run staging keys reports none of them imported.
+     * The item branch reads {@code processed_at}, which {@code KeyDiscoveredHandler} writes.
      */
     @Query(value = """
             SELECT (

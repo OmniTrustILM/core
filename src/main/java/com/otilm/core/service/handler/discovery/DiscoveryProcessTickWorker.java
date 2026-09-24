@@ -42,7 +42,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * The {@code PROCESS} tick: one bounded batch of staged rows through the import pipeline, then either another tick or
- * the end of the run. Only certificates have an import pipeline; other staged resources are skipped.
+ * the end of the run. Certificates and cryptographic keys have import pipelines; other staged resources are skipped.
  */
 @Component
 public class DiscoveryProcessTickWorker {
@@ -321,12 +321,12 @@ public class DiscoveryProcessTickWorker {
     }
 
     /**
-     * Puts the run's own user on the thread before the import pipeline enforces {@code CERTIFICATE:CREATE}.
+     * Puts the run's own user on the thread before an import pipeline enforces its {@code CREATE} permission.
      */
     private void authenticateAsTheRunsUser(Discovery run) {
         if (run.getStartedByUserUuid() == null) {
             throw new IllegalStateException(
-                    "Discovery %s records no user to act as, so its certificates cannot be imported"
+                    "Discovery %s records no user to act as, so its discovered items cannot be imported"
                             .formatted(run.getUuid()));
         }
         authHelper.authenticateAsUser(run.getStartedByUserUuid());
