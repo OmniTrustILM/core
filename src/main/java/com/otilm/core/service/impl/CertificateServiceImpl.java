@@ -1281,6 +1281,7 @@ public class CertificateServiceImpl
                                                 .stream((CertificateKeyUsage.values()))
                                                 .map(CertificateKeyUsage::getCode)
                                                 .toList()),
+                        SearchHelper.prepareSearch(FilterField.EXTENDED_KEY_USAGE),
                         SearchHelper.prepareSearch(FilterField.PRIVATE_KEY),
                         SearchHelper
                                 .prepareSearch(FilterField.SUBJECT_TYPE,

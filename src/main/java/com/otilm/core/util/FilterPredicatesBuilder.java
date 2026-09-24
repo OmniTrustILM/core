@@ -8,6 +8,8 @@ import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.enums.BitMaskEnum;
 import com.otilm.api.model.common.enums.IPlatformEnum;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.oid.OidCategory;
+import com.otilm.api.model.core.oid.SystemOid;
 import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.core.attribute.engine.AttributeColumnProjector;
@@ -33,6 +35,7 @@ import com.otilm.core.enums.ResourceToClass;
 import com.otilm.core.enums.SearchFieldTypeEnum;
 import com.otilm.core.model.AttributeFieldIdentifier;
 import com.otilm.core.model.cbom.CryptoAssetIdentityGuard;
+import com.otilm.core.oid.OidHandler;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 import jakarta.persistence.criteria.CommonAbstractCriteria;
@@ -420,6 +423,10 @@ public class FilterPredicatesBuilder {
         }
         if (filterField == FilterField.CBOM_ASSET_SOURCE_CBOM) {
             return getCryptoAssetSourceCbomPredicate(criteriaBuilder, query, root, filterDto, filterValues);
+        }
+        if (filterField.getType() == SearchFieldTypeEnum.JSON_TEXT_ARRAY) {
+            return getJsonTextArrayPredicate(criteriaBuilder, resolveFieldPath(from, filterField.getFieldAttribute()),
+                    filterDto.getCondition(), filterValues);
         }
 
         // An expectedValue field compares one stored constant against the boolean the caller sends, so only EQUALS
@@ -815,6 +822,46 @@ public class FilterPredicatesBuilder {
             stringBuilder.append(pathPart);
         }
         return stringBuilder.toString();
+    }
+
+    private static Predicate getJsonTextArrayPredicate(CriteriaBuilder criteriaBuilder, Expression<String> expression,
+            FilterConditionOperator condition, List<Object> filterValues) {
+        Expression<Integer> length = criteriaBuilder
+                .function(PostgresFunctionContributor.JSON_TEXT_ARRAY_LENGTH, Integer.class, expression);
+        if (condition == FilterConditionOperator.EMPTY) {
+            return criteriaBuilder.or(criteriaBuilder.isNull(expression), criteriaBuilder.equal(length, 0));
+        }
+        if (condition == FilterConditionOperator.NOT_EMPTY) {
+            return criteriaBuilder.and(criteriaBuilder.isNotNull(expression), criteriaBuilder.greaterThan(length, 0));
+        }
+
+        Predicate[] matches = filterValues.stream().map(value -> {
+            String oid = resolveExtendedKeyUsageOid(value.toString());
+            return criteriaBuilder
+                    .isTrue(criteriaBuilder
+                            .function(PostgresFunctionContributor.JSON_TEXT_ARRAY_CONTAINS, Boolean.class, expression,
+                                    criteriaBuilder.literal("[\"" + oid + "\"]")));
+        }).toArray(Predicate[]::new);
+        Predicate matchesAny = criteriaBuilder.or(matches);
+        return condition == FilterConditionOperator.NOT_EQUALS
+                ? criteriaBuilder.or(criteriaBuilder.isNull(expression), criteriaBuilder.not(matchesAny))
+                : matchesAny;
+    }
+
+    private static String resolveExtendedKeyUsageOid(String value) {
+        if (OidHandler.isOid(value)) {
+            return value;
+        }
+        String normalized = value.replaceAll("[\\s_-]", "");
+        return Arrays
+                .stream(SystemOid.values())
+                .filter(oid -> oid.getCategory() == OidCategory.EXTENDED_KEY_USAGE)
+                .filter(oid -> oid.name().replace("_", "").equalsIgnoreCase(normalized)
+                        || oid.getDisplayName().replace(" ", "").equalsIgnoreCase(normalized))
+                .map(SystemOid::getOid)
+                .findFirst()
+                .orElseThrow(() -> new ValidationException(
+                        "Extended Key Usage filter value must be an OID or a standard purpose: " + value));
     }
 
     private static Expression<Boolean> getJsonArrayEqualsExpression(CriteriaBuilder criteriaBuilder,

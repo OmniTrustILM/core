@@ -77,6 +77,7 @@ import com.otilm.core.service.CryptographicKeyExternalService;
 import com.otilm.core.service.impl.CertificateServiceImpl;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.FilterPredicatesBuilder;
+import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.WireMockPorts;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.criteria.CriteriaBuilder;
@@ -1792,6 +1793,96 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
                 .assertEquals(Set.of(certificate1.getUuid(), certificate2.getUuid()),
                         getUuidsFromListCertificatesResponse(
                                 certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
+    }
+
+    @Test
+    void extendedKeyUsageFiltersMatchIndividualOids() {
+        certificate1
+                .setExtendedKeyUsage(
+                        MetaDefinitions.serializeArrayString(List.of("1.3.6.1.5.5.7.3.1", "1.3.6.1.5.5.7.3.2")));
+        certificate2
+                .setExtendedKeyUsage(MetaDefinitions
+                        .serializeArrayString(List.of("1.3.6.1.5.5.7.3.10", "1.3.6.1.5.5.7.3.8", "1.2.3.4.5.6")));
+        certificateRepository.saveAll(List.of(certificate1, certificate2));
+
+        CertificateSearchRequestDto request = new CertificateSearchRequestDto();
+        request
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, "EXTENDED_KEY_USAGE",
+                                FilterConditionOperator.EQUALS, "1.3.6.1.5.5.7.3.1")));
+        Assertions
+                .assertEquals(Set.of(certificate1.getUuid()), getUuidsFromListCertificatesResponse(
+                        certificateService.listCertificates(new SecurityFilter(), request)));
+
+        request
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, "EXTENDED_KEY_USAGE",
+                                FilterConditionOperator.EQUALS, "1.2.3.4.5.6")));
+        Assertions
+                .assertEquals(Set.of(certificate2.getUuid()), getUuidsFromListCertificatesResponse(
+                        certificateService.listCertificates(new SecurityFilter(), request)));
+
+        request
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, "EXTENDED_KEY_USAGE",
+                                FilterConditionOperator.EQUALS, "serverAuth")));
+        Assertions
+                .assertEquals(Set.of(certificate1.getUuid()), getUuidsFromListCertificatesResponse(
+                        certificateService.listCertificates(new SecurityFilter(), request)));
+
+        request
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, "EXTENDED_KEY_USAGE",
+                                FilterConditionOperator.EQUALS, "timeStamping")));
+        Assertions
+                .assertEquals(Set.of(certificate2.getUuid()), getUuidsFromListCertificatesResponse(
+                        certificateService.listCertificates(new SecurityFilter(), request)));
+
+        request
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, "EXTENDED_KEY_USAGE",
+                                FilterConditionOperator.CONTAINS, "1.3.6.1.5.5.7.3.1")));
+        Assertions
+                .assertEquals(Set.of(certificate1.getUuid()), getUuidsFromListCertificatesResponse(
+                        certificateService.listCertificates(new SecurityFilter(), request)));
+
+        request
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, "EXTENDED_KEY_USAGE",
+                                FilterConditionOperator.EQUALS,
+                                (Serializable) List.of("1.3.6.1.5.5.7.3.2", "1.3.6.1.5.5.7.3.10"))));
+        Assertions
+                .assertEquals(Set.of(certificate1.getUuid(), certificate2.getUuid()),
+                        getUuidsFromListCertificatesResponse(
+                                certificateService.listCertificates(new SecurityFilter(), request)));
+
+        request
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, "EXTENDED_KEY_USAGE",
+                                FilterConditionOperator.NOT_EQUALS, "1.3.6.1.5.5.7.3.1")));
+        Assertions
+                .assertEquals(Set.of(certificate2.getUuid(), certificate3.getUuid()),
+                        getUuidsFromListCertificatesResponse(
+                                certificateService.listCertificates(new SecurityFilter(), request)));
+
+        certificate2.setExtendedKeyUsage("[]");
+        certificateRepository.save(certificate2);
+        request
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, "EXTENDED_KEY_USAGE",
+                                FilterConditionOperator.EMPTY, null)));
+        Assertions
+                .assertEquals(Set.of(certificate2.getUuid(), certificate3.getUuid()),
+                        getUuidsFromListCertificatesResponse(
+                                certificateService.listCertificates(new SecurityFilter(), request)));
+
+        request
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, "EXTENDED_KEY_USAGE",
+                                FilterConditionOperator.NOT_EMPTY, null)));
+        Assertions
+                .assertEquals(Set.of(certificate1.getUuid()), getUuidsFromListCertificatesResponse(
+                        certificateService.listCertificates(new SecurityFilter(), request)));
     }
 
     @Test

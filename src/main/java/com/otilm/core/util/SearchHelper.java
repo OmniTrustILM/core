@@ -68,11 +68,12 @@ public class SearchHelper {
                         // CertificateRepository.findCertificateDtosByUuidsIn, filling groups from a second query;
                         // CertificateDetailDtoMapper.toListDto serves the protocol-specific listings instead. Neither
                         // the projection nor the DTO carries any of these.
-                        FilterField.CERT_LOCATION_NAME, FilterField.KEY_USAGE, FilterField.SUBJECT_TYPE,
-                        FilterField.SUBJECT_ALTERNATIVE_NAMES, FilterField.OCSP_VALIDATION, FilterField.CRL_VALIDATION,
-                        FilterField.SIGNATURE_VALIDATION, FilterField.CERTIFICATE_PROTOCOL, FilterField.ACME_PROFILE,
-                        FilterField.SCEP_PROFILE, FilterField.CMP_PROFILE, FilterField.ACME_ACCOUNT,
-                        FilterField.SUCCEEDING_CERTIFICATES, FilterField.PRECEDING_CERTIFICATES,
+                        FilterField.CERT_LOCATION_NAME, FilterField.KEY_USAGE, FilterField.EXTENDED_KEY_USAGE,
+                        FilterField.SUBJECT_TYPE, FilterField.SUBJECT_ALTERNATIVE_NAMES, FilterField.OCSP_VALIDATION,
+                        FilterField.CRL_VALIDATION, FilterField.SIGNATURE_VALIDATION, FilterField.CERTIFICATE_PROTOCOL,
+                        FilterField.ACME_PROFILE, FilterField.SCEP_PROFILE, FilterField.CMP_PROFILE,
+                        FilterField.ACME_ACCOUNT, FilterField.SUCCEEDING_CERTIFICATES,
+                        FilterField.PRECEDING_CERTIFICATES,
 
                         // Connectors. The v2 ConnectorDto the listing returns carries no authentication type; only
                         // the v1 detail DTO does.
@@ -318,8 +319,9 @@ public class SearchHelper {
      */
     public static boolean isOrderableField(final FilterField filterField) {
         return filterField.getFieldAttribute() != null && !filterField.isNativeArrayField()
-                && filterField.getJsonPath() == null && filterField.getExpectedValue() == null
-                && !isBitMaskField(filterField) && !FilterFieldSets.SHARING_AN_ATTRIBUTE.contains(filterField);
+                && filterField.getType() != SearchFieldTypeEnum.JSON_TEXT_ARRAY && filterField.getJsonPath() == null
+                && filterField.getExpectedValue() == null && !isBitMaskField(filterField)
+                && !FilterFieldSets.SHARING_AN_ATTRIBUTE.contains(filterField);
     }
 
     /** Whether the field's column is one integer holding a set of flags rather than the value the cell renders. */

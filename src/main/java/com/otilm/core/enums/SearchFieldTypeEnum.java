@@ -56,6 +56,10 @@ public enum SearchFieldTypeEnum {
                             FilterConditionOperator.EQUALS, FilterConditionOperator.NOT_EQUALS,
                             FilterConditionOperator.EMPTY, FilterConditionOperator.NOT_EMPTY),
             true, null),
+    JSON_TEXT_ARRAY(FilterFieldType.STRING, List
+            .of(FilterConditionOperator.EQUALS, FilterConditionOperator.NOT_EQUALS, FilterConditionOperator.CONTAINS,
+                    FilterConditionOperator.EMPTY, FilterConditionOperator.NOT_EMPTY),
+            false, null),
     // For fields whose value is not meaningful to the user (for example an internal UUID reference):
     // only the presence of a value can be tested, never the value itself.
     PRESENCE(FilterFieldType.STRING, List.of(FilterConditionOperator.EMPTY, FilterConditionOperator.NOT_EMPTY), false,

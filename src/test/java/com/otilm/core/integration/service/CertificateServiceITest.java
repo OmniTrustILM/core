@@ -57,6 +57,10 @@ import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
+import com.otilm.api.model.core.search.FilterConditionOperator;
+import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.search.FilterFieldType;
+import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.attribute.CsrAttributes;
 import com.otilm.core.attribute.engine.AttributeEngine;
@@ -573,8 +577,11 @@ class CertificateServiceITest extends BaseSpringBootTest {
         }
 
         @Test
-        void returnsSearchableFieldInformation_withoutError() {
+        void returnsExtendedKeyUsageAsSearchableProperty() {
             // given
+            Certificate importedCertificate = new Certificate();
+            importedCertificate.setExtendedKeyUsage(MetaDefinitions.serializeArrayString(List.of("1.2.3.4.5.6")));
+            certificateRepository.save(importedCertificate);
             authServiceMock = new WireMockServer(WireMockPorts.AUTH_SERVICE);
             authServiceMock.start();
             WireMock.configureFor("localhost", authServiceMock.port());
@@ -583,8 +590,25 @@ class CertificateServiceITest extends BaseSpringBootTest {
                             .get(WireMock.urlPathMatching("/auth/users"))
                             .willReturn(WireMock.okJson("{ \"data\": [] }")));
 
-            // when / then
-            assertThatCode(() -> certificateService.getSearchableFieldInformationByGroup()).doesNotThrowAnyException();
+            // when
+            SearchFieldDataDto extendedKeyUsage = certificateService
+                    .getSearchableFieldInformationByGroup()
+                    .stream()
+                    .filter(group -> group.getFilterFieldSource() == FilterFieldSource.PROPERTY)
+                    .flatMap(group -> group.getSearchFieldData().stream())
+                    .filter(field -> "EXTENDED_KEY_USAGE".equals(field.getFieldIdentifier()))
+                    .findFirst()
+                    .orElseThrow();
+
+            // then
+            assertThat(extendedKeyUsage.getFieldLabel()).isEqualTo("Extended Key Usage");
+            assertThat(extendedKeyUsage.getType()).isEqualTo(FilterFieldType.STRING);
+            assertThat(extendedKeyUsage.isMultiValue()).isFalse();
+            assertThat(extendedKeyUsage.getConditions())
+                    .contains(FilterConditionOperator.EQUALS, FilterConditionOperator.NOT_EQUALS,
+                            FilterConditionOperator.CONTAINS, FilterConditionOperator.EMPTY,
+                            FilterConditionOperator.NOT_EMPTY);
+            assertThat(extendedKeyUsage.getValue()).isNull();
         }
 
         @ParameterizedTest
