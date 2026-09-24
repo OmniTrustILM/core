@@ -13,13 +13,19 @@ import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredItemDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredKeyDto;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
+import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryItem;
+import com.otilm.core.dao.repository.CertificateContentRepository;
+import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
@@ -29,6 +35,7 @@ import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
+import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.handler.discovery.DiscoveredKeyIdentity;
 import com.otilm.core.service.handler.discovery.KeyDiscoveredHandler;
 import com.otilm.core.service.writer.CertificateKeyWriter;
@@ -47,6 +54,8 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.CannotAcquireLockException;
@@ -99,6 +108,12 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
     private PlatformTransactionManager transactionManager;
     @Autowired
     private AttributeEngine attributeEngine;
+    @Autowired
+    private CertificateRepository certificateRepository;
+    @Autowired
+    private CertificateContentRepository certificateContentRepository;
+    @Autowired
+    private CertificateInternalService certificateService;
 
     @Test
     void aStagedKey_becomesAKeyRecordTheItemPointsAt() {
@@ -362,6 +377,16 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
         }
     }
 
+    private static PublicKey generateEcPublicKey() {
+        try {
+            KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
+            generator.initialize(256);
+            return generator.generateKeyPair().getPublic();
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     private static PublicKey generateRsaPublicKey() {
         try {
             KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
@@ -370,6 +395,64 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    @Test
+    void anEcKey_isNamedTheWayItsCertificateNamesIt() {
+        Discovery run = processingRun();
+        DiscoveredKeyDto payload = spkiKey(Base64.getEncoder().encodeToString(generateEcPublicKey().getEncoded()));
+        payload.setAlgorithm(KeyAlgorithm.ECDSA);
+        stage(run, "ssh://host-i:22", payload);
+
+        handler.importBatch(run, pendingKeys(run));
+
+        CryptographicKeyItem stored = storedItem(itemOf(run, "ssh://host-i:22").getInventoryUuid());
+        assertThat(stored.getKeyAlgorithm()).isEqualTo(KeyAlgorithm.ECDSA);
+        assertThat(stored.getLength()).isEqualTo(256);
+    }
+
+    @Test
+    void anEcKeyStagedFirst_keepsTheAlgorithmTheCertificateWouldHaveGivenIt() throws Exception {
+        PublicKey ecKey = generateEcPublicKey();
+        Discovery run = processingRun();
+        stageKey(run, "tls://host-j:443", Base64.getEncoder().encodeToString(ecKey.getEncoded()), "connector-j");
+        handler.importBatch(run, pendingKeys(run));
+        UUID fromDiscovery = itemOf(run, "tls://host-j:443").getInventoryUuid();
+
+        // The certificate path adopts the record discovery wrote, so whatever discovery named the key is what stays.
+        PublicKey asTheCertificateReadsIt = BouncyCastleProvider
+                .getPublicKey(SubjectPublicKeyInfo.getInstance(ecKey.getEncoded()));
+        UUID fromCertificate = certificateKeyWriter
+                .uploadCertificatePublicKey("certKey_ec", asTheCertificateReadsIt, 256,
+                        DiscoveredKeyIdentity.fingerprintOf(asTheCertificateReadsIt));
+
+        assertThat(fromCertificate).isEqualTo(fromDiscovery);
+        assertThat(storedItem(fromDiscovery).getKeyAlgorithm()).isEqualTo(KeyAlgorithm.ECDSA);
+    }
+
+    @Test
+    void aNewKeyRecord_isLinkedToTheCertificatesThatCarryIt() {
+        // A certificate left without its key, as deleting the key leaves it: the key's fingerprint is still on it.
+        CertificateContent content = new CertificateContent();
+        content.setFingerprint(UUID.randomUUID().toString());
+        content.setContent("certificate-carrying-the-key");
+        content = certificateContentRepository.saveAndFlush(content);
+        Certificate carrying = new Certificate();
+        carrying.setSubjectDn("CN=host-k.example.com");
+        carrying.setIssuerDn("CN=issuer");
+        carrying.setSerialNumber("0a");
+        carrying.setState(CertificateState.ISSUED);
+        carrying.setValidationStatus(CertificateValidationStatus.VALID);
+        carrying.setCertificateContentId(content.getId());
+        carrying.setPublicKeyFingerprint(certificatePathFingerprint());
+        carrying = certificateRepository.saveAndFlush(carrying);
+        Discovery run = processingRun();
+        stageKey(run, "tls://host-k:443", SPKI_BASE64, "connector-k");
+
+        handler.importBatch(run, pendingKeys(run));
+
+        assertThat(certificateRepository.findByUuid(carrying.getUuid()).orElseThrow().getKeyUuid())
+                .isEqualTo(itemOf(run, "tls://host-k:443").getInventoryUuid());
     }
 
     @Test
@@ -395,7 +478,7 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
         // The writer's own methods join whatever transaction is open; the handler is what opens one per key. Built
         // by hand so a single key can fail the way a locked row would, without a mocked bean that forks the context.
         DiscoveredKeyWriter unreachableThird = new DiscoveredKeyWriter(keyItemRepository, itemRepository,
-                certificateKeyWriter) {
+                certificateKeyWriter, certificateService) {
             @Override
             public Optional<UUID> importKey(DiscoveryItem item, PublicKey publicKey, String fingerprint) {
                 if ("vault://unreachable".equals(item.getUniqueRef())) {

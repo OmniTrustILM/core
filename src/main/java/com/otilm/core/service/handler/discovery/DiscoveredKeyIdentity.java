@@ -4,13 +4,14 @@ import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredKeyDto;
 import com.otilm.core.util.CertificateUtil;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
 import java.util.Base64;
 import java.util.Optional;
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
-import org.bouncycastle.openssl.PEMException;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter;
 
 /**
@@ -57,8 +58,12 @@ public final class DiscoveredKeyIdentity {
             throw new UnusableDiscoveredKeyException("The reported public key was not valid Base64.", e);
         }
         try {
-            return new JcaPEMKeyConverter().getPublicKey(SubjectPublicKeyInfo.getInstance(encoded));
-        } catch (IllegalArgumentException | PEMException e) {
+            SubjectPublicKeyInfo spki = SubjectPublicKeyInfo.getInstance(encoded);
+            // The call a certificate's public key goes through, so the key is named the same whichever arrives first:
+            // JcaPEMKeyConverter names an EC key "ECDSA", which no algorithm mapping knows.
+            PublicKey publicKey = BouncyCastleProvider.getPublicKey(spki);
+            return publicKey != null ? publicKey : new JcaPEMKeyConverter().getPublicKey(spki);
+        } catch (IllegalArgumentException | IOException e) {
             throw new UnusableDiscoveredKeyException("The reported public key could not be read as a public key.", e);
         }
     }

@@ -5,6 +5,7 @@ import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.DiscoveryItem;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.DiscoveryItemRepository;
+import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.writer.CertificateKeyWriter;
 import com.otilm.core.util.KeySizeUtil;
 import java.security.PublicKey;
@@ -12,6 +13,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,12 +31,14 @@ public class DiscoveredKeyWriter {
     private final CryptographicKeyItemRepository keyItemRepository;
     private final DiscoveryItemRepository itemRepository;
     private final CertificateKeyWriter publicKeyWriter;
+    private final CertificateInternalService certificateService;
 
     public DiscoveredKeyWriter(CryptographicKeyItemRepository keyItemRepository, DiscoveryItemRepository itemRepository,
-            CertificateKeyWriter publicKeyWriter) {
+            CertificateKeyWriter publicKeyWriter, @Lazy CertificateInternalService certificateService) {
         this.keyItemRepository = keyItemRepository;
         this.itemRepository = itemRepository;
         this.publicKeyWriter = publicKeyWriter;
+        this.certificateService = certificateService;
     }
 
     /**
@@ -50,16 +54,25 @@ public class DiscoveredKeyWriter {
         if (itemRepository.claimPending(item.getUuid(), now) == 0) {
             return Optional.empty();
         }
-        CryptographicKeyItem keyItem = keyItemRepository.findByFingerprint(fingerprint).orElseGet(() -> {
-            publicKeyWriter
-                    .uploadCertificatePublicKey(nameFor(item, fingerprint), publicKey,
-                            KeySizeUtil.getKeyLength(publicKey), fingerprint);
-            return keyItemRepository
-                    .findByFingerprint(fingerprint)
-                    .orElseThrow(() -> new IllegalStateException("A public key just filed could not be read back"));
-        });
+        CryptographicKeyItem keyItem = keyItemRepository
+                .findByFingerprint(fingerprint)
+                .orElseGet(() -> fileNewKey(item, publicKey, fingerprint));
         itemRepository.markImported(item.getUuid(), keyItem.getKeyUuid(), now);
         return Optional.of(keyItem.getUuid());
+    }
+
+    /**
+     * Writes the record and points the certificates carrying this key at it, as a token's newly created public key
+     * does. A certificate can hold the key's fingerprint and no key record: deleting a key leaves it that way.
+     */
+    private CryptographicKeyItem fileNewKey(DiscoveryItem item, PublicKey publicKey, String fingerprint) {
+        UUID keyUuid = publicKeyWriter
+                .uploadCertificatePublicKey(nameFor(item, fingerprint), publicKey, KeySizeUtil.getKeyLength(publicKey),
+                        fingerprint);
+        certificateService.updateCertificateKeys(keyUuid, fingerprint);
+        return keyItemRepository
+                .findByFingerprint(fingerprint)
+                .orElseThrow(() -> new IllegalStateException("A public key just filed could not be read back"));
     }
 
     @Transactional
