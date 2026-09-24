@@ -2804,6 +2804,25 @@ class AttributeEngineITest extends BaseSpringBootTest {
         Assertions.assertEquals(AttributeOperation.SIGN, storedOperation(connectorUuid, definition));
     }
 
+    @Test
+    void updateDataAttributeDefinitions_keepsTheFirstCommittedClaim_whenAnotherOperationClaimsConcurrently()
+            throws AttributeException {
+        // given
+        UUID connectorUuid = connectorDiscovery.getUuid();
+        DataAttributeV3 definition = DataAttributeV3Builder.aDataAttribute().withName("digestAlgorithm").build();
+        attributeEngine.updateDataAttributeDefinitions(connectorUuid, null, List.of(definition));
+
+        // when: the second claim has loaded the definition before the first claim commits
+        inNewTransaction(() -> {
+            storedOperation(connectorUuid, definition);
+            inNewTransaction(() -> publish(connectorUuid, AttributeOperation.SIGN, definition));
+            publish(connectorUuid, AttributeOperation.WORKFLOW_FORMATTING, definition);
+        });
+
+        // then
+        Assertions.assertEquals(AttributeOperation.SIGN, storedOperation(connectorUuid, definition));
+    }
+
     private void publish(UUID connectorUuid, String operation, DataAttributeV3 definition) {
         try {
             attributeEngine.updateDataAttributeDefinitions(connectorUuid, operation, List.of(definition));

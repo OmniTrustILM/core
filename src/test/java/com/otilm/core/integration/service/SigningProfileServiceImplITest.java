@@ -360,7 +360,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         return tokenProfileRepository.save(value);
     }
 
-    private void persistV2KeyPair(TokenInstanceReference token, TokenProfile profile, KeyPair keyPair)
+    private CryptographicKey persistV2KeyPair(TokenInstanceReference token, TokenProfile profile, KeyPair keyPair)
             throws NoSuchAlgorithmException {
         CryptographicKey v2Key = new CryptographicKey();
         v2Key.setName("v2-key");
@@ -371,6 +371,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         persistV2KeyItem(v2Key, KeyType.PRIVATE_KEY, null, null);
         persistV2KeyItem(v2Key, KeyType.PUBLIC_KEY, publicKeyData,
                 CertificateUtil.getThumbprint(publicKeyData.getBytes(StandardCharsets.UTF_8)));
+        return v2Key;
     }
 
     private void persistV2KeyItem(CryptographicKey key, KeyType type, String keyData, String fingerprint) {
@@ -690,6 +691,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
 
         private CryptographyProviderV2ConnectorMock v2Mock;
         private Connector v2Connector;
+        private CryptographicKey v2Key;
         private Certificate v2SigningCertificate;
         private Certificate v2TimestampingCertificate;
 
@@ -701,7 +703,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             TokenInstanceReference token = persistV2Token(persistCryptographyInterface(v2Connector));
             TokenProfile profile = persistV2Profile(token);
             KeyPair v2KeyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
-            persistV2KeyPair(token, profile, v2KeyPair);
+            v2Key = persistV2KeyPair(token, profile, v2KeyPair);
             TestCertificateAuthority.TrustedCa ca = testCertificateAuthority.createTrustedCa("CN=V2 Root CA");
             v2SigningCertificate = ca.issueSigningCertificate(v2KeyPair, "CN=V2 Signing");
             v2TimestampingCertificate = ca.issueTimestampingCertificate(v2KeyPair, "CN=V2 TSA");
@@ -714,6 +716,21 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
 
         @Test
         void listSignatureAttributesForCertificate_servesTheConnectorsVocabulary() throws Exception {
+            // when
+            List<BaseAttribute> attributes = signingProfileService
+                    .listSignatureAttributesForCertificate(SecuredUUID.fromUUID(v2SigningCertificate.getUuid()));
+
+            // then
+            assertEquals(List.of("signatureScheme", "digestAlgorithm"),
+                    attributes.stream().map(BaseAttribute::getName).toList());
+        }
+
+        @Test
+        void listSignatureAttributesForCertificate_keyWithTwoPrivateItems_servesTheConnectorsVocabulary()
+                throws Exception {
+            // given
+            persistV2KeyItem(v2Key, KeyType.PRIVATE_KEY, null, null);
+
             // when
             List<BaseAttribute> attributes = signingProfileService
                     .listSignatureAttributesForCertificate(SecuredUUID.fromUUID(v2SigningCertificate.getUuid()));

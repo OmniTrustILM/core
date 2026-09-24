@@ -71,6 +71,7 @@ import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
 import com.otilm.core.security.authz.SecurityResourceFilter;
 import com.otilm.core.serialization.ObjectMapperFactory;
+import com.otilm.core.service.writer.AttributeDefinitionWriter;
 import com.otilm.core.util.AsnJsonCodec;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.AuthHelper;
@@ -123,6 +124,7 @@ public class AttributeEngine {
     private AttributeRelationRepository attributeRelationRepository;
     private AttributeContentItemRepository attributeContentItemRepository;
     private AttributeContent2ObjectRepository attributeContent2ObjectRepository;
+    private AttributeDefinitionWriter attributeDefinitionWriter;
 
     private AuthHelper authHelper;
 
@@ -134,6 +136,11 @@ public class AttributeEngine {
     @Autowired
     public void setAttributeDefinitionRepository(AttributeDefinitionRepository attributeDefinitionRepository) {
         this.attributeDefinitionRepository = attributeDefinitionRepository;
+    }
+
+    @Autowired
+    public void setAttributeDefinitionWriter(AttributeDefinitionWriter attributeDefinitionWriter) {
+        this.attributeDefinitionWriter = attributeDefinitionWriter;
     }
 
     @Autowired
@@ -1060,8 +1067,9 @@ public class AttributeEngine {
      * A listing call can publish a definition before anything says what it serves; the first write that knows claims
      * it.
      */
-    private static void claimUnknownOperation(AttributeDefinition definition, String operation) {
-        if (definition.getOperation() == null) {
+    private void claimUnknownOperation(AttributeDefinition definition, String operation) {
+        if (operation != null && definition.getOperation() == null
+                && attributeDefinitionWriter.claimOperation(definition.getUuid(), operation)) {
             definition.setOperation(operation);
         }
     }
