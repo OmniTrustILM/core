@@ -367,7 +367,7 @@ class TokenProfileServiceV2ITest extends BaseSpringBootTest {
         persistAttribute(Resource.TOKEN_PROFILE, profile.getUuid(), profileAttributeName, profileAttributeValue);
         connectorMock.stubKeyRequestTypes("[\"keyPair\"]");
         String expectedRequest = "{\"tokenAttributes\":[{\"name\":\"token-slot\",\"content\":[{\"data\":\"slot-7\"}]}],"
-                + "\"tokenProfileAttributes\":[{\"name\":\"profile-policy\",\"content\":[{\"data\":\"signing\"}]}],\"keyUsages\":[\"sign\"]}";
+                + "\"tokenProfileAttributes\":[{\"name\":\"profile-policy\",\"content\":[{\"data\":\"signing\"}]}]}";
 
         // when
         List<KeyRequestType> types = tokenProfileService

@@ -37,7 +37,6 @@ import com.otilm.core.model.crypto.ImmutableTokenProfileBasicModel;
 import com.otilm.core.service.handler.OperationAttributeResolver;
 import java.util.Base64;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -45,6 +44,7 @@ import org.junit.jupiter.api.function.Executable;
 import org.mockito.ArgumentCaptor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -84,6 +84,15 @@ class TokenProviderV2AdapterTest {
     }
 
     @Test
+    void listSupportedKeyUsages_returnsConnectorCapabilities() throws Exception {
+        List<KeyUsage> supported = List.of(KeyUsage.SIGN, KeyUsage.ENCRYPT);
+        when(tokenApiClient.listTokenProfileKeyUsages(any(), any())).thenReturn(supported);
+
+        assertSame(supported, adapter.listSupportedKeyUsages(token));
+        verify(tokenApiClient).listTokenProfileKeyUsages(any(), any());
+    }
+
+    @Test
     void listSupportedKeyUsages_throwsConnectorException_forNullResponse() throws Exception {
         // given
         when(tokenApiClient.listTokenProfileKeyUsages(any(), any())).thenReturn(null);
@@ -118,7 +127,7 @@ class TokenProviderV2AdapterTest {
         verify(tokenApiClient).listSupportedKeyRequestTypes(any(), request.capture());
         assertEquals(resolvedToken, request.getValue().getTokenAttributes());
         assertEquals(resolvedProfile, request.getValue().getTokenProfileAttributes());
-        assertEquals(Set.copyOf(profile.usages()), request.getValue().getKeyUsages());
+        assertFalse(new ObjectMapper().valueToTree(request.getValue()).has("keyUsages"));
     }
 
     @Test
@@ -165,7 +174,7 @@ class TokenProviderV2AdapterTest {
         verify(operationsClient).listRandomAttributes(any(), request.capture());
         assertEquals(resolvedToken, request.getValue().getTokenAttributes());
         assertEquals(resolvedProfile, request.getValue().getTokenProfileAttributes());
-        assertEquals(Set.copyOf(profile.usages()), request.getValue().getKeyUsages());
+        assertFalse(new ObjectMapper().valueToTree(request.getValue()).has("keyUsages"));
         verify(attributeEngine).updateDataAttributeDefinitions(token.connectorUuid(), null, definitions);
     }
 
@@ -195,7 +204,7 @@ class TokenProviderV2AdapterTest {
         verify(operationsClient).randomData(any(), sent.capture());
         assertEquals(resolvedToken, sent.getValue().getTokenAttributes());
         assertEquals(resolvedProfile, sent.getValue().getTokenProfileAttributes());
-        assertEquals(Set.copyOf(profile.usages()), sent.getValue().getKeyUsages());
+        assertFalse(new ObjectMapper().valueToTree(sent.getValue()).has("keyUsages"));
         assertEquals(2, sent.getValue().getLength());
         assertSame(request.getAttributes(), sent.getValue().getOperationAttributes());
         assertEquals(Base64.getEncoder().encodeToString(new byte[]{9, 8}), response.getData());

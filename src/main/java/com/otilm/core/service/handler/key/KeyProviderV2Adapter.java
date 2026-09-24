@@ -129,7 +129,6 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         DestroyKeyRequestV2Dto request = new DestroyKeyRequestV2Dto();
         request.setTokenAttributes(scope.getTokenAttributes());
         request.setTokenProfileAttributes(scope.getTokenProfileAttributes());
-        request.setKeyUsages(scope.getKeyUsages());
         request.setKeyMeta(keyMeta);
         request.setExecutionMode(OperationExecutionMode.SYNCHRONOUS);
 
@@ -197,7 +196,6 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         CreateKeyRequestV2Dto request = new CreateKeyRequestV2Dto();
         request.setTokenAttributes(scope.getTokenAttributes());
         request.setTokenProfileAttributes(scope.getTokenProfileAttributes());
-        request.setKeyUsages(scope.getKeyUsages());
         request.setKeyRequestType(type);
         request.setExecutionMode(OperationExecutionMode.SYNCHRONOUS);
         request.setKeyCreationId(keyCreationId);
@@ -309,7 +307,6 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         TokenProfileScopedRequestV2Dto request = new TokenProfileScopedRequestV2Dto();
         request.setTokenAttributes(resolvedTokenAttributes);
         request.setTokenProfileAttributes(resolvedTokenProfileAttributes);
-        request.setKeyUsages(Set.copyOf(tokenProfile.usages()));
         return request;
     }
 
@@ -493,7 +490,6 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         }
         request.setTokenAttributes(scope.getTokenAttributes());
         request.setTokenProfileAttributes(scope.getTokenProfileAttributes());
-        request.setKeyUsages(scope.getKeyUsages());
         request.setKeyMeta(keyMeta);
         return request;
     }
