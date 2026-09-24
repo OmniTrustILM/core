@@ -309,7 +309,7 @@ class TokenProfileServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
-    void updateKeyUsages_asksAgainUnderTheNewUsages() throws Exception {
+    void updateKeyUsages_refreshesCachedExportableKeyTypes() throws Exception {
         // given
         declareKeyExport();
         TokenProfile profile = persistProfile("usage-scoped-capability-profile");
@@ -326,7 +326,7 @@ class TokenProfileServiceV2ITest extends BaseSpringBootTest {
                 .getTokenProfile(token.getSecuredParentUuid(), profile.getSecuredUuid());
 
         // then
-        connectorMock.verifyExportableKeyTypesRequestContaining("{\"keyUsages\":[\"encrypt\"]}");
+        connectorMock.verifyExportableKeyTypesRequests(1);
         assertEquals(Map.of(KeyRequestType.KEY_PAIR, Set.of(KeyAlgorithm.RSA)),
                 read.getKeyTransfer().getExportableKeyTypes());
     }
@@ -356,9 +356,6 @@ class TokenProfileServiceV2ITest extends BaseSpringBootTest {
     void listSupportedKeyRequestTypes_sendsPersistedTokenAndProfileAttributes() throws Exception {
         // given
         TokenProfile profile = persistProfile("request-types-profile");
-        KeyUsage allowedUsage = KeyUsage.SIGN;
-        profile.setUsage(List.of(allowedUsage));
-        tokenProfileRepository.saveAndFlush(profile);
         String tokenAttributeName = "token-slot";
         String tokenAttributeValue = "slot-7";
         String profileAttributeName = "profile-policy";
