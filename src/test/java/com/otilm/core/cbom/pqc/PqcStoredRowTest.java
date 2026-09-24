@@ -41,6 +41,26 @@ class PqcStoredRowTest {
     }
 
     /**
+     * Ingest reads the raw name and the stored row its NFKC fold, so a no-break space or a fullwidth comma must refuse
+     * on both, or the row carries an L10 hybrid note that its own verdict contradicts.
+     */
+    @Test
+    void anAlternationRecordsNoComponentsOnEitherPath() {
+        for (String alternation : new String[]{
+                "RSA-2048 or ML-DSA-65",
+                "ECDSA-P256\u00A0/\u00A0ML-DSA-44",
+                "RSA-2048\uFF0CML-DSA-65"}) {
+            JsonNode component = PqcEvaluatorTest.algorithm(alternation);
+            NormalizedAsset asset = normalizer.normalize(component).asset();
+
+            PqcRuleInput stored = evaluator.fromStoredRow(storedRow(asset), component.get("cryptoProperties"));
+
+            assertThat(asset.hybridComponents()).describedAs("ingest of %s", alternation).isEmpty();
+            assertThat(stored.hybridComponents()).describedAs("stored row of %s", alternation).isEmpty();
+        }
+    }
+
+    /**
      * The type mismatch that would make a size comparison silently false: the derivation carries an {@code Integer} and
      * the column carries text.
      */

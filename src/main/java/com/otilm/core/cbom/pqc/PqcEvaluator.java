@@ -136,15 +136,20 @@ public class PqcEvaluator {
      * tokens where the ratified tables name 33 pseudo-families -- the drift core#2196's ruling C12 exists to end. So
      * {@code X25519-HAWK-512} recorded no components, elected its classical half and read {@code notReady} on that half
      * alone, which is the one outcome ruling (b) forbids. The ratified tables answer for all 33.
+     *
+     * <p>
+     * A name that alternates between schemes records no components on either path, so its classical half decides the
+     * row through {@link #componentOrFamilyDecision}.
      */
     private List<String> hybridComponentsOf(PqcRuleInput input) {
         if (!input.hybridComponents().isEmpty()) {
             return input.hybridComponents();
         }
-        if (PqcFamilies.of(ratifiedFamily(input.algorithmFamily())) != FamilyClass.SHOR_BREAKABLE
-                || normalizer.namesAnAlternation(input.name())) {
-            // The widening is subject to the same refusal as the normalizer's own derivation: a name that alternates
-            // between a classical and a post-quantum scheme names neither one construction.
+        if (PqcFamilies.of(ratifiedFamily(input.algorithmFamily())) != FamilyClass.SHOR_BREAKABLE) {
+            return List.of();
+        }
+        if (normalizer.namesAnAlternation(input.name())) {
+            // The same refusal as the normalizer's own derivation: an alternation names no one construction.
             return List.of();
         }
         List<String> components = new ArrayList<>();
