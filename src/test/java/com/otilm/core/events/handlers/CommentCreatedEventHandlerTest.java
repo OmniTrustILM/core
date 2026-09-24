@@ -28,6 +28,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -215,5 +216,23 @@ class CommentCreatedEventHandlerTest {
         verify(publisher).publishEvent(captor.capture());
         assertEquals(List.of(participant),
                 captor.getValue().getRecipients().stream().map(NotificationRecipient::getRecipientUuid).toList());
+    }
+
+    @Test
+    void ownerIsNotifiedWithoutReAuthorization() {
+        UUID rootUuid = UUID.randomUUID();
+        UUID ownerUuid = UUID.randomUUID();
+        when(associationService.getOwner(Resource.RA_PROFILE, HOST_UUID))
+                .thenReturn(new NameAndUuidDto(ownerUuid.toString(), "tst-owner"));
+        when(commentRepository.findThreadParticipantUuids(rootUuid)).thenReturn(List.of(ownerUuid, ACTOR_UUID));
+        when(authorizationEnforcer.isAuthorizedAs(eq(ownerUuid), any(), any(), any())).thenReturn(false);
+
+        handler.sendFollowUpEventsNotifications(context(comment(rootUuid)));
+
+        ArgumentCaptor<NotificationMessage> captor = ArgumentCaptor.forClass(NotificationMessage.class);
+        verify(publisher).publishEvent(captor.capture());
+        assertEquals(List.of(ownerUuid),
+                captor.getValue().getRecipients().stream().map(NotificationRecipient::getRecipientUuid).toList());
+        verify(authorizationEnforcer, never()).isAuthorizedAs(eq(ownerUuid), any(), any(), any());
     }
 }

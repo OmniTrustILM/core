@@ -27,7 +27,7 @@ public class CommentCreatedEventHandler extends CommentEventsHandler {
         Comment comment = eventContext.getResourceObjects().getFirst();
         UUID actingUser = eventContext.getUserUuid();
 
-        // A new root is its own thread: its only participant is the acting author, which leaves the owner
+        // A new root is its own thread, whose participant so far is normally just the acting author
         UUID rootUuid = comment.getParentUuid() == null ? comment.getUuid() : comment.getParentUuid();
         List<NotificationRecipient> recipients = threadRecipientsExcept(comment, rootUuid, actingUser);
         publishFollowUpNotification(eventContext, comment, recipients);
