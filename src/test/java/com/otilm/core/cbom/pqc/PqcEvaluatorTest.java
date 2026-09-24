@@ -340,6 +340,20 @@ class PqcEvaluatorTest {
         }
     }
 
+    /** HAWK is a family the normalizer does not treat as post-quantum, so only the evaluator's widening sees it. */
+    @Test
+    void anAlternationTheWideningSeesIsNotAHybridEither() {
+        for (String alternation : new String[]{
+                "X25519 or HAWK-512",
+                "ECDSA-P256 or HAWK-512",
+                "ECDH-P256 / HAWK-512",
+                "X25519-HAWK-512 fallback"}) {
+            PqcDecision decision = verdictOf(algorithm(alternation));
+            assertThat(decision.verdict()).describedAs("name %s", alternation).isEqualTo(PqcVerdict.NOT_READY);
+            assertThat(decision.ruleId()).describedAs("name %s", alternation).startsWith("CLASSICAL-SHOR");
+        }
+    }
+
     /**
      * The other direction, and the one a marker list can get wrong: refusing a genuine hybrid loses a completed
      * migration from the ready set. {@code and} and {@code with} are therefore not markers, a slash counts only when it
