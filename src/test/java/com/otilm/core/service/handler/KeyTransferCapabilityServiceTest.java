@@ -1,13 +1,19 @@
 package com.otilm.core.service.handler;
 
+import com.otilm.api.exception.ConnectorClientException;
 import com.otilm.api.exception.ConnectorCommunicationException;
 import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ConnectorProblemException;
+import com.otilm.api.exception.ConnectorServerException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.cryptography.key.KeyTransferCapabilityDto;
+import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.model.connector.ImmutableConnectorInterface;
 import com.otilm.core.model.crypto.ImmutableTokenInstanceFullModel;
@@ -22,7 +28,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.springframework.http.HttpStatus;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -44,9 +54,10 @@ class KeyTransferCapabilityServiceTest {
     private final KeyProviderAdapterFactory adapters = mock(KeyProviderAdapterFactory.class);
     private final KeyProviderAdapter adapter = mock(KeyProviderAdapter.class);
     private final KeyTransferCapabilityWriter writer = mock(KeyTransferCapabilityWriter.class);
+    private final TokenInstanceReferenceRepository tokens = mock(TokenInstanceReferenceRepository.class);
     private final TokenProfileRepository profiles = mock(TokenProfileRepository.class);
     private final KeyTransferCapabilityService service = new KeyTransferCapabilityService(
-            new ConnectorCapabilityService(), adapters, writer, profiles);
+            new ConnectorCapabilityService(), adapters, writer, tokens, profiles);
 
     @Test
     void exportableKeyTypes_answersFromTheRecordWithoutAskingTheConnector() throws Exception {
@@ -110,13 +121,15 @@ class KeyTransferCapabilityServiceTest {
         verifyNoInteractions(adapters, writer);
     }
 
-    @Test
-    void capabilityOf_showsUnavailableAndRecordsNothingWhileTheConnectorCannotAnswer() throws Exception {
+    @ParameterizedTest
+    @MethodSource("failuresToLearnTheAnswer")
+    void capabilityOf_showsUnavailableAndRecordsNothingWhileTheAnswerCannotBeLearned(Exception failure)
+            throws Exception {
         // given
         ImmutableTokenInstanceFullModel token = exportingToken();
         TokenProfileFullModel unknown = profile(token, null);
         when(adapters.forToken(token)).thenReturn(adapter);
-        when(adapter.listExportableKeyTypes(unknown)).thenThrow(new ConnectorException("Connector is down"));
+        when(adapter.listExportableKeyTypes(unknown)).thenThrow(failure);
 
         // when
         KeyTransferCapabilityDto capability = service.capabilityOf(unknown);
@@ -139,16 +152,17 @@ class KeyTransferCapabilityServiceTest {
         assertTrue(capability.getExportableKeyTypes().isEmpty());
     }
 
-    @Test
-    void availabilityOf_asksADownConnectorOnceForAllItsProfiles() throws Exception {
+    @ParameterizedTest
+    @MethodSource("failuresOfTheConnector")
+    void availabilityOf_asksAConnectorThatCannotAnswerOnceForAllItsProfiles(ConnectorException failure)
+            throws Exception {
         // given
         ImmutableTokenInstanceFullModel token = exportingToken();
         TokenProfileFullModel first = profile(token, null);
         TokenProfileFullModel second = profile(token, null);
-        when(profiles.findFullModelsByTokenInstanceReferenceUuid(token.uuid())).thenReturn(List.of(first, second));
+        withProfiles(token, first, second);
         when(adapters.forToken(token)).thenReturn(adapter);
-        when(adapter.listExportableKeyTypes(any()))
-                .thenThrow(new ConnectorCommunicationException("Connector is unreachable", null));
+        when(adapter.listExportableKeyTypes(any())).thenThrow(failure);
 
         // when
         boolean available = service.availabilityOf(token).isExportAvailable();
@@ -158,17 +172,18 @@ class KeyTransferCapabilityServiceTest {
         verify(adapter, times(1)).listExportableKeyTypes(any());
     }
 
-    @Test
-    void availabilityOf_keepsAskingAfterAFailureSpecificToOneProfile() throws Exception {
+    @ParameterizedTest
+    @MethodSource("failuresSpecificToOneProfile")
+    void availabilityOf_keepsAskingAfterAFailureSpecificToOneProfile(Exception failure) throws Exception {
         // given
         ImmutableTokenInstanceFullModel token = exportingToken();
         TokenProfileFullModel broken = profile(token, null);
         TokenProfileFullModel exporting = profile(token, null);
         List<TransferableKeyType> answer = List
                 .of(new TransferableKeyType(KeyRequestType.KEY_PAIR, Set.of(KeyAlgorithm.RSA)));
-        when(profiles.findFullModelsByTokenInstanceReferenceUuid(token.uuid())).thenReturn(List.of(broken, exporting));
+        withProfiles(token, broken, exporting);
         when(adapters.forToken(token)).thenReturn(adapter);
-        when(adapter.listExportableKeyTypes(broken)).thenThrow(new ConnectorException("Profile attribute is invalid"));
+        when(adapter.listExportableKeyTypes(broken)).thenThrow(failure);
         when(adapter.listExportableKeyTypes(exporting)).thenReturn(answer);
         when(writer.recordAnswer(exporting.uuid(), exporting.exportableKeyTypesRevision(), answer))
                 .thenReturn(Optional.of(profile(token, RSA_KEY_PAIRS)));
@@ -186,7 +201,7 @@ class KeyTransferCapabilityServiceTest {
         ImmutableTokenInstanceFullModel token = exportingToken();
         TokenProfileFullModel unknown = profile(token, null);
         TokenProfileFullModel recorded = profile(token, RSA_KEY_PAIRS);
-        when(profiles.findFullModelsByTokenInstanceReferenceUuid(token.uuid())).thenReturn(List.of(unknown, recorded));
+        withProfiles(token, unknown, recorded);
         when(adapters.forToken(token)).thenReturn(adapter);
         when(adapter.listExportableKeyTypes(unknown))
                 .thenThrow(new ConnectorCommunicationException("Connector is unreachable", null));
@@ -196,6 +211,36 @@ class KeyTransferCapabilityServiceTest {
 
         // then
         assertTrue(available);
+    }
+
+    private void withProfiles(ImmutableTokenInstanceFullModel token, TokenProfileFullModel... tokenProfiles) {
+        when(tokens.findFullModelByUuid(token.uuid())).thenReturn(Optional.of(token));
+        when(profiles.findFullModelsByTokenInstance(token)).thenReturn(List.of(tokenProfiles));
+    }
+
+    private static Stream<ConnectorException> failuresOfTheConnector() {
+        return Stream
+                .of(new ConnectorCommunicationException("Connector is unreachable", null),
+                        new ConnectorServerException("Connector failed", HttpStatus.INTERNAL_SERVER_ERROR),
+                        problem(HttpStatus.SERVICE_UNAVAILABLE));
+    }
+
+    private static Stream<Exception> failuresSpecificToOneProfile() {
+        return Stream
+                .of(new ConnectorClientException("Profile attribute is invalid", HttpStatus.BAD_REQUEST),
+                        problem(HttpStatus.UNPROCESSABLE_ENTITY),
+                        new ValidationException("Secret the profile references is disabled"));
+    }
+
+    private static ConnectorProblemException problem(HttpStatus status) {
+        ProblemDetailExtended problem = new ProblemDetailExtended();
+        problem.setStatus(status.value());
+        problem.setTitle(status.getReasonPhrase());
+        return new ConnectorProblemException(problem);
+    }
+
+    private static Stream<Exception> failuresToLearnTheAnswer() {
+        return Stream.concat(failuresOfTheConnector(), failuresSpecificToOneProfile());
     }
 
     private static ImmutableTokenInstanceFullModel exportingToken() {

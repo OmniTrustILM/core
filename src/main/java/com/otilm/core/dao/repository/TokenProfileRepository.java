@@ -4,6 +4,7 @@ import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.model.crypto.ImmutableTokenProfileBasicModel;
 import com.otilm.core.model.crypto.ImmutableTokenProfileFullModel;
 import com.otilm.core.model.crypto.ImmutableTokenProfileListModel;
+import com.otilm.core.model.crypto.TokenInstanceFullModel;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.model.crypto.TokenProfileListModel;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -29,6 +30,8 @@ public interface TokenProfileRepository extends SecurityFilterRepository<TokenPr
 
     boolean existsByName(String name);
 
+    List<TokenProfile> findByTokenInstanceReferenceUuid(UUID tokenInstanceReferenceUuid);
+
     @EntityGraph(attributePaths = {"tokenInstanceReference.connectorInterface", "tokenInstanceReference.tokenProfiles"})
     @Query("""
             SELECT profile FROM TokenProfile profile
@@ -38,14 +41,6 @@ public interface TokenProfileRepository extends SecurityFilterRepository<TokenPr
             """)
     Optional<TokenProfile> findWithTokenInstanceByUuidAndTokenInstanceReferenceUuid(@Param("uuid") UUID uuid,
             @Param("tokenUuid") UUID tokenUuid);
-
-    @EntityGraph(attributePaths = {"tokenInstanceReference.connectorInterface", "tokenInstanceReference.tokenProfiles"})
-    @Query("""
-            SELECT profile FROM TokenProfile profile
-            JOIN FETCH profile.tokenInstanceReference token
-            WHERE profile.tokenInstanceReferenceUuid = :tokenUuid
-            """)
-    List<TokenProfile> findWithTokenInstanceByTokenInstanceReferenceUuid(@Param("tokenUuid") UUID tokenUuid);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT profile FROM TokenProfile profile WHERE profile.tokenInstanceReferenceUuid = :tokenUuid ORDER BY profile.uuid")
@@ -79,10 +74,11 @@ public interface TokenProfileRepository extends SecurityFilterRepository<TokenPr
                 .map(ImmutableTokenProfileFullModel::from);
     }
 
-    default List<TokenProfileFullModel> findFullModelsByTokenInstanceReferenceUuid(UUID tokenUuid) {
-        return findWithTokenInstanceByTokenInstanceReferenceUuid(tokenUuid)
+    /** The token's profiles, sharing the one snapshot of the token given. */
+    default List<TokenProfileFullModel> findFullModelsByTokenInstance(TokenInstanceFullModel token) {
+        return findByTokenInstanceReferenceUuid(token.uuid())
                 .stream()
-                .<TokenProfileFullModel>map(ImmutableTokenProfileFullModel::from)
+                .<TokenProfileFullModel>map(profile -> ImmutableTokenProfileFullModel.from(profile, token))
                 .toList();
     }
 

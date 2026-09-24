@@ -20,6 +20,7 @@ import com.otilm.core.dao.repository.signing.SigningProfileVersionRepository;
 import com.otilm.core.model.crypto.ImmutableTokenProfileFullModel;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.service.CommentInternalService;
+import jakarta.persistence.EntityManager;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -36,17 +37,19 @@ public class TokenProfileWriter {
     private final CommentInternalService commentService;
     private final CryptographicKeyRepository cryptographicKeyRepository;
     private final SigningProfileVersionRepository signingProfileVersionRepository;
+    private final EntityManager entityManager;
 
     public TokenProfileWriter(TokenProfileRepository tokenProfileRepository,
             TokenInstanceReferenceRepository tokenInstanceReferenceRepository, AttributeEngine attributeEngine,
             CommentInternalService commentService, CryptographicKeyRepository cryptographicKeyRepository,
-            SigningProfileVersionRepository signingProfileVersionRepository) {
+            SigningProfileVersionRepository signingProfileVersionRepository, EntityManager entityManager) {
         this.tokenProfileRepository = tokenProfileRepository;
         this.tokenInstanceReferenceRepository = tokenInstanceReferenceRepository;
         this.attributeEngine = attributeEngine;
         this.commentService = commentService;
         this.cryptographicKeyRepository = cryptographicKeyRepository;
         this.signingProfileVersionRepository = signingProfileVersionRepository;
+        this.entityManager = entityManager;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -148,16 +151,26 @@ public class TokenProfileWriter {
     }
 
     private TokenProfile findLocked(UUID profileUuid) throws NotFoundException {
-        return tokenProfileRepository
+        return current(tokenProfileRepository
                 .findWithLockByUuid(profileUuid)
-                .orElseThrow(() -> new NotFoundException(TokenProfile.class, profileUuid));
+                .orElseThrow(() -> new NotFoundException(TokenProfile.class, profileUuid)));
     }
 
     private TokenProfile findScopedLocked(UUID parentUuid, UUID profileUuid) throws NotFoundException {
         // The locked entity is managed by this transaction; Hibernate persists mutations at commit by dirty checking.
-        return tokenProfileRepository
+        return current(tokenProfileRepository
                 .findWithLockByUuidAndTokenInstanceReferenceUuid(profileUuid, parentUuid)
-                .orElseThrow(() -> new NotFoundException(TokenProfile.class, profileUuid));
+                .orElseThrow(() -> new NotFoundException(TokenProfile.class, profileUuid)));
+    }
+
+    /**
+     * The locked profile as its row now stands. With open-in-view the request may have loaded the profile before the
+     * lock was taken, and the locked read hands back that same instance with the state it had then. TokenProfile is not
+     * {@code @DynamicUpdate}, so a write from it would put back every column changed since.
+     */
+    private TokenProfile current(TokenProfile locked) {
+        entityManager.refresh(locked);
+        return locked;
     }
 
     private void delete(TokenProfile profile) {

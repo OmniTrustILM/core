@@ -29,15 +29,17 @@ public record ImmutableTokenProfileFullModel(UUID uuid, String name, String desc
                 .requireNonNull(tokenProfile.getTokenInstanceReference(),
                         "Token profile full model requires a token instance.");
 
-        ImmutableTokenInstanceFullModel tokenInstanceFullModel = ImmutableTokenInstanceFullModel.from(tokenInstance);
+        return from(tokenProfile, ImmutableTokenInstanceFullModel.from(tokenInstance));
+    }
 
+    /** The profile against a snapshot of its token, which the profiles of one token can share. */
+    public static ImmutableTokenProfileFullModel from(TokenProfile tokenProfile, TokenInstanceFullModel tokenInstance) {
         return new ImmutableTokenProfileFullModel(tokenProfile.getUuid(), tokenProfile.getName(),
                 tokenProfile.getDescription(), tokenProfile.getTokenInstanceName(),
                 Objects
                         .requireNonNull(tokenProfile.getTokenInstanceReferenceUuid(),
                                 "Token profile full model requires a token instance UUID."),
-                tokenProfile.getEnabled(), tokenProfile.getUsage(), tokenInstanceFullModel,
-                tokenInstance.getConnectorUuid(),
+                tokenProfile.getEnabled(), tokenProfile.getUsage(), tokenInstance, tokenInstance.connectorUuid(),
                 tokenProfile.getExportableKeyTypes() == null ? null : byKeyType(tokenProfile.getExportableKeyTypes()),
                 tokenProfile.getExportableKeyTypesRevision());
     }

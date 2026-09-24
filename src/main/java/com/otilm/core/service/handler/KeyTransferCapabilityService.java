@@ -2,12 +2,16 @@ package com.otilm.core.service.handler;
 
 import com.otilm.api.exception.ConnectorCommunicationException;
 import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ConnectorProblemException;
+import com.otilm.api.exception.ConnectorServerException;
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.core.cryptography.key.KeyTransferAvailabilityDto;
 import com.otilm.api.model.core.cryptography.key.KeyTransferCapabilityDto;
+import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
@@ -20,6 +24,7 @@ import java.util.Optional;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 /**
@@ -40,14 +45,18 @@ public class KeyTransferCapabilityService {
     private final ConnectorCapabilityService connectorCapabilityService;
     private final KeyProviderAdapterFactory keyProviderAdapterFactory;
     private final KeyTransferCapabilityWriter keyTransferCapabilityWriter;
+    private final TokenInstanceReferenceRepository tokenInstanceReferenceRepository;
     private final TokenProfileRepository tokenProfileRepository;
 
     public KeyTransferCapabilityService(ConnectorCapabilityService connectorCapabilityService,
             KeyProviderAdapterFactory keyProviderAdapterFactory,
-            KeyTransferCapabilityWriter keyTransferCapabilityWriter, TokenProfileRepository tokenProfileRepository) {
+            KeyTransferCapabilityWriter keyTransferCapabilityWriter,
+            TokenInstanceReferenceRepository tokenInstanceReferenceRepository,
+            TokenProfileRepository tokenProfileRepository) {
         this.connectorCapabilityService = connectorCapabilityService;
         this.keyProviderAdapterFactory = keyProviderAdapterFactory;
         this.keyTransferCapabilityWriter = keyTransferCapabilityWriter;
+        this.tokenInstanceReferenceRepository = tokenInstanceReferenceRepository;
         this.tokenProfileRepository = tokenProfileRepository;
     }
 
@@ -78,8 +87,8 @@ public class KeyTransferCapabilityService {
     }
 
     /**
-     * What the profile can export, for showing. A connector that cannot be asked right now leaves it unavailable until
-     * the next time it is shown.
+     * What the profile can export, for showing. While the answer cannot be learned, because the connector cannot answer
+     * or an attribute the profile relies on cannot be used, the profile shows as not exporting until it is shown again.
      *
      * @param profile the profile to describe
      * @return the profile's capability, which advertises export only
@@ -88,7 +97,7 @@ public class KeyTransferCapabilityService {
         Map<KeyRequestType, Set<KeyAlgorithm>> exportable = Map.of();
         try {
             exportable = exportableKeyTypes(profile).orElse(Map.of());
-        } catch (ConnectorException | NotFoundException e) {
+        } catch (ConnectorException | NotFoundException | ValidationException e) {
             logUnanswered(profile, e);
         }
         KeyTransferCapabilityDto capability = new KeyTransferCapabilityDto();
@@ -99,32 +108,47 @@ public class KeyTransferCapabilityService {
     }
 
     /**
-     * Whether any profile of the token can export, for showing. Once the connector cannot be reached, the remaining
-     * profiles without an answer are not asked, so a connector that is down costs one attempt rather than one per
-     * profile; a failure specific to one profile does not stop the others from being asked.
+     * Whether any profile of the token can export, for showing. Once the connector cannot be reached or fails on its
+     * side, the remaining profiles without an answer are not asked, so a failing connector costs one attempt rather
+     * than one per profile; a failure specific to one profile does not stop the others from being asked.
      *
      * @param token the token to describe
      * @return the token's availability, which advertises export only
      */
     public KeyTransferAvailabilityDto availabilityOf(TokenInstanceBasicModel token) {
-        boolean reachable = true;
-        for (TokenProfileFullModel profile : tokenProfileRepository
-                .findFullModelsByTokenInstanceReferenceUuid(token.uuid())) {
-            if (!reachable && profile.exportableKeyTypes() == null) {
+        List<TokenProfileFullModel> profiles = tokenInstanceReferenceRepository
+                .findFullModelByUuid(token.uuid())
+                .map(tokenProfileRepository::findFullModelsByTokenInstance)
+                .orElseGet(List::of);
+        boolean answering = true;
+        for (TokenProfileFullModel profile : profiles) {
+            if (!answering && profile.exportableKeyTypes() == null) {
                 continue;
             }
             try {
                 if (exportableKeyTypes(profile).filter(types -> !types.isEmpty()).isPresent()) {
                     return new KeyTransferAvailabilityDto(false, true);
                 }
-            } catch (ConnectorCommunicationException e) {
-                reachable = false;
+            } catch (ConnectorException e) {
+                if (connectorFailed(e)) {
+                    answering = false;
+                }
                 logUnanswered(profile, e);
-            } catch (ConnectorException | NotFoundException e) {
+            } catch (NotFoundException | ValidationException e) {
                 logUnanswered(profile, e);
             }
         }
         return new KeyTransferAvailabilityDto(false, false);
+    }
+
+    /**
+     * Whether the connector itself failed, so that asking it about another profile now would fail the same way: it
+     * could not be reached, or it failed on its side.
+     */
+    private static boolean connectorFailed(ConnectorException e) {
+        return e instanceof ConnectorCommunicationException || e instanceof ConnectorServerException
+                || (e instanceof ConnectorProblemException problem
+                        && problem.getProblemDetail().getStatus() >= HttpStatus.INTERNAL_SERVER_ERROR.value());
     }
 
     private static void logUnanswered(TokenProfileFullModel profile, Exception e) {

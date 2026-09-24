@@ -6,6 +6,7 @@ import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.model.crypto.ImmutableTokenProfileFullModel;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.model.crypto.TransferableKeyType;
+import jakarta.persistence.EntityManager;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -18,17 +19,20 @@ import org.springframework.transaction.annotation.Transactional;
  * depending on everything a profile writer needs.
  *
  * <p>
- * Every write here holds the profile's row lock, as every profile writer does, so none of them can overwrite another's
- * change to the row. Locks over several profiles are taken in UUID order, so two of them cannot deadlock each other.
+ * Every write here holds the profile's row lock and decides on the row as it stands under that lock, as every profile
+ * writer does, so none of them can overwrite another's change to the row. Locks over several profiles are taken in UUID
+ * order, so two of them cannot deadlock each other.
  * </p>
  */
 @Service
 public class KeyTransferCapabilityWriter {
 
     private final TokenProfileRepository tokenProfileRepository;
+    private final EntityManager entityManager;
 
-    public KeyTransferCapabilityWriter(TokenProfileRepository tokenProfileRepository) {
+    public KeyTransferCapabilityWriter(TokenProfileRepository tokenProfileRepository, EntityManager entityManager) {
         this.tokenProfileRepository = tokenProfileRepository;
+        this.entityManager = entityManager;
     }
 
     /**
@@ -44,9 +48,9 @@ public class KeyTransferCapabilityWriter {
     @Transactional(rollbackFor = Exception.class)
     public Optional<TokenProfileFullModel> recordAnswer(UUID profileUuid, int askedAtRevision,
             List<TransferableKeyType> exportableKeyTypes) throws NotFoundException {
-        TokenProfile profile = tokenProfileRepository
+        TokenProfile profile = current(tokenProfileRepository
                 .findWithLockByUuid(profileUuid)
-                .orElseThrow(() -> new NotFoundException(TokenProfile.class, profileUuid));
+                .orElseThrow(() -> new NotFoundException(TokenProfile.class, profileUuid)));
         if (profile.getExportableKeyTypesRevision() != askedAtRevision) {
             return Optional.empty();
         }
@@ -61,9 +65,7 @@ public class KeyTransferCapabilityWriter {
      */
     @Transactional(rollbackFor = Exception.class)
     public void forgetForToken(UUID tokenUuid) {
-        tokenProfileRepository
-                .findWithLockByTokenInstanceReferenceUuid(tokenUuid)
-                .forEach(TokenProfile::forgetExportableKeyTypes);
+        forget(tokenProfileRepository.findWithLockByTokenInstanceReferenceUuid(tokenUuid));
     }
 
     /**
@@ -75,8 +77,20 @@ public class KeyTransferCapabilityWriter {
      */
     @Transactional(rollbackFor = Exception.class)
     public void forgetForConnector(UUID connectorUuid) {
-        tokenProfileRepository
-                .findWithLockByConnectorUuid(connectorUuid)
-                .forEach(TokenProfile::forgetExportableKeyTypes);
+        forget(tokenProfileRepository.findWithLockByConnectorUuid(connectorUuid));
+    }
+
+    private void forget(List<TokenProfile> locked) {
+        locked.forEach(profile -> current(profile).forgetExportableKeyTypes());
+    }
+
+    /**
+     * The locked profile as its row now stands. With open-in-view the request may have loaded the profile before it
+     * asked the connector, and the locked read hands back that same instance with the state it had then. TokenProfile
+     * is not {@code @DynamicUpdate}, so a write from it would put back every column changed since.
+     */
+    private TokenProfile current(TokenProfile locked) {
+        entityManager.refresh(locked);
+        return locked;
     }
 }

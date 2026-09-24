@@ -1,11 +1,13 @@
 package com.otilm.core.integration.service;
 
+import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.TokenInstanceReference;
@@ -17,7 +19,10 @@ import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.model.crypto.TransferableKeyType;
 import com.otilm.core.service.writer.KeyTransferCapabilityWriter;
+import com.otilm.core.service.writer.TokenProfileWriter;
 import com.otilm.core.util.BaseSpringBootTest;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -25,26 +30,32 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.orm.jpa.EntityManagerHolder;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Committed transactions on separate threads, as in production: an answer asked for before a change must never be
- * recorded after it, whichever way the two writes meet on the profile's row lock.
+ * recorded after it, whichever way the two writes meet on the profile's row lock, and a write must never put back what
+ * another request changed after the writing request had loaded the profile.
  */
 class KeyTransferCapabilityWriterConcurrencyITest extends BaseSpringBootTest {
 
@@ -55,6 +66,12 @@ class KeyTransferCapabilityWriterConcurrencyITest extends BaseSpringBootTest {
 
     @Autowired
     private KeyTransferCapabilityWriter keyTransferCapabilityWriter;
+
+    @Autowired
+    private TokenProfileWriter tokenProfileWriter;
+
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
 
     @Autowired
     private PlatformTransactionManager transactionManager;
@@ -152,6 +169,97 @@ class KeyTransferCapabilityWriterConcurrencyITest extends BaseSpringBootTest {
         assertNull(tokenProfileRepository.findByUuid(second.getUuid()).orElseThrow().getExportableKeyTypes());
     }
 
+    @Test
+    void recordAnswer_refusesAnAnswerAskedForBeforeAChangeTheRequestHadNotSeen() throws Exception {
+        // given
+        TokenProfile profile = persistProfile(persistToken(), null);
+
+        // when
+        Optional<TokenProfileFullModel> recorded = withARequestBoundEntityManager(profile.getUuid(), held -> {
+            int askedAtRevision = held.getExportableKeyTypesRevision();
+            behindTheRequest(() -> tokenProfileWriter.setUsages(held.getUuid(), List.of(KeyUsage.SIGN)));
+            Optional<TokenProfileFullModel> answer = keyTransferCapabilityWriter
+                    .recordAnswer(held.getUuid(), askedAtRevision, RSA_KEY_PAIRS);
+            assertEquals(List.of(KeyUsage.SIGN), held.getUsage(), "the writer decided on the request's own copy");
+            return answer;
+        });
+
+        // then
+        assertTrue(recorded.isEmpty());
+        TokenProfile stored = tokenProfileRepository.findByUuid(profile.getUuid()).orElseThrow();
+        assertNull(stored.getExportableKeyTypes());
+        assertEquals(List.of(KeyUsage.SIGN), stored.getUsage());
+    }
+
+    @Test
+    void forgetForToken_countsAChangeTheRequestHadNotSeenAndKeepsIt() throws Exception {
+        // given
+        TokenInstanceReference token = persistToken();
+        TokenProfile profile = persistProfile(token, RSA_KEY_PAIRS);
+        int revision = profile.getExportableKeyTypesRevision();
+
+        // when
+        withARequestBoundEntityManager(profile.getUuid(), held -> {
+            behindTheRequest(() -> tokenProfileWriter.setUsages(held.getUuid(), List.of(KeyUsage.SIGN)));
+            keyTransferCapabilityWriter.forgetForToken(token.getUuid());
+            assertEquals(revision + 2, held.getExportableKeyTypesRevision(),
+                    "the writer decided on the request's own copy");
+            return null;
+        });
+
+        // then
+        TokenProfile stored = tokenProfileRepository.findByUuid(profile.getUuid()).orElseThrow();
+        assertEquals(revision + 2, stored.getExportableKeyTypesRevision());
+        assertEquals(List.of(KeyUsage.SIGN), stored.getUsage());
+    }
+
+    @Test
+    void setUsagesScoped_countsAForgetTheRequestHadNotSeenAndKeepsWhatElseChanged() throws Exception {
+        // given
+        TokenInstanceReference token = persistToken();
+        TokenProfile profile = persistProfile(token, RSA_KEY_PAIRS);
+        int revision = profile.getExportableKeyTypesRevision();
+
+        // when
+        withARequestBoundEntityManager(profile.getUuid(), held -> {
+            behindTheRequest(() -> {
+                tokenProfileWriter.setEnabled(held.getUuid(), false);
+                keyTransferCapabilityWriter.forgetForToken(token.getUuid());
+            });
+            tokenProfileWriter.setUsagesScoped(token.getUuid(), held.getUuid(), List.of(KeyUsage.SIGN));
+            assertEquals(revision + 2, held.getExportableKeyTypesRevision(),
+                    "the writer decided on the request's own copy");
+            return null;
+        });
+
+        // then
+        TokenProfile stored = tokenProfileRepository.findByUuid(profile.getUuid()).orElseThrow();
+        assertEquals(revision + 2, stored.getExportableKeyTypesRevision());
+        assertFalse(stored.getEnabled());
+    }
+
+    @Test
+    void setEnabled_doesNotRestoreAnAnswerForgottenBehindTheRequest() throws Exception {
+        // given
+        TokenProfile profile = persistProfile(persistToken(), RSA_KEY_PAIRS);
+        int revision = profile.getExportableKeyTypesRevision();
+
+        // when
+        withARequestBoundEntityManager(profile.getUuid(), held -> {
+            behindTheRequest(() -> tokenProfileWriter.setUsages(held.getUuid(), List.of(KeyUsage.SIGN)));
+            tokenProfileWriter.setEnabled(held.getUuid(), false);
+            assertNull(held.getExportableKeyTypes(), "the writer decided on the request's own copy");
+            return null;
+        });
+
+        // then
+        TokenProfile stored = tokenProfileRepository.findByUuid(profile.getUuid()).orElseThrow();
+        assertNull(stored.getExportableKeyTypes());
+        assertEquals(revision + 1, stored.getExportableKeyTypesRevision());
+        assertEquals(List.of(KeyUsage.SIGN), stored.getUsage());
+        assertFalse(stored.getEnabled());
+    }
+
     private TokenInstanceReference persistToken() {
         TokenInstanceReference value = new TokenInstanceReference();
         value.setName("concurrent-capability-token-" + UUID.randomUUID());
@@ -173,6 +281,47 @@ class KeyTransferCapabilityWriterConcurrencyITest extends BaseSpringBootTest {
         TokenProfile saved = tokenProfileRepository.save(value);
         profiles.add(saved);
         return saved;
+    }
+
+    /**
+     * Binds one EntityManager to the thread for the call, as open-in-view does for a request, and hands the call the
+     * profile as that EntityManager loaded it. The writers' transactions inside the call use this EntityManager, so
+     * their locked reads answer from its persistence context.
+     */
+    private <T> T withARequestBoundEntityManager(UUID profileUuid, RequestCall<T> call) throws NotFoundException {
+        EntityManager bound = entityManagerFactory.createEntityManager();
+        TransactionSynchronizationManager.bindResource(entityManagerFactory, new EntityManagerHolder(bound));
+        try {
+            return call.apply(bound.find(TokenProfile.class, profileUuid));
+        } finally {
+            TransactionSynchronizationManager.unbindResource(entityManagerFactory);
+            bound.close();
+        }
+    }
+
+    /** Commits the change from another thread, with a persistence context of its own, as another request does. */
+    private void behindTheRequest(Change change) {
+        try {
+            executor.submit(() -> {
+                change.apply();
+                return null;
+            }).get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted waiting for the other request", e);
+        } catch (ExecutionException | TimeoutException e) {
+            throw new IllegalStateException("The other request did not commit its change", e);
+        }
+    }
+
+    @FunctionalInterface
+    private interface RequestCall<T> {
+        T apply(TokenProfile held) throws NotFoundException;
+    }
+
+    @FunctionalInterface
+    private interface Change {
+        void apply() throws NotFoundException;
     }
 
     /** Waits until the database reports a session blocked on a lock over a token profile row. */
