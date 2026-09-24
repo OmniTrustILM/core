@@ -49,11 +49,9 @@ public final class PqcRules {
 
     public static final String NIST_QUANTUM_SECURITY_LEVEL = "nistQuantumSecurityLevel";
 
-    public static final String OID = "oid";
-
     public static final Set<String> EVIDENCE_FIELDS = Set
             .of(ASSET_TYPE, ALGORITHM_FAMILY, PARAMETER_SET, CURVE, "mode", "padding", VARIANT, NAME, HYBRID_COMPONENTS,
-                    MATERIAL_TYPE, MATERIAL_SIZE, NIST_QUANTUM_SECURITY_LEVEL, OID);
+                    MATERIAL_TYPE, MATERIAL_SIZE, NIST_QUANTUM_SECURITY_LEVEL);
 
     /** Symmetric key or shared secret: quantum-resistant if long enough. */
     public static final Set<String> SYMMETRIC_MATERIAL = Set.of("secret-key", "symmetric-key", "shared-secret");
@@ -80,7 +78,7 @@ public final class PqcRules {
     /** The size arms' own fields, and every field the name decision they consult can read. */
     private static final List<String> SYMMETRIC_MATERIAL_FIELDS = List
             .of(ASSET_TYPE, MATERIAL_TYPE, MATERIAL_SIZE, ALGORITHM_FAMILY, NAME, VARIANT, HYBRID_COMPONENTS, CURVE,
-                    PARAMETER_SET, OID);
+                    PARAMETER_SET);
 
     private PqcRules() {
     }

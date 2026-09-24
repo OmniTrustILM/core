@@ -127,28 +127,19 @@ class PqcEvaluatorTest {
         }
     }
 
+    /**
+     * The stored OID is whichever source reached the row first, so bare {@code HMAC} carried as {@code hmacWithSHA1}
+     * and as {@code hmacWithSHA256} shares one row whose OID depends on arrival order.
+     */
     @Test
-    void anOidThatFixesTheDigestInstantiatesTheConstruction() {
-        PqcDecision legacy = verdictOf(withOid(algorithm("HMAC"), "1.2.840.113549.2.7"));
-        assertThat(legacy.ruleId()).isEqualTo(verdictOf(algorithm("HMAC-SHA1")).ruleId());
-        assertThat(legacy.evaluatedFields()).containsEntry(PqcRules.OID, "1.2.840.113549.2.7");
-        PqcDecision sound = verdictOf(withOid(algorithm("HMAC"), "1.2.840.113549.2.9"));
-        assertThat(sound.ruleId()).isEqualTo("SYMMETRIC-READY");
-        assertThat(sound.evaluatedFields()).containsEntry(PqcRules.OID, "1.2.840.113549.2.9");
-        assertThat(verdictOf(withOid(algorithm("HMAC"), "2.16.840.1.101.3.4.2.14")).ruleId())
-                .describedAs("a SHA-3 digest spelt SHA-3/256 in the table")
-                .isEqualTo("SYMMETRIC-READY");
-        assertThat(verdictOf(withOid(algorithm("HKDF"), "1.2.840.113549.1.9.16.3.28")).ruleId())
-                .describedAs("the table records no implied digest for this arc, so the OID fixes nothing")
-                .isEqualTo("CONSTRUCTION-UNINSTANTIATED");
-        for (String signatureArc : new String[]{"1.2.840.113549.1.1.5", "1.2.840.113549.1.1.11"}) {
-            assertThat(verdictOf(withOid(algorithm("HMAC"), signatureArc)).ruleId())
-                    .describedAs("an RSA signature arc %s on an HMAC row fixes nothing about the HMAC", signatureArc)
-                    .isEqualTo("CONSTRUCTION-UNINSTANTIATED");
+    void anOidDoesNotInstantiateTheConstruction() {
+        String bare = verdictOf(algorithm("HMAC")).ruleId();
+        assertThat(bare).isEqualTo("CONSTRUCTION-UNINSTANTIATED");
+        for (String hmacArc : new String[]{"1.2.840.113549.2.7", "1.2.840.113549.2.9"}) {
+            assertThat(verdictOf(withOid(algorithm("HMAC"), hmacArc)).ruleId())
+                    .describedAs("bare HMAC carried as %s", hmacArc)
+                    .isEqualTo(bare);
         }
-        assertThat(verdictOf(withOid(algorithm("HMAC"), "1.2.840.113549.2.7.1")).ruleId())
-                .describedAs("a prefix match says only that the arc is under hmacWithSHA1, not that it is it")
-                .isEqualTo("CONSTRUCTION-UNINSTANTIATED");
     }
 
     /** Too short a key is weak whichever member it is, so that finding still reaches the row. */

@@ -17,11 +17,10 @@ import java.util.List;
  *
  * @param hybridComponents folded, and possibly sized ({@code ml-kem-768}) -- not a bare family spelling
  * @param materialSize {@code null} for most rows, which is why an unsized symmetric key cannot be called ready
- * @param oid the stored column, read only for the digest its arc fixes
  */
 public record PqcRuleInput(CryptographicAssetType assetType, String algorithmFamily, Integer parameterSet, String curve,
         String mode, String padding, String variant, String name, List<String> hybridComponents, String materialType,
-        Integer materialSize, String oid) {
+        Integer materialSize) {
 
     public PqcRuleInput {
         hybridComponents = hybridComponents == null ? List.of() : List.copyOf(hybridComponents);
@@ -33,7 +32,7 @@ public record PqcRuleInput(CryptographicAssetType assetType, String algorithmFam
 
     public PqcRuleInput withAlgorithmFamily(String family) {
         return new PqcRuleInput(assetType, family, parameterSet, curve, mode, padding, variant, name, hybridComponents,
-                materialType, materialSize, oid);
+                materialType, materialSize);
     }
 
     /**
@@ -43,11 +42,11 @@ public record PqcRuleInput(CryptographicAssetType assetType, String algorithmFam
      */
     public PqcRuleInput withoutMaterialSize() {
         return new PqcRuleInput(assetType, algorithmFamily, parameterSet, curve, mode, padding, variant, name,
-                hybridComponents, materialType, null, oid);
+                hybridComponents, materialType, null);
     }
 
     public PqcRuleInput withHybridComponents(List<String> components) {
         return new PqcRuleInput(assetType, algorithmFamily, parameterSet, curve, mode, padding, variant, name,
-                components, materialType, materialSize, oid);
+                components, materialType, materialSize);
     }
 }
