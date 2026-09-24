@@ -243,14 +243,25 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
         assertThat(untouched.getInventoryUuid()).isNull();
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.PROCESSING);
         assertThat(processRow(run).getAttempt()).as("a tick that accounted for nothing backs off").isEqualTo(1);
-        // A refusal no retry can pass: the run will end on its budget, and this is what it will point the operator at.
+        // An AccessDeniedException is also what an authorization check that could not be made comes back as, so the
+        // page's failure is recorded as recoverable; a run whose keys never make it in ends through its budget.
         assertThat(messages(run))
                 .filteredOn(message -> DiscoveryMessageCode.BATCH_PROCESSING_FAILED.code().equals(message.getCode()))
                 .singleElement()
-                .satisfies(message -> {
-                    assertThat(message.getSeverity()).isEqualTo(DiscoveryMessageSeverity.WARNING);
-                    assertThat(message.getMessage()).contains("not allowed to create keys");
-                });
+                .satisfies(message -> assertThat(message.getSeverity()).isEqualTo(DiscoveryMessageSeverity.INFO));
+    }
+
+    @Test
+    void keyPageRefusedOnceThenAllowed_endsTheRunCompleted() throws Exception {
+        Discovery run = processingRun();
+        stageKeys(run, 1);
+        denyResourceAccess(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.CREATE);
+        worker.tick(run.getUuid(), 0);
+
+        allowResourceAccess(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.CREATE);
+        worker.tick(run.getUuid(), 1);
+
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.COMPLETED);
     }
 
     @Test

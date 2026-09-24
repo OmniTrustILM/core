@@ -292,15 +292,17 @@ public class DiscoveryProcessTickWorker {
 
     /**
      * Says why a page of keys did not finish, since the stall path that may end the run sends the operator to the
-     * messages. A refused permission is a warning: it fails the same way on every retry until someone grants it.
+     * messages. Recorded as recoverable, as a certificate batch is: the rows stay pending, and a denial is also what an
+     * authorization check that could not be made comes back as. Keys that never make it in are stamped when the budget
+     * ends the run.
      */
     private void reportUnfinishedKeyPage(Discovery run, boolean refused) {
         recordQuietly(run.getUuid(), "a page of keys that did not complete", () -> messageWriter
-                .append(run.getUuid(), refused ? DiscoveryMessageSeverity.WARNING : DiscoveryMessageSeverity.INFO,
-                        DiscoveryMessageCode.BATCH_PROCESSING_FAILED,
+                .append(run.getUuid(), DiscoveryMessageSeverity.INFO, DiscoveryMessageCode.BATCH_PROCESSING_FAILED,
                         refused
-                                ? "Discovered keys could not be imported: the user who started this run is "
-                                        + "not allowed to create keys."
+                                ? "Discovered keys could not be imported on this attempt: the user who started this "
+                                        + "run may not be allowed to create keys, or authorization could not be "
+                                        + "checked. They will be tried again."
                                 : "Some discovered keys could not be imported on this attempt and will be tried "
                                         + "again."));
     }
