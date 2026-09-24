@@ -167,4 +167,53 @@ class CommentCreatedEventHandlerTest {
 
         verifyNoInteractions(publisher);
     }
+
+    @Test
+    void replyNotifiesTheHostObjectOwnerWhoHasNotJoinedTheThread() {
+        UUID rootUuid = UUID.randomUUID();
+        UUID ownerUuid = UUID.randomUUID();
+        UUID participant = UUID.randomUUID();
+        when(associationService.getOwner(Resource.RA_PROFILE, HOST_UUID))
+                .thenReturn(new NameAndUuidDto(ownerUuid.toString(), "tst-owner"));
+        when(commentRepository.findThreadParticipantUuids(rootUuid)).thenReturn(List.of(participant, ACTOR_UUID));
+
+        handler.sendFollowUpEventsNotifications(context(comment(rootUuid)));
+
+        ArgumentCaptor<NotificationMessage> captor = ArgumentCaptor.forClass(NotificationMessage.class);
+        verify(publisher).publishEvent(captor.capture());
+        assertEquals(List.of(ownerUuid, participant),
+                captor.getValue().getRecipients().stream().map(NotificationRecipient::getRecipientUuid).toList());
+    }
+
+    @Test
+    void ownerWhoIsAlsoAParticipantIsNotifiedOnce() {
+        UUID rootUuid = UUID.randomUUID();
+        UUID ownerUuid = UUID.randomUUID();
+        when(associationService.getOwner(Resource.RA_PROFILE, HOST_UUID))
+                .thenReturn(new NameAndUuidDto(ownerUuid.toString(), "tst-owner"));
+        when(commentRepository.findThreadParticipantUuids(rootUuid)).thenReturn(List.of(ownerUuid, ACTOR_UUID));
+
+        handler.sendFollowUpEventsNotifications(context(comment(rootUuid)));
+
+        ArgumentCaptor<NotificationMessage> captor = ArgumentCaptor.forClass(NotificationMessage.class);
+        verify(publisher).publishEvent(captor.capture());
+        assertEquals(List.of(ownerUuid),
+                captor.getValue().getRecipients().stream().map(NotificationRecipient::getRecipientUuid).toList());
+    }
+
+    @Test
+    void replyPostedByTheOwnerIsNotSelfNotified() {
+        UUID rootUuid = UUID.randomUUID();
+        UUID participant = UUID.randomUUID();
+        when(associationService.getOwner(Resource.RA_PROFILE, HOST_UUID))
+                .thenReturn(new NameAndUuidDto(ACTOR_UUID.toString(), "tst-author"));
+        when(commentRepository.findThreadParticipantUuids(rootUuid)).thenReturn(List.of(participant, ACTOR_UUID));
+
+        handler.sendFollowUpEventsNotifications(context(comment(rootUuid)));
+
+        ArgumentCaptor<NotificationMessage> captor = ArgumentCaptor.forClass(NotificationMessage.class);
+        verify(publisher).publishEvent(captor.capture());
+        assertEquals(List.of(participant),
+                captor.getValue().getRecipients().stream().map(NotificationRecipient::getRecipientUuid).toList());
+    }
 }

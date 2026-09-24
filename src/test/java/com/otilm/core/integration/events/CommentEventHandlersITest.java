@@ -351,6 +351,29 @@ class CommentEventHandlersITest extends BaseSpringBootTest {
     }
 
     @Test
+    void ownerWhoHasNotJoinedTheThreadFollowsRepliesAndResolutionChanges() throws Exception {
+        UUID ownerUuid = UUID.randomUUID();
+        OwnerAssociation association = new OwnerAssociation();
+        association.setResource(Resource.RA_PROFILE);
+        association.setObjectUuid(hostUuid);
+        association.setOwnerUuid(ownerUuid);
+        association.setOwnerUsername("tst-owner");
+        ownerAssociationRepository.save(association);
+        Comment root = saveComment(hostUuid, null, actorUuid, "a request");
+        Comment reply = saveComment(hostUuid, root.getUuid(), actorUuid, "this is urgent");
+
+        commentCreatedEventHandler.handleEvent(eventMessage(ResourceEvent.COMMENT_CREATED, reply, null));
+        commentResolvedEventHandler.handleEvent(eventMessage(ResourceEvent.COMMENT_RESOLVED, root, true));
+        commentResolvedEventHandler.handleEvent(eventMessage(ResourceEvent.COMMENT_RESOLVED, root, false));
+
+        assertThat(followUpMessages())
+                .hasSize(3)
+                .allSatisfy(message -> assertThat(message.getRecipients())
+                        .extracting(NotificationRecipient::getRecipientUuid)
+                        .containsExactly(ownerUuid));
+    }
+
+    @Test
     void rootCommentNotifiesTheHostOwnerOnlyWhereAnAssociationExists() throws Exception {
         UUID ownerUuid = UUID.randomUUID();
         OwnerAssociation association = new OwnerAssociation();

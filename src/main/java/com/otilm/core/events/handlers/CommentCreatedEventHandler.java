@@ -1,7 +1,5 @@
 package com.otilm.core.events.handlers;
 
-import com.otilm.api.model.common.NameAndUuidDto;
-import com.otilm.api.model.core.notification.RecipientType;
 import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.core.dao.entity.Comment;
 import com.otilm.core.dao.repository.CommentRepository;
@@ -29,17 +27,9 @@ public class CommentCreatedEventHandler extends CommentEventsHandler {
         Comment comment = eventContext.getResourceObjects().getFirst();
         UUID actingUser = eventContext.getUserUuid();
 
-        List<NotificationRecipient> recipients;
-        if (comment.getParentUuid() == null) {
-            NameAndUuidDto owner = resourceObjectAssociationService
-                    .getOwner(comment.getResource(), comment.getObjectUuid());
-            if (owner == null || owner.getUuid().equals(String.valueOf(actingUser))) {
-                return;
-            }
-            recipients = List.of(new NotificationRecipient(RecipientType.USER, UUID.fromString(owner.getUuid())));
-        } else {
-            recipients = threadParticipantsExcept(comment, comment.getParentUuid(), actingUser);
-        }
+        // A new root is its own thread: its only participant is the acting author, which leaves the owner
+        UUID rootUuid = comment.getParentUuid() == null ? comment.getUuid() : comment.getParentUuid();
+        List<NotificationRecipient> recipients = threadRecipientsExcept(comment, rootUuid, actingUser);
         publishFollowUpNotification(eventContext, comment, recipients);
     }
 }
