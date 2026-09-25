@@ -66,6 +66,11 @@ public record CryptoAssetIdentity(AssetNormalizer normalizer) {
     /** The related-asset type that names a certificate's public key, once separators and case are dropped. */
     private static final String PUBLIC_KEY_REFERENCE = "publickey";
 
+    /**
+     * Provenance for a family or curve taken from a referenced component. Not persisted: only tests read it.
+     */
+    private static final String REFERENCED_ALGORITHM_SOURCE = "referenced algorithm";
+
     private static final Pattern TWO_DIGITS = Pattern.compile("\\d{2}");
 
     private static final Pattern ALL_DIGITS = Pattern.compile("\\d+");
@@ -142,6 +147,7 @@ public record CryptoAssetIdentity(AssetNormalizer normalizer) {
                 yield new Tier(backstop(asset, properties), ChainStep.UNKNOWN_TYPE);
             }
         };
+        projectReferencedSlots(asset, properties, scope);
         String preImage = tier.preImage();
 
         // Applied uniformly to every tier rather than added to each tuple: whether an asset is a claim or an
@@ -235,6 +241,108 @@ public record CryptoAssetIdentity(AssetNormalizer normalizer) {
             return CryptoAssetIdentityGuard.BARE_CN_SUBJECT;
         }
         return asset != null && asset.oidConflict() ? CryptoAssetIdentityGuard.REFUTED_OID : null;
+    }
+
+    /**
+     * Fills the filter slots a certificate or a material row can only learn from the component it points at, since a
+     * certificate is named after its subject and a key after what it protects.
+     *
+     * <p>
+     * Runs after the tier switch so it cannot move a key: only the algorithm tier and the unroutable backstop build a
+     * pre-image from a {@link NormalizedAsset}, and neither type is reached here.
+     *
+     * <p>
+     * A certificate takes its subject public key, not its signature algorithm: one family column cannot mean both, and
+     * an operator filtering on a family is asking which assets stand on it. A protocol takes nothing, because it
+     * negotiates several algorithms rather than being one; version and cipher suite need columns of their own.
+     *
+     * <p>
+     * A reference this class already declines to resolve contributes no slot, so the row is blind rather than wrong.
+     * The slots are written at ingest; a row already stored gains them only when the asset is next reported, through
+     * the identity upsert's {@code COALESCE}.
+     */
+    private void projectReferencedSlots(NormalizedAsset asset, JsonNode properties, DocumentScope scope) {
+        String assetType = asset.assetType() == null ? "" : asset.assetType();
+        if (CbomNames.ASSET_TYPE_CERTIFICATE.equals(assetType)) {
+            JsonNode key = scope
+                    .resolve(subjectPublicKeyRef(objectOrNull(properties.get(CbomNames.CERTIFICATE_PROPERTIES))));
+            // The key's declared size first: it is this certificate's key size, where the algorithm states the
+            // family's at best. A producer may point the reference at the algorithm itself rather than at a key.
+            takeDeclaredKeySize(asset, key);
+            fillEmptySlots(asset, normalizedTarget(key));
+            fillEmptySlots(asset, normalizedTarget(scope.resolve(algorithmRef(key))));
+        } else if (CbomNames.ASSET_TYPE_RELATED_CRYPTO_MATERIAL.equals(assetType)) {
+            JsonNode material = objectOrNull(properties.get(CbomNames.RELATED_CRYPTO_MATERIAL_PROPERTIES));
+            fillEmptySlots(asset,
+                    normalizedTarget(scope.resolve(material == null ? null : material.get("algorithmRef"))));
+        }
+    }
+
+    private void takeDeclaredKeySize(NormalizedAsset certificate, JsonNode key) {
+        JsonNode properties = key == null ? null : objectOrNull(key.get("cryptoProperties"));
+        if (properties == null || !CbomNames.ASSET_TYPE_RELATED_CRYPTO_MATERIAL
+                .equals(normalizer.normalizeAssetType(text(properties, "assetType")))) {
+            return;
+        }
+        List<String> notes = new ArrayList<>();
+        certificate
+                .setParameterSet(normalizer
+                        .declaredMaterialSize(
+                                objectOrNull(properties.get(CbomNames.RELATED_CRYPTO_MATERIAL_PROPERTIES)), notes));
+        notes.forEach(certificate::note);
+    }
+
+    /**
+     * The {@code algorithmRef} of a resolved material component, or {@code null} when the target is not one. One hop
+     * only: an algorithm names nothing further, and a second hop would have to define what a cycle means.
+     */
+    private JsonNode algorithmRef(JsonNode target) {
+        JsonNode properties = target == null ? null : objectOrNull(target.get("cryptoProperties"));
+        if (properties == null || !CbomNames.ASSET_TYPE_RELATED_CRYPTO_MATERIAL
+                .equals(normalizer.normalizeAssetType(text(properties, "assetType")))) {
+            return null;
+        }
+        JsonNode material = objectOrNull(properties.get(CbomNames.RELATED_CRYPTO_MATERIAL_PROPERTIES));
+        return material == null ? null : material.get("algorithmRef");
+    }
+
+    /**
+     * The slots a resolved algorithm target normalizes to, or {@code null} for any other target. A malformed target is
+     * skipped by the extractor on its own account and must not cost the pointing row its columns, so its refusal is
+     * contained here as in {@link #publicKeyDigest}.
+     */
+    private NormalizedAsset normalizedTarget(JsonNode target) {
+        JsonNode properties = target == null ? null : objectOrNull(target.get("cryptoProperties"));
+        if (properties == null || !CbomNames.ASSET_TYPE_ALGORITHM
+                .equals(normalizer.normalizeAssetType(text(properties, "assetType")))) {
+            return null;
+        }
+        try {
+            return normalizer.normalize(target).asset();
+        } catch (IllegalArgumentException refused) {
+            return null;
+        }
+    }
+
+    /** Takes each slot the row has not already stated, so the nearer source of a fact wins over the farther one. */
+    private static void fillEmptySlots(NormalizedAsset asset, NormalizedAsset target) {
+        if (target == null) {
+            return;
+        }
+        if (asset.family() == null && target.family() != null) {
+            asset.setFamily(target.family());
+            asset.setFamilySource(REFERENCED_ALGORITHM_SOURCE);
+        }
+        if (asset.curve() == null && target.curve() != null) {
+            asset.setCurve(target.curve());
+            asset.setCurveSource(REFERENCED_ALGORITHM_SOURCE);
+        }
+        if (asset.primitive() == null) {
+            asset.setPrimitive(target.primitive());
+        }
+        if (asset.parameterSet() == null) {
+            asset.setParameterSet(target.parameterSet());
+        }
     }
 
     /**
