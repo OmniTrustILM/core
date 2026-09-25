@@ -95,6 +95,14 @@ public interface CryptographicKeyItemRepository extends SecurityFilterRepository
             """)
     boolean isItemOfKey(@Param("uuid") UUID uuid, @Param("keyUuid") UUID keyUuid);
 
+    /** Whether the key item may be exported, as the database holds it now: exportable, active and enabled. */
+    @Query("""
+            SELECT COUNT(item) > 0 FROM CryptographicKeyItem item
+            WHERE item.uuid = :uuid AND item.exportable = TRUE AND item.enabled = TRUE
+              AND item.state = com.otilm.api.model.core.cryptography.key.KeyState.ACTIVE
+            """)
+    boolean isExportable(@Param("uuid") UUID uuid);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT item FROM CryptographicKeyItem item WHERE item.uuid = :uuid AND item.keyUuid = :keyUuid")
     Optional<CryptographicKeyItem> findForUpdateByUuidAndKeyUuid(@Param("uuid") UUID uuid,

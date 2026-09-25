@@ -3,11 +3,14 @@ package com.otilm.core.logging;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.NotSupportedException;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.logging.records.LogRecord;
 import com.otilm.api.model.core.logging.records.ResourceObjectIdentity;
+import com.otilm.api.model.core.logging.records.ResourceRecord;
 import com.otilm.core.service.ResourceInternalService;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -21,6 +24,31 @@ public class AuditLogEnhancer {
         this.resourceService = resourceService;
     }
 
+    /** The record with the names of its resource objects filled in, as the audit log keeps it. */
+    public LogRecord withObjectIdentities(LogRecord logRecord) {
+        return LogRecord
+                .builder()
+                .audited(true)
+                .timestamp(logRecord.timestamp())
+                .version(logRecord.version())
+                .message(logRecord.message())
+                .actor(logRecord.actor())
+                .additionalData(logRecord.additionalData())
+                .module(logRecord.module())
+                .source(logRecord.source())
+                .operationData(logRecord.operationData())
+                .operation(logRecord.operation())
+                .operationResult(logRecord.operationResult())
+                .resource(new ResourceRecord(logRecord.resource().type(),
+                        enrichObjectIdentities(logRecord.resource().objects(), logRecord.resource().type())))
+                .affiliatedResource(logRecord.affiliatedResource() == null
+                        ? null
+                        : new ResourceRecord(logRecord.affiliatedResource().type(),
+                                enrichObjectIdentities(logRecord.affiliatedResource().objects(),
+                                        logRecord.affiliatedResource().type())))
+                .build();
+    }
+
     public List<ResourceObjectIdentity> enrichObjectIdentities(List<ResourceObjectIdentity> objects,
             Resource resource) {
         if (objects == null || objects.isEmpty()) {
@@ -31,7 +59,7 @@ public class AuditLogEnhancer {
         }
         List<ResourceObjectIdentity> enrichedObjects = new ArrayList<>();
         for (ResourceObjectIdentity object : objects) {
-            if (object != null && object.uuid() != null && object.name() == null) {
+            if (object != null && object.uuid() != null && StringUtils.isBlank(object.name())) {
                 try {
                     enrichedObjects
                             .add(new ResourceObjectIdentity(

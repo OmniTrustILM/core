@@ -234,6 +234,12 @@
             <version>${commons-beanutils.version}</version>
         </dependency>
 
+        <!-- Cron parser only; see CronExpressionUtil for why Quartz's parser is used instead of Spring's. -->
+        <dependency>
+            <groupId>org.quartz-scheduler</groupId>
+            <artifactId>quartz</artifactId>
+        </dependency>
+
         <!-- Tests -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

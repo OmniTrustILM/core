@@ -12,12 +12,14 @@ import com.otilm.api.model.client.cryptography.operations.SignDataResponseDto;
 import com.otilm.api.model.client.cryptography.operations.VerifyDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.VerifyDataResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.core.secret.Passphrase;
 import com.otilm.core.model.crypto.CryptographicKeyFullModel;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
+import com.otilm.core.model.crypto.TransferableKeyType;
 import java.util.List;
 
 /**
@@ -49,6 +51,9 @@ public interface KeyProviderAdapter {
      */
     List<ProviderKeyItem> createKey(TokenProfileFullModel tokenProfile, KeyRequestType type,
             List<RequestAttribute> attributes, String keyName, boolean exportable) throws ConnectorException;
+
+    /** The key types the connector exports from the token profile, with the algorithms it accepts for each. */
+    List<TransferableKeyType> listExportableKeyTypes(TokenProfileFullModel tokenProfile) throws ConnectorException;
 
     /** Lists the attribute schema for creating a secret key or key pair. */
     List<BaseAttribute> listCreateKeyAttributes(TokenProfileFullModel tokenProfile, KeyRequestType type)
@@ -84,5 +89,21 @@ public interface KeyProviderAdapter {
     List<BaseAttribute> listSignAttributes(OperationKeyContext context) throws ConnectorException;
 
     List<BaseAttribute> listVerifyAttributes(OperationKeyContext context) throws ConnectorException;
+
+    /** Lists the attribute schema for exporting the key item. */
+    List<BaseAttribute> listExportKeyAttributes(OperationKeyContext context) throws ConnectorException;
+
+    /**
+     * Exports the key item as a DER-encoded PKCS#8 EncryptedPrivateKeyInfo protected under the passphrase, refusing an
+     * answer that describes a key other than the one the platform holds. A failed export is reported in the platform's
+     * words only, never the connector's.
+     *
+     * @param heldKey what the platform holds about the key, to check the answer against
+     * @param attributes the export attributes the caller stated, validated against the connector's export schema
+     * @throws ConnectorException if the connector fails to export the key, or exports something else
+     * @throws ValidationException if the attributes do not follow the schema, or the connector refuses the export
+     */
+    byte[] exportKey(OperationKeyContext context, HeldKey heldKey, Passphrase passphrase,
+            List<RequestAttribute> attributes) throws ConnectorException;
 
 }

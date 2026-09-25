@@ -6,11 +6,13 @@ import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
+import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.client.cryptography.token.TokenInstanceRequestDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.ConnectorStatus;
@@ -22,13 +24,18 @@ import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.TokenInstanceReference;
+import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
+import com.otilm.core.dao.repository.TokenProfileRepository;
+import com.otilm.core.model.crypto.TokenProfileFullModel;
+import com.otilm.core.model.crypto.TransferableKeyType;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.TokenInstanceExternalService;
 import com.otilm.core.service.TokenInstanceInternalService;
+import com.otilm.core.service.writer.KeyTransferCapabilityWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.builders.DataAttributeV3Builder;
 import com.otilm.core.util.builders.TokenInstanceRequestDtoBuilder;
@@ -37,6 +44,8 @@ import com.otilm.core.util.mocks.CryptographyProviderV2ConnectorMock;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -51,6 +60,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -73,6 +83,12 @@ class TokenInstanceServiceV2ITest extends BaseSpringBootTest {
 
     @Autowired
     private TokenInstanceReferenceRepository tokenInstanceReferenceRepository;
+
+    @Autowired
+    private TokenProfileRepository tokenProfileRepository;
+
+    @Autowired
+    private KeyTransferCapabilityWriter keyTransferCapabilityWriter;
 
     @Autowired
     private AttributeEngine attributeEngine;
@@ -174,6 +190,94 @@ class TokenInstanceServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
+    void reloadStatus_asksAgainWhatItsProfilesExport() throws Exception {
+        // given
+        declareKeyExport();
+        TokenInstanceReference token = persistToken("reloaded-export-token");
+        TokenProfile profile = persistProfile(token, "reloaded-profile");
+        recordAnswer(profile, KeyAlgorithm.RSA);
+        connectorMock.stubExportableKeyTypes(KeyRequestType.KEY_PAIR, KeyAlgorithm.ECDSA);
+        flushAndClear();
+
+        // when
+        TokenInstanceDetailDto reloaded = tokenInstanceService.reloadStatus(SecuredUUID.fromUUID(token.getUuid()));
+
+        // then
+        assertTrue(reloaded.getKeyTransfer().isExportAvailable());
+        assertFalse(reloaded.getKeyTransfer().isImportAvailable());
+        assertEquals(List.of(new TransferableKeyType(KeyRequestType.KEY_PAIR, Set.of(KeyAlgorithm.ECDSA))),
+                recordedAnswer(profile));
+    }
+
+    @Test
+    void getTokenInstance_asksAnUnreachableConnectorOnceForAllItsProfiles() throws Exception {
+        // given
+        declareKeyExport();
+        TokenInstanceReference token = persistToken("unreachable-connector-token");
+        persistProfile(token, "first-unanswered-profile");
+        persistProfile(token, "second-unanswered-profile");
+        connectorMock.stubExportableKeyTypesUnreachable();
+
+        // when
+        TokenInstanceDetailDto detail = tokenInstanceService.getTokenInstance(SecuredUUID.fromUUID(token.getUuid()));
+
+        // then
+        assertFalse(detail.getKeyTransfer().isExportAvailable());
+        connectorMock.verifyExportableKeyTypesRequests(1);
+    }
+
+    @Test
+    void recordAnswer_refusesAnAnswerAskedForBeforeTheTokenChanged() throws Exception {
+        // given
+        TokenInstanceReference token = persistToken("changed-while-asked-token");
+        TokenProfile profile = persistProfile(token, "changed-while-asked-profile");
+        int askedAtRevision = profile.getExportableKeyTypesRevision();
+        keyTransferCapabilityWriter.forgetForToken(token.getUuid());
+        flushAndClear();
+
+        // when
+        Optional<TokenProfileFullModel> recorded = keyTransferCapabilityWriter
+                .recordAnswer(profile.getUuid(), askedAtRevision,
+                        List.of(new TransferableKeyType(KeyRequestType.KEY_PAIR, Set.of(KeyAlgorithm.RSA))));
+
+        // then
+        assertTrue(recorded.isEmpty());
+        flushAndClear();
+        assertNull(recordedAnswer(profile));
+    }
+
+    @Test
+    void getTokenInstance_reportsExportFromItsProfilesWithoutAskingTheConnector() throws Exception {
+        // given
+        declareKeyExport();
+        TokenInstanceReference token = persistToken("cached-export-token");
+        TokenProfile notExporting = persistProfile(token, "not-exporting-profile");
+        notExporting.setExportableKeyTypes(List.of());
+        tokenProfileRepository.saveAndFlush(notExporting);
+        recordAnswer(persistProfile(token, "exporting-profile"), KeyAlgorithm.ECDSA);
+
+        // when
+        TokenInstanceDetailDto detail = tokenInstanceService.getTokenInstance(SecuredUUID.fromUUID(token.getUuid()));
+
+        // then
+        assertTrue(detail.getKeyTransfer().isExportAvailable());
+        connectorMock.verifyExportableKeyTypesRequests(0);
+    }
+
+    @Test
+    void getTokenInstance_reportsExportUnavailableWhenNoProfileCanExport() throws Exception {
+        // given
+        TokenInstanceReference token = persistToken("export-incapable-token");
+        persistProfile(token, "export-incapable-profile");
+
+        // when
+        TokenInstanceDetailDto detail = tokenInstanceService.getTokenInstance(SecuredUUID.fromUUID(token.getUuid()));
+
+        // then
+        assertFalse(detail.getKeyTransfer().isExportAvailable());
+    }
+
+    @Test
     void reloadStatus_sendsPersistedTokenAttributes_andPersistsConnectorStatus() throws Exception {
         // given
         String attributeName = "token-label";
@@ -237,6 +341,31 @@ class TokenInstanceServiceV2ITest extends BaseSpringBootTest {
         flushAndClear();
         TokenInstanceReference reloaded = tokenInstanceReferenceRepository.findById(token.getUuid()).orElseThrow();
         assertEquals(TokenInstanceStatus.CONNECTED, reloaded.getStatus());
+    }
+
+    @Test
+    void updateTokenInstance_refreshesWhatItsProfilesCanExport() throws Exception {
+        // given
+        declareKeyExport();
+        TokenInstanceReference token = persistToken("updated-export-capable-token");
+        TokenProfile profile = persistProfile(token, "updated-token-profile");
+        recordAnswer(profile, KeyAlgorithm.RSA);
+        connectorMock.stubExportableKeyTypes(KeyRequestType.KEY_PAIR, KeyAlgorithm.MLDSA);
+        TokenInstanceRequestDto request = TokenInstanceRequestDtoBuilder
+                .aTokenInstanceRequest()
+                .withName("renamed-export-capable-token")
+                .withConnector(connector.getUuid().toString())
+                .build();
+
+        // when
+        TokenInstanceDetailDto detail = tokenInstanceService
+                .updateTokenInstance(SecuredUUID.fromUUID(token.getUuid()), request);
+
+        // then
+        assertTrue(detail.getKeyTransfer().isExportAvailable());
+        flushAndClear();
+        assertEquals(List.of(new TransferableKeyType(KeyRequestType.KEY_PAIR, Set.of(KeyAlgorithm.MLDSA))),
+                recordedAnswer(profile));
     }
 
     @Test
@@ -498,6 +627,28 @@ class TokenInstanceServiceV2ITest extends BaseSpringBootTest {
         value.setKind("SOFT");
         value.setStatus(TokenInstanceStatus.UNKNOWN);
         return tokenInstanceReferenceRepository.save(value);
+    }
+
+    private void declareKeyExport() {
+        connectorInterface.setFeatures(List.of(FeatureFlag.STATELESS, FeatureFlag.KEY_EXPORT));
+        connectorInterfaceRepository.save(connectorInterface);
+    }
+
+    private TokenProfile persistProfile(TokenInstanceReference token, String name) {
+        TokenProfile value = new TokenProfile();
+        value.setName(name);
+        value.setTokenInstanceReference(token);
+        value.setEnabled(true);
+        return tokenProfileRepository.save(value);
+    }
+
+    private void recordAnswer(TokenProfile profile, KeyAlgorithm algorithm) {
+        profile.setExportableKeyTypes(List.of(new TransferableKeyType(KeyRequestType.KEY_PAIR, Set.of(algorithm))));
+        tokenProfileRepository.saveAndFlush(profile);
+    }
+
+    private List<TransferableKeyType> recordedAnswer(TokenProfile profile) {
+        return tokenProfileRepository.findByUuid(profile.getUuid()).orElseThrow().getExportableKeyTypes();
     }
 
     private TokenInstanceReference findToken(String name) {

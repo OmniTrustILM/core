@@ -37,6 +37,7 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.TokenInstanceInternalService;
 import com.otilm.core.service.TokenProfileExternalService;
 import com.otilm.core.service.TokenProfileInternalService;
+import com.otilm.core.service.handler.KeyTransferCapabilityService;
 import com.otilm.core.service.handler.token.TokenProviderAdapterFactory;
 import com.otilm.core.service.writer.TokenProfileWriter;
 import java.util.List;
@@ -56,10 +57,16 @@ public class TokenProfileServiceImpl implements TokenProfileExternalService, Tok
     private AuthorizationEnforcer authorizationEnforcer;
     private TokenInstanceInternalService tokenInstanceService;
     private AttributeEngine attributeEngine;
+    private KeyTransferCapabilityService keyTransferCapabilityService;
     private TokenProfileRepository tokenProfileRepository;
     private TokenInstanceReferenceRepository tokenInstanceReferenceRepository;
     private TokenProviderAdapterFactory tokenProviderAdapterFactory;
     private TokenProfileWriter tokenProfileWriter;
+
+    @Autowired
+    public void setKeyTransferCapabilityService(KeyTransferCapabilityService keyTransferCapabilityService) {
+        this.keyTransferCapabilityService = keyTransferCapabilityService;
+    }
 
     @Autowired
     public void setAttributeEngine(AttributeEngine attributeEngine) {
@@ -284,6 +291,7 @@ public class TokenProfileServiceImpl implements TokenProfileExternalService, Tok
                                 .builder(Resource.TOKEN_PROFILE, profile.uuid())
                                 .connector(profile.connectorUuid())
                                 .build()));
+        dto.setKeyTransfer(keyTransferCapabilityService.capabilityOf(profile));
         return dto;
     }
 

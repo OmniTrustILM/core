@@ -38,6 +38,7 @@ import com.otilm.api.model.core.logging.enums.OperationResult;
 import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.api.model.core.secret.SecretState;
 import com.otilm.api.model.core.signing.SigningProtocol;
+import com.otilm.core.cbom.asset.ServedAssetType;
 import com.otilm.core.dao.entity.Approval_;
 import com.otilm.core.dao.entity.AuditLog_;
 import com.otilm.core.dao.entity.Audited_;
@@ -411,7 +412,7 @@ public enum FilterField {
     // No entry for identity_key, and there must never be one: given the key, its low-entropy preimage falls to a
     // dictionary attack, and IdentityKeyExposureFenceArchTest fails the build if one appears.
     CBOM_ASSET_TYPE(Resource.CRYPTO_ASSET, null, null, CryptoAsset_.assetType, "Asset Type", SearchFieldTypeEnum.LIST,
-            CryptographicAssetType.class),
+            CryptographicAssetType.class, ServedAssetType.VALUES),
     CBOM_ASSET_NAME(Resource.CRYPTO_ASSET, null, null, CryptoAsset_.name, "Name", SearchFieldTypeEnum.STRING),
     CBOM_ASSET_OID(Resource.CRYPTO_ASSET, null, null, CryptoAsset_.oid, "OID", SearchFieldTypeEnum.STRING),
     CBOM_ASSET_ALGORITHM_FAMILY(Resource.CRYPTO_ASSET, null, null, CryptoAsset_.algorithmFamily, "Algorithm Family",

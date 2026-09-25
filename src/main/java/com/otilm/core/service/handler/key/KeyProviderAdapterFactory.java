@@ -3,6 +3,7 @@ package com.otilm.core.service.handler.key;
 import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
+import com.otilm.api.model.connector.cryptography.v2.OperationResponseValidator;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.OutboundSecretContainment;
 import com.otilm.core.client.ConnectorApiFactory;
@@ -13,6 +14,7 @@ import com.otilm.core.model.connector.ImmutableConnectorFullModel;
 import com.otilm.core.model.connector.ImmutableConnectorInterface;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.crypto.TokenInstanceFullModel;
+import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.OperationAttributeResolver;
 import com.otilm.core.service.v2.ConnectorInternalService;
 import java.util.Objects;
@@ -28,17 +30,22 @@ public class KeyProviderAdapterFactory {
     private final OperationAttributeResolver operationAttributeResolver;
     private final OutboundSecretContainment outboundSecretContainment;
     private final CryptographyV2ApiClients cryptographyV2ApiClients;
+    private final ConnectorCapabilityService connectorCapabilityService;
+    private final OperationResponseValidator responseValidator;
 
     public KeyProviderAdapterFactory(ConnectorInternalService connectorInternalService,
             ConnectorApiFactory connectorApiFactory, AttributeEngine attributeEngine,
             OperationAttributeResolver operationAttributeResolver, OutboundSecretContainment outboundSecretContainment,
-            CryptographyV2ApiClients cryptographyV2ApiClients) {
+            CryptographyV2ApiClients cryptographyV2ApiClients, ConnectorCapabilityService connectorCapabilityService,
+            OperationResponseValidator responseValidator) {
         this.connectorInternalService = connectorInternalService;
         this.connectorApiFactory = connectorApiFactory;
         this.attributeEngine = attributeEngine;
         this.operationAttributeResolver = operationAttributeResolver;
         this.outboundSecretContainment = outboundSecretContainment;
         this.cryptographyV2ApiClients = cryptographyV2ApiClients;
+        this.connectorCapabilityService = connectorCapabilityService;
+        this.responseValidator = responseValidator;
     }
 
     /** A missing interface association identifies a legacy token, even if its connector now advertises v2. */
@@ -90,8 +97,9 @@ public class KeyProviderAdapterFactory {
                     "Cryptography connector interface has no version (" + owner + ")");
         }
         if ("v2".equals(version)) {
-            return new KeyProviderV2Adapter(connectorApiFactory, connector, attributeEngine, operationAttributeResolver,
-                    outboundSecretContainment, cryptographyV2ApiClients.getCryptographicOperationsApiClient(connector));
+            return new KeyProviderV2Adapter(cryptographyV2ApiClients, connector, attributeEngine,
+                    operationAttributeResolver, outboundSecretContainment, connectorCapabilityService,
+                    responseValidator);
         }
         throw new UnsupportedCryptographyProviderVersionException(
                 "Unsupported cryptography connector interface version: " + version + " (" + owner + ")");

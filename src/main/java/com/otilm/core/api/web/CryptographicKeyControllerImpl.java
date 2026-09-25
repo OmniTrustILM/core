@@ -31,9 +31,11 @@ import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.logging.LogResource;
+import com.otilm.core.model.crypto.ExportedKeyMaterial;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
+import com.otilm.core.service.CryptographicKeyExportExternalService;
 import com.otilm.core.service.CryptographicKeyExternalService;
 import com.otilm.core.util.converter.KeyRequestTypeConverter;
 import jakarta.validation.Valid;
@@ -50,10 +52,17 @@ import org.springframework.web.bind.annotation.RestController;
 public class CryptographicKeyControllerImpl implements CryptographicKeyController {
 
     private CryptographicKeyExternalService cryptographicKeyService;
+    private CryptographicKeyExportExternalService cryptographicKeyExportService;
 
     @Autowired
     public void setCryptographicKeyExternalService(CryptographicKeyExternalService cryptographicKeyService) {
         this.cryptographicKeyService = cryptographicKeyService;
+    }
+
+    @Autowired
+    public void setCryptographicKeyExportExternalService(
+            CryptographicKeyExportExternalService cryptographicKeyExportService) {
+        this.cryptographicKeyExportService = cryptographicKeyExportService;
     }
 
     @InitBinder
@@ -136,9 +145,13 @@ public class CryptographicKeyControllerImpl implements CryptographicKeyControlle
     }
 
     @Override
-    public List<BaseAttribute> listExportKeyAttributes(String uuid, String keyItemUuid)
+    @AuditLogged(module = Module.CRYPTOGRAPHIC_KEYS, resource = Resource.ATTRIBUTE, name = "export",
+            affiliatedResource = Resource.CRYPTOGRAPHIC_KEY_ITEM, operation = Operation.LIST_ATTRIBUTES)
+    public List<BaseAttribute> listExportKeyAttributes(String uuid,
+            @LogResource(uuid = true, affiliated = true) String keyItemUuid)
             throws ConnectorException, NotFoundException {
-        return List.of();
+        return cryptographicKeyExportService
+                .listExportKeyAttributes(UUID.fromString(uuid), UUID.fromString(keyItemUuid));
     }
 
     @Override
@@ -149,9 +162,19 @@ public class CryptographicKeyControllerImpl implements CryptographicKeyControlle
     }
 
     @Override
-    public ResponseEntity<org.springframework.core.io.Resource> exportKey(String uuid, String keyItemUuid,
-            @Valid KeyExportRequestDto request) throws ConnectorException, AttributeException, NotFoundException {
-        return null;
+    @AuditLogged(module = Module.CRYPTOGRAPHIC_KEYS, resource = Resource.CRYPTOGRAPHIC_KEY_ITEM,
+            operation = Operation.EXPORT, synchronous = true)
+    public ResponseEntity<org.springframework.core.io.Resource> exportKey(String uuid,
+            @LogResource(uuid = true) String keyItemUuid, @Valid KeyExportRequestDto request)
+            throws ConnectorException, AttributeException, NotFoundException {
+        try {
+            ExportedKeyMaterial exported = cryptographicKeyExportService
+                    .exportKey(UUID.fromString(uuid), UUID.fromString(keyItemUuid), request);
+            return KeyMaterialDownload
+                    .encryptedPrivateKeyPem(exported.keyItemName(), exported.encryptedPrivateKeyInfo());
+        } finally {
+            request.getPassphrase().clear();
+        }
     }
 
     @Override

@@ -168,6 +168,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.Cache;
@@ -641,6 +643,47 @@ class CertificateServiceITest extends BaseSpringBootTest {
             assertThat(nameAndUuidDto.getName()).isEqualTo(certificate.getSerialNumber());
         }
 
+        @ParameterizedTest
+        @NullAndEmptySource
+        @ValueSource(strings = "  ")
+        void returnsResourceObject_markedNotIssued_whenSerialNumberIsMissing(String serialNumber)
+                throws NotFoundException {
+            // given
+            Certificate notIssued = certificateRepository
+                    .save(aCertificate()
+                            .withCommonName("notIssued")
+                            .withSerialNumber(serialNumber)
+                            .withState(CertificateState.REQUESTED)
+                            .build());
+
+            // when
+            NameAndUuidDto internal = certificateService.getResourceObjectInternal(notIssued.getUuid());
+            NameAndUuidDto external = certificateService.getResourceObjectExternal(notIssued.getSecuredUuid());
+
+            // then
+            assertThat(internal.getName()).isEqualTo("notIssued (Not Issued)");
+            assertThat(external.getName()).isEqualTo("notIssued (Not Issued)");
+        }
+
+        @ParameterizedTest
+        @NullAndEmptySource
+        @ValueSource(strings = "  ")
+        void returnsResourceObject_withEmptyPlaceholder_whenSerialNumberAndCommonNameAreMissing(String commonName)
+                throws NotFoundException {
+            // given
+            Certificate notIssued = certificateRepository
+                    .save(aCertificate().withCommonName(commonName).withState(CertificateState.REQUESTED).build());
+            String expectedName = "%s (Not Issued)".formatted(CertificateUtil.EMPTY_COMMON_NAME_PLACEHOLDER);
+
+            // when
+            NameAndUuidDto internal = certificateService.getResourceObjectInternal(notIssued.getUuid());
+            NameAndUuidDto external = certificateService.getResourceObjectExternal(notIssued.getSecuredUuid());
+
+            // then
+            assertThat(internal.getName()).isEqualTo(expectedName);
+            assertThat(external.getName()).isEqualTo(expectedName);
+        }
+
         @Test
         void returnsResourceObjects_withFormattedNames() {
             // given
@@ -654,6 +697,12 @@ class CertificateServiceITest extends BaseSpringBootTest {
                     .withValidationStatus(CertificateValidationStatus.VALID)
                     .build();
             certificateRepository.save(nullSerialNumber);
+            Certificate blankSerialNumber = certificateRepository
+                    .save(aCertificate()
+                            .withCommonName("blankSerialNumber")
+                            .withSerialNumber("")
+                            .withState(CertificateState.REQUESTED)
+                            .build());
 
             // when
             List<NameAndUuidDto> resourceObjects = certificateService
@@ -675,7 +724,9 @@ class CertificateServiceITest extends BaseSpringBootTest {
                                             .formatted(CertificateUtil.EMPTY_COMMON_NAME_PLACEHOLDER,
                                                     blankCommonName.getSerialNumber())),
                             tuple(nullSerialNumber.getUuid().toString(),
-                                    name.formatted(nullSerialNumber.getCommonName(), "Not Issued")));
+                                    name.formatted(nullSerialNumber.getCommonName(), "Not Issued")),
+                            tuple(blankSerialNumber.getUuid().toString(),
+                                    name.formatted(blankSerialNumber.getCommonName(), "Not Issued")));
         }
 
         @ParameterizedTest

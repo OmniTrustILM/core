@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonBackReference;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.enums.BitMaskEnum;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
+import com.otilm.core.model.crypto.TransferableKeyType;
 import com.otilm.core.service.model.Securable;
 import com.otilm.core.util.ObjectAccessControlMapper;
 import jakarta.persistence.Column;
@@ -21,7 +22,9 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.proxy.HibernateProxy;
+import org.hibernate.type.SqlTypes;
 
 @Getter
 @Setter
@@ -59,6 +62,16 @@ public class TokenProfile extends UniquelyIdentifiedAndAudited
     @Column(name = "usage")
     private int usage;
 
+    // S1948: entities are Serializable through UniquelyIdentifiedObject, but nothing Java-serializes them - Jackson
+    // owns the persistence shape of this JSONB field.
+    @SuppressWarnings("java:S1948")
+    @Column(name = "exportable_key_types", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
+    private List<TransferableKeyType> exportableKeyTypes;
+
+    @Column(name = "exportable_key_types_revision", nullable = false)
+    private int exportableKeyTypesRevision;
+
     public void setTokenInstanceReference(TokenInstanceReference tokenInstanceReference) {
         this.tokenInstanceReference = tokenInstanceReference;
         if (tokenInstanceReference != null) {
@@ -73,6 +86,12 @@ public class TokenProfile extends UniquelyIdentifiedAndAudited
     public void setUsage(List<KeyUsage> usage) {
         this.usage = BitMaskEnum
                 .convertSetToBitMask(usage.isEmpty() ? EnumSet.noneOf(KeyUsage.class) : EnumSet.copyOf(usage));
+    }
+
+    /** Drops the export answer; something it was given for has changed. */
+    public void forgetExportableKeyTypes() {
+        exportableKeyTypes = null;
+        exportableKeyTypesRevision++;
     }
 
     @Override

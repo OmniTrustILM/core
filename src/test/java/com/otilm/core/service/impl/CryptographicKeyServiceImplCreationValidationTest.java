@@ -15,6 +15,7 @@ import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.cryptography.key.CreateKeyRequestDto;
@@ -28,14 +29,17 @@ import com.otilm.core.model.crypto.ImmutableTokenInstanceFullModel;
 import com.otilm.core.model.crypto.ImmutableTokenProfileFullModel;
 import com.otilm.core.model.crypto.KeyMaterial;
 import com.otilm.core.model.crypto.ProviderKeyItem;
+import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.service.handler.ConnectorCapabilityService;
+import com.otilm.core.service.handler.KeyTransferCapabilityService;
 import com.otilm.core.service.handler.key.KeyProviderAdapter;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import com.otilm.core.service.handler.key.KeyProviderV1Adapter;
 import com.otilm.core.service.writer.CryptographicKeyWriter;
 import com.otilm.core.util.CryptographyUtil;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -74,6 +78,7 @@ class CryptographicKeyServiceImplCreationValidationTest {
     private final KeyProviderAdapterFactory adapters = mock(KeyProviderAdapterFactory.class);
     private final CryptographicKeyWriter writer = mock(CryptographicKeyWriter.class);
     private final CryptographicKeyItemRepository items = mock(CryptographicKeyItemRepository.class);
+    private final KeyTransferCapabilityService keyTransfer = mock(KeyTransferCapabilityService.class);
     private final CryptographicKeyServiceImpl service = new CryptographicKeyServiceImpl();
     private final ImmutableTokenProfileFullModel profile = tokenProfile();
     private final KeyRequestDto request = keyRequest();
@@ -95,6 +100,10 @@ class CryptographicKeyServiceImplCreationValidationTest {
         service.setKeyProviderAdapterFactory(adapters);
         service.setAttributeEngine(attributeEngine);
         service.setConnectorCapabilityService(new ConnectorCapabilityService());
+        when(keyTransfer.exportableKeyTypes(any()))
+                .thenAnswer(invocation -> Optional
+                        .ofNullable(invocation.<TokenProfileFullModel>getArgument(0).exportableKeyTypes()));
+        service.setKeyTransferCapabilityService(keyTransfer);
     }
 
     @ParameterizedTest
@@ -345,6 +354,62 @@ class CryptographicKeyServiceImplCreationValidationTest {
     }
 
     @Test
+    void createKey_refusesAnExportableKeyOfATypeTheProfileCannotExport() {
+        // given
+        ConnectorCapabilityService capabilities = mock(ConnectorCapabilityService.class);
+        when(capabilities.supports(profile.tokenInstance().connectorInterface(), FeatureFlag.KEY_EXPORT))
+                .thenReturn(true);
+        service.setConnectorCapabilityService(capabilities);
+        request.setExportable(true);
+
+        // when
+        Executable create = () -> createKey(KeyRequestType.SECRET);
+
+        // then
+        ValidationException refused = assertThrows(ValidationException.class, create);
+        assertTrue(refused.getMessage().contains("does not support exporting a secret key"));
+        verifyNoInteractions(client);
+    }
+
+    @Test
+    void createKey_failsWithTheConnectorErrorWhenWhatTheProfileExportsCannotBeLearned() throws Exception {
+        // given
+        ConnectorCapabilityService capabilities = mock(ConnectorCapabilityService.class);
+        when(capabilities.supports(profile.tokenInstance().connectorInterface(), FeatureFlag.KEY_EXPORT))
+                .thenReturn(true);
+        service.setConnectorCapabilityService(capabilities);
+        ConnectorException unreachable = new ConnectorException("Connector is down");
+        when(keyTransfer.exportableKeyTypes(profile)).thenThrow(unreachable);
+        request.setExportable(true);
+
+        // when
+        Executable create = () -> createKey(KeyRequestType.KEY_PAIR);
+
+        // then
+        assertSame(unreachable, assertThrows(ConnectorException.class, create));
+        verifyNoInteractions(client, writer);
+    }
+
+    @Test
+    void createKey_refusesToDecideWhenTheProfileChangedWhileItsCapabilityWasChecked() throws Exception {
+        // given
+        ConnectorCapabilityService capabilities = mock(ConnectorCapabilityService.class);
+        when(capabilities.supports(profile.tokenInstance().connectorInterface(), FeatureFlag.KEY_EXPORT))
+                .thenReturn(true);
+        service.setConnectorCapabilityService(capabilities);
+        when(keyTransfer.exportableKeyTypes(profile)).thenReturn(Optional.empty());
+        request.setExportable(true);
+
+        // when
+        Executable create = () -> createKey(KeyRequestType.KEY_PAIR);
+
+        // then
+        ValidationException refused = assertThrows(ValidationException.class, create);
+        assertTrue(refused.getMessage().contains("changed while its export capability was being checked"));
+        verifyNoInteractions(client, writer);
+    }
+
+    @Test
     void createKey_acceptsAnExportableKeyOnAConnectorThatCanExport() throws Exception {
         // given
         ConnectorCapabilityService capabilities = mock(ConnectorCapabilityService.class);
@@ -385,7 +450,7 @@ class CryptographicKeyServiceImplCreationValidationTest {
                 UUID.randomUUID().toString(), "token", TokenInstanceStatus.ACTIVATED, null, connectorUuid, "connector",
                 connectorInterface.uuid(), connectorInterface, Set.of());
         return new ImmutableTokenProfileFullModel(UUID.randomUUID(), "profile", null, token.name(), token.uuid(), true,
-                List.of(), token, connectorUuid);
+                List.of(), token, connectorUuid, Map.of(KeyRequestType.KEY_PAIR, Set.of(KeyAlgorithm.RSA)), 0);
     }
 
     private static KeyRequestDto keyRequest() {

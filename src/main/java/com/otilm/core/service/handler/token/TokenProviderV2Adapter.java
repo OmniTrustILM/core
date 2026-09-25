@@ -141,7 +141,6 @@ public class TokenProviderV2Adapter implements TokenProviderAdapter {
         RandomDataRequestV2Dto body = new RandomDataRequestV2Dto();
         body.setTokenAttributes(scope.getTokenAttributes());
         body.setTokenProfileAttributes(scope.getTokenProfileAttributes());
-        body.setKeyUsages(scope.getKeyUsages());
         body.setLength(request.getLength());
         body.setOperationAttributes(attributes);
         RandomDataResponseV2Dto connectorResponse = operationsApiClient.randomData(connectorInfo, body);
@@ -182,7 +181,6 @@ public class TokenProviderV2Adapter implements TokenProviderAdapter {
         TokenProfileScopedRequestV2Dto request = new TokenProfileScopedRequestV2Dto();
         request.setTokenAttributes(resolvedTokenAttributes);
         request.setTokenProfileAttributes(resolvedTokenProfileAttributes);
-        request.setKeyUsages(Set.copyOf(tokenProfile.usages()));
         return request;
     }
 
