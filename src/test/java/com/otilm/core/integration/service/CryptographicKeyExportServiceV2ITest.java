@@ -5,6 +5,7 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.classic.spi.ThrowableProxyUtil;
 import ch.qos.logback.core.read.ListAppender;
+import com.otilm.api.exception.ConnectorProblemException;
 import com.otilm.api.exception.ConnectorServerException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
@@ -196,6 +197,26 @@ class CryptographicKeyExportServiceV2ITest extends BaseSpringBootTest {
         assertEquals(KeyEventStatus.SUCCESS, onlyExportEvent().getStatus());
     }
 
+    /** Only key-pair algorithms exist, so the secret is described with one; there is no public key to look up. */
+    @Test
+    void exportKey_exportsASecretKey() throws Exception {
+        // given
+        profile
+                .setExportableKeyTypes(
+                        List.of(new TransferableKeyType(KeyRequestType.SECRET, Set.of(KeyAlgorithm.RSA))));
+        tokenProfileRepository.save(profile);
+        CryptographicKeyItem secret = persistKeyItem(key, KeyType.SECRET_KEY, true, KeyState.ACTIVE, true);
+        byte[] envelope = ExportEnvelopeFixtures.pinnedEnvelope(pair.getPrivate(), PASSPHRASE);
+        connectorMock.stubExportKey(ExportEnvelopeFixtures.secretKeyResponseJson(envelope, KeyAlgorithm.RSA, 2048));
+
+        // when
+        ExportedKeyMaterial exported = exportService.exportKey(key.getUuid(), secret.getUuid(), exportRequest());
+
+        // then
+        assertArrayEquals(envelope, exported.encryptedPrivateKeyInfo());
+        assertEquals(KeyEventStatus.SUCCESS, onlyExportEvent().getStatus());
+    }
+
     @Test
     void exportKey_refusesAKeyThatIsNotExportable() {
         // given
@@ -326,9 +347,9 @@ class CryptographicKeyExportServiceV2ITest extends BaseSpringBootTest {
         connectorMock.verifyExportKeyRequests(0);
     }
 
-    /** The export also needs the key's detail and its token's detail and members, checked on the objects. */
+    /** The export also needs the detail of the key and its profile, and its token's detail and members. */
     @ParameterizedTest
-    @CsvSource({"CRYPTOGRAPHIC_KEY, DETAIL", "TOKEN, DETAIL", "TOKEN, MEMBERS"})
+    @CsvSource({"CRYPTOGRAPHIC_KEY, DETAIL", "TOKEN_PROFILE, DETAIL", "TOKEN, DETAIL", "TOKEN, MEMBERS"})
     void exportKey_refusesWithoutAccessToTheKeyOrItsToken(Resource resource, ResourceAction action) {
         // given
         denyResourceAccess(resource, action);
@@ -500,6 +521,58 @@ class CryptographicKeyExportServiceV2ITest extends BaseSpringBootTest {
 
         // then
         assertTrue(keys.getActions().contains(ResourceAction.EXPORT_KEY.getCode()), keys.getActions().toString());
+    }
+
+    /** A refusal that carries no message still reaches the caller and the key's history. */
+    @Test
+    void exportKey_recordsAConnectorFailureThatCarriesNoMessage() {
+        // given
+        profile.forgetExportableKeyTypes();
+        tokenProfileRepository.save(profile);
+        connectorMock.stubExportableKeyTypesProblemWithoutText();
+        UUID keyUuid = key.getUuid();
+        UUID privateKeyUuid = privateKey.getUuid();
+        KeyExportRequestDto request = exportRequest();
+
+        // when
+        assertThrows(ConnectorProblemException.class, () -> exportService.exportKey(keyUuid, privateKeyUuid, request));
+
+        // then
+        CryptographicKeyEventHistory event = onlyExportEvent();
+        assertEquals(KeyEventStatus.FAILED, event.getStatus());
+        assertEquals("Key item export failed.", event.getMessage());
+    }
+
+    /** An item deleted while the connector exports it takes its history along; the refusal still reaches the caller. */
+    @Test
+    void exportKey_refusesAKeyItemDeletedWhileTheConnectorExported() {
+        // given
+        connectorMock
+                .stubExportKeyAfter(exportAnswer(ExportEnvelopeFixtures.pinnedEnvelope(pair.getPrivate(), PASSPHRASE)),
+                        2000);
+        UUID keyUuid = key.getUuid();
+        UUID privateKeyUuid = privateKey.getUuid();
+        KeyExportRequestDto request = exportRequest();
+        try (ExecutorService executor = Executors.newSingleThreadExecutor()) {
+            Future<ExportedKeyMaterial> export = executor
+                    .submit(DelegatingSecurityContextCallable
+                            .create(() -> exportService.exportKey(keyUuid, privateKeyUuid, request),
+                                    SecurityContextHolder.getContext()));
+            Awaitility
+                    .await("the connector received the export")
+                    .atMost(Duration.ofSeconds(30))
+                    .until(() -> connectorMock.exportKeyRequestsReceived() == 1);
+
+            // when
+            cryptographicKeyItemRepository.deleteById(privateKeyUuid);
+            ExecutionException failure = assertThrows(ExecutionException.class, () -> export.get(30, TimeUnit.SECONDS));
+
+            // then
+            ValidationException refused = assertInstanceOf(ValidationException.class, failure.getCause());
+            assertTrue(refused.getMessage().contains("changed while it was being exported"), refused.getMessage());
+            assertEquals(1, refused.getSuppressed().length, "the history's own failure rides along");
+            assertTrue(exportEvents().isEmpty());
+        }
     }
 
     /** A connector's own words never reach the caller on this path: they may carry the passphrase back. */

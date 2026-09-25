@@ -173,8 +173,9 @@ public class AuditLogAspect {
     }
 
     /**
-     * Queues the record, or writes it at once when the annotation asks for it. A record that cannot be written fails a
-     * call that succeeded; a call that failed keeps its own error, with the write's failure attached.
+     * Queues the record, or writes it at once, with the object names the queue's listener would fill in, when the
+     * annotation asks for it. A record that cannot be written fails a call that succeeded; a call that failed keeps its
+     * own error, with the write's failure attached.
      */
     private void publish(AuditLogged annotation, LogRecord logRecord, AuditLogOutput output, Exception failure) {
         if (!annotation.synchronous()) {
@@ -182,7 +183,7 @@ public class AuditLogAspect {
             return;
         }
         try {
-            auditLogInternalService.log(logRecord, output);
+            auditLogInternalService.log(auditLogEnhancer.withObjectIdentities(logRecord), output);
         } catch (RuntimeException writeFailure) {
             if (failure == null) {
                 throw writeFailure;

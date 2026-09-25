@@ -38,6 +38,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -60,6 +61,7 @@ public class CryptographicKeyExportServiceImpl implements CryptographicKeyExport
     private static final String NO_PUBLIC_RECORD = "Key %s holds no public key to check an export against.";
     private static final String CHANGED = "Key item %s changed while it was being exported. Try again.";
     private static final String PROFILE_CHANGED = "Token profile %s changed during the export. Try again.";
+    private static final String EXPORT_FAILED = "Key item export failed.";
 
     private final AuthorizationEnforcer authorizationEnforcer;
     private final CryptographicKeyRepository cryptographicKeyRepository;
@@ -121,18 +123,39 @@ public class CryptographicKeyExportServiceImpl implements CryptographicKeyExport
                     .addEventHistory(KeyEvent.EXPORT, KeyEventStatus.SUCCESS, "Key item exported.", null, item.uuid());
             return new ExportedKeyMaterial(item.name(), envelope);
         } catch (RuntimeException | ConnectorException | NotFoundException e) {
-            eventHistoryService
-                    .addEventHistory(KeyEvent.EXPORT, KeyEventStatus.FAILED, e.getMessage(), null, item.uuid());
+            recordFailure(item.uuid(), e);
             throw e;
         }
     }
 
-    /** The same checks as withdrawing the export permission: the key's detail, and its token's detail and members. */
+    /**
+     * A failure the history cannot record is attached to the attempt's own, so the caller always learns why the export
+     * did not happen.
+     */
+    private void recordFailure(UUID keyItemUuid, Exception failure) {
+        try {
+            eventHistoryService
+                    .addEventHistory(KeyEvent.EXPORT, KeyEventStatus.FAILED,
+                            Objects.requireNonNullElse(failure.getMessage(), EXPORT_FAILED), null, keyItemUuid);
+        } catch (RuntimeException historyFailure) {
+            failure.addSuppressed(historyFailure);
+        }
+    }
+
+    /**
+     * The detail of the key and of its token profile, as the key operations check, and the detail and members of its
+     * token, as withdrawing the export permission does.
+     */
     private CryptographicKeyBasicModel requireAccess(UUID keyUuid) throws NotFoundException {
         CryptographicKeyBasicModel key = cryptographicKeyRepository
                 .findBasicModelByUuid(keyUuid)
                 .orElseThrow(() -> new NotFoundException(CryptographicKey.class, keyUuid));
         authorizationEnforcer.enforce(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.DETAIL, SecuredUUID.fromUUID(keyUuid));
+        if (key.tokenProfileUuid() != null) {
+            authorizationEnforcer
+                    .enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL,
+                            SecuredUUID.fromUUID(key.tokenProfileUuid()));
+        }
         if (key.tokenInstanceReferenceUuid() != null) {
             SecuredUUID token = SecuredUUID.fromUUID(key.tokenInstanceReferenceUuid());
             authorizationEnforcer.enforce(Resource.TOKEN, ResourceAction.DETAIL, token);

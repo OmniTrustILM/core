@@ -48,9 +48,18 @@ public final class ExportEnvelopeFixtures {
 
     /** The connector's export answer for a key pair, as JSON. */
     public static String keyPairResponseJson(byte[] envelope, KeyAlgorithm algorithm, int length, PublicKey publicKey) {
-        Base64.Encoder base64 = Base64.getEncoder();
-        return "{\"material\":{\"encryptedPrivateKeyInfo\":\"" + base64.encodeToString(envelope) + "\"},"
-                + "\"keyData\":{\"type\":\"Public\",\"algorithm\":\"" + algorithm.getCode() + "\",\"length\":" + length
-                + ",\"publicKeySpki\":\"" + base64.encodeToString(publicKey.getEncoded()) + "\"}}";
+        return responseJson(envelope, "Public", algorithm, length,
+                ",\"publicKeySpki\":\"" + Base64.getEncoder().encodeToString(publicKey.getEncoded()) + "\"");
+    }
+
+    /** The connector's export answer for a secret key, as JSON. */
+    public static String secretKeyResponseJson(byte[] envelope, KeyAlgorithm algorithm, int length) {
+        return responseJson(envelope, "Secret", algorithm, length, "");
+    }
+
+    private static String responseJson(byte[] envelope, String type, KeyAlgorithm algorithm, int length, String rest) {
+        return "{\"material\":{\"encryptedPrivateKeyInfo\":\"" + Base64.getEncoder().encodeToString(envelope)
+                + "\"},\"keyData\":{\"type\":\"" + type + "\",\"algorithm\":\"" + algorithm.getCode() + "\",\"length\":"
+                + length + rest + "}}";
     }
 }

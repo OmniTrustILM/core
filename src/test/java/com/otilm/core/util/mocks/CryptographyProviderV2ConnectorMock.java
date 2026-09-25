@@ -202,6 +202,23 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
         return server.findAll(postRequestedFor(WireMock.urlPathEqualTo(EXPORT_KEY))).size();
     }
 
+    /**
+     * A problem document naming neither a title nor a detail, as RFC 9457 allows, on a status without a reason phrase,
+     * so it carries no text at all.
+     */
+    public CryptographyProviderV2ConnectorMock stubExportableKeyTypesProblemWithoutText() {
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo(EXPORTABLE_KEY_TYPES))
+                        .willReturn(WireMock
+                                .aResponse()
+                                .withStatus(499)
+                                .withHeader("Content-Type", "application/problem+json")
+                                .withBody(
+                                        "{\"status\":499,\"errorCode\":\"KEY_TYPE_NOT_EXPORTABLE\",\"retryable\":false}")));
+        return this;
+    }
+
     public CryptographyProviderV2ConnectorMock stubNoExportableKeyTypes() {
         server.stubFor(WireMock.post(WireMock.urlPathEqualTo(EXPORTABLE_KEY_TYPES)).willReturn(WireMock.okJson("[]")));
         return this;

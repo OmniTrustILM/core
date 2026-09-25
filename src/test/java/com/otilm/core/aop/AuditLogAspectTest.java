@@ -37,6 +37,7 @@ class AuditLogAspectTest {
     private final AuditLogsProducer auditLogsProducer = mock(AuditLogsProducer.class);
     private final AuditLogInternalService auditLogInternalService = mock(AuditLogInternalService.class);
     private final ProceedingJoinPoint joinPoint = mock(ProceedingJoinPoint.class);
+    private final AuditLogEnhancer auditLogEnhancer = mock(AuditLogEnhancer.class);
     private final AuditLogAspect aspect = new AuditLogAspect();
     private SettingsDto previousLoggingSettings;
 
@@ -44,7 +45,8 @@ class AuditLogAspectTest {
     void setUp() {
         aspect.setAuditLogsProducer(auditLogsProducer);
         aspect.setAuditLogInternalService(auditLogInternalService);
-        aspect.setAuditLogEnhancer(mock(AuditLogEnhancer.class));
+        aspect.setAuditLogEnhancer(auditLogEnhancer);
+        when(auditLogEnhancer.withObjectIdentities(any())).thenAnswer(invocation -> invocation.getArgument(0));
         aspect.setAuditResultOverride(mock(AuditResultOverride.class));
         aspect.setAuditOperationDataOverride(mock(AuditOperationDataOverride.class));
         aspect.setAuditAffiliationOverride(mock(AuditAffiliationOverride.class));
@@ -133,6 +135,21 @@ class AuditLogAspectTest {
         // then
         assertEquals("released", result);
         verifyNoInteractions(auditLogInternalService, auditLogsProducer);
+    }
+
+    /** A synchronous record carries the object names a queued one does, filled in by the same enhancer. */
+    @Test
+    void aSynchronousRecordIsWrittenWithTheNamesOfItsObjects() throws Throwable {
+        // given
+        LogRecord named = LogRecord.builder().build();
+        when(auditLogEnhancer.withObjectIdentities(any())).thenReturn(named);
+        when(joinPoint.proceed()).thenReturn("released");
+
+        // when
+        aspect.log(joinPointOn("synchronousProbe"));
+
+        // then
+        verify(auditLogInternalService).log(named, AuditLogOutput.DATABASE);
     }
 
     private ProceedingJoinPoint joinPointOn(String probe) throws NoSuchMethodException {

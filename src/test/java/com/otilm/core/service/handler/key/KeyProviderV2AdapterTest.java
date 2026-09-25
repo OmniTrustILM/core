@@ -1006,6 +1006,40 @@ class KeyProviderV2AdapterTest {
         verify(client, never()).exportKey(any(), any());
     }
 
+    /** Only key-pair algorithms exist, so the secret is described with one; type, algorithm and length are compared. */
+    @Test
+    void exportKey_returnsASecretKeyItsConnectorDescribesAsHeld() throws Exception {
+        // given
+        byte[] envelope = ExportEnvelopeFixtures.pinnedEnvelope(rsaKeyPair().getPrivate(), PASSPHRASE);
+        when(client.listExportKeyAttributes(any(), any())).thenReturn(List.of());
+        when(client.exportKey(any(), any())).thenReturn(secretExportResponse(envelope, 256));
+
+        // when
+        byte[] exported = adapter.exportKey(v2Context(metadata("handle")), heldSecret(256), passphrase(), List.of());
+
+        // then
+        assertArrayEquals(envelope, exported);
+    }
+
+    @Test
+    void exportKey_refusesASecretKeyOfAnotherLength() throws Exception {
+        // given
+        when(client.listExportKeyAttributes(any(), any())).thenReturn(List.of());
+        when(client.exportKey(any(), any()))
+                .thenReturn(secretExportResponse(
+                        ExportEnvelopeFixtures.pinnedEnvelope(rsaKeyPair().getPrivate(), PASSPHRASE), 128));
+        OperationKeyContext context = v2Context(metadata("handle"));
+        HeldKey held = heldSecret(256);
+        Passphrase passphrase = passphrase();
+
+        // when
+        ConnectorServerException refused = assertThrows(ConnectorServerException.class,
+                () -> adapter.exportKey(context, held, passphrase, NO_ATTRIBUTES));
+
+        // then
+        assertEquals(HttpStatus.BAD_GATEWAY, refused.getHttpStatus());
+    }
+
     @Test
     void exportKey_namesARefusalByItsCodeAlone() throws Exception {
         // given
@@ -1545,6 +1579,22 @@ class KeyProviderV2AdapterTest {
 
     private static HeldKey heldKey(PublicKey publicKey) {
         return new HeldKey(KeyRequestType.KEY_PAIR, KeyAlgorithm.RSA, 2048, publicKey.getEncoded(), null);
+    }
+
+    private static HeldKey heldSecret(int length) {
+        return new HeldKey(KeyRequestType.SECRET, KeyAlgorithm.RSA, length, null, null);
+    }
+
+    private static ExportKeyResponseV2Dto secretExportResponse(byte[] envelope, int length) {
+        EncryptedKeyMaterialV2Dto material = new EncryptedKeyMaterialV2Dto();
+        material.setEncryptedPrivateKeyInfo(envelope);
+        SecretKeyDataV2Dto descriptor = new SecretKeyDataV2Dto();
+        descriptor.setAlgorithm(KeyAlgorithm.RSA);
+        descriptor.setLength(length);
+        ExportKeyResponseV2Dto response = new ExportKeyResponseV2Dto();
+        response.setMaterial(material);
+        response.setKeyData(descriptor);
+        return response;
     }
 
     private static ExportKeyResponseV2Dto exportResponse(byte[] envelope, PublicKey publicKey) {
