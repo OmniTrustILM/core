@@ -393,7 +393,7 @@ proxy:
   response-queue: ${BROKER_PROXY_RESPONSE_QUEUE:core}
   # Unique identifier for this Core instance (defaults to hostname/pod name)
   instance-id: ${PROXY_INSTANCE_ID:}
-  # Maximum time to wait for a response from the proxy
+  # Maximum time to wait for a response from the proxy; a request expires on the broker when Core stops waiting
   request-timeout: ${PROXY_REQUEST_TIMEOUT:30s}
   # Maximum number of concurrent pending requests (prevents memory exhaustion)
   max-pending-requests: ${PROXY_MAX_PENDING_REQUESTS:1000}

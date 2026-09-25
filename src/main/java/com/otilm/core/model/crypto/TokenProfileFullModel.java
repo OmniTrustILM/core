@@ -20,7 +20,14 @@ public interface TokenProfileFullModel extends TokenProfileBasicModel {
     Map<KeyRequestType, Set<KeyAlgorithm>> exportableKeyTypes();
 
     /**
-     * Counts the changes the export answer depends on; an answer is recorded only against the count it was asked at.
+     * The algorithms the connector imports into this profile, per key type, as it answered for the profile's current
+     * token and profile attributes and key usages; {@code null} when there is no such answer.
      */
-    int exportableKeyTypesRevision();
+    Map<KeyRequestType, Set<KeyAlgorithm>> importableKeyTypes();
+
+    /**
+     * Counts the changes the import and export answers depend on; an answer is recorded only against the count it was
+     * asked at.
+     */
+    int keyTypesRevision();
 }

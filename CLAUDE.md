@@ -175,6 +175,10 @@ A connector's error text is its own words. On a call that carried a secret (a pa
 
 `@AuditLogged(synchronous = true)` writes the record through `AuditLogInternalService` before the method returns, instead of queueing it, so a record that cannot be written fails the call. It still follows the audit settings: while audit logs are off, or filter the operation out, no record is kept. Use it for operations that hand out sensitive material, such as key export.
 
+## Proxy requests expire when Core stops waiting
+
+`CoreMessageProducer.send` takes how long Core waits for the request and sends it with a JMS time to live of the time still left, so a proxy that comes back after an outage never executes a request Core has given up on. Pass the request's own timeout, not `proxy.request-timeout`: discovery waits longer. The time to live is a parameter of the send: a JMS provider overwrites `JMSExpiration` on the message, so a `MessagePostProcessor` cannot set it.
+
 ## AI-written code: refactor before review
 
 Long methods (>80–100 lines) with heavy comment overhead are a smell. Refactor into named helpers before requesting human review:
