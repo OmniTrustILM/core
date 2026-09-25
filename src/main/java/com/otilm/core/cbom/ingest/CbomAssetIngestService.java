@@ -19,6 +19,7 @@ import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.model.cbom.PqcStaleVerdictRow;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.writer.cbom.CbomAssetSyncStateWriter;
+import com.otilm.core.service.writer.cbom.CbomHeaderCountsWriter;
 import com.otilm.core.service.writer.cbom.CbomIngestFindingWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetAliasWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetSourceWriter;
@@ -112,6 +113,7 @@ public class CbomAssetIngestService {
     private final CbomAssetDetachService detachService;
     private final CbomAssetSyncStateWriter stateWriter;
     private final CbomIngestFindingWriter findingWriter;
+    private final CbomHeaderCountsWriter headerCountsWriter;
     private final CbomRepository cbomRepository;
     private final CryptoAssetRepository assetRepository;
     private final PqcEvaluator evaluator;
@@ -121,7 +123,8 @@ public class CbomAssetIngestService {
 
     public CbomAssetIngestService(CbomAssetExtractor extractor, CryptoAssetWriter assetWriter,
             CryptoAssetSourceWriter sourceWriter, CbomAssetDetachService detachService,
-            CbomAssetSyncStateWriter stateWriter, CbomIngestFindingWriter findingWriter, CbomRepository cbomRepository,
+            CbomAssetSyncStateWriter stateWriter, CbomIngestFindingWriter findingWriter,
+            CbomHeaderCountsWriter headerCountsWriter, CbomRepository cbomRepository,
             CryptoAssetRepository assetRepository, PqcEvaluator evaluator,
             ClusterOperationSynchronizer clusterSynchronizer, TransactionHandler transactionHandler,
             MeterRegistry meterRegistry) {
@@ -131,6 +134,7 @@ public class CbomAssetIngestService {
         this.detachService = detachService;
         this.stateWriter = stateWriter;
         this.findingWriter = findingWriter;
+        this.headerCountsWriter = headerCountsWriter;
         this.cbomRepository = cbomRepository;
         this.assetRepository = assetRepository;
         this.evaluator = evaluator;
@@ -270,6 +274,14 @@ public class CbomAssetIngestService {
             // the backlog pass, and strand this CBOM at IN_PROGRESS until the retry window expires.
             log.warn("CBOM asset ingest: recording the ingest report failed for CBOM {}", cbomUuid, e);
             return fail(cbomUuid, "the cryptographic asset ingest report could not be stored (see the Core log)");
+        }
+
+        // Ahead of the refusals: the counts describe the document's components, whether or not its assets can be keyed.
+        try {
+            runInOwnTransaction(() -> headerCountsWriter.replace(cbomUuid, extraction.headerCounts()));
+        } catch (RuntimeException e) {
+            log.warn("CBOM asset ingest: storing the recounted header counts failed for CBOM {}", cbomUuid, e);
+            return fail(cbomUuid, "the recounted CBOM asset counts could not be stored (see the Core log)");
         }
 
         if (!extraction.ambiguousRefs().isEmpty()) {

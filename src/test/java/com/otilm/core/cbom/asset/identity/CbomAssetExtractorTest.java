@@ -6,6 +6,7 @@ import com.fasterxml.jackson.core.exc.StreamConstraintsException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.core.cbom.asset.OccurrenceEvidenceCapper;
+import com.otilm.core.model.cbom.CbomHeaderCounts;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -136,6 +137,58 @@ class CbomAssetExtractorTest {
 
         assertThat(extraction.assets()).isEmpty();
         assertThat(extraction.skips()).describedAs("a library is not a skip; it was never a candidate").isEmpty();
+    }
+
+    // ---------------------------------------------------------------- header counts
+
+    /**
+     * The recount agrees with the repository's version-2 count: the whole {@code components} tree to any depth, one per
+     * component rather than per distinct asset, and nothing outside that tree -- a cryptographic asset under
+     * {@code metadata.component}, {@code metadata.tools}, {@code services} or {@code formulation} is not inventory.
+     */
+    @Test
+    void theHeaderCountsEveryCryptographicComponentOfTheComponentsTreeAndNothingOutsideIt() {
+        String outOfScope = "[" + algorithm("OUT-OF-SCOPE") + "]";
+        JsonNode document = read("{\"metadata\":{\"component\":{\"type\":\"application\",\"name\":\"app\","
+                + "\"components\":" + outOfScope + "},\"tools\":{\"components\":" + outOfScope + "}},"
+                + "\"services\":[{\"name\":\"svc\",\"components\":" + outOfScope + "}],"
+                + "\"formulation\":[{\"components\":" + outOfScope + "}],\"components\":[" + algorithm("AES-256")
+                + ",{\"type\":\"library\",\"name\":\"lib\",\"components\":[" + algorithm("AES-256") + ","
+                + certificate("a") + "," + cryptographic("tls", "protocol") + ","
+                + cryptographic("key", "related-crypto-material") + "]}]}");
+
+        assertThat(EXTRACTOR.extract(document).headerCounts()).isEqualTo(new CbomHeaderCounts(2, 1, 1, 1, 5));
+    }
+
+    /**
+     * The count wants the type <em>and</em> the properties; extraction takes either. Both halves are pinned, because
+     * unifying the predicates would move one of them: the header would stop agreeing with the repository, or extraction
+     * would start dropping assets.
+     */
+    @Test
+    void theHeaderCountsOnlyTypedComponentsCarryingCryptoPropertiesWhileExtractionTakesEither() {
+        JsonNode document = read("{\"components\":[{\"type\":\"cryptographic-asset\",\"name\":\"untyped\"},"
+                + "{\"type\":\"cryptographic-asset\",\"name\":\"nulled\",\"cryptoProperties\":null},"
+                + "{\"type\":\"library\",\"name\":\"x\",\"cryptoProperties\":{\"assetType\":\"algorithm\"}}]}");
+
+        CbomAssetExtractor.Extraction extraction = EXTRACTOR.extract(document);
+
+        assertThat(extraction.headerCounts()).isEqualTo(CbomHeaderCounts.ZERO);
+        assertThat(extraction.assets()).hasSize(3);
+    }
+
+    @Test
+    void anUnbucketedAssetTypeCountsTowardsTheTotalOnly() {
+        JsonNode document = read("{\"components\":[" + cryptographic("k", "relatedCryptoMaterial") + ","
+                + "{\"type\":\"cryptographic-asset\",\"name\":\"none\",\"cryptoProperties\":{}}]}");
+
+        assertThat(EXTRACTOR.extract(document).headerCounts()).isEqualTo(new CbomHeaderCounts(0, 0, 0, 0, 2));
+    }
+
+    @Test
+    void theHeaderCountReachesTheBottomOfADeeplyNestedDocument() {
+        assertThat(EXTRACTOR.extract(read(nestedDocument(400))).headerCounts())
+                .isEqualTo(new CbomHeaderCounts(1, 0, 0, 0, 1));
     }
 
     // ---------------------------------------------------------------- determinism
@@ -736,6 +789,11 @@ class CbomAssetExtractorTest {
     private static String algorithm(String name) {
         return "{\"type\":\"cryptographic-asset\",\"name\":\"" + name + "\",\"cryptoProperties\":"
                 + "{\"assetType\":\"algorithm\",\"algorithmProperties\":{}}}";
+    }
+
+    private static String cryptographic(String name, String assetType) {
+        return "{\"type\":\"cryptographic-asset\",\"name\":\"" + name + "\",\"cryptoProperties\":{\"assetType\":\""
+                + assetType + "\"}}";
     }
 
     private static String certificate(String subject) {
