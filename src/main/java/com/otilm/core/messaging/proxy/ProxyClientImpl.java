@@ -153,7 +153,7 @@ public class ProxyClientImpl implements ProxyClient {
                 .build();
 
         CompletableFuture<ProxyMessage> messageFuture = correlator.registerRequest(correlationId, timeout);
-        producer.send(message, proxyCode);
+        producer.send(message, proxyCode, timeout);
 
         return messageFuture.thenApply(proxyMessage -> handleResponseForEntity(proxyMessage, responseType, connector));
     }
@@ -240,7 +240,7 @@ public class ProxyClientImpl implements ProxyClient {
         CompletableFuture<ProxyMessage> messageFuture = correlator.registerRequest(correlationId, timeout);
 
         // Send the request
-        producer.send(message, proxyCode);
+        producer.send(message, proxyCode, timeout);
 
         // Transform the response
         return messageFuture.thenApply(proxyMessage -> handleResponse(proxyMessage, responseType, connector));
@@ -484,7 +484,7 @@ public class ProxyClientImpl implements ProxyClient {
                 .build();
 
         // Send without registering for response
-        producer.send(message, proxyCode);
+        producer.send(message, proxyCode, proxyProperties.requestTimeout());
 
         log.debug("Sent fire-and-forget proxy request proxyCode={} messageType={}", proxyCode, resolvedMessageType);
     }
