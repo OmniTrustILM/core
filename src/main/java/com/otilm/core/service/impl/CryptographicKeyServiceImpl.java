@@ -1099,6 +1099,9 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     }
 
     @Override
+    // A single read that joins its caller's transaction; the class-level NOT_SUPPORTED would suspend it onto a second
+    // connection.
+    @Transactional(propagation = Propagation.SUPPORTS)
     public UUID getSignAttributeOwner(UUID keyUuid) {
         if (keyUuid == null) {
             return null;

@@ -167,8 +167,8 @@ import org.springframework.transaction.support.DefaultTransactionDefinition;
 @Service("clientOperationServiceImplV2")
 // Roll back on any exception, checked included, so a connector or attribute failure never commits partial state.
 // The issue/renew/rekey entry points override this with their own NOT_SUPPORTED boundary and manage the persistence
-// transaction internally. submitCertificateRequest does not: reached through the proxy (REST v1 submit, SCEP manual
-// approval) it still runs under this class-level transaction; self-invoked it runs with no ambient transaction.
+// transaction internally. submitCertificateRequest uses SUPPORTS: the REST submit runs without an ambient transaction,
+// as they do, while a caller that brings one (SCEP manual approval) keeps the submission inside it.
 @Transactional(rollbackFor = Exception.class)
 public class ClientOperationServiceImpl implements ClientOperationExternalService, ClientOperationInternalService {
     private static final Logger logger = LoggerFactory.getLogger(ClientOperationServiceImpl.class);
@@ -445,6 +445,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.CREATE)
+    @Transactional(propagation = Propagation.SUPPORTS, rollbackFor = Exception.class)
     public CertificateDetailDto submitCertificateRequest(ClientCertificateRequestDto request,
             CertificateProtocolInfo protocolInfo) throws ConnectorException, CertificateException,
             NoSuchAlgorithmException, AttributeException, CertificateRequestException, NotFoundException {
@@ -482,10 +483,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                             raProfile.getName()));
         }
 
-        // Build the CSR and merge/validate the issue-attributes before opening the persistence transaction. On the
-        // self-invoked issue/renew/rekey paths (NOT_SUPPORTED) this holds no DB connection across the connector
-        // round-trips; proxied callers (REST v1 submit, SCEP manual-approval) still run under the class-level
-        // transaction. Ordering constraint: the uploaded-CSR attribute validation inside generateBase64EncodedCsr
+        // Build the CSR and merge/validate the issue-attributes before opening the persistence transaction, so no
+        // database transaction stays open across the connector round-trips unless the caller brought its own (SCEP
+        // manual approval). Ordering constraint: the uploaded-CSR attribute validation inside generateBase64EncodedCsr
         // must run before the issue-attribute merge.
         PreparedRequest prepared = generateBase64EncodedCsr(request.getRequest(), request.getFormat(),
                 request.getCsrAttributes(), request.getKeyUuid(), request.getTokenProfileUuid(),

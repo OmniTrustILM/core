@@ -90,6 +90,7 @@ import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateExternalService;
 import com.otilm.core.service.CertificateInternalService;
+import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.service.CryptographicOperationExternalService;
 import com.otilm.core.service.CryptographicOperationInternalService;
 import com.otilm.core.service.v2.ClientOperationExternalService;
@@ -138,12 +139,15 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -222,8 +226,12 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     private CertificateEventHistoryRepository certificateEventHistoryRepository;
     @Autowired
     private CertificateContentRepository certificateContentRepository;
-    @Autowired
+    @MockitoSpyBean
     private CryptographicKeyRepository cryptographicKeyRepository;
+    @Autowired
+    private CryptographicKeyInternalService keyInternalService;
+    @Autowired
+    private PlatformTransactionManager transactionManager;
     @Autowired
     private CryptographicKeyItemRepository cryptographicKeyItemRepository;
     @Autowired
@@ -1358,6 +1366,110 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
+    void submitCertificateRequest_claimsAV2KeysSignSchemaOutsideATransaction() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        TokenInstanceReference token = persistV2Token();
+        CryptographicKey key = persistV2Key(token);
+        AtomicReference<Boolean> transactionActive = new AtomicReference<>();
+        when(cryptographicOperationService.listSignAttributeSchema(key.getUuid())).thenAnswer(invocation -> {
+            transactionActive.set(TransactionSynchronizationManager.isActualTransactionActive());
+            return signatureAlgorithmSchema(token.getConnectorUuid());
+        });
+
+        // when
+        clientOperationService.submitCertificateRequest(uploadedRequest(key.getUuid(), sha256WithRsa()), null);
+
+        // then
+        Assertions
+                .assertFalse(transactionActive.get(),
+                        "a submit with no transaction of its own must not open one around the connector's schema call");
+    }
+
+    @Test
+    void submitCertificateRequest_joinsTheCallersTransaction() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        AtomicReference<Boolean> transactionActive = new AtomicReference<>();
+        doAnswer(invocation -> {
+            transactionActive.set(TransactionSynchronizationManager.isActualTransactionActive());
+            return invocation.callRealMethod();
+        }).when(extendedAttributeService).mergeAndValidateIssueAttributes(any(), any());
+        long requests = certificateRequestRepository.count();
+
+        // when
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            submit(uploadedRequest(null, null));
+            status.setRollbackOnly();
+        });
+
+        // then
+        Assertions.assertTrue(transactionActive.get(), "a caller's transaction must be joined, as SCEP relies on");
+        Assertions
+                .assertEquals(requests, certificateRequestRepository.count(),
+                        "the caller's rollback must take the submitted request with it");
+    }
+
+    @Test
+    void submitCertificateRequest_marksTheCallersTransactionRollbackOnlyOnACheckedFailure() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        doThrow(new ConnectorException("authority unavailable"))
+                .when(extendedAttributeService)
+                .mergeAndValidateIssueAttributes(any(), any());
+        AtomicReference<Boolean> rollbackOnly = new AtomicReference<>();
+        ClientCertificateRequestDto request = uploadedRequest(null, null);
+
+        // when
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            Assertions
+                    .assertThrows(ConnectorException.class,
+                            () -> clientOperationService.submitCertificateRequest(request, null));
+            rollbackOnly.set(status.isRollbackOnly());
+            status.setRollbackOnly();
+        });
+
+        // then
+        Assertions.assertTrue(rollbackOnly.get(), "a checked failure must still mark the caller's transaction");
+    }
+
+    @Test
+    void submitCertificateRequest_leavesNoRequestBehindWhenPersistenceFails() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        doThrow(new RuntimeException("persistence failed")).when(certificateRepository).save(any());
+        long requests = certificateRequestRepository.count();
+        ClientCertificateRequestDto request = uploadedRequest(null, null);
+
+        // when
+        Executable submit = () -> clientOperationService.submitCertificateRequest(request, null);
+
+        // then
+        Assertions.assertThrows(RuntimeException.class, submit);
+        Assertions.assertEquals(requests, certificateRequestRepository.count());
+    }
+
+    @Test
+    void getSignAttributeOwner_joinsTheCallersTransaction() {
+        // given
+        AtomicReference<Boolean> transactionActive = new AtomicReference<>();
+        doAnswer(invocation -> {
+            transactionActive.set(TransactionSynchronizationManager.isActualTransactionActive());
+            return Optional.empty();
+        }).when(cryptographicKeyRepository).findV2ConnectorUuidByUuid(any());
+        UUID keyUuid = UUID.randomUUID();
+
+        // when
+        new TransactionTemplate(transactionManager)
+                .executeWithoutResult(status -> keyInternalService.getSignAttributeOwner(keyUuid));
+
+        // then
+        Assertions
+                .assertTrue(transactionActive.get(),
+                        "the owner lookup must not suspend its caller's transaction onto a second connection");
+    }
+
+    @Test
     void rekeyCertificate_reusesTheSignatureAttributesItsV2KeySignedWith() throws Exception {
         // given
         stubAuthorityProviderAttributesEndpoints();
@@ -1487,6 +1599,14 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 .of(new RequestAttributeV3(UUID.fromString(CsrAttributes.COMMON_NAME_UUID),
                         CsrAttributes.COMMON_NAME_ATTRIBUTE_NAME, AttributeContentType.STRING,
                         List.of(new StringAttributeContentV3(value))));
+    }
+
+    private CertificateDetailDto submit(ClientCertificateRequestDto request) {
+        try {
+            return clientOperationService.submitCertificateRequest(request, null);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private ClientCertificateRequestDto uploadedRequest(UUID keyUuid, List<RequestAttribute> signatureAttributes) {
