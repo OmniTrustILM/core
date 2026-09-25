@@ -1,6 +1,7 @@
 package com.otilm.core.config;
 
 import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.cryptography.operations.SignDataRequestDto;
@@ -25,6 +26,7 @@ import org.bouncycastle.asn1.DERNull;
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
+import org.bouncycastle.asn1.x9.X9ObjectIdentifiers;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 import org.mockito.ArgumentCaptor;
@@ -100,7 +102,7 @@ class TokenContentSignerTest {
     }
 
     @Test
-    void getSignature_reportsConnectorFailureAsValidationFailure() throws Exception {
+    void getSignature_reportsConnectorFailureWithoutTheConnectorsText() throws Exception {
         // given
         when(keyProvider.signData(eq(signingKey), any())).thenThrow(new ConnectorException("provider down"));
         TokenContentSigner signer = signer((data, signature) -> true);
@@ -110,7 +112,7 @@ class TokenContentSignerTest {
 
         // then
         ValidationException failure = assertThrows(ValidationException.class, sign);
-        assertTrue(failure.getMessage().contains("provider down"));
+        assertEquals(List.of("Error when communicating with the connector."), descriptions(failure));
     }
 
     @Test
@@ -192,6 +194,26 @@ class TokenContentSignerTest {
 
         // then
         assertFalse(valid);
+    }
+
+    @Test
+    void verifiedAgainst_refusesWithoutTheVerifiersText_whenTheKeyCannotVerifyUnderTheAlgorithm() throws Exception {
+        // given
+        KeyPair keyPair = rsaKeyPair();
+        AlgorithmIdentifier ecdsa = new AlgorithmIdentifier(X9ObjectIdentifiers.ecdsa_with_SHA256);
+        TokenContentSigner.SignatureCheck check = TokenContentSigner
+                .verifiedAgainst(SubjectPublicKeyInfo.getInstance(keyPair.getPublic().getEncoded()), ecdsa);
+
+        // when
+        Executable verify = () -> check.verify(DATA, SIGNATURE);
+
+        // then
+        ValidationException failure = assertThrows(ValidationException.class, verify);
+        assertEquals(List.of("Cannot verify the signature from the connector."), descriptions(failure));
+    }
+
+    private static List<String> descriptions(ValidationException failure) {
+        return failure.getErrors().stream().map(ValidationError::getErrorDescription).toList();
     }
 
     private TokenContentSigner signer(TokenContentSigner.SignatureCheck check) {

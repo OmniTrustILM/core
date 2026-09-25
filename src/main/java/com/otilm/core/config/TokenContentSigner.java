@@ -87,8 +87,8 @@ public class TokenContentSigner implements ContentSigner {
             }
             return signature;
         } catch (ConnectorException e) {
-            throw new ValidationException(
-                    ValidationError.create("Error when communicating with the connector. Error: " + e.getMessage()));
+            logger.warn("Signing with key item {} through the connector failed", signingKey.keyItem().keyItemUuid(), e);
+            throw new ValidationException(ValidationError.create("Error when communicating with the connector."));
         }
     }
 
@@ -128,8 +128,9 @@ public class TokenContentSigner implements ContentSigner {
                 logger.debug("The signature from the connector is malformed", e);
                 return false;
             } catch (OperatorCreationException | IOException e) {
-                throw new ValidationException(ValidationError
-                        .create("Cannot verify the signature from the connector. Error: " + e.getMessage()));
+                logger.warn("The signature from the connector could not be verified", e);
+                throw new ValidationException(
+                        ValidationError.create("Cannot verify the signature from the connector."));
             }
         };
     }
