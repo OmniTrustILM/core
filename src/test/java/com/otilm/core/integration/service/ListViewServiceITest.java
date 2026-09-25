@@ -137,6 +137,16 @@ class ListViewServiceITest extends BaseSpringBootTest {
         return view.getColumns().stream().map(ListViewColumnDto::getFieldIdentifier).toList();
     }
 
+    private static ListViewRequestDto keyRequest(String name) {
+        ListViewRequestDto request = request(name, column("CKI_NAME"));
+        request.setResource(Resource.CRYPTOGRAPHIC_KEY);
+        return request;
+    }
+
+    private List<String> namesOf(Resource resource) {
+        return listViewService.listViews(resource).stream().map(ListViewDto::getName).toList();
+    }
+
     @Test
     void aViewSurvivesTheSessionAndIsInvisibleToOtherUsers() throws AlreadyExistException {
         ListViewDto created = listViewService.createView(request("Expiry watch", column("COMMON_NAME")));
@@ -154,14 +164,14 @@ class ListViewServiceITest extends BaseSpringBootTest {
     @Test
     void viewsAreListedInTheOrderTheyWereCreated() throws AlreadyExistException {
         listViewService.createView(request("B", column("COMMON_NAME")));
+        listViewService.createView(keyRequest("Z"));
         listViewService.createView(request("A", column("COMMON_NAME")));
+        listViewService.createView(keyRequest("Y"));
         listViewService.createView(request("C", column("COMMON_NAME")));
 
-        List<String> expected = List.of("B", "A", "C");
-        Assertions
-                .assertEquals(expected,
-                        listViewService.listViews(Resource.CERTIFICATE).stream().map(ListViewDto::getName).toList());
-        Assertions.assertEquals(expected, listViewService.listViews(null).stream().map(ListViewDto::getName).toList());
+        Assertions.assertEquals(List.of("B", "Z", "A", "Y", "C"), namesOf(null));
+        Assertions.assertEquals(List.of("B", "A", "C"), namesOf(Resource.CERTIFICATE));
+        Assertions.assertEquals(List.of("Z", "Y"), namesOf(Resource.CRYPTOGRAPHIC_KEY));
     }
 
     @Test
