@@ -88,8 +88,11 @@ public final class PqcRules {
      * of the same name cannot be served opposite verdicts.
      *
      * @param nameCarriesNoFinding whether the asset's own name is free of a weak-crypto finding
+     * @param nameLeavesStrengthToSize whether the name clears or resolves no family at all, so that a size may vouch
+     * for the key; an ambiguous or uninstantiated name is a question no key length answers
      */
-    static List<PqcRule> rulesFor(AssetNormalizer normalizer, Predicate<PqcRuleInput> nameCarriesNoFinding) {
+    static List<PqcRule> rulesFor(AssetNormalizer normalizer, Predicate<PqcRuleInput> nameCarriesNoFinding,
+            Predicate<PqcRuleInput> nameLeavesStrengthToSize) {
         return List
                 .of(
                         // ---- Asset types that carry no algorithm of their own -------------------------------------
@@ -139,9 +142,9 @@ public final class PqcRules {
 
                         // ---- Hybrids, before any family rule ------------------------------------------------------
                         // Algorithms only: a key's name may record the construction that produced it. A 256-bit
-                        // session key labelled with a hybrid KEX whose name carries no finding is decided by the
-                        // symmetric rules below; one whose KEX carries a finding inherits it. The verdict is the
-                        // post-quantum component's, so the evaluator resolves it rather than this table. See
+                        // session key labelled with a hybrid KEX that clears is decided by the symmetric rules below;
+                        // one whose KEX carries a finding, or is unresolved, takes the KEX's decision. The verdict is
+                        // the post-quantum component's, so the evaluator resolves it rather than this table. See
                         // PqcEvaluator#hybridDecision.
                         new PqcRule(HYBRID,
                                 input -> input.assetType() == CryptographicAssetType.ALGORITHM && input.isHybrid(),
@@ -150,13 +153,14 @@ public final class PqcRules {
                                 List.of(ASSET_TYPE, ALGORITHM_FAMILY, HYBRID_COMPONENTS, NAME, VARIANT)),
 
                         // ---- Symmetric key material ---------------------------------------------------------------
-                        // A key whose name carries a finding is decided by that name, not by its size. Below 64 a
-                        // bit count cannot be told from a byte count -- 32 is either AES-256 in bytes or a broken key
-                        // in bits -- so the name carries the finding without that ambiguity, and falling through to
-                        // the name's own decision keeps the row under the rule id an operator already queries for
-                        // that primitive.
+                        // Ready and unsized need a name that clears or names no family; weak needs only a name
+                        // without a finding, because a key under 128 bits is weak whichever member it belongs to. Any
+                        // other key is decided by its name, not by its size. Below 64 a bit count cannot be told from
+                        // a byte count -- 32 is either AES-256 in bytes or a broken key in bits -- so the name carries
+                        // the finding without that ambiguity, and falling through to the name's own decision keeps the
+                        // row under the rule id an operator already queries for that primitive.
                         new PqcRule("MATERIAL-SYMMETRIC-READY",
-                                input -> isMaterial(SYMMETRIC_MATERIAL, input) && nameCarriesNoFinding.test(input)
+                                input -> isMaterial(SYMMETRIC_MATERIAL, input) && nameLeavesStrengthToSize.test(input)
                                         && input.materialSize() != null
                                         && input.materialSize() >= MIN_SYMMETRIC_KEY_BITS,
                                 PqcVerdict.READY,
@@ -172,7 +176,7 @@ public final class PqcRules {
                                         + "with no adequate strength",
                                 SYMMETRIC_MATERIAL_FIELDS),
                         new PqcRule("MATERIAL-SYMMETRIC-UNSIZED",
-                                input -> isMaterial(SYMMETRIC_MATERIAL, input) && nameCarriesNoFinding.test(input)
+                                input -> isMaterial(SYMMETRIC_MATERIAL, input) && nameLeavesStrengthToSize.test(input)
                                         && input.materialSize() == null,
                                 PqcVerdict.UNKNOWN,
                                 "A symmetric key whose declared size is absent or implausible, so its strength cannot "

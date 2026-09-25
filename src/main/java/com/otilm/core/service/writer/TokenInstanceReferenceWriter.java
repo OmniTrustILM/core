@@ -28,12 +28,15 @@ public class TokenInstanceReferenceWriter {
     private final TokenInstanceReferenceRepository tokenInstanceReferenceRepository;
     private final AttributeEngine attributeEngine;
     private final CommentInternalService commentService;
+    private final KeyTransferCapabilityWriter keyTransferCapabilityWriter;
 
     public TokenInstanceReferenceWriter(TokenInstanceReferenceRepository tokenInstanceReferenceRepository,
-            AttributeEngine attributeEngine, CommentInternalService commentService) {
+            AttributeEngine attributeEngine, CommentInternalService commentService,
+            KeyTransferCapabilityWriter keyTransferCapabilityWriter) {
         this.tokenInstanceReferenceRepository = tokenInstanceReferenceRepository;
         this.attributeEngine = attributeEngine;
         this.commentService = commentService;
+        this.keyTransferCapabilityWriter = keyTransferCapabilityWriter;
     }
 
     @Transactional
@@ -79,6 +82,8 @@ public class TokenInstanceReferenceWriter {
                 .updateObjectDataAttributesContent(
                         ObjectAttributeContentInfo.builder(Resource.TOKEN, tokenUuid).connector(connectorUuid).build(),
                         dataAttributes);
+        // Every profile's export answer was given for the old token attributes.
+        keyTransferCapabilityWriter.forgetForToken(tokenUuid);
     }
 
     @Transactional

@@ -28,4 +28,9 @@ public record CryptographicKeyItemOperationModel(UUID keyItemUuid, boolean enabl
     public boolean hasConnectorInterface() {
         return connectorInterfaceCode != null;
     }
+
+    /** Returns the connector UUID for this item's operation model or {@code null} for v1 crypto provider. */
+    public UUID operationAttributeOwner() {
+        return hasConnectorInterface() ? connectorUuid : null;
+    }
 }

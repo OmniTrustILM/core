@@ -70,7 +70,8 @@ public interface SigningProfileExternalService {
     List<CertificateDto> listSigningCertificates(SigningWorkflowType signingWorkflowType, boolean qualifiedTimestamp,
             boolean requireNonRepudiation, Set<String> requiredExtendedKeyUsageOids);
 
-    List<BaseAttribute> listSignatureAttributesForCertificate(SecuredUUID certificateUuid) throws NotFoundException;
+    List<BaseAttribute> listSignatureAttributesForCertificate(SecuredUUID certificateUuid)
+            throws NotFoundException, ConnectorException;
 
     List<BaseAttribute> listSignatureFormattingConnectorAttributes(UUID connectorUuid, SecuredUUID signingProfileUuid)
             throws NotFoundException, ConnectorException, AttributeException;

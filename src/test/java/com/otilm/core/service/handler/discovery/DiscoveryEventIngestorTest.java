@@ -1,6 +1,5 @@
 package com.otilm.core.service.handler.discovery;
 
-import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredItemDto;
@@ -30,6 +29,9 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import static com.otilm.core.util.TestPublicKeys.rsaPublicKey;
+import static com.otilm.core.util.TestPublicKeys.spkiBase64;
+import static com.otilm.core.util.builders.DiscoveredKeyDtoBuilder.aPublicKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -46,6 +48,8 @@ import static org.mockito.Mockito.when;
  */
 @ExtendWith(MockitoExtension.class)
 class DiscoveryEventIngestorTest {
+
+    private static final String SPKI = spkiBase64(rsaPublicKey());
 
     @Mock
     private DiscoveryRepository discoveryRepository;
@@ -78,7 +82,7 @@ class DiscoveryEventIngestorTest {
 
         // The agenda row cascaded away with the run, so this is a redelivered obsolete tick, not a fault:
         // throwing would send it round the broker's redelivery loop forever.
-        ingestor.applyDrainPage(gone, page(keyItem(1, "key-a", "fp-a")));
+        ingestor.applyDrainPage(gone, page(keyItem(1, "key-a", null)));
 
         verifyNoInteractions(itemWriter, certificateHandler);
     }
@@ -96,9 +100,11 @@ class DiscoveryEventIngestorTest {
     @Test
     void keyAlreadyInInventory_isStagedAsNotNewlyDiscovered() {
         Discovery run = run();
-        when(keyItemRepository.findKnownFingerprints(Set.of("fp-known"))).thenReturn(List.of("fp-known"));
+        DiscoveredItemDto known = keyItem(1, "key-a", SPKI);
+        String identity = DiscoveredKeyIdentity.of((DiscoveredKeyDto) known.getPayload());
+        when(keyItemRepository.findKnownFingerprints(Set.of(identity))).thenReturn(List.of(identity));
 
-        ingestor.applyDrainPage(run.getUuid(), page(keyItem(1, "key-a", "fp-known")));
+        ingestor.applyDrainPage(run.getUuid(), page(known));
 
         verify(itemWriter).stage(eq(run.getUuid()), any(DiscoveredItemDto.class), eq(false));
     }
@@ -106,15 +112,15 @@ class DiscoveryEventIngestorTest {
     @Test
     void keyMissingFromInventory_isStagedAsNewlyDiscovered() {
         Discovery run = run();
-        when(keyItemRepository.findKnownFingerprints(Set.of("fp-new"))).thenReturn(List.of());
+        when(keyItemRepository.findKnownFingerprints(any())).thenReturn(List.of());
 
-        ingestor.applyDrainPage(run.getUuid(), page(keyItem(1, "key-a", "fp-new")));
+        ingestor.applyDrainPage(run.getUuid(), page(keyItem(1, "key-a", SPKI)));
 
         verify(itemWriter).stage(eq(run.getUuid()), any(DiscoveredItemDto.class), eq(true));
     }
 
     @Test
-    void keyWithoutAFingerprint_isStagedAsNewlyDiscoveredWithoutAnInventoryLookup() {
+    void keyWithoutAPublicPart_isStagedAsNewlyDiscoveredWithoutAnInventoryLookup() {
         Discovery run = run();
 
         ingestor.applyDrainPage(run.getUuid(), page(keyItem(1, "key-a", null)));
@@ -131,7 +137,7 @@ class DiscoveryEventIngestorTest {
     @Test
     void anItemBreakingTheContract_isSkippedWithAMessageRatherThanStaged() {
         Discovery run = run();
-        DiscoveredItemDto leaked = keyItem(1, "key-a", "fp-a");
+        DiscoveredItemDto leaked = keyItem(1, "key-a", null);
         DiscoveredKeyDto payload = (DiscoveredKeyDto) leaked.getPayload();
         payload.setType(KeyType.PRIVATE_KEY);
         payload.setPublicKeyFormat(KeyFormat.PRKI);
@@ -164,15 +170,18 @@ class DiscoveryEventIngestorTest {
         return page;
     }
 
-    private DiscoveredItemDto keyItem(long sequence, String uniqueRef, String fingerprint) {
-        DiscoveredKeyDto payload = new DiscoveredKeyDto();
-        payload.setType(KeyType.PUBLIC_KEY);
-        payload.setAlgorithm(KeyAlgorithm.RSA);
-        payload.setFingerprint(fingerprint);
+    /**
+     * A key with public material, or with none when {@code publicKey} is null: only material gives Core an identity.
+     */
+    private DiscoveredItemDto keyItem(long sequence, String uniqueRef, String publicKey) {
+        DiscoveredKeyDto payload = (publicKey == null ? aPublicKey() : aPublicKey().withSpki(publicKey))
+                .withFingerprint("whatever-the-connector-computed")
+                .build();
         DiscoveredItemDto item = new DiscoveredItemDto();
         item.setSequence(sequence);
         item.setUniqueRef(uniqueRef);
         item.setPayload(payload);
         return item;
     }
+
 }

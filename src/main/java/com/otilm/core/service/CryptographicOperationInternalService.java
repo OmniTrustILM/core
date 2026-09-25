@@ -7,8 +7,9 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.cryptography.operations.SignDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.SignDataResponseDto;
-import com.otilm.api.model.common.attribute.common.BaseAttribute;
-import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
+import com.otilm.core.model.crypto.OperationAttributeSchema;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import java.io.IOException;
@@ -25,15 +26,14 @@ import org.bouncycastle.asn1.x509.Extensions;
 public interface CryptographicOperationInternalService {
 
     /**
-     * Returns the Core-internal signature attribute definitions for the given key algorithm. Unlike the
-     * connector-backed overload, this method operates purely in-memory and requires no token instance or connector
-     * interaction.
+     * Returns signature attribute definitions used for signing, from the provider that serves it.
      *
-     * @param keyAlgorithm the key algorithm
-     * @return list of Core-internal attribute definitions for signing operations
-     * @throws ValidationException when the key algorithm is not supported
+     * @param keyUuid UUID of the key
+     * @return the definitions and the connector owning them, null for Core's registry (crypto v1)
+     * @throws NotFoundException when the key, its private item or its token-profile scope cannot be found
+     * @throws ConnectorException when a cryptography provider v2 cannot be reached or returns no schema
      */
-    List<BaseAttribute> listSignatureAttributes(KeyAlgorithm keyAlgorithm) throws ValidationException;
+    OperationAttributeSchema listSignAttributeSchema(UUID keyUuid) throws NotFoundException, ConnectorException;
 
     /**
      * Same as {@link CryptographicOperationExternalService#signData} but does not record any key event history.
@@ -68,4 +68,18 @@ public interface CryptographicOperationInternalService {
             List<RequestAttribute> signatureAttributes, UUID altKeyUUid, UUID altTokenProfileUuid,
             List<RequestAttribute> altSignatureAttributes) throws NotFoundException, NoSuchAlgorithmException,
             InvalidKeySpecException, IOException, AttributeException;
+
+    /**
+     * The signature algorithm the signing attributes select for the key.
+     *
+     * @param privateKeyItem the signing key item
+     * @param publicKeyItem the matching public key item, which carries the parameter set of a PQC key
+     * @param signatureAttributes the attributes the caller intends to sign with
+     * @throws NotFoundException when the key item's connector cannot be found
+     * @throws ValidationException when the signing attributes select no algorithm the key and the platform can sign
+     * with
+     */
+    SignatureAlgorithm resolveSignatureAlgorithm(CryptographicKeyItemOperationModel privateKeyItem,
+            CryptographicKeyItemOperationModel publicKeyItem, List<RequestAttribute> signatureAttributes)
+            throws NotFoundException;
 }

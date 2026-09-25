@@ -180,10 +180,9 @@ class CryptographicOperationServiceTransactionITest extends BaseSpringBootTest {
         assertTrue(missing.isEmpty(), "Methods without @Transactional(NOT_SUPPORTED): " + missing);
     }
 
-    /** Setters are wiring, and the algorithm-only signature listing answers from a core table. */
+    /** Setters are wiring. */
     private static boolean isServiceOperation(Method method) {
-        return !method.getName().startsWith("set")
-                && !("listSignatureAttributes".equals(method.getName()) && method.getParameterCount() == 1);
+        return !method.getName().startsWith("set");
     }
 
     private static boolean suspendsTransaction(Method method) {

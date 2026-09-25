@@ -72,6 +72,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import lombok.AllArgsConstructor;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -506,6 +507,11 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
         notificationData.setSubjectObjectIdentification(uuidText(data.getCommentUuid()));
         notificationData.setSubjectParentIdentification(uuidText(data.getParentUuid()));
         return notificationData;
+    }
+
+    // The host object's name is not guaranteed; its UUID still tells two notifications apart
+    private static String hostObjectLabel(CommentEventData data) {
+        return StringUtils.isBlank(data.getObjectName()) ? uuidText(data.getObjectUuid()) : data.getObjectName();
     }
 
     private static String uuidText(UUID uuid) {
@@ -944,7 +950,7 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
                 yield commentNotification("%s %s on %s '%s'"
                         .formatted(data.getAuthorUsername(),
                                 data.getParentUuid() == null ? "commented" : "replied to a comment thread",
-                                data.getResource().getLabel(), data.getObjectName()),
+                                data.getResource().getLabel(), hostObjectLabel(data)),
                         data);
             }
             case COMMENT_RESOLVED -> {
@@ -952,7 +958,7 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
                 yield commentNotification("%s %s a comment thread on %s '%s'"
                         .formatted(data.getResolvedByUsername(),
                                 Boolean.TRUE.equals(data.getResolved()) ? "resolved" : "reopened",
-                                data.getResource().getLabel(), data.getObjectName()),
+                                data.getResource().getLabel(), hostObjectLabel(data)),
                         data);
             }
             case CERTIFICATE_REGISTERED -> {

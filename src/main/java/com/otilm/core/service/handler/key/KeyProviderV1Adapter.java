@@ -23,6 +23,7 @@ import com.otilm.api.model.client.cryptography.operations.VerifyDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.VerifyDataResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.cryptography.key.CreateKeyRequestDto;
 import com.otilm.api.model.connector.cryptography.key.KeyData;
@@ -42,11 +43,13 @@ import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
+import com.otilm.core.model.crypto.TransferableKeyType;
 import com.otilm.core.service.handler.LegacyOperationCodec;
 import com.otilm.core.service.handler.OperationDataItem;
 import com.otilm.core.service.handler.OperationResultItem;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.CryptographicHelper;
+import com.otilm.core.util.CryptographyUtil;
 import java.util.List;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
@@ -168,6 +171,12 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
         }
     }
 
+    /** The V1 contract has no export, so a V1 connector exports nothing. */
+    @Override
+    public List<TransferableKeyType> listExportableKeyTypes(TokenProfileFullModel tokenProfile) {
+        return List.of();
+    }
+
     @Override
     public List<BaseAttribute> listCreateKeyAttributes(TokenProfileFullModel tokenProfile, KeyRequestType type)
             throws ConnectorException {
@@ -209,6 +218,20 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
             result.setDecryptedData(toCipherResponse(LegacyOperationCodec.cipherResults(response.getDecryptedData())));
         }
         return result;
+    }
+
+    /**
+     * Core's own signature registry is a legacy provider's signing schema, so it both validates the attributes, as
+     * signing does, and names the algorithm.
+     */
+    @Override
+    public ResolvedSignatureAlgorithm resolveSignatureAlgorithm(CryptographicKeyItemOperationModel privateKeyItem,
+            CryptographicKeyItemOperationModel publicKeyItem, List<RequestAttribute> signatureAttributes) {
+        validateSignatureAttributes(privateKeyItem.keyAlgorithm(), signatureAttributes);
+        String name = CryptographyUtil
+                .resolveSignatureAlgorithmName(privateKeyItem.keyAlgorithm(), signatureAttributes,
+                        publicKeyItem.pqcParameterSpecName());
+        return new ResolvedSignatureAlgorithm(name, SignatureAlgorithm.lookupByCode(name).orElse(null));
     }
 
     @Override

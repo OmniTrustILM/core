@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.otilm.core.cbom.asset.CompositeCurve;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -198,6 +199,8 @@ public record AssetNormalizer(IdentityTables tables) {
 
     private static final Pattern ADJACENT_SIZE_RUN = Pattern.compile("[-_/]?(\\d{2,5})");
 
+    private static final Pattern ADJACENT_KEY_SIZE = Pattern.compile("[-_/]?(\\d{2,5})(?![A-Za-z0-9])");
+
     /**
      * The separators producers use for "either of these", and nothing around them.
      *
@@ -292,7 +295,7 @@ public record AssetNormalizer(IdentityTables tables) {
         String secondary = secondaryTokens(norm.name(), norm.family());
         String variant = joinNonEmpty("+", residue, secondary);
         norm.setVariant(variant == null || variant.isEmpty() ? null : variant);
-        norm.addHybridComponents(hybridComponents(norm.family(), secondary));
+        norm.addHybridComponents(hybridComponents(norm.name(), norm.family(), secondary));
         if (!norm.hybridComponents().isEmpty()) {
             norm
                     .note("L10: hybrid construction (" + String.join(" + ", norm.hybridComponents())
@@ -456,8 +459,62 @@ public record AssetNormalizer(IdentityTables tables) {
         return tables.cipherSuitePatterns().stream().anyMatch(pattern -> pattern.matcher(stripped).find());
     }
 
+    /**
+     * Words that make a name a plan or an alternation rather than one construction. {@code replac} covers replaces,
+     * replaced, replacing and replacement; {@code migrat} covers migrate, migrated, migrating and migration. A two-word
+     * marker takes any run of the separators the name grammar accepts, so {@code fall-back} and {@code DUAL__STACK}
+     * match.
+     */
+    private static final Pattern ALTERNATION_WORDS = Pattern
+            .compile("(?<![a-z0-9])(?:or|either|vs|versus|instead|replac[a-z]*|fall[\\s_-]*back|migrat[a-z]*|"
+                    + "dual[\\s_-]*stack)(?![a-z0-9])", Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Separators that join two names rather than spell one. A slash counts only when whitespace other than a plain
+     * space touches it: {@code SHA-512/224} and {@code A5/1} are single families whose own spelling carries one, and
+     * {@code X25519 / ML-KEM-768} is one hybrid, where a tab or a line break around the slash lays out two entries.
+     * {@code and} and {@code with} are deliberately absent -- {@code X25519 with ML-KEM-768} is a genuine hybrid, and
+     * refusing it would lose a completed migration from the ready set. Matched outside parentheses only: the comma in
+     * {@code X-Wing (X25519, ML-KEM-768)} lists the parts of one construction.
+     */
+    private static final Pattern LIST_SEPARATORS = Pattern.compile("[,;]|[\\s&&[^ ]]/\\s|\\s/[\\s&&[^ ]]");
+
+    private static final Pattern PARENTHESIZED = Pattern.compile("\\([^()]*\\)");
+
+    /**
+     * Whether the name alternates between constructions, or lists them, rather than combining them into one.
+     *
+     * <p>
+     * Co-presence of a classical and a post-quantum token is not enough: {@code ML-KEM-768 with RSA-2048 fallback}
+     * names both, yet its RSA half still stands alone. {@link #hybridComponents} records nothing for such a name.
+     *
+     * <p>
+     * The name is NFKC-folded first, as its stored column is, so a no-break space or a fullwidth comma reads the same
+     * at ingest as on the stored row.
+     */
+    public boolean namesAnAlternation(String name) {
+        if (name == null) {
+            return false;
+        }
+        String folded = Normalizer.normalize(name, Normalizer.Form.NFKC);
+        return ALTERNATION_WORDS.matcher(folded).find() || LIST_SEPARATORS.matcher(outsideParentheses(folded)).find();
+    }
+
+    private static String outsideParentheses(String name) {
+        String previous;
+        String current = name;
+        do {
+            previous = current;
+            current = PARENTHESIZED.matcher(previous).replaceAll(" ");
+        } while (!current.equals(previous));
+        return current;
+    }
+
     /** The constructions a hybrid name names, when it names both kinds. Out-of-key by construction. */
-    public List<String> hybridComponents(String family, String secondary) {
+    public List<String> hybridComponents(String name, String family, String secondary) {
+        if (namesAnAlternation(name)) {
+            return List.of();
+        }
         Set<String> unique = new TreeSet<>();
         if (family != null && !family.isEmpty()) {
             unique.add(AsciiText.fold(family));
@@ -896,6 +953,32 @@ public record AssetNormalizer(IdentityTables tables) {
             return candidate;
         }
         notes.add("size " + candidate + " from " + origin + " outside whitelist");
+        return null;
+    }
+
+    /**
+     * The size the family's own token spells in the name -- {@code AES-64}, {@code AES64}, {@code AES_64},
+     * {@code AES/64} -- or {@code null}. Only the run directly after the family counts, so a mode ({@code AES-GCM-96}),
+     * a tenant label or a hex id elsewhere in a key's name is not read as its length, and a run glued to letters
+     * ({@code Ascon-80pq}) is a variant name rather than a size. The token is matched as {@link #familyFromName} elects
+     * it, word-guarded, so the {@code AES} inside {@code myAESKey} is not the one read, and every such token is tried.
+     */
+    public Integer sizeTheFamilySpells(String name, String family) {
+        if (name == null || family == null) {
+            return null;
+        }
+        for (IdentityTables.GrammarRule rule : tables.nameGrammar()) {
+            if (!rule.family().equals(family)) {
+                continue;
+            }
+            Matcher matcher = rule.strict().matcher(name);
+            while (matcher.find()) {
+                Matcher size = ADJACENT_KEY_SIZE.matcher(name).region(matcher.end(), name.length());
+                if (size.lookingAt()) {
+                    return Integer.valueOf(size.group(1));
+                }
+            }
+        }
         return null;
     }
 

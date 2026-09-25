@@ -1,15 +1,20 @@
 package com.otilm.core.service.impl;
 
+import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.cryptography.key.CompromiseKeyRequestDto;
 import com.otilm.api.model.client.cryptography.key.KeyCompromiseReason;
 import com.otilm.api.model.client.cryptography.key.UpdateKeyUsageRequestDto;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.core.config.cache.CacheEvictor;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
+import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationRow;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
 import com.otilm.core.service.CryptographicKeyEventHistoryService;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
@@ -18,6 +23,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -35,6 +41,7 @@ import static org.mockito.Mockito.when;
 class CryptographicKeyServiceImplSelectionTest {
 
     private final CryptographicKeyRepository repository = mock(CryptographicKeyRepository.class);
+    private final CryptographicKeyItemRepository itemRepository = mock(CryptographicKeyItemRepository.class);
     private final CryptographicKeyWriter writer = mock(CryptographicKeyWriter.class);
     private final KeyProviderAdapterFactory adapters = mock(KeyProviderAdapterFactory.class);
     private final CryptographicKeyEventHistoryService history = mock(CryptographicKeyEventHistoryService.class);
@@ -49,6 +56,7 @@ class CryptographicKeyServiceImplSelectionTest {
     @BeforeEach
     void setUp() {
         service.setCryptographicKeyRepository(repository);
+        service.setCryptographicKeyItemRepository(itemRepository);
         service.setCryptographicKeyWriter(writer);
         service.setKeyProviderAdapterFactory(adapters);
         service.setKeyEventHistoryService(history);
@@ -187,6 +195,35 @@ class CryptographicKeyServiceImplSelectionTest {
             case COMPROMISE -> verify(writer).setKeyItemCompromised(itemUuid, reason);
             case USAGE -> verify(writer).updateUsage(itemUuid, usages);
         }
+    }
+
+    @Test
+    void getPrivateKeyItemModel_throwsNotFound_forAKeyWithoutAPrivateItem() {
+        // given
+        UUID keyUuid = UUID.randomUUID();
+        when(itemRepository.findPrivateOperationRowByKeyUuid(keyUuid)).thenReturn(Optional.empty());
+
+        // when
+        Executable load = () -> service.getPrivateKeyItemModel(keyUuid);
+
+        // then
+        assertThrows(NotFoundException.class, load);
+    }
+
+    @Test
+    void getPrivateKeyItemModel_throwsNotFound_forAKeyWhoseTokenHasNoConnector() {
+        // given
+        UUID keyUuid = UUID.randomUUID();
+        CryptographicKeyItemOperationRow row = new CryptographicKeyItemOperationRow(UUID.randomUUID(), true,
+                KeyAlgorithm.RSA, KeyState.ACTIVE, KeyType.PRIVATE_KEY, 0, null, UUID.randomUUID(), null, keyUuid, null,
+                null, null, null);
+        when(itemRepository.findPrivateOperationRowByKeyUuid(keyUuid)).thenReturn(Optional.of(row));
+
+        // when
+        Executable load = () -> service.getPrivateKeyItemModel(keyUuid);
+
+        // then
+        assertThrows(NotFoundException.class, load);
     }
 
     private void loadParent() {

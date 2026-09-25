@@ -8,8 +8,10 @@ import com.otilm.api.interfaces.client.v2.CryptographicOperationsSyncApiClient;
 import com.otilm.api.interfaces.client.v2.KeySyncApiClient;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV2;
+import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.client.cryptography.operations.CipherDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.CipherRequestData;
@@ -27,11 +29,13 @@ import com.otilm.api.model.common.attribute.common.content.data.SecretAttributeC
 import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
+import com.otilm.api.model.common.attribute.v2.content.BooleanAttributeContentV2;
 import com.otilm.api.model.common.attribute.v2.content.SecretAttributeContentV2;
 import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.connector.common.v2.OperationExecutionMode;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.cryptography.v2.key.CreateKeyAttributesRequestV2Dto;
@@ -51,6 +55,7 @@ import com.otilm.api.model.connector.cryptography.v2.operations.DecryptDataRespo
 import com.otilm.api.model.connector.cryptography.v2.operations.EncryptDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignDataRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignDataResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorithmAttribute;
 import com.otilm.api.model.connector.cryptography.v2.operations.VerifyDataRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.VerifyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.data.CipherDataV2Dto;
@@ -66,6 +71,8 @@ import com.otilm.core.attribute.engine.OutboundSecretLeakException;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.model.connector.ImmutableConnectorFullModel;
+import com.otilm.core.model.connector.ImmutableConnectorInterface;
+import com.otilm.core.model.crypto.CryptographicKeyItemModelFixtures;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
 import com.otilm.core.model.crypto.ImmutableTokenInstanceFullModel;
@@ -73,14 +80,17 @@ import com.otilm.core.model.crypto.ImmutableTokenProfileFullModel;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
+import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.OperationAttributeResolver;
 import java.security.KeyPairGenerator;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -96,6 +106,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -129,7 +140,7 @@ class KeyProviderV2AdapterTest {
         var token = new ImmutableTokenInstanceFullModel(UUID.randomUUID(), null, "token", TokenInstanceStatus.ACTIVATED,
                 null, connectorUuid, connector.name(), null, null, Set.of());
         profile = new ImmutableTokenProfileFullModel(UUID.randomUUID(), "profile", null, token.name(), token.uuid(),
-                true, List.of(KeyUsage.SIGN), token, connectorUuid);
+                true, List.of(KeyUsage.SIGN), token, connectorUuid, Map.of(), 0);
         cryptographicKey = new ImmutableCryptographicKeyFullModel(UUID.randomUUID(), "key", null, profile.uuid(),
                 profile.tokenInstanceReferenceUuid(), profile, profile.tokenInstance(), Set.of(), null, null, null,
                 List.of(), List.of());
@@ -142,7 +153,7 @@ class KeyProviderV2AdapterTest {
         when(attributes.getRequestObjectDataAttributesContent(any())).thenReturn(List.of());
         when(resolver.resolveForConnectorRequestAsSystem(connectorUuid, List.of())).thenReturn(List.of());
         adapter = new KeyProviderV2Adapter(factory, connector, attributes, resolver,
-                new OutboundSecretContainment(new ObjectMapper()), operationsClient);
+                new OutboundSecretContainment(new ObjectMapper()), operationsClient, new ConnectorCapabilityService());
     }
 
     private OperationKeyContext v2Context(List<MetadataAttribute> keyMeta) {
@@ -187,7 +198,6 @@ class KeyProviderV2AdapterTest {
         assertSame(keyMeta, request.getValue().getKeyMeta());
         assertSame(resolvedToken, request.getValue().getTokenAttributes());
         assertSame(resolvedProfile, request.getValue().getTokenProfileAttributes());
-        assertEquals(Set.copyOf(profile.usages()), request.getValue().getKeyUsages());
         assertEquals(OperationExecutionMode.SYNCHRONOUS, request.getValue().getExecutionMode());
     }
 
@@ -300,6 +310,88 @@ class KeyProviderV2AdapterTest {
     }
 
     @Test
+    void resolveSignatureAlgorithm_readsTheSelection_withoutTouchingTheConnector() {
+        // given
+        List<RequestAttribute> signatureAttributes = List
+                .of(stringAttribute("keyLabel", "tsa-key"),
+                        SignatureAlgorithmAttribute.request(SignatureAlgorithm.SHA384_WITH_RSA_PSS));
+
+        // when
+        ResolvedSignatureAlgorithm resolved = adapter
+                .resolveSignatureAlgorithm(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA),
+                        CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA), signatureAttributes);
+
+        // then
+        assertEquals(SignatureAlgorithm.SHA384_WITH_RSA_PSS, resolved.platformAlgorithm());
+        verifyNoInteractions(operationsClient);
+    }
+
+    @Test
+    void resolveSignatureAlgorithm_acceptsThePostQuantumParameterSetOfTheKey() {
+        // when
+        ResolvedSignatureAlgorithm resolved = adapter
+                .resolveSignatureAlgorithm(
+                        CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.MLDSA),
+                        CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.MLDSA, "ML-DSA-65"),
+                        List.of(SignatureAlgorithmAttribute.request(SignatureAlgorithm.ML_DSA_65)));
+
+        // then
+        assertEquals(SignatureAlgorithm.ML_DSA_65, resolved.platformAlgorithm());
+    }
+
+    @Test
+    void resolveSignatureAlgorithm_refusesAMissingSelection() {
+        // when
+        Executable resolve = () -> adapter
+                .resolveSignatureAlgorithm(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA),
+                        CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA),
+                        List.of(stringAttribute("signatureScheme", "PKCS1-v1_5")));
+
+        // then
+        assertThrows(ValidationException.class, resolve);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("selectionsTheKeyCannotSignWith")
+    void resolveSignatureAlgorithm_refusesAnAlgorithmTheKeyCannotSignWith(UnfitSelection selection) {
+        // when
+        Executable resolve = () -> adapter
+                .resolveSignatureAlgorithm(selection.privateKey(), selection.publicKey(),
+                        List.of(SignatureAlgorithmAttribute.request(selection.algorithm())));
+
+        // then
+        ValidationException failure = assertThrows(ValidationException.class, resolve);
+        assertTrue(failure.getMessage().contains(selection.algorithm().getCode()));
+    }
+
+    private static Stream<Named<UnfitSelection>> selectionsTheKeyCannotSignWith() {
+        return Stream
+                .of(named("ECDSA on an RSA key",
+                        new UnfitSelection(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA),
+                                CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA),
+                                SignatureAlgorithm.SHA256_WITH_ECDSA)),
+                        named("ML-DSA on an RSA key",
+                                new UnfitSelection(
+                                        CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA),
+                                        CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA),
+                                        SignatureAlgorithm.ML_DSA_65)),
+                        named("another ML-DSA parameter set",
+                                new UnfitSelection(
+                                        CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.MLDSA),
+                                        CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.MLDSA, "ML-DSA-65"),
+                                        SignatureAlgorithm.ML_DSA_44)),
+                        named("Ed25519, which no platform key algorithm signs with",
+                                new UnfitSelection(
+                                        CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.ECDSA),
+                                        CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.ECDSA),
+                                        SignatureAlgorithm.ED25519)));
+    }
+
+    record UnfitSelection(CryptographicKeyItemOperationModel privateKey, CryptographicKeyItemOperationModel publicKey,
+            SignatureAlgorithm algorithm) {
+    }
+
+    @Test
     void signData_sendsKeyScope_validatesAttributes_andMapsSynchronousResult() throws Exception {
         // given
         List<MetadataAttribute> keyMeta = metadata("durable-key-handle");
@@ -329,7 +421,6 @@ class KeyProviderV2AdapterTest {
         assertSame(keyMeta, sent.getValue().getKeyMeta());
         assertSame(resolvedToken, sent.getValue().getTokenAttributes());
         assertSame(resolvedProfile, sent.getValue().getTokenProfileAttributes());
-        assertEquals(Set.copyOf(profile.usages()), sent.getValue().getKeyUsages());
         assertEquals(OperationExecutionMode.SYNCHRONOUS, sent.getValue().getExecutionMode());
         assertEquals("0", sent.getValue().getData().get(0).getIdentifier());
         assertNull(response.getSignatures().get(0).getIdentifier());
@@ -818,6 +909,16 @@ class KeyProviderV2AdapterTest {
         return definition;
     }
 
+    /** The profile on a token whose cryptography interface declares the given features. */
+    private ImmutableTokenProfileFullModel profileDeclaring(FeatureFlag... features) {
+        ImmutableConnectorInterface cryptography = new ImmutableConnectorInterface(UUID.randomUUID(),
+                ConnectorInterface.CRYPTOGRAPHY, "v2", List.of(features));
+        var token = new ImmutableTokenInstanceFullModel(UUID.randomUUID(), null, "token", TokenInstanceStatus.ACTIVATED,
+                null, profile.connectorUuid(), "connector", cryptography.uuid(), cryptography, Set.of());
+        return new ImmutableTokenProfileFullModel(UUID.randomUUID(), "profile", null, token.name(), token.uuid(), true,
+                List.of(KeyUsage.SIGN), token, profile.connectorUuid(), Map.of(), 0);
+    }
+
     private static RequestAttribute stringAttribute(String name, String value) {
         RequestAttributeV2 attribute = new RequestAttributeV2();
         attribute.setName(name);
@@ -934,13 +1035,16 @@ class KeyProviderV2AdapterTest {
         when(client.createKey(any(), any())).thenReturn(ResponseEntity.ok(secretKeyResponse()));
 
         // when
-        adapter.createKey(profile, KeyRequestType.SECRET, List.of(), profile.name(), true);
+        adapter
+                .createKey(profileDeclaring(FeatureFlag.KEY_EXPORT), KeyRequestType.SECRET, List.of(), profile.name(),
+                        true);
 
         // then
         ArgumentCaptor<CreateKeyRequestV2Dto> request = ArgumentCaptor.forClass(CreateKeyRequestV2Dto.class);
         verify(client).createKey(any(), request.capture());
         RequestAttribute intent = request.getValue().getCreateKeyAttributes().getFirst();
-        assertEquals(UUID.fromString(KeyExportableAttribute.definition().getUuid()), intent.getUuid());
+        assertInstanceOf(RequestAttributeV3.class, intent);
+        assertEquals(KeyExportableAttribute.ATTRIBUTE_UUID, intent.getUuid());
         assertEquals(KeyExportableAttribute.NAME, intent.getName());
         assertEquals(AttributeContentType.BOOLEAN, intent.getContentType());
         assertTrue(KeyExportableAttribute.isRequested(request.getValue().getCreateKeyAttributes()));
@@ -952,7 +1056,9 @@ class KeyProviderV2AdapterTest {
         when(client.createKey(any(), any())).thenReturn(ResponseEntity.ok(secretKeyResponse()));
 
         // when
-        adapter.createKey(profile, KeyRequestType.SECRET, List.of(), profile.name(), false);
+        adapter
+                .createKey(profileDeclaring(FeatureFlag.KEY_EXPORT), KeyRequestType.SECRET, List.of(), profile.name(),
+                        false);
 
         // then
         ArgumentCaptor<CreateKeyRequestV2Dto> request = ArgumentCaptor.forClass(CreateKeyRequestV2Dto.class);
@@ -967,13 +1073,53 @@ class KeyProviderV2AdapterTest {
         when(client.createKey(any(), any())).thenReturn(ResponseEntity.ok(secretKeyResponse()));
 
         // when
-        adapter.createKey(profile, KeyRequestType.SECRET, null, profile.name(), true);
+        adapter.createKey(profileDeclaring(FeatureFlag.KEY_EXPORT), KeyRequestType.SECRET, null, profile.name(), true);
 
         // then
         ArgumentCaptor<CreateKeyRequestV2Dto> request = ArgumentCaptor.forClass(CreateKeyRequestV2Dto.class);
         verify(client).createKey(any(), request.capture());
         assertTrue(KeyExportableAttribute.isRequested(request.getValue().getCreateKeyAttributes()));
         assertEquals(1, request.getValue().getCreateKeyAttributes().size());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void createKey_statesNoExportableIntentToAConnectorWithoutKeyExport(boolean exportable) throws Exception {
+        // given
+        when(client.createKey(any(), any())).thenReturn(ResponseEntity.ok(secretKeyResponse()));
+        RequestAttribute label = requestAttribute("keyLabel");
+
+        // when
+        adapter
+                .createKey(profileDeclaring(FeatureFlag.STATELESS), KeyRequestType.SECRET,
+                        List.of(label, requestAttribute(KeyExportableAttribute.NAME)), profile.name(), exportable);
+
+        // then
+        ArgumentCaptor<CreateKeyRequestV2Dto> request = ArgumentCaptor.forClass(CreateKeyRequestV2Dto.class);
+        verify(client).createKey(any(), request.capture());
+        assertEquals(List.of(label), request.getValue().getCreateKeyAttributes());
+    }
+
+    @Test
+    void createKey_statesItsOwnIntentInPlaceOfOneTheCallerStated() throws Exception {
+        // given
+        when(client.createKey(any(), any())).thenReturn(ResponseEntity.ok(secretKeyResponse()));
+        RequestAttributeV2 statedByTheCaller = new RequestAttributeV2();
+        statedByTheCaller.setUuid(KeyExportableAttribute.ATTRIBUTE_UUID);
+        statedByTheCaller.setName(KeyExportableAttribute.NAME);
+        statedByTheCaller.setContentType(AttributeContentType.BOOLEAN);
+        statedByTheCaller.setContent(List.of(new BooleanAttributeContentV2(true)));
+
+        // when
+        adapter
+                .createKey(profileDeclaring(FeatureFlag.KEY_EXPORT), KeyRequestType.SECRET, List.of(statedByTheCaller),
+                        profile.name(), false);
+
+        // then
+        ArgumentCaptor<CreateKeyRequestV2Dto> request = ArgumentCaptor.forClass(CreateKeyRequestV2Dto.class);
+        verify(client).createKey(any(), request.capture());
+        assertEquals(1, request.getValue().getCreateKeyAttributes().size());
+        assertFalse(KeyExportableAttribute.isRequested(request.getValue().getCreateKeyAttributes()));
     }
 
     @Test
@@ -1009,7 +1155,6 @@ class KeyProviderV2AdapterTest {
         verify(client).createKey(any(), request.capture());
         assertEquals(resolvedToken, request.getValue().getTokenAttributes());
         assertEquals(resolvedProfile, request.getValue().getTokenProfileAttributes());
-        assertEquals(Set.copyOf(profile.usages()), request.getValue().getKeyUsages());
     }
 
     @ParameterizedTest(name = "{0}")
@@ -1063,7 +1208,6 @@ class KeyProviderV2AdapterTest {
         assertEquals(type, request.getValue().getKeyRequestType());
         assertEquals(resolvedToken, request.getValue().getTokenAttributes());
         assertEquals(resolvedProfile, request.getValue().getTokenProfileAttributes());
-        assertEquals(Set.copyOf(profile.usages()), request.getValue().getKeyUsages());
     }
 
     @Test

@@ -9,7 +9,7 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.client.v2.CryptographicOperationsSyncApiClient;
 import com.otilm.api.interfaces.client.v2.KeySyncApiClient;
 import com.otilm.api.model.client.attribute.RequestAttribute;
-import com.otilm.api.model.client.attribute.RequestAttributeV2;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.client.cryptography.operations.CipherDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.CipherRequestData;
@@ -25,10 +25,10 @@ import com.otilm.api.model.client.cryptography.operations.VerifyDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.VerifyDataResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
-import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
-import com.otilm.api.model.common.attribute.v2.content.BooleanAttributeContentV2;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.connector.common.v2.OperationExecutionMode;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.cryptography.v2.KeyScopedRequestV2Dto;
@@ -47,6 +47,7 @@ import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyDataResponseV2
 import com.otilm.api.model.connector.cryptography.v2.operations.CipherDataRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignDataRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignDataResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorithmAttribute;
 import com.otilm.api.model.connector.cryptography.v2.operations.VerifyDataRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.VerifyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.data.CipherDataV2Dto;
@@ -58,12 +59,15 @@ import com.otilm.core.attribute.engine.OutboundSecretContainment;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.model.crypto.CryptographicKeyFullModel;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.crypto.KeyMaterial;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
 import com.otilm.core.model.crypto.TokenProfileBasicModel;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
+import com.otilm.core.model.crypto.TransferableKeyType;
+import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.OperationAttributeResolver;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import java.util.ArrayList;
@@ -82,24 +86,25 @@ import org.springframework.http.ResponseEntity;
 @Slf4j
 public class KeyProviderV2Adapter implements KeyProviderAdapter {
 
-    private static final UUID EXPORTABLE_INTENT_UUID = UUID.fromString(KeyExportableAttribute.definition().getUuid());
-
     private final ApiClientConnectorInfo connectorInfo;
     private final KeySyncApiClient keyManagementSyncApiClient;
     private final AttributeEngine attributeEngine;
     private final OperationAttributeResolver operationAttributeResolver;
     private final OutboundSecretContainment outboundSecretContainment;
     private final CryptographicOperationsSyncApiClient operationsApiClient;
+    private final ConnectorCapabilityService connectorCapabilityService;
 
     public KeyProviderV2Adapter(ConnectorApiFactory connectorApiFactory, ApiClientConnectorInfo connectorInfo,
             AttributeEngine attributeEngine, OperationAttributeResolver operationAttributeResolver,
             OutboundSecretContainment outboundSecretContainment,
-            CryptographicOperationsSyncApiClient operationsApiClient) {
+            CryptographicOperationsSyncApiClient operationsApiClient,
+            ConnectorCapabilityService connectorCapabilityService) {
         this.connectorInfo = connectorInfo;
         this.attributeEngine = attributeEngine;
         this.operationAttributeResolver = operationAttributeResolver;
         this.outboundSecretContainment = outboundSecretContainment;
         this.operationsApiClient = operationsApiClient;
+        this.connectorCapabilityService = connectorCapabilityService;
         this.keyManagementSyncApiClient = connectorApiFactory.getKeyManagementApiClientV2(connectorInfo);
     }
 
@@ -119,7 +124,6 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         DestroyKeyRequestV2Dto request = new DestroyKeyRequestV2Dto();
         request.setTokenAttributes(scope.getTokenAttributes());
         request.setTokenProfileAttributes(scope.getTokenProfileAttributes());
-        request.setKeyUsages(scope.getKeyUsages());
         request.setKeyMeta(keyMeta);
         request.setExecutionMode(OperationExecutionMode.SYNCHRONOUS);
 
@@ -187,28 +191,28 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         CreateKeyRequestV2Dto request = new CreateKeyRequestV2Dto();
         request.setTokenAttributes(scope.getTokenAttributes());
         request.setTokenProfileAttributes(scope.getTokenProfileAttributes());
-        request.setKeyUsages(scope.getKeyUsages());
         request.setKeyRequestType(type);
         request.setExecutionMode(OperationExecutionMode.SYNCHRONOUS);
         request.setKeyCreationId(keyCreationId);
-        request.setCreateKeyAttributes(withExportableIntent(attributes, exportable));
+        request.setCreateKeyAttributes(withExportableIntent(tokenProfile, attributes, exportable));
         return request;
     }
 
     /**
-     * The create attributes with the contract-reserved exportable intent stated on them. It travels as an attribute so
-     * that a replay under the same {@code keyCreationId} carries identical terms.
+     * The create attributes with the contract-reserved exportable intent stated on them, for a connector that declares
+     * key export. A connector that does not has no term for the attribute and receives none, whatever the caller
+     * stated. The intent travels as an attribute so that a replay under the same {@code keyCreationId} carries
+     * identical terms.
      */
-    private static List<RequestAttribute> withExportableIntent(List<RequestAttribute> attributes, boolean exportable) {
-        RequestAttributeV2 intent = new RequestAttributeV2();
-        intent.setUuid(EXPORTABLE_INTENT_UUID);
-        intent.setName(KeyExportableAttribute.NAME);
-        intent.setContentType(AttributeContentType.BOOLEAN);
-        intent.setContent(List.of(new BooleanAttributeContentV2(exportable)));
-
+    private List<RequestAttribute> withExportableIntent(TokenProfileFullModel tokenProfile,
+            List<RequestAttribute> attributes, boolean exportable) {
         List<RequestAttribute> stated = new ArrayList<>(attributes == null ? List.of() : attributes);
         stated.removeIf(attribute -> KeyExportableAttribute.NAME.equals(attribute.getName()));
-        stated.add(intent);
+        if (!connectorCapabilityService
+                .supports(tokenProfile.tokenInstance().connectorInterface(), FeatureFlag.KEY_EXPORT)) {
+            return stated;
+        }
+        stated.add(KeyExportableAttribute.request(exportable));
         return stated;
     }
 
@@ -238,6 +242,16 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         RemoteKeyReference reference = new RemoteKeyReference.MetadataReference(keyMeta);
         return new ProviderKeyItem(name, type, data.getAlgorithm(), data.getLength(), reference, material,
                 data.getMetadata());
+    }
+
+    @Override
+    public List<TransferableKeyType> listExportableKeyTypes(TokenProfileFullModel tokenProfile)
+            throws ConnectorException {
+        return keyManagementSyncApiClient
+                .listExportableKeyTypes(connectorInfo, tokenProfileScopedRequest(tokenProfile))
+                .stream()
+                .map(declared -> new TransferableKeyType(declared.getKeyRequestType(), declared.getAlgorithms()))
+                .toList();
     }
 
     @Override
@@ -283,7 +297,6 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         TokenProfileScopedRequestV2Dto request = new TokenProfileScopedRequestV2Dto();
         request.setTokenAttributes(resolvedTokenAttributes);
         request.setTokenProfileAttributes(resolvedTokenProfileAttributes);
-        request.setKeyUsages(Set.copyOf(tokenProfile.usages()));
         return request;
     }
 
@@ -324,6 +337,40 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
             data.setIdentifier(identifier);
             return data;
         });
+    }
+
+    /**
+     * The contract fixes the name and values of the attribute that selects the algorithm, so Core reads the selection
+     * itself. The connector refuses, at signing, a selection its key does not support.
+     */
+    @Override
+    public ResolvedSignatureAlgorithm resolveSignatureAlgorithm(CryptographicKeyItemOperationModel privateKeyItem,
+            CryptographicKeyItemOperationModel publicKeyItem, List<RequestAttribute> signatureAttributes) {
+        SignatureAlgorithm algorithm = SignatureAlgorithmAttribute.selectedAlgorithm(signatureAttributes);
+        if (!signsWith(algorithm, privateKeyItem.keyAlgorithm(), publicKeyItem.pqcParameterSpecName())) {
+            String signingKey = publicKeyItem.pqcParameterSpecName() == null
+                    ? privateKeyItem.keyAlgorithm().getCode()
+                    : publicKeyItem.pqcParameterSpecName();
+            throw new ValidationException(ValidationError
+                    .create("Signature algorithm {} does not fit the signing key ({}).", algorithm.getCode(),
+                            signingKey));
+        }
+        return ResolvedSignatureAlgorithm.of(algorithm);
+    }
+
+    /** A post-quantum algorithm is its key's parameter set, so it must name the one the key was generated with. */
+    private static boolean signsWith(SignatureAlgorithm algorithm, KeyAlgorithm keyAlgorithm,
+            String pqcParameterSpecName) {
+        return switch (algorithm) {
+            case SHA256_WITH_RSA, SHA384_WITH_RSA, SHA512_WITH_RSA, SHA256_WITH_RSA_PSS, SHA384_WITH_RSA_PSS,
+                    SHA512_WITH_RSA_PSS ->
+                keyAlgorithm == KeyAlgorithm.RSA;
+            case SHA256_WITH_ECDSA, SHA384_WITH_ECDSA, SHA512_WITH_ECDSA -> keyAlgorithm == KeyAlgorithm.ECDSA;
+            case ED25519, ED448 -> false;
+            case FALCON_1024, ML_DSA_44, ML_DSA_65, ML_DSA_87, SLH_DSA_SHA2_128S, SLH_DSA_SHA2_128F, SLH_DSA_SHA2_192S,
+                    SLH_DSA_SHA2_192F, SLH_DSA_SHA2_256S, SLH_DSA_SHA2_256F ->
+                algorithm.getCode().equalsIgnoreCase(pqcParameterSpecName);
+        };
     }
 
     @Override
@@ -433,7 +480,6 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         }
         request.setTokenAttributes(scope.getTokenAttributes());
         request.setTokenProfileAttributes(scope.getTokenProfileAttributes());
-        request.setKeyUsages(scope.getKeyUsages());
         request.setKeyMeta(keyMeta);
         return request;
     }
