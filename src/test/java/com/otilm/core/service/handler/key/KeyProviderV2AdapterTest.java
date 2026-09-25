@@ -8,6 +8,7 @@ import com.otilm.api.interfaces.client.v2.CryptographicOperationsSyncApiClient;
 import com.otilm.api.interfaces.client.v2.KeySyncApiClient;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV2;
+import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
@@ -105,6 +106,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -1041,7 +1043,8 @@ class KeyProviderV2AdapterTest {
         ArgumentCaptor<CreateKeyRequestV2Dto> request = ArgumentCaptor.forClass(CreateKeyRequestV2Dto.class);
         verify(client).createKey(any(), request.capture());
         RequestAttribute intent = request.getValue().getCreateKeyAttributes().getFirst();
-        assertEquals(UUID.fromString(KeyExportableAttribute.definition().getUuid()), intent.getUuid());
+        assertInstanceOf(RequestAttributeV3.class, intent);
+        assertEquals(KeyExportableAttribute.ATTRIBUTE_UUID, intent.getUuid());
         assertEquals(KeyExportableAttribute.NAME, intent.getName());
         assertEquals(AttributeContentType.BOOLEAN, intent.getContentType());
         assertTrue(KeyExportableAttribute.isRequested(request.getValue().getCreateKeyAttributes()));
@@ -1102,7 +1105,7 @@ class KeyProviderV2AdapterTest {
         // given
         when(client.createKey(any(), any())).thenReturn(ResponseEntity.ok(secretKeyResponse()));
         RequestAttributeV2 statedByTheCaller = new RequestAttributeV2();
-        statedByTheCaller.setUuid(UUID.fromString(KeyExportableAttribute.definition().getUuid()));
+        statedByTheCaller.setUuid(KeyExportableAttribute.ATTRIBUTE_UUID);
         statedByTheCaller.setName(KeyExportableAttribute.NAME);
         statedByTheCaller.setContentType(AttributeContentType.BOOLEAN);
         statedByTheCaller.setContent(List.of(new BooleanAttributeContentV2(true)));
