@@ -94,8 +94,8 @@ class CryptographicAssetDetailITest extends BaseSpringBootTest {
         assertEquals(sparsePayload, detail.getSources().get(1).getPayload());
         assertEquals(sparse.getUuid(), detail.getSources().get(1).getCbomUuid());
         assertEquals("urn:uuid:sparse", detail.getSources().get(1).getSerialNumber());
-        // the aggregate is the sum across sources: each occurrences() call above seeds exactly one occurrence, so 1 + 1
-        assertEquals(2L, detail.getOccurrenceCount());
+        // the aggregate is the sum across sources: each occurrences() call above seeds exactly one location, so 1 + 1
+        assertEquals(2L, detail.getSightingCount());
     }
 
     @Test
@@ -117,7 +117,7 @@ class CryptographicAssetDetailITest extends BaseSpringBootTest {
         assertThat(detail.getType()).isEqualTo(CryptographicAssetType.ALGORITHM);
         assertThat(detail.getPqcVerdict()).isEqualTo(PqcVerdict.READY);
         assertThat(detail.getSourceCbomCount()).isEqualTo(1);
-        assertThat(detail.getOccurrenceCount()).isEqualTo(3);
+        assertThat(detail.getSightingCount()).isEqualTo(3);
         assertThat(detail.isQuarantined()).isFalse();
     }
 
@@ -159,10 +159,10 @@ class CryptographicAssetDetailITest extends BaseSpringBootTest {
         assertThat(detail.getPqcVerdict())
                 .describedAs("never evaluated -> UNKNOWN, not null")
                 .isEqualTo(PqcVerdict.UNKNOWN);
-        // the zero-source wire shape: no sources, no elected payload, zero aggregate occurrences
+        // the zero-source wire shape: no sources, no elected payload, zero sightings
         assertThat(detail.getSources()).isEmpty();
         assertThat(detail.getElectedPayload()).isNull();
-        assertThat(detail.getOccurrenceCount()).isZero();
+        assertThat(detail.getSightingCount()).isZero();
     }
 
     /**
@@ -220,7 +220,7 @@ class CryptographicAssetDetailITest extends BaseSpringBootTest {
         assertThat(source.getEvidence())
                 .describedAs("evidence is capped even though every occurrence was reported")
                 .hasSize(OccurrenceEvidenceCapper.MAX_OCCURRENCES);
-        assertThat(source.getOccurrenceCount()).describedAs("the true, unclipped count is still served").isEqualTo(55);
+        assertThat(source.getLocationCount()).describedAs("the true, unclipped count is still served").isEqualTo(55);
         assertThat(source.getEvidence().get(0).getLocation()).isEqualTo("src/f0.c");
         assertThat(source.getEvidence().get(0).getLine()).isEqualTo(0);
     }
@@ -295,7 +295,7 @@ class CryptographicAssetDetailITest extends BaseSpringBootTest {
 
         assertThat(detail.getSources()).isEmpty();
         assertThat(detail.getSourceCbomCount()).isEqualTo(2);
-        assertThat(detail.getOccurrenceCount()).isEqualTo(2L);
+        assertThat(detail.getSightingCount()).isEqualTo(2L);
         assertThat(detail.getElectedPayload())
                 .describedAs("the electing document is hidden by the same denial that empties sources[]")
                 .isNull();
@@ -384,13 +384,13 @@ class CryptographicAssetDetailITest extends BaseSpringBootTest {
         assertThat(detail.getSources()).hasSize(1);
         assertThat(detail.getSources().get(0).getCbomUuid()).isEqualTo(cbomA.getUuid());
         assertThat(detail.getSourceCbomCount()).isEqualTo(2);
-        assertThat(detail.getOccurrenceCount()).isEqualTo(2L);
+        assertThat(detail.getSightingCount()).isEqualTo(2L);
     }
 
     /**
      * F3: the asset-level source fan-out has no cap of its own -- one row per contributing CBOM, unlike the per-source
      * evidence {@link OccurrenceEvidenceCapper} already bounds. 101 lightweight documents is enough to prove the served
-     * list stays bounded while sourceCbomCount and occurrenceCount keep the true totals.
+     * list stays bounded while sourceCbomCount and sightingCount keep the true totals.
      */
     @Test
     void capsServedSourcesButKeepsTheTrueTotals() throws NotFoundException {
@@ -410,7 +410,7 @@ class CryptographicAssetDetailITest extends BaseSpringBootTest {
 
         assertThat(detail.getSources()).hasSize(100);
         assertThat(detail.getSourceCbomCount()).isEqualTo(total);
-        assertThat(detail.getOccurrenceCount()).isEqualTo((long) total);
+        assertThat(detail.getSightingCount()).isEqualTo((long) total);
         List<UUID> servedCbomUuids = detail
                 .getSources()
                 .stream()
