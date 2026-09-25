@@ -87,6 +87,7 @@ import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.model.ActionMessage;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.model.crypto.OperationAttributeSchema;
 import com.otilm.core.model.request.CertificateRequest;
 import com.otilm.core.model.request.CrmfCertificateRequest;
 import com.otilm.core.model.request.Pkcs10CertificateRequest;
@@ -2300,7 +2301,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     private void createRequestFromKeys(ClientCertificateRekeyRequestDto request, Certificate oldCertificate,
-            ClientCertificateRequestDto certificateRequestDto) throws CertificateException, NotFoundException {
+            ClientCertificateRequestDto certificateRequestDto)
+            throws CertificateException, NotFoundException, ConnectorException, AttributeException {
         // TODO: implement support for CRMF, currently only PKCS10 is supported
         UUID keyUuid = existingKeyValidation(request.getKeyUuid(), request.getSignatureAttributes(), oldCertificate);
         X509Certificate x509Certificate = CertificateUtil
@@ -2315,6 +2317,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 signatureAttributes = attributeEngine
                         .getRequestObjectDataAttributesContent(ObjectAttributeContentInfo
                                 .builder(Resource.CERTIFICATE_REQUEST, oldCertificate.getCertificateRequest().getUuid())
+                                .connector(keyInternalService
+                                        .getSignAttributeOwner(oldCertificate.getCertificateRequest().getKeyUuid()))
                                 .operation(AttributeOperation.SIGN)
                                 .build());
             } else {
@@ -2337,6 +2341,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                             .getRequestObjectDataAttributesContent(ObjectAttributeContentInfo
                                     .builder(Resource.CERTIFICATE_REQUEST,
                                             oldCertificate.getCertificateRequest().getUuid())
+                                    .connector(keyInternalService
+                                            .getSignAttributeOwner(
+                                                    oldCertificate.getCertificateRequest().getAltKeyUuid()))
                                     .operation(AttributeOperation.SIGN)
                                     .purpose(AttributeContentPurpose.CERTIFICATE_REQUEST_ALT_KEY)
                                     .build());
@@ -3002,19 +3009,44 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * @param signatureAttributes Signature attributes
      * @return Base64 encoded CSR string
      * @throws NotFoundException When the key or tokenProfile UUID is not found
+     * @throws ConnectorException When a cryptography provider v2 cannot serve the key's signing schema
+     * @throws AttributeException When that schema cannot be stored
      */
     private String generateBase64EncodedCsr(UUID keyUuid, UUID tokenProfileUuid, X500Principal principal,
             Extensions extensions, List<RequestAttribute> signatureAttributes, UUID altKeyUUid,
-            UUID altTokenProfileUuid, List<RequestAttribute> altSignatureAttributes) throws NotFoundException {
+            UUID altTokenProfileUuid, List<RequestAttribute> altSignatureAttributes)
+            throws NotFoundException, ConnectorException, AttributeException {
+        String csr;
         try {
             // Generate the CSR with the above-mentioned information
-            return cryptographicOperationService
+            csr = cryptographicOperationService
                     .generateCsr(keyUuid, tokenProfileUuid, principal, extensions, signatureAttributes, altKeyUUid,
                             altTokenProfileUuid, altSignatureAttributes);
         } catch (InvalidKeySpecException | IOException | NoSuchAlgorithmException | AttributeException e) {
             throw new ValidationException(
                     ValidationError.create("Failed to generate the CSR. Error: " + e.getMessage()));
         }
+        claimSignAttributeSchema(keyUuid, signatureAttributes);
+        if (altKeyUUid != null && altTokenProfileUuid != null) {
+            claimSignAttributeSchema(altKeyUUid, altSignatureAttributes);
+        }
+        return csr;
+    }
+
+    /**
+     * Validates a v2 key's signing attributes against its connector's schema and claims that schema for signing, so the
+     * certificate request can store them under the connector and read them back. A v1 key signs with Core's registry,
+     * which is stored for signing already. Runs after the CSR is signed, so the key's authorization has been checked.
+     */
+    private void claimSignAttributeSchema(UUID keyUuid, List<RequestAttribute> signatureAttributes)
+            throws NotFoundException, ConnectorException, AttributeException {
+        if (keyInternalService.getSignAttributeOwner(keyUuid) == null) {
+            return;
+        }
+        OperationAttributeSchema schema = cryptographicOperationService.listSignAttributeSchema(keyUuid);
+        attributeEngine
+                .validateUpdateDataAttributes(schema.ownerConnectorUuid(), AttributeOperation.SIGN,
+                        schema.definitions(), signatureAttributes == null ? List.of() : signatureAttributes);
     }
 
     /**

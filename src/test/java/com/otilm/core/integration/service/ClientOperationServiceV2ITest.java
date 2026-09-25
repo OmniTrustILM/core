@@ -10,9 +10,14 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
+import com.otilm.api.model.client.attribute.ResponseAttribute;
 import com.otilm.api.model.client.certificate.CancelPendingCertificateRequestDto;
 import com.otilm.api.model.client.certificate.ManuallyIssueCertificateRequestDto;
+import com.otilm.api.model.client.connector.v2.ConnectorInterface;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.common.NameAndIdDto;
+import com.otilm.api.model.common.attribute.common.AttributeContent;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
@@ -22,21 +27,29 @@ import com.otilm.api.model.common.attribute.v2.content.ObjectAttributeContentV2;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
+import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
+import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorithmAttribute;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.cryptography.key.KeyState;
+import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRekeyRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
+import com.otilm.api.model.core.v2.ClientCertificateRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
 import com.otilm.core.attribute.CsrAttributes;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
@@ -45,11 +58,13 @@ import com.otilm.core.dao.entity.CertificateLocation;
 import com.otilm.core.dao.entity.CertificateRelation;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.Connector;
+import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.EntityInstanceReference;
 import com.otilm.core.dao.entity.Location;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
@@ -66,10 +81,13 @@ import com.otilm.core.dao.repository.EntityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.FunctionGroupRepository;
 import com.otilm.core.dao.repository.LocationRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
+import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.model.crypto.OperationAttributeSchema;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
+import com.otilm.core.service.CertificateExternalService;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.CryptographicOperationExternalService;
 import com.otilm.core.service.CryptographicOperationInternalService;
@@ -168,6 +186,9 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     @Autowired
     private CertificateInternalService certificateService;
 
+    @Autowired
+    private CertificateExternalService certificateExternalService;
+
     @MockitoBean
     private CryptographicOperationInternalService cryptographicOperationService;
 
@@ -206,6 +227,8 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     private CryptographicKeyItemRepository cryptographicKeyItemRepository;
     @Autowired
     private TokenProfileRepository tokenProfileRepository;
+    @Autowired
+    private TokenInstanceReferenceRepository tokenInstanceReferenceRepository;
     @Autowired
     private CertificateRelationRepository certificateRelationRepository;
     @Autowired
@@ -1231,6 +1254,177 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         Assertions
                 .assertThrows(ValidationException.class, () -> clientOperationService
                         .renewCertificate(authorityUuid, raProfileUuid, certificateUuid, renewRequest));
+    }
+
+    @Test
+    void submitCertificateRequest_storesAV2KeysSignatureAttributesUnderItsConnector() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        TokenInstanceReference token = persistV2Token();
+        CryptographicKey key = persistV2Key(token);
+        when(cryptographicOperationService.listSignAttributeSchema(key.getUuid()))
+                .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
+        when(cryptographicOperationService
+                .generateCsr(eq(key.getUuid()), eq(key.getTokenProfileUuid()), any(), any(), anyList(), any(), any(),
+                        any()))
+                .thenReturn(SAMPLE_PKCS10);
+        ClientCertificateRequestDto request = new ClientCertificateRequestDto();
+        request.setRaProfileUuid(raProfile.getUuid());
+        request.setFormat(CertificateRequestFormat.PKCS10);
+        request.setKeyUuid(key.getUuid());
+        request.setTokenProfileUuid(key.getTokenProfileUuid());
+        request.setCsrAttributes(commonName("v2-signed"));
+        request.setSignatureAttributes(sha256WithRsa());
+        request.setIssueAttributes(List.of());
+
+        // when
+        CertificateDetailDto submitted = clientOperationService.submitCertificateRequest(request, null);
+
+        // then
+        CertificateDetailDto detail = certificateExternalService
+                .getCertificate(SecuredUUID.fromString(submitted.getUuid()));
+        Assertions
+                .assertEquals(List.of("signatureAlgorithm=SHA256withRSA"),
+                        describe(detail.getCertificateRequest().getSignatureAttributes()));
+    }
+
+    @Test
+    void rekeyCertificate_reusesTheSignatureAttributesItsV2KeySignedWith() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        TokenInstanceReference token = persistV2Token();
+        CryptographicKey oldKey = persistV2Key(token);
+        CryptographicKey newKey = persistV2Key(token);
+        when(cryptographicOperationService.listSignAttributeSchema(any()))
+                .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
+        X509Certificate predecessor = CertificateTestUtil
+                .createCertificateWithSubjectAndSans("CN=rekey.example.com",
+                        new GeneralName(GeneralName.dNSName, "rekey.example.com"));
+        CertificateContent content = new CertificateContent();
+        content.setContent(Base64.getEncoder().encodeToString(predecessor.getEncoded()));
+        certificateContentRepository.save(content);
+        CertificateRequestEntity signedRequest = CertificateRequestEntityBuilder
+                .aCertificateRequest()
+                .withContent("content")
+                .build();
+        signedRequest.setKeyUuid(oldKey.getUuid());
+        certificateRequestRepository.save(signedRequest);
+        attributeEngine
+                .validateUpdateDataAttributes(token.getConnectorUuid(), AttributeOperation.SIGN,
+                        signatureAlgorithmSchema(token.getConnectorUuid()).definitions(), sha256WithRsa());
+        attributeEngine
+                .updateObjectDataAttributesContent(ObjectAttributeContentInfo
+                        .builder(Resource.CERTIFICATE_REQUEST, signedRequest.getUuid())
+                        .connector(token.getConnectorUuid())
+                        .operation(AttributeOperation.SIGN)
+                        .build(), sha256WithRsa());
+        certificate.setCertificateContent(content);
+        certificate.setHybridCertificate(false);
+        certificate.setAltKeyUuid(null);
+        certificate.setKeyUuid(oldKey.getUuid());
+        certificate.setCertificateRequest(signedRequest);
+        certificate.setCertificateRequestUuid(signedRequest.getUuid());
+        certificateRepository.save(certificate);
+        ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
+        request.setFormat(CertificateRequestFormat.PKCS10);
+        request.setKeyUuid(newKey.getUuid());
+        request.setTokenProfileUuid(newKey.getTokenProfileUuid());
+        when(cryptographicOperationService
+                .generateCsr(eq(newKey.getUuid()), eq(newKey.getTokenProfileUuid()), any(), any(), anyList(), any(),
+                        any(), any()))
+                .thenReturn(Base64.getEncoder().encodeToString(predecessor.getEncoded()));
+
+        // when
+        try {
+            clientOperationService
+                    .rekeyCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                            String.valueOf(certificate.getUuid()), request);
+        } catch (Exception e) {
+            // The stubbed CSR is a certificate, so the submission after it may fail; the captured argument is
+            // recorded before that and is all this test asserts.
+        }
+
+        // then
+        ArgumentCaptor<List<RequestAttribute>> signatureAttributes = ArgumentCaptor.captor();
+        verify(cryptographicOperationService)
+                .generateCsr(eq(newKey.getUuid()), eq(newKey.getTokenProfileUuid()), any(), any(),
+                        signatureAttributes.capture(), any(), any(), any());
+        Assertions
+                .assertEquals(List.of(SignatureAlgorithmAttribute.NAME),
+                        signatureAttributes.getValue().stream().map(RequestAttribute::getName).toList());
+    }
+
+    private TokenInstanceReference persistV2Token() {
+        Connector cryptographyConnector = new Connector();
+        cryptographyConnector.setName("cryptography-provider-v2");
+        cryptographyConnector.setUrl("http://localhost:1");
+        cryptographyConnector.setVersion(ConnectorVersion.V2);
+        cryptographyConnector.setStatus(ConnectorStatus.CONNECTED);
+        cryptographyConnector = connectorRepository.save(cryptographyConnector);
+        ConnectorInterfaceEntity cryptography = new ConnectorInterfaceEntity();
+        cryptography.setConnector(cryptographyConnector);
+        cryptography.setConnectorUuid(cryptographyConnector.getUuid());
+        cryptography.setInterfaceCode(ConnectorInterface.CRYPTOGRAPHY);
+        cryptography.setVersion("v2");
+        cryptography.setFeatures(List.of(FeatureFlag.STATELESS));
+        cryptography = connectorInterfaceRepository.save(cryptography);
+        TokenInstanceReference token = new TokenInstanceReference();
+        token.setName("v2-token");
+        token.setConnector(cryptographyConnector);
+        token.setConnectorUuid(cryptographyConnector.getUuid());
+        token.setConnectorInterface(cryptography);
+        token.setKind("HSM");
+        token.setStatus(TokenInstanceStatus.ACTIVATED);
+        return tokenInstanceReferenceRepository.save(token);
+    }
+
+    private CryptographicKey persistV2Key(TokenInstanceReference token) {
+        TokenProfile profile = new TokenProfile();
+        profile.setName("v2-profile-" + UUID.randomUUID());
+        profile.setTokenInstanceReference(token);
+        profile.setTokenInstanceName(token.getName());
+        profile.setEnabled(true);
+        profile.setUsage(List.of(KeyUsage.SIGN, KeyUsage.VERIFY));
+        profile = tokenProfileRepository.save(profile);
+        CryptographicKey key = new CryptographicKey();
+        key.setName("v2-key-" + UUID.randomUUID());
+        key.setTokenProfile(profile);
+        key.setTokenInstanceReference(token);
+        key = cryptographicKeyRepository.save(key);
+        for (KeyType type : List.of(KeyType.PRIVATE_KEY, KeyType.PUBLIC_KEY)) {
+            CryptographicKeyItem item = new CryptographicKeyItem();
+            item.setKey(key);
+            item.setKeyUuid(key.getUuid());
+            item.setType(type);
+            item.setKeyAlgorithm(KeyAlgorithm.RSA);
+            item.setState(KeyState.ACTIVE);
+            item.setEnabled(true);
+            cryptographicKeyItemRepository.save(item);
+        }
+        return key;
+    }
+
+    private static OperationAttributeSchema signatureAlgorithmSchema(UUID connectorUuid) {
+        return new OperationAttributeSchema(connectorUuid,
+                List.of(SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA))));
+    }
+
+    private static List<RequestAttribute> sha256WithRsa() {
+        return List.of(SignatureAlgorithmAttribute.request(SignatureAlgorithm.SHA256_WITH_RSA));
+    }
+
+    private static List<RequestAttribute> commonName(String value) {
+        return List
+                .of(new RequestAttributeV3(UUID.fromString(CsrAttributes.COMMON_NAME_UUID),
+                        CsrAttributes.COMMON_NAME_ATTRIBUTE_NAME, AttributeContentType.STRING,
+                        List.of(new StringAttributeContentV3(value))));
+    }
+
+    private static List<String> describe(List<ResponseAttribute> attributes) {
+        return attributes.stream().map(attribute -> {
+            List<? extends AttributeContent> content = attribute.getContent();
+            return attribute.getName() + "=" + content.getFirst().getData();
+        }).toList();
     }
 
     private CryptographicKey createCryptographicKey(String fingerprint) {

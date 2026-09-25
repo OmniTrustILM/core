@@ -1091,6 +1091,17 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     }
 
     @Override
+    public UUID getSignAttributeOwner(UUID keyUuid) {
+        if (keyUuid == null) {
+            return null;
+        }
+        return cryptographicKeyItemRepository
+                .findPrivateOperationRowByKeyUuid(keyUuid)
+                .map(row -> row.toModel().operationAttributeOwner())
+                .orElse(null);
+    }
+
+    @Override
     @Transactional
     public UUID uploadCertificatePublicKey(String name, PublicKey publicKey, int keyLength, String fingerprint) {
         return certificateKeyWriter.uploadCertificatePublicKey(name, publicKey, keyLength, fingerprint);
