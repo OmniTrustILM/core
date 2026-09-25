@@ -107,6 +107,7 @@ class ListingQueryIndexesMigrationITest extends BaseSpringBootTest {
     @Autowired
     private DataSource dataSource;
 
+    /** Ordered lookups keep the uuid tie-break that {@code SortOrderBuilder} appends to every paged listing. */
     static Stream<Arguments> lookups() {
         return Stream
                 .of(lookup("idx_attribute_content_item_definition",
@@ -123,9 +124,10 @@ class ListingQueryIndexesMigrationITest extends BaseSpringBootTest {
                         lookup("idx_owner_association_owner",
                                 "SELECT object_uuid FROM owner_association WHERE owner_username = 'user-7' AND resource = 'CERTIFICATE'"),
                         lookup("idx_cryptographic_key_item_created_at",
-                                "SELECT uuid FROM cryptographic_key_item ORDER BY created_at DESC LIMIT 25"),
+                                "SELECT uuid FROM cryptographic_key_item ORDER BY created_at DESC, uuid"
+                                        + " OFFSET 0 ROWS FETCH FIRST 25 ROWS ONLY"),
                         lookup("idx_certificate_not_after",
-                                "SELECT uuid FROM certificate ORDER BY not_after LIMIT 25"));
+                                "SELECT uuid FROM certificate ORDER BY not_after, uuid OFFSET 0 ROWS FETCH FIRST 25 ROWS ONLY"));
     }
 
     /** One lookup a listing makes, and the index expected to answer it; {@code %s} stands for a uuid. */
