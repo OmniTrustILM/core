@@ -221,13 +221,21 @@ class CryptographicAssetServiceITest extends BaseSpringBootTest {
         assetWriter.applyPqcVerdict(protocol, PqcVerdict.NOT_READY, "rule", "reason", 3, Map.of());
         assetWriter.applyPqcVerdict(algorithm, PqcVerdict.READY, "rule", "reason", 3, Map.of());
         assetWriter.applyPqcVerdict(certificate, PqcVerdict.NOT_APPLICABLE, "rule", "reason", 3, Map.of());
+        UUID storedUnknown = seedNamed(CryptographicAssetType.ALGORITHM, "delta", "1.0.4");
+        assetWriter.applyPqcVerdict(storedUnknown, PqcVerdict.UNKNOWN, "rule", "reason", 3, Map.of());
+        UUID neverEvaluated = seedNamed(CryptographicAssetType.RELATED_CRYPTO_MATERIAL, "echo", "1.0.5");
+        List<UUID> unknowns = sortedByUuidString(storedUnknown, neverEvaluated);
 
         assertThat(list(sortedBy(FilterField.CBOM_ASSET_TYPE, SortDirection.ASC)).getItems())
                 .extracting(CryptographicAssetDto::getUuid)
-                .containsExactly(algorithm, certificate, protocol);
+                .containsSubsequence(algorithm, certificate, protocol, neverEvaluated);
         assertThat(list(sortedBy(FilterField.CBOM_ASSET_PQC_VERDICT, SortDirection.DESC)).getItems())
                 .extracting(CryptographicAssetDto::getUuid)
-                .containsExactly(algorithm, protocol, certificate);
+                .describedAs("a never-evaluated row reads Unknown and sorts with the stored Unknown one")
+                .containsExactly(unknowns.get(0), unknowns.get(1), algorithm, protocol, certificate);
+        assertThat(list(sortedBy(FilterField.CBOM_ASSET_PQC_VERDICT, SortDirection.ASC)).getItems())
+                .extracting(CryptographicAssetDto::getUuid)
+                .containsExactly(certificate, protocol, algorithm, unknowns.get(0), unknowns.get(1));
     }
 
     @Test

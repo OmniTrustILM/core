@@ -166,13 +166,16 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
                         .getFiltersPredicate(cb, criteriaQuery, root, request.getFilters(), contentFilter);
         Pageable page = PageRequest.of(request.getPageNumber() - 1, request.getItemsPerPage());
         SortSpecification sort = listingSortResolver.resolve(Resource.CRYPTO_ASSET, request.getSort(), contentFilter);
-        // "Ordered by name" means the SERVED name (displayLabel), not the bare column, which would sort every
-        // oid-served row after the named ones; so a name sort is applied here rather than resolved by the repository.
-        // The repository still appends the uuid tiebreak (SortOrderBuilder) that keeps page boundaries deterministic.
-        boolean byName = sortsByName(sort);
-        List<UUID> pageUuids = cryptoAssetRepository
-                .findUuidsUsingSecurityFilter(filter, where, page,
-                        byDisplayLabel(byName ? sort.direction() : SortDirection.ASC), byName ? null : sort);
+        // A column whose cell serves a derived value is ordered by that value rather than resolved by the repository
+        // to its bare column, which would split rows that read the same. The repository still appends the uuid
+        // tiebreak (SortOrderBuilder) that keeps page boundaries deterministic.
+        SortKey servedKey = servedSortKey(sort);
+        List<UUID> pageUuids = servedKey == null
+                ? cryptoAssetRepository
+                        .findUuidsUsingSecurityFilter(filter, where, page,
+                                ordered(CryptographicAssetServiceImpl::displayLabel, SortDirection.ASC), sort)
+                : cryptoAssetRepository
+                        .findUuidsUsingSecurityFilter(filter, where, page, ordered(servedKey, sort.direction()), null);
         // The plain-count variant: every crypto-asset predicate is either single-column or an EXISTS subquery and
         // the resource declares no groups or owner, so no query shape can duplicate a root row -- and
         // count(DISTINCT) forfeits parallel aggregation, which at millions of rows is seconds per page request.
@@ -474,16 +477,32 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
         return cb.coalesce(root.get(CryptoAsset_.name), oidUnlessRefuted);
     }
 
-    private static boolean sortsByName(SortSpecification sort) {
-        return sort != null && sort.fieldSource() == FilterFieldSource.PROPERTY
-                && FilterField.CBOM_ASSET_NAME.name().equals(sort.fieldIdentifier());
+    private interface SortKey extends BiFunction<Root<CryptoAsset>, CriteriaBuilder, Expression<?>> {
     }
 
-    /** Rows with no label to serve stay last in either direction, as they do under every other column sort. */
-    private static BiFunction<Root<CryptoAsset>, CriteriaBuilder, Order> byDisplayLabel(SortDirection direction) {
+    /**
+     * The value a cell serves where it differs from its column: the display label for the name, and UNKNOWN for a
+     * never-evaluated verdict, as {@link #servedName} and {@link #servedVerdict} serve them. {@code null} for any other
+     * sort, which the repository resolves to the column itself.
+     */
+    private static SortKey servedSortKey(SortSpecification sort) {
+        if (sort == null || sort.fieldSource() != FilterFieldSource.PROPERTY) {
+            return null;
+        }
+        if (FilterField.CBOM_ASSET_NAME.name().equals(sort.fieldIdentifier())) {
+            return CryptographicAssetServiceImpl::displayLabel;
+        }
+        if (FilterField.CBOM_ASSET_PQC_VERDICT.name().equals(sort.fieldIdentifier())) {
+            return (root, cb) -> cb.coalesce(root.get(CryptoAsset_.pqcVerdict), PqcVerdict.UNKNOWN);
+        }
+        return null;
+    }
+
+    /** Rows with nothing to serve stay last in either direction, as they do under every other column sort. */
+    private static BiFunction<Root<CryptoAsset>, CriteriaBuilder, Order> ordered(SortKey key, SortDirection direction) {
         return (root, cb) -> {
-            Expression<String> label = displayLabel(root, cb);
-            Order order = direction == SortDirection.DESC ? cb.desc(label) : cb.asc(label);
+            Expression<?> value = key.apply(root, cb);
+            Order order = direction == SortDirection.DESC ? cb.desc(value) : cb.asc(value);
             return ((JpaOrder) order).nullPrecedence(NullPrecedence.LAST);
         };
     }

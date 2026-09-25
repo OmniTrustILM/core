@@ -86,7 +86,8 @@ public class SearchHelper {
                         FilterField.SIGNING_RECORD_SIGNED_DOCUMENT_RETRIEVED_AT,
 
                         // Crypto assets. The listing serves each CryptographicAssetDto from CryptoAssetListRow, which
-                        // carries the name, type, verdict and source count and none of the normalized properties.
+                        // carries the name, type, verdict, source and occurrence counts and none of the normalized
+                        // properties.
                         // The OID rides along only as the name's fallback, and the refuted-OID guard only to derive
                         // the quarantined flag, so neither is a value the row shows.
                         FilterField.CBOM_ASSET_OID, FilterField.CBOM_ASSET_ALGORITHM_FAMILY,
