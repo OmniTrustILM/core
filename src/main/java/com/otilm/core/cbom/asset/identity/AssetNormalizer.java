@@ -266,6 +266,20 @@ public record AssetNormalizer(IdentityTables tables) {
         return new Result(norm, redaction);
     }
 
+    /**
+     * The {@code size} a material properties block declares, through the same whitelist as a declared
+     * {@code parameterSetIdentifier}.
+     *
+     * <p>
+     * Not written to the material row's own size slot: the PQC rules read that slot as the size its algorithm spells,
+     * which a declared key size must not outvote, and read the declared size from the stored properties instead.
+     */
+    Integer declaredMaterialSize(JsonNode materialProperties, List<String> notes) {
+        return materialProperties == null
+                ? null
+                : parameterSetFromIdentifier(materialProperties.get("size"), "size", notes);
+    }
+
     /** The normalized asset and the redaction whose payload every later step must read. */
     public record Result(NormalizedAsset asset, MaterialRedaction redaction) {
     }
@@ -828,7 +842,8 @@ public record AssetNormalizer(IdentityTables tables) {
      * name is parsed only as a fallback.
      */
     public Integer parseParameterSet(String name, JsonNode parameterSetIdentifier, List<String> notes) {
-        Integer declared = parameterSetFromIdentifier(parameterSetIdentifier, notes);
+        Integer declared = parameterSetFromIdentifier(parameterSetIdentifier, CbomNames.PARAMETER_SET_IDENTIFIER,
+                notes);
         if (declared != null) {
             return declared;
         }
@@ -843,7 +858,7 @@ public record AssetNormalizer(IdentityTables tables) {
      * value actually was, because falling through to the name derivation with no record made a producer's wrong
      * declaration indistinguishable from an absent one.
      */
-    private Integer parameterSetFromIdentifier(JsonNode parameterSetIdentifier, List<String> notes) {
+    private Integer parameterSetFromIdentifier(JsonNode parameterSetIdentifier, String field, List<String> notes) {
         if (parameterSetIdentifier == null) {
             return null;
         }
@@ -856,7 +871,7 @@ public record AssetNormalizer(IdentityTables tables) {
             // double nor a float and whose exact value is a 401-digit integer that used to land verbatim in a note.
             if (parameterSetIdentifier.isFloatingPointNumber()
                     && !Double.isFinite(parameterSetIdentifier.doubleValue())) {
-                notes.add(NON_FINITE_PARAMETER_SET_NOTE);
+                notes.add(nonFiniteNote(field));
                 return null;
             }
             // The exact value reaches `accept`, so a refusal names what the producer wrote. Through `(int)` a
@@ -868,28 +883,26 @@ public record AssetNormalizer(IdentityTables tables) {
             // doubles are exact on every integer below 2^53. Recorded because a review pass asked for the exact
             // check as a fix for that example, and it is not one.
             BigDecimal exact = parameterSetIdentifier.decimalValue().stripTrailingZeros();
-            return exact.scale() <= 0
-                    ? accept(exact.toBigIntegerExact(), CbomNames.PARAMETER_SET_IDENTIFIER, notes)
-                    : null;
+            return exact.scale() <= 0 ? accept(exact.toBigIntegerExact(), field, notes) : null;
         }
         String spelled = boundedText(parameterSetIdentifier);
         if (spelled == null) {
             if (parameterSetIdentifier.isTextual()) {
-                notes.add(droppedFieldNote(CbomNames.PARAMETER_SET_IDENTIFIER));
+                notes.add(droppedFieldNote(field));
             }
             return null;
         }
         String text = AsciiText.strip(spelled);
         if (DIGITS.matcher(text).matches()) {
-            return accept(new BigInteger(text), CbomNames.PARAMETER_SET_IDENTIFIER, notes);
+            return accept(new BigInteger(text), field, notes);
         }
         if (tables
                 .sizeStoplist()
                 .stream()
                 .anyMatch(token -> AsciiText.lookupKey(token).equals(AsciiText.lookupKey(text)))) {
-            notes.add("parameterSetIdentifier " + text + " is a mode/MAC, not a size");
+            notes.add(field + " " + text + " is a mode/MAC, not a size");
         } else if (canonicalCurve(text) != null) {
-            notes.add("parameterSetIdentifier " + text + " is a curve, not a size");
+            notes.add(field + " " + text + " is a curve, not a size");
         }
         return null;
     }
@@ -1586,8 +1599,11 @@ public record AssetNormalizer(IdentityTables tables) {
      * Its own note, not {@link #droppedFieldNote}'s: that one says the value exceeded 1024 characters, which for a
      * five-character {@code 1e400} is false in a provenance block that is stored and can be served.
      */
-    static final String NON_FINITE_PARAMETER_SET_NOTE = "the declared " + CbomNames.PARAMETER_SET_IDENTIFIER
-            + " is not a finite number and was dropped rather than normalized";
+    static final String NON_FINITE_PARAMETER_SET_NOTE = nonFiniteNote(CbomNames.PARAMETER_SET_IDENTIFIER);
+
+    private static String nonFiniteNote(String field) {
+        return "the declared " + field + " is not a finite number and was dropped rather than normalized";
+    }
 
     private static String nullToEmpty(String value) {
         return value == null ? "" : value;
