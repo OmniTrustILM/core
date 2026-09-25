@@ -165,6 +165,16 @@ String safeText = e instanceof OurDomainException && e.getMessage() != null
 
 This applies to PKI/CMP/SCEP `PKIFreeText`, ACME `error.detail`, REST API error responses, and any other surface where the message reaches an external party.
 
+A connector's error text is its own words. On a call that carried a secret (a passphrase, key material), drop that text and report the failure with a fixed message, as `KeyProviderV2Adapter.sendExport` does: the connector may echo the secret back.
+
+## Controllers reach services through `*ExternalService` interfaces
+
+`ExternalServiceAuthorizationArchTest` fails the build when a controller depends on a `*Service`, `*InternalService` or `*ServiceImpl` type directly. Give the interface a controller calls a name ending in `ExternalService`, keep it flat (no super-interfaces) with exactly one implementation, and put exactly one authorization annotation on each implementing method.
+
+## Audit records that must precede the response
+
+`@AuditLogged(synchronous = true)` writes the record through `AuditLogInternalService` before the method returns, instead of queueing it, so a record that cannot be written fails the call. It still follows the audit settings: while audit logs are off, or filter the operation out, no record is kept. Use it for operations that hand out sensitive material, such as key export.
+
 ## AI-written code: refactor before review
 
 Long methods (>80–100 lines) with heavy comment overhead are a smell. Refactor into named helpers before requesting human review:

@@ -30,6 +30,7 @@ import com.otilm.api.model.connector.cryptography.key.KeyData;
 import com.otilm.api.model.connector.cryptography.key.KeyDataResponseDto;
 import com.otilm.api.model.connector.cryptography.key.KeyPairDataResponseDto;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.secret.Passphrase;
 import com.otilm.core.attribute.EcdsaSignatureAttributes;
 import com.otilm.core.attribute.RsaEncryptionAttributes;
 import com.otilm.core.attribute.RsaSignatureAttributes;
@@ -175,6 +176,18 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
     @Override
     public List<TransferableKeyType> listExportableKeyTypes(TokenProfileFullModel tokenProfile) {
         return List.of();
+    }
+
+    @Override
+    public List<BaseAttribute> listExportKeyAttributes(OperationKeyContext context) {
+        return List.of();
+    }
+
+    @Override
+    public byte[] exportKey(OperationKeyContext context, HeldKey heldKey, Passphrase passphrase,
+            List<RequestAttribute> attributes) {
+        throw new ValidationException(
+                ValidationError.create("Key export is not part of the v1 cryptography provider contract."));
     }
 
     @Override

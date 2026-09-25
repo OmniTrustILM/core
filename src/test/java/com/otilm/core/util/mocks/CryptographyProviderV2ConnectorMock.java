@@ -6,6 +6,8 @@ import com.github.tomakehurst.wiremock.http.Fault;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.error.ErrorCode;
+import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.cryptography.v2.key.ExportableKeyTypeV2Dto;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import java.util.List;
@@ -18,6 +20,8 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
 
     private static final String OPERATIONS = "/v2/cryptographyProvider/operations/";
     private static final String EXPORTABLE_KEY_TYPES = "/v2/cryptographyProvider/keys/export/keyTypes";
+    private static final String EXPORT_KEY = "/v2/cryptographyProvider/keys/export";
+    private static final String EXPORT_KEY_ATTRIBUTES = "/v2/cryptographyProvider/keys/export/attributes";
 
     CryptographyProviderV2ConnectorMock() {
         stubV2Info(List.of(ConnectorInterface.CRYPTOGRAPHY));
@@ -139,6 +143,79 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
                         .post(WireMock.urlPathEqualTo(EXPORTABLE_KEY_TYPES))
                         .willReturn(
                                 WireMock.okJson(ObjectMapperFactory.wire().writeValueAsString(List.of(declaration)))));
+        return this;
+    }
+
+    public CryptographyProviderV2ConnectorMock stubExportKeyAttributes(String responseJson) {
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo(EXPORT_KEY_ATTRIBUTES))
+                        .willReturn(WireMock.okJson(responseJson)));
+        return this;
+    }
+
+    public CryptographyProviderV2ConnectorMock stubExportKey(String responseJson) {
+        return stubExportKeyAfter(responseJson, 0);
+    }
+
+    /** The export answer, given only after the delay, so a test can act while the call is in flight. */
+    public CryptographyProviderV2ConnectorMock stubExportKeyAfter(String responseJson, int delayMillis) {
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo(EXPORT_KEY))
+                        .willReturn(WireMock.okJson(responseJson).withFixedDelay(delayMillis)));
+        return this;
+    }
+
+    public CryptographyProviderV2ConnectorMock stubExportKeyProblem(ErrorCode errorCode, String detail)
+            throws JsonProcessingException {
+        ProblemDetailExtended problem = ProblemDetailExtended.fromErrorCode(errorCode, detail, null, null);
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo(EXPORT_KEY))
+                        .willReturn(WireMock
+                                .aResponse()
+                                .withStatus(problem.getStatus())
+                                .withHeader("Content-Type", "application/problem+json")
+                                .withBody(ObjectMapperFactory.wire().writeValueAsString(problem))));
+        return this;
+    }
+
+    /** A refusal as a connector without problem documents answers it: a 422 whose body lists its own messages. */
+    public CryptographyProviderV2ConnectorMock stubExportKeyLegacyRefusal(String message) {
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo(EXPORT_KEY))
+                        .willReturn(WireMock
+                                .aResponse()
+                                .withStatus(422)
+                                .withHeader("Content-Type", "application/json")
+                                .withBody("[\"" + message + "\"]")));
+        return this;
+    }
+
+    public void verifyExportKeyRequests(int count) {
+        server.verify(count, postRequestedFor(WireMock.urlPathEqualTo(EXPORT_KEY)));
+    }
+
+    public int exportKeyRequestsReceived() {
+        return server.findAll(postRequestedFor(WireMock.urlPathEqualTo(EXPORT_KEY))).size();
+    }
+
+    /**
+     * A problem document naming neither a title nor a detail, as RFC 9457 allows, on a status without a reason phrase,
+     * so it carries no text at all.
+     */
+    public CryptographyProviderV2ConnectorMock stubExportableKeyTypesProblemWithoutText() {
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo(EXPORTABLE_KEY_TYPES))
+                        .willReturn(WireMock
+                                .aResponse()
+                                .withStatus(499)
+                                .withHeader("Content-Type", "application/problem+json")
+                                .withBody(
+                                        "{\"status\":499,\"errorCode\":\"KEY_TYPE_NOT_EXPORTABLE\",\"retryable\":false}")));
         return this;
     }
 

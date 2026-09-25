@@ -1,5 +1,6 @@
 package com.otilm.core.api;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.otilm.api.exception.AcmeProblemDocumentException;
 import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.AttributeException;
@@ -386,7 +387,13 @@ public class ExceptionHandlingAdvice {
     @ExceptionHandler(HttpMessageNotReadableException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ErrorMessageDto handleMessageNotReadable(HttpMessageNotReadableException ex) {
-        LOG.info("HTTP 400: {}", ex.getMessage());
+        // The parser's message quotes the token it stopped at, and a request body can carry a secret.
+        Throwable cause = ex.getMostSpecificCause();
+        String location = cause instanceof JsonProcessingException parserFailure && parserFailure.getLocation() != null
+                ? " at line %d, column %d"
+                        .formatted(parserFailure.getLocation().getLineNr(), parserFailure.getLocation().getColumnNr())
+                : "";
+        LOG.info("HTTP 400: unreadable request body ({}{})", cause.getClass().getName(), location);
         return ErrorMessageDto.getInstance("Unable to read HTTP message");
     }
 
