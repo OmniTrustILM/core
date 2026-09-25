@@ -1,5 +1,6 @@
 package com.otilm.core.integration.util;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.otilm.api.exception.AlreadyExistException;
@@ -43,8 +44,11 @@ import com.otilm.api.model.core.logging.records.LogRecord;
 import com.otilm.api.model.core.logging.records.ResourceObjectIdentity;
 import com.otilm.api.model.core.logging.records.ResourceRecord;
 import com.otilm.api.model.core.logging.records.SourceRecord;
+import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.core.api.ExceptionHandlingAdvice;
+import com.otilm.core.api.web.CertificateControllerImpl;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
 import com.otilm.core.dao.entity.AuditLog;
@@ -70,6 +74,8 @@ import com.otilm.core.dao.repository.GroupAssociationRepository;
 import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.LocationRepository;
 import com.otilm.core.enums.FilterField;
+import com.otilm.core.oid.OidHandler;
+import com.otilm.core.oid.OidRecord;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.AttributeExternalService;
 import com.otilm.core.service.AuditLogExternalService;
@@ -118,6 +124,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aCustomAttributeFilter;
 import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aMetaAttributeFilter;
@@ -127,6 +136,10 @@ import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aProper
 import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyNotEmptyFilter;
 import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyNotEqualsFilter;
 import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aSearchFilter;
+import static org.hamcrest.Matchers.containsString;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * Tests for class {@link FilterPredicatesBuilder}
@@ -140,6 +153,9 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
 
     @Autowired
     private EntityManager entityManager;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Autowired
     private AttributeExternalService attributeService;
@@ -1833,6 +1849,14 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
         request
                 .setFilters(List
                         .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, "EXTENDED_KEY_USAGE",
+                                FilterConditionOperator.EQUALS, "TLS Web Server Authentication")));
+        Assertions
+                .assertEquals(Set.of(certificate1.getUuid()), getUuidsFromListCertificatesResponse(
+                        certificateService.listCertificates(new SecurityFilter(), request)));
+
+        request
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, "EXTENDED_KEY_USAGE",
                                 FilterConditionOperator.EQUALS, "timeStamping")));
         Assertions
                 .assertEquals(Set.of(certificate2.getUuid()), getUuidsFromListCertificatesResponse(
@@ -1843,8 +1867,8 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
                         .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, "EXTENDED_KEY_USAGE",
                                 FilterConditionOperator.CONTAINS, "1.3.6.1.5.5.7.3.1")));
         Assertions
-                .assertEquals(Set.of(certificate1.getUuid()), getUuidsFromListCertificatesResponse(
-                        certificateService.listCertificates(new SecurityFilter(), request)));
+                .assertThrows(ValidationException.class,
+                        () -> certificateService.listCertificates(new SecurityFilter(), request));
 
         request
                 .setFilters(List
@@ -1883,6 +1907,75 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
         Assertions
                 .assertEquals(Set.of(certificate1.getUuid()), getUuidsFromListCertificatesResponse(
                         certificateService.listCertificates(new SecurityFilter(), request)));
+
+        certificate2.setExtendedKeyUsage("null");
+        certificateRepository.save(certificate2);
+        request
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, "EXTENDED_KEY_USAGE",
+                                FilterConditionOperator.EMPTY, null)));
+        Assertions
+                .assertEquals(Set.of(certificate2.getUuid(), certificate3.getUuid()),
+                        getUuidsFromListCertificatesResponse(
+                                certificateService.listCertificates(new SecurityFilter(), request)));
+        request
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, "EXTENDED_KEY_USAGE",
+                                FilterConditionOperator.NOT_EMPTY, null)));
+        Assertions
+                .assertEquals(Set.of(certificate1.getUuid()), getUuidsFromListCertificatesResponse(
+                        certificateService.listCertificates(new SecurityFilter(), request)));
+    }
+
+    @Test
+    void extendedKeyUsageFilterResolvesCustomDisplayName() {
+        String customOid = "1.2.3.4.5.6";
+        certificate1.setExtendedKeyUsage(MetaDefinitions.serializeArrayString(List.of(customOid)));
+        certificateRepository.save(certificate1);
+
+        var currentCache = OidHandler.getOidCache(OidCategory.EXTENDED_KEY_USAGE);
+        OidRecord original = currentCache == null ? null : currentCache.get(customOid);
+        OidHandler
+                .cacheOid(OidCategory.EXTENDED_KEY_USAGE, customOid,
+                        OidRecord.builder().displayName("Custom TLS Purpose").build());
+        try {
+            CertificateSearchRequestDto request = new CertificateSearchRequestDto();
+            request
+                    .setFilters(List
+                            .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, "EXTENDED_KEY_USAGE",
+                                    FilterConditionOperator.EQUALS, "Custom TLS Purpose")));
+            Assertions
+                    .assertEquals(Set.of(certificate1.getUuid()), getUuidsFromListCertificatesResponse(
+                            certificateService.listCertificates(new SecurityFilter(), request)));
+        } finally {
+            if (original == null) {
+                OidHandler.removeCachedOid(OidCategory.EXTENDED_KEY_USAGE, customOid);
+            } else {
+                OidHandler.cacheOid(OidCategory.EXTENDED_KEY_USAGE, customOid, original);
+            }
+        }
+    }
+
+    @Test
+    void extendedKeyUsageFilterRejectsUnknownNameWithUnprocessableEntity() throws Exception {
+        CertificateControllerImpl controller = new CertificateControllerImpl();
+        controller.setCertificateService(certificateService);
+        MockMvc mockMvc = MockMvcBuilders
+                .standaloneSetup(controller)
+                .setControllerAdvice(new ExceptionHandlingAdvice())
+                .build();
+        CertificateSearchRequestDto request = new CertificateSearchRequestDto();
+        request
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, "EXTENDED_KEY_USAGE",
+                                FilterConditionOperator.EQUALS, "unknownPurpose")));
+
+        mockMvc
+                .perform(post("/v1/certificates")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(request)))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$[0]", containsString("Extended Key Usage filter value")));
     }
 
     @Test

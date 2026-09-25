@@ -579,9 +579,6 @@ class CertificateServiceITest extends BaseSpringBootTest {
         @Test
         void returnsExtendedKeyUsageAsSearchableProperty() {
             // given
-            Certificate importedCertificate = new Certificate();
-            importedCertificate.setExtendedKeyUsage(MetaDefinitions.serializeArrayString(List.of("1.2.3.4.5.6")));
-            certificateRepository.save(importedCertificate);
             authServiceMock = new WireMockServer(WireMockPorts.AUTH_SERVICE);
             authServiceMock.start();
             WireMock.configureFor("localhost", authServiceMock.port());
@@ -605,9 +602,8 @@ class CertificateServiceITest extends BaseSpringBootTest {
             assertThat(extendedKeyUsage.getType()).isEqualTo(FilterFieldType.STRING);
             assertThat(extendedKeyUsage.isMultiValue()).isFalse();
             assertThat(extendedKeyUsage.getConditions())
-                    .contains(FilterConditionOperator.EQUALS, FilterConditionOperator.NOT_EQUALS,
-                            FilterConditionOperator.CONTAINS, FilterConditionOperator.EMPTY,
-                            FilterConditionOperator.NOT_EMPTY);
+                    .containsExactlyInAnyOrder(FilterConditionOperator.EQUALS, FilterConditionOperator.NOT_EQUALS,
+                            FilterConditionOperator.EMPTY, FilterConditionOperator.NOT_EMPTY);
             assertThat(extendedKeyUsage.getValue()).isNull();
         }
 

@@ -36,6 +36,7 @@ import com.otilm.core.enums.SearchFieldTypeEnum;
 import com.otilm.core.model.AttributeFieldIdentifier;
 import com.otilm.core.model.cbom.CryptoAssetIdentityGuard;
 import com.otilm.core.oid.OidHandler;
+import com.otilm.core.oid.OidRecord;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 import jakarta.persistence.criteria.CommonAbstractCriteria;
@@ -72,6 +73,7 @@ import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import javax.xml.datatype.DatatypeConfigurationException;
 import javax.xml.datatype.DatatypeFactory;
 import javax.xml.datatype.Duration;
@@ -424,9 +426,9 @@ public class FilterPredicatesBuilder {
         if (filterField == FilterField.CBOM_ASSET_SOURCE_CBOM) {
             return getCryptoAssetSourceCbomPredicate(criteriaBuilder, query, root, filterDto, filterValues);
         }
-        if (filterField.getType() == SearchFieldTypeEnum.JSON_TEXT_ARRAY) {
-            return getJsonTextArrayPredicate(criteriaBuilder, resolveFieldPath(from, filterField.getFieldAttribute()),
-                    filterDto.getCondition(), filterValues);
+        if (filterField.getType() == SearchFieldTypeEnum.EXTENDED_KEY_USAGE_ARRAY) {
+            return getExtendedKeyUsagePredicate(criteriaBuilder,
+                    resolveFieldPath(from, filterField.getFieldAttribute()), filterDto.getCondition(), filterValues);
         }
 
         // An expectedValue field compares one stored constant against the boolean the caller sends, so only EQUALS
@@ -824,15 +826,16 @@ public class FilterPredicatesBuilder {
         return stringBuilder.toString();
     }
 
-    private static Predicate getJsonTextArrayPredicate(CriteriaBuilder criteriaBuilder, Expression<String> expression,
-            FilterConditionOperator condition, List<Object> filterValues) {
-        Expression<Integer> length = criteriaBuilder
-                .function(PostgresFunctionContributor.JSON_TEXT_ARRAY_LENGTH, Integer.class, expression);
+    private static Predicate getExtendedKeyUsagePredicate(CriteriaBuilder criteriaBuilder,
+            Expression<String> expression, FilterConditionOperator condition, List<Object> filterValues) {
+        Predicate empty = criteriaBuilder
+                .or(criteriaBuilder.isNull(expression), criteriaBuilder.equal(expression, "[]"),
+                        criteriaBuilder.equal(expression, "null"));
         if (condition == FilterConditionOperator.EMPTY) {
-            return criteriaBuilder.or(criteriaBuilder.isNull(expression), criteriaBuilder.equal(length, 0));
+            return empty;
         }
         if (condition == FilterConditionOperator.NOT_EMPTY) {
-            return criteriaBuilder.and(criteriaBuilder.isNotNull(expression), criteriaBuilder.greaterThan(length, 0));
+            return criteriaBuilder.not(empty);
         }
 
         Predicate[] matches = filterValues.stream().map(value -> {
@@ -853,15 +856,35 @@ public class FilterPredicatesBuilder {
             return value;
         }
         String normalized = value.replaceAll("[\\s_-]", "");
-        return Arrays
-                .stream(SystemOid.values())
-                .filter(oid -> oid.getCategory() == OidCategory.EXTENDED_KEY_USAGE)
-                .filter(oid -> oid.name().replace("_", "").equalsIgnoreCase(normalized)
-                        || oid.getDisplayName().replace(" ", "").equalsIgnoreCase(normalized))
-                .map(SystemOid::getOid)
-                .findFirst()
-                .orElseThrow(() -> new ValidationException(
-                        "Extended Key Usage filter value must be an OID or a standard purpose: " + value));
+        Map<String, OidRecord> registeredOids = OidHandler.getOidCache(OidCategory.EXTENDED_KEY_USAGE);
+        Stream<String> registeredMatches = registeredOids == null
+                ? Stream.empty()
+                : registeredOids
+                        .entrySet()
+                        .stream()
+                        .filter(entry -> entry
+                                .getValue()
+                                .displayName()
+                                .replaceAll("[\\s_-]", "")
+                                .equalsIgnoreCase(normalized))
+                        .map(Map.Entry::getKey);
+        List<String> matches = Stream
+                .concat(Arrays
+                        .stream(SystemOid.values())
+                        .filter(oid -> oid.getCategory() == OidCategory.EXTENDED_KEY_USAGE)
+                        .filter(oid -> oid.name().replace("_", "").equalsIgnoreCase(normalized)
+                                || oid.getDisplayName().replace(" ", "").equalsIgnoreCase(normalized))
+                        .map(SystemOid::getOid), registeredMatches)
+                .distinct()
+                .toList();
+        if (matches.isEmpty()) {
+            throw new ValidationException(
+                    "Extended Key Usage filter value must be an OID or a registered purpose: " + value);
+        }
+        if (matches.size() > 1) {
+            throw new ValidationException("Extended Key Usage filter name is ambiguous; use an OID: " + value);
+        }
+        return matches.getFirst();
     }
 
     private static Expression<Boolean> getJsonArrayEqualsExpression(CriteriaBuilder criteriaBuilder,

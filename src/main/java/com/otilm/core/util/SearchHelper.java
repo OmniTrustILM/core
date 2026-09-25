@@ -319,9 +319,9 @@ public class SearchHelper {
      */
     public static boolean isOrderableField(final FilterField filterField) {
         return filterField.getFieldAttribute() != null && !filterField.isNativeArrayField()
-                && filterField.getType() != SearchFieldTypeEnum.JSON_TEXT_ARRAY && filterField.getJsonPath() == null
-                && filterField.getExpectedValue() == null && !isBitMaskField(filterField)
-                && !FilterFieldSets.SHARING_AN_ATTRIBUTE.contains(filterField);
+                && filterField.getType() != SearchFieldTypeEnum.EXTENDED_KEY_USAGE_ARRAY
+                && filterField.getJsonPath() == null && filterField.getExpectedValue() == null
+                && !isBitMaskField(filterField) && !FilterFieldSets.SHARING_AN_ATTRIBUTE.contains(filterField);
     }
 
     /** Whether the field's column is one integer holding a set of flags rather than the value the cell renders. */

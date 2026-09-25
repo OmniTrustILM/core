@@ -11,7 +11,6 @@ public class PostgresFunctionContributor implements FunctionContributor {
     public static final String JSONB_CONTAINS = "jsonb_contains";
     public static final String JSON_TEXT_ARRAY_CONTAINS = "json_text_array_contains";
     public static final String JSON_TEXT_ARRAY_CONTAINS_PATTERN = "CAST(?1 AS jsonb) @> CAST(?2 AS jsonb)";
-    public static final String JSON_TEXT_ARRAY_LENGTH = "json_text_array_length";
     public static final String ARRAY_CONTAINS = "text_array_contains";
     public static final String ARRAY_ITEM_CONTAINS = "text_array_item_contains";
 
@@ -67,9 +66,6 @@ public class PostgresFunctionContributor implements FunctionContributor {
         functionContributions
                 .getFunctionRegistry()
                 .registerPattern(JSON_TEXT_ARRAY_CONTAINS, JSON_TEXT_ARRAY_CONTAINS_PATTERN, booleanType);
-        functionContributions
-                .getFunctionRegistry()
-                .registerPattern(JSON_TEXT_ARRAY_LENGTH, "jsonb_array_length(CAST(?1 AS jsonb))", resultType);
         functionContributions
                 .getFunctionRegistry()
                 .registerPattern(ARRAY_CONTAINS, ARRAY_CONTAINS_PATTERN, booleanType);
