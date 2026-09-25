@@ -318,6 +318,123 @@ class PqcEvaluatorTest {
         assertThat(decision.ruleId()).isEqualTo("PQC-HYBRID-PQC-PRESTANDARD");
     }
 
+    /**
+     * Hybridity was decided by co-presence of a classical and a post-quantum token and nothing else, so a name that
+     * merely mentions both was served "a hybrid construction; its readiness is that of its post-quantum component"
+     * while its RSA half still stands alone somewhere. Free-text component names in real CBOMs make this reachable.
+     */
+    @Test
+    void aNameThatAlternatesBetweenSchemesIsNotAHybrid() {
+        for (String alternation : new String[]{
+                "RSA-2048 to be replaced by ML-DSA-65",
+                "RSA-2048 or ML-DSA-65",
+                "ML-KEM-768 with RSA-2048 fallback",
+                "ECDSA-P256 / ML-DSA-44 (dual stack)",
+                "ML-KEM-768 (encapsulation), RSA-2048 (signature)",
+                "RSA-2048 or Kyber768"}) {
+            PqcDecision decision = verdictOf(algorithm(alternation));
+            assertThat(decision.verdict()).describedAs("name %s", alternation).isEqualTo(PqcVerdict.NOT_READY);
+            assertThat(decision.ruleId())
+                    .describedAs("the classical half stands alone, which is a finding rather than an unknown")
+                    .isEqualTo("CLASSICAL-SHOR-COMPONENT");
+        }
+    }
+
+    /** HAWK is a family the normalizer does not treat as post-quantum, so only the evaluator's widening sees it. */
+    @Test
+    void anAlternationTheWideningSeesIsNotAHybridEither() {
+        for (String alternation : new String[]{
+                "X25519 or HAWK-512",
+                "ECDSA-P256 or HAWK-512",
+                "ECDH-P256\\t/\\tHAWK-512", // JSON-escaped: a tab inside the component name
+                "X25519-HAWK-512 fallback"}) {
+            PqcDecision decision = verdictOf(algorithm(alternation));
+            assertThat(decision.verdict()).describedAs("name %s", alternation).isEqualTo(PqcVerdict.NOT_READY);
+            assertThat(decision.ruleId()).describedAs("name %s", alternation).startsWith("CLASSICAL-SHOR");
+        }
+    }
+
+    /**
+     * The other direction, and the one a marker list can get wrong: refusing a genuine hybrid loses a completed
+     * migration from the ready set. {@code and} and {@code with} are therefore not markers, a slash counts only when it
+     * is spaced, and every marker word is bounded so that the {@code or} in {@code 3GPP-XOR} and {@code Fortuna} does
+     * not match.
+     */
+    @Test
+    void aGenuineHybridIsStillAHybrid() {
+        for (String hybrid : new String[]{
+                "X25519-ML-KEM-768",
+                "X25519MLKEM768",
+                "mlkem768x25519-sha256",
+                "X25519 with ML-KEM-768",
+                "X25519 and ML-KEM-768",
+                "X25519 / ML-KEM-768"}) {
+            assertThat(verdictOf(algorithm(hybrid)).ruleId())
+                    .describedAs("hybrid %s", hybrid)
+                    .isEqualTo("PQC-HYBRID-PQC-STANDARDIZED");
+        }
+        assertThat(verdictOf(algorithm("X25519-Kyber768")).ruleId()).isEqualTo("PQC-HYBRID-PQC-PRESTANDARD");
+        assertThat(verdictOf(algorithm("X25519MLKEM768 (hybrid, IANA 0x11EC)")).ruleId())
+                .describedAs("a comma inside a qualifier does not join two names")
+                .isEqualTo("PQC-HYBRID-PQC-STANDARDIZED");
+        assertThat(verdictOf(algorithm("X-Wing (X25519, ML-KEM-768)")).ruleId())
+                .describedAs("the parenthesized parts of one construction")
+                .isEqualTo("PQC-HYBRID-PQC-STANDARDIZED");
+    }
+
+    @Test
+    void aSingleFamilyIsNotAnAlternation() {
+        assertThat(verdictOf(algorithm("SHA-512/224")).ruleId())
+                .describedAs("a family whose own spelling carries a slash is not a list")
+                .isEqualTo("SYMMETRIC-READY");
+        for (String single : new String[]{"3GPP-XOR", "Fortuna", "Fortuna-AES-256", "A5/1", "SHA-512/224"}) {
+            assertThat(normalizer.namesAnAlternation(single)).describedAs("single family %s", single).isFalse();
+        }
+    }
+
+    /** One input per marker alternative, each carrying no other marker, so dropping any one alternative fails. */
+    @Test
+    void everyMarkerRefusesOnItsOwn() {
+        for (String alternation : new String[]{
+                "RSA-2048 or ML-DSA-65",
+                "either RSA-2048 ML-DSA-65",
+                "RSA-2048 vs ML-DSA-65",
+                "RSA-2048 versus ML-DSA-65",
+                "ML-DSA-65 instead of RSA-2048",
+                "RSA-2048 replacement ML-DSA-65",
+                "RSA-2048 fallback",
+                "RSA-2048 fall back",
+                "RSA-2048 fall-back",
+                "RSA_2048_FALL_BACK",
+                "RSA-2048 migration to ML-DSA-65",
+                "RSA-2048 migrating",
+                "dual stack RSA-2048 ML-DSA-65",
+                "dual-stack RSA-2048 ML-DSA-65",
+                "dualstack RSA-2048 ML-DSA-65",
+                "ECDSA_P256_DUAL_STACK_ML_DSA_44",
+                "ECDSA_P256_DUAL__STACK_ML_DSA_44",
+                "X25519-ML-KEM-768 dual\tstack",
+                "RSA-2048 fall -_ back",
+                "RSA-2048, ML-DSA-65",
+                "RSA-2048; ML-DSA-65",
+                "RSA-2048\t/\tML-DSA-65",
+                "RSA-2048 /\nML-DSA-65",
+                "RSA-2048\uFF0CML-DSA-65"}) {
+            assertThat(normalizer.namesAnAlternation(alternation)).describedAs("name %s", alternation).isTrue();
+        }
+        for (String hybrid : new String[]{
+                "X25519 / ML-KEM-768",
+                "X25519  /  ML-KEM-768",
+                "X25519\u00A0/\u00A0ML-KEM-768"}) {
+            assertThat(normalizer.namesAnAlternation(hybrid))
+                    .describedAs("a slash between plain spaces, after the fold, joins one hybrid: %s", hybrid)
+                    .isFalse();
+        }
+        assertThat(normalizer.namesAnAlternation("X-Wing (X25519, ML-KEM-768)"))
+                .describedAs("a separator inside parentheses lists one construction's parts")
+                .isFalse();
+    }
+
     // ---- correctly outside the question ----------------------------------------------------------------------------
 
     @Test

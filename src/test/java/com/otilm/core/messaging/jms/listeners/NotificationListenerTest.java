@@ -36,6 +36,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -288,6 +291,17 @@ class NotificationListenerTest {
 
         assertEquals("requester commented on RA Profile 'web-frontends'", rendered[0]);
         assertNull(rendered[1], "the persisted notification carries no comment body");
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = "  ")
+    void unnamedHostObjectRendersAsItsUuid(String objectName) {
+        CommentEventData data = commentEventData(null, "no name to show");
+        data.setObjectName(objectName);
+
+        assertEquals("requester commented on RA Profile '%s'".formatted(data.getObjectUuid()),
+                renderedCommentNotification(ResourceEvent.COMMENT_CREATED, data)[0]);
     }
 
     @Test

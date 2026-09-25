@@ -160,6 +160,15 @@ class CommentEventHandlersITest extends BaseSpringBootTest {
         return new EventMessage(event, Resource.COMMENT, comment.getUuid(), null, null, data, actorUuid, null);
     }
 
+    private void saveHostOwner(UUID ownerUuid) {
+        OwnerAssociation association = new OwnerAssociation();
+        association.setResource(Resource.RA_PROFILE);
+        association.setObjectUuid(hostUuid);
+        association.setOwnerUuid(ownerUuid);
+        association.setOwnerUsername("tst-owner");
+        ownerAssociationRepository.save(association);
+    }
+
     private UUID groupWithHostMembership(UUID objectUuid) {
         Group group = new Group();
         group.setName("tst-group-" + UUID.randomUUID());
@@ -351,14 +360,34 @@ class CommentEventHandlersITest extends BaseSpringBootTest {
     }
 
     @Test
+    void ownerOutsideTheThreadIsNotifiedOfEveryFollowUp() throws Exception {
+        UUID ownerUuid = UUID.randomUUID();
+        saveHostOwner(ownerUuid);
+        Comment root = saveComment(hostUuid, null, actorUuid, "a request");
+        Comment reply = saveComment(hostUuid, root.getUuid(), actorUuid, "this is urgent");
+
+        commentCreatedEventHandler.handleEvent(eventMessage(ResourceEvent.COMMENT_CREATED, reply, null));
+        commentResolvedEventHandler.handleEvent(eventMessage(ResourceEvent.COMMENT_RESOLVED, root, true));
+        commentResolvedEventHandler.handleEvent(eventMessage(ResourceEvent.COMMENT_RESOLVED, root, false));
+
+        List<NotificationMessage> followUps = followUpMessages();
+        assertThat(followUps)
+                .extracting(NotificationMessage::getEvent)
+                .containsExactly(ResourceEvent.COMMENT_CREATED, ResourceEvent.COMMENT_RESOLVED,
+                        ResourceEvent.COMMENT_RESOLVED);
+        assertThat(followUps.subList(1, 3))
+                .extracting(message -> ((CommentEventData) message.getData()).getResolved())
+                .containsExactly(true, false);
+        assertThat(followUps)
+                .allSatisfy(message -> assertThat(message.getRecipients())
+                        .extracting(NotificationRecipient::getRecipientUuid)
+                        .containsExactly(ownerUuid));
+    }
+
+    @Test
     void rootCommentNotifiesTheHostOwnerOnlyWhereAnAssociationExists() throws Exception {
         UUID ownerUuid = UUID.randomUUID();
-        OwnerAssociation association = new OwnerAssociation();
-        association.setResource(Resource.RA_PROFILE);
-        association.setObjectUuid(hostUuid);
-        association.setOwnerUuid(ownerUuid);
-        association.setOwnerUsername("tst-owner");
-        ownerAssociationRepository.save(association);
+        saveHostOwner(ownerUuid);
 
         Comment root = saveComment(hostUuid, null, actorUuid, "for the owner");
         commentCreatedEventHandler.handleEvent(eventMessage(ResourceEvent.COMMENT_CREATED, root, null));
@@ -404,12 +433,7 @@ class CommentEventHandlersITest extends BaseSpringBootTest {
         String hostile = "<script>alert('x')</script> **bold** [link](javascript:alert(1)) ";
         String body = hostile + "a".repeat(600);
         UUID ownerUuid = UUID.randomUUID();
-        OwnerAssociation association = new OwnerAssociation();
-        association.setResource(Resource.RA_PROFILE);
-        association.setObjectUuid(hostUuid);
-        association.setOwnerUuid(ownerUuid);
-        association.setOwnerUsername("tst-owner");
-        ownerAssociationRepository.save(association);
+        saveHostOwner(ownerUuid);
 
         Comment root = saveComment(hostUuid, null, actorUuid, body);
         commentCreatedEventHandler.handleEvent(eventMessage(ResourceEvent.COMMENT_CREATED, root, null));

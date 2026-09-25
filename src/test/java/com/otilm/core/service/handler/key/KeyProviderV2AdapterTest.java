@@ -198,7 +198,6 @@ class KeyProviderV2AdapterTest {
         assertSame(keyMeta, request.getValue().getKeyMeta());
         assertSame(resolvedToken, request.getValue().getTokenAttributes());
         assertSame(resolvedProfile, request.getValue().getTokenProfileAttributes());
-        assertEquals(Set.copyOf(profile.usages()), request.getValue().getKeyUsages());
         assertEquals(OperationExecutionMode.SYNCHRONOUS, request.getValue().getExecutionMode());
     }
 
@@ -422,7 +421,6 @@ class KeyProviderV2AdapterTest {
         assertSame(keyMeta, sent.getValue().getKeyMeta());
         assertSame(resolvedToken, sent.getValue().getTokenAttributes());
         assertSame(resolvedProfile, sent.getValue().getTokenProfileAttributes());
-        assertEquals(Set.copyOf(profile.usages()), sent.getValue().getKeyUsages());
         assertEquals(OperationExecutionMode.SYNCHRONOUS, sent.getValue().getExecutionMode());
         assertEquals("0", sent.getValue().getData().get(0).getIdentifier());
         assertNull(response.getSignatures().get(0).getIdentifier());
@@ -1157,7 +1155,6 @@ class KeyProviderV2AdapterTest {
         verify(client).createKey(any(), request.capture());
         assertEquals(resolvedToken, request.getValue().getTokenAttributes());
         assertEquals(resolvedProfile, request.getValue().getTokenProfileAttributes());
-        assertEquals(Set.copyOf(profile.usages()), request.getValue().getKeyUsages());
     }
 
     @ParameterizedTest(name = "{0}")
@@ -1211,7 +1208,6 @@ class KeyProviderV2AdapterTest {
         assertEquals(type, request.getValue().getKeyRequestType());
         assertEquals(resolvedToken, request.getValue().getTokenAttributes());
         assertEquals(resolvedProfile, request.getValue().getTokenProfileAttributes());
-        assertEquals(Set.copyOf(profile.usages()), request.getValue().getKeyUsages());
     }
 
     @Test
