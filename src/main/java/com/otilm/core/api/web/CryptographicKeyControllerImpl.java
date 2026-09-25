@@ -37,6 +37,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CryptographicKeyExportExternalService;
 import com.otilm.core.service.CryptographicKeyExternalService;
+import com.otilm.core.service.CryptographicKeyImportExternalService;
 import com.otilm.core.util.converter.KeyRequestTypeConverter;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -53,6 +54,7 @@ public class CryptographicKeyControllerImpl implements CryptographicKeyControlle
 
     private CryptographicKeyExternalService cryptographicKeyService;
     private CryptographicKeyExportExternalService cryptographicKeyExportService;
+    private CryptographicKeyImportExternalService cryptographicKeyImportService;
 
     @Autowired
     public void setCryptographicKeyExternalService(CryptographicKeyExternalService cryptographicKeyService) {
@@ -63,6 +65,12 @@ public class CryptographicKeyControllerImpl implements CryptographicKeyControlle
     public void setCryptographicKeyExportExternalService(
             CryptographicKeyExportExternalService cryptographicKeyExportService) {
         this.cryptographicKeyExportService = cryptographicKeyExportService;
+    }
+
+    @Autowired
+    public void setCryptographicKeyImportExternalService(
+            CryptographicKeyImportExternalService cryptographicKeyImportService) {
+        this.cryptographicKeyImportService = cryptographicKeyImportService;
     }
 
     @InitBinder
@@ -139,9 +147,13 @@ public class CryptographicKeyControllerImpl implements CryptographicKeyControlle
     }
 
     @Override
-    public List<BaseAttribute> listImportKeyAttributes(String tokenInstanceUuid, String tokenProfileUuid,
-            KeyRequestType type) throws ConnectorException, NotFoundException {
-        return List.of();
+    @AuditLogged(module = Module.CRYPTOGRAPHIC_KEYS, resource = Resource.ATTRIBUTE, name = "import",
+            affiliatedResource = Resource.TOKEN_PROFILE, operation = Operation.LIST_ATTRIBUTES)
+    public List<BaseAttribute> listImportKeyAttributes(String tokenInstanceUuid,
+            @LogResource(uuid = true, affiliated = true) String tokenProfileUuid, KeyRequestType type)
+            throws ConnectorException, NotFoundException {
+        return cryptographicKeyImportService
+                .listImportKeyAttributes(UUID.fromString(tokenInstanceUuid), UUID.fromString(tokenProfileUuid), type);
     }
 
     @Override
