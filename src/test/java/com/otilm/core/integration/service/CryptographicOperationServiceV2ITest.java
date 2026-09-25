@@ -3,6 +3,7 @@ package com.otilm.core.integration.service;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotSupportedException;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
@@ -58,12 +59,19 @@ import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.builders.DataAttributeV3Builder;
 import com.otilm.core.util.mocks.ConnectorMockFactory;
 import com.otilm.core.util.mocks.CryptographyProviderV2ConnectorMock;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.PublicKey;
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.security.auth.x500.X500Principal;
+import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
+import org.bouncycastle.pkcs.PKCS10CertificationRequest;
+import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequestBuilder;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -71,6 +79,7 @@ import org.junit.jupiter.api.function.Executable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -335,18 +344,88 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
-    void generateCsr_rejectsV2Key() {
+    void generateCsr_signsWithV2Key_underTheSelectedAlgorithm() throws Exception {
         // given
-        persistKeyItem(KeyType.PUBLIC_KEY, "hsm-key-17-pub");
+        KeyPair keyPair = rsaKeyPair();
+        persistPublicKeyItem(keyPair.getPublic());
+        X500Principal subject = new X500Principal("CN=v2-csr");
+        PKCS10CertificationRequest expected = new JcaPKCS10CertificationRequestBuilder(
+                X500Name.getInstance(subject.getEncoded()), keyPair.getPublic())
+                .build(new JcaContentSignerBuilder("SHA256withRSA").build(keyPair.getPrivate()));
+        String signedInfo = Base64
+                .getEncoder()
+                .encodeToString(expected.toASN1Structure().getCertificationRequestInfo().getEncoded());
+        connectorMock
+                .stubOperationAttributes("sign", signSchema())
+                .stubOperation("sign", signatureResponse(expected.getSignature()));
+
+        // when
+        String csr = internalOperationService
+                .generateCsr(key.getUuid(), profile.getUuid(), subject, null, sha256WithRsa(), null, null, null);
+
+        // then
+        PKCS10CertificationRequest generated = new PKCS10CertificationRequest(Base64.getDecoder().decode(csr));
+        assertEquals("1.2.840.113549.1.1.11", generated.getSignatureAlgorithm().getAlgorithm().getId());
+        assertArrayEquals(expected.getEncoded(), generated.getEncoded());
+        connectorMock
+                .verifyOperationRequestContaining("sign",
+                        "{\"keyMeta\":[{\"name\":\"provider-handle\",\"content\":[{\"data\":\"hsm-key-17\"}]}],"
+                                + "\"signatureAttributes\":[{\"name\":\"signatureAlgorithm\","
+                                + "\"content\":[{\"data\":\"SHA256withRSA\"}]}]," + "\"data\":[{\"data\":\""
+                                + signedInfo + "\"}]}");
+        connectorMock.verifyNoOperationRequest("verify");
+    }
+
+    @Test
+    void generateCsr_refusesSignatureThatDoesNotVerifyAgainstThePublicKey() throws Exception {
+        // given
+        persistPublicKeyItem(rsaKeyPair().getPublic());
+        connectorMock
+                .stubOperationAttributes("sign", signSchema())
+                .stubOperation("sign", signatureResponse(new byte[]{9, 9}));
+        X500Principal subject = new X500Principal("CN=v2-csr");
+        List<RequestAttribute> attributes = sha256WithRsa();
 
         // when
         Executable generateCsr = () -> internalOperationService
-                .generateCsr(key.getUuid(), profile.getUuid(), new X500Principal("CN=test"), null, List.of(), null,
-                        null, null);
+                .generateCsr(key.getUuid(), profile.getUuid(), subject, null, attributes, null, null, null);
 
         // then
-        NotSupportedException exception = assertThrows(NotSupportedException.class, generateCsr);
-        assertTrue(exception.getMessage().contains("cryptography provider v2"));
+        assertThrows(ValidationException.class, generateCsr);
+    }
+
+    @Test
+    void generateCsr_refusesAlgorithmTheKeyCannotSignWith_beforeSigning() throws Exception {
+        // given
+        persistPublicKeyItem(rsaKeyPair().getPublic());
+        connectorMock.stubOperationAttributes("sign", signSchema());
+        X500Principal subject = new X500Principal("CN=v2-csr");
+        List<RequestAttribute> attributes = List
+                .of(SignatureAlgorithmAttribute.request(SignatureAlgorithm.SHA256_WITH_ECDSA));
+
+        // when
+        Executable generateCsr = () -> internalOperationService
+                .generateCsr(key.getUuid(), profile.getUuid(), subject, null, attributes, null, null, null);
+
+        // then
+        assertThrows(ValidationException.class, generateCsr);
+        connectorMock.verifyNoOperationRequest("sign");
+    }
+
+    @Test
+    void generateCsr_refusesKeyWhosePublicKeyIsNotHeld() {
+        // given
+        persistKeyItem(KeyType.PUBLIC_KEY, "hsm-key-17-pub");
+        X500Principal subject = new X500Principal("CN=v2-csr");
+        List<RequestAttribute> attributes = sha256WithRsa();
+
+        // when
+        Executable generateCsr = () -> internalOperationService
+                .generateCsr(key.getUuid(), profile.getUuid(), subject, null, attributes, null, null, null);
+
+        // then
+        assertThrows(ValidationException.class, generateCsr);
+        connectorMock.verifyNoOperationRequest("sign");
     }
 
     @Test
@@ -480,6 +559,28 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
         value.setUsage(List.of(KeyUsage.SIGN, KeyUsage.VERIFY, KeyUsage.ENCRYPT, KeyUsage.DECRYPT));
         value.setKeyMeta(List.of(handle));
         return cryptographicKeyItemRepository.save(value);
+    }
+
+    private void persistPublicKeyItem(PublicKey publicKey) {
+        CryptographicKeyItem item = persistKeyItem(KeyType.PUBLIC_KEY, "hsm-key-17-pub");
+        item.setFormat(KeyFormat.SPKI);
+        item.setKeyData(Base64.getEncoder().encodeToString(publicKey.getEncoded()));
+        cryptographicKeyItemRepository.save(item);
+    }
+
+    private static KeyPair rsaKeyPair() throws Exception {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+        generator.initialize(2048);
+        return generator.generateKeyPair();
+    }
+
+    private static List<RequestAttribute> sha256WithRsa() {
+        return List.of(SignatureAlgorithmAttribute.request(SignatureAlgorithm.SHA256_WITH_RSA));
+    }
+
+    private static String signatureResponse(byte[] signature) {
+        return "{\"signatures\":[{\"identifier\":\"0\",\"data\":\"" + Base64.getEncoder().encodeToString(signature)
+                + "\"}]}";
     }
 
     private void persistAttribute(Resource resource, UUID objectUuid, String name, String content) throws Exception {

@@ -1,6 +1,5 @@
 package com.otilm.core.service.impl;
 
-import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.NotSupportedException;
@@ -25,7 +24,6 @@ import com.otilm.api.model.core.cryptography.key.KeyEvent;
 import com.otilm.api.model.core.cryptography.key.KeyEventStatus;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
-import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.config.TokenContentSigner;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
@@ -53,7 +51,6 @@ import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import com.otilm.core.service.handler.key.KeyProviderV1Adapter;
 import com.otilm.core.service.handler.key.OperationKeyContext;
 import com.otilm.core.service.handler.token.TokenProviderAdapterFactory;
-import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.util.CertificateRequestUtils;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -61,14 +58,13 @@ import java.security.NoSuchAlgorithmException;
 import java.security.spec.InvalidKeySpecException;
 import java.util.Base64;
 import java.util.Collections;
-import java.util.EnumMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import javax.security.auth.x500.X500Principal;
 import org.bouncycastle.asn1.DERBitString;
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.asn1.x509.Extensions;
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
@@ -95,8 +91,6 @@ public class CryptographicOperationServiceImpl
     // Services & API Clients
     // --------------------------------------------------------------------------------
     private CryptographicKeyEventHistoryService eventHistoryService;
-    private ConnectorApiFactory connectorApiFactory;
-    private ConnectorInternalService connectorService;
     private AuthorizationEnforcer authorizationEnforcer;
     private CryptographicKeyInternalService cryptographicKeyService;
 
@@ -140,16 +134,6 @@ public class CryptographicOperationServiceImpl
     @Autowired
     public void setAuthorizationEnforcer(AuthorizationEnforcer authorizationEnforcer) {
         this.authorizationEnforcer = authorizationEnforcer;
-    }
-
-    @Autowired
-    public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
-        this.connectorApiFactory = connectorApiFactory;
-    }
-
-    @Autowired
-    public void setConnectorService(ConnectorInternalService connectorService) {
-        this.connectorService = connectorService;
     }
 
     @Autowired
@@ -530,24 +514,22 @@ public class CryptographicOperationServiceImpl
             throw new ValidationException(ValidationError.create("Token Profile UUID Cannot be empty"));
         }
 
-        Map<KeyType, CryptographicKeyItem> defaultKeyPair = getPublicAndPrivateKey(tokenProfileUuid, keyUuid);
-        Map<KeyType, CryptographicKeyItem> altKeyPair = new EnumMap<>(KeyType.class);
+        CsrKeyPair keyPair = getPublicAndPrivateKey(tokenProfileUuid, keyUuid);
+        CsrKeyPair altKeyPair = null;
         if (altKeyUUid != null && altTokenProfileUuid != null) {
             altKeyPair = getPublicAndPrivateKey(altTokenProfileUuid, altKeyUUid);
         }
 
-        return generateCsr(X500Name.getInstance(principal.getEncoded()), extensions,
-                defaultKeyPair.get(KeyType.PUBLIC_KEY).getKeyData(), defaultKeyPair.get(KeyType.PRIVATE_KEY),
-                defaultKeyPair.get(KeyType.PUBLIC_KEY), signatureAttributes,
-                altKeyPair.getOrDefault(KeyType.PUBLIC_KEY, null) == null
-                        ? null
-                        : altKeyPair.get(KeyType.PUBLIC_KEY).getKeyData(),
-                altKeyPair.getOrDefault(KeyType.PRIVATE_KEY, null), altKeyPair.getOrDefault(KeyType.PUBLIC_KEY, null),
-                altSignatureAttributes);
+        return generateCsr(X500Name.getInstance(principal.getEncoded()), extensions, keyPair, signatureAttributes,
+                altKeyPair, altSignatureAttributes);
     }
 
-    private Map<KeyType, CryptographicKeyItem> getPublicAndPrivateKey(UUID tokenProfileUuid, UUID keyUuid)
-            throws NotFoundException {
+    /** A key pair to put in a certificate request: its public key and the operation snapshots of both items. */
+    private record CsrKeyPair(String publicKey, CryptographicKeyItemOperationModel privateKeyItem,
+            CryptographicKeyItemOperationModel publicKeyItem) {
+    }
+
+    private CsrKeyPair getPublicAndPrivateKey(UUID tokenProfileUuid, UUID keyUuid) throws NotFoundException {
         authorizationEnforcer
                 .enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, SecuredUUID.fromUUID(tokenProfileUuid));
         // Eager-fetch the profile, key items and token instance reference: the only caller signs outside a
@@ -580,13 +562,16 @@ public class CryptographicOperationServiceImpl
             throw new ValidationException(
                     ValidationError.create("Selected item does not contain the complete keypair"));
         }
-        if (privateKeyItem.getKeyMeta() != null) {
-            throw new NotSupportedException("CSR generation is not available for keys on a cryptography provider v2.");
+        if (publicKeyItem.getKeyData() == null) {
+            throw new ValidationException(ValidationError
+                    .create("Key {} holds no public key to put in a certificate request.", key.getName()));
         }
         verifyActive(privateKeyItem.getState(), privateKeyItem.isEnabled());
         verifyActive(publicKeyItem.getState(), publicKeyItem.isEnabled());
 
-        return Map.of(KeyType.PUBLIC_KEY, publicKeyItem, KeyType.PRIVATE_KEY, privateKeyItem);
+        return new CsrKeyPair(publicKeyItem.getKeyData(),
+                cryptographicKeyService.getKeyItemModel(privateKeyItem.getUuid()),
+                cryptographicKeyService.getKeyItemModel(publicKeyItem.getUuid()));
     }
 
     private static void verifyActive(KeyState state, boolean enabled) {
@@ -596,43 +581,29 @@ public class CryptographicOperationServiceImpl
         }
     }
 
-    private String generateCsr(X500Name subject, Extensions extensions, String key, CryptographicKeyItem privateKeyItem,
-            CryptographicKeyItem publicKeyItem, List<RequestAttribute> signatureAttributes, String altKey,
-            CryptographicKeyItem altPrivateKeyItem, CryptographicKeyItem altPublicKeyItem,
+    private String generateCsr(X500Name subject, Extensions extensions, CsrKeyPair keyPair,
+            List<RequestAttribute> signatureAttributes, CsrKeyPair altKeyPair,
             List<RequestAttribute> altSignatureAttributes)
             throws NoSuchAlgorithmException, InvalidKeySpecException, IOException, NotFoundException {
         var publicKey = CertificateRequestUtils
-                .publicKeyObjectFromString(key, publicKeyItem.getKeyAlgorithm().getCode());
+                .publicKeyObjectFromString(keyPair.publicKey(), keyPair.publicKeyItem().keyAlgorithm().getCode());
         PKCS10CertificationRequestBuilder p10Builder = new JcaPKCS10CertificationRequestBuilder(subject, publicKey);
 
-        if (altKey != null && altPrivateKeyItem != null && altPublicKeyItem != null) {
-            ApiClientConnectorInfo altConnectorDto = connectorService
-                    .getConnectorForApiClient(
-                            altPrivateKeyItem.getKey().getTokenInstanceReference().getConnectorUuid());
-            ContentSigner altSigner = new TokenContentSigner(
-                    connectorApiFactory.getCryptographicOperationsApiClient(altConnectorDto), altConnectorDto,
-                    UUID.fromString(altPrivateKeyItem.getKey().getTokenInstanceReference().getTokenInstanceUuid()),
-                    altPrivateKeyItem.getKeyReferenceUuid(), altPublicKeyItem.getKeyReferenceUuid(),
-                    altPublicKeyItem.getKeyData(), altPublicKeyItem.getKeyAlgorithm(), altSignatureAttributes);
+        if (altKeyPair != null) {
+            ContentSigner altSigner = csrSigner(altKeyPair, altSignatureAttributes);
 
             OutputStream sOut = altSigner.getOutputStream();
-            sOut.write(altKey.getBytes());
+            sOut.write(altKeyPair.publicKey().getBytes());
             sOut.close();
             SubjectPublicKeyInfo altPublicKeyInfo = SubjectPublicKeyInfo
-                    .getInstance(Base64.getDecoder().decode(altKey));
+                    .getInstance(Base64.getDecoder().decode(altKeyPair.publicKey()));
             p10Builder.addAttribute(Extension.subjectAltPublicKeyInfo, altPublicKeyInfo);
             p10Builder.addAttribute(Extension.altSignatureValue, new DERBitString(altSigner.getSignature()));
             p10Builder.addAttribute(Extension.altSignatureAlgorithm, altSigner.getAlgorithmIdentifier());
         }
 
         // Assign the custom signer to sign the CSR with the private key from the cryptography provider
-        ApiClientConnectorInfo connectorDto = connectorService
-                .getConnectorForApiClient(privateKeyItem.getKey().getTokenInstanceReference().getConnectorUuid());
-        ContentSigner signer = new TokenContentSigner(
-                connectorApiFactory.getCryptographicOperationsApiClient(connectorDto), connectorDto,
-                UUID.fromString(privateKeyItem.getKey().getTokenInstanceReference().getTokenInstanceUuid()),
-                privateKeyItem.getKeyReferenceUuid(), publicKeyItem.getKeyReferenceUuid(), publicKeyItem.getKeyData(),
-                publicKeyItem.getKeyAlgorithm(), signatureAttributes);
+        ContentSigner signer = csrSigner(keyPair, signatureAttributes);
 
         if (extensions != null) {
             p10Builder.addAttribute(PKCSObjectIdentifiers.pkcs_9_at_extensionRequest, extensions);
@@ -643,5 +614,28 @@ public class CryptographicOperationServiceImpl
 
         // Convert the data from byte array to string
         return CertificateRequestUtils.byteArrayCsrToString(csr.getEncoded());
+    }
+
+    /**
+     * Signs through the key's own provider, under the algorithm its signature attributes select. A legacy provider
+     * verifies its own signature, as it always has. A v2 signature is verified here against the public key the request
+     * carries, which also catches a provider that signed under another algorithm than the selected one.
+     */
+    private ContentSigner csrSigner(CsrKeyPair keyPair, List<RequestAttribute> signatureAttributes)
+            throws NotFoundException {
+        OperationKeyContext signingKey = operationContext(keyPair.privateKeyItem());
+        KeyProviderAdapter keyProvider = adapterFor(signingKey);
+        AlgorithmIdentifier algorithm = keyProvider
+                .resolveSignatureAlgorithm(keyPair.privateKeyItem(), keyPair.publicKeyItem(), signatureAttributes)
+                .algorithmIdentifier();
+        TokenContentSigner.SignatureCheck signatureCheck = keyPair.privateKeyItem().hasConnectorInterface()
+                ? TokenContentSigner
+                        .verifiedAgainst(
+                                SubjectPublicKeyInfo.getInstance(Base64.getDecoder().decode(keyPair.publicKey())),
+                                algorithm)
+                : TokenContentSigner
+                        .verifiedByProvider(keyProvider, OperationKeyContext.legacy(keyPair.publicKeyItem()),
+                                signatureAttributes);
+        return new TokenContentSigner(keyProvider, signingKey, signatureAttributes, algorithm, signatureCheck);
     }
 }
