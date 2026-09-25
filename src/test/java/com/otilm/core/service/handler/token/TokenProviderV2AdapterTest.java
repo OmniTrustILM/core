@@ -37,7 +37,6 @@ import com.otilm.core.model.crypto.ImmutableTokenProfileBasicModel;
 import com.otilm.core.service.handler.OperationAttributeResolver;
 import java.util.Base64;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -118,7 +117,6 @@ class TokenProviderV2AdapterTest {
         verify(tokenApiClient).listSupportedKeyRequestTypes(any(), request.capture());
         assertEquals(resolvedToken, request.getValue().getTokenAttributes());
         assertEquals(resolvedProfile, request.getValue().getTokenProfileAttributes());
-        assertEquals(Set.copyOf(profile.usages()), request.getValue().getKeyUsages());
     }
 
     @Test
@@ -165,7 +163,6 @@ class TokenProviderV2AdapterTest {
         verify(operationsClient).listRandomAttributes(any(), request.capture());
         assertEquals(resolvedToken, request.getValue().getTokenAttributes());
         assertEquals(resolvedProfile, request.getValue().getTokenProfileAttributes());
-        assertEquals(Set.copyOf(profile.usages()), request.getValue().getKeyUsages());
         verify(attributeEngine).updateDataAttributeDefinitions(token.connectorUuid(), null, definitions);
     }
 
@@ -195,7 +192,6 @@ class TokenProviderV2AdapterTest {
         verify(operationsClient).randomData(any(), sent.capture());
         assertEquals(resolvedToken, sent.getValue().getTokenAttributes());
         assertEquals(resolvedProfile, sent.getValue().getTokenProfileAttributes());
-        assertEquals(Set.copyOf(profile.usages()), sent.getValue().getKeyUsages());
         assertEquals(2, sent.getValue().getLength());
         assertSame(request.getAttributes(), sent.getValue().getOperationAttributes());
         assertEquals(Base64.getEncoder().encodeToString(new byte[]{9, 8}), response.getData());

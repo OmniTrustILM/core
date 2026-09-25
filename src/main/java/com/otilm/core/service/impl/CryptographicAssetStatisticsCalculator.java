@@ -5,6 +5,7 @@ import com.otilm.api.model.client.dashboard.CryptographicAssetSyncCompletenessDt
 import com.otilm.api.model.core.cbom.CbomAssetSyncState;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetType;
 import com.otilm.api.model.core.cryptoasset.PqcVerdict;
+import com.otilm.core.cbom.asset.ServedAssetType;
 
 import java.time.OffsetDateTime;
 import java.util.Arrays;
@@ -42,7 +43,10 @@ final class CryptographicAssetStatisticsCalculator {
         CryptographicAssetStatisticsDto dto = new CryptographicAssetStatisticsDto();
         dto.setTotalAssets(totalAssets);
         dto.setSourceCbomCount(sourceCbomCount);
-        dto.setStatByType(dense(byType, typeCodes(), null));
+        Map<String, Long> types = new HashMap<>(byType);
+        Long untyped = types.remove(CryptographicAssetType.UNROUTABLE.getCode());
+        dto.setUntypedAssetCount(untyped == null ? 0L : untyped);
+        dto.setStatByType(dense(types, typeCodes(), null));
         dto.setStatByPqcVerdict(dense(byVerdict, verdictCodes(), PqcVerdict.UNKNOWN.getCode()));
         Map<String, Long> families = new HashMap<>(byFamily);
         Long unassigned = families.remove(UNASSIGNED_KEY);
@@ -96,7 +100,7 @@ final class CryptographicAssetStatisticsCalculator {
     }
 
     private static List<String> typeCodes() {
-        return Arrays.stream(CryptographicAssetType.values()).map(CryptographicAssetType::getCode).toList();
+        return ServedAssetType.VALUES.stream().map(CryptographicAssetType::getCode).toList();
     }
 
     private static List<String> verdictCodes() {

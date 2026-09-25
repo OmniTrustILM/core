@@ -130,7 +130,9 @@ class CryptographicAssetSearchableFieldsITest extends BaseSpringBootTest {
     void enumBackedFieldsCarryThePlatformEnumAndTheContractCodes() {
         SearchFieldDataDto type = fieldFor(FilterField.CBOM_ASSET_TYPE);
         assertThat(type.getPlatformEnum()).isNotNull();
-        assertThat((List<String>) type.getValue()).contains("algorithm");
+        assertThat((List<String>) type.getValue())
+                .describedAs("the CycloneDX vocabulary, never the stored unroutable tier")
+                .containsExactly("algorithm", "certificate", "protocol", "related-crypto-material");
 
         SearchFieldDataDto verdict = fieldFor(FilterField.CBOM_ASSET_PQC_VERDICT);
         assertThat(verdict.getPlatformEnum()).isNotNull();

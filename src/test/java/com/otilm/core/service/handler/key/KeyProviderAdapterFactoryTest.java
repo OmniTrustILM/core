@@ -6,6 +6,7 @@ import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
+import com.otilm.api.model.connector.cryptography.v2.OperationResponseValidator;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.core.attribute.engine.AttributeEngine;
@@ -19,6 +20,7 @@ import com.otilm.core.model.connector.ImmutableConnectorInterface;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.crypto.ImmutableTokenInstanceFullModel;
 import com.otilm.core.model.crypto.RemoteKeyReference;
+import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.OperationAttributeResolver;
 import com.otilm.core.service.v2.ConnectorInternalService;
 import java.util.List;
@@ -48,6 +50,7 @@ class KeyProviderAdapterFactoryTest {
 
     private ConnectorInternalService connectorService;
     private ConnectorApiFactory clients;
+    private CryptographyV2ApiClients v2Clients;
     private KeyProviderAdapterFactory factory;
     private ImmutableConnectorFullModel connector;
 
@@ -55,9 +58,10 @@ class KeyProviderAdapterFactoryTest {
     void setUp() throws Exception {
         connectorService = mock(ConnectorInternalService.class);
         clients = mock(ConnectorApiFactory.class);
+        v2Clients = mock(CryptographyV2ApiClients.class);
         factory = new KeyProviderAdapterFactory(connectorService, clients, mock(AttributeEngine.class),
-                mock(OperationAttributeResolver.class), mock(OutboundSecretContainment.class),
-                mock(CryptographyV2ApiClients.class));
+                mock(OperationAttributeResolver.class), mock(OutboundSecretContainment.class), v2Clients,
+                new ConnectorCapabilityService(), mock(OperationResponseValidator.class));
         connector = new ImmutableConnectorFullModel(UUID.randomUUID(), "provider", ConnectorVersion.V2,
                 "http://connector.test", null, List.of(), null, null, List.of(cryptographyInterface("v2")), List.of());
         when(connectorService.getConnectorFullModelForApiClient(connector.uuid())).thenReturn(connector);
@@ -87,7 +91,7 @@ class KeyProviderAdapterFactoryTest {
 
         // then
         assertInstanceOf(KeyProviderV2Adapter.class, adapter);
-        verify(clients).getKeyManagementApiClientV2(connector);
+        verify(v2Clients).getKeyManagementApiClient(connector);
         verify(connectorService).getConnectorFullModelForApiClient(token.connectorUuid());
     }
 
@@ -172,7 +176,7 @@ class KeyProviderAdapterFactoryTest {
 
         // then
         assertInstanceOf(KeyProviderV2Adapter.class, adapter);
-        verify(clients).getKeyManagementApiClientV2(connector);
+        verify(v2Clients).getKeyManagementApiClient(connector);
     }
 
     @ParameterizedTest(name = "{0} {1}")

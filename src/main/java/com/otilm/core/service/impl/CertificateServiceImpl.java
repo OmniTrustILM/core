@@ -257,6 +257,14 @@ public class CertificateServiceImpl
 
     private static final String UNDEFINED_CERTIFICATE_OBJECT_NAME = "undefined";
 
+    private static final String NOT_ISSUED_SUFFIX = " (Not Issued)";
+
+    // The serial number, or "{commonName} (Not Issued)" for a certificate that has none yet
+    private static final BiFunction<Root<Certificate>, CriteriaBuilder, Expression<String>> RESOURCE_OBJECT_NAME = (
+            root, cb) -> cb
+                    .coalesce(serialNumberOrNull(root, cb),
+                            cb.concat(commonNameOrPlaceholder(root, cb), NOT_ISSUED_SUFFIX));
+
     // batch size will prevent bloating size of enqueued message and better utilize parallel processing
     // NOTE: improve handling of large batches vs many produced messages to queue
     @Value("${certificate.validation.batch-size:10}")
@@ -2320,14 +2328,15 @@ public class CertificateServiceImpl
 
     @Override
     public NameAndUuidDto getResourceObjectInternal(UUID objectUuid) throws NotFoundException {
-        return certificateRepository.findResourceObject(objectUuid, Certificate_.serialNumber);
+        return certificateRepository.findResourceObject(objectUuid, RESOURCE_OBJECT_NAME);
     }
 
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.DETAIL)
     public NameAndUuidDto getResourceObjectExternal(SecuredUUID objectUuid) throws NotFoundException {
-        Certificate certificate = getCertificateEntity(objectUuid);
-        return new NameAndUuidDto(certificate.getUuid(), certificate.getSerialNumber());
+        // Loaded for the RA profile permission check it performs
+        getCertificateEntity(objectUuid);
+        return getResourceObjectInternal(objectUuid.getValue());
     }
 
     @Override
@@ -2337,17 +2346,23 @@ public class CertificateServiceImpl
                 filters, false, attributeEngine.customAttributeContentFilterOnce());
         return certificateRepository
                 .listResourceObjects(filter,
-                        // Creates the name as "{commonName} (SN: {serialNumber})", if the common name is empty or null,
-                        // it will be replaced with "<empty>"
+                        // "{commonName} ({serialNumber})"
                         (root, cb) -> {
-                            Expression<String> displayName = cb
-                                    .coalesce(cb.nullif(cb.trim(root.get(Certificate_.commonName)), ""),
-                                            CertificateUtil.EMPTY_COMMON_NAME_PLACEHOLDER);
                             Expression<String> snSuffix = cb
-                                    .coalesce(cb.concat(" (", cb.concat(root.get(Certificate_.serialNumber), ")")),
-                                            " (Not Issued)");
-                            return cb.concat(displayName, snSuffix);
+                                    .coalesce(cb.concat(" (", cb.concat(serialNumberOrNull(root, cb), ")")),
+                                            NOT_ISSUED_SUFFIX);
+                            return cb.concat(commonNameOrPlaceholder(root, cb), snSuffix);
                         }, additionalWhereClause, pagination);
+    }
+
+    private static Expression<String> serialNumberOrNull(Root<Certificate> root, CriteriaBuilder cb) {
+        return cb.nullif(cb.trim(root.get(Certificate_.serialNumber)), "");
+    }
+
+    private static Expression<String> commonNameOrPlaceholder(Root<Certificate> root, CriteriaBuilder cb) {
+        return cb
+                .coalesce(cb.nullif(cb.trim(root.get(Certificate_.commonName)), ""),
+                        CertificateUtil.EMPTY_COMMON_NAME_PLACEHOLDER);
     }
 
     @Override

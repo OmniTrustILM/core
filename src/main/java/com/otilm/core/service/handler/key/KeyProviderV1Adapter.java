@@ -30,6 +30,7 @@ import com.otilm.api.model.connector.cryptography.key.KeyData;
 import com.otilm.api.model.connector.cryptography.key.KeyDataResponseDto;
 import com.otilm.api.model.connector.cryptography.key.KeyPairDataResponseDto;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.secret.Passphrase;
 import com.otilm.core.attribute.EcdsaSignatureAttributes;
 import com.otilm.core.attribute.RsaEncryptionAttributes;
 import com.otilm.core.attribute.RsaSignatureAttributes;
@@ -43,6 +44,7 @@ import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
+import com.otilm.core.model.crypto.TransferableKeyType;
 import com.otilm.core.service.handler.LegacyOperationCodec;
 import com.otilm.core.service.handler.OperationDataItem;
 import com.otilm.core.service.handler.OperationResultItem;
@@ -168,6 +170,24 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
             keyManagementSyncApiClient
                     .validateCreateSecretKeyAttributes(connectorInfo, tokenInstance.tokenInstanceUuid(), attributes);
         }
+    }
+
+    /** The V1 contract has no export, so a V1 connector exports nothing. */
+    @Override
+    public List<TransferableKeyType> listExportableKeyTypes(TokenProfileFullModel tokenProfile) {
+        return List.of();
+    }
+
+    @Override
+    public List<BaseAttribute> listExportKeyAttributes(OperationKeyContext context) {
+        return List.of();
+    }
+
+    @Override
+    public byte[] exportKey(OperationKeyContext context, HeldKey heldKey, Passphrase passphrase,
+            List<RequestAttribute> attributes) {
+        throw new ValidationException(
+                ValidationError.create("Key export is not part of the v1 cryptography provider contract."));
     }
 
     @Override

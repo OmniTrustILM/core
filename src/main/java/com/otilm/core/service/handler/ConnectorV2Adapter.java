@@ -16,6 +16,7 @@ import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
+import com.otilm.core.service.writer.KeyTransferCapabilityWriter;
 import com.otilm.core.util.NullUtil;
 import java.util.EnumSet;
 import java.util.HashSet;
@@ -36,10 +37,16 @@ public class ConnectorV2Adapter implements ConnectorAdapter {
 
     private ConnectorApiFactory connectorApiFactory;
     private ConnectorInterfaceRepository connectorInterfaceRepository;
+    private KeyTransferCapabilityWriter keyTransferCapabilityWriter;
 
     @Autowired
     public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
         this.connectorApiFactory = connectorApiFactory;
+    }
+
+    @Autowired
+    public void setKeyTransferCapabilityWriter(KeyTransferCapabilityWriter keyTransferCapabilityWriter) {
+        this.keyTransferCapabilityWriter = keyTransferCapabilityWriter;
     }
 
     @Autowired
@@ -173,5 +180,8 @@ public class ConnectorV2Adapter implements ConnectorAdapter {
             }
             logger.debug("Removed {} interfaces", toRemove.size());
         }
+
+        // A re-registered connector may export something else now, whether or not its declared features changed.
+        keyTransferCapabilityWriter.forgetForConnector(connector.getUuid());
     }
 }

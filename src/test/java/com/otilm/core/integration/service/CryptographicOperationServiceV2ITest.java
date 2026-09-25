@@ -449,7 +449,6 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
                 .verifyOperationRequestContaining("random",
                         "{\"tokenAttributes\":[{\"name\":\"token-slot\"}],"
                                 + "\"tokenProfileAttributes\":[{\"name\":\"profile-policy\"}],"
-                                + "\"keyUsages\":[\"sign\",\"verify\",\"encrypt\",\"decrypt\"],"
                                 + "\"length\":4,\"operationAttributes\":[]}");
     }
 

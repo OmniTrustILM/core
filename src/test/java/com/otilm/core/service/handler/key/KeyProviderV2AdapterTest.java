@@ -3,13 +3,17 @@ package com.otilm.core.service.handler.key;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.exception.ConnectorEntityNotFoundException;
 import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ConnectorProblemException;
+import com.otilm.api.exception.ConnectorServerException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.client.v2.CryptographicOperationsSyncApiClient;
 import com.otilm.api.interfaces.client.v2.KeySyncApiClient;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV2;
+import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.client.cryptography.operations.CipherDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.CipherRequestData;
@@ -27,17 +31,25 @@ import com.otilm.api.model.common.attribute.common.content.data.SecretAttributeC
 import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
+import com.otilm.api.model.common.attribute.v2.content.BooleanAttributeContentV2;
 import com.otilm.api.model.common.attribute.v2.content.SecretAttributeContentV2;
 import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
+import com.otilm.api.model.common.attribute.v3.MetadataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
+import com.otilm.api.model.common.error.ErrorCode;
+import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.common.v2.OperationExecutionMode;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
+import com.otilm.api.model.connector.cryptography.v2.OperationResponseValidator;
 import com.otilm.api.model.connector.cryptography.v2.key.CreateKeyAttributesRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.CreateKeyRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.DestroyKeyRequestV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.ExportKeyRequestV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.ExportKeyResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyCreationResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyExportableAttribute;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyOperationResponseV2Dto;
@@ -48,6 +60,7 @@ import com.otilm.api.model.connector.cryptography.v2.key.PublicKeyDataResponseV2
 import com.otilm.api.model.connector.cryptography.v2.key.PublicKeyDataV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyDataV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.material.EncryptedKeyMaterialV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.DecryptDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.EncryptDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignDataRequestV2Dto;
@@ -62,12 +75,14 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
+import com.otilm.api.model.core.secret.Passphrase;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.OutboundSecretContainment;
 import com.otilm.core.attribute.engine.OutboundSecretLeakException;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
-import com.otilm.core.client.ConnectorApiFactory;
+import com.otilm.core.client.CryptographyV2ApiClients;
 import com.otilm.core.model.connector.ImmutableConnectorFullModel;
+import com.otilm.core.model.connector.ImmutableConnectorInterface;
 import com.otilm.core.model.crypto.CryptographicKeyItemModelFixtures;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
@@ -76,10 +91,16 @@ import com.otilm.core.model.crypto.ImmutableTokenProfileFullModel;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
+import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.OperationAttributeResolver;
+import com.otilm.core.util.ExportEnvelopeFixtures;
+import jakarta.validation.Validation;
+import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.security.PublicKey;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -94,12 +115,14 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -107,6 +130,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Named.named;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -133,20 +158,22 @@ class KeyProviderV2AdapterTest {
         var token = new ImmutableTokenInstanceFullModel(UUID.randomUUID(), null, "token", TokenInstanceStatus.ACTIVATED,
                 null, connectorUuid, connector.name(), null, null, Set.of());
         profile = new ImmutableTokenProfileFullModel(UUID.randomUUID(), "profile", null, token.name(), token.uuid(),
-                true, List.of(KeyUsage.SIGN), token, connectorUuid);
+                true, List.of(KeyUsage.SIGN), token, connectorUuid, Map.of(), 0);
         cryptographicKey = new ImmutableCryptographicKeyFullModel(UUID.randomUUID(), "key", null, profile.uuid(),
                 profile.tokenInstanceReferenceUuid(), profile, profile.tokenInstance(), Set.of(), null, null, null,
                 List.of(), List.of());
-        ConnectorApiFactory factory = mock(ConnectorApiFactory.class);
+        CryptographyV2ApiClients apiClients = mock(CryptographyV2ApiClients.class);
         attributes = mock(AttributeEngine.class);
         resolver = mock(OperationAttributeResolver.class);
         client = mock(KeySyncApiClient.class);
         operationsClient = mock(CryptographicOperationsSyncApiClient.class);
-        when(factory.getKeyManagementApiClientV2(connector)).thenReturn(client);
+        when(apiClients.getKeyManagementApiClient(connector)).thenReturn(client);
+        when(apiClients.getCryptographicOperationsApiClient(connector)).thenReturn(operationsClient);
         when(attributes.getRequestObjectDataAttributesContent(any())).thenReturn(List.of());
         when(resolver.resolveForConnectorRequestAsSystem(connectorUuid, List.of())).thenReturn(List.of());
-        adapter = new KeyProviderV2Adapter(factory, connector, attributes, resolver,
-                new OutboundSecretContainment(new ObjectMapper()), operationsClient);
+        adapter = new KeyProviderV2Adapter(apiClients, connector, attributes, resolver,
+                new OutboundSecretContainment(new ObjectMapper()), new ConnectorCapabilityService(),
+                new OperationResponseValidator(Validation.buildDefaultValidatorFactory().getValidator()));
     }
 
     private OperationKeyContext v2Context(List<MetadataAttribute> keyMeta) {
@@ -191,7 +218,6 @@ class KeyProviderV2AdapterTest {
         assertSame(keyMeta, request.getValue().getKeyMeta());
         assertSame(resolvedToken, request.getValue().getTokenAttributes());
         assertSame(resolvedProfile, request.getValue().getTokenProfileAttributes());
-        assertEquals(Set.copyOf(profile.usages()), request.getValue().getKeyUsages());
         assertEquals(OperationExecutionMode.SYNCHRONOUS, request.getValue().getExecutionMode());
     }
 
@@ -415,7 +441,6 @@ class KeyProviderV2AdapterTest {
         assertSame(keyMeta, sent.getValue().getKeyMeta());
         assertSame(resolvedToken, sent.getValue().getTokenAttributes());
         assertSame(resolvedProfile, sent.getValue().getTokenProfileAttributes());
-        assertEquals(Set.copyOf(profile.usages()), sent.getValue().getKeyUsages());
         assertEquals(OperationExecutionMode.SYNCHRONOUS, sent.getValue().getExecutionMode());
         assertEquals("0", sent.getValue().getData().get(0).getIdentifier());
         assertNull(response.getSignatures().get(0).getIdentifier());
@@ -866,6 +891,212 @@ class KeyProviderV2AdapterTest {
         assertThrows(ConnectorException.class, sign);
     }
 
+    @Test
+    void listExportKeyAttributes_asksForTheKeysSchemaAndPublishesIt() throws Exception {
+        // given
+        List<BaseAttribute> schema = List.of(dataAttributeDefinition("exportLabel", false));
+        when(client.listExportKeyAttributes(any(), any())).thenReturn(schema);
+
+        // when
+        List<BaseAttribute> listed = adapter.listExportKeyAttributes(v2Context(metadata("handle")));
+
+        // then
+        assertEquals(schema, listed);
+        verify(attributes).updateDataAttributeDefinitions(any(), isNull(), eq(schema));
+    }
+
+    @Test
+    void exportKey_sendsTheScopeHandleAndPassphraseAndReturnsTheEnvelope() throws Exception {
+        // given
+        KeyPair pair = rsaKeyPair();
+        byte[] envelope = ExportEnvelopeFixtures.pinnedEnvelope(pair.getPrivate(), PASSPHRASE);
+        when(client.listExportKeyAttributes(any(), any())).thenReturn(List.of());
+        when(client.exportKey(any(), any())).thenReturn(exportResponse(envelope, pair.getPublic()));
+
+        // when
+        byte[] exported = adapter
+                .exportKey(v2Context(metadata("handle")), heldKey(pair.getPublic()), passphrase(), List.of());
+
+        // then
+        assertArrayEquals(envelope, exported);
+        ArgumentCaptor<ExportKeyRequestV2Dto> sent = ArgumentCaptor.forClass(ExportKeyRequestV2Dto.class);
+        verify(client).exportKey(any(), sent.capture());
+        assertEquals(KeyRequestType.KEY_PAIR, sent.getValue().getKeyRequestType());
+        assertEquals(new String(PASSPHRASE), sent.getValue().getPassphrase());
+        assertEquals(List.of(), sent.getValue().getExportKeyAttributes());
+        assertEquals(metadata("handle").getFirst().getName(), sent.getValue().getKeyMeta().getFirst().getName());
+        assertNull(sent.getValue().getKeyReference(),
+                "a key with no reference of Core's own is exported by its handle");
+    }
+
+    @Test
+    void exportKey_statesTheKeysReferenceWhenCoreHoldsOne() throws Exception {
+        // given
+        KeyPair pair = rsaKeyPair();
+        UUID reference = UUID.randomUUID();
+        ExportKeyResponseV2Dto response = exportResponse(
+                ExportEnvelopeFixtures.pinnedEnvelope(pair.getPrivate(), PASSPHRASE), pair.getPublic());
+        response.setKeyReference(reference.toString());
+        when(client.listExportKeyAttributes(any(), any())).thenReturn(List.of());
+        when(client.exportKey(any(), any())).thenReturn(response);
+        HeldKey held = new HeldKey(KeyRequestType.KEY_PAIR, KeyAlgorithm.RSA, 2048, pair.getPublic().getEncoded(),
+                reference);
+
+        // when
+        adapter.exportKey(v2Context(metadata("handle")), held, passphrase(), List.of());
+
+        // then
+        ArgumentCaptor<ExportKeyRequestV2Dto> sent = ArgumentCaptor.forClass(ExportKeyRequestV2Dto.class);
+        verify(client).exportKey(any(), sent.capture());
+        assertEquals(reference.toString(), sent.getValue().getKeyReference());
+    }
+
+    @Test
+    void exportKey_refusesAnAnswerDescribingAnotherKey() throws Exception {
+        // given
+        KeyPair asked = rsaKeyPair();
+        KeyPair other = rsaKeyPair();
+        when(client.listExportKeyAttributes(any(), any())).thenReturn(List.of());
+        when(client.exportKey(any(), any()))
+                .thenReturn(exportResponse(ExportEnvelopeFixtures.pinnedEnvelope(other.getPrivate(), PASSPHRASE),
+                        other.getPublic()));
+        OperationKeyContext context = v2Context(metadata("handle"));
+        HeldKey held = heldKey(asked.getPublic());
+        Passphrase passphrase = passphrase();
+
+        // when
+        ConnectorServerException refused = assertThrows(ConnectorServerException.class,
+                () -> adapter.exportKey(context, held, passphrase, NO_ATTRIBUTES));
+
+        // then
+        assertEquals(HttpStatus.BAD_GATEWAY, refused.getHttpStatus());
+    }
+
+    @Test
+    void exportKey_refusesAResponseEchoingThePassphrase() throws Exception {
+        // given
+        KeyPair pair = rsaKeyPair();
+        ExportKeyResponseV2Dto echoing = exportResponse(
+                ExportEnvelopeFixtures.pinnedEnvelope(pair.getPrivate(), PASSPHRASE), pair.getPublic());
+        echoing.getKeyData().setMetadata(List.of(metadataCarrying(new String(PASSPHRASE))));
+        when(client.listExportKeyAttributes(any(), any())).thenReturn(List.of());
+        when(client.exportKey(any(), any())).thenReturn(echoing);
+        OperationKeyContext context = v2Context(metadata("handle"));
+        HeldKey held = heldKey(pair.getPublic());
+        Passphrase passphrase = passphrase();
+
+        // when
+        // then
+        assertThrows(OutboundSecretLeakException.class,
+                () -> adapter.exportKey(context, held, passphrase, NO_ATTRIBUTES));
+    }
+
+    @Test
+    void exportKey_refusesAttributesTheSchemaDoesNotAccept() throws Exception {
+        // given
+        when(client.listExportKeyAttributes(any(), any()))
+                .thenReturn(List.of(dataAttributeDefinition("exportLabel", true)));
+        OperationKeyContext context = v2Context(metadata("handle"));
+        HeldKey held = heldKey(rsaKeyPair().getPublic());
+        Passphrase passphrase = passphrase();
+
+        // when
+        // then
+        assertThrows(ValidationException.class, () -> adapter.exportKey(context, held, passphrase, NO_ATTRIBUTES));
+        verify(client, never()).exportKey(any(), any());
+    }
+
+    /** Only key-pair algorithms exist, so the secret is described with one; type, algorithm and length are compared. */
+    @Test
+    void exportKey_returnsASecretKeyItsConnectorDescribesAsHeld() throws Exception {
+        // given
+        byte[] envelope = ExportEnvelopeFixtures.pinnedEnvelope(rsaKeyPair().getPrivate(), PASSPHRASE);
+        when(client.listExportKeyAttributes(any(), any())).thenReturn(List.of());
+        when(client.exportKey(any(), any())).thenReturn(secretExportResponse(envelope, 256));
+
+        // when
+        byte[] exported = adapter.exportKey(v2Context(metadata("handle")), heldSecret(256), passphrase(), List.of());
+
+        // then
+        assertArrayEquals(envelope, exported);
+    }
+
+    @Test
+    void exportKey_refusesASecretKeyOfAnotherLength() throws Exception {
+        // given
+        when(client.listExportKeyAttributes(any(), any())).thenReturn(List.of());
+        when(client.exportKey(any(), any()))
+                .thenReturn(secretExportResponse(
+                        ExportEnvelopeFixtures.pinnedEnvelope(rsaKeyPair().getPrivate(), PASSPHRASE), 128));
+        OperationKeyContext context = v2Context(metadata("handle"));
+        HeldKey held = heldSecret(256);
+        Passphrase passphrase = passphrase();
+
+        // when
+        ConnectorServerException refused = assertThrows(ConnectorServerException.class,
+                () -> adapter.exportKey(context, held, passphrase, NO_ATTRIBUTES));
+
+        // then
+        assertEquals(HttpStatus.BAD_GATEWAY, refused.getHttpStatus());
+    }
+
+    @Test
+    void exportKey_namesARefusalByItsCodeAlone() throws Exception {
+        // given
+        String echoed = new String(PASSPHRASE);
+        when(client.listExportKeyAttributes(any(), any())).thenReturn(List.of());
+        when(client.exportKey(any(), any()))
+                .thenThrow(new ConnectorProblemException(ProblemDetailExtended
+                        .fromErrorCode(ErrorCode.KEY_NOT_EXPORTABLE, "refused for " + echoed, null, null)));
+        OperationKeyContext context = v2Context(metadata("handle"));
+        HeldKey held = heldKey(rsaKeyPair().getPublic());
+        Passphrase passphrase = passphrase();
+
+        // when
+        ValidationException refused = assertThrows(ValidationException.class,
+                () -> adapter.exportKey(context, held, passphrase, NO_ATTRIBUTES));
+
+        // then
+        assertTrue(refused.getMessage().contains(ErrorCode.KEY_NOT_EXPORTABLE.name()), refused.getMessage());
+        assertFalse(refused.getMessage().contains(echoed), refused.getMessage());
+    }
+
+    /** The request carried the passphrase, so nothing the connector answered may travel on. */
+    @ParameterizedTest
+    @MethodSource("failedExports")
+    void exportKey_dropsTheConnectorsWordsWhenTheExportFails(Exception failure) throws Exception {
+        // given
+        when(client.listExportKeyAttributes(any(), any())).thenReturn(List.of());
+        when(client.exportKey(any(), any())).thenThrow(failure);
+        OperationKeyContext context = v2Context(metadata("handle"));
+        HeldKey held = heldKey(rsaKeyPair().getPublic());
+        Passphrase passphrase = passphrase();
+
+        // when
+        ConnectorServerException failed = assertThrows(ConnectorServerException.class,
+                () -> adapter.exportKey(context, held, passphrase, NO_ATTRIBUTES));
+
+        // then
+        assertEquals(HttpStatus.BAD_GATEWAY, failed.getHttpStatus());
+        assertFalse(failed.getMessage().contains(new String(PASSPHRASE)), failed.getMessage());
+        assertNull(failed.getCause());
+    }
+
+    private static Stream<Exception> failedExports() {
+        String echoed = "failed for " + new String(PASSPHRASE);
+        ProblemDetailExtended withoutCode = new ProblemDetailExtended();
+        withoutCode.setStatus(HttpStatus.UNPROCESSABLE_ENTITY.value());
+        withoutCode.setDetail(echoed);
+        return Stream
+                .of(new ConnectorProblemException(
+                        ProblemDetailExtended.fromErrorCode(ErrorCode.INTERNAL_SERVER_ERROR, echoed, null, null)),
+                        new ConnectorProblemException(
+                                ProblemDetailExtended.fromErrorCode(ErrorCode.FORBIDDEN, echoed, null, null)),
+                        new ConnectorProblemException(withoutCode),
+                        new ConnectorServerException(echoed, HttpStatus.INTERNAL_SERVER_ERROR),
+                        new ValidationException(echoed), new IllegalStateException(echoed));
+    }
+
     private static Stream<Arguments> operationAttributeListings() {
         return Stream
                 .of(Arguments
@@ -902,6 +1133,16 @@ class KeyProviderV2AdapterTest {
         definition.setContentType(AttributeContentType.STRING);
         definition.setProperties(properties);
         return definition;
+    }
+
+    /** The profile on a token whose cryptography interface declares the given features. */
+    private ImmutableTokenProfileFullModel profileDeclaring(FeatureFlag... features) {
+        ImmutableConnectorInterface cryptography = new ImmutableConnectorInterface(UUID.randomUUID(),
+                ConnectorInterface.CRYPTOGRAPHY, "v2", List.of(features));
+        var token = new ImmutableTokenInstanceFullModel(UUID.randomUUID(), null, "token", TokenInstanceStatus.ACTIVATED,
+                null, profile.connectorUuid(), "connector", cryptography.uuid(), cryptography, Set.of());
+        return new ImmutableTokenProfileFullModel(UUID.randomUUID(), "profile", null, token.name(), token.uuid(), true,
+                List.of(KeyUsage.SIGN), token, profile.connectorUuid(), Map.of(), 0);
     }
 
     private static RequestAttribute stringAttribute(String name, String value) {
@@ -1020,13 +1261,16 @@ class KeyProviderV2AdapterTest {
         when(client.createKey(any(), any())).thenReturn(ResponseEntity.ok(secretKeyResponse()));
 
         // when
-        adapter.createKey(profile, KeyRequestType.SECRET, List.of(), profile.name(), true);
+        adapter
+                .createKey(profileDeclaring(FeatureFlag.KEY_EXPORT), KeyRequestType.SECRET, List.of(), profile.name(),
+                        true);
 
         // then
         ArgumentCaptor<CreateKeyRequestV2Dto> request = ArgumentCaptor.forClass(CreateKeyRequestV2Dto.class);
         verify(client).createKey(any(), request.capture());
         RequestAttribute intent = request.getValue().getCreateKeyAttributes().getFirst();
-        assertEquals(UUID.fromString(KeyExportableAttribute.definition().getUuid()), intent.getUuid());
+        assertInstanceOf(RequestAttributeV3.class, intent);
+        assertEquals(KeyExportableAttribute.ATTRIBUTE_UUID, intent.getUuid());
         assertEquals(KeyExportableAttribute.NAME, intent.getName());
         assertEquals(AttributeContentType.BOOLEAN, intent.getContentType());
         assertTrue(KeyExportableAttribute.isRequested(request.getValue().getCreateKeyAttributes()));
@@ -1038,7 +1282,9 @@ class KeyProviderV2AdapterTest {
         when(client.createKey(any(), any())).thenReturn(ResponseEntity.ok(secretKeyResponse()));
 
         // when
-        adapter.createKey(profile, KeyRequestType.SECRET, List.of(), profile.name(), false);
+        adapter
+                .createKey(profileDeclaring(FeatureFlag.KEY_EXPORT), KeyRequestType.SECRET, List.of(), profile.name(),
+                        false);
 
         // then
         ArgumentCaptor<CreateKeyRequestV2Dto> request = ArgumentCaptor.forClass(CreateKeyRequestV2Dto.class);
@@ -1053,13 +1299,53 @@ class KeyProviderV2AdapterTest {
         when(client.createKey(any(), any())).thenReturn(ResponseEntity.ok(secretKeyResponse()));
 
         // when
-        adapter.createKey(profile, KeyRequestType.SECRET, null, profile.name(), true);
+        adapter.createKey(profileDeclaring(FeatureFlag.KEY_EXPORT), KeyRequestType.SECRET, null, profile.name(), true);
 
         // then
         ArgumentCaptor<CreateKeyRequestV2Dto> request = ArgumentCaptor.forClass(CreateKeyRequestV2Dto.class);
         verify(client).createKey(any(), request.capture());
         assertTrue(KeyExportableAttribute.isRequested(request.getValue().getCreateKeyAttributes()));
         assertEquals(1, request.getValue().getCreateKeyAttributes().size());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void createKey_statesNoExportableIntentToAConnectorWithoutKeyExport(boolean exportable) throws Exception {
+        // given
+        when(client.createKey(any(), any())).thenReturn(ResponseEntity.ok(secretKeyResponse()));
+        RequestAttribute label = requestAttribute("keyLabel");
+
+        // when
+        adapter
+                .createKey(profileDeclaring(FeatureFlag.STATELESS), KeyRequestType.SECRET,
+                        List.of(label, requestAttribute(KeyExportableAttribute.NAME)), profile.name(), exportable);
+
+        // then
+        ArgumentCaptor<CreateKeyRequestV2Dto> request = ArgumentCaptor.forClass(CreateKeyRequestV2Dto.class);
+        verify(client).createKey(any(), request.capture());
+        assertEquals(List.of(label), request.getValue().getCreateKeyAttributes());
+    }
+
+    @Test
+    void createKey_statesItsOwnIntentInPlaceOfOneTheCallerStated() throws Exception {
+        // given
+        when(client.createKey(any(), any())).thenReturn(ResponseEntity.ok(secretKeyResponse()));
+        RequestAttributeV2 statedByTheCaller = new RequestAttributeV2();
+        statedByTheCaller.setUuid(KeyExportableAttribute.ATTRIBUTE_UUID);
+        statedByTheCaller.setName(KeyExportableAttribute.NAME);
+        statedByTheCaller.setContentType(AttributeContentType.BOOLEAN);
+        statedByTheCaller.setContent(List.of(new BooleanAttributeContentV2(true)));
+
+        // when
+        adapter
+                .createKey(profileDeclaring(FeatureFlag.KEY_EXPORT), KeyRequestType.SECRET, List.of(statedByTheCaller),
+                        profile.name(), false);
+
+        // then
+        ArgumentCaptor<CreateKeyRequestV2Dto> request = ArgumentCaptor.forClass(CreateKeyRequestV2Dto.class);
+        verify(client).createKey(any(), request.capture());
+        assertEquals(1, request.getValue().getCreateKeyAttributes().size());
+        assertFalse(KeyExportableAttribute.isRequested(request.getValue().getCreateKeyAttributes()));
     }
 
     @Test
@@ -1095,7 +1381,6 @@ class KeyProviderV2AdapterTest {
         verify(client).createKey(any(), request.capture());
         assertEquals(resolvedToken, request.getValue().getTokenAttributes());
         assertEquals(resolvedProfile, request.getValue().getTokenProfileAttributes());
-        assertEquals(Set.copyOf(profile.usages()), request.getValue().getKeyUsages());
     }
 
     @ParameterizedTest(name = "{0}")
@@ -1149,7 +1434,6 @@ class KeyProviderV2AdapterTest {
         assertEquals(type, request.getValue().getKeyRequestType());
         assertEquals(resolvedToken, request.getValue().getTokenAttributes());
         assertEquals(resolvedProfile, request.getValue().getTokenProfileAttributes());
-        assertEquals(Set.copyOf(profile.usages()), request.getValue().getKeyUsages());
     }
 
     @Test
@@ -1278,6 +1562,59 @@ class KeyProviderV2AdapterTest {
         response.setPrivateKeyData(privateKey);
         response.setKeyPairMeta(metadata("pair-handle"));
         return response;
+    }
+
+    private static final char[] PASSPHRASE = "correct horse battery staple".toCharArray();
+    private static final List<RequestAttribute> NO_ATTRIBUTES = List.of();
+
+    private static Passphrase passphrase() {
+        return new Passphrase(PASSPHRASE);
+    }
+
+    private static KeyPair rsaKeyPair() throws Exception {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+        generator.initialize(2048);
+        return generator.generateKeyPair();
+    }
+
+    private static HeldKey heldKey(PublicKey publicKey) {
+        return new HeldKey(KeyRequestType.KEY_PAIR, KeyAlgorithm.RSA, 2048, publicKey.getEncoded(), null);
+    }
+
+    private static HeldKey heldSecret(int length) {
+        return new HeldKey(KeyRequestType.SECRET, KeyAlgorithm.RSA, length, null, null);
+    }
+
+    private static ExportKeyResponseV2Dto secretExportResponse(byte[] envelope, int length) {
+        EncryptedKeyMaterialV2Dto material = new EncryptedKeyMaterialV2Dto();
+        material.setEncryptedPrivateKeyInfo(envelope);
+        SecretKeyDataV2Dto descriptor = new SecretKeyDataV2Dto();
+        descriptor.setAlgorithm(KeyAlgorithm.RSA);
+        descriptor.setLength(length);
+        ExportKeyResponseV2Dto response = new ExportKeyResponseV2Dto();
+        response.setMaterial(material);
+        response.setKeyData(descriptor);
+        return response;
+    }
+
+    private static ExportKeyResponseV2Dto exportResponse(byte[] envelope, PublicKey publicKey) {
+        EncryptedKeyMaterialV2Dto material = new EncryptedKeyMaterialV2Dto();
+        material.setEncryptedPrivateKeyInfo(envelope);
+        PublicKeyDataV2Dto descriptor = new PublicKeyDataV2Dto();
+        descriptor.setAlgorithm(KeyAlgorithm.RSA);
+        descriptor.setLength(2048);
+        descriptor.setPublicKeySpki(publicKey.getEncoded());
+        ExportKeyResponseV2Dto response = new ExportKeyResponseV2Dto();
+        response.setMaterial(material);
+        response.setKeyData(descriptor);
+        return response;
+    }
+
+    private static MetadataAttribute metadataCarrying(String value) {
+        MetadataAttributeV3 attribute = new MetadataAttributeV3();
+        attribute.setName("note");
+        attribute.setContent(List.of(new StringAttributeContentV3(value)));
+        return attribute;
     }
 
     private static List<MetadataAttribute> metadata(String name) {

@@ -34,8 +34,10 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyEmptyFilter;
 import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyEqualsFilter;
 import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyFilter;
+import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyNotEmptyFilter;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -228,6 +230,27 @@ class CryptographicAssetServiceITest extends BaseSpringBootTest {
         assertThat(dtoFor(list(new SearchRequestDto()), bare).getName())
                 .describedAs("interfaces-owned residual: the REQUIRED name has no value to serve")
                 .isNull();
+    }
+
+    @Test
+    void aRowOnTheUnroutableTierServesNoType() {
+        UUID untyped = seedNamed(CryptographicAssetType.UNROUTABLE, "unclassified", null);
+        assertThat(dtoFor(list(new SearchRequestDto()), untyped).getType()).isNull();
+    }
+
+    /** "Asset Type is empty" answers for exactly the rows the list serves with no type. */
+    @Test
+    void theAssetTypeFilterFindsTheRowsServedWithNoType() {
+        UUID untyped = seedNamed(CryptographicAssetType.UNROUTABLE, "unclassified", null);
+        UUID typed = seedNamed(CryptographicAssetType.ALGORITHM, "AES-256", null);
+
+        SearchRequestDto empty = new SearchRequestDto();
+        empty.setFilters(List.of(aPropertyEmptyFilter(FilterField.CBOM_ASSET_TYPE)));
+        assertThat(list(empty).getItems()).extracting(CryptographicAssetDto::getUuid).containsExactly(untyped);
+
+        SearchRequestDto notEmpty = new SearchRequestDto();
+        notEmpty.setFilters(List.of(aPropertyNotEmptyFilter(FilterField.CBOM_ASSET_TYPE)));
+        assertThat(list(notEmpty).getItems()).extracting(CryptographicAssetDto::getUuid).containsExactly(typed);
     }
 
     /**

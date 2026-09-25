@@ -23,6 +23,7 @@ import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
 import com.otilm.core.cbom.asset.CompositeCurve;
+import com.otilm.core.cbom.asset.ServedAssetType;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.dao.entity.Cbom;
 import com.otilm.core.dao.entity.Cbom_;
@@ -489,7 +490,7 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
         // recorded OID unless that OID is refuted. A row with no servable label at all serializes without the
         // field; that residual is interfaces' contract friction, raised on the PR.
         dto.setName(servedName(row));
-        dto.setType(row.assetType());
+        dto.setType(ServedAssetType.of(row.assetType()));
         dto.setSourceCbomCount(row.sourceCount());
         dto.setOccurrenceCount(row.occurrenceCount());
         dto.setPqcVerdict(servedVerdict(row.pqcVerdict()));
@@ -502,7 +503,7 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
         CryptographicAssetDetailDto dto = new CryptographicAssetDetailDto();
         dto.setUuid(asset.getUuid());
         dto.setName(servedName(asset.getName(), asset.getOid(), asset.getIdentityGuard()));
-        dto.setType(asset.getAssetType());
+        dto.setType(ServedAssetType.of(asset.getAssetType()));
         dto.setPqcVerdict(servedVerdict(asset.getPqcVerdict()));
         // GLOBAL badges: computed over every loaded row, before the CBOM visibility filter below, so they keep
         // reconciling with the list (scoped by CRYPTO_ASSET, not CBOM) exactly as the list endpoint serves them --
