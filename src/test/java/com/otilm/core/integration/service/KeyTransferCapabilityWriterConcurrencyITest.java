@@ -16,6 +16,7 @@ import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
+import com.otilm.core.model.crypto.KeyTransfer;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.model.crypto.TransferableKeyType;
 import com.otilm.core.service.writer.KeyTransferCapabilityWriter;
@@ -40,6 +41,8 @@ import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.orm.jpa.EntityManagerHolder;
@@ -63,6 +66,9 @@ class KeyTransferCapabilityWriterConcurrencyITest extends BaseSpringBootTest {
 
     private static final List<TransferableKeyType> RSA_KEY_PAIRS = List
             .of(new TransferableKeyType(KeyRequestType.KEY_PAIR, Set.of(KeyAlgorithm.RSA)));
+
+    private static final List<TransferableKeyType> ECDSA_KEY_PAIRS = List
+            .of(new TransferableKeyType(KeyRequestType.KEY_PAIR, Set.of(KeyAlgorithm.ECDSA)));
 
     @Autowired
     private KeyTransferCapabilityWriter keyTransferCapabilityWriter;
@@ -129,7 +135,7 @@ class KeyTransferCapabilityWriterConcurrencyITest extends BaseSpringBootTest {
         // given
         TokenInstanceReference token = persistToken();
         TokenProfile profile = persistProfile(token, null);
-        int askedAtRevision = profile.getExportableKeyTypesRevision();
+        int askedAtRevision = profile.getKeyTypesRevision();
         CountDownLatch forgetHoldsTheLock = new CountDownLatch(1);
         CountDownLatch forgetMayCommit = new CountDownLatch(1);
         Future<?> forget = executor
@@ -143,7 +149,7 @@ class KeyTransferCapabilityWriterConcurrencyITest extends BaseSpringBootTest {
         // when
         Future<Optional<TokenProfileFullModel>> recorded = executor
                 .submit(() -> keyTransferCapabilityWriter
-                        .recordAnswer(profile.getUuid(), askedAtRevision, RSA_KEY_PAIRS));
+                        .recordAnswer(profile.getUuid(), askedAtRevision, KeyTransfer.EXPORT, RSA_KEY_PAIRS));
 
         // then
         awaitASessionWaitingOnTheProfileLock();
@@ -152,7 +158,7 @@ class KeyTransferCapabilityWriterConcurrencyITest extends BaseSpringBootTest {
         assertTrue(recorded.get(TIMEOUT_SECONDS, TimeUnit.SECONDS).isEmpty());
         TokenProfile stored = tokenProfileRepository.findByUuid(profile.getUuid()).orElseThrow();
         assertNull(stored.getExportableKeyTypes());
-        assertEquals(askedAtRevision + 1, stored.getExportableKeyTypesRevision());
+        assertEquals(askedAtRevision + 1, stored.getKeyTypesRevision());
     }
 
     @Test
@@ -169,6 +175,44 @@ class KeyTransferCapabilityWriterConcurrencyITest extends BaseSpringBootTest {
         assertNull(tokenProfileRepository.findByUuid(second.getUuid()).orElseThrow().getExportableKeyTypes());
     }
 
+    @ParameterizedTest
+    @EnumSource(KeyTransfer.class)
+    void recordAnswer_recordsOneDirectionAndKeepsTheOther(KeyTransfer direction) throws Exception {
+        // given
+        TokenProfile profile = persistProfile(persistToken(), null);
+        profile.setImportableKeyTypes(ECDSA_KEY_PAIRS);
+        profile.setExportableKeyTypes(ECDSA_KEY_PAIRS);
+        tokenProfileRepository.saveAndFlush(profile);
+
+        // when
+        keyTransferCapabilityWriter
+                .recordAnswer(profile.getUuid(), profile.getKeyTypesRevision(), direction, RSA_KEY_PAIRS);
+
+        // then
+        TokenProfile stored = tokenProfileRepository.findByUuid(profile.getUuid()).orElseThrow();
+        assertEquals(direction == KeyTransfer.IMPORT ? RSA_KEY_PAIRS : ECDSA_KEY_PAIRS, stored.getImportableKeyTypes());
+        assertEquals(direction == KeyTransfer.EXPORT ? RSA_KEY_PAIRS : ECDSA_KEY_PAIRS, stored.getExportableKeyTypes());
+    }
+
+    @Test
+    void forgetForToken_forgetsBothDirectionsAtOnce() {
+        // given
+        TokenInstanceReference token = persistToken();
+        TokenProfile profile = persistProfile(token, RSA_KEY_PAIRS);
+        profile.setImportableKeyTypes(RSA_KEY_PAIRS);
+        tokenProfileRepository.saveAndFlush(profile);
+        int revision = profile.getKeyTypesRevision();
+
+        // when
+        keyTransferCapabilityWriter.forgetForToken(token.getUuid());
+
+        // then
+        TokenProfile stored = tokenProfileRepository.findByUuid(profile.getUuid()).orElseThrow();
+        assertNull(stored.getImportableKeyTypes());
+        assertNull(stored.getExportableKeyTypes());
+        assertEquals(revision + 1, stored.getKeyTypesRevision());
+    }
+
     @Test
     void recordAnswer_refusesAnAnswerAskedForBeforeAChangeTheRequestHadNotSeen() throws Exception {
         // given
@@ -176,10 +220,10 @@ class KeyTransferCapabilityWriterConcurrencyITest extends BaseSpringBootTest {
 
         // when
         Optional<TokenProfileFullModel> recorded = withARequestBoundEntityManager(profile.getUuid(), held -> {
-            int askedAtRevision = held.getExportableKeyTypesRevision();
+            int askedAtRevision = held.getKeyTypesRevision();
             behindTheRequest(() -> tokenProfileWriter.setUsages(held.getUuid(), List.of(KeyUsage.SIGN)));
             Optional<TokenProfileFullModel> answer = keyTransferCapabilityWriter
-                    .recordAnswer(held.getUuid(), askedAtRevision, RSA_KEY_PAIRS);
+                    .recordAnswer(held.getUuid(), askedAtRevision, KeyTransfer.EXPORT, RSA_KEY_PAIRS);
             assertEquals(List.of(KeyUsage.SIGN), held.getUsage(), "the writer decided on the request's own copy");
             return answer;
         });
@@ -196,20 +240,19 @@ class KeyTransferCapabilityWriterConcurrencyITest extends BaseSpringBootTest {
         // given
         TokenInstanceReference token = persistToken();
         TokenProfile profile = persistProfile(token, RSA_KEY_PAIRS);
-        int revision = profile.getExportableKeyTypesRevision();
+        int revision = profile.getKeyTypesRevision();
 
         // when
         withARequestBoundEntityManager(profile.getUuid(), held -> {
             behindTheRequest(() -> tokenProfileWriter.setUsages(held.getUuid(), List.of(KeyUsage.SIGN)));
             keyTransferCapabilityWriter.forgetForToken(token.getUuid());
-            assertEquals(revision + 2, held.getExportableKeyTypesRevision(),
-                    "the writer decided on the request's own copy");
+            assertEquals(revision + 2, held.getKeyTypesRevision(), "the writer decided on the request's own copy");
             return null;
         });
 
         // then
         TokenProfile stored = tokenProfileRepository.findByUuid(profile.getUuid()).orElseThrow();
-        assertEquals(revision + 2, stored.getExportableKeyTypesRevision());
+        assertEquals(revision + 2, stored.getKeyTypesRevision());
         assertEquals(List.of(KeyUsage.SIGN), stored.getUsage());
     }
 
@@ -218,7 +261,7 @@ class KeyTransferCapabilityWriterConcurrencyITest extends BaseSpringBootTest {
         // given
         TokenInstanceReference token = persistToken();
         TokenProfile profile = persistProfile(token, RSA_KEY_PAIRS);
-        int revision = profile.getExportableKeyTypesRevision();
+        int revision = profile.getKeyTypesRevision();
 
         // when
         withARequestBoundEntityManager(profile.getUuid(), held -> {
@@ -227,14 +270,13 @@ class KeyTransferCapabilityWriterConcurrencyITest extends BaseSpringBootTest {
                 keyTransferCapabilityWriter.forgetForToken(token.getUuid());
             });
             tokenProfileWriter.setUsagesScoped(token.getUuid(), held.getUuid(), List.of(KeyUsage.SIGN));
-            assertEquals(revision + 2, held.getExportableKeyTypesRevision(),
-                    "the writer decided on the request's own copy");
+            assertEquals(revision + 2, held.getKeyTypesRevision(), "the writer decided on the request's own copy");
             return null;
         });
 
         // then
         TokenProfile stored = tokenProfileRepository.findByUuid(profile.getUuid()).orElseThrow();
-        assertEquals(revision + 2, stored.getExportableKeyTypesRevision());
+        assertEquals(revision + 2, stored.getKeyTypesRevision());
         assertFalse(stored.getEnabled());
     }
 
@@ -242,7 +284,7 @@ class KeyTransferCapabilityWriterConcurrencyITest extends BaseSpringBootTest {
     void setEnabled_doesNotRestoreAnAnswerForgottenBehindTheRequest() throws Exception {
         // given
         TokenProfile profile = persistProfile(persistToken(), RSA_KEY_PAIRS);
-        int revision = profile.getExportableKeyTypesRevision();
+        int revision = profile.getKeyTypesRevision();
 
         // when
         withARequestBoundEntityManager(profile.getUuid(), held -> {
@@ -255,7 +297,7 @@ class KeyTransferCapabilityWriterConcurrencyITest extends BaseSpringBootTest {
         // then
         TokenProfile stored = tokenProfileRepository.findByUuid(profile.getUuid()).orElseThrow();
         assertNull(stored.getExportableKeyTypes());
-        assertEquals(revision + 1, stored.getExportableKeyTypesRevision());
+        assertEquals(revision + 1, stored.getKeyTypesRevision());
         assertEquals(List.of(KeyUsage.SIGN), stored.getUsage());
         assertFalse(stored.getEnabled());
     }

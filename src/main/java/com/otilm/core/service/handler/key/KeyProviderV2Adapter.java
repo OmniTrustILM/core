@@ -42,6 +42,7 @@ import com.otilm.api.model.connector.cryptography.v2.key.CreateKeyRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.DestroyKeyRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ExportKeyRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ExportKeyResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.ImportKeyAttributesRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyCreationResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyDataV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyExportableAttribute;
@@ -52,6 +53,7 @@ import com.otilm.api.model.connector.cryptography.v2.key.PublicKeyDataResponseV2
 import com.otilm.api.model.connector.cryptography.v2.key.PublicKeyDataV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyDataV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.TransferableKeyTypeV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.CipherDataRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignDataRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignDataResponseV2Dto;
@@ -258,10 +260,21 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
     @Override
     public List<TransferableKeyType> listExportableKeyTypes(TokenProfileFullModel tokenProfile)
             throws ConnectorException {
-        return keyManagementSyncApiClient
-                .listExportableKeyTypes(connectorInfo, tokenProfileScopedRequest(tokenProfile))
+        return transferable(keyManagementSyncApiClient
+                .listExportableKeyTypes(connectorInfo, tokenProfileScopedRequest(tokenProfile)));
+    }
+
+    @Override
+    public List<TransferableKeyType> listImportableKeyTypes(TokenProfileFullModel tokenProfile)
+            throws ConnectorException {
+        return transferable(keyManagementSyncApiClient
+                .listImportableKeyTypes(connectorInfo, tokenProfileScopedRequest(tokenProfile)));
+    }
+
+    private static List<TransferableKeyType> transferable(List<? extends TransferableKeyTypeV2Dto> declared) {
+        return declared
                 .stream()
-                .map(declared -> new TransferableKeyType(declared.getKeyRequestType(), declared.getAlgorithms()))
+                .map(type -> new TransferableKeyType(type.getKeyRequestType(), type.getAlgorithms()))
                 .toList();
     }
 
@@ -277,8 +290,27 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
                 .recordExpandedSecretsFromRequest(attributes.getTokenProfileAttributes(), expandedSecrets);
         List<BaseAttribute> definitions = keyManagementSyncApiClient.listCreateKeyAttributes(connectorInfo, attributes);
         outboundSecretContainment.assertNoExpandedSecretOutbound(definitions, expandedSecrets);
-        // Core takes the intent from the request's own field and states it on the wire itself, so offering the reserved
-        // attribute as well would give a caller a second control that the stated intent then overrides.
+        return withoutReservedExportable(definitions);
+    }
+
+    @Override
+    public List<BaseAttribute> listImportKeyAttributes(TokenProfileFullModel tokenProfile, KeyRequestType type)
+            throws ConnectorException {
+        TokenProfileScopedRequestV2Dto scope = tokenProfileScopedRequest(tokenProfile);
+        ImportKeyAttributesRequestV2Dto request = new ImportKeyAttributesRequestV2Dto();
+        request.setTokenAttributes(scope.getTokenAttributes());
+        request.setTokenProfileAttributes(scope.getTokenProfileAttributes());
+        request.setKeyRequestType(type);
+        return publishDefinitions(request,
+                withoutReservedExportable(keyManagementSyncApiClient.listImportKeyAttributes(connectorInfo, request)));
+    }
+
+    /**
+     * The schema without the contract-reserved exportable attribute. Core takes the intent from the request's own field
+     * and states it to the connector itself, so offering the attribute as well would give a caller a second control
+     * that the stated intent then overrides.
+     */
+    private static List<BaseAttribute> withoutReservedExportable(List<BaseAttribute> definitions) {
         return definitions
                 .stream()
                 .filter(definition -> !KeyExportableAttribute.NAME.equals(definition.getName()))
@@ -596,8 +628,8 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
     }
 
     /** Guards expanded secrets and persists the schema so attribute callbacks can resolve against it. */
-    private List<BaseAttribute> publishDefinitions(KeyScopedRequestV2Dto request, List<BaseAttribute> definitions)
-            throws ConnectorException {
+    private List<BaseAttribute> publishDefinitions(TokenProfileScopedRequestV2Dto request,
+            List<BaseAttribute> definitions) throws ConnectorException {
         assertNoExpandedSecretEchoed(request, definitions);
         try {
             attributeEngine.updateDataAttributeDefinitions(UUID.fromString(connectorInfo.getUuid()), null, definitions);

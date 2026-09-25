@@ -12,12 +12,14 @@ import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
+import com.otilm.api.model.core.cryptography.key.KeyTransferAvailabilityDto;
 import com.otilm.api.model.core.cryptography.key.KeyTransferCapabilityDto;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.model.connector.ImmutableConnectorInterface;
 import com.otilm.core.model.crypto.ImmutableTokenInstanceFullModel;
 import com.otilm.core.model.crypto.ImmutableTokenProfileFullModel;
+import com.otilm.core.model.crypto.KeyTransfer;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.model.crypto.TransferableKeyType;
 import com.otilm.core.service.handler.key.KeyProviderAdapter;
@@ -81,7 +83,7 @@ class KeyTransferCapabilityServiceTest {
                 .of(new TransferableKeyType(KeyRequestType.KEY_PAIR, Set.of(KeyAlgorithm.RSA)));
         when(adapters.forToken(token)).thenReturn(adapter);
         when(adapter.listExportableKeyTypes(unknown)).thenReturn(answer);
-        when(writer.recordAnswer(unknown.uuid(), unknown.exportableKeyTypesRevision(), answer))
+        when(writer.recordAnswer(unknown.uuid(), unknown.keyTypesRevision(), KeyTransfer.EXPORT, answer))
                 .thenReturn(Optional.of(profile(token, RSA_KEY_PAIRS)));
 
         // when
@@ -98,7 +100,7 @@ class KeyTransferCapabilityServiceTest {
         TokenProfileFullModel unknown = profile(token, null);
         when(adapters.forToken(token)).thenReturn(adapter);
         when(adapter.listExportableKeyTypes(unknown)).thenReturn(List.of());
-        when(writer.recordAnswer(unknown.uuid(), unknown.exportableKeyTypesRevision(), List.of()))
+        when(writer.recordAnswer(unknown.uuid(), unknown.keyTypesRevision(), KeyTransfer.EXPORT, List.of()))
                 .thenReturn(Optional.empty());
 
         // when
@@ -121,6 +123,52 @@ class KeyTransferCapabilityServiceTest {
         verifyNoInteractions(adapters, writer);
     }
 
+    @Test
+    void importableKeyTypes_asksTheConnectorAndRecordsTheAnswerAsTheImportAnswer() throws Exception {
+        // given
+        ImmutableTokenInstanceFullModel token = token(List.of(FeatureFlag.KEY_IMPORT));
+        TokenProfileFullModel unknown = profile(token, null, null);
+        List<TransferableKeyType> answer = List
+                .of(new TransferableKeyType(KeyRequestType.KEY_PAIR, Set.of(KeyAlgorithm.RSA)));
+        when(adapters.forToken(token)).thenReturn(adapter);
+        when(adapter.listImportableKeyTypes(unknown)).thenReturn(answer);
+        when(writer.recordAnswer(unknown.uuid(), unknown.keyTypesRevision(), KeyTransfer.IMPORT, answer))
+                .thenReturn(Optional.of(profile(token, null, RSA_KEY_PAIRS)));
+
+        // when
+        Optional<Map<KeyRequestType, Set<KeyAlgorithm>>> importable = service.importableKeyTypes(unknown);
+
+        // then
+        assertEquals(Optional.of(RSA_KEY_PAIRS), importable);
+        verify(adapter, never()).listExportableKeyTypes(any());
+    }
+
+    @Test
+    void importableKeyTypes_answersFromTheRecordWithoutAskingTheConnector() throws Exception {
+        // given
+        TokenProfileFullModel profile = profile(token(List.of(FeatureFlag.KEY_IMPORT)), null, RSA_KEY_PAIRS);
+
+        // when
+        Optional<Map<KeyRequestType, Set<KeyAlgorithm>>> importable = service.importableKeyTypes(profile);
+
+        // then
+        assertEquals(Optional.of(RSA_KEY_PAIRS), importable);
+        verifyNoInteractions(adapters, writer);
+    }
+
+    @Test
+    void importableKeyTypes_neverAsksAConnectorThatDeclaresExportOnly() throws Exception {
+        // given
+        TokenProfileFullModel profile = profile(exportingToken(), RSA_KEY_PAIRS, RSA_KEY_PAIRS);
+
+        // when
+        Optional<Map<KeyRequestType, Set<KeyAlgorithm>>> importable = service.importableKeyTypes(profile);
+
+        // then
+        assertEquals(Optional.of(Map.of()), importable);
+        verifyNoInteractions(adapters, writer);
+    }
+
     @ParameterizedTest
     @MethodSource("failuresToLearnTheAnswer")
     void capabilityOf_showsUnavailableAndRecordsNothingWhileTheAnswerCannotBeLearned(Exception failure)
@@ -136,7 +184,7 @@ class KeyTransferCapabilityServiceTest {
 
         // then
         assertFalse(capability.isExportAvailable());
-        verify(writer, never()).recordAnswer(any(), anyInt(), any());
+        verify(writer, never()).recordAnswer(any(), anyInt(), any(), any());
     }
 
     @Test
@@ -185,7 +233,7 @@ class KeyTransferCapabilityServiceTest {
         when(adapters.forToken(token)).thenReturn(adapter);
         when(adapter.listExportableKeyTypes(broken)).thenThrow(failure);
         when(adapter.listExportableKeyTypes(exporting)).thenReturn(answer);
-        when(writer.recordAnswer(exporting.uuid(), exporting.exportableKeyTypesRevision(), answer))
+        when(writer.recordAnswer(exporting.uuid(), exporting.keyTypesRevision(), KeyTransfer.EXPORT, answer))
                 .thenReturn(Optional.of(profile(token, RSA_KEY_PAIRS)));
 
         // when
@@ -213,6 +261,123 @@ class KeyTransferCapabilityServiceTest {
         assertTrue(available);
     }
 
+    @Test
+    void capabilityOf_showsWhatTheProfileImportsAndExports() {
+        // given
+        TokenProfileFullModel profile = profile(token(List.of(FeatureFlag.KEY_IMPORT, FeatureFlag.KEY_EXPORT)),
+                Map.of(), RSA_KEY_PAIRS);
+
+        // when
+        KeyTransferCapabilityDto capability = service.capabilityOf(profile);
+
+        // then
+        assertTrue(capability.isImportAvailable());
+        assertEquals(RSA_KEY_PAIRS, capability.getImportableKeyTypes());
+        assertFalse(capability.isExportAvailable());
+        assertEquals(Map.of(), capability.getExportableKeyTypes());
+        verifyNoInteractions(adapters, writer);
+    }
+
+    @Test
+    void capabilityOf_doesNotAskForExportOnceTheConnectorCannotBeReached() throws Exception {
+        // given
+        ImmutableTokenInstanceFullModel token = token(List.of(FeatureFlag.KEY_IMPORT, FeatureFlag.KEY_EXPORT));
+        TokenProfileFullModel unknown = profile(token, null, null);
+        when(adapters.forToken(token)).thenReturn(adapter);
+        when(adapter.listImportableKeyTypes(unknown))
+                .thenThrow(new ConnectorCommunicationException("Connector is unreachable", null));
+
+        // when
+        KeyTransferCapabilityDto capability = service.capabilityOf(unknown);
+
+        // then
+        assertFalse(capability.isImportAvailable());
+        assertFalse(capability.isExportAvailable());
+        verify(adapter, never()).listExportableKeyTypes(any());
+    }
+
+    @ParameterizedTest
+    @MethodSource("failuresOnTheConnectorsSide")
+    void capabilityOf_stillAsksForExportAfterTheConnectorFailedToSayWhatItImports(ConnectorException failure)
+            throws Exception {
+        // given
+        ImmutableTokenInstanceFullModel token = token(List.of(FeatureFlag.KEY_IMPORT, FeatureFlag.KEY_EXPORT));
+        TokenProfileFullModel unknown = profile(token, null, null);
+        List<TransferableKeyType> answer = List
+                .of(new TransferableKeyType(KeyRequestType.KEY_PAIR, Set.of(KeyAlgorithm.RSA)));
+        when(adapters.forToken(token)).thenReturn(adapter);
+        when(adapter.listImportableKeyTypes(unknown)).thenThrow(failure);
+        when(adapter.listExportableKeyTypes(unknown)).thenReturn(answer);
+        when(writer.recordAnswer(unknown.uuid(), unknown.keyTypesRevision(), KeyTransfer.EXPORT, answer))
+                .thenReturn(Optional.of(profile(token, RSA_KEY_PAIRS)));
+
+        // when
+        KeyTransferCapabilityDto capability = service.capabilityOf(unknown);
+
+        // then
+        assertFalse(capability.isImportAvailable());
+        assertEquals(RSA_KEY_PAIRS, capability.getExportableKeyTypes());
+    }
+
+    @ParameterizedTest
+    @MethodSource("failuresOnTheConnectorsSide")
+    void availabilityOf_stopsAskingOnlyForTheAnswerTheConnectorFailedToGive(ConnectorException failure)
+            throws Exception {
+        // given
+        ImmutableTokenInstanceFullModel token = token(List.of(FeatureFlag.KEY_IMPORT, FeatureFlag.KEY_EXPORT));
+        TokenProfileFullModel first = profile(token, null, null);
+        TokenProfileFullModel second = profile(token, null, null);
+        List<TransferableKeyType> answer = List
+                .of(new TransferableKeyType(KeyRequestType.KEY_PAIR, Set.of(KeyAlgorithm.RSA)));
+        withProfiles(token, first, second);
+        when(adapters.forToken(token)).thenReturn(adapter);
+        when(adapter.listImportableKeyTypes(any())).thenThrow(failure);
+        when(adapter.listExportableKeyTypes(first)).thenReturn(List.of());
+        when(adapter.listExportableKeyTypes(second)).thenReturn(answer);
+        when(writer.recordAnswer(second.uuid(), second.keyTypesRevision(), KeyTransfer.EXPORT, answer))
+                .thenReturn(Optional.of(profile(token, RSA_KEY_PAIRS)));
+
+        // when
+        KeyTransferAvailabilityDto availability = service.availabilityOf(token);
+
+        // then
+        assertFalse(availability.isImportAvailable());
+        assertTrue(availability.isExportAvailable());
+        verify(adapter, times(1)).listImportableKeyTypes(any());
+    }
+
+    @Test
+    void capabilityOf_stillShowsARecordedExportAnswerAfterTheConnectorFailed() throws Exception {
+        // given
+        ImmutableTokenInstanceFullModel token = token(List.of(FeatureFlag.KEY_IMPORT, FeatureFlag.KEY_EXPORT));
+        TokenProfileFullModel profile = profile(token, RSA_KEY_PAIRS, null);
+        when(adapters.forToken(token)).thenReturn(adapter);
+        when(adapter.listImportableKeyTypes(profile))
+                .thenThrow(new ConnectorCommunicationException("Connector is unreachable", null));
+
+        // when
+        KeyTransferCapabilityDto capability = service.capabilityOf(profile);
+
+        // then
+        assertTrue(capability.isExportAvailable());
+        assertEquals(RSA_KEY_PAIRS, capability.getExportableKeyTypes());
+    }
+
+    @Test
+    void availabilityOf_reportsImportAndExportFromDifferentProfiles() {
+        // given
+        ImmutableTokenInstanceFullModel token = token(List.of(FeatureFlag.KEY_IMPORT, FeatureFlag.KEY_EXPORT));
+        withProfiles(token, profile(token, Map.of(), RSA_KEY_PAIRS), profile(token, RSA_KEY_PAIRS, Map.of()));
+
+        // when
+        KeyTransferAvailabilityDto availability = service.availabilityOf(token);
+
+        // then
+        assertTrue(availability.isImportAvailable());
+        assertTrue(availability.isExportAvailable());
+        verifyNoInteractions(adapters, writer);
+    }
+
     private void withProfiles(ImmutableTokenInstanceFullModel token, TokenProfileFullModel... tokenProfiles) {
         when(tokens.findFullModelByUuid(token.uuid())).thenReturn(Optional.of(token));
         when(profiles.findFullModelsByTokenInstance(token)).thenReturn(List.of(tokenProfiles));
@@ -220,8 +385,13 @@ class KeyTransferCapabilityServiceTest {
 
     private static Stream<ConnectorException> failuresOfTheConnector() {
         return Stream
-                .of(new ConnectorCommunicationException("Connector is unreachable", null),
-                        new ConnectorServerException("Connector failed", HttpStatus.INTERNAL_SERVER_ERROR),
+                .concat(Stream.of(new ConnectorCommunicationException("Connector is unreachable", null)),
+                        failuresOnTheConnectorsSide());
+    }
+
+    private static Stream<ConnectorException> failuresOnTheConnectorsSide() {
+        return Stream
+                .of(new ConnectorServerException("Connector failed", HttpStatus.INTERNAL_SERVER_ERROR),
                         problem(HttpStatus.SERVICE_UNAVAILABLE));
     }
 
@@ -257,7 +427,13 @@ class KeyTransferCapabilityServiceTest {
 
     private static TokenProfileFullModel profile(ImmutableTokenInstanceFullModel token,
             Map<KeyRequestType, Set<KeyAlgorithm>> exportableKeyTypes) {
+        return profile(token, exportableKeyTypes, null);
+    }
+
+    private static TokenProfileFullModel profile(ImmutableTokenInstanceFullModel token,
+            Map<KeyRequestType, Set<KeyAlgorithm>> exportableKeyTypes,
+            Map<KeyRequestType, Set<KeyAlgorithm>> importableKeyTypes) {
         return new ImmutableTokenProfileFullModel(UUID.randomUUID(), "profile", null, token.name(), token.uuid(), true,
-                List.of(), token, token.connectorUuid(), exportableKeyTypes, 0);
+                List.of(), token, token.connectorUuid(), exportableKeyTypes, importableKeyTypes, 0);
     }
 }

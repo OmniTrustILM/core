@@ -111,7 +111,7 @@ class KeyProviderV1AdapterTest {
                 UUID.randomUUID().toString(), "token", TokenInstanceStatus.ACTIVATED, null, connectorUuid, "connector",
                 null, null, Set.of());
         profile = new ImmutableTokenProfileFullModel(UUID.randomUUID(), "profile", null, token.name(), token.uuid(),
-                true, List.of(), token, connectorUuid, Map.of(), 0);
+                true, List.of(), token, connectorUuid, Map.of(), null, 0);
         cryptographicKey = new ImmutableCryptographicKeyFullModel(UUID.randomUUID(), "key", null, profile.uuid(),
                 token.uuid(), profile, token, Set.of(), null, null, null, List.of(), List.of());
     }
@@ -186,6 +186,25 @@ class KeyProviderV1AdapterTest {
 
         // then
         assertTrue(exportable.isEmpty());
+    }
+
+    @Test
+    void listImportableKeyTypes_isEmptyForAV1Connector() {
+        // when
+        List<TransferableKeyType> importable = adapter.listImportableKeyTypes(profile);
+
+        // then
+        assertTrue(importable.isEmpty());
+    }
+
+    @Test
+    void listImportKeyAttributes_isEmptyForAV1Connector() {
+        // when
+        List<BaseAttribute> attributes = adapter.listImportKeyAttributes(profile, KeyRequestType.KEY_PAIR);
+
+        // then
+        assertTrue(attributes.isEmpty());
+        verifyNoInteractions(client);
     }
 
     @Test
