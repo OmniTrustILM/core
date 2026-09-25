@@ -1339,6 +1339,27 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
+    void submitCertificateRequest_claimsTheSchemaOfTheKeyAResubmittedCsrWasStoredWith() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        TokenInstanceReference token = persistV2Token();
+        CryptographicKey key = persistV2Key(token);
+        when(cryptographicOperationService.listSignAttributeSchema(key.getUuid()))
+                .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
+        clientOperationService.submitCertificateRequest(uploadedRequest(key.getUuid(), null), null);
+
+        // when
+        CertificateDetailDto resubmitted = clientOperationService
+                .submitCertificateRequest(uploadedRequest(null, sha256WithRsa()), null);
+
+        // then
+        Assertions
+                .assertEquals(List.of("signatureAlgorithm=SHA256withRSA"),
+                        describe(resubmitted.getCertificateRequest().getSignatureAttributes()));
+        verify(cryptographicOperationService).listSignAttributeSchema(key.getUuid());
+    }
+
+    @Test
     void getCertificate_readsAV2KeysSignatureAttributesAfterItsPrivateItemIsDeleted() throws Exception {
         // given
         stubAuthorityProviderAttributesEndpoints();

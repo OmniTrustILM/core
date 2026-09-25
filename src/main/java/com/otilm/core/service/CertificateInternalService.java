@@ -20,6 +20,7 @@ import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
+import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.events.handlers.discovery.DiscoveredCertificateImport;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
@@ -287,6 +288,13 @@ public interface CertificateInternalService extends ResourceExtensionService {
      * @throws NotFoundException
      */
     void updateCertificateKeys(UUID keyUuid, String publicKeyFingerprint);
+
+    /**
+     * Returns the stored certificate request with this content, the one {@link #submitCertificateRequest} would reuse.
+     *
+     * @param csr Base64-encoded certificate request, as passed to {@link #submitCertificateRequest}
+     */
+    Optional<CertificateRequestEntity> findCertificateRequestByContent(String csr) throws NoSuchAlgorithmException;
 
     /**
      * Create certificate request entity and certificate in status New, store it in the database ready for issuing

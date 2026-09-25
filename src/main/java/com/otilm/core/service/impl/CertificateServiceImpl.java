@@ -2426,6 +2426,13 @@ public class CertificateServiceImpl
     }
 
     @Override
+    public Optional<CertificateRequestEntity> findCertificateRequestByContent(String csr)
+            throws NoSuchAlgorithmException {
+        return certificateRequestRepository
+                .findByFingerprint(CertificateUtil.getThumbprint(Base64.getDecoder().decode(csr)));
+    }
+
+    @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.CREATE)
     public CertificateDetailDto submitCertificateRequest(String certificateRequest,
             CertificateRequestFormat certificateRequestFormat, List<RequestAttribute> signatureAttributes,
@@ -2456,9 +2463,8 @@ public class CertificateServiceImpl
         CertificateRequestEntity certificateRequestEntity;
 
         final String certificateRequestFingerprint = CertificateUtil.getThumbprint(decodedCsr);
-        // get the certificate request by fingerprint, if exists
-        Optional<CertificateRequestEntity> certificateRequestOptional = certificateRequestRepository
-                .findByFingerprint(certificateRequestFingerprint);
+        Optional<CertificateRequestEntity> certificateRequestOptional = findCertificateRequestByContent(
+                certificateRequest);
 
         List<ResponseAttribute> requestAttributes;
         List<ResponseAttribute> requestSignatureAttributes;
