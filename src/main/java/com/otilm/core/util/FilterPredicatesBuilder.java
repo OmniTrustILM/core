@@ -9,8 +9,6 @@ import com.otilm.api.model.common.enums.BitMaskEnum;
 import com.otilm.api.model.common.enums.IPlatformEnum;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetType;
-import com.otilm.api.model.core.oid.OidCategory;
-import com.otilm.api.model.core.oid.SystemOid;
 import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.core.attribute.engine.AttributeColumnProjector;
@@ -37,7 +35,6 @@ import com.otilm.core.enums.SearchFieldTypeEnum;
 import com.otilm.core.model.AttributeFieldIdentifier;
 import com.otilm.core.model.cbom.CryptoAssetIdentityGuard;
 import com.otilm.core.oid.OidHandler;
-import com.otilm.core.oid.OidRecord;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 import jakarta.persistence.criteria.CommonAbstractCriteria;
@@ -74,7 +71,6 @@ import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import javax.xml.datatype.DatatypeConfigurationException;
 import javax.xml.datatype.DatatypeFactory;
 import javax.xml.datatype.Duration;
@@ -856,7 +852,11 @@ public class FilterPredicatesBuilder {
         }
 
         Predicate[] matches = filterValues.stream().map(value -> {
-            String oid = resolveExtendedKeyUsageOid(value.toString());
+            String oid = value.toString();
+            if (!OidHandler.isOid(oid)) {
+                throw new ValidationException(
+                        "Extended Key Usage filter value must be an OID or a registered purpose: " + oid);
+            }
             return criteriaBuilder
                     .isTrue(criteriaBuilder
                             .function(PostgresFunctionContributor.JSON_TEXT_ARRAY_CONTAINS, Boolean.class, expression,
@@ -866,42 +866,6 @@ public class FilterPredicatesBuilder {
         return condition == FilterConditionOperator.NOT_EQUALS
                 ? criteriaBuilder.or(criteriaBuilder.isNull(expression), criteriaBuilder.not(matchesAny))
                 : matchesAny;
-    }
-
-    private static String resolveExtendedKeyUsageOid(String value) {
-        if (OidHandler.isOid(value)) {
-            return value;
-        }
-        String normalized = value.replaceAll("[\\s_-]", "");
-        Map<String, OidRecord> registeredOids = OidHandler.getOidCache(OidCategory.EXTENDED_KEY_USAGE);
-        Stream<String> registeredMatches = registeredOids == null
-                ? Stream.empty()
-                : registeredOids
-                        .entrySet()
-                        .stream()
-                        .filter(entry -> entry
-                                .getValue()
-                                .displayName()
-                                .replaceAll("[\\s_-]", "")
-                                .equalsIgnoreCase(normalized))
-                        .map(Map.Entry::getKey);
-        List<String> matches = Stream
-                .concat(Arrays
-                        .stream(SystemOid.values())
-                        .filter(oid -> oid.getCategory() == OidCategory.EXTENDED_KEY_USAGE)
-                        .filter(oid -> oid.name().replace("_", "").equalsIgnoreCase(normalized)
-                                || oid.getDisplayName().replace(" ", "").equalsIgnoreCase(normalized))
-                        .map(SystemOid::getOid), registeredMatches)
-                .distinct()
-                .toList();
-        if (matches.isEmpty()) {
-            throw new ValidationException(
-                    "Extended Key Usage filter value must be an OID or a registered purpose: " + value);
-        }
-        if (matches.size() > 1) {
-            throw new ValidationException("Extended Key Usage filter name is ambiguous; use an OID: " + value);
-        }
-        return matches.getFirst();
     }
 
     private static Expression<Boolean> getJsonArrayEqualsExpression(CriteriaBuilder criteriaBuilder,

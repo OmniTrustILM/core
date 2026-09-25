@@ -74,6 +74,7 @@ import com.otilm.core.dao.repository.GroupAssociationRepository;
 import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.LocationRepository;
 import com.otilm.core.enums.FilterField;
+import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -125,6 +126,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -1947,6 +1949,59 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
             Assertions
                     .assertEquals(Set.of(certificate1.getUuid()), getUuidsFromListCertificatesResponse(
                             certificateService.listCertificates(new SecurityFilter(), request)));
+        } finally {
+            if (original == null) {
+                OidHandler.removeCachedOid(OidCategory.EXTENDED_KEY_USAGE, customOid);
+            } else {
+                OidHandler.cacheOid(OidCategory.EXTENDED_KEY_USAGE, customOid, original);
+            }
+        }
+    }
+
+    @Test
+    void customExtendedKeyUsageNamesRequireOidListPermission() {
+        String customOid = "1.2.3.4.5.1802";
+        var currentCache = OidHandler.getOidCache(OidCategory.EXTENDED_KEY_USAGE);
+        OidRecord original = currentCache == null ? null : currentCache.get(customOid);
+        OidHandler
+                .cacheOid(OidCategory.EXTENDED_KEY_USAGE, customOid,
+                        OidRecord.builder().displayName("Private EKU Purpose").build());
+        try {
+            denyResourceAccess(Resource.OID, ResourceAction.LIST);
+            CertificateSearchRequestDto request = new CertificateSearchRequestDto();
+            request
+                    .setFilters(List
+                            .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY,
+                                    FilterField.EXTENDED_KEY_USAGE.name(), FilterConditionOperator.EQUALS,
+                                    "Private EKU Purpose")));
+            AccessDeniedException known = Assertions
+                    .assertThrows(AccessDeniedException.class,
+                            () -> certificateService.listCertificates(new SecurityFilter(), request));
+            Assertions
+                    .assertThrows(AccessDeniedException.class, () -> certificateService
+                            .listResourceObjects(new SecurityFilter(), request.getFilters(), null));
+
+            request
+                    .setFilters(List
+                            .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY,
+                                    FilterField.EXTENDED_KEY_USAGE.name(), FilterConditionOperator.EQUALS,
+                                    "Unknown EKU Purpose")));
+            AccessDeniedException unknown = Assertions
+                    .assertThrows(AccessDeniedException.class,
+                            () -> certificateService.listCertificates(new SecurityFilter(), request));
+            Assertions.assertEquals(known.getMessage(), unknown.getMessage());
+
+            request
+                    .setFilters(List
+                            .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY,
+                                    FilterField.EXTENDED_KEY_USAGE.name(), FilterConditionOperator.EQUALS, customOid)));
+            Assertions.assertDoesNotThrow(() -> certificateService.listCertificates(new SecurityFilter(), request));
+            request
+                    .setFilters(List
+                            .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY,
+                                    FilterField.EXTENDED_KEY_USAGE.name(), FilterConditionOperator.EQUALS,
+                                    "serverAuth")));
+            Assertions.assertDoesNotThrow(() -> certificateService.listCertificates(new SecurityFilter(), request));
         } finally {
             if (original == null) {
                 OidHandler.removeCachedOid(OidCategory.EXTENDED_KEY_USAGE, customOid);
