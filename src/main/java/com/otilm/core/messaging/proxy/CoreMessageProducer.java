@@ -6,8 +6,8 @@ import jakarta.jms.JMSException;
 import jakarta.jms.Message;
 import jakarta.jms.Session;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.qpid.jms.JmsQueue;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -56,7 +56,7 @@ public class CoreMessageProducer {
         if (proxyId == null || proxyId.isBlank()) {
             throw new IllegalArgumentException("proxyId must not be null or blank");
         }
-        Instant expiry = Instant.now().plus(Objects.requireNonNull(timeToLive, "timeToLive must not be null"));
+        long deadline = System.nanoTime() + Objects.requireNonNull(timeToLive, "timeToLive must not be null").toNanos();
 
         String routingKey = proxyProperties.getRequestRoutingKey(proxyId);
         String destination = getDestination(routingKey);
@@ -66,20 +66,20 @@ public class CoreMessageProducer {
                         message.getCorrelationId(), proxyId, destination, routingKey);
 
         producerRetryTemplate.execute(context -> {
-            sendBefore(expiry, message, destination, routingKey);
+            sendBefore(deadline, message, destination, routingKey);
             return null;
         });
     }
 
-    private void sendBefore(Instant expiry, CoreMessage message, String destination, String routingKey) {
+    private void sendBefore(long deadline, CoreMessage message, String destination, String routingKey) {
         // An attempt already out of time opens no connection
-        if (millisLeft(expiry) < 1) {
+        if (millisLeft(deadline) < 1) {
             logOutOfTime(message, routingKey);
             return;
         }
         jmsTemplate.execute(destination, (session, jmsProducer) -> {
             // Opening the connection can take a while, so the time to live is what is left now
-            long timeToLive = millisLeft(expiry);
+            long timeToLive = millisLeft(deadline);
             if (timeToLive < 1) {
                 logOutOfTime(message, routingKey);
                 return null;
@@ -104,9 +104,12 @@ public class CoreMessageProducer {
         return jmsMessage;
     }
 
-    /** Milliseconds left before the expiry. Below one nothing is sent: a time to live of zero never expires. */
-    private static long millisLeft(Instant expiry) {
-        return Duration.between(Instant.now(), expiry).toMillis();
+    /**
+     * Milliseconds left before the deadline, on the monotonic clock the correlator also waits by. Below one nothing is
+     * sent: a time to live of zero never expires.
+     */
+    private static long millisLeft(long deadline) {
+        return TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime());
     }
 
     private static void logOutOfTime(CoreMessage message, String routingKey) {
