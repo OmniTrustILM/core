@@ -5,12 +5,18 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.ConnectorInterfaceInfo;
 import com.otilm.api.model.core.connector.v2.ConnectInfoV2;
+import com.otilm.core.dao.entity.Connector;
+import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
+import com.otilm.core.service.writer.KeyTransferCapabilityWriter;
 import java.util.Arrays;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 class ConnectorV2AdapterTest {
 
@@ -71,6 +77,24 @@ class ConnectorV2AdapterTest {
         ConnectInfoV2 connectInfo = connectInfo(ConnectorInterface.INFO, ConnectorInterface.HEALTH,
                 ConnectorInterface.METRICS, ConnectorInterface.ATTRIBUTES, ConnectorInterface.AUTHORITY);
         assertThat(adapter.validateConnection(connectInfo)).isSameAs(connectInfo);
+    }
+
+    @Test
+    void updateConnectorFunctions_forgetsWhatTheConnectorsProfilesExport() throws Exception {
+        // given
+        KeyTransferCapabilityWriter capabilities = mock(KeyTransferCapabilityWriter.class);
+        adapter.setKeyTransferCapabilityWriter(capabilities);
+        adapter.setConnectorInterfaceRepository(mock(ConnectorInterfaceRepository.class));
+        Connector connector = new Connector();
+        connector.setUuid(UUID.randomUUID());
+        ConnectInfoV2 connectInfo = connectInfo(ConnectorInterface.INFO, ConnectorInterface.HEALTH,
+                ConnectorInterface.METRICS, ConnectorInterface.CRYPTOGRAPHY);
+
+        // when
+        adapter.updateConnectorFunctions(connector, connectInfo);
+
+        // then
+        verify(capabilities).forgetForConnector(connector.getUuid());
     }
 
     private static ConnectInfoV2 connectInfo(ConnectorInterface... codes) {
