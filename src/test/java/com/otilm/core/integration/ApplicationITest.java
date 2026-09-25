@@ -18,11 +18,7 @@ class ApplicationITest {
     void contextLoads() {
     }
 
-    /**
-     * Quartz is on the classpath for its cron parser only ({@code CronExpressionUtil}); the scheduler service owns the
-     * running instance. Boot would otherwise start an empty in-memory scheduler here, since spring-context-support and
-     * spring-tx satisfy the auto-configuration's other class conditions.
-     */
+    /** See {@link com.otilm.core.Application}. */
     @Test
     void doesNotStartAQuartzScheduler() {
         assertEquals(0, applicationContext.getBeanNamesForType(Scheduler.class).length);

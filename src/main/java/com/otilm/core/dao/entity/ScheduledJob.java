@@ -109,12 +109,15 @@ public class ScheduledJob extends UniquelyIdentified {
      * than fixed here.
      */
     private Instant nextFireTime(ScheduledJobHistory latestHistory) {
+        if (!this.enabled) {
+            return null;
+        }
         final boolean succeededOneTime = this.oneTime && latestHistory != null
                 && latestHistory.getSchedulerExecutionStatus() == SchedulerJobExecutionStatus.SUCCESS;
         if (succeededOneTime) {
             return null;
         }
-        return CronExpressionUtil.nextFireTime(this.jobName, this.cronExpression, this.enabled, Instant.now());
+        return CronExpressionUtil.nextFireTime(this.jobName, this.cronExpression, Instant.now());
     }
 
     public String getJobType() {

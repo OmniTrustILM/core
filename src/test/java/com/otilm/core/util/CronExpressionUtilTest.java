@@ -25,7 +25,7 @@ class CronExpressionUtilTest {
     @Test
     void nextFireTime_returnsTheNextFireInstantStrictlyAfterTheGivenOne() {
         // when
-        Instant next = CronExpressionUtil.nextFireTime(JOB_NAME, EVERY_MINUTE, true, AFTER);
+        Instant next = CronExpressionUtil.nextFireTime(JOB_NAME, EVERY_MINUTE, AFTER);
 
         // then
         assertEquals(Instant.parse("2026-09-24T10:16:00Z"), next);
@@ -37,7 +37,7 @@ class CronExpressionUtilTest {
         Instant onTheMinute = Instant.parse("2026-09-24T10:16:00Z");
 
         // when
-        Instant next = CronExpressionUtil.nextFireTime(JOB_NAME, EVERY_MINUTE, true, onTheMinute);
+        Instant next = CronExpressionUtil.nextFireTime(JOB_NAME, EVERY_MINUTE, onTheMinute);
 
         // then the trigger is due at the following one, not "now"
         assertEquals(Instant.parse("2026-09-24T10:17:00Z"), next);
@@ -47,7 +47,7 @@ class CronExpressionUtilTest {
     void nextFireTime_evaluatesAStoredHourlyExpressionInTheJvmZone() {
         // given the PQC sweep's own expression
         // when
-        Instant next = CronExpressionUtil.nextFireTime(JOB_NAME, HALF_PAST_EVERY_HOUR, true, AFTER);
+        Instant next = CronExpressionUtil.nextFireTime(JOB_NAME, HALF_PAST_EVERY_HOUR, AFTER);
 
         // then it lands on the next local half hour, within the hour
         ZonedDateTime local = next.atZone(ZoneId.systemDefault());
@@ -58,31 +58,26 @@ class CronExpressionUtilTest {
     }
 
     @Test
-    void nextFireTime_isNull_forADisabledJob() {
-        assertNull(CronExpressionUtil.nextFireTime(JOB_NAME, EVERY_MINUTE, false, AFTER));
-    }
-
-    @Test
     void nextFireTime_isNull_whenNoExpressionIsStored() {
-        assertNull(CronExpressionUtil.nextFireTime(JOB_NAME, null, true, AFTER));
-        assertNull(CronExpressionUtil.nextFireTime(JOB_NAME, "   ", true, AFTER));
+        assertNull(CronExpressionUtil.nextFireTime(JOB_NAME, null, AFTER));
+        assertNull(CronExpressionUtil.nextFireTime(JOB_NAME, "   ", AFTER));
     }
 
     @Test
     void nextFireTime_isNull_whenTheStoredExpressionDoesNotParse() {
-        assertNull(CronExpressionUtil.nextFireTime(JOB_NAME, "every hour on the half hour", true, AFTER));
+        assertNull(CronExpressionUtil.nextFireTime(JOB_NAME, "every hour on the half hour", AFTER));
     }
 
     @Test
     void nextFireTime_isNull_forAFiveFieldUnixCrontabExpression() {
         // given the Unix crontab shape (no seconds field) the scheduler would never have stored -- Spring's own
         // parser rejects it too, since Spring's CronExpression requires six fields
-        assertNull(CronExpressionUtil.nextFireTime(JOB_NAME, "30 * * * *", true, AFTER));
+        assertNull(CronExpressionUtil.nextFireTime(JOB_NAME, "30 * * * *", AFTER));
     }
 
     @Test
     void nextFireTime_isNull_whenTheExpressionHasNoFireTimeLeft() {
         // given a seventh, year field that already lies in the past
-        assertNull(CronExpressionUtil.nextFireTime(JOB_NAME, "0 0 0 1 1 ? 2020", true, AFTER));
+        assertNull(CronExpressionUtil.nextFireTime(JOB_NAME, "0 0 0 1 1 ? 2020", AFTER));
     }
 }

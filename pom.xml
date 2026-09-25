@@ -234,13 +234,7 @@
             <version>${commons-beanutils.version}</version>
         </dependency>
 
-        <!-- Cron arithmetic only (org.quartz.CronExpression, see CronExpressionUtil): stored expressions can be the
-             7-field year form (e.g. "0 0/3 * * * ? *"), which Spring's CronExpression rejects, and Quartz gives
-             numeric day-of-week a different meaning than Spring (1 = Sunday in Quartz, Monday in Spring; Quartz
-             rejects 0 outright, where Spring accepts it as Sunday too), so Spring's parser would silently misread
-             a Quartz-authored expression instead of failing loudly. No scheduler runs in core;
-             Application excludes QuartzAutoConfiguration. The version is managed by spring-boot-dependencies
-             through the parent. -->
+        <!-- Cron parser only; see CronExpressionUtil for why Quartz's parser is used instead of Spring's. -->
         <dependency>
             <groupId>org.quartz-scheduler</groupId>
             <artifactId>quartz</artifactId>
