@@ -6,18 +6,20 @@ import com.otilm.api.exception.ConnectorProblemException;
 import com.otilm.api.exception.ConnectorServerException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
-import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.core.cryptography.key.KeyTransferAvailabilityDto;
 import com.otilm.api.model.core.cryptography.key.KeyTransferCapabilityDto;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
+import com.otilm.core.model.crypto.KeyTransfer;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.model.crypto.TransferableKeyType;
+import com.otilm.core.service.handler.key.KeyProviderAdapter;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import com.otilm.core.service.writer.KeyTransferCapabilityWriter;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -28,7 +30,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 /**
- * What a token profile can export, as its connector answered for the profile's current scope.
+ * What a token profile can import and export, as its connector answered for the profile's current scope.
  *
  * <p>
  * The answer is recorded on the profile and forgotten whenever something it depends on changes: the profile's
@@ -72,93 +74,135 @@ public class KeyTransferCapabilityService {
      */
     public Optional<Map<KeyRequestType, Set<KeyAlgorithm>>> exportableKeyTypes(TokenProfileFullModel profile)
             throws ConnectorException, NotFoundException {
-        if (!declaresKeyExport(profile)) {
-            return Optional.of(Map.of());
-        }
-        if (profile.exportableKeyTypes() != null) {
-            return Optional.of(profile.exportableKeyTypes());
-        }
-        List<TransferableKeyType> answer = keyProviderAdapterFactory
-                .forToken(profile.tokenInstance())
-                .listExportableKeyTypes(profile);
-        return keyTransferCapabilityWriter
-                .recordAnswer(profile.uuid(), profile.exportableKeyTypesRevision(), answer)
-                .map(TokenProfileFullModel::exportableKeyTypes);
+        return keyTypes(profile, KeyTransfer.EXPORT);
     }
 
     /**
-     * What the profile can export, for showing. While the answer cannot be learned, because the connector cannot answer
-     * or an attribute the profile relies on cannot be used, the profile shows as not exporting until it is shown again.
+     * The algorithms the profile's connector imports, per key type, asking the connector when no answer is recorded. A
+     * connector that does not declare key import imports nothing and is not asked.
+     *
+     * @param profile the profile to answer for
+     * @return the answer, which is an empty map when the connector imports nothing into the profile, or empty when the
+     * profile changed while the connector was being asked, so its answer no longer applies
+     * @throws ConnectorException if the connector had to be asked and did not answer
+     * @throws NotFoundException if the profile or its connector no longer exists
+     */
+    public Optional<Map<KeyRequestType, Set<KeyAlgorithm>>> importableKeyTypes(TokenProfileFullModel profile)
+            throws ConnectorException, NotFoundException {
+        return keyTypes(profile, KeyTransfer.IMPORT);
+    }
+
+    private Optional<Map<KeyRequestType, Set<KeyAlgorithm>>> keyTypes(TokenProfileFullModel profile,
+            KeyTransfer direction) throws ConnectorException, NotFoundException {
+        if (!connectorCapabilityService
+                .supports(profile.tokenInstance().connectorInterface(), direction.featureFlag())) {
+            return Optional.of(Map.of());
+        }
+        Map<KeyRequestType, Set<KeyAlgorithm>> recorded = direction.recordedIn(profile);
+        if (recorded != null) {
+            return Optional.of(recorded);
+        }
+        KeyProviderAdapter adapter = keyProviderAdapterFactory.forToken(profile.tokenInstance());
+        List<TransferableKeyType> answer = direction == KeyTransfer.IMPORT
+                ? adapter.listImportableKeyTypes(profile)
+                : adapter.listExportableKeyTypes(profile);
+        return keyTransferCapabilityWriter
+                .recordAnswer(profile.uuid(), profile.keyTypesRevision(), direction, answer)
+                .map(direction::recordedIn);
+    }
+
+    /**
+     * What the profile can import and export, for showing. While an answer cannot be learned, because the connector
+     * cannot answer or an attribute the profile relies on cannot be used, the profile shows as unable to move keys that
+     * way until it is shown again.
      *
      * @param profile the profile to describe
-     * @return the profile's capability, which advertises export only
+     * @return the profile's capability in both directions
      */
     public KeyTransferCapabilityDto capabilityOf(TokenProfileFullModel profile) {
-        Map<KeyRequestType, Set<KeyAlgorithm>> exportable = Map.of();
-        try {
-            exportable = exportableKeyTypes(profile).orElse(Map.of());
-        } catch (ConnectorException | NotFoundException | ValidationException e) {
-            logUnanswered(profile, e);
-        }
+        Inquiry inquiry = new Inquiry();
+        Map<KeyRequestType, Set<KeyAlgorithm>> importable = inquiry.importableKeyTypesOf(profile);
+        Map<KeyRequestType, Set<KeyAlgorithm>> exportable = inquiry.keyTypesOf(profile, KeyTransfer.EXPORT);
         KeyTransferCapabilityDto capability = new KeyTransferCapabilityDto();
+        capability.setImportAvailable(!importable.isEmpty());
+        capability.setImportableKeyTypes(importable);
         capability.setExportAvailable(!exportable.isEmpty());
         capability.setExportableKeyTypes(exportable);
-        capability.setImportableKeyTypes(Map.of());
         return capability;
     }
 
     /**
-     * Whether any profile of the token can export, for showing. Once the connector cannot be reached or fails on its
-     * side, the remaining profiles without an answer are not asked, so a failing connector costs one attempt rather
-     * than one per profile; a failure specific to one profile does not stop the others from being asked.
+     * Whether any profile of the token can import, and whether any can export, for showing.
      *
      * @param token the token to describe
-     * @return the token's availability, which advertises export only
+     * @return the token's availability in both directions
      */
     public KeyTransferAvailabilityDto availabilityOf(TokenInstanceBasicModel token) {
         List<TokenProfileFullModel> profiles = tokenInstanceReferenceRepository
                 .findFullModelByUuid(token.uuid())
                 .map(tokenProfileRepository::findFullModelsByTokenInstance)
                 .orElseGet(List::of);
-        boolean answering = true;
+        Inquiry inquiry = new Inquiry();
+        boolean importAvailable = false;
+        boolean exportAvailable = false;
         for (TokenProfileFullModel profile : profiles) {
-            if (!answering && profile.exportableKeyTypes() == null) {
-                continue;
-            }
-            try {
-                if (exportableKeyTypes(profile).filter(types -> !types.isEmpty()).isPresent()) {
-                    return new KeyTransferAvailabilityDto(false, true);
-                }
-            } catch (ConnectorException e) {
-                if (connectorFailed(e)) {
-                    answering = false;
-                }
-                logUnanswered(profile, e);
-            } catch (NotFoundException | ValidationException e) {
-                logUnanswered(profile, e);
+            importAvailable = importAvailable || !inquiry.importableKeyTypesOf(profile).isEmpty();
+            exportAvailable = exportAvailable || !inquiry.keyTypesOf(profile, KeyTransfer.EXPORT).isEmpty();
+            if (importAvailable && exportAvailable) {
+                break;
             }
         }
-        return new KeyTransferAvailabilityDto(false, false);
+        return new KeyTransferAvailabilityDto(importAvailable, exportAvailable);
     }
 
     /**
-     * Whether the connector itself failed, so that asking it about another profile now would fail the same way: it
-     * could not be reached, or it failed on its side.
+     * One round of answers for showing. An answer the connector failed to give is not asked for again in the round, so
+     * a failing connector costs at most one attempt per answer rather than one per profile; recorded answers are still
+     * read, and a failure specific to one profile does not stop the others from being asked.
      */
-    private static boolean connectorFailed(ConnectorException e) {
-        return e instanceof ConnectorCommunicationException || e instanceof ConnectorServerException
+    private final class Inquiry {
+
+        private final Set<KeyTransfer> failedAnswers = EnumSet.noneOf(KeyTransfer.class);
+
+        /** A disabled profile takes no key, imported or created, so its connector is not asked what it imports. */
+        Map<KeyRequestType, Set<KeyAlgorithm>> importableKeyTypesOf(TokenProfileFullModel profile) {
+            return Boolean.TRUE.equals(profile.enabled()) ? keyTypesOf(profile, KeyTransfer.IMPORT) : Map.of();
+        }
+
+        Map<KeyRequestType, Set<KeyAlgorithm>> keyTypesOf(TokenProfileFullModel profile, KeyTransfer direction) {
+            if (failedAnswers.contains(direction) && direction.recordedIn(profile) == null) {
+                return Map.of();
+            }
+            try {
+                return keyTypes(profile, direction).orElse(Map.of());
+            } catch (ConnectorException e) {
+                failedAnswers.addAll(answersFailedBy(e, direction));
+                logUnanswered(profile, direction, e);
+            } catch (NotFoundException | ValidationException e) {
+                logUnanswered(profile, direction, e);
+            }
+            return Map.of();
+        }
+    }
+
+    /**
+     * The answers that would fail the same way for any other profile now: every answer once the connector cannot be
+     * reached, the one asked for once the connector failed on its side giving it, and none after a failure specific to
+     * the profile.
+     */
+    private static Set<KeyTransfer> answersFailedBy(ConnectorException e, KeyTransfer direction) {
+        if (e instanceof ConnectorCommunicationException) {
+            return EnumSet.allOf(KeyTransfer.class);
+        }
+        boolean failedOnItsSide = e instanceof ConnectorServerException
                 || (e instanceof ConnectorProblemException problem
                         && problem.getProblemDetail().getStatus() >= HttpStatus.INTERNAL_SERVER_ERROR.value());
+        return failedOnItsSide ? EnumSet.of(direction) : EnumSet.noneOf(KeyTransfer.class);
     }
 
-    private static void logUnanswered(TokenProfileFullModel profile, Exception e) {
+    private static void logUnanswered(TokenProfileFullModel profile, KeyTransfer direction, Exception e) {
         logger
-                .warn("Could not learn what token profile {} can export, so it is shown as not exporting: {}",
-                        profile.uuid(), e.getMessage());
-    }
-
-    private boolean declaresKeyExport(TokenProfileFullModel profile) {
-        return connectorCapabilityService
-                .supports(profile.tokenInstance().connectorInterface(), FeatureFlag.KEY_EXPORT);
+                .warn("Could not learn what token profile {} can {}, so it is shown as offering nothing: {}",
+                        profile.uuid(), direction, e.getMessage());
     }
 }

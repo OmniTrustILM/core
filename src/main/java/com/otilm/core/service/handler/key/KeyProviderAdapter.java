@@ -55,8 +55,15 @@ public interface KeyProviderAdapter {
     /** The key types the connector exports from the token profile, with the algorithms it accepts for each. */
     List<TransferableKeyType> listExportableKeyTypes(TokenProfileFullModel tokenProfile) throws ConnectorException;
 
+    /** The key types the connector imports into the token profile, with the algorithms it accepts for each. */
+    List<TransferableKeyType> listImportableKeyTypes(TokenProfileFullModel tokenProfile) throws ConnectorException;
+
     /** Lists the attribute schema for creating a secret key or key pair. */
     List<BaseAttribute> listCreateKeyAttributes(TokenProfileFullModel tokenProfile, KeyRequestType type)
+            throws ConnectorException;
+
+    /** Lists the attribute schema for importing a key of the type into the token profile. */
+    List<BaseAttribute> listImportKeyAttributes(TokenProfileFullModel tokenProfile, KeyRequestType type)
             throws ConnectorException;
 
     EncryptDataResponseDto encryptData(OperationKeyContext context, CipherDataRequestDto request)
