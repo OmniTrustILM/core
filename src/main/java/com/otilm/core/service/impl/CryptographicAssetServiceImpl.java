@@ -20,8 +20,11 @@ import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
+import com.otilm.api.model.core.search.SortDirection;
+import com.otilm.core.attribute.engine.AttributeColumnProjector;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
+import com.otilm.core.attribute.engine.ListingSortResolver;
 import com.otilm.core.cbom.asset.CompositeCurve;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.dao.entity.Cbom;
@@ -32,6 +35,7 @@ import com.otilm.core.dao.entity.cbom.CryptoAssetSource;
 import com.otilm.core.dao.entity.cbom.CryptoAssetSource_;
 import com.otilm.core.dao.entity.cbom.CryptoAsset_;
 import com.otilm.core.dao.repository.CbomRepository;
+import com.otilm.core.dao.repository.SortSpecification;
 import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetSourceRepository;
 import com.otilm.core.enums.FilterField;
@@ -51,6 +55,7 @@ import com.otilm.core.util.SearchHelper;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.Order;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
@@ -66,11 +71,14 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.function.TriFunction;
+import org.hibernate.query.NullPrecedence;
+import org.hibernate.query.criteria.JpaOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -107,6 +115,20 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
 
     private AttributeEngine attributeEngine;
 
+    private ListingSortResolver listingSortResolver;
+
+    private AttributeColumnProjector attributeColumnProjector;
+
+    @Autowired
+    public void setListingSortResolver(ListingSortResolver listingSortResolver) {
+        this.listingSortResolver = listingSortResolver;
+    }
+
+    @Autowired
+    public void setAttributeColumnProjector(AttributeColumnProjector attributeColumnProjector) {
+        this.attributeColumnProjector = attributeColumnProjector;
+    }
+
     @Autowired
     public void setAttributeEngine(AttributeEngine attributeEngine) {
         this.attributeEngine = attributeEngine;
@@ -136,25 +158,34 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
     @ExternalAuthorization(resource = Resource.CRYPTO_ASSET, action = ResourceAction.LIST)
     public PaginationResponseDto<CryptographicAssetDto> listCryptographicAssets(SecurityFilter filter,
             SearchRequestDto request) {
-        RequestValidatorHelper.revalidateSearchRequestDto(request);
+        RequestValidatorHelper.revalidateSearchRequestDto(request, Resource.CRYPTO_ASSET);
         validatePaging(request);
         final Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
         TriFunction<Root<CryptoAsset>, CriteriaBuilder, CriteriaQuery<?>, Predicate> where = (root, cb,
                 criteriaQuery) -> FilterPredicatesBuilder
                         .getFiltersPredicate(cb, criteriaQuery, root, request.getFilters(), contentFilter);
         Pageable page = PageRequest.of(request.getPageNumber() - 1, request.getItemsPerPage());
-        // The contract's "ordered by name ascending" means the SERVED name -- displayLabel's guarded coalesce --
-        // not the bare column, which would sort every oid-served row after the named ones (NULL sorts last).
-        // Only this term is spelled here: the repository appends the ascending-uuid tiebreak to every paged
-        // secured query (SortOrderBuilder), which keeps page boundaries deterministic inside equal labels.
-        List<UUID> pageUuids = cryptoAssetRepository
-                .findUuidsUsingSecurityFilter(filter, where, page, (root, cb) -> cb.asc(displayLabel(root, cb)));
+        SortSpecification sort = listingSortResolver.resolve(Resource.CRYPTO_ASSET, request.getSort(), contentFilter);
+        // A column whose cell serves a derived value is ordered by that value rather than resolved by the repository
+        // to its bare column, which would split rows that read the same. The repository still appends the uuid
+        // tiebreak (SortOrderBuilder) that keeps page boundaries deterministic.
+        SortKey servedKey = servedSortKey(sort);
+        List<UUID> pageUuids = servedKey == null
+                ? cryptoAssetRepository
+                        .findUuidsUsingSecurityFilter(filter, where, page,
+                                ordered(CryptographicAssetServiceImpl::displayLabel, SortDirection.ASC), sort)
+                : cryptoAssetRepository
+                        .findUuidsUsingSecurityFilter(filter, where, page, ordered(servedKey, sort.direction()), null);
         // The plain-count variant: every crypto-asset predicate is either single-column or an EXISTS subquery and
         // the resource declares no groups or owner, so no query shape can duplicate a root row -- and
         // count(DISTINCT) forfeits parallel aggregation, which at millions of rows is seconds per page request.
         long totalItems = cryptoAssetRepository.countRowsUsingSecurityFilter(filter, where);
         PaginationResponseDto<CryptographicAssetDto> response = new PaginationResponseDto<>();
-        response.setItems(loadPage(pageUuids));
+        List<CryptographicAssetDto> items = loadPage(pageUuids);
+        attributeColumnProjector
+                .project(Resource.CRYPTO_ASSET, request.getColumns(), items, CryptographicAssetDto::getUuid,
+                        contentFilter);
+        response.setItems(items);
         response.setItemsPerPage(request.getItemsPerPage());
         response.setPageNumber(request.getPageNumber());
         response.setTotalItems(totalItems);
@@ -376,11 +407,6 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
     }
 
     private static void validatePaging(SearchRequestDto request) {
-        // No crypto-asset field is marked sortable, and the contract permits sorting only on fields marked sortable.
-        if (request.getSort() != null) {
-            throw new ValidationException(
-                    "Sorting is not supported for the cryptographic asset inventory; results are ordered by name, then UUID.");
-        }
         // PageRequest would otherwise turn an out-of-range value into a 500 rather than a shaped 422.
         if (request.getPageNumber() < 1) {
             throw new ValidationException("Page number must be at least 1, but was " + request.getPageNumber());
@@ -449,6 +475,36 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
                         cb.nullLiteral(String.class))
                 .otherwise(root.get(CryptoAsset_.oid));
         return cb.coalesce(root.get(CryptoAsset_.name), oidUnlessRefuted);
+    }
+
+    private interface SortKey extends BiFunction<Root<CryptoAsset>, CriteriaBuilder, Expression<?>> {
+    }
+
+    /**
+     * The value a cell serves where it differs from its column: the display label for the name, and UNKNOWN for a
+     * never-evaluated verdict, as {@link #servedName} and {@link #servedVerdict} serve them. {@code null} for any other
+     * sort, which the repository resolves to the column itself.
+     */
+    private static SortKey servedSortKey(SortSpecification sort) {
+        if (sort == null || sort.fieldSource() != FilterFieldSource.PROPERTY) {
+            return null;
+        }
+        if (FilterField.CBOM_ASSET_NAME.name().equals(sort.fieldIdentifier())) {
+            return CryptographicAssetServiceImpl::displayLabel;
+        }
+        if (FilterField.CBOM_ASSET_PQC_VERDICT.name().equals(sort.fieldIdentifier())) {
+            return (root, cb) -> cb.coalesce(root.get(CryptoAsset_.pqcVerdict), PqcVerdict.UNKNOWN);
+        }
+        return null;
+    }
+
+    /** Rows with nothing to serve stay last in either direction, as they do under every other column sort. */
+    private static BiFunction<Root<CryptoAsset>, CriteriaBuilder, Order> ordered(SortKey key, SortDirection direction) {
+        return (root, cb) -> {
+            Expression<?> value = key.apply(root, cb);
+            Order order = direction == SortDirection.DESC ? cb.desc(value) : cb.asc(value);
+            return ((JpaOrder) order).nullPrecedence(NullPrecedence.LAST);
+        };
     }
 
     /** The in-memory twin of {@link #displayLabel}; the list orders by that expression and serves this value. */

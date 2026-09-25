@@ -264,6 +264,35 @@ class ListViewServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void aCryptoAssetViewKeepsItsColumnsAndOrdering() throws AlreadyExistException {
+        SearchSortRequestDto sort = new SearchSortRequestDto(FilterFieldSource.PROPERTY, "CBOM_ASSET_NAME",
+                SortDirection.DESC);
+        ListViewRequestDto request = request("Inventory", column("CBOM_ASSET_NAME"),
+                column("CBOM_ASSET_PQC_VERDICT", "Readiness"), column("CBOM_ASSET_SOURCE_COUNT"));
+        request.setResource(Resource.CRYPTO_ASSET);
+        request.setSort(sort);
+
+        listViewService.createView(request);
+
+        ListViewDto stored = listViewService.listViews(Resource.CRYPTO_ASSET).getFirst();
+        Assertions
+                .assertEquals(List.of("CBOM_ASSET_NAME", "CBOM_ASSET_PQC_VERDICT", "CBOM_ASSET_SOURCE_COUNT"),
+                        identifiersOf(stored));
+        Assertions.assertEquals("Readiness", stored.getColumns().get(1).getLabel());
+        Assertions.assertEquals(sort, stored.getSort());
+    }
+
+    @Test
+    void aCryptoAssetColumnTheListingCannotShowIsRejectedOnWrite() {
+        ListViewRequestDto request = request("Blank", column("CBOM_ASSET_NAME"), column("CBOM_ASSET_OID"));
+        request.setResource(Resource.CRYPTO_ASSET);
+
+        ValidationException e = Assertions
+                .assertThrows(ValidationException.class, () -> listViewService.createView(request));
+        Assertions.assertTrue(e.getMessage().contains("CBOM_ASSET_OID"));
+    }
+
+    @Test
     void aViewWithoutFiltersOrOrderingReportsNeither() throws AlreadyExistException {
         ListViewDto created = listViewService.createView(request("Plain", column("COMMON_NAME")));
 

@@ -2,6 +2,7 @@ package com.otilm.core.integration.service;
 
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.certificate.SearchColumnRequestDto;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.client.certificate.SearchSortRequestDto;
 import com.otilm.api.model.common.NameAndUuidDto;
@@ -99,7 +100,7 @@ class CryptographicAssetServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void clampsOversizedPageAndRefusesInvalidPagingOrSort() {
+    void clampsOversizedPageAndRefusesInvalidPaging() {
         SearchRequestDto oversized = new SearchRequestDto();
         oversized.setItemsPerPage(5000);
         assertThat(list(oversized).getItemsPerPage()).isEqualTo(1000);
@@ -111,12 +112,6 @@ class CryptographicAssetServiceITest extends BaseSpringBootTest {
         SearchRequestDto zeroItems = new SearchRequestDto();
         zeroItems.setItemsPerPage(0);
         assertThatThrownBy(() -> list(zeroItems)).isInstanceOf(ValidationException.class);
-
-        SearchRequestDto sorted = new SearchRequestDto();
-        sorted
-                .setSort(new SearchSortRequestDto(FilterFieldSource.PROPERTY, FilterField.CBOM_ASSET_NAME.name(),
-                        SortDirection.ASC));
-        assertThatThrownBy(() -> list(sorted)).isInstanceOf(ValidationException.class).hasMessageContaining("Sorting");
 
         // (pageNumber - 1) * itemsPerPage must fit an int: the JPA offset is an int, so an unchecked product either
         // throws deep in Hibernate (a 400, not the shaped 422) or -- worse -- wraps positive and silently serves the
@@ -199,6 +194,90 @@ class CryptographicAssetServiceITest extends BaseSpringBootTest {
         PaginationResponseDto<CryptographicAssetDto> page = list(new SearchRequestDto());
         assertThat(page.getItems()).extracting(CryptographicAssetDto::getUuid).containsExactly(oidServed, named);
         assertThat(page.getItems()).extracting(CryptographicAssetDto::getName).containsExactly("0.aaa", "zzz-cipher");
+    }
+
+    @Test
+    void sortsByNameOnTheServedLabelInBothDirections() {
+        UUID bravo = seedNamed(CryptographicAssetType.ALGORITHM, "bravo", "5.5.5");
+        UUID oidOnly = seedNamed(CryptographicAssetType.CERTIFICATE, null, "0.aaa");
+        UUID zulu = seedNamed(CryptographicAssetType.ALGORITHM, "zulu", "1.1.1");
+        UUID unlabelled = upsert(new CryptoAssetIdentityFields(CryptographicAssetType.ALGORITHM, null, "0.0.1",
+                "ml-kem", null, null, null, null, null, null), CryptoAssetIdentityGuard.REFUTED_OID);
+
+        assertThat(list(sortedBy(FilterField.CBOM_ASSET_NAME, SortDirection.ASC)).getItems())
+                .extracting(CryptographicAssetDto::getUuid)
+                .containsExactly(oidOnly, bravo, zulu, unlabelled);
+        assertThat(list(sortedBy(FilterField.CBOM_ASSET_NAME, SortDirection.DESC)).getItems())
+                .extracting(CryptographicAssetDto::getUuid)
+                .describedAs("a row with no label to show stays last when the order is reversed")
+                .containsExactly(zulu, bravo, oidOnly, unlabelled);
+    }
+
+    @Test
+    void sortsByTypeAndByPqcVerdict() {
+        UUID protocol = seedNamed(CryptographicAssetType.PROTOCOL, "alpha", "1.0.1");
+        UUID algorithm = seedNamed(CryptographicAssetType.ALGORITHM, "bravo", "1.0.2");
+        UUID certificate = seedNamed(CryptographicAssetType.CERTIFICATE, "charlie", "1.0.3");
+        assetWriter.applyPqcVerdict(protocol, PqcVerdict.NOT_READY, "rule", "reason", 3, Map.of());
+        assetWriter.applyPqcVerdict(algorithm, PqcVerdict.READY, "rule", "reason", 3, Map.of());
+        assetWriter.applyPqcVerdict(certificate, PqcVerdict.NOT_APPLICABLE, "rule", "reason", 3, Map.of());
+        UUID storedUnknown = seedNamed(CryptographicAssetType.ALGORITHM, "delta", "1.0.4");
+        assetWriter.applyPqcVerdict(storedUnknown, PqcVerdict.UNKNOWN, "rule", "reason", 3, Map.of());
+        UUID neverEvaluated = seedNamed(CryptographicAssetType.RELATED_CRYPTO_MATERIAL, "echo", "1.0.5");
+        List<UUID> unknowns = sortedByUuidString(storedUnknown, neverEvaluated);
+
+        assertThat(list(sortedBy(FilterField.CBOM_ASSET_TYPE, SortDirection.ASC)).getItems())
+                .extracting(CryptographicAssetDto::getUuid)
+                .containsSubsequence(algorithm, certificate, protocol, neverEvaluated);
+        assertThat(list(sortedBy(FilterField.CBOM_ASSET_PQC_VERDICT, SortDirection.DESC)).getItems())
+                .extracting(CryptographicAssetDto::getUuid)
+                .describedAs("a never-evaluated row reads Unknown and sorts with the stored Unknown one")
+                .containsExactly(unknowns.get(0), unknowns.get(1), algorithm, protocol, certificate);
+        assertThat(list(sortedBy(FilterField.CBOM_ASSET_PQC_VERDICT, SortDirection.ASC)).getItems())
+                .extracting(CryptographicAssetDto::getUuid)
+                .containsExactly(certificate, protocol, algorithm, unknowns.get(0), unknowns.get(1));
+    }
+
+    @Test
+    void theNextPageContinuesTheRequestedOrder() {
+        UUID alpha = seedNamed(CryptographicAssetType.ALGORITHM, "alpha", "2.0.1");
+        UUID bravo = seedNamed(CryptographicAssetType.ALGORITHM, "bravo", "2.0.2");
+        UUID oidOnly = seedNamed(CryptographicAssetType.CERTIFICATE, null, "charlie-oid");
+        UUID delta = seedNamed(CryptographicAssetType.ALGORITHM, "delta", "2.0.4");
+
+        SearchRequestDto first = sortedBy(FilterField.CBOM_ASSET_NAME, SortDirection.DESC);
+        first.setItemsPerPage(2);
+        SearchRequestDto second = sortedBy(FilterField.CBOM_ASSET_NAME, SortDirection.DESC);
+        second.setItemsPerPage(2);
+        second.setPageNumber(2);
+
+        assertThat(list(first).getItems()).extracting(CryptographicAssetDto::getUuid).containsExactly(delta, oidOnly);
+        assertThat(list(second).getItems()).extracting(CryptographicAssetDto::getUuid).containsExactly(bravo, alpha);
+    }
+
+    @Test
+    void refusesASortOnAFieldTheListingDoesNotShow() {
+        seedNamed(CryptographicAssetType.ALGORITHM, "alpha", "3.0.1");
+
+        SearchRequestDto request = sortedBy(FilterField.CBOM_ASSET_OID, SortDirection.ASC);
+        assertThatThrownBy(() -> list(request))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("cannot be used to order this listing");
+    }
+
+    @Test
+    void requestingPropertyColumnsServesTheRowsWithoutAttributeValues() {
+        UUID alpha = seedNamed(CryptographicAssetType.ALGORITHM, "alpha", "4.0.1");
+
+        SearchRequestDto request = new SearchRequestDto();
+        request
+                .setColumns(List
+                        .of(new SearchColumnRequestDto(FilterFieldSource.PROPERTY,
+                                FilterField.CBOM_ASSET_PQC_VERDICT.name())));
+
+        CryptographicAssetDto dto = dtoFor(list(request), alpha);
+        assertThat(dto.getName()).isEqualTo("alpha");
+        assertThat(dto.getAttributeValues()).isNull();
     }
 
     /**
@@ -405,6 +484,12 @@ class CryptographicAssetServiceITest extends BaseSpringBootTest {
 
     private PaginationResponseDto<CryptographicAssetDto> list(SearchRequestDto request) {
         return cryptographicAssetService.listCryptographicAssets(SecurityFilter.create(), request);
+    }
+
+    private static SearchRequestDto sortedBy(FilterField field, SortDirection direction) {
+        SearchRequestDto request = new SearchRequestDto();
+        request.setSort(new SearchSortRequestDto(FilterFieldSource.PROPERTY, field.name(), direction));
+        return request;
     }
 
     private UUID seedNamed(CryptographicAssetType type, String name, String oid) {
