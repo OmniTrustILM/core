@@ -1289,6 +1289,33 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
+    void submitCertificateRequest_storesTheSignatureAttributesAnUploadedCsrNamesForAV2Key() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        TokenInstanceReference token = persistV2Token();
+        CryptographicKey key = persistV2Key(token);
+        when(cryptographicOperationService.listSignAttributeSchema(key.getUuid()))
+                .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
+        ClientCertificateRequestDto request = new ClientCertificateRequestDto();
+        request.setRaProfileUuid(raProfile.getUuid());
+        request.setFormat(CertificateRequestFormat.PKCS10);
+        request.setRequest(SAMPLE_PKCS10);
+        request.setKeyUuid(key.getUuid());
+        request.setSignatureAttributes(sha256WithRsa());
+        request.setIssueAttributes(List.of());
+
+        // when
+        CertificateDetailDto submitted = clientOperationService.submitCertificateRequest(request, null);
+
+        // then
+        CertificateDetailDto detail = certificateExternalService
+                .getCertificate(SecuredUUID.fromString(submitted.getUuid()));
+        Assertions
+                .assertEquals(List.of("signatureAlgorithm=SHA256withRSA"),
+                        describe(detail.getCertificateRequest().getSignatureAttributes()));
+    }
+
+    @Test
     void rekeyCertificate_reusesTheSignatureAttributesItsV2KeySignedWith() throws Exception {
         // given
         stubAuthorityProviderAttributesEndpoints();
