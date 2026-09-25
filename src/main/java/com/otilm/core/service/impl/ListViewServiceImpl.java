@@ -38,11 +38,11 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Saved list views. There is no OPA check on these operations: a view is addressed only through the user it belongs to,
- * so being authenticated as that user is the whole of the authorization. A view of another user answers 404 rather than
- * 403 - it is not addressable, not merely forbidden.
+ * Saved list views are addressed through their owner, so another user's view answers 404. Resolving a custom EKU name
+ * when writing a view also requires OID list permission.
  */
 @Service
 public class ListViewServiceImpl implements ListViewExternalService, ListViewInternalService {
@@ -51,6 +51,8 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
     private ListViewWriter listViewWriter;
     private AttributeEngine attributeEngine;
     private ClusterOperationSynchronizer clusterSynchronizer;
+    private ExtendedKeyUsageFilterNormalizer extendedKeyUsageFilterNormalizer;
+    private TransactionTemplate transactionTemplate;
 
     @Autowired
     public void setListViewRepository(ListViewRepository listViewRepository) {
@@ -72,6 +74,16 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         this.clusterSynchronizer = clusterSynchronizer;
     }
 
+    @Autowired
+    public void setExtendedKeyUsageFilterNormalizer(ExtendedKeyUsageFilterNormalizer extendedKeyUsageFilterNormalizer) {
+        this.extendedKeyUsageFilterNormalizer = extendedKeyUsageFilterNormalizer;
+    }
+
+    @Autowired
+    public void setTransactionTemplate(TransactionTemplate transactionTemplate) {
+        this.transactionTemplate = transactionTemplate;
+    }
+
     @Override
     @AnyPrincipalEndpoint
     public List<ListViewDto> listViews(Resource resource) {
@@ -86,12 +98,28 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
 
     @Override
     @AnyPrincipalEndpoint
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public ListViewDto createView(ListViewRequestDto request) throws AlreadyExistException {
         UUID userUuid = loggedUserUuid();
         Resource resource = request.getResource();
         validateRequest(resource, request, Set.of());
+        List<SearchFilterRequestDto> filters = extendedKeyUsageFilterNormalizer.normalize(request.getFilters());
 
+        try {
+            return transactionTemplate.execute(status -> {
+                try {
+                    return createViewInTransaction(userUuid, resource, request, filters);
+                } catch (AlreadyExistException e) {
+                    throw new CheckedListViewException(e);
+                }
+            });
+        } catch (CheckedListViewException e) {
+            throw (AlreadyExistException) e.getCause();
+        }
+    }
+
+    private ListViewDto createViewInTransaction(UUID userUuid, Resource resource, ListViewRequestDto request,
+            List<SearchFilterRequestDto> filters) throws AlreadyExistException {
         serializeWritesFor(userUuid, resource);
         if (listViewRepository.existsByUserUuidAndResourceAndName(userUuid, resource, request.getName())) {
             throw new AlreadyExistException(ListView.class, request.getName());
@@ -100,20 +128,40 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         ListView view = new ListView();
         view.setUserUuid(userUuid);
         view.setResource(resource);
-        applyRequest(view, request);
+        applyRequest(view, request, filters);
 
         return toDto(save(view, request.getName()), new EnumMap<>(Resource.class));
     }
 
     @Override
     @AnyPrincipalEndpoint
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public ListViewDto editView(String uuid, ListViewUpdateRequestDto request)
             throws NotFoundException, AlreadyExistException {
         UUID userUuid = loggedUserUuid();
         ListView view = ownView(uuid, userUuid);
         validateRequest(view.getResource(), request, columnsOf(view));
+        List<SearchFilterRequestDto> filters = extendedKeyUsageFilterNormalizer.normalize(request.getFilters());
 
+        try {
+            return transactionTemplate.execute(status -> {
+                try {
+                    return editViewInTransaction(uuid, userUuid, request, filters);
+                } catch (NotFoundException | AlreadyExistException e) {
+                    throw new CheckedListViewException(e);
+                }
+            });
+        } catch (CheckedListViewException e) {
+            if (e.getCause() instanceof NotFoundException notFound) {
+                throw notFound;
+            }
+            throw (AlreadyExistException) e.getCause();
+        }
+    }
+
+    private ListViewDto editViewInTransaction(String uuid, UUID userUuid, ListViewUpdateRequestDto request,
+            List<SearchFilterRequestDto> filters) throws NotFoundException, AlreadyExistException {
+        ListView view = ownView(uuid, userUuid);
         serializeWritesFor(userUuid, view.getResource());
         if (listViewRepository
                 .existsByUserUuidAndResourceAndNameAndUuidNot(userUuid, view.getResource(), request.getName(),
@@ -121,9 +169,15 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
             throw new AlreadyExistException(ListView.class, request.getName());
         }
 
-        applyRequest(view, request);
+        applyRequest(view, request, filters);
 
         return toDto(save(view, request.getName()), new EnumMap<>(Resource.class));
+    }
+
+    private static final class CheckedListViewException extends RuntimeException {
+        private CheckedListViewException(Exception cause) {
+            super(cause);
+        }
     }
 
     @Override
@@ -173,11 +227,12 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         return false;
     }
 
-    private static void applyRequest(ListView view, ListViewUpdateRequestDto request) {
+    private static void applyRequest(ListView view, ListViewUpdateRequestDto request,
+            List<SearchFilterRequestDto> filters) {
         view.setName(request.getName());
         view.setColumns(request.getColumns());
         view.setDefaultView(request.isDefaultView());
-        view.setFilters(request.getFilters() == null || request.getFilters().isEmpty() ? null : request.getFilters());
+        view.setFilters(filters == null || filters.isEmpty() ? null : filters);
         view.setSort(request.getSort());
     }
 

@@ -34,6 +34,7 @@ import com.otilm.core.enums.ResourceToClass;
 import com.otilm.core.enums.SearchFieldTypeEnum;
 import com.otilm.core.model.AttributeFieldIdentifier;
 import com.otilm.core.model.cbom.CryptoAssetIdentityGuard;
+import com.otilm.core.oid.OidHandler;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 import jakarta.persistence.criteria.CommonAbstractCriteria;
@@ -421,6 +422,10 @@ public class FilterPredicatesBuilder {
         }
         if (filterField == FilterField.CBOM_ASSET_SOURCE_CBOM) {
             return getCryptoAssetSourceCbomPredicate(criteriaBuilder, query, root, filterDto, filterValues);
+        }
+        if (filterField.getType() == SearchFieldTypeEnum.EXTENDED_KEY_USAGE_ARRAY) {
+            return getExtendedKeyUsagePredicate(criteriaBuilder,
+                    resolveFieldPath(from, filterField.getFieldAttribute()), filterDto.getCondition(), filterValues);
         }
         if (filterField == FilterField.CBOM_ASSET_TYPE && (filterDto.getCondition() == FilterConditionOperator.EMPTY
                 || filterDto.getCondition() == FilterConditionOperator.NOT_EMPTY)) {
@@ -832,6 +837,35 @@ public class FilterPredicatesBuilder {
             stringBuilder.append(pathPart);
         }
         return stringBuilder.toString();
+    }
+
+    private static Predicate getExtendedKeyUsagePredicate(CriteriaBuilder criteriaBuilder,
+            Expression<String> expression, FilterConditionOperator condition, List<Object> filterValues) {
+        Predicate empty = criteriaBuilder
+                .or(criteriaBuilder.isNull(expression), criteriaBuilder.equal(expression, "[]"),
+                        criteriaBuilder.equal(expression, "null"));
+        if (condition == FilterConditionOperator.EMPTY) {
+            return empty;
+        }
+        if (condition == FilterConditionOperator.NOT_EMPTY) {
+            return criteriaBuilder.not(empty);
+        }
+
+        Predicate[] matches = filterValues.stream().map(value -> {
+            String oid = value.toString();
+            if (!OidHandler.isOid(oid)) {
+                throw new ValidationException(
+                        "Extended Key Usage filter value must be an OID or a registered purpose: " + oid);
+            }
+            return criteriaBuilder
+                    .isTrue(criteriaBuilder
+                            .function(PostgresFunctionContributor.JSON_TEXT_ARRAY_CONTAINS, Boolean.class, expression,
+                                    criteriaBuilder.literal("[\"" + oid + "\"]")));
+        }).toArray(Predicate[]::new);
+        Predicate matchesAny = criteriaBuilder.or(matches);
+        return condition == FilterConditionOperator.NOT_EQUALS
+                ? criteriaBuilder.or(criteriaBuilder.isNull(expression), criteriaBuilder.not(matchesAny))
+                : matchesAny;
     }
 
     private static Expression<Boolean> getJsonArrayEqualsExpression(CriteriaBuilder criteriaBuilder,

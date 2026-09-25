@@ -209,7 +209,9 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
         for (FilterField filterField : filterFields) {
             // skip filter fields with JSON paths since it is not supported by rule evaluator
             // If getting only settable fields, skip not settable fields
-            if (filterField.getJsonPath() != null || (settable && !filterField.isSettable())) {
+            if (filterField.getJsonPath() != null
+                    || filterField.getType() == SearchFieldTypeEnum.EXTENDED_KEY_USAGE_ARRAY
+                    || (settable && !filterField.isSettable())) {
                 continue;
             }
             // Filter field has a single value, don't need to provide list

@@ -28,6 +28,7 @@ import com.otilm.api.model.core.workflows.UpdateConditionRequestDto;
 import com.otilm.api.model.core.workflows.UpdateExecutionRequestDto;
 import com.otilm.api.model.core.workflows.UpdateRuleRequestDto;
 import com.otilm.api.model.core.workflows.UpdateTriggerRequestDto;
+import com.otilm.core.enums.FilterField;
 import com.otilm.core.service.ActionExternalService;
 import com.otilm.core.service.RuleExternalService;
 import com.otilm.core.service.TriggerExternalService;
@@ -140,6 +141,28 @@ class RuleServiceITest extends BaseSpringBootTest {
         Assertions
                 .assertThrows(NotFoundException.class,
                         () -> ruleService.getCondition(conditionGroupDetailDto.getUuid()));
+    }
+
+    @Test
+    void rejectsExtendedKeyUsageConditionsOnCreateAndUpdate() {
+        ConditionItemRequestDto ekuItem = new ConditionItemRequestDto();
+        ekuItem.setFieldSource(FilterFieldSource.PROPERTY);
+        ekuItem.setFieldIdentifier(FilterField.EXTENDED_KEY_USAGE.name());
+        ekuItem.setOperator(FilterConditionOperator.EQUALS);
+        ekuItem.setValue("1.3.6.1.5.5.7.3.1");
+
+        ConditionRequestDto createRequest = new ConditionRequestDto();
+        createRequest.setName("Unsupported EKU condition");
+        createRequest.setResource(Resource.CERTIFICATE);
+        createRequest.setType(ConditionType.CHECK_FIELD);
+        createRequest.setItems(List.of(ekuItem));
+        Assertions.assertThrows(ValidationException.class, () -> ruleService.createCondition(createRequest));
+
+        UpdateConditionRequestDto updateRequest = new UpdateConditionRequestDto();
+        updateRequest.setItems(List.of(ekuItem));
+        Assertions
+                .assertThrows(ValidationException.class,
+                        () -> ruleService.updateCondition(conditionDto.getUuid(), updateRequest));
     }
 
     @Test

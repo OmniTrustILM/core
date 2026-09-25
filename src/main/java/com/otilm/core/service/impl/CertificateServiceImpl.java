@@ -300,6 +300,7 @@ public class CertificateServiceImpl
     private LocationInternalService locationInternalService;
     private CryptographicKeyInternalService cryptographicKeyService;
     private AuthorizationEnforcer authorizationEnforcer;
+    private ExtendedKeyUsageFilterNormalizer extendedKeyUsageFilterNormalizer;
     private EventProducer eventProducer;
     private NotificationProducer notificationProducer;
     private UserManagementApiClient userManagementApiClient;
@@ -519,6 +520,11 @@ public class CertificateServiceImpl
     }
 
     @Autowired
+    public void setExtendedKeyUsageFilterNormalizer(ExtendedKeyUsageFilterNormalizer extendedKeyUsageFilterNormalizer) {
+        this.extendedKeyUsageFilterNormalizer = extendedKeyUsageFilterNormalizer;
+    }
+
+    @Autowired
     public void setEventProducer(EventProducer eventProducer) {
         this.eventProducer = eventProducer;
     }
@@ -640,12 +646,15 @@ public class CertificateServiceImpl
         return responseDto;
     }
 
-    private static TriFunction<Root<Certificate>, CriteriaBuilder, CriteriaQuery<?>, Predicate> getAdditionalWhereClause(
+    private TriFunction<Root<Certificate>, CriteriaBuilder, CriteriaQuery<?>, Predicate> getAdditionalWhereClause(
             List<SearchFilterRequestDto> filters, boolean includeArchived,
             Supplier<CustomAttributeContentFilter> contentFilterSource) {
+        List<SearchFilterRequestDto> normalizedFilters = extendedKeyUsageFilterNormalizer.normalize(filters);
         return (root, cb, cr) -> {
             List<Predicate> predicates = new ArrayList<>();
-            predicates.add(FilterPredicatesBuilder.getFiltersPredicate(cb, cr, root, filters, contentFilterSource));
+            predicates
+                    .add(FilterPredicatesBuilder
+                            .getFiltersPredicate(cb, cr, root, normalizedFilters, contentFilterSource));
             if (!includeArchived) {
                 predicates.add(cb.isFalse(root.get(Certificate_.ARCHIVED)));
             }
@@ -1289,6 +1298,7 @@ public class CertificateServiceImpl
                                                 .stream((CertificateKeyUsage.values()))
                                                 .map(CertificateKeyUsage::getCode)
                                                 .toList()),
+                        SearchHelper.prepareSearch(FilterField.EXTENDED_KEY_USAGE),
                         SearchHelper.prepareSearch(FilterField.PRIVATE_KEY),
                         SearchHelper
                                 .prepareSearch(FilterField.SUBJECT_TYPE,
