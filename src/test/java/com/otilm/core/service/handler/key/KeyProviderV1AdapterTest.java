@@ -38,6 +38,7 @@ import com.otilm.api.model.connector.cryptography.key.value.RawKeyValue;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
+import com.otilm.api.model.core.secret.Passphrase;
 import com.otilm.core.attribute.RsaSignatureAttributes;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
@@ -149,6 +150,33 @@ class KeyProviderV1AdapterTest {
         assertEquals(serializedValue, item.material().serializedValue());
         assertEquals(metadata, item.metadata());
         verify(client).listKeys(connector, remoteTokenUuid);
+    }
+
+    @Test
+    void listExportKeyAttributes_offersNothingForAV1Connector() {
+        // given
+        OperationKeyContext context = OperationKeyContext
+                .legacy(keyItem(KeyAlgorithm.RSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
+                        UUID.randomUUID()));
+
+        // when
+        // then
+        assertEquals(List.of(), adapter.listExportKeyAttributes(context));
+    }
+
+    @Test
+    void exportKey_isRefusedForAV1Connector() {
+        // given
+        OperationKeyContext context = OperationKeyContext
+                .legacy(keyItem(KeyAlgorithm.RSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
+                        UUID.randomUUID()));
+        HeldKey heldKey = new HeldKey(KeyRequestType.KEY_PAIR, KeyAlgorithm.RSA, 2048, new byte[]{1}, null);
+        Passphrase passphrase = new Passphrase("correct horse battery staple".toCharArray());
+
+        // when
+        // then
+        List<RequestAttribute> noAttributes = List.of();
+        assertThrows(ValidationException.class, () -> adapter.exportKey(context, heldKey, passphrase, noAttributes));
     }
 
     @Test
