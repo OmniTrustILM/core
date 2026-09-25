@@ -63,14 +63,19 @@ public class TokenProfile extends UniquelyIdentifiedAndAudited
     private int usage;
 
     // S1948: entities are Serializable through UniquelyIdentifiedObject, but nothing Java-serializes them - Jackson
-    // owns the persistence shape of this JSONB field.
+    // owns the persistence shape of these JSONB fields.
     @SuppressWarnings("java:S1948")
     @Column(name = "exportable_key_types", columnDefinition = "jsonb")
     @JdbcTypeCode(SqlTypes.JSON)
     private List<TransferableKeyType> exportableKeyTypes;
 
-    @Column(name = "exportable_key_types_revision", nullable = false)
-    private int exportableKeyTypesRevision;
+    @SuppressWarnings("java:S1948")
+    @Column(name = "importable_key_types", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
+    private List<TransferableKeyType> importableKeyTypes;
+
+    @Column(name = "key_types_revision", nullable = false)
+    private int keyTypesRevision;
 
     public void setTokenInstanceReference(TokenInstanceReference tokenInstanceReference) {
         this.tokenInstanceReference = tokenInstanceReference;
@@ -88,10 +93,11 @@ public class TokenProfile extends UniquelyIdentifiedAndAudited
                 .convertSetToBitMask(usage.isEmpty() ? EnumSet.noneOf(KeyUsage.class) : EnumSet.copyOf(usage));
     }
 
-    /** Drops the export answer; something it was given for has changed. */
-    public void forgetExportableKeyTypes() {
+    /** Drops the import and export answers; something they were given for has changed. */
+    public void forgetKeyTypes() {
+        importableKeyTypes = null;
         exportableKeyTypes = null;
-        exportableKeyTypesRevision++;
+        keyTypesRevision++;
     }
 
     @Override

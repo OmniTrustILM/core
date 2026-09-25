@@ -527,7 +527,7 @@ class CryptographicKeyExportServiceV2ITest extends BaseSpringBootTest {
     @Test
     void exportKey_recordsAConnectorFailureThatCarriesNoMessage() {
         // given
-        profile.forgetExportableKeyTypes();
+        profile.forgetKeyTypes();
         tokenProfileRepository.save(profile);
         connectorMock.stubExportableKeyTypesProblemWithoutText();
         UUID keyUuid = key.getUuid();

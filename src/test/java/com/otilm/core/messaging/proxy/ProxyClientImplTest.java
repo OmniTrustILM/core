@@ -100,7 +100,7 @@ class ProxyClientImplTest {
 
         assertThat(result).isNotNull();
         assertThat(result.get("result")).isEqualTo("success");
-        verify(producer).send(any(), eq("proxy-001"));
+        verify(producer).send(any(), eq("proxy-001"), any(Duration.class));
     }
 
     @Test
@@ -168,7 +168,7 @@ class ProxyClientImplTest {
         assertThat(result).isNotNull();
 
         ArgumentCaptor<CoreMessage> messageCaptor = ArgumentCaptor.forClass(CoreMessage.class);
-        verify(producer).send(messageCaptor.capture(), eq("proxy-001"));
+        verify(producer).send(messageCaptor.capture(), eq("proxy-001"), any(Duration.class));
 
         CoreMessage message = messageCaptor.getValue();
         assertThat(message.getConnectorRequest().getPath()).isEqualTo("/v1/items/123/activate");
@@ -207,7 +207,7 @@ class ProxyClientImplTest {
         // Verify registration happens BEFORE send
         var inOrder = inOrder(correlator, producer);
         inOrder.verify(correlator).registerRequest(anyString(), any(Duration.class));
-        inOrder.verify(producer).send(any(), eq("proxy-001"));
+        inOrder.verify(producer).send(any(), eq("proxy-001"), any(Duration.class));
     }
 
     @Test
@@ -220,7 +220,7 @@ class ProxyClientImplTest {
         proxyClient.sendRequestAsync(connector, "/v1/certificates", "POST", Map.of("name", "test"), String.class);
 
         ArgumentCaptor<CoreMessage> messageCaptor = ArgumentCaptor.forClass(CoreMessage.class);
-        verify(producer).send(messageCaptor.capture(), eq("proxy-001"));
+        verify(producer).send(messageCaptor.capture(), eq("proxy-001"), any(Duration.class));
 
         var message = messageCaptor.getValue();
         assertThat(message.getCorrelationId()).isNotNull();
@@ -638,6 +638,56 @@ class ProxyClientImplTest {
         verify(correlator).registerRequest(anyString(), eq(customTimeout));
     }
 
+    // ==================== Message Time to Live ====================
+
+    @Test
+    void sendRequestAsync_setsTimeToLive_toTheDefaultTimeout() {
+        ConnectorDto connector = createConnector("proxy-001");
+        when(correlator.registerRequest(anyString(), any(Duration.class))).thenReturn(new CompletableFuture<>());
+
+        proxyClient.sendRequestAsync(connector, "/v1/test", "GET", null, String.class);
+
+        verify(producer).send(any(CoreMessage.class), eq("proxy-001"), eq(Duration.ofSeconds(30)));
+    }
+
+    @Test
+    void sendRequestAsync_setsTimeToLive_toTheRequestTimeout() {
+        // Discovery passes budgets of its own, longer than the proxy default
+        ConnectorDto connector = createConnector("proxy-001");
+        when(correlator.registerRequest(anyString(), any(Duration.class))).thenReturn(new CompletableFuture<>());
+
+        proxyClient.sendRequestAsync(connector, "/v1/test", "GET", null, String.class, Duration.ofMinutes(2));
+
+        verify(producer).send(any(CoreMessage.class), eq("proxy-001"), eq(Duration.ofMinutes(2)));
+    }
+
+    @Test
+    @Timeout(value = 5, unit = TimeUnit.SECONDS)
+    void sendRequestForEntity_setsTimeToLive_toTheRequestTimeout() throws Exception {
+        ConnectorDto connector = createConnector("proxy-001");
+        CompletableFuture<ProxyMessage> future = new CompletableFuture<>();
+        when(correlator.registerRequest(anyString(), any(Duration.class))).thenReturn(future);
+        future
+                .complete(ProxyMessage
+                        .builder()
+                        .correlationId("test-corr")
+                        .proxyId("proxy-001")
+                        .timestamp(Instant.now())
+                        .connectorResponse(ConnectorResponse.builder().statusCode(204).build())
+                        .build());
+
+        proxyClient.sendRequestForEntity(connector, "/v1/test", "DELETE", null, Map.class, Duration.ofSeconds(90));
+
+        verify(producer).send(any(CoreMessage.class), eq("proxy-001"), eq(Duration.ofSeconds(90)));
+    }
+
+    @Test
+    void sendFireAndForget_setsTimeToLive_toTheDefaultTimeout() {
+        proxyClient.sendFireAndForget(createConnector("proxy-001"), "/v1/test", "POST", null);
+
+        verify(producer).send(any(CoreMessage.class), eq("proxy-001"), eq(Duration.ofSeconds(30)));
+    }
+
     // ==================== Fire-and-Forget Tests ====================
 
     @Test
@@ -649,7 +699,7 @@ class ProxyClientImplTest {
 
         // Verify message was sent
         ArgumentCaptor<CoreMessage> messageCaptor = ArgumentCaptor.forClass(CoreMessage.class);
-        verify(producer).send(messageCaptor.capture(), eq("proxy-001"));
+        verify(producer).send(messageCaptor.capture(), eq("proxy-001"), any(Duration.class));
 
         var message = messageCaptor.getValue();
         // Fire-and-forget should not have correlationId
@@ -670,7 +720,7 @@ class ProxyClientImplTest {
         proxyClient.sendFireAndForget(connector, "/v1/trigger", "POST", null, "discovery.trigger");
 
         ArgumentCaptor<CoreMessage> messageCaptor = ArgumentCaptor.forClass(CoreMessage.class);
-        verify(producer).send(messageCaptor.capture(), eq("proxy-001"));
+        verify(producer).send(messageCaptor.capture(), eq("proxy-001"), any(Duration.class));
 
         var message = messageCaptor.getValue();
         assertThat(message.getMessageType()).isEqualTo("discovery.trigger");
@@ -684,7 +734,7 @@ class ProxyClientImplTest {
         proxyClient.sendFireAndForget(connector, "/v1/events/audit", "GET", null, null);
 
         ArgumentCaptor<CoreMessage> messageCaptor = ArgumentCaptor.forClass(CoreMessage.class);
-        verify(producer).send(messageCaptor.capture(), eq("proxy-001"));
+        verify(producer).send(messageCaptor.capture(), eq("proxy-001"), any(Duration.class));
 
         var message = messageCaptor.getValue();
         assertThat(message.getMessageType()).isEqualTo("GET.v1.events.audit");
@@ -697,7 +747,7 @@ class ProxyClientImplTest {
         proxyClient.sendFireAndForget(connector, "/v1/events", "POST", null, "   ");
 
         ArgumentCaptor<CoreMessage> messageCaptor = ArgumentCaptor.forClass(CoreMessage.class);
-        verify(producer).send(messageCaptor.capture(), eq("proxy-001"));
+        verify(producer).send(messageCaptor.capture(), eq("proxy-001"), any(Duration.class));
 
         var message = messageCaptor.getValue();
         assertThat(message.getMessageType()).isEqualTo("POST.v1.events");
@@ -731,7 +781,7 @@ class ProxyClientImplTest {
         proxyClient.sendFireAndForget(connector, "/v1/ping", "GET", null);
 
         ArgumentCaptor<CoreMessage> messageCaptor = ArgumentCaptor.forClass(CoreMessage.class);
-        verify(producer).send(messageCaptor.capture(), eq("proxy-001"));
+        verify(producer).send(messageCaptor.capture(), eq("proxy-001"), any(Duration.class));
 
         var message = messageCaptor.getValue();
         assertThat(message.getConnectorRequest().getBody()).isNull();
@@ -752,7 +802,7 @@ class ProxyClientImplTest {
         proxyClient.sendFireAndForget(connector, "/v1/test", "POST", null);
 
         ArgumentCaptor<CoreMessage> messageCaptor = ArgumentCaptor.forClass(CoreMessage.class);
-        verify(producer).send(messageCaptor.capture(), eq("proxy-001"));
+        verify(producer).send(messageCaptor.capture(), eq("proxy-001"), any(Duration.class));
 
         var message = messageCaptor.getValue();
         assertThat(message.getConnectorRequest().getConnectorAuth()).isEqualTo(expectedAuth);
@@ -767,7 +817,7 @@ class ProxyClientImplTest {
         Instant after = Instant.now();
 
         ArgumentCaptor<CoreMessage> messageCaptor = ArgumentCaptor.forClass(CoreMessage.class);
-        verify(producer).send(messageCaptor.capture(), eq("proxy-001"));
+        verify(producer).send(messageCaptor.capture(), eq("proxy-001"), any(Duration.class));
 
         var message = messageCaptor.getValue();
         assertThat(message.getTimestamp()).isAfterOrEqualTo(before);
@@ -783,7 +833,7 @@ class ProxyClientImplTest {
         proxyClient.sendFireAndForget(connector, null, "GET", null);
 
         ArgumentCaptor<CoreMessage> captor = ArgumentCaptor.forClass(CoreMessage.class);
-        verify(producer).send(captor.capture(), eq("proxy-001"));
+        verify(producer).send(captor.capture(), eq("proxy-001"), any(Duration.class));
         assertThat(captor.getValue().getMessageType()).isEqualTo("GET");
     }
 
@@ -794,7 +844,7 @@ class ProxyClientImplTest {
         proxyClient.sendFireAndForget(connector, "", "POST", null);
 
         ArgumentCaptor<CoreMessage> captor = ArgumentCaptor.forClass(CoreMessage.class);
-        verify(producer).send(captor.capture(), eq("proxy-001"));
+        verify(producer).send(captor.capture(), eq("proxy-001"), any(Duration.class));
         assertThat(captor.getValue().getMessageType()).isEqualTo("POST");
     }
 
@@ -807,7 +857,7 @@ class ProxyClientImplTest {
         proxyClient.sendFireAndForget(connector, "/", "DELETE", null);
 
         ArgumentCaptor<CoreMessage> captor = ArgumentCaptor.forClass(CoreMessage.class);
-        verify(producer).send(captor.capture(), eq("proxy-001"));
+        verify(producer).send(captor.capture(), eq("proxy-001"), any(Duration.class));
         assertThat(captor.getValue().getMessageType()).isEqualTo("DELETE");
     }
 

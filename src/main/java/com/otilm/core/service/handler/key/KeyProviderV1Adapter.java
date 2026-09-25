@@ -178,6 +178,17 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
         return List.of();
     }
 
+    /** The V1 contract has no import, so a V1 connector imports nothing. */
+    @Override
+    public List<TransferableKeyType> listImportableKeyTypes(TokenProfileFullModel tokenProfile) {
+        return List.of();
+    }
+
+    @Override
+    public List<BaseAttribute> listImportKeyAttributes(TokenProfileFullModel tokenProfile, KeyRequestType type) {
+        return List.of();
+    }
+
     @Override
     public List<BaseAttribute> listExportKeyAttributes(OperationKeyContext context) {
         return List.of();

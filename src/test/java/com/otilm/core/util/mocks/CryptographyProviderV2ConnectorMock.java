@@ -9,6 +9,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.cryptography.v2.key.ExportableKeyTypeV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.ImportableKeyTypeV2Dto;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import java.util.List;
 import java.util.Set;
@@ -22,6 +23,8 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
     private static final String EXPORTABLE_KEY_TYPES = "/v2/cryptographyProvider/keys/export/keyTypes";
     private static final String EXPORT_KEY = "/v2/cryptographyProvider/keys/export";
     private static final String EXPORT_KEY_ATTRIBUTES = "/v2/cryptographyProvider/keys/export/attributes";
+    private static final String IMPORTABLE_KEY_TYPES = "/v2/cryptographyProvider/keys/import/keyTypes";
+    private static final String IMPORT_KEY_ATTRIBUTES = "/v2/cryptographyProvider/keys/import/attributes";
 
     CryptographyProviderV2ConnectorMock() {
         stubV2Info(List.of(ConnectorInterface.CRYPTOGRAPHY));
@@ -144,6 +147,41 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
                         .willReturn(
                                 WireMock.okJson(ObjectMapperFactory.wire().writeValueAsString(List.of(declaration)))));
         return this;
+    }
+
+    public CryptographyProviderV2ConnectorMock stubImportableKeyTypes(KeyRequestType type, KeyAlgorithm... algorithms)
+            throws JsonProcessingException {
+        ImportableKeyTypeV2Dto declaration = new ImportableKeyTypeV2Dto();
+        declaration.setKeyRequestType(type);
+        declaration.setAlgorithms(Set.of(algorithms));
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo(IMPORTABLE_KEY_TYPES))
+                        .willReturn(
+                                WireMock.okJson(ObjectMapperFactory.wire().writeValueAsString(List.of(declaration)))));
+        return this;
+    }
+
+    public void verifyImportableKeyTypesRequests(int count) {
+        server.verify(count, postRequestedFor(WireMock.urlPathEqualTo(IMPORTABLE_KEY_TYPES)));
+    }
+
+    public CryptographyProviderV2ConnectorMock stubImportKeyAttributes(String responseJson) {
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo(IMPORT_KEY_ATTRIBUTES))
+                        .willReturn(WireMock.okJson(responseJson)));
+        return this;
+    }
+
+    public void verifyImportKeyAttributesRequests(int count) {
+        server.verify(count, postRequestedFor(WireMock.urlPathEqualTo(IMPORT_KEY_ATTRIBUTES)));
+    }
+
+    public void verifyImportKeyAttributesRequestContaining(String expectedRequestJson) {
+        server
+                .verify(postRequestedFor(WireMock.urlPathEqualTo(IMPORT_KEY_ATTRIBUTES))
+                        .withRequestBody(WireMock.equalToJson(expectedRequestJson, true, true)));
     }
 
     public CryptographyProviderV2ConnectorMock stubExportKeyAttributes(String responseJson) {
