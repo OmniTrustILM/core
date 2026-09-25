@@ -15,8 +15,10 @@ import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.dao.repository.CbomRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
 import com.otilm.core.events.transaction.TransactionHandler;
+import com.otilm.core.model.cbom.CbomHeaderCounts;
 import com.otilm.core.model.cbom.PqcStaleVerdictRow;
 import com.otilm.core.service.writer.cbom.CbomAssetSyncStateWriter;
+import com.otilm.core.service.writer.cbom.CbomHeaderCountsWriter;
 import com.otilm.core.service.writer.cbom.CbomIngestFindingWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetAliasWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetSourceWriter;
@@ -73,6 +75,7 @@ class CbomAssetIngestServiceTest {
     private final ClusterOperationSynchronizer synchronizer = mock(ClusterOperationSynchronizer.class);
     private final CbomAssetDetachService detachService = mock(CbomAssetDetachService.class);
     private final CbomIngestFindingWriter findingWriter = mock(CbomIngestFindingWriter.class);
+    private final CbomHeaderCountsWriter headerCountsWriter = mock(CbomHeaderCountsWriter.class);
 
     @Test
     void everyAssetIsStoredWithItsSourceAndTheCbomReadsSynced() {
@@ -87,6 +90,7 @@ class CbomAssetIngestServiceTest {
         verify(stateWriter).markInProgress(CBOM);
         verify(stateWriter).markSynced(CBOM, SEEN_AT);
         verify(stateWriter, never()).markFailed(any(), anyString());
+        verify(headerCountsWriter).replace(CBOM, new CbomHeaderCounts(2, 0, 0, 0, 2));
     }
 
     /**
@@ -120,6 +124,34 @@ class CbomAssetIngestServiceTest {
         InOrder order = inOrder(synchronizer, assetWriter);
         order.verify(synchronizer).lock(CryptoAssetAliasWriter.ALIAS_DECISION_LOCK);
         order.verify(assetWriter, atLeastOnce()).upsertIdentity(anyString(), any(), any());
+    }
+
+    /**
+     * The counts describe the document's components, which a repeated {@code bom-ref} does not change. Two components
+     * that fold into one asset are still two.
+     */
+    @Test
+    void theRecountedHeaderIsWrittenEvenForADocumentRefusedForItsContent() {
+        CbomAssetIngestService.IngestOutcome outcome = ingest(twoAlgorithmsSharingARef(), 100);
+
+        assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.REFUSED);
+        verify(headerCountsWriter).replace(CBOM, new CbomHeaderCounts(2, 0, 0, 0, 2));
+    }
+
+    /**
+     * A recount that could not be stored fails the unit rather than being survived: a row that went on to read
+     * {@code SYNCED} is never ingested again, so the shallow feed count would stand for ever.
+     */
+    @Test
+    void aRecountThatCannotBeStoredFailsTheDocumentBeforeAnyAssetIsWritten() {
+        doThrow(new IllegalStateException("connection lost")).when(headerCountsWriter).replace(any(), any());
+
+        CbomAssetIngestService.IngestOutcome outcome = ingest(twoAlgorithms(), 100);
+
+        assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.FAILED);
+        verify(stateWriter).markFailed(eq(CBOM), contains("recounted CBOM asset counts"));
+        verify(assetWriter, never()).upsertIdentity(anyString(), any(), any());
+        verify(stateWriter, never()).markSynced(any(), any());
     }
 
     @Test
@@ -160,7 +192,8 @@ class CbomAssetIngestServiceTest {
     void aDocumentWhoseScopeCouldNotBeBuiltIsRefusedWithoutWritingAnything() {
         CbomAssetExtractor extractor = mock(CbomAssetExtractor.class);
         when(extractor.extract(any(JsonNode.class)))
-                .thenReturn(new CbomAssetExtractor.Extraction(List.of(), List.of(), false, true, List.of()));
+                .thenReturn(new CbomAssetExtractor.Extraction(List.of(), List.of(), false, true, List.of(),
+                        CbomHeaderCounts.ZERO));
 
         CbomAssetIngestService.IngestOutcome outcome = service(extractor)
                 .ingest(CBOM, twoAlgorithms(), SEEN_AT, POLICY);
@@ -369,9 +402,9 @@ class CbomAssetIngestServiceTest {
     @Test
     void ingestWritesNothingWhenTheKillSwitchIsOff() {
         CbomAssetIngestService.IngestOutcome outcome = new CbomAssetIngestService(realExtractor(), assetWriter,
-                sourceWriter, detachService, stateWriter, findingWriter, cbomRepository, assetRepository,
-                new PqcEvaluator(new AssetNormalizer(IdentityTables.load())), synchronizer, new TransactionHandler(),
-                new SimpleMeterRegistry())
+                sourceWriter, detachService, stateWriter, findingWriter, headerCountsWriter, cbomRepository,
+                assetRepository, new PqcEvaluator(new AssetNormalizer(IdentityTables.load())), synchronizer,
+                new TransactionHandler(), new SimpleMeterRegistry())
                 .ingest(CBOM, twoAlgorithms(), SEEN_AT, CbomIngestTestFixtures.policyWithIngestDisabled());
 
         assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.DISABLED);
@@ -659,7 +692,7 @@ class CbomAssetIngestServiceTest {
         // can remove it in the gap between two batch commits.
         when(cbomRepository.existsById(CBOM)).thenReturn(true);
         return new CbomAssetIngestService(extractor, assetWriter, sourceWriter, detachService, stateWriter,
-                findingWriter, cbomRepository, assetRepository,
+                findingWriter, headerCountsWriter, cbomRepository, assetRepository,
                 new PqcEvaluator(new AssetNormalizer(IdentityTables.load())), synchronizer, new TransactionHandler(),
                 new SimpleMeterRegistry());
     }

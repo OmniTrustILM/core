@@ -328,4 +328,22 @@ public interface CbomRepository extends SecurityFilterRepository<Cbom, UUID> {
             """)
     int updateAssetSyncStateKeepingAttempt(@Param("uuid") UUID uuid, @Param("state") CbomAssetSyncState state,
             @Param("error") String error, @Param("expectedStates") Collection<CbomAssetSyncState> expectedStates);
+
+    /**
+     * Replaces the header counts with a recount. Unconditional: a count is a function of the document, which a
+     * {@code (serial_number, version)} never changes, so two nodes writing it write the same values.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE Cbom c
+               SET c.algorithmsCount = :algorithms,
+                   c.certificatesCount = :certificates,
+                   c.protocolsCount = :protocols,
+                   c.cryptoMaterialCount = :cryptoMaterial,
+                   c.totalAssetsCount = :totalAssets
+             WHERE c.uuid = :uuid
+            """)
+    int updateHeaderCounts(@Param("uuid") UUID uuid, @Param("algorithms") int algorithms,
+            @Param("certificates") int certificates, @Param("protocols") int protocols,
+            @Param("cryptoMaterial") int cryptoMaterial, @Param("totalAssets") int totalAssets);
 }

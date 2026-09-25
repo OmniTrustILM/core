@@ -3,12 +3,13 @@ package com.otilm.core.model.cbom;
 import com.otilm.core.dao.entity.Cbom;
 
 /**
- * The five per-CBOM asset counts the {@code cbom} row carries, as the repository feed reports them.
+ * The per-CBOM asset counts the {@code cbom} row carries: as the repository feed reports them until the first asset
+ * ingest, and as that ingest recounted them from the document from then on.
  *
  * <p>
- * Every count is advisory: legacy objects hold a shallow count and, in paged mode, an object whose statistics could not
- * be read arrives with {@code cryptoStats: null}. Such an entry is still stored -- with zero counts, left for the asset
- * ingest recount -- so the whole shape is null-tolerant and never throws.
+ * Every feed count is advisory: legacy objects hold a shallow count and, in paged mode, an object whose statistics
+ * could not be read arrives with {@code cryptoStats: null}. Such an entry is still stored -- with zero counts, left for
+ * the asset ingest recount -- so {@link #from} is null-tolerant and never throws.
  */
 public record CbomHeaderCounts(int algorithms, int certificates, int protocols, int cryptoMaterial, int totalAssets) {
 

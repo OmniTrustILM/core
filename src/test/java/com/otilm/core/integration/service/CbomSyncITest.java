@@ -39,6 +39,7 @@ import com.otilm.core.dao.repository.CbomRepository;
 import com.otilm.core.dao.repository.cbom.CbomSyncSkipRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.cbom.CbomHeaderCounts;
+import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CbomExternalService;
 import com.otilm.core.service.CbomInternalService;
 import com.otilm.core.service.impl.CbomServiceImpl;
@@ -72,6 +73,13 @@ class CbomSyncITest extends BaseSpringBootTest {
     private static final String STATS = """
             {"cryptoAssets":{"total":4,"algorithms":{"total":1},"certificates":{"total":1},
              "protocols":{"total":1},"relatedCryptoMaterials":{"total":1}}}""";
+
+    private static final String THREE_ASSETS_UNDER_A_LIBRARY = """
+            [{"type":"library","name":"openssl","components":[
+             {"type":"cryptographic-asset","name":"AES-128","cryptoProperties":{"assetType":"algorithm"}},
+             {"type":"cryptographic-asset","name":"RSA-2048","cryptoProperties":{"assetType":"algorithm"}},
+             {"type":"cryptographic-asset","name":"cert","cryptoProperties":{"assetType":"certificate",
+              "certificateProperties":{"subjectName":"CN=a","issuerName":"CN=ca"}}}]}]""";
 
     @Autowired
     private CbomInternalService cbomInternalService;
@@ -315,7 +323,8 @@ class CbomSyncITest extends BaseSpringBootTest {
     }
 
     @Test
-    void shallowAndTruncatedWarningsKeepTheReportedCountsAndAreLogged() throws Exception {
+    void shallowAndTruncatedWarningsKeepTheReportedCountsUntilAnIngestAndAreLogged() throws Exception {
+        cacheAssetIngestEnabled(false);
         stubPage("after", "0", "[" + entry("urn:uuid:shallow", "1", STATS, "crypto-stats-shallow") + ","
                 + entry("urn:uuid:truncated", "1", STATS, "crypto-stats-truncated") + "]", null);
         stubDocument("urn:uuid:shallow", 1);
@@ -329,6 +338,49 @@ class CbomSyncITest extends BaseSpringBootTest {
         assertThat(warnings())
                 .anySatisfy(m -> assertThat(m).contains("urn:uuid:shallow").contains("crypto-stats-shallow"))
                 .anySatisfy(m -> assertThat(m).contains("urn:uuid:truncated").contains("crypto-stats-truncated"));
+    }
+
+    /**
+     * A legacy object's shallow count sees only the top-level {@code components}, so a library holding three
+     * cryptographic assets reports one. The recount shows on the CBOM list an operator reads, not only on the row.
+     */
+    @Test
+    void aLegacyShallowCountIsReplacedByTheRecountOnceTheDocumentIsIngested() throws Exception {
+        String shallow = """
+                {"cryptoAssets":{"total":1,"algorithms":{"total":1},"certificates":{"total":0},
+                 "protocols":{"total":0},"relatedCryptoMaterials":{"total":0}}}""";
+        cacheAssetIngestEnabled(false);
+        stubSearchAtAnyWatermark("[" + entry("urn:uuid:legacy", "1", shallow, "crypto-stats-shallow") + "]");
+        stubDocumentWithComponents("urn:uuid:legacy", 1, THREE_ASSETS_UNDER_A_LIBRARY);
+
+        cbomInternalService.sync();
+
+        Cbom stored = cbomRepository.findAll().getFirst();
+        assertThat(stored.getTotalAssetsCount()).isEqualTo(1);
+
+        cacheAssetIngestEnabled(true);
+        cbomInternalService.sync();
+
+        Cbom recounted = cbomRepository.findById(stored.getUuid()).orElseThrow();
+        assertThat(recounted.getAssetSyncState()).isEqualTo(CbomAssetSyncState.SYNCED);
+        assertThat(recounted.getTotalAssetsCount()).isEqualTo(3);
+        assertThat(recounted.getAlgorithmsCount()).isEqualTo(2);
+        assertThat(recounted.getCertificatesCount()).isEqualTo(1);
+        assertThat(cbomService.listCboms(new SecurityFilter(), new SearchRequestDto()).getItems())
+                .singleElement()
+                .satisfies(dto -> assertThat(dto.getTotalAssets()).isEqualTo(3));
+    }
+
+    @Test
+    void anEntryWithoutCryptoStatsIsCountedByItsIngest() throws Exception {
+        stubPage("after", "0", "[" + entry("urn:uuid:unread", "1", null, "crypto-stats-missing") + "]", null);
+        stubDocumentWithComponents("urn:uuid:unread", 1, THREE_ASSETS_UNDER_A_LIBRARY);
+
+        cbomInternalService.sync();
+
+        assertThat(cbomRepository.findAll())
+                .singleElement()
+                .satisfies(cbom -> assertThat(cbom.getTotalAssetsCount()).isEqualTo(3));
     }
 
     @Test
@@ -416,6 +468,8 @@ class CbomSyncITest extends BaseSpringBootTest {
 
     @Test
     void aSkippedEntryThatBecomesReadableIsStoredWithTheCountsTheFeedReportedAndItsRecordResolved() throws Exception {
+        // Off, so the counts on the row are the skip record's rather than the ingest's recount of the stub document.
+        cacheAssetIngestEnabled(false);
         stubPage("after", "0", "[" + entry("urn:uuid:late", "3", STATS, null) + "]", null);
         stubDocumentFailure("urn:uuid:late", 3, 404);
         cbomInternalService.sync();
@@ -919,6 +973,18 @@ class CbomSyncITest extends BaseSpringBootTest {
                                 .withBody(
                                         "{\"specVersion\":\"1.6\",\"metadata\":{\"timestamp\":\"2026-01-25T21:00:00Z\",\"component\":{\"name\":\"source-"
                                                 + serialNumber + "\"}}}")));
+    }
+
+    private void stubDocumentWithComponents(String serialNumber, int version, String components) {
+        repository
+                .stubFor(WireMock
+                        .get(WireMock.urlPathEqualTo("/api/v1/bom/" + serialNumber))
+                        .withQueryParam("version", WireMock.equalTo(String.valueOf(version)))
+                        .willReturn(WireMock
+                                .aResponse()
+                                .withStatus(200)
+                                .withHeader("Content-Type", "application/json")
+                                .withBody("{\"specVersion\":\"1.6\",\"components\":" + components + "}")));
     }
 
     private void stubDocumentFailure(String serialNumber, int version, int status) {
