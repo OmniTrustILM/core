@@ -83,7 +83,18 @@ public class SearchHelper {
 
                         // Signing records. SigningRecordMapper.toListDto sets the retrieval timestamp on the detail
                         // DTO only; SigningRecordListDto has no property for it.
-                        FilterField.SIGNING_RECORD_SIGNED_DOCUMENT_RETRIEVED_AT);
+                        FilterField.SIGNING_RECORD_SIGNED_DOCUMENT_RETRIEVED_AT,
+
+                        // Crypto assets. The listing serves each CryptographicAssetDto from CryptoAssetListRow, which
+                        // carries the name, type, verdict and source count and none of the normalized properties.
+                        // The OID rides along only as the name's fallback, and the refuted-OID guard only to derive
+                        // the quarantined flag, so neither is a value the row shows.
+                        FilterField.CBOM_ASSET_OID, FilterField.CBOM_ASSET_ALGORITHM_FAMILY,
+                        FilterField.CBOM_ASSET_PRIMITIVE, FilterField.CBOM_ASSET_PARAMETER_SET,
+                        FilterField.CBOM_ASSET_CURVE, FilterField.CBOM_ASSET_MODE, FilterField.CBOM_ASSET_PADDING,
+                        FilterField.CBOM_ASSET_VARIANT, FilterField.CBOM_ASSET_PQC_RULESET_VERSION,
+                        FilterField.CBOM_ASSET_RULESET_VERSION, FilterField.CBOM_ASSET_OID_REFUTED,
+                        FilterField.CBOM_ASSET_SOURCE_CBOM, FilterField.CBOM_ASSET_FREE_TEXT);
 
         private FilterFieldSets() {
         }
@@ -230,7 +241,7 @@ public class SearchHelper {
      */
     private static final Set<Resource> CONFIGURABLE_COLUMN_RESOURCES = Set
             .of(Resource.CERTIFICATE, Resource.CRYPTOGRAPHIC_KEY, Resource.DISCOVERY, Resource.CONNECTOR,
-                    Resource.SECRET, Resource.CBOM, Resource.SIGNING_RECORD);
+                    Resource.SECRET, Resource.CBOM, Resource.SIGNING_RECORD, Resource.CRYPTO_ASSET);
 
     /**
      * Content whose column renders a composite identity rather than the value a sort key would read.
