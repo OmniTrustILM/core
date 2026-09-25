@@ -77,8 +77,8 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
     public List<ListViewDto> listViews(Resource resource) {
         UUID userUuid = loggedUserUuid();
         List<ListView> views = resource == null
-                ? listViewRepository.findByUserUuidOrderByNameAsc(userUuid)
-                : listViewRepository.findByUserUuidAndResourceOrderByNameAsc(userUuid, resource);
+                ? listViewRepository.findByUserUuidOrderByCreatedAscUuidAsc(userUuid)
+                : listViewRepository.findByUserUuidAndResourceOrderByCreatedAscUuidAsc(userUuid, resource);
 
         Map<Resource, Catalogue> catalogues = new EnumMap<>(Resource.class);
         return views.stream().map(view -> toDto(view, catalogues)).toList();
