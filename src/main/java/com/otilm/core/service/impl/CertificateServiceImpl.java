@@ -2463,8 +2463,14 @@ public class CertificateServiceImpl
         List<ResponseAttribute> requestAttributes;
         List<ResponseAttribute> requestSignatureAttributes;
         List<ResponseAttribute> requestAltSignatureAttributes;
-        UUID signatureAttributeOwner = cryptographicKeyService.getSignAttributeOwner(keyUuid);
-        UUID altSignatureAttributeOwner = cryptographicKeyService.getSignAttributeOwner(altKeyUuid);
+        // A request keeps the key it was first submitted with, and its signature attributes live under that key's
+        // owner.
+        UUID signatureAttributeOwner = cryptographicKeyService
+                .getSignAttributeOwner(
+                        certificateRequestOptional.map(CertificateRequestEntity::getKeyUuid).orElse(keyUuid));
+        UUID altSignatureAttributeOwner = cryptographicKeyService
+                .getSignAttributeOwner(
+                        certificateRequestOptional.map(CertificateRequestEntity::getAltKeyUuid).orElse(altKeyUuid));
         if (certificateRequestOptional.isPresent()) {
             certificateRequestEntity = certificateRequestOptional.get();
             // if no CSR attributes are assigned to CSR, update them with ones provided

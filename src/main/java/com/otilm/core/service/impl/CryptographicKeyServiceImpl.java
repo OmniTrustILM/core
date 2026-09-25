@@ -1103,10 +1103,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
         if (keyUuid == null) {
             return null;
         }
-        return cryptographicKeyItemRepository
-                .findPrivateOperationRowByKeyUuid(keyUuid)
-                .map(row -> row.toModel().operationAttributeOwner())
-                .orElse(null);
+        return cryptographicKeyRepository.findV2ConnectorUuidByUuid(keyUuid).orElse(null);
     }
 
     @Override

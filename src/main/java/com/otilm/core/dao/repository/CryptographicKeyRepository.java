@@ -92,4 +92,13 @@ public interface CryptographicKeyRepository extends SecurityFilterRepository<Cry
             WHERE key.uuid = :uuid
             """)
     Optional<KeyOperationScope> findOperationScopeByUuid(@Param("uuid") UUID uuid);
+
+    /** Returns the connector serving the key's token when that token is on a cryptography provider v2. */
+    @Query("""
+            SELECT token.connectorUuid
+            FROM CryptographicKey key
+            JOIN key.tokenInstanceReference token
+            WHERE key.uuid = :uuid AND token.connectorInterface IS NOT NULL
+            """)
+    Optional<UUID> findV2ConnectorUuidByUuid(@Param("uuid") UUID uuid);
 }
