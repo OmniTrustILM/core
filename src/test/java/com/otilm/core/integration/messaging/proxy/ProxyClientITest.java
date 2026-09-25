@@ -1,7 +1,7 @@
 package com.otilm.core.integration.messaging.proxy;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.clients.mq.model.ConnectorResponse;
-import com.otilm.api.clients.mq.model.CoreMessage;
 import com.otilm.api.clients.mq.model.ProxyMessage;
 import com.otilm.api.model.core.connector.AuthType;
 import com.otilm.api.model.core.connector.ConnectorDto;
@@ -9,8 +9,13 @@ import com.otilm.api.model.core.proxy.ProxyDto;
 import com.otilm.core.messaging.proxy.ProxyClientImpl;
 import com.otilm.core.messaging.proxy.ProxyMessageCorrelator;
 import com.otilm.core.util.BaseSpringBootTest;
+import jakarta.jms.MessageProducer;
+import jakarta.jms.Session;
+import jakarta.jms.TextMessage;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -19,21 +24,27 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.mockito.ArgumentCaptor;
+import org.mockito.ArgumentMatchers;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jms.core.JmsTemplate;
+import org.springframework.jms.core.ProducerCallback;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Integration tests for {@link ProxyClientImpl}. Tests end-to-end proxy request/response flow with mocked JMS.
  */
 class ProxyClientITest extends BaseSpringBootTest {
+
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     @MockitoBean
     private JmsTemplate jmsTemplate;
@@ -66,7 +77,7 @@ class ProxyClientITest extends BaseSpringBootTest {
         // Verify request was registered and message was sent via JMS
         await().atMost(Duration.ofSeconds(2)).untilAsserted(() -> {
             assertThat(correlator.getPendingCount()).isGreaterThanOrEqualTo(1);
-            verify(jmsTemplate).convertAndSend(any(String.class), any(CoreMessage.class), any());
+            verify(jmsTemplate).execute(any(String.class), ArgumentMatchers.<ProducerCallback<Object>>any());
         });
 
         // Cleanup to avoid leaking pending request
@@ -79,19 +90,10 @@ class ProxyClientITest extends BaseSpringBootTest {
     void sendRequest_whenResponseArrives_completesSuccessfully() throws Exception {
         ConnectorDto connector = createConnector("proxy-int-002");
 
-        // Capture the correlation ID when request is sent
-        ArgumentCaptor<CoreMessage> requestCaptor = ArgumentCaptor.forClass(CoreMessage.class);
-
         // Send async request
         CompletableFuture<Map> future = proxyClient.sendRequestAsync(connector, "/v1/test", "GET", null, Map.class);
 
-        // Wait for JMS send to be called using Awaitility
-        await()
-                .atMost(Duration.ofSeconds(2))
-                .untilAsserted(
-                        () -> verify(jmsTemplate).convertAndSend(any(String.class), requestCaptor.capture(), any()));
-
-        String correlationId = requestCaptor.getValue().getCorrelationId();
+        String correlationId = sentCorrelationIds(1).getFirst();
 
         // Simulate response arriving
         ProxyMessage message = ProxyMessage
@@ -124,17 +126,10 @@ class ProxyClientITest extends BaseSpringBootTest {
         CompletableFuture<String> future3 = proxyClient
                 .sendRequestAsync(connector, "/v1/resource/3", "GET", null, String.class);
 
-        // Wait for all JMS sends using Awaitility
-        ArgumentCaptor<CoreMessage> requestCaptor = ArgumentCaptor.forClass(CoreMessage.class);
-        await()
-                .atMost(Duration.ofSeconds(2))
-                .untilAsserted(() -> verify(jmsTemplate, times(3))
-                        .convertAndSend(any(String.class), requestCaptor.capture(), any()));
-
-        var capturedRequests = requestCaptor.getAllValues();
-        String corrId1 = capturedRequests.get(0).getCorrelationId();
-        String corrId2 = capturedRequests.get(1).getCorrelationId();
-        String corrId3 = capturedRequests.get(2).getCorrelationId();
+        List<String> correlationIds = sentCorrelationIds(3);
+        String corrId1 = correlationIds.get(0);
+        String corrId2 = correlationIds.get(1);
+        String corrId3 = correlationIds.get(2);
 
         // All correlation IDs should be unique
         assertThat(corrId1).isNotEqualTo(corrId2);
@@ -171,6 +166,26 @@ class ProxyClientITest extends BaseSpringBootTest {
     }
 
     // ==================== Helper Methods ====================
+
+    /**
+     * Correlation ids of the requests handed to the mocked template, in the order they were sent. Each send runs
+     * against a stand-in session, where the real message converter writes the request it would have put on the wire.
+     */
+    private List<String> sentCorrelationIds(int count) throws Exception {
+        ArgumentCaptor<ProducerCallback<Object>> sends = ArgumentCaptor.captor();
+        await()
+                .atMost(Duration.ofSeconds(2))
+                .untilAsserted(() -> verify(jmsTemplate, times(count)).execute(any(String.class), sends.capture()));
+        List<String> correlationIds = new ArrayList<>();
+        for (ProducerCallback<Object> send : sends.getAllValues()) {
+            Session session = mock(Session.class);
+            ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+            when(session.createTextMessage(body.capture())).thenReturn(mock(TextMessage.class));
+            send.doInJms(session, mock(MessageProducer.class));
+            correlationIds.add(JSON.readTree(body.getValue()).path("correlationId").asText());
+        }
+        return correlationIds;
+    }
 
     private ConnectorDto createConnector(String proxyCode) {
         ConnectorDto connector = new ConnectorDto();
