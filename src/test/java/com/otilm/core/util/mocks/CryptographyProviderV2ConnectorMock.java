@@ -1,8 +1,15 @@
 package com.otilm.core.util.mocks;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.github.tomakehurst.wiremock.client.WireMock;
+import com.github.tomakehurst.wiremock.http.Fault;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
+import com.otilm.api.model.client.cryptography.key.KeyRequestType;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.connector.cryptography.v2.key.ExportableKeyTypeV2Dto;
+import com.otilm.core.serialization.ObjectMapperFactory;
 import java.util.List;
+import java.util.Set;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 
@@ -10,6 +17,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
 
     private static final String OPERATIONS = "/v2/cryptographyProvider/operations/";
+    private static final String EXPORTABLE_KEY_TYPES = "/v2/cryptographyProvider/keys/export/keyTypes";
 
     CryptographyProviderV2ConnectorMock() {
         stubV2Info(List.of(ConnectorInterface.CRYPTOGRAPHY));
@@ -119,6 +127,51 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
                         .post(WireMock.urlPathEqualTo("/v2/cryptographyProvider/tokens/keyRequestTypes"))
                         .willReturn(WireMock.okJson(responseJson)));
         return this;
+    }
+
+    public CryptographyProviderV2ConnectorMock stubExportableKeyTypes(KeyRequestType type, KeyAlgorithm... algorithms)
+            throws JsonProcessingException {
+        ExportableKeyTypeV2Dto declaration = new ExportableKeyTypeV2Dto();
+        declaration.setKeyRequestType(type);
+        declaration.setAlgorithms(Set.of(algorithms));
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo(EXPORTABLE_KEY_TYPES))
+                        .willReturn(
+                                WireMock.okJson(ObjectMapperFactory.wire().writeValueAsString(List.of(declaration)))));
+        return this;
+    }
+
+    public CryptographyProviderV2ConnectorMock stubNoExportableKeyTypes() {
+        server.stubFor(WireMock.post(WireMock.urlPathEqualTo(EXPORTABLE_KEY_TYPES)).willReturn(WireMock.okJson("[]")));
+        return this;
+    }
+
+    public CryptographyProviderV2ConnectorMock stubExportableKeyTypesUnreachable() {
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo(EXPORTABLE_KEY_TYPES))
+                        .willReturn(WireMock.aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER)));
+        return this;
+    }
+
+    public CryptographyProviderV2ConnectorMock stubExportableKeyTypesFailing() {
+        server.stubFor(WireMock.post(WireMock.urlPathEqualTo(EXPORTABLE_KEY_TYPES)).willReturn(WireMock.serverError()));
+        return this;
+    }
+
+    public void verifyExportableKeyTypesRequestContaining(String expectedRequestJson) {
+        verifyExportableKeyTypesRequestsContaining(1, expectedRequestJson);
+    }
+
+    public void verifyExportableKeyTypesRequestsContaining(int count, String expectedRequestJson) {
+        server
+                .verify(count, postRequestedFor(WireMock.urlPathEqualTo(EXPORTABLE_KEY_TYPES))
+                        .withRequestBody(WireMock.equalToJson(expectedRequestJson, true, true)));
+    }
+
+    public void verifyExportableKeyTypesRequests(int count) {
+        server.verify(count, postRequestedFor(WireMock.urlPathEqualTo(EXPORTABLE_KEY_TYPES)));
     }
 
     public void verifyScopedKeyRequestTypesRequestContaining(String expectedRequestJson) {

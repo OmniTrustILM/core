@@ -6,7 +6,9 @@ import com.otilm.api.model.client.comment.CommentDto;
 import com.otilm.api.model.common.events.data.CommentEventData;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.other.ResourceEvent;
+import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CommentRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.messaging.jms.producers.EventProducer;
@@ -25,6 +27,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.filter.TypeExcludeFilters;
 import org.springframework.context.annotation.Import;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeast;
@@ -44,6 +47,9 @@ class CommentEventITest extends BaseSpringBootTest {
 
     @Autowired
     private CommentRepository commentRepository;
+
+    @Autowired
+    private CertificateRepository certificateRepository;
 
     @Autowired
     private EventProducer eventProducer;
@@ -106,6 +112,20 @@ class CommentEventITest extends BaseSpringBootTest {
 
         CommentEventData replyData = (CommentEventData) messages.get(1).getData();
         assertThat(replyData.getParentUuid()).isEqualTo(root.getUuid());
+    }
+
+    @Test
+    void commentOnCertificateWithoutSerialNumberNamesItAsNotIssued() throws NotFoundException {
+        Certificate notIssued = certificateRepository.save(aCertificate().withCommonName("notIssued").build());
+        CommentCreateRequestDto request = new CommentCreateRequestDto();
+        request.setBody("waiting for issuance");
+
+        commentService
+                .createComment(SecuredResource.fromResource(Resource.CERTIFICATE),
+                        SecuredUUID.fromUUID(notIssued.getUuid()), request);
+
+        CommentEventData data = (CommentEventData) capturedMessages().getFirst().getData();
+        assertThat(data.getObjectName()).isEqualTo("notIssued (Not Issued)");
     }
 
     @Test

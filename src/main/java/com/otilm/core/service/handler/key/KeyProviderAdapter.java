@@ -18,6 +18,7 @@ import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
+import com.otilm.core.model.crypto.TransferableKeyType;
 import java.util.List;
 
 /**
@@ -49,6 +50,9 @@ public interface KeyProviderAdapter {
      */
     List<ProviderKeyItem> createKey(TokenProfileFullModel tokenProfile, KeyRequestType type,
             List<RequestAttribute> attributes, String keyName, boolean exportable) throws ConnectorException;
+
+    /** The key types the connector exports from the token profile, with the algorithms it accepts for each. */
+    List<TransferableKeyType> listExportableKeyTypes(TokenProfileFullModel tokenProfile) throws ConnectorException;
 
     /** Lists the attribute schema for creating a secret key or key pair. */
     List<BaseAttribute> listCreateKeyAttributes(TokenProfileFullModel tokenProfile, KeyRequestType type)
