@@ -623,6 +623,10 @@ public class CryptographicOperationServiceImpl
      */
     private ContentSigner csrSigner(CsrKeyPair keyPair, List<RequestAttribute> signatureAttributes)
             throws NotFoundException {
+        // A v1 CSR has never checked usage, and existing v1 keys keep that.
+        if (keyPair.privateKeyItem().hasConnectorInterface()) {
+            requireUsage(keyPair.privateKeyItem(), KeyUsage.SIGN, "signing");
+        }
         OperationKeyContext signingKey = operationContext(keyPair.privateKeyItem());
         KeyProviderAdapter keyProvider = adapterFor(signingKey);
         AlgorithmIdentifier algorithm = keyProvider

@@ -413,6 +413,28 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
+    void generateCsr_refusesV2KeyWithoutSignUsage_beforeSigning() throws Exception {
+        // given
+        KeyPair keyPair = rsaKeyPair();
+        persistPublicKeyItem(keyPair.getPublic());
+        privateKey.setUsage(List.of(KeyUsage.DECRYPT));
+        cryptographicKeyItemRepository.save(privateKey);
+        connectorMock
+                .stubOperationAttributes("sign", signSchema())
+                .stubOperation("sign", signatureResponse(new byte[]{9, 9}));
+        X500Principal subject = new X500Principal("CN=v2-csr");
+        List<RequestAttribute> attributes = sha256WithRsa();
+
+        // when
+        Executable generateCsr = () -> internalOperationService
+                .generateCsr(key.getUuid(), profile.getUuid(), subject, null, attributes, null, null, null);
+
+        // then
+        assertThrows(ValidationException.class, generateCsr);
+        connectorMock.verifyNoOperationRequest("sign");
+    }
+
+    @Test
     void generateCsr_refusesKeyWhosePublicKeyIsNotHeld() {
         // given
         persistKeyItem(KeyType.PUBLIC_KEY, "hsm-key-17-pub");
