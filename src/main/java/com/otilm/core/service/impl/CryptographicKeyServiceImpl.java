@@ -1099,6 +1099,17 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     }
 
     @Override
+    // A single read that joins its caller's transaction; the class-level NOT_SUPPORTED would suspend it onto a second
+    // connection.
+    @Transactional(propagation = Propagation.SUPPORTS)
+    public UUID getSignAttributeOwner(UUID keyUuid) {
+        if (keyUuid == null) {
+            return null;
+        }
+        return cryptographicKeyRepository.findV2ConnectorUuidByUuid(keyUuid).orElse(null);
+    }
+
+    @Override
     @Transactional
     public UUID uploadCertificatePublicKey(String name, PublicKey publicKey, int keyLength, String fingerprint) {
         return certificateKeyWriter.uploadCertificatePublicKey(name, publicKey, keyLength, fingerprint);

@@ -87,6 +87,7 @@ import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.model.ActionMessage;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.model.crypto.OperationAttributeSchema;
 import com.otilm.core.model.request.CertificateRequest;
 import com.otilm.core.model.request.CrmfCertificateRequest;
 import com.otilm.core.model.request.Pkcs10CertificateRequest;
@@ -145,6 +146,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.BooleanSupplier;
 import javax.security.auth.x500.X500Principal;
@@ -166,8 +168,8 @@ import org.springframework.transaction.support.DefaultTransactionDefinition;
 @Service("clientOperationServiceImplV2")
 // Roll back on any exception, checked included, so a connector or attribute failure never commits partial state.
 // The issue/renew/rekey entry points override this with their own NOT_SUPPORTED boundary and manage the persistence
-// transaction internally. submitCertificateRequest does not: reached through the proxy (REST v1 submit, SCEP manual
-// approval) it still runs under this class-level transaction; self-invoked it runs with no ambient transaction.
+// transaction internally. submitCertificateRequest uses SUPPORTS: the REST submit runs without an ambient transaction,
+// as they do, while a caller that brings one (SCEP manual approval) keeps the submission inside it.
 @Transactional(rollbackFor = Exception.class)
 public class ClientOperationServiceImpl implements ClientOperationExternalService, ClientOperationInternalService {
     private static final Logger logger = LoggerFactory.getLogger(ClientOperationServiceImpl.class);
@@ -444,6 +446,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.CREATE)
+    @Transactional(propagation = Propagation.SUPPORTS, rollbackFor = Exception.class)
     public CertificateDetailDto submitCertificateRequest(ClientCertificateRequestDto request,
             CertificateProtocolInfo protocolInfo) throws ConnectorException, CertificateException,
             NoSuchAlgorithmException, AttributeException, CertificateRequestException, NotFoundException {
@@ -481,16 +484,16 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                             raProfile.getName()));
         }
 
-        // Build the CSR and merge/validate the issue-attributes before opening the persistence transaction. On the
-        // self-invoked issue/renew/rekey paths (NOT_SUPPORTED) this holds no DB connection across the connector
-        // round-trips; proxied callers (REST v1 submit, SCEP manual-approval) still run under the class-level
-        // transaction. Ordering constraint: the uploaded-CSR attribute validation inside generateBase64EncodedCsr
+        // Build the CSR and merge/validate the issue-attributes before opening the persistence transaction, so no
+        // database transaction stays open across the connector round-trips unless the caller brought its own (SCEP
+        // manual approval). Ordering constraint: the uploaded-CSR attribute validation inside generateBase64EncodedCsr
         // must run before the issue-attribute merge.
         PreparedRequest prepared = generateBase64EncodedCsr(request.getRequest(), request.getFormat(),
                 request.getCsrAttributes(), request.getKeyUuid(), request.getTokenProfileUuid(),
                 request.getSignatureAttributes(), request.getAltKeyUuid(), request.getAltTokenProfileUuid(),
                 request.getAltSignatureAttributes(), raProfile);
         String certificateRequest = prepared.csr();
+        claimSignAttributeSchemas(certificateRequest, request);
         if (raProfile != null) {
             extendedAttributeService.mergeAndValidateIssueAttributes(raProfile, request.getIssueAttributes());
         }
@@ -2315,6 +2318,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 signatureAttributes = attributeEngine
                         .getRequestObjectDataAttributesContent(ObjectAttributeContentInfo
                                 .builder(Resource.CERTIFICATE_REQUEST, oldCertificate.getCertificateRequest().getUuid())
+                                .connector(keyInternalService
+                                        .getSignAttributeOwner(oldCertificate.getCertificateRequest().getKeyUuid()))
                                 .operation(AttributeOperation.SIGN)
                                 .build());
             } else {
@@ -2337,6 +2342,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                             .getRequestObjectDataAttributesContent(ObjectAttributeContentInfo
                                     .builder(Resource.CERTIFICATE_REQUEST,
                                             oldCertificate.getCertificateRequest().getUuid())
+                                    .connector(keyInternalService
+                                            .getSignAttributeOwner(
+                                                    oldCertificate.getCertificateRequest().getAltKeyUuid()))
                                     .operation(AttributeOperation.SIGN)
                                     .purpose(AttributeContentPurpose.CERTIFICATE_REQUEST_ALT_KEY)
                                     .build());
@@ -3015,6 +3023,44 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             throw new ValidationException(
                     ValidationError.create("Failed to generate the CSR. Error: " + e.getMessage()));
         }
+    }
+
+    /**
+     * Claims the signing schemas for the keys the request's signature attributes are stored under. A request already
+     * stored with this content keeps the keys it was first submitted with, so those are the ones validated.
+     */
+    private void claimSignAttributeSchemas(String certificateRequest, ClientCertificateRequestDto request)
+            throws NotFoundException, ConnectorException, AttributeException, NoSuchAlgorithmException {
+        if (isEmpty(request.getSignatureAttributes()) && isEmpty(request.getAltSignatureAttributes())) {
+            return;
+        }
+        Optional<CertificateRequestEntity> stored = certificateService
+                .findCertificateRequestByContent(certificateRequest);
+        claimSignAttributeSchema(stored.map(CertificateRequestEntity::getKeyUuid).orElse(request.getKeyUuid()),
+                request.getSignatureAttributes());
+        claimSignAttributeSchema(stored.map(CertificateRequestEntity::getAltKeyUuid).orElse(request.getAltKeyUuid()),
+                request.getAltSignatureAttributes());
+    }
+
+    private static boolean isEmpty(List<RequestAttribute> attributes) {
+        return attributes == null || attributes.isEmpty();
+    }
+
+    /**
+     * Validates a v2 key's signing attributes against its connector's schema and claims that schema for signing, so the
+     * certificate request can store them under the connector and read them back, whether Core signed the request or it
+     * was uploaded. A v1 key signs with Core's registry, which is stored for signing already.
+     */
+    private void claimSignAttributeSchema(UUID keyUuid, List<RequestAttribute> signatureAttributes)
+            throws NotFoundException, ConnectorException, AttributeException {
+        if (signatureAttributes == null || signatureAttributes.isEmpty()
+                || keyInternalService.getSignAttributeOwner(keyUuid) == null) {
+            return;
+        }
+        OperationAttributeSchema schema = cryptographicOperationService.listSignAttributeSchema(keyUuid);
+        attributeEngine
+                .validateUpdateDataAttributes(schema.ownerConnectorUuid(), AttributeOperation.SIGN,
+                        schema.definitions(), signatureAttributes);
     }
 
     /**

@@ -48,6 +48,7 @@ import com.otilm.api.model.core.certificate.CertificateRegistrationDetailDto;
 import com.otilm.api.model.core.certificate.CertificateRegistrationState;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateRelationsDto;
+import com.otilm.api.model.core.certificate.CertificateRequestDto;
 import com.otilm.api.model.core.certificate.CertificateSimpleDto;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateSubjectType;
@@ -690,30 +691,7 @@ public class CertificateServiceImpl
                             .toList());
         }
         if (dto.getCertificateRequest() != null) {
-            dto
-                    .getCertificateRequest()
-                    .setAttributes(attributeEngine
-                            .getObjectDataAttributesContent(ObjectAttributeContentInfo
-                                    .builder(Resource.CERTIFICATE_REQUEST,
-                                            certificate.getCertificateRequest().getUuid())
-                                    .build()));
-            dto
-                    .getCertificateRequest()
-                    .setSignatureAttributes(attributeEngine
-                            .getObjectDataAttributesContent(ObjectAttributeContentInfo
-                                    .builder(Resource.CERTIFICATE_REQUEST,
-                                            certificate.getCertificateRequest().getUuid())
-                                    .operation(AttributeOperation.SIGN)
-                                    .build()));
-            dto
-                    .getCertificateRequest()
-                    .setAltSignatureAttributes(attributeEngine
-                            .getObjectDataAttributesContent(ObjectAttributeContentInfo
-                                    .builder(Resource.CERTIFICATE_REQUEST,
-                                            certificate.getCertificateRequest().getUuid())
-                                    .operation(AttributeOperation.SIGN)
-                                    .purpose(AttributeContentPurpose.CERTIFICATE_REQUEST_ALT_KEY)
-                                    .build()));
+            setCertificateRequestAttributes(dto.getCertificateRequest(), certificate.getCertificateRequest());
         }
         // if has RA profile with authority and connector
         if (certificate.getRaProfile() != null && certificate.getRaProfile().getAuthorityInstanceReference() != null
@@ -2423,6 +2401,37 @@ public class CertificateServiceImpl
         return response;
     }
 
+    /** Reads a request's attributes, its signature attributes under the connector whose schema defines them. */
+    private void setCertificateRequestAttributes(CertificateRequestDto dto, CertificateRequestEntity request) {
+        dto
+                .setAttributes(attributeEngine
+                        .getObjectDataAttributesContent(ObjectAttributeContentInfo
+                                .builder(Resource.CERTIFICATE_REQUEST, request.getUuid())
+                                .build()));
+        dto
+                .setSignatureAttributes(attributeEngine
+                        .getObjectDataAttributesContent(ObjectAttributeContentInfo
+                                .builder(Resource.CERTIFICATE_REQUEST, request.getUuid())
+                                .connector(cryptographicKeyService.getSignAttributeOwner(request.getKeyUuid()))
+                                .operation(AttributeOperation.SIGN)
+                                .build()));
+        dto
+                .setAltSignatureAttributes(attributeEngine
+                        .getObjectDataAttributesContent(ObjectAttributeContentInfo
+                                .builder(Resource.CERTIFICATE_REQUEST, request.getUuid())
+                                .connector(cryptographicKeyService.getSignAttributeOwner(request.getAltKeyUuid()))
+                                .operation(AttributeOperation.SIGN)
+                                .purpose(AttributeContentPurpose.CERTIFICATE_REQUEST_ALT_KEY)
+                                .build()));
+    }
+
+    @Override
+    public Optional<CertificateRequestEntity> findCertificateRequestByContent(String csr)
+            throws NoSuchAlgorithmException {
+        return certificateRequestRepository
+                .findByFingerprint(CertificateUtil.getThumbprint(Base64.getDecoder().decode(csr)));
+    }
+
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.CREATE)
     public CertificateDetailDto submitCertificateRequest(String certificateRequest,
@@ -2454,13 +2463,20 @@ public class CertificateServiceImpl
         CertificateRequestEntity certificateRequestEntity;
 
         final String certificateRequestFingerprint = CertificateUtil.getThumbprint(decodedCsr);
-        // get the certificate request by fingerprint, if exists
-        Optional<CertificateRequestEntity> certificateRequestOptional = certificateRequestRepository
-                .findByFingerprint(certificateRequestFingerprint);
+        Optional<CertificateRequestEntity> certificateRequestOptional = findCertificateRequestByContent(
+                certificateRequest);
 
         List<ResponseAttribute> requestAttributes;
         List<ResponseAttribute> requestSignatureAttributes;
         List<ResponseAttribute> requestAltSignatureAttributes;
+        // A request keeps the key it was first submitted with, and its signature attributes live under that key's
+        // owner.
+        UUID signatureAttributeOwner = cryptographicKeyService
+                .getSignAttributeOwner(
+                        certificateRequestOptional.map(CertificateRequestEntity::getKeyUuid).orElse(keyUuid));
+        UUID altSignatureAttributeOwner = cryptographicKeyService
+                .getSignAttributeOwner(
+                        certificateRequestOptional.map(CertificateRequestEntity::getAltKeyUuid).orElse(altKeyUuid));
         if (certificateRequestOptional.isPresent()) {
             certificateRequestEntity = certificateRequestOptional.get();
             // if no CSR attributes are assigned to CSR, update them with ones provided
@@ -2471,11 +2487,13 @@ public class CertificateServiceImpl
             requestSignatureAttributes = attributeEngine
                     .getObjectDataAttributesContent(ObjectAttributeContentInfo
                             .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
+                            .connector(signatureAttributeOwner)
                             .operation(AttributeOperation.SIGN)
                             .build());
             requestAltSignatureAttributes = attributeEngine
                     .getObjectDataAttributesContent(ObjectAttributeContentInfo
                             .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
+                            .connector(altSignatureAttributeOwner)
                             .operation(AttributeOperation.SIGN)
                             .purpose(AttributeContentPurpose.CERTIFICATE_REQUEST_ALT_KEY)
                             .build());
@@ -2489,6 +2507,7 @@ public class CertificateServiceImpl
                 requestSignatureAttributes = attributeEngine
                         .updateObjectDataAttributesContent(ObjectAttributeContentInfo
                                 .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
+                                .connector(signatureAttributeOwner)
                                 .operation(AttributeOperation.SIGN)
                                 .build(), signatureAttributes);
             }
@@ -2498,6 +2517,7 @@ public class CertificateServiceImpl
                 requestAltSignatureAttributes = attributeEngine
                         .updateObjectDataAttributesContent(ObjectAttributeContentInfo
                                 .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
+                                .connector(altSignatureAttributeOwner)
                                 .operation(AttributeOperation.SIGN)
                                 .purpose(AttributeContentPurpose.CERTIFICATE_REQUEST_ALT_KEY)
                                 .build(), altSignatureAttributes);
@@ -2516,11 +2536,13 @@ public class CertificateServiceImpl
             requestSignatureAttributes = attributeEngine
                     .updateObjectDataAttributesContent(ObjectAttributeContentInfo
                             .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
+                            .connector(signatureAttributeOwner)
                             .operation(AttributeOperation.SIGN)
                             .build(), signatureAttributes);
             requestAltSignatureAttributes = attributeEngine
                     .updateObjectDataAttributesContent(ObjectAttributeContentInfo
                             .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
+                            .connector(altSignatureAttributeOwner)
                             .operation(AttributeOperation.SIGN)
                             .purpose(AttributeContentPurpose.CERTIFICATE_REQUEST_ALT_KEY)
                             .build(), altSignatureAttributes);
@@ -2744,30 +2766,7 @@ public class CertificateServiceImpl
 
         CertificateDetailDto dto = certificate.mapToDto();
         if (dto.getCertificateRequest() != null) {
-            dto
-                    .getCertificateRequest()
-                    .setAttributes(attributeEngine
-                            .getObjectDataAttributesContent(ObjectAttributeContentInfo
-                                    .builder(Resource.CERTIFICATE_REQUEST,
-                                            certificate.getCertificateRequest().getUuid())
-                                    .build()));
-            dto
-                    .getCertificateRequest()
-                    .setSignatureAttributes(attributeEngine
-                            .getObjectDataAttributesContent(ObjectAttributeContentInfo
-                                    .builder(Resource.CERTIFICATE_REQUEST,
-                                            certificate.getCertificateRequest().getUuid())
-                                    .operation(AttributeOperation.SIGN)
-                                    .build()));
-            dto
-                    .getCertificateRequest()
-                    .setAltSignatureAttributes(attributeEngine
-                            .getObjectDataAttributesContent(ObjectAttributeContentInfo
-                                    .builder(Resource.CERTIFICATE_REQUEST,
-                                            certificate.getCertificateRequest().getUuid())
-                                    .operation(AttributeOperation.SIGN)
-                                    .purpose(AttributeContentPurpose.CERTIFICATE_REQUEST_ALT_KEY)
-                                    .build()));
+            setCertificateRequestAttributes(dto.getCertificateRequest(), certificate.getCertificateRequest());
         }
         dto
                 .setMetadata(attributeEngine
