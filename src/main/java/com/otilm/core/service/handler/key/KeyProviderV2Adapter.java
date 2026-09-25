@@ -9,7 +9,7 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.client.v2.CryptographicOperationsSyncApiClient;
 import com.otilm.api.interfaces.client.v2.KeySyncApiClient;
 import com.otilm.api.model.client.attribute.RequestAttribute;
-import com.otilm.api.model.client.attribute.RequestAttributeV2;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.client.cryptography.operations.CipherDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.CipherRequestData;
@@ -25,8 +25,6 @@ import com.otilm.api.model.client.cryptography.operations.VerifyDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.VerifyDataResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
-import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
-import com.otilm.api.model.common.attribute.v2.content.BooleanAttributeContentV2;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
@@ -68,6 +66,8 @@ import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
 import com.otilm.core.model.crypto.TokenProfileBasicModel;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
+import com.otilm.core.model.crypto.TransferableKeyType;
+import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.OperationAttributeResolver;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import java.util.ArrayList;
@@ -86,24 +86,25 @@ import org.springframework.http.ResponseEntity;
 @Slf4j
 public class KeyProviderV2Adapter implements KeyProviderAdapter {
 
-    private static final UUID EXPORTABLE_INTENT_UUID = UUID.fromString(KeyExportableAttribute.definition().getUuid());
-
     private final ApiClientConnectorInfo connectorInfo;
     private final KeySyncApiClient keyManagementSyncApiClient;
     private final AttributeEngine attributeEngine;
     private final OperationAttributeResolver operationAttributeResolver;
     private final OutboundSecretContainment outboundSecretContainment;
     private final CryptographicOperationsSyncApiClient operationsApiClient;
+    private final ConnectorCapabilityService connectorCapabilityService;
 
     public KeyProviderV2Adapter(ConnectorApiFactory connectorApiFactory, ApiClientConnectorInfo connectorInfo,
             AttributeEngine attributeEngine, OperationAttributeResolver operationAttributeResolver,
             OutboundSecretContainment outboundSecretContainment,
-            CryptographicOperationsSyncApiClient operationsApiClient) {
+            CryptographicOperationsSyncApiClient operationsApiClient,
+            ConnectorCapabilityService connectorCapabilityService) {
         this.connectorInfo = connectorInfo;
         this.attributeEngine = attributeEngine;
         this.operationAttributeResolver = operationAttributeResolver;
         this.outboundSecretContainment = outboundSecretContainment;
         this.operationsApiClient = operationsApiClient;
+        this.connectorCapabilityService = connectorCapabilityService;
         this.keyManagementSyncApiClient = connectorApiFactory.getKeyManagementApiClientV2(connectorInfo);
     }
 
@@ -195,24 +196,25 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         request.setKeyRequestType(type);
         request.setExecutionMode(OperationExecutionMode.SYNCHRONOUS);
         request.setKeyCreationId(keyCreationId);
-        request.setCreateKeyAttributes(withExportableIntent(attributes, exportable));
+        request.setCreateKeyAttributes(withExportableIntent(tokenProfile, attributes, exportable));
         return request;
     }
 
     /**
-     * The create attributes with the contract-reserved exportable intent stated on them. It travels as an attribute so
-     * that a replay under the same {@code keyCreationId} carries identical terms.
+     * The create attributes with the contract-reserved exportable intent stated on them, for a connector that declares
+     * key export. A connector that does not has no term for the attribute and receives none, whatever the caller
+     * stated. The intent travels as an attribute so that a replay under the same {@code keyCreationId} carries
+     * identical terms.
      */
-    private static List<RequestAttribute> withExportableIntent(List<RequestAttribute> attributes, boolean exportable) {
-        RequestAttributeV2 intent = new RequestAttributeV2();
-        intent.setUuid(EXPORTABLE_INTENT_UUID);
-        intent.setName(KeyExportableAttribute.NAME);
-        intent.setContentType(AttributeContentType.BOOLEAN);
-        intent.setContent(List.of(new BooleanAttributeContentV2(exportable)));
-
+    private List<RequestAttribute> withExportableIntent(TokenProfileFullModel tokenProfile,
+            List<RequestAttribute> attributes, boolean exportable) {
         List<RequestAttribute> stated = new ArrayList<>(attributes == null ? List.of() : attributes);
         stated.removeIf(attribute -> KeyExportableAttribute.NAME.equals(attribute.getName()));
-        stated.add(intent);
+        if (!connectorCapabilityService
+                .supports(tokenProfile.tokenInstance().connectorInterface(), FeatureFlag.KEY_EXPORT)) {
+            return stated;
+        }
+        stated.add(KeyExportableAttribute.request(exportable));
         return stated;
     }
 
@@ -242,6 +244,16 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         RemoteKeyReference reference = new RemoteKeyReference.MetadataReference(keyMeta);
         return new ProviderKeyItem(name, type, data.getAlgorithm(), data.getLength(), reference, material,
                 data.getMetadata());
+    }
+
+    @Override
+    public List<TransferableKeyType> listExportableKeyTypes(TokenProfileFullModel tokenProfile)
+            throws ConnectorException {
+        return keyManagementSyncApiClient
+                .listExportableKeyTypes(connectorInfo, tokenProfileScopedRequest(tokenProfile))
+                .stream()
+                .map(declared -> new TransferableKeyType(declared.getKeyRequestType(), declared.getAlgorithms()))
+                .toList();
     }
 
     @Override

@@ -4,6 +4,7 @@ import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.model.crypto.ImmutableTokenProfileBasicModel;
 import com.otilm.core.model.crypto.ImmutableTokenProfileFullModel;
 import com.otilm.core.model.crypto.ImmutableTokenProfileListModel;
+import com.otilm.core.model.crypto.TokenInstanceFullModel;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.model.crypto.TokenProfileListModel;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -29,6 +30,8 @@ public interface TokenProfileRepository extends SecurityFilterRepository<TokenPr
 
     boolean existsByName(String name);
 
+    List<TokenProfile> findByTokenInstanceReferenceUuid(UUID tokenInstanceReferenceUuid);
+
     @EntityGraph(attributePaths = {"tokenInstanceReference.connectorInterface", "tokenInstanceReference.tokenProfiles"})
     @Query("""
             SELECT profile FROM TokenProfile profile
@@ -38,6 +41,19 @@ public interface TokenProfileRepository extends SecurityFilterRepository<TokenPr
             """)
     Optional<TokenProfile> findWithTokenInstanceByUuidAndTokenInstanceReferenceUuid(@Param("uuid") UUID uuid,
             @Param("tokenUuid") UUID tokenUuid);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT profile FROM TokenProfile profile WHERE profile.tokenInstanceReferenceUuid = :tokenUuid ORDER BY profile.uuid")
+    List<TokenProfile> findWithLockByTokenInstanceReferenceUuid(@Param("tokenUuid") UUID tokenUuid);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            SELECT profile FROM TokenProfile profile
+            WHERE profile.tokenInstanceReferenceUuid IN (
+                SELECT token.uuid FROM TokenInstanceReference token WHERE token.connectorUuid = :connectorUuid)
+            ORDER BY profile.uuid
+            """)
+    List<TokenProfile> findWithLockByConnectorUuid(@Param("connectorUuid") UUID connectorUuid);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT profile FROM TokenProfile profile WHERE profile.uuid = :uuid")
@@ -56,6 +72,14 @@ public interface TokenProfileRepository extends SecurityFilterRepository<TokenPr
             UUID tokenUuid) {
         return findWithTokenInstanceByUuidAndTokenInstanceReferenceUuid(uuid, tokenUuid)
                 .map(ImmutableTokenProfileFullModel::from);
+    }
+
+    /** The token's profiles, sharing the one snapshot of the token given. */
+    default List<TokenProfileFullModel> findFullModelsByTokenInstance(TokenInstanceFullModel token) {
+        return findByTokenInstanceReferenceUuid(token.uuid())
+                .stream()
+                .<TokenProfileFullModel>map(profile -> ImmutableTokenProfileFullModel.from(profile, token))
+                .toList();
     }
 
     default List<TokenProfileListModel> findListModelsUsingSecurityFilter(SecurityFilter filter) {
