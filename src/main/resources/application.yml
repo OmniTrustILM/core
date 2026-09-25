@@ -284,8 +284,6 @@ spring:
     username: ${JDBC_USERNAME}
   flyway:
     out-of-order: true
-    postgresql:
-      transactional-lock: false
     schemas: ${DB_SCHEMA:core}
     table: core_schema_history
   jpa:

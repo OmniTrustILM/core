@@ -3,11 +3,15 @@ package com.otilm.core.integration.migration;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.PostgresFunctionContributor;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import javax.sql.DataSource;
+import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
 
@@ -22,10 +26,17 @@ class CertificateExtendedKeyUsageIndexITest extends BaseSpringBootTest {
     @Autowired
     private DataSource dataSource;
 
+    @TempDir
+    private Path migrationDirectory;
+
     @Test
-    void membershipPredicateCanUseTheInventoryIndex() throws Exception {
+    void migrationAppliesWithDefaultFlywaySettingsAndIndexServesMembership() throws Exception {
         ClassPathResource resource = new ClassPathResource(MIGRATION);
         assertThat(resource.exists()).isTrue();
+        Files
+                .writeString(migrationDirectory.resolve(resource.getFilename()),
+                        resource.getContentAsString(StandardCharsets.UTF_8));
+        assertThat(new ClassPathResource(MIGRATION + ".conf").exists()).isFalse();
 
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(true);
@@ -40,7 +51,16 @@ class CertificateExtendedKeyUsageIndexITest extends BaseSpringBootTest {
                                        ELSE '["1.3.6.1.5.5.7.3.2"]' END
                         FROM generate_series(1, 2000) AS g
                         """);
-                statement.execute(resource.getContentAsString(StandardCharsets.UTF_8));
+                Flyway
+                        .configure()
+                        .dataSource(dataSource)
+                        .schemas(SCHEMA)
+                        .defaultSchema(SCHEMA)
+                        .baselineOnMigrate(true)
+                        .baselineVersion("0")
+                        .locations("filesystem:" + migrationDirectory.toAbsolutePath().toString().replace('\\', '/'))
+                        .load()
+                        .migrate();
                 statement.execute("ANALYZE certificate");
                 statement.execute("SET enable_seqscan = off");
 
