@@ -180,7 +180,8 @@ class ProxyClientITest extends BaseSpringBootTest {
         for (ProducerCallback<Object> send : sends.getAllValues()) {
             Session session = mock(Session.class);
             ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
-            when(session.createTextMessage(body.capture())).thenReturn(mock(TextMessage.class));
+            TextMessage textMessage = mock(TextMessage.class);
+            when(session.createTextMessage(body.capture())).thenReturn(textMessage);
             send.doInJms(session, mock(MessageProducer.class));
             correlationIds.add(JSON.readTree(body.getValue()).path("correlationId").asText());
         }
