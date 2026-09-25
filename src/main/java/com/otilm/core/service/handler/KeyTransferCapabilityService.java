@@ -121,7 +121,7 @@ public class KeyTransferCapabilityService {
      */
     public KeyTransferCapabilityDto capabilityOf(TokenProfileFullModel profile) {
         Inquiry inquiry = new Inquiry();
-        Map<KeyRequestType, Set<KeyAlgorithm>> importable = inquiry.keyTypesOf(profile, KeyTransfer.IMPORT);
+        Map<KeyRequestType, Set<KeyAlgorithm>> importable = inquiry.importableKeyTypesOf(profile);
         Map<KeyRequestType, Set<KeyAlgorithm>> exportable = inquiry.keyTypesOf(profile, KeyTransfer.EXPORT);
         KeyTransferCapabilityDto capability = new KeyTransferCapabilityDto();
         capability.setImportAvailable(!importable.isEmpty());
@@ -146,7 +146,7 @@ public class KeyTransferCapabilityService {
         boolean importAvailable = false;
         boolean exportAvailable = false;
         for (TokenProfileFullModel profile : profiles) {
-            importAvailable = importAvailable || !inquiry.keyTypesOf(profile, KeyTransfer.IMPORT).isEmpty();
+            importAvailable = importAvailable || !inquiry.importableKeyTypesOf(profile).isEmpty();
             exportAvailable = exportAvailable || !inquiry.keyTypesOf(profile, KeyTransfer.EXPORT).isEmpty();
             if (importAvailable && exportAvailable) {
                 break;
@@ -163,6 +163,11 @@ public class KeyTransferCapabilityService {
     private final class Inquiry {
 
         private final Set<KeyTransfer> failedAnswers = EnumSet.noneOf(KeyTransfer.class);
+
+        /** A disabled profile takes no key, imported or created, so its connector is not asked what it imports. */
+        Map<KeyRequestType, Set<KeyAlgorithm>> importableKeyTypesOf(TokenProfileFullModel profile) {
+            return Boolean.TRUE.equals(profile.enabled()) ? keyTypesOf(profile, KeyTransfer.IMPORT) : Map.of();
+        }
 
         Map<KeyRequestType, Set<KeyAlgorithm>> keyTypesOf(TokenProfileFullModel profile, KeyTransfer direction) {
             if (failedAnswers.contains(direction) && direction.recordedIn(profile) == null) {

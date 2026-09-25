@@ -364,6 +364,36 @@ class KeyTransferCapabilityServiceTest {
     }
 
     @Test
+    void capabilityOf_showsADisabledProfileAsImportingNothing() {
+        // given
+        TokenProfileFullModel disabled = disabledProfile(token(List.of(FeatureFlag.KEY_IMPORT, FeatureFlag.KEY_EXPORT)),
+                RSA_KEY_PAIRS, RSA_KEY_PAIRS);
+
+        // when
+        KeyTransferCapabilityDto capability = service.capabilityOf(disabled);
+
+        // then
+        assertFalse(capability.isImportAvailable());
+        assertEquals(Map.of(), capability.getImportableKeyTypes());
+        assertEquals(RSA_KEY_PAIRS, capability.getExportableKeyTypes());
+    }
+
+    @Test
+    void availabilityOf_doesNotAskWhatADisabledProfileImports() throws Exception {
+        // given
+        ImmutableTokenInstanceFullModel token = token(List.of(FeatureFlag.KEY_IMPORT, FeatureFlag.KEY_EXPORT));
+        withProfiles(token, disabledProfile(token, Map.of(), null));
+        when(adapters.forToken(token)).thenReturn(adapter);
+
+        // when
+        boolean importAvailable = service.availabilityOf(token).isImportAvailable();
+
+        // then
+        assertFalse(importAvailable);
+        verify(adapter, never()).listImportableKeyTypes(any());
+    }
+
+    @Test
     void availabilityOf_reportsImportAndExportFromDifferentProfiles() {
         // given
         ImmutableTokenInstanceFullModel token = token(List.of(FeatureFlag.KEY_IMPORT, FeatureFlag.KEY_EXPORT));
@@ -433,7 +463,19 @@ class KeyTransferCapabilityServiceTest {
     private static TokenProfileFullModel profile(ImmutableTokenInstanceFullModel token,
             Map<KeyRequestType, Set<KeyAlgorithm>> exportableKeyTypes,
             Map<KeyRequestType, Set<KeyAlgorithm>> importableKeyTypes) {
-        return new ImmutableTokenProfileFullModel(UUID.randomUUID(), "profile", null, token.name(), token.uuid(), true,
-                List.of(), token, token.connectorUuid(), exportableKeyTypes, importableKeyTypes, 0);
+        return profile(token, true, exportableKeyTypes, importableKeyTypes);
+    }
+
+    private static TokenProfileFullModel disabledProfile(ImmutableTokenInstanceFullModel token,
+            Map<KeyRequestType, Set<KeyAlgorithm>> exportableKeyTypes,
+            Map<KeyRequestType, Set<KeyAlgorithm>> importableKeyTypes) {
+        return profile(token, false, exportableKeyTypes, importableKeyTypes);
+    }
+
+    private static TokenProfileFullModel profile(ImmutableTokenInstanceFullModel token, boolean enabled,
+            Map<KeyRequestType, Set<KeyAlgorithm>> exportableKeyTypes,
+            Map<KeyRequestType, Set<KeyAlgorithm>> importableKeyTypes) {
+        return new ImmutableTokenProfileFullModel(UUID.randomUUID(), "profile", null, token.name(), token.uuid(),
+                enabled, List.of(), token, token.connectorUuid(), exportableKeyTypes, importableKeyTypes, 0);
     }
 }
