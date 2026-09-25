@@ -162,8 +162,8 @@ class CryptographicAssetServiceITest extends BaseSpringBootTest {
 
         CryptographicAssetDto sourcedDto = dtoFor(page, sourced);
         assertThat(sourcedDto.getSourceCbomCount()).isEqualTo(2);
-        assertThat(sourcedDto.getOccurrenceCount())
-                .describedAs("occurrences summed across both sources: 3 + 2")
+        assertThat(sourcedDto.getSightingCount())
+                .describedAs("sightings summed across both sources: 3 + 2")
                 .isEqualTo(5);
         assertThat(sourcedDto.getPqcVerdict()).isEqualTo(PqcVerdict.NOT_READY);
         assertThat(sourcedDto.isQuarantined()).isFalse();

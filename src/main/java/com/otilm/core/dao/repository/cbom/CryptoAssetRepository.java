@@ -2,6 +2,7 @@ package com.otilm.core.dao.repository.cbom;
 
 import com.otilm.core.dao.entity.cbom.CryptoAsset;
 import com.otilm.core.dao.repository.SecurityFilterRepository;
+import com.otilm.core.model.cbom.CryptoAssetCounts;
 import com.otilm.core.model.cbom.CryptoAssetListRow;
 import com.otilm.core.model.cbom.PqcStaleVerdictRow;
 import jakarta.persistence.Tuple;
@@ -529,17 +530,20 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
 
     /**
      * List-page rows for the given assets. A projection rather than the entity: the list serves none of the JSONB
-     * payload columns, and a page can be 1000 rows. The occurrence total is summed over the per-source rows, whose
-     * count is deliberately uncapped (capping drops evidence payloads, never the count). Rows come back in no
-     * particular order -- IN provides none -- so the caller restores its page order.
+     * payload columns, and a page can be 1000 rows. Both counts come from the same joined source rows rather than from
+     * the stored {@code source_count}, so the pair cannot disagree: a source contributes its uncapped occurrence count
+     * as sightings, or one sighting when it recorded no location -- {@link CryptoAssetCounts#sightingsOf}, the rule the
+     * detail applies. Rows come back in no particular order -- IN provides none -- so the caller restores its page
+     * order.
      */
     @Query("""
             SELECT new com.otilm.core.model.cbom.CryptoAssetListRow(a.uuid, a.name, a.oid, a.assetType,
-                    a.pqcVerdict, a.sourceCount, a.identityGuard, COALESCE(SUM(s.occurrenceCount), 0L))
+                    a.pqcVerdict, COUNT(s.uuid), a.identityGuard,
+                    COALESCE(SUM(CASE WHEN s.occurrenceCount = 0 THEN 1 ELSE s.occurrenceCount END), 0L))
             FROM CryptoAsset a
             LEFT JOIN CryptoAssetSource s ON s.assetUuid = a.uuid
             WHERE a.uuid IN :uuids
-            GROUP BY a.uuid, a.name, a.oid, a.assetType, a.pqcVerdict, a.sourceCount, a.identityGuard
+            GROUP BY a.uuid, a.name, a.oid, a.assetType, a.pqcVerdict, a.identityGuard
             """)
     List<CryptoAssetListRow> findListRowsByUuids(@Param("uuids") Collection<UUID> uuids);
 }
