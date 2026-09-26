@@ -56,6 +56,7 @@ import com.otilm.core.util.CertificateUtil;
 import java.security.KeyPair;
 import java.security.cert.X509Certificate;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -64,11 +65,15 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authorization.AuthorizationDeniedException;
 
 import static org.mockito.Mockito.when;
 
 class ComplianceServiceITest extends BaseComplianceTest {
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Autowired
     private ComplianceInternalService complianceService;
@@ -391,6 +396,10 @@ class ComplianceServiceITest extends BaseComplianceTest {
 
         secret.setLatestVersion(secretVersion);
         secretRepository.save(secret);
+        OffsetDateTime beforeTheCheck = OffsetDateTime.of(2020, 1, 1, 0, 0, 0, 0, ZoneOffset.UTC);
+        jdbcTemplate
+                .update("UPDATE " + dbSchema + ".secret SET i_upd = ? WHERE uuid = ?", beforeTheCheck,
+                        secret.getUuid());
 
         Assertions
                 .assertDoesNotThrow(() -> complianceExternalService
@@ -402,6 +411,12 @@ class ComplianceServiceITest extends BaseComplianceTest {
         ComplianceCheckResultDto complianceCheckResult = complianceService
                 .getComplianceCheckResult(Resource.SECRET, secret.getUuid());
         Assertions.assertEquals(ComplianceStatus.OK, complianceCheckResult.getStatus());
+        Assertions
+                .assertTrue(secretRepository
+                        .findByUuid(secret.getUuid())
+                        .orElseThrow()
+                        .getUpdated()
+                        .isAfter(beforeTheCheck), "A stored compliance result is a change of the secret");
 
         complianceService
                 .checkCompliance(List.of(SecuredUUID.fromUUID(complianceProfile.getUuid())), Resource.SECRET, null);

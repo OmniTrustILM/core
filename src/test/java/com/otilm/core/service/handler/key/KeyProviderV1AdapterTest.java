@@ -180,6 +180,23 @@ class KeyProviderV1AdapterTest {
     }
 
     @Test
+    void importCalls_areRefusedForAV1Connector() {
+        // given
+        List<MetadataAttribute> handle = List.of();
+        UUID keyImportId = UUID.randomUUID();
+
+        // when
+        ValidationException refused = assertThrows(ValidationException.class,
+                () -> adapter.importKey(null, null, null, "key"));
+
+        // then
+        assertTrue(refused.getMessage().contains("Key import is not part of the v1 cryptography provider contract."));
+        assertThrows(ValidationException.class, () -> adapter.importKeyStatus(null, handle, null, "key"));
+        assertThrows(ValidationException.class, () -> adapter.importKeyResult(null, keyImportId, null, "key"));
+        assertThrows(ValidationException.class, () -> adapter.cancelImportKey(handle));
+    }
+
+    @Test
     void listExportableKeyTypes_isEmptyForAV1Connector() {
         // when
         List<TransferableKeyType> exportable = adapter.listExportableKeyTypes(profile);

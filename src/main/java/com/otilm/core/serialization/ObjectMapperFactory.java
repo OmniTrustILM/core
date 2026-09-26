@@ -119,16 +119,24 @@ public final class ObjectMapperFactory {
     }
 
     /**
-     * The secret-thumbprint recipe. The ordering settings are load-bearing: the serialized bytes are hashed, so a
-     * different key order would rewrite every stored thumbprint.
+     * The canonical recipe, for JSON whose bytes are hashed: properties and map entries always in the same order, so
+     * equal values serialize alike.
      */
-    public static ObjectMapper secretThumbprint() {
+    public static ObjectMapper canonical() {
         return JsonMapper
                 .builder()
                 .findAndAddModules()
                 .configure(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY, true)
                 .configure(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS, true)
                 .build();
+    }
+
+    /**
+     * The secret-thumbprint recipe. The ordering settings are load-bearing: the serialized bytes are hashed, so a
+     * different key order would rewrite every stored thumbprint.
+     */
+    public static ObjectMapper secretThumbprint() {
+        return canonical();
     }
 
     /**

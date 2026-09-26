@@ -171,6 +171,23 @@ A connector's error text is its own words. On a call that carried a secret (a pa
 
 `KeyNormalizer` opens an uploaded key file in memory, derives the key's public key and protects the key afresh in the connector contract's pinned profile under a passphrase it generates, so neither the file nor the user's passphrase reaches a connector. Its refusals are fixed messages: what can be seen without the passphrase (the format, the protection scheme, a cost or nesting limit) is named, and every failure after decryption shares one message, so a refusal tells nothing about the passphrase. Cost limits are checked before any key is derived.
 
+## Key import is a saga across the connector boundary
+
+`KeyImportSaga` records an attempt in `key_import` before `importKey` is sent, and resolves an open attempt of the same
+import through `/import/result` before it starts another. The row holds no secret: it keeps digests of the transport
+passphrase and envelope each send carried, and every answer about the attempt is checked not to echo them. An attempt is
+closed as `FAILED` only when nothing can have been imported: it was never sent, or the connector answered with a refusal
+with an error code, a failed or cancelled status, or a cancel it confirmed. Every other failure leaves the attempt open,
+because the connector may hold a key the platform has not registered, and the caller is told to retry. An open attempt
+the connector does not know is sent again only within `key-import.unresolved-after` of its creation, while the connector
+still keeps its records. Registration and `COMPLETED` commit in one transaction under the attempt's row lock, so a retry
+racing the original request registers the key once.
+
+An import may adopt a certificate's public-key-only record, so writers of keys and key items must not act on a copy read
+before it: `CryptographicKey` and `CryptographicKeyItem` are `@DynamicUpdate`, every local item deletion or destruction
+passes the key as the caller read it and is refused when its token changed, and compliance results are stored through
+`ComplianceSubjectWriter`, never by saving the checked subject.
+
 ## Controllers reach services through `*ExternalService` interfaces
 
 `ExternalServiceAuthorizationArchTest` fails the build when a controller depends on a `*Service`, `*InternalService` or `*ServiceImpl` type directly. Give the interface a controller calls a name ending in `ExternalService`, keep it flat (no super-interfaces) with exactly one implementation, and put exactly one authorization annotation on each implementing method.

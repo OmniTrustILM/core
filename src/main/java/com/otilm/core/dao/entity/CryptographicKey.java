@@ -1,6 +1,8 @@
 package com.otilm.core.dao.entity;
 
 import com.fasterxml.jackson.annotation.JsonBackReference;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.core.model.NamedModel;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
@@ -16,6 +18,7 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 import java.io.Serializable;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
@@ -24,6 +27,7 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
+import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.SQLJoinTableRestriction;
 import org.hibernate.proxy.HibernateProxy;
 
@@ -33,7 +37,12 @@ import org.hibernate.proxy.HibernateProxy;
 @RequiredArgsConstructor
 @Entity
 @Table(name = "cryptographic_key")
+// A request may hold a copy read before an import adopted the key; writing only what it changed keeps the token
+// the adoption gave the key.
+@DynamicUpdate
 public class CryptographicKey extends UniquelyIdentifiedAndAudited implements Serializable, NamedModel {
+
+    private static final Set<KeyState> ADOPTABLE_STATES = EnumSet.of(KeyState.PRE_ACTIVE, KeyState.ACTIVE);
 
     @Override
     public UUID uuid() {
@@ -94,6 +103,17 @@ public class CryptographicKey extends UniquelyIdentifiedAndAudited implements Se
     @OneToMany(mappedBy = "altKey", fetch = FetchType.LAZY)
     @ToString.Exclude
     private Set<Certificate> altCertificates = new HashSet<>();
+
+    /** Whether the key is a public key and nothing else: no token holds it, and it has no item but its public key. */
+    public boolean isPublicKeyOnly() {
+        return tokenInstanceReferenceUuid == null && tokenProfileUuid == null && items.size() == 1
+                && items.iterator().next().getType() == KeyType.PUBLIC_KEY;
+    }
+
+    /** Whether an imported private key may join the key: a public key only, still active or yet to become so. */
+    public boolean isAdoptable() {
+        return isPublicKeyOnly() && ADOPTABLE_STATES.contains(items.iterator().next().getState());
+    }
 
     public void setTokenProfile(TokenProfile tokenProfile) {
         this.tokenProfile = tokenProfile;
