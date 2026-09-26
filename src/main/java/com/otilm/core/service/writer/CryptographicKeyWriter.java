@@ -2,12 +2,15 @@ package com.otilm.core.service.writer;
 
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationError;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.cryptography.key.EditKeyItemDto;
 import com.otilm.api.model.client.cryptography.key.EditKeyRequestDto;
 import com.otilm.api.model.client.cryptography.key.KeyCompromiseReason;
 import com.otilm.api.model.client.cryptography.key.KeyRequestDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cryptography.key.KeyEvent;
@@ -29,18 +32,24 @@ import com.otilm.core.model.crypto.CryptographicKeyFullModel;
 import com.otilm.core.model.crypto.CryptographicKeyItemBasicModel;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyBasicModel;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
+import com.otilm.core.model.crypto.ImportedKeyRegistration;
+import com.otilm.core.model.crypto.KeyImportMetadata;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
 import com.otilm.core.model.crypto.TokenProfileBasicModel;
+import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.security.authz.SecurityResourceFilter;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.CryptographicKeyEventHistoryService;
 import com.otilm.core.service.ResourceObjectAssociationService;
 import com.otilm.core.util.CryptographyUtil;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -57,6 +66,14 @@ import static java.util.function.Predicate.not;
 public class CryptographicKeyWriter {
 
     private static final Logger logger = LoggerFactory.getLogger(CryptographicKeyWriter.class);
+
+    /** The refusal of an import whose public key the platform already holds in a key of its own. */
+    public static final String KEY_ALREADY_HELD = "A key with the same public key already exists.";
+
+    /** The refusal of an import into a public-key-only record that is no longer active. */
+    private static final String KEY_CHANGED = "Key %s changed meanwhile. Try again.";
+
+    public static final String KEY_NOT_ACTIVE = "A key with the same public key exists but is not active, so the key cannot be imported into it.";
 
     private final CryptographicKeyRepository cryptographicKeyRepository;
     private final CryptographicKeyItemRepository cryptographicKeyItemRepository;
@@ -105,13 +122,156 @@ public class CryptographicKeyWriter {
             TokenInstanceBasicModel tokenInstance, List<ProviderKeyItem> items, boolean isDiscovered, boolean enabled)
             throws AttributeException {
         UUID tokenProfileUuid = tokenProfile == null ? null : tokenProfile.uuid();
-        CryptographicKeyBasicModel savedKey = save(request, tokenProfileUuid, tokenInstance.uuid());
+        CryptographicKeyBasicModel savedKey = save(request.getName(), request.getDescription(), tokenProfileUuid,
+                tokenInstance.uuid());
         // Core owns the permission: nothing reported by a connector may grant it, whatever the request states.
         boolean exportable = !isDiscovered && Boolean.TRUE.equals(request.getExportable());
+        KeyItemOrigin origin = creationOrigin(tokenProfile, tokenInstance, isDiscovered);
         for (ProviderKeyItem item : items) {
-            createKeyContent(tokenProfile, tokenInstance, item, savedKey, isDiscovered, enabled, exportable);
+            createKeyContent(tokenProfile, tokenInstance, item, savedKey, enabled, exportable, origin);
         }
         return savedKey;
+    }
+
+    private static KeyItemOrigin creationOrigin(TokenProfileBasicModel tokenProfile,
+            TokenInstanceBasicModel tokenInstance, boolean isDiscovered) {
+        if (isDiscovered) {
+            return new KeyItemOrigin(KeyEvent.CREATE, "Key Discovered from Token Instance " + tokenInstance.name(),
+                    null);
+        }
+        assert tokenProfile != null;
+        return new KeyItemOrigin(KeyEvent.CREATE,
+                "Key Created from Token Profile " + tokenProfile.name() + " on Token Instance " + tokenInstance.name(),
+                null);
+    }
+
+    /**
+     * Registers an imported key: as a key of its own, or by adopting the public-key-only record the platform already
+     * holds for its public key, which gains the token profile and the private key and keeps its certificates. The
+     * requester becomes the owner, the groups are added and the custom attributes written, whichever it is.
+     *
+     * @return the UUID of the registered key
+     * @throws ValidationException when the platform holds the public key otherwise than as a public-key-only record
+     * @throws NotFoundException when a group no longer exists
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public UUID registerImportedKey(ImportedKeyRegistration registration) throws AttributeException, NotFoundException {
+        Optional<CryptographicKeyItem> held = cryptographicKeyItemRepository
+                .findByFingerprint(registration.spkiFingerprint());
+        UUID keyUuid = held.isPresent()
+                ? adoptPublicKeyRecord(held.get().getKeyUuid(), registration)
+                : registerNewImportedKey(registration);
+        NameAndUuidDto owner = registration.owner();
+        objectAssociationService
+                .setOwner(Resource.CRYPTOGRAPHIC_KEY, keyUuid, UUID.fromString(owner.getUuid()), owner.getName());
+        for (UUID groupUuid : registration.metadata().groupUuids()) {
+            objectAssociationService.addGroup(Resource.CRYPTOGRAPHIC_KEY, keyUuid, groupUuid);
+        }
+        attributeEngine
+                .updateObjectCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, keyUuid,
+                        registration.metadata().customAttributes());
+        // The unique fingerprint is the last guard against a key registered meanwhile; flushing through the
+        // repository reports it as a data integrity violation.
+        cryptographicKeyItemRepository.flush();
+        return keyUuid;
+    }
+
+    private UUID registerNewImportedKey(ImportedKeyRegistration registration) throws AttributeException {
+        TokenProfileFullModel profile = registration.profile();
+        KeyImportMetadata metadata = registration.metadata();
+        CryptographicKeyBasicModel key = save(metadata.name(), metadata.description(), profile.uuid(),
+                profile.tokenInstanceReferenceUuid());
+        KeyItemOrigin origin = importOrigin(profile, registration.keyReference());
+        for (ProviderKeyItem item : registration.items()) {
+            createKeyContent(profile, profile.tokenInstance(), item, key, false, registration.exportable(), origin);
+        }
+        return key.uuid();
+    }
+
+    /**
+     * The public key item of the public-key-only record an import would adopt, or nothing for a key the platform does
+     * not hold. The record is read afresh: an earlier read in the request may have left an older copy.
+     *
+     * @throws ValidationException when the platform holds the key otherwise, or holds a record no longer active
+     */
+    @Transactional
+    public Optional<UUID> adoptablePublicKey(String spkiFingerprint) {
+        Optional<CryptographicKeyItem> held = cryptographicKeyItemRepository.findByFingerprint(spkiFingerprint);
+        if (held.isEmpty()) {
+            return Optional.empty();
+        }
+        CryptographicKey holder = held.get().getKey();
+        entityManager.refresh(holder);
+        requireAdoptable(holder);
+        return Optional.of(held.get().getUuid());
+    }
+
+    /**
+     * Adopts the record read afresh under its lock, and under the locks of its items, since an operator changes an item
+     * under the item's own lock; a record that gained a token or a private key, or is no longer active, is refused.
+     */
+    private UUID adoptPublicKeyRecord(UUID recordUuid, ImportedKeyRegistration registration) throws AttributeException {
+        CryptographicKey adopted = cryptographicKeyRepository
+                .findForUpdateByUuid(recordUuid)
+                .orElseThrow(() -> new ValidationException(ValidationError.create(KEY_ALREADY_HELD)));
+        entityManager.refresh(adopted);
+        adopted.getItems().forEach(item -> entityManager.refresh(item, LockModeType.PESSIMISTIC_WRITE));
+        requireAdoptable(adopted);
+        TokenProfileFullModel profile = registration.profile();
+        adopted.setTokenProfileUuid(profile.uuid());
+        adopted.setTokenInstanceReferenceUuid(profile.tokenInstanceReferenceUuid());
+        adopted.setName(registration.metadata().name());
+        adopted.setDescription(registration.metadata().description());
+        CryptographicKeyItem publicKey = adopted.getItems().iterator().next();
+        CryptographicKeyBasicModel key = ImmutableCryptographicKeyBasicModel.from(adopted);
+        KeyItemOrigin origin = importOrigin(profile, registration.keyReference());
+        for (ProviderKeyItem item : registration.items()) {
+            if (item.type() == KeyType.PUBLIC_KEY) {
+                adoptPublicKeyItem(publicKey, item, profile, key, origin);
+            } else {
+                createKeyContent(profile, profile.tokenInstance(), item, key, false, registration.exportable(), origin);
+            }
+        }
+        return adopted.getUuid();
+    }
+
+    /**
+     * Locks the key and reads it afresh, refusing one that no longer has the token the caller read: an import adopted
+     * it meanwhile, so what the caller decided about destroying its items through a token no longer holds.
+     */
+    private void requireTokenAsRead(CryptographicKeyBasicModel keyRead) {
+        cryptographicKeyRepository.findForUpdateByUuid(keyRead.uuid()).ifPresent(locked -> {
+            entityManager.refresh(locked);
+            if (!Objects.equals(locked.getTokenInstanceReferenceUuid(), keyRead.tokenInstanceReferenceUuid())) {
+                throw new ValidationException(ValidationError.create(KEY_CHANGED.formatted(keyRead.uuid())));
+            }
+        });
+    }
+
+    private static void requireAdoptable(CryptographicKey held) {
+        if (!held.isPublicKeyOnly()) {
+            throw new ValidationException(ValidationError.create(KEY_ALREADY_HELD));
+        }
+        if (!held.isAdoptable()) {
+            throw new ValidationException(ValidationError.create(KEY_NOT_ACTIVE));
+        }
+    }
+
+    private void adoptPublicKeyItem(CryptographicKeyItem publicKey, ProviderKeyItem item, TokenProfileFullModel profile,
+            CryptographicKeyBasicModel key, KeyItemOrigin origin) throws AttributeException {
+        if (item.reference() instanceof RemoteKeyReference.MetadataReference(List<MetadataAttribute> keyMeta)) {
+            publicKey.setKeyMeta(keyMeta);
+        }
+        publicKey.setUsage(usagesFor(profile, KeyType.PUBLIC_KEY, publicKey.getKeyAlgorithm()));
+        keyEventHistoryService
+                .addEventHistory(origin.event(), KeyEventStatus.SUCCESS, origin.historyMessage(), null,
+                        publicKey.getUuid());
+        storeItemMetadata(item, publicKey.getUuid(), profile.tokenInstance(), key);
+    }
+
+    private static KeyItemOrigin importOrigin(TokenProfileFullModel profile, UUID keyReference) {
+        return new KeyItemOrigin(KeyEvent.IMPORT, "Key Imported to Token Profile " + profile.name()
+                + " on Token Instance " + profile.tokenInstance().name(), keyReference);
     }
 
     /** Only the halves Core would ever hand out carry the permission; a public key is readable regardless. */
@@ -120,8 +280,8 @@ public class CryptographicKeyWriter {
     }
 
     private void createKeyContent(TokenProfileBasicModel tokenProfile, TokenInstanceBasicModel tokenInstance,
-            ProviderKeyItem item, CryptographicKeyBasicModel cryptographicKey, boolean isDiscovered, boolean enabled,
-            boolean exportable) throws AttributeException {
+            ProviderKeyItem item, CryptographicKeyBasicModel cryptographicKey, boolean enabled, boolean exportable,
+            KeyItemOrigin origin) throws AttributeException {
         logger.atDebug().addArgument(cryptographicKey::toIdentifierString).log("Creating the Key Content for {}");
         CryptographicKeyItem keyItem = new CryptographicKeyItem();
         keyItem.setName(item.name());
@@ -141,41 +301,45 @@ public class CryptographicKeyWriter {
         } else if (item.reference() instanceof RemoteKeyReference.MetadataReference(List<MetadataAttribute> keyMeta)) {
             keyItem.setKeyMeta(keyMeta);
         }
+        if (origin.keyReference() != null && holdsPrivateMaterial(item.type())) {
+            keyItem.setKeyReferenceUuid(origin.keyReference());
+        }
         keyItem.setState(KeyState.ACTIVE);
         keyItem.setEnabled(enabled);
         keyItem.setExportable(exportable && holdsPrivateMaterial(item.type()));
         if (tokenProfile != null) {
-            keyItem
-                    .setUsage(tokenProfile
-                            .usages()
-                            .stream()
-                            .filter(not(CryptographyUtil.getForbiddenUsages(item.type(), item.algorithm())::contains))
-                            .toList());
+            keyItem.setUsage(usagesFor(tokenProfile, item.type(), item.algorithm()));
         }
 
         cryptographicKeyItemRepository.save(keyItem);
-        String message;
-        if (isDiscovered) {
-            message = "Key Discovered from Token Instance " + tokenInstance.name();
-        } else {
-            assert tokenProfile != null;
-            message = "Key Created from Token Profile " + tokenProfile.name() + " on Token Instance "
-                    + tokenInstance.name();
-        }
         keyEventHistoryService
-                .addEventHistory(KeyEvent.CREATE, KeyEventStatus.SUCCESS, message, null, keyItem.getUuid());
+                .addEventHistory(origin.event(), KeyEventStatus.SUCCESS, origin.historyMessage(), null,
+                        keyItem.getUuid());
+        storeItemMetadata(item, keyItem.getUuid(), tokenInstance, cryptographicKey);
+        if (item.type().equals(KeyType.PUBLIC_KEY)) {
+            certificateService.updateCertificateKeys(cryptographicKey.uuid(), keyItem.getFingerprint());
+        }
+    }
 
+    /** The profile's usages the key type and algorithm may carry. */
+    private static List<KeyUsage> usagesFor(TokenProfileBasicModel tokenProfile, KeyType type, KeyAlgorithm algorithm) {
+        return tokenProfile
+                .usages()
+                .stream()
+                .filter(not(CryptographyUtil.getForbiddenUsages(type, algorithm)::contains))
+                .toList();
+    }
+
+    private void storeItemMetadata(ProviderKeyItem item, UUID keyItemUuid, TokenInstanceBasicModel tokenInstance,
+            CryptographicKeyBasicModel cryptographicKey) throws AttributeException {
         attributeEngine
                 .updateMetadataAttributes(item.metadata(),
                         ObjectAttributeContentInfo
-                                .builder(Resource.CRYPTOGRAPHIC_KEY, keyItem.getUuid())
+                                .builder(Resource.CRYPTOGRAPHIC_KEY, keyItemUuid)
                                 .connector(tokenInstance.connectorUuid())
                                 .source(Resource.CRYPTOGRAPHIC_KEY, cryptographicKey.uuid())
                                 .sourceName(cryptographicKey.name())
                                 .build());
-        if (item.type().equals(KeyType.PUBLIC_KEY)) {
-            certificateService.updateCertificateKeys(cryptographicKey.uuid(), keyItem.getFingerprint());
-        }
     }
 
     /**
@@ -189,7 +353,32 @@ public class CryptographicKeyWriter {
      */
     @Transactional
     public void deleteKeyWithAssociations(CryptographicKeyBasicModel key) {
-        UUID keyUuid = key.uuid();
+        removeKeyWithAssociations(key.uuid());
+    }
+
+    /**
+     * Deletes a local key the caller read, with its remaining items and its associations, in one transaction. An item
+     * the caller did not read was added since, by an import adopting the key, so the deletion stops rather than take
+     * that item along.
+     *
+     * @param key model identifying the parent key to delete
+     * @param itemsRead the key's items as the caller read them
+     * @throws ValidationException when the key holds an item the caller did not read
+     */
+    @Transactional
+    public void deleteKeyWithAssociations(CryptographicKeyBasicModel key, Set<UUID> itemsRead) {
+        Optional<CryptographicKey> locked = cryptographicKeyRepository.findForUpdateByUuid(key.uuid());
+        if (locked.isPresent()) {
+            entityManager.refresh(locked.get());
+            boolean added = locked.get().getItems().stream().anyMatch(item -> !itemsRead.contains(item.getUuid()));
+            if (added) {
+                throw new ValidationException(ValidationError.create(KEY_CHANGED.formatted(key.uuid())));
+            }
+        }
+        removeKeyWithAssociations(key.uuid());
+    }
+
+    private void removeKeyWithAssociations(UUID keyUuid) {
         List<UUID> itemUuids = cryptographicKeyItemRepository
                 .findByKeyUuidIn(List.of(keyUuid))
                 .stream()
@@ -227,16 +416,21 @@ public class CryptographicKeyWriter {
      * so concurrent sibling deletions cannot both leave the parent behind.
      *
      * @param keyItemUuids non-null list of item UUIDs to delete; missing items are ignored
-     * @param parentKeyUuids parent UUIDs supplied for locking to serialize concurrent sibling deletions; must contain
-     * the parent UUID of every selected item
+     * @param parentsRead the parents as the caller read them, locked to serialize concurrent sibling deletions; must
+     * contain the parent of every selected item
      * @return number of existing items deleted, counting duplicate UUIDs only once
+     * @throws ValidationException when a parent gained a token since the caller read it
      */
     @Transactional
-    public int deleteKeyItemsWithAssociations(List<UUID> keyItemUuids, List<UUID> parentKeyUuids) {
+    public int deleteKeyItemsWithAssociations(List<UUID> keyItemUuids,
+            List<? extends CryptographicKeyBasicModel> parentsRead) {
         if (keyItemUuids.isEmpty()) {
             return 0;
         }
-        parentKeyUuids.stream().distinct().sorted().forEach(cryptographicKeyRepository::findForUpdateByUuid);
+        parentsRead
+                .stream()
+                .sorted(Comparator.comparing(CryptographicKeyBasicModel::uuid))
+                .forEach(this::requireTokenAsRead);
         List<CryptographicKeyItem> keyItems = cryptographicKeyItemRepository.findByUuidIn(keyItemUuids);
         if (keyItems.isEmpty()) {
             return 0;
@@ -275,11 +469,14 @@ public class CryptographicKeyWriter {
      * Event history is removed by the database foreign key cascade.
      * </p>
      *
+     * @param keyRead the item's key as the caller read it
      * @param keyItemUuid UUID of the key item to delete
      * @return {@code true} if the item was deleted; {@code false} if it did not exist
+     * @throws ValidationException when the key gained a token since the caller read it
      */
     @Transactional
-    public boolean deleteKeyItem(UUID keyItemUuid) {
+    public boolean deleteKeyItem(CryptographicKeyBasicModel keyRead, UUID keyItemUuid) {
+        requireTokenAsRead(keyRead);
         attributeEngine.deleteObjectAttributeContent(Resource.CRYPTOGRAPHIC_KEY, keyItemUuid);
         return cryptographicKeyItemRepository.deleteItemByUuid(keyItemUuid) > 0;
     }
@@ -398,11 +595,15 @@ public class CryptographicKeyWriter {
      * Clears local key material and marks the item destroyed, preserving its current compromise classification and
      * reason. Updates the audit timestamp and records a successful destruction event, including on repeated calls.
      *
+     * @param keyRead the item's key as the caller read it
      * @param keyItemUuid non-null UUID of the key item to finalize
      * @throws NotFoundException if the item no longer exists
+     * @throws ValidationException when the key gained a token since the caller read it
      */
     @Transactional(rollbackFor = NotFoundException.class)
-    public void finalizeKeyItemDestruction(UUID keyItemUuid) throws NotFoundException {
+    public void finalizeKeyItemDestruction(CryptographicKeyBasicModel keyRead, UUID keyItemUuid)
+            throws NotFoundException {
+        requireTokenAsRead(keyRead);
         if (cryptographicKeyItemRepository.finalizeKeyItemDestruction(keyItemUuid) == 0) {
             throw new NotFoundException(CryptographicKeyItem.class, keyItemUuid);
         }
@@ -413,16 +614,17 @@ public class CryptographicKeyWriter {
     /**
      * Creates a parent key record with the requested name, description, and token associations.
      *
-     * @param request request supplying the key's name and description
+     * @param name the key's name
+     * @param description the key's description, or {@code null}
      * @param tokenProfileUuid UUID of the associated token profile, or {@code null} if unassigned
      * @param tokenInstanceReferenceUuid UUID of the associated token instance, or {@code null} if unassigned
      * @return immutable basic model of the saved key
      */
-    private CryptographicKeyBasicModel save(KeyRequestDto request, UUID tokenProfileUuid,
+    private CryptographicKeyBasicModel save(String name, String description, UUID tokenProfileUuid,
             UUID tokenInstanceReferenceUuid) {
         CryptographicKey key = new CryptographicKey();
-        key.setName(request.getName());
-        key.setDescription(request.getDescription());
+        key.setName(name);
+        key.setDescription(description);
         key.setTokenProfileUuid(tokenProfileUuid);
         key.setTokenInstanceReferenceUuid(tokenInstanceReferenceUuid);
 
@@ -527,5 +729,12 @@ public class CryptographicKeyWriter {
         keyItem.setName(request.getName());
         CryptographicKeyItem savedItem = cryptographicKeyItemRepository.save(keyItem);
         return CryptographicKeyItemBasicModel.from(savedItem);
+    }
+
+    /**
+     * What brought a key item into the inventory: the history event and message it is recorded with, and the platform's
+     * own reference for the private half of an imported key.
+     */
+    private record KeyItemOrigin(KeyEvent event, String historyMessage, UUID keyReference) {
     }
 }

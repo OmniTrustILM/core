@@ -206,14 +206,14 @@ public class CryptographicKeyExportServiceImpl implements CryptographicKeyExport
     }
 
     /**
-     * What the platform holds about the key, for the adapter to check the key the connector says it exported. A key
-     * created through a connector is identified by the connector's handle and carries no reference of the platform's
-     * own.
+     * What the platform holds about the key, for the adapter to check the key the connector says it exported. An
+     * imported key carries the reference the platform minted for it; a key created through a connector has none.
      */
     private HeldKey heldKey(CryptographicKeyItemBasicModel item) {
         KeyRequestType type = requestTypeOf(item);
         byte[] publicKeySpki = type == KeyRequestType.KEY_PAIR ? publicKeyOfPair(item) : null;
-        return new HeldKey(type, item.algorithm(), item.length(), publicKeySpki, null);
+        UUID keyReference = cryptographicKeyItemRepository.findKeyReferenceUuidByUuid(item.uuid()).orElse(null);
+        return new HeldKey(type, item.algorithm(), item.length(), publicKeySpki, keyReference);
     }
 
     private byte[] publicKeyOfPair(CryptographicKeyItemBasicModel item) {

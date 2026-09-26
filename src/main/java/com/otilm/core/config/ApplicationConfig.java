@@ -46,7 +46,10 @@ import org.springframework.web.reactive.function.client.WebClient;
 
 @Configuration
 @EnableJpaAuditing(auditorAwareRef = "auditorAware")
-@EnableConfigurationProperties({DiscoveryProperties.class, ConnectorApiClientProperties.class})
+@EnableConfigurationProperties({
+        DiscoveryProperties.class,
+        ConnectorApiClientProperties.class,
+        KeyImportProperties.class})
 @ComponentScan(basePackages = "com.otilm.core",
         excludeFilters = @ComponentScan.Filter(type = FilterType.CUSTOM, classes = TypeExcludeFilter.class))
 public class ApplicationConfig {

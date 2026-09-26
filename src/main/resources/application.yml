@@ -432,6 +432,15 @@ connector:
     pending-acquire-timeout: ${CONNECTOR_API_CLIENT_PENDING_ACQUIRE_TIMEOUT:10s}
     max-in-memory-size: ${CONNECTOR_API_CLIENT_MAX_IN_MEMORY_SIZE:16MB}
 
+key-import:
+  # How long an import request waits for a connector that imports asynchronously, before it cancels the import.
+  request-timeout: 60s
+  # How long it waits between two questions about such an import.
+  poll-interval: 2s
+  # How long the outcome of an import can still be learned from its connector, which keeps a record of it for at
+  # least 24 hours, so it has to be shorter. An older import the connector does not know is not sent again.
+  unresolved-after: 20h
+
 cbom:
   client:
     max-buffer-size: ${CBOM_CLIENT_MAX_BUFFER_SIZE:20971520}

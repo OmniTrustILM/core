@@ -1,6 +1,8 @@
 package com.otilm.core.dao.repository;
 
+import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
+import com.otilm.core.model.compliance.ComplianceResultDto;
 import com.otilm.core.model.crypto.CryptographicKeyItemBasicModel;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationRow;
 import com.otilm.core.model.signing.SigningCertificate;
@@ -19,7 +21,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 @Repository
-public interface CryptographicKeyItemRepository extends SecurityFilterRepository<CryptographicKeyItem, UUID> {
+public interface CryptographicKeyItemRepository extends ComplianceSubjectRepository<CryptographicKeyItem> {
 
     Optional<CryptographicKeyItem> findByUuid(UUID uuid);
 
@@ -80,6 +82,17 @@ public interface CryptographicKeyItemRepository extends SecurityFilterRepository
     int finalizeKeyItemDestruction(@Param("uuid") UUID uuid);
 
     Optional<CryptographicKeyItem> findByFingerprint(String fingerprint);
+
+    /** A key item keeps the time of its last change in its own column. */
+    @Override
+    @Modifying
+    @Query("UPDATE CryptographicKeyItem item SET item.complianceStatus = :status, item.complianceResult = :result,"
+            + " item.updatedAt = CURRENT_TIMESTAMP WHERE item.uuid = :uuid")
+    int updateComplianceResult(@Param("uuid") UUID uuid, @Param("status") ComplianceStatus status,
+            @Param("result") ComplianceResultDto result);
+
+    @Query("SELECT i.keyReferenceUuid FROM CryptographicKeyItem i WHERE i.uuid = :uuid")
+    Optional<UUID> findKeyReferenceUuidByUuid(@Param("uuid") UUID uuid);
 
     /**
      * The fingerprints from {@code fingerprints} that inventory already holds.

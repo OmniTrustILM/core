@@ -601,7 +601,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                 if (key.tokenInstance() != null) {
                     keyProviderAdapterFactory.forToken(key.tokenInstance()).destroyKeyItem(key, item.reference());
                 }
-                cryptographicKeyWriter.deleteKeyItem(item.uuid());
+                cryptographicKeyWriter.deleteKeyItem(key, item.uuid());
                 evictKeyItemCache(item.uuid());
             }
             cryptographicKeyWriter.deleteKeyIfEmpty(key);
@@ -618,16 +618,25 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
             try {
                 CryptographicKeyFullModel key = getCryptographicKeyFullModel(UUID.fromString(uuid));
                 verifyPermissionsForAssociatedToken(key, "delete", ResourceAction.DETAIL);
-                for (CryptographicKeyItemBasicModel keyItem : key.items()) {
-                    if (key.tokenInstance() != null) {
+                Set<UUID> itemsRead = key
+                        .items()
+                        .stream()
+                        .map(CryptographicKeyItemBasicModel::uuid)
+                        .collect(Collectors.toSet());
+                if (key.tokenInstance() == null) {
+                    // An import may adopt the key meanwhile, so nothing goes before the check for an item not read.
+                    cryptographicKeyWriter.deleteKeyWithAssociations(key, itemsRead);
+                    key.items().forEach(keyItem -> evictKeyItemCache(keyItem.uuid()));
+                } else {
+                    for (CryptographicKeyItemBasicModel keyItem : key.items()) {
                         keyProviderAdapterFactory
                                 .forToken(key.tokenInstance())
                                 .destroyKeyItem(key, keyItem.reference());
+                        cryptographicKeyWriter.deleteKeyItem(key, keyItem.uuid());
+                        evictKeyItemCache(keyItem.uuid());
                     }
-                    cryptographicKeyWriter.deleteKeyItem(keyItem.uuid());
-                    evictKeyItemCache(keyItem.uuid());
+                    cryptographicKeyWriter.deleteKeyWithAssociations(key, itemsRead);
                 }
-                cryptographicKeyWriter.deleteKeyWithAssociations(key);
             } catch (NotFoundException e) {
                 logger.warn("Key with UUID '{}' could not be deleted because it was not found.", uuid);
             }
@@ -1009,7 +1018,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                 keyProviderAdapterFactory.forToken(key.tokenInstance()).destroyKeyItem(key, keyItem.reference());
             }
             deletedCount += cryptographicKeyWriter
-                    .deleteKeyItemsWithAssociations(List.of(keyItem.uuid()), List.of(parentKeyUuid));
+                    .deleteKeyItemsWithAssociations(List.of(keyItem.uuid()), List.of(key));
             evictKeyItemCache(keyItem.uuid());
         }
 
@@ -1551,7 +1560,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                 ? "Key item %s was destroyed remotely, but local finalization failed."
                 : "Local destruction of key item %s could not be completed.";
         try {
-            cryptographicKeyWriter.finalizeKeyItemDestruction(keyItem.uuid());
+            cryptographicKeyWriter.finalizeKeyItemDestruction(key, keyItem.uuid());
             failureMessage = "Key item %s was destroyed, but cache invalidation failed.";
             evictKeyItemCache(keyItem.uuid());
         } catch (Exception e) {

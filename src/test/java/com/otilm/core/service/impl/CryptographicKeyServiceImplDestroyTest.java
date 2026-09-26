@@ -40,6 +40,7 @@ import static com.otilm.core.util.builders.CryptographicKeyBuilder.aCryptographi
 import static com.otilm.core.util.builders.CryptographicKeyItemBuilder.aKeyItem;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -98,7 +99,7 @@ class CryptographicKeyServiceImplDestroyTest {
         // then
         ValidationException failure = assertThrows(ValidationException.class, destroy);
         assertFailureSummary(failure, operation, sensitiveFailure);
-        verify(writer, never()).finalizeKeyItemDestruction(firstItem.getUuid());
+        verify(writer, never()).finalizeKeyItemDestruction(any(), eq(firstItem.getUuid()));
         verifyCompletedRemainder(operation);
     }
 
@@ -118,7 +119,7 @@ class CryptographicKeyServiceImplDestroyTest {
         assertFailureSummary(failure, operation);
         assertThat(failure.getMessage()).contains(forbiddenState.getLabel());
         verify(adapter, never()).destroyKeyItem(model(firstParent), model(firstItem).reference());
-        verify(writer, never()).finalizeKeyItemDestruction(firstItem.getUuid());
+        verify(writer, never()).finalizeKeyItemDestruction(any(), eq(firstItem.getUuid()));
         verifyCompletedRemainder(operation);
     }
 
@@ -130,7 +131,7 @@ class CryptographicKeyServiceImplDestroyTest {
         String sensitiveFailure = "SQL insert into key_event_history failed for internal_column";
         doThrow(new IllegalStateException(sensitiveFailure))
                 .when(writer)
-                .finalizeKeyItemDestruction(firstItem.getUuid());
+                .finalizeKeyItemDestruction(any(), eq(firstItem.getUuid()));
 
         // when
         Executable destroy = () -> destroy(operation);
@@ -174,7 +175,7 @@ class CryptographicKeyServiceImplDestroyTest {
         loadParents();
         doThrow(new IllegalStateException(sensitiveFailure))
                 .when(writer)
-                .finalizeKeyItemDestruction(firstItem.getUuid());
+                .finalizeKeyItemDestruction(any(), eq(firstItem.getUuid()));
 
         // when
         Executable destroy = () -> destroy(Operation.SELECTED_ITEMS);
@@ -183,7 +184,7 @@ class CryptographicKeyServiceImplDestroyTest {
         ValidationException failure = assertThrows(ValidationException.class, destroy);
         assertFailureSummary(failure, Operation.SELECTED_ITEMS, sensitiveFailure);
         assertThat(failure.getMessage()).doesNotContain("destroyed remotely");
-        verify(writer).finalizeKeyItemDestruction(siblingItem.getUuid());
+        verify(writer).finalizeKeyItemDestruction(any(), eq(siblingItem.getUuid()));
         verify(cache).evict(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE, siblingItem.getUuid());
         verifyNoInteractions(adapter);
     }
@@ -203,7 +204,7 @@ class CryptographicKeyServiceImplDestroyTest {
         ValidationException failure = assertThrows(ValidationException.class, destroy);
         assertFailureSummary(failure, Operation.SELECTED_ITEMS, sensitiveFailure);
         assertThat(failure.getMessage()).contains("was destroyed", "cache invalidation failed");
-        verify(writer).finalizeKeyItemDestruction(firstItem.getUuid());
+        verify(writer).finalizeKeyItemDestruction(any(), eq(firstItem.getUuid()));
         verifyCompletedRemainder(Operation.SELECTED_ITEMS);
     }
 
@@ -234,8 +235,8 @@ class CryptographicKeyServiceImplDestroyTest {
                         laterParentItem.getUuid().toString(),
                         "Successfully destroyed key items in this batch: %d.".formatted(completedItemsAcrossParents))
                 .doesNotContain(sensitiveFailure);
-        verify(writer).finalizeKeyItemDestruction(siblingItem.getUuid());
-        verify(writer).finalizeKeyItemDestruction(thirdParentItem.getUuid());
+        verify(writer).finalizeKeyItemDestruction(any(), eq(siblingItem.getUuid()));
+        verify(writer).finalizeKeyItemDestruction(any(), eq(thirdParentItem.getUuid()));
         verify(cache).evict(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE, siblingItem.getUuid());
         verify(cache).evict(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE, thirdParentItem.getUuid());
     }
@@ -252,7 +253,7 @@ class CryptographicKeyServiceImplDestroyTest {
         // then
         verifyCompletedRemainder(Operation.SELECTED_ITEMS);
         verify(adapter).destroyKeyItem(model(firstParent), model(firstItem).reference());
-        verify(writer).finalizeKeyItemDestruction(firstItem.getUuid());
+        verify(writer).finalizeKeyItemDestruction(any(), eq(firstItem.getUuid()));
         verify(cache).evict(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE, firstItem.getUuid());
         verifyNoMoreInteractions(adapter, writer, cache);
     }
@@ -270,14 +271,14 @@ class CryptographicKeyServiceImplDestroyTest {
         destroy(operation);
 
         // then
-        verify(writer).finalizeKeyItemDestruction(firstItem.getUuid());
-        verify(writer).finalizeKeyItemDestruction(siblingItem.getUuid());
+        verify(writer).finalizeKeyItemDestruction(any(), eq(firstItem.getUuid()));
+        verify(writer).finalizeKeyItemDestruction(any(), eq(siblingItem.getUuid()));
         for (CryptographicKeyItem item : selectedItems(operation)) {
             verify(adapter).destroyKeyItem(model(item.getKey()), model(item).reference());
             verify(cache).evict(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE, item.getUuid());
         }
         if (operation != Operation.SELECTED_ITEMS) {
-            verify(writer).finalizeKeyItemDestruction(laterParentItem.getUuid());
+            verify(writer).finalizeKeyItemDestruction(any(), eq(laterParentItem.getUuid()));
         }
     }
 
@@ -365,7 +366,7 @@ class CryptographicKeyServiceImplDestroyTest {
     private void verifyCompletedRemainder(Operation operation) throws Exception {
         for (CryptographicKeyItem item : selectedItems(operation).subList(1, selectedItems(operation).size())) {
             verify(adapter).destroyKeyItem(model(item.getKey()), model(item).reference());
-            verify(writer).finalizeKeyItemDestruction(item.getUuid());
+            verify(writer).finalizeKeyItemDestruction(any(), eq(item.getUuid()));
             verify(cache).evict(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE, item.getUuid());
         }
     }

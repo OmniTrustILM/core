@@ -4,6 +4,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.util.Base64;
+import java.util.UUID;
 import org.bouncycastle.asn1.DERNull;
 import org.bouncycastle.asn1.nist.NISTObjectIdentifiers;
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
@@ -50,6 +51,13 @@ public final class ExportEnvelopeFixtures {
     public static String keyPairResponseJson(byte[] envelope, KeyAlgorithm algorithm, int length, PublicKey publicKey) {
         return responseJson(envelope, "Public", algorithm, length,
                 ",\"publicKeySpki\":\"" + Base64.getEncoder().encodeToString(publicKey.getEncoded()) + "\"");
+    }
+
+    /** The connector's export answer for a key pair it reads the platform's reference from, as JSON. */
+    public static String keyPairResponseJson(byte[] envelope, KeyAlgorithm algorithm, int length, PublicKey publicKey,
+            UUID keyReference) {
+        String answer = keyPairResponseJson(envelope, algorithm, length, publicKey);
+        return answer.substring(0, answer.length() - 1) + ",\"keyReference\":\"" + keyReference + "\"}";
     }
 
     /** The connector's export answer for a secret key, as JSON. */

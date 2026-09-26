@@ -7,7 +7,7 @@ import java.util.UUID;
 import org.springframework.stereotype.Repository;
 
 @Repository
-public interface CertificateRequestRepository extends SecurityFilterRepository<CertificateRequestEntity, UUID> {
+public interface CertificateRequestRepository extends ComplianceSubjectRepository<CertificateRequestEntity> {
 
     Optional<CertificateRequestEntity> findByUuid(final UUID uuid);
 

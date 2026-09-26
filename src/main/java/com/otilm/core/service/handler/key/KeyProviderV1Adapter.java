@@ -22,6 +22,7 @@ import com.otilm.api.model.client.cryptography.operations.VerificationResponseDa
 import com.otilm.api.model.client.cryptography.operations.VerifyDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.VerifyDataResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
@@ -37,8 +38,11 @@ import com.otilm.core.attribute.RsaSignatureAttributes;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
+import com.otilm.core.key.normalization.NormalizedKey;
 import com.otilm.core.model.crypto.CryptographicKeyFullModel;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
+import com.otilm.core.model.crypto.KeyImportAttempt;
+import com.otilm.core.model.crypto.KeyImportTerms;
 import com.otilm.core.model.crypto.KeyMaterial;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.RemoteKeyReference;
@@ -199,6 +203,33 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
             List<RequestAttribute> attributes) {
         throw new ValidationException(
                 ValidationError.create("Key export is not part of the v1 cryptography provider contract."));
+    }
+
+    @Override
+    public ImportAnswer importKey(KeyImportTerms terms, KeyImportAttempt attempt, NormalizedKey key, String keyName) {
+        throw importNotSupported();
+    }
+
+    @Override
+    public ImportAnswer importKeyStatus(TokenProfileFullModel tokenProfile, List<MetadataAttribute> operationMeta,
+            List<String> secretDigests, String keyName) {
+        throw importNotSupported();
+    }
+
+    @Override
+    public ImportAnswer importKeyResult(TokenProfileFullModel tokenProfile, UUID keyImportId,
+            List<String> secretDigests, String keyName) {
+        throw importNotSupported();
+    }
+
+    @Override
+    public boolean cancelImportKey(List<MetadataAttribute> operationMeta) {
+        throw importNotSupported();
+    }
+
+    private static ValidationException importNotSupported() {
+        return new ValidationException(
+                ValidationError.create("Key import is not part of the v1 cryptography provider contract."));
     }
 
     @Override
