@@ -1,7 +1,6 @@
 package com.otilm.core.service.handler;
 
 import com.otilm.core.model.crypto.KeyImportCheck;
-import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -14,7 +13,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class KeyImportSweeper {
 
-    private static final int MAX_ATTEMPTS_PER_RUN = 500;
+    private static final int MAX_CLAIMS_PER_RUN = 500;
 
     private static final Logger logger = LoggerFactory.getLogger(KeyImportSweeper.class);
 
@@ -26,14 +25,16 @@ public class KeyImportSweeper {
         this.reconciler = reconciler;
     }
 
-    /** Reconciles the due attempts one by one, up to a bound per run, each attempt on its own. */
+    /** Reconciles the due attempts one by one, up to a bound of claims per run, each attempt on its own. */
     public void sweep() {
-        for (int looked = 0; looked < MAX_ATTEMPTS_PER_RUN; looked++) {
-            Optional<KeyImportCheck> claimed = claimer.claimNext();
-            if (claimed.isEmpty()) {
+        for (int claims = 0; claims < MAX_CLAIMS_PER_RUN; claims++) {
+            KeyImportClaim claim = claimer.claimNext();
+            if (claim instanceof KeyImportClaim.Nothing) {
                 return;
             }
-            reconcile(claimed.get());
+            if (claim instanceof KeyImportClaim.Claimed(KeyImportCheck check)) {
+                reconcile(check);
+            }
         }
     }
 

@@ -34,6 +34,7 @@ import com.otilm.core.model.crypto.KeyImportCheck;
 import com.otilm.core.model.crypto.KeyImportTerms;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.service.ResourceObjectAssociationService;
+import com.otilm.core.service.handler.KeyImportClaim;
 import com.otilm.core.service.handler.KeyImportClaimer;
 import com.otilm.core.service.handler.KeyImportReconciler;
 import com.otilm.core.service.handler.KeyImportSaga;
@@ -47,7 +48,6 @@ import java.security.KeyPair;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -368,7 +368,7 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
     void reconcile_leavesAnImportARetryRegisteredMeanwhile() throws Exception {
         // given
         KeyImportAttempt attempt = dueAttempt();
-        KeyImportCheck check = claimer.claimNext().orElseThrow();
+        KeyImportCheck check = claimed();
         keyImportWriter.complete(attempt.uuid(), KeyImportWriterITest.registration(profile, pair, attempt, Set.of()));
         connectorMock.stubImportKeyResult(status(OperationStatus.COMPLETED));
         connectorMock.stubDestroyKey();
@@ -395,10 +395,10 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
         KeyImportAttempt next = dueAttempt(KeyImportWriterITest.rsa());
 
         // when
-        Optional<KeyImportCheck> claimed = claimer.claimNext();
+        KeyImportCheck claimed = claimed();
 
         // then
-        assertThat(claimed).map(check -> check.attempt().uuid()).contains(longest.uuid());
+        assertThat(claimed.attempt().uuid()).isEqualTo(longest.uuid());
         assertThat(keyImportRepository.findById(next.uuid()).orElseThrow().getNextCheckAt())
                 .isBefore(OffsetDateTime.now());
     }
@@ -424,7 +424,7 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
     void reconcile_leavesAnImportARetrySentAgainAfterTheClaim() throws Exception {
         // given
         KeyImportAttempt attempt = dueAttempt();
-        KeyImportCheck check = claimer.claimNext().orElseThrow();
+        KeyImportCheck check = claimed();
         keyImportWriter.resending(attempt.uuid(), List.of("resent-secret-digest"));
         connectorMock.stubImportKeyResult(status(OperationStatus.COMPLETED));
         connectorMock.stubDestroyKey();
@@ -444,7 +444,7 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
     void reconcile_leavesAnImportThatEndedWithoutAKeyToARetrySendingItAgain() throws Exception {
         // given
         KeyImportAttempt attempt = dueAttempt();
-        KeyImportCheck check = claimer.claimNext().orElseThrow();
+        KeyImportCheck check = claimed();
         keyImportWriter.resending(attempt.uuid(), List.of("resent-secret-digest"));
         connectorMock.stubImportKeyResult(status(OperationStatus.FAILED));
 
@@ -462,7 +462,7 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
     void reconcile_leavesAnImportARequestResumedAfterTheClaim() throws Exception {
         // given
         KeyImportAttempt attempt = dueAttempt();
-        KeyImportCheck check = claimer.claimNext().orElseThrow();
+        KeyImportCheck check = claimed();
         keyImportWriter.resuming(attempt.uuid());
         connectorMock.stubImportKeyResult(status(OperationStatus.COMPLETED));
         connectorMock.stubDestroyKey();
@@ -477,6 +477,29 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
         connectorMock.verifyDestroyKeyRequests(0);
     }
 
+    /** A page of unresolved attempts closed is no end of the work: an import due behind them is still asked about. */
+    @Test
+    void sweep_reachesAnImportDueBehindAPageOfUnresolvedOnes() throws Exception {
+        // given
+        for (int opened = 0; opened <= KeyImportClaimer.LOOK_AHEAD; opened++) {
+            keyImportWriter.open(terms("fingerprint-" + opened), "retry-" + opened, "imported key", SENT);
+        }
+        jdbcTemplate
+                .update("UPDATE key_import SET created_at = now() - interval '21 hours', "
+                        + "last_sent_at = now() - interval '21 hours', next_check_at = now() - interval '10 minutes'");
+        KeyImportAttempt due = dueAttempt();
+        connectorMock.stubImportKeyResultNotTracked();
+
+        // when
+        sweep();
+
+        // then
+        assertThat(keyImportRepository.findById(due.uuid()).orElseThrow().getState()).isEqualTo(KeyImportState.FAILED);
+        assertThat(jdbcTemplate
+                .queryForObject("SELECT count(*) FROM key_import WHERE state = 'UNRESOLVED'", Integer.class))
+                .isEqualTo(KeyImportClaimer.LOOK_AHEAD + 1);
+    }
+
     /** Unresolved attempts are closed a page at a time, so a backlog of them never outgrows one claim. */
     @Test
     void claimNext_closesAPageOfUnresolvedAttemptsAtATime() {
@@ -489,10 +512,10 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
                         + "last_sent_at = now() - interval '21 hours', next_check_at = now() - interval '1 minute'");
 
         // when
-        Optional<KeyImportCheck> claimed = claimer.claimNext();
+        KeyImportClaim claim = claimer.claimNext();
 
         // then
-        assertThat(claimed).isEmpty();
+        assertThat(claim).isInstanceOf(KeyImportClaim.Closed.class);
         assertThat(jdbcTemplate
                 .queryForObject("SELECT count(*) FROM key_import WHERE state = 'UNRESOLVED'", Integer.class))
                 .isEqualTo(KeyImportClaimer.LOOK_AHEAD);
@@ -505,14 +528,14 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
         TransactionTemplate otherNode = new TransactionTemplate(transactionManager);
         try (ExecutorService node = Executors.newSingleThreadExecutor()) {
             // when
-            Optional<KeyImportCheck> claimed = otherNode.execute(status -> {
+            KeyImportClaim claim = otherNode.execute(status -> {
                 assertThat(clusterSynchronizer.tryLock(ClusterOperationSynchronizer.Operation.KEY_IMPORT_SWEEP))
                         .isTrue();
                 return answer(node.submit(() -> claimer.claimNext()));
             });
 
             // then
-            assertThat(claimed).isEmpty();
+            assertThat(claim).isInstanceOf(KeyImportClaim.Nothing.class);
         }
     }
 
@@ -524,10 +547,10 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
         TransactionTemplate retry = new TransactionTemplate(transactionManager);
         try (ExecutorService sweeping = Executors.newSingleThreadExecutor()) {
             // when
-            Future<Optional<KeyImportCheck>> claimed = retry.execute(status -> {
+            Future<KeyImportClaim> claimed = retry.execute(status -> {
                 keyImportWriter.resending(attempt.uuid(), List.of("resent-secret-digest"));
                 int retryPid = jdbcTemplate.queryForObject("SELECT pg_backend_pid()", Integer.class);
-                Future<Optional<KeyImportCheck>> claim = sweeping.submit(() -> claimer.claimNext());
+                Future<KeyImportClaim> claim = sweeping.submit(() -> claimer.claimNext());
                 Awaitility
                         .await()
                         .atMost(Duration.ofSeconds(10))
@@ -539,8 +562,15 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
             });
 
             // then
-            assertThat(claimed.get(10, TimeUnit.SECONDS)).isEmpty();
+            assertThat(claimed.get(10, TimeUnit.SECONDS)).isInstanceOf(KeyImportClaim.Nothing.class);
         }
+    }
+
+    private KeyImportCheck claimed() {
+        if (claimer.claimNext() instanceof KeyImportClaim.Claimed(KeyImportCheck check)) {
+            return check;
+        }
+        throw new AssertionError("No key import was claimed.");
     }
 
     /** Sweeps as the scheduler does, with no user signed in. */

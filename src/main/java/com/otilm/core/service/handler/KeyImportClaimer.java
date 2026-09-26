@@ -10,7 +10,6 @@ import com.otilm.core.service.writer.KeyImportWriter;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Arrays;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
@@ -58,28 +57,30 @@ public class KeyImportClaimer {
      * answer about them would prove nothing; a claim looks at most {@link #LOOK_AHEAD} due attempts. Nothing is claimed
      * while another node claims.
      *
-     * @return the claimed attempt, to be reconciled once this claim has committed, or nothing when none is due among
-     * those it looked at
+     * @return the attempt claimed, to be reconciled once this claim has committed; otherwise whether it closed attempts
+     * as unresolved, so that more may be due behind them, or found nothing due
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public Optional<KeyImportCheck> claimNext() {
+    public KeyImportClaim claimNext() {
         if (!clusterSynchronizer.tryLock(ClusterOperationSynchronizer.Operation.KEY_IMPORT_SWEEP)) {
             logger.debug("Key import reconciliation skipped: another instance holds the lock");
-            return Optional.empty();
+            return new KeyImportClaim.Nothing();
         }
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        KeyImportClaim found = new KeyImportClaim.Nothing();
         for (KeyImport due : keyImportRepository
                 .findForUpdateByStateInAndNextCheckAtLessThanEqualOrderByNextCheckAt(UNSETTLED, now,
                         PageRequest.of(0, LOOK_AHEAD))) {
             if (due.getLastSentAt().plus(properties.unresolvedAfter()).isAfter(now)) {
                 keyImportWriter.reschedule(due.getUuid(), now.plus(properties.retryWindow()));
-                return Optional.of(KeyImportCheck.of(due));
+                return new KeyImportClaim.Claimed(KeyImportCheck.of(due));
             }
             keyImportWriter.unresolved(due.getUuid(), UNRESOLVED);
             logger
                     .warn("Key import {} is unresolved; key reference {} identifies its key in token instance {}",
                             due.getUuid(), due.getKeyReference(), due.getTokenInstanceUuid());
+            found = new KeyImportClaim.Closed();
         }
-        return Optional.empty();
+        return found;
     }
 }
