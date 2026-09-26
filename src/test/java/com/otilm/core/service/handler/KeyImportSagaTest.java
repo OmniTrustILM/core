@@ -107,7 +107,7 @@ class KeyImportSagaTest {
                 new NameAndUuidDto(UUID.randomUUID().toString(), "requester"));
         metadata = new KeyImportMetadata("imported key", null, Set.of(), List.of());
         attempt = new KeyImportAttempt(UUID.randomUUID(), UUID.randomUUID(), KeyImportState.REQUESTED, null,
-                OffsetDateTime.now(), SENT);
+                OffsetDateTime.now(), SENT, null);
         when(cryptographicKeyRepository.findByName(anyString())).thenReturn(Optional.empty());
         when(cryptographicKeyWriter.adoptablePublicKey("fingerprint")).thenReturn(Optional.empty());
         when(keyImportRepository.findFirstByIdempotencyKeyAndStateInOrderByCreatedAtDesc(eq(RETRY), any()))
@@ -333,7 +333,7 @@ class KeyImportSagaTest {
         when(adapter.importKeyResult(terms.profile(), attempt.uuid(), SENT, "imported key"))
                 .thenReturn(new ImportAnswer.NotAccepted());
         KeyImportAttempt resent = new KeyImportAttempt(attempt.uuid(), attempt.keyReference(), KeyImportState.REQUESTED,
-                null, attempt.createdAt(), keyDigests);
+                null, attempt.createdAt(), keyDigests, null);
         when(keyImportWriter.resending(attempt.uuid(), keyDigests)).thenReturn(Optional.of(resent));
         when(adapter.importKey(terms, resent, key, "imported key")).thenReturn(imported(key.subjectPublicKeyInfo()));
 
@@ -367,7 +367,7 @@ class KeyImportSagaTest {
     void importKey_startsAfreshWhenTheOpenAttemptImportedNothing() throws Exception {
         // given
         KeyImportAttempt stale = new KeyImportAttempt(UUID.randomUUID(), UUID.randomUUID(), KeyImportState.ACCEPTED,
-                HANDLE, OffsetDateTime.now(), SENT);
+                HANDLE, OffsetDateTime.now(), SENT, null);
         openAttempt(stale);
         when(adapter.importKeyResult(terms.profile(), stale.uuid(), SENT, "imported key"))
                 .thenReturn(new ImportAnswer.NotImported());
@@ -385,7 +385,7 @@ class KeyImportSagaTest {
     void importKey_waitsOnAnOpenAttemptByItsStoredHandle() throws Exception {
         // given
         KeyImportAttempt accepted = new KeyImportAttempt(UUID.randomUUID(), UUID.randomUUID(), KeyImportState.ACCEPTED,
-                HANDLE, OffsetDateTime.now(), SENT);
+                HANDLE, OffsetDateTime.now(), SENT, null);
         openAttempt(accepted);
         when(adapter.importKeyResult(terms.profile(), accepted.uuid(), SENT, "imported key"))
                 .thenReturn(new ImportAnswer.Running(null));
@@ -431,6 +431,21 @@ class KeyImportSagaTest {
         // then
         assertThat(result.key()).isSameAs(registered);
         verify(adapter, never()).importKey(any(), any(), any(), any());
+    }
+
+    /** A request at the attempt again owns it for another retry window, whether it sends it again or not. */
+    @Test
+    void importKey_takesTheAttemptItResumesForTheRetryWindow() throws Exception {
+        // given
+        openAttempt(attempt);
+        when(adapter.importKeyResult(terms.profile(), attempt.uuid(), SENT, "imported key"))
+                .thenReturn(imported(key.subjectPublicKeyInfo()));
+
+        // when
+        saga.importKey(terms, RETRY, key, metadata);
+
+        // then
+        verify(keyImportWriter).resuming(attempt.uuid());
     }
 
     /** The key in the token is not the key in the file, so the reconciliation is to destroy it at once. */
@@ -583,7 +598,7 @@ class KeyImportSagaTest {
     void importKey_doesNotSendAgainAnAttemptTheConnectorMayNoLongerRecord() throws Exception {
         // given
         KeyImportAttempt old = new KeyImportAttempt(UUID.randomUUID(), UUID.randomUUID(), KeyImportState.REQUESTED,
-                null, OffsetDateTime.now().minusHours(21), SENT);
+                null, OffsetDateTime.now().minusHours(21), SENT, null);
         openAttempt(old);
         when(adapter.importKeyResult(terms.profile(), old.uuid(), SENT, "imported key"))
                 .thenReturn(new ImportAnswer.NotAccepted());

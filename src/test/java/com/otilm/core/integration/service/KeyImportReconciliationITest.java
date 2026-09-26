@@ -258,7 +258,6 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
     void sweep_keepsUndoingAKeyTheConnectorNoLongerKnows() throws Exception {
         // given
         KeyImportAttempt attempt = dueAttempt();
-        keyImportWriter.compensating(attempt);
         connectorMock.stubImportKeyResult(status(OperationStatus.COMPLETED));
         connectorMock.stubDestroyKeyProblem(ErrorCode.RESOURCE_NOT_FOUND);
 
@@ -456,6 +455,26 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
         // then
         assertThat(keyImportRepository.findById(attempt.uuid()).orElseThrow().getState())
                 .isEqualTo(KeyImportState.REQUESTED);
+    }
+
+    /** A request resumed the import after the claim, so the request, not the claim's answer, settles it. */
+    @Test
+    void reconcile_leavesAnImportARequestResumedAfterTheClaim() throws Exception {
+        // given
+        KeyImportAttempt attempt = dueAttempt();
+        KeyImportCheck check = claimer.claimNext().orElseThrow();
+        keyImportWriter.resuming(attempt.uuid());
+        connectorMock.stubImportKeyResult(status(OperationStatus.COMPLETED));
+        connectorMock.stubDestroyKey();
+
+        // when
+        SecurityContextHolder.clearContext();
+        reconciler.reconcile(check);
+
+        // then
+        assertThat(keyImportRepository.findById(attempt.uuid()).orElseThrow().getState())
+                .isEqualTo(KeyImportState.REQUESTED);
+        connectorMock.verifyDestroyKeyRequests(0);
     }
 
     /** Unresolved attempts are closed a page at a time, so a backlog of them never outgrows one claim. */

@@ -281,8 +281,8 @@ class KeyProviderV2AdapterImportTest {
         });
         KeyImportTerms terms = terms(List.of(FeatureFlag.KEY_IMPORT), false);
         KeyImportAttempt resent = new KeyImportAttempt(UUID.randomUUID(), UUID.randomUUID(), KeyImportState.REQUESTED,
-                null, OffsetDateTime.now(),
-                OutboundSecretContainment.digestsOf(Set.of("earlier-transport-passphrase")));
+                null, OffsetDateTime.now(), OutboundSecretContainment.digestsOf(Set.of("earlier-transport-passphrase")),
+                null);
         NormalizedKey key = normalizedKey();
 
         // when
@@ -697,7 +697,7 @@ class KeyProviderV2AdapterImportTest {
 
     private KeyImportAttempt attempt() {
         return new KeyImportAttempt(UUID.randomUUID(), UUID.randomUUID(), KeyImportState.REQUESTED, null,
-                OffsetDateTime.now(), sentSecretDigests());
+                OffsetDateTime.now(), sentSecretDigests(), null);
     }
 
     private NormalizedKey normalizedKey() {

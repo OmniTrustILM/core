@@ -433,6 +433,38 @@ class KeyImportWriterITest extends BaseSpringBootTest {
     }
 
     @Test
+    void resuming_leavesTheAttemptToTheRequestForAnotherRetryWindow() {
+        // given
+        KeyImportAttempt attempt = keyImportWriter.open(terms("fingerprint-w", false), "retry-w", "key", SENT);
+        keyImportWriter.dueNow(attempt.uuid());
+        OffsetDateTime before = OffsetDateTime.now();
+
+        // when
+        keyImportWriter.resuming(attempt.uuid());
+
+        // then
+        assertThat(keyImportRepository.findById(attempt.uuid()).orElseThrow().getNextCheckAt())
+                .isAfterOrEqualTo(before.plusMinutes(15).truncatedTo(ChronoUnit.MICROS))
+                .isBefore(OffsetDateTime.now().plusMinutes(15).plusSeconds(1));
+    }
+
+    /** A request resumed the attempt after its claim, and may be registering its key now. */
+    @Test
+    void compensating_leavesAnAttemptARequestResumedSinceItsClaim() {
+        // given
+        KeyImportAttempt claimed = keyImportWriter.open(terms("fingerprint-x", false), "retry-x", "key", SENT);
+        keyImportWriter.resuming(claimed.uuid());
+
+        // when
+        boolean taken = keyImportWriter.compensating(claimed);
+
+        // then
+        assertThat(taken).isFalse();
+        assertThat(keyImportRepository.findById(claimed.uuid()).orElseThrow().getState())
+                .isEqualTo(KeyImportState.REQUESTED);
+    }
+
+    @Test
     void compensated_settlesOnlyACompensatingAttempt() {
         // given
         KeyImportAttempt open = keyImportWriter.open(terms("fingerprint-l", false), "retry-l", "key", SENT);

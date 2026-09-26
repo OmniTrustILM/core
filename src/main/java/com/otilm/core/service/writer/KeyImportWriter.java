@@ -21,6 +21,7 @@ import com.otilm.core.model.crypto.KeyImportAttempt;
 import com.otilm.core.model.crypto.KeyImportTerms;
 import jakarta.persistence.EntityManager;
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -103,16 +104,16 @@ public class KeyImportWriter {
     }
 
     /**
-     * Closes an attempt as it was read, unless a request claimed it for a send since, as the digests it added show:
-     * that send's answer settles the attempt instead. A request closes this way an attempt it opened and never sent,
-     * and the reconciliation one the connector answered about after it claimed it.
+     * Closes an attempt as it was read, unless a request took it since, to send it again or to resume it: that request
+     * settles the attempt instead. A request closes this way an attempt it opened and never sent, and the
+     * reconciliation one the connector answered about after it claimed it.
      *
      * @param read the attempt as the caller read it
      */
     @Transactional(rollbackFor = Exception.class)
     public void failUnsent(KeyImportAttempt read, String errorMessage) {
         KeyImport attempt = locked(read.uuid());
-        if (attempt.getState().isOpen() && attempt.getSecretDigests().equals(read.secretDigests())) {
+        if (attempt.getState().isOpen() && untakenSince(attempt, read)) {
             attempt.setState(KeyImportState.FAILED);
             attempt.setErrorMessage(errorMessage);
         }
@@ -166,8 +167,9 @@ public class KeyImportWriter {
     /**
      * Takes an open attempt for the reconciliation to undo, before it destroys the key the requester was never answered
      * with; a retry then finds the attempt closed. An attempt already taken is taken again, so a later look finishes
-     * what an earlier one started. An attempt sent again since it was claimed is left to that send, whose secrets the
-     * claim's answer was not checked against.
+     * what an earlier one started. An attempt a request took since it was claimed is left to that request: one that
+     * sent it again carried secrets the claim's answer was not checked against, and one that resumed it may be
+     * registering its key.
      *
      * @param claimed the attempt as the reconciliation claimed it
      * @return whether the attempt is the reconciliation's to undo
@@ -175,7 +177,7 @@ public class KeyImportWriter {
     @Transactional(rollbackFor = Exception.class)
     public boolean compensating(KeyImportAttempt claimed) {
         KeyImport attempt = locked(claimed.uuid());
-        if (!attempt.getSecretDigests().equals(claimed.secretDigests())) {
+        if (!untakenSince(attempt, claimed)) {
             return false;
         }
         if (attempt.getState().isOpen()) {
@@ -241,17 +243,40 @@ public class KeyImportWriter {
         schedule(locked(attemptUuid), OffsetDateTime.now());
     }
 
+    /**
+     * Leaves an open attempt a request is at again to that request for another retry window, as a send does, so the
+     * reconciliation does not undo it meanwhile.
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void resuming(UUID attemptUuid) {
+        KeyImport attempt = locked(attemptUuid);
+        if (attempt.getState().isOpen()) {
+            attempt.setNextCheckAt(now().plus(properties.retryWindow()));
+        }
+    }
+
     /** Records a send, which leaves the attempt to its requester for a retry window. */
     private void sent(KeyImport attempt) {
-        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime now = now();
         attempt.setLastSentAt(now);
         attempt.setNextCheckAt(now.plus(properties.retryWindow()));
     }
 
     private static void schedule(KeyImport attempt, OffsetDateTime nextCheckAt) {
         if (attempt.getState().isUnsettled()) {
-            attempt.setNextCheckAt(nextCheckAt);
+            attempt.setNextCheckAt(nextCheckAt.truncatedTo(ChronoUnit.MICROS));
         }
+    }
+
+    /** Whether nobody took the attempt since it was read: a send adds digests, and every taker moves its next look. */
+    private static boolean untakenSince(KeyImport attempt, KeyImportAttempt read) {
+        return attempt.getSecretDigests().equals(read.secretDigests())
+                && attempt.getNextCheckAt().isEqual(read.nextCheckAt());
+    }
+
+    /** Now, as precisely as the database keeps it, so a time read back equals the one written. */
+    private static OffsetDateTime now() {
+        return OffsetDateTime.now().truncatedTo(ChronoUnit.MICROS);
     }
 
     /** The key as the database holds it now, while it still exists. */

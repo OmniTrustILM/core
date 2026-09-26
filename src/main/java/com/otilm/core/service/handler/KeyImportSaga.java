@@ -143,6 +143,7 @@ public class KeyImportSaga {
             return Optional.empty();
         }
         KeyImportAttempt attempt = open.get();
+        keyImportWriter.resuming(attempt.uuid());
         ImportAnswer recorded = polled(call, attempt, null);
         if (recorded instanceof ImportAnswer.NotAccepted) {
             if (pastRetention(attempt)) {

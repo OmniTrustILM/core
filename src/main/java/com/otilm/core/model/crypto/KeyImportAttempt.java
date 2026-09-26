@@ -16,12 +16,16 @@ import java.util.UUID;
  * @param operationMeta the connector's handle for an import it runs asynchronously, or {@code null}
  * @param createdAt when the attempt was recorded
  * @param secretDigests the digests of the secrets the attempt was sent with, which no answer about it may carry back
+ * @param nextCheckAt when the reconciliation next looks at the attempt, which a request or the reconciliation moves
+ * when it takes the attempt
  */
 public record KeyImportAttempt(UUID uuid, UUID keyReference, KeyImportState state,
-        List<MetadataAttribute> operationMeta, OffsetDateTime createdAt, List<String> secretDigests) {
+        List<MetadataAttribute> operationMeta, OffsetDateTime createdAt, List<String> secretDigests,
+        OffsetDateTime nextCheckAt) {
 
     public static KeyImportAttempt of(KeyImport attempt) {
         return new KeyImportAttempt(attempt.getUuid(), attempt.getKeyReference(), attempt.getState(),
-                attempt.getOperationMeta(), attempt.getCreatedAt(), attempt.getSecretDigests());
+                attempt.getOperationMeta(), attempt.getCreatedAt(), attempt.getSecretDigests(),
+                attempt.getNextCheckAt());
     }
 }
