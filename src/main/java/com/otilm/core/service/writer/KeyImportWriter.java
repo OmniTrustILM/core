@@ -77,7 +77,7 @@ public class KeyImportWriter {
         attempt.setExportable(terms.exportable());
         attempt.setState(KeyImportState.REQUESTED);
         attempt.setSecretDigests(secretDigests);
-        attempt.setNextCheckAt(OffsetDateTime.now().plus(properties.retryWindow()));
+        sent(attempt);
         return KeyImportAttempt.of(keyImportRepository.saveAndFlush(attempt));
     }
 
@@ -98,7 +98,7 @@ public class KeyImportWriter {
         attempt
                 .setSecretDigests(
                         Stream.concat(attempt.getSecretDigests().stream(), secretDigests.stream()).distinct().toList());
-        attempt.setNextCheckAt(OffsetDateTime.now().plus(properties.retryWindow()));
+        sent(attempt);
         return Optional.of(KeyImportAttempt.of(attempt));
     }
 
@@ -236,6 +236,13 @@ public class KeyImportWriter {
     @Transactional(rollbackFor = Exception.class)
     public void dueNow(UUID attemptUuid) {
         schedule(locked(attemptUuid), OffsetDateTime.now());
+    }
+
+    /** Records a send, which leaves the attempt to its requester for a retry window. */
+    private void sent(KeyImport attempt) {
+        OffsetDateTime now = OffsetDateTime.now();
+        attempt.setLastSentAt(now);
+        attempt.setNextCheckAt(now.plus(properties.retryWindow()));
     }
 
     private static void schedule(KeyImport attempt, OffsetDateTime nextCheckAt) {

@@ -11,7 +11,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param pollInterval how long it waits between two questions
  * @param unresolvedAfter how long the outcome of an import can still be learned from its connector, which keeps a
  * record of it for at least 24 hours, so it has to be shorter; an older import the connector does not know is not sent
- * again
+ * again, and the reconciliation gives up on an import this long after it was last sent
  * @param retryWindow how long an import is left to its requester's retries after each send before the reconciliation
  * looks at it, and how long the reconciliation waits between two looks; it must outlast one look, which makes up to
  * three connector calls

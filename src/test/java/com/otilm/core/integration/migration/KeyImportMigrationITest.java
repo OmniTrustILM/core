@@ -137,6 +137,32 @@ class KeyImportMigrationITest extends BaseSpringBootTest {
         }
     }
 
+    /** The reconciliation gives up on an import a while after it was last sent, so every import knows when that was. */
+    @Test
+    void everyImportKnowsWhenItWasLastSent() throws Exception {
+        try (Connection connection = dataSource.getConnection()) {
+            try {
+                // given
+                applyMigration(connection);
+                insertAttempt(connection, "FAILED");
+
+                // when
+                runMigration(connection, RECONCILIATION_RESOURCE);
+                insertAttempt(connection, "REQUESTED");
+
+                // then
+                try (Statement statement = connection.createStatement();
+                        ResultSet rows = statement
+                                .executeQuery("SELECT count(*) FROM key_import WHERE last_sent_at = created_at")) {
+                    assertThat(rows.next()).isTrue();
+                    assertThat(rows.getInt(1)).isEqualTo(2);
+                }
+            } finally {
+                dropScratchSchema(connection);
+            }
+        }
+    }
+
     @Test
     void theReconciliationLooksOnlyAtImportsItHasToSettle() throws Exception {
         try (Connection connection = dataSource.getConnection()) {

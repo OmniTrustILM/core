@@ -206,6 +206,24 @@ class KeyImportWriterITest extends BaseSpringBootTest {
     }
 
     @Test
+    void resending_recordsWhenTheAttemptWasLastSent() {
+        // given
+        KeyImportAttempt attempt = keyImportWriter.open(terms("fingerprint-u", false), "retry-u", "key", SENT);
+        jdbcTemplate
+                .update("UPDATE key_import SET last_sent_at = now() - interval '1 hour' WHERE uuid = ?",
+                        attempt.uuid());
+        OffsetDateTime before = OffsetDateTime.now();
+
+        // when
+        keyImportWriter.resending(attempt.uuid(), List.of("resent-secret-digest"));
+
+        // then
+        assertThat(keyImportRepository.findById(attempt.uuid()).orElseThrow().getLastSentAt())
+                .isAfterOrEqualTo(before)
+                .isBeforeOrEqualTo(OffsetDateTime.now());
+    }
+
+    @Test
     void resending_leavesTheAttemptToItsRequesterForAnotherRetryWindow() {
         // given
         KeyImportAttempt attempt = keyImportWriter.open(terms("fingerprint-s", false), "retry-s", "key", SENT);

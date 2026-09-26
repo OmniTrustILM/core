@@ -300,8 +300,8 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
         // given
         KeyImportAttempt attempt = dueAttempt();
         jdbcTemplate
-                .update("UPDATE key_import SET created_at = now() - interval '21 hours' WHERE uuid = ?",
-                        attempt.uuid());
+                .update("UPDATE key_import SET created_at = now() - interval '21 hours', "
+                        + "last_sent_at = now() - interval '21 hours' WHERE uuid = ?", attempt.uuid());
 
         // when
         sweep();
@@ -311,6 +311,25 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
         assertThat(unresolved.getState()).isEqualTo(KeyImportState.UNRESOLVED);
         assertThat(unresolved.getErrorMessage()).isEqualTo(KeyImportClaimer.UNRESOLVED);
         connectorMock.verifyImportKeyResultRequests(0);
+    }
+
+    /** The connector keeps its record of the latest send, so an import sent again late in its life is asked about. */
+    @Test
+    void sweep_asksAboutAnImportSentAgainLateInItsLife() throws Exception {
+        // given
+        KeyImportAttempt attempt = dueAttempt();
+        jdbcTemplate
+                .update("UPDATE key_import SET created_at = now() - interval '20 hours 10 minutes', "
+                        + "last_sent_at = now() - interval '16 minutes' WHERE uuid = ?", attempt.uuid());
+        connectorMock.stubImportKeyResultNotTracked();
+
+        // when
+        sweep();
+
+        // then
+        assertThat(keyImportRepository.findById(attempt.uuid()).orElseThrow().getState())
+                .isEqualTo(KeyImportState.FAILED);
+        connectorMock.verifyImportKeyResultRequests(1);
     }
 
     /** The requester imported the key again meanwhile, so the key the connector would not destroy is held otherwise. */
@@ -422,7 +441,7 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
         }
         jdbcTemplate
                 .update("UPDATE key_import SET created_at = now() - interval '21 hours', "
-                        + "next_check_at = now() - interval '1 minute'");
+                        + "last_sent_at = now() - interval '21 hours', next_check_at = now() - interval '1 minute'");
 
         // when
         Optional<KeyImportCheck> claimed = claimer.claimNext();

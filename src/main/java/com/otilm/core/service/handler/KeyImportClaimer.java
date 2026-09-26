@@ -52,10 +52,10 @@ public class KeyImportClaimer {
     }
 
     /**
-     * Claims the attempt that has waited longest for a look, until a retry window from now. Attempts older than the
-     * connector is trusted to keep its records are closed as unresolved on the way, since the connector's answer about
-     * them would prove nothing; a claim looks at most {@link #LOOK_AHEAD} due attempts. Nothing is claimed while
-     * another node claims.
+     * Claims the attempt that has waited longest for a look, until a retry window from now. Attempts last sent longer
+     * ago than the connector is trusted to keep its records are closed as unresolved on the way, since the connector's
+     * answer about them would prove nothing; a claim looks at most {@link #LOOK_AHEAD} due attempts. Nothing is claimed
+     * while another node claims.
      *
      * @return the claimed attempt, to be reconciled once this claim has committed, or nothing when none is due among
      * those it looked at
@@ -70,7 +70,7 @@ public class KeyImportClaimer {
         for (KeyImport due : keyImportRepository
                 .findForUpdateByStateInAndNextCheckAtLessThanEqualOrderByNextCheckAt(UNSETTLED, now,
                         PageRequest.of(0, LOOK_AHEAD))) {
-            if (due.getCreatedAt().plus(properties.unresolvedAfter()).isAfter(now)) {
+            if (due.getLastSentAt().plus(properties.unresolvedAfter()).isAfter(now)) {
                 keyImportWriter.reschedule(due.getUuid(), now.plus(properties.retryWindow()));
                 return Optional.of(KeyImportCheck.of(due));
             }
