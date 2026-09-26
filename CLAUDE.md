@@ -167,6 +167,10 @@ This applies to PKI/CMP/SCEP `PKIFreeText`, ACME `error.detail`, REST API error 
 
 A connector's error text is its own words. On a call that carried a secret (a passphrase, key material), drop that text and report the failure with a fixed message, as `KeyProviderV2Adapter.sendExport` does: the connector may echo the secret back.
 
+## Uploaded key files are normalized in Core
+
+`KeyNormalizer` opens an uploaded key file in memory, derives the key's public key and protects the key afresh in the connector contract's pinned profile under a passphrase it generates, so neither the file nor the user's passphrase reaches a connector. Its refusals are fixed messages: what can be seen without the passphrase (the format, the protection scheme, a cost or nesting limit) is named, and every failure after decryption shares one message, so a refusal tells nothing about the passphrase. Cost limits are checked before any key is derived.
+
 ## Controllers reach services through `*ExternalService` interfaces
 
 `ExternalServiceAuthorizationArchTest` fails the build when a controller depends on a `*Service`, `*InternalService` or `*ServiceImpl` type directly. Give the interface a controller calls a name ending in `ExternalService`, keep it flat (no super-interfaces) with exactly one implementation, and put exactly one authorization annotation on each implementing method.
