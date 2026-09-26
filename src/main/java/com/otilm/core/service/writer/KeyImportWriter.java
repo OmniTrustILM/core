@@ -75,16 +75,35 @@ public class KeyImportWriter {
     }
 
     /**
-     * Adds the digests of the secrets an attempt is to be sent with again, before it is sent, so that an answer about
-     * it is checked against every copy the connector may have received.
+     * Claims an attempt for another send and adds the digests of the secrets it is to be sent with, before it is sent,
+     * so that an answer about it is checked against every copy the connector may have received. An attempt that closed
+     * meanwhile is not claimed.
+     *
+     * @return the claimed attempt, or nothing when it is no longer open
      */
     @Transactional(rollbackFor = Exception.class)
-    public KeyImportAttempt resending(UUID attemptUuid, List<String> secretDigests) {
+    public Optional<KeyImportAttempt> resending(UUID attemptUuid, List<String> secretDigests) {
         KeyImport attempt = locked(attemptUuid);
+        if (!attempt.getState().isOpen()) {
+            return Optional.empty();
+        }
         attempt
                 .setSecretDigests(
                         Stream.concat(attempt.getSecretDigests().stream(), secretDigests.stream()).distinct().toList());
-        return KeyImportAttempt.of(attempt);
+        return Optional.of(KeyImportAttempt.of(attempt));
+    }
+
+    /**
+     * Closes an attempt this request opened and never sent, unless another request claimed it for a send meanwhile, as
+     * the digests it added show: that send's answer settles the attempt instead.
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void failUnsent(KeyImportAttempt opened, String errorMessage) {
+        KeyImport attempt = locked(opened.uuid());
+        if (attempt.getState().isOpen() && attempt.getSecretDigests().equals(opened.secretDigests())) {
+            attempt.setState(KeyImportState.FAILED);
+            attempt.setErrorMessage(errorMessage);
+        }
     }
 
     /** Stores the handle of an import the connector runs asynchronously, unless the attempt has settled. */

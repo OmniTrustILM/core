@@ -148,8 +148,11 @@ public class KeyImportSaga {
             if (pastRetention(attempt)) {
                 throw unconfirmed(attempt);
             }
-            KeyImportAttempt resent = keyImportWriter.resending(attempt.uuid(), secretDigests(call));
-            return Optional.of(new Progress(resent, sent(call, resent)));
+            Optional<KeyImportAttempt> resent = keyImportWriter.resending(attempt.uuid(), secretDigests(call));
+            if (resent.isEmpty()) {
+                throw unconfirmed(attempt);
+            }
+            return Optional.of(new Progress(resent.get(), sent(call, resent.get())));
         }
         if (recorded instanceof ImportAnswer.NotImported) {
             keyImportWriter.fail(attempt.uuid(), NOT_IMPORTED);
@@ -181,13 +184,13 @@ public class KeyImportSaga {
         }
         Optional<CryptographicKeyFullModel> meanwhile = repeatedImport(idempotencyKey);
         if (meanwhile.isPresent()) {
-            keyImportWriter.fail(attempt.uuid(), COMPLETED_MEANWHILE);
+            keyImportWriter.failUnsent(attempt, COMPLETED_MEANWHILE);
             return new ImportedKey(meanwhile.get(), true);
         }
         try {
             cryptographicKeyWriter.adoptablePublicKey(call.terms().spkiFingerprint());
         } catch (ValidationException held) {
-            keyImportWriter.fail(attempt.uuid(), held.getMessage());
+            keyImportWriter.failUnsent(attempt, held.getMessage());
             throw held;
         }
         Progress progress = new Progress(attempt, sent(call, attempt));

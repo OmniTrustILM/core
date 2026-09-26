@@ -184,12 +184,57 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         KeyImportAttempt attempt = keyImportWriter.open(terms("fingerprint-f", false), "retry-f", "key", SENT);
 
         // when
-        KeyImportAttempt resent = keyImportWriter.resending(attempt.uuid(), List.of("resent-secret-digest"));
+        KeyImportAttempt resent = keyImportWriter
+                .resending(attempt.uuid(), List.of("resent-secret-digest"))
+                .orElseThrow();
 
         // then
         assertThat(resent.secretDigests()).containsExactly("sent-secret-digest", "resent-secret-digest");
         assertThat(keyImportRepository.findById(attempt.uuid()).orElseThrow().getSecretDigests())
                 .containsExactly("sent-secret-digest", "resent-secret-digest");
+    }
+
+    @Test
+    void resending_leavesAnAttemptThatClosedMeanwhileUnsent() {
+        // given
+        KeyImportAttempt attempt = keyImportWriter.open(terms("fingerprint-g", false), "retry-g", "key", SENT);
+        keyImportWriter.failUnsent(attempt, "closed meanwhile");
+
+        // when
+        Optional<KeyImportAttempt> resent = keyImportWriter.resending(attempt.uuid(), List.of("resent-secret-digest"));
+
+        // then
+        assertThat(resent).isEmpty();
+        assertThat(keyImportRepository.findById(attempt.uuid()).orElseThrow().getSecretDigests()).isEqualTo(SENT);
+    }
+
+    /** Another request claimed the attempt for a send, so its answer, not this request's decision, settles it. */
+    @Test
+    void failUnsent_leavesAnAttemptAnotherRequestResends() {
+        // given
+        KeyImportAttempt opened = keyImportWriter.open(terms("fingerprint-h", false), "retry-h", "key", SENT);
+        keyImportWriter.resending(opened.uuid(), List.of("resent-secret-digest"));
+
+        // when
+        keyImportWriter.failUnsent(opened, "closed meanwhile");
+
+        // then
+        assertThat(keyImportRepository.findById(opened.uuid()).orElseThrow().getState())
+                .isEqualTo(KeyImportState.REQUESTED);
+    }
+
+    @Test
+    void failUnsent_closesAnAttemptNobodySent() {
+        // given
+        KeyImportAttempt opened = keyImportWriter.open(terms("fingerprint-i", false), "retry-i", "key", SENT);
+
+        // when
+        keyImportWriter.failUnsent(opened, "closed meanwhile");
+
+        // then
+        KeyImport closed = keyImportRepository.findById(opened.uuid()).orElseThrow();
+        assertThat(closed.getState()).isEqualTo(KeyImportState.FAILED);
+        assertThat(closed.getErrorMessage()).isEqualTo("closed meanwhile");
     }
 
     @Test

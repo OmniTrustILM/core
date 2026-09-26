@@ -313,7 +313,7 @@ class KeyImportSagaTest {
                 .thenReturn(new ImportAnswer.NotAccepted());
         KeyImportAttempt resent = new KeyImportAttempt(attempt.uuid(), attempt.keyReference(), KeyImportState.REQUESTED,
                 null, attempt.createdAt(), keyDigests);
-        when(keyImportWriter.resending(attempt.uuid(), keyDigests)).thenReturn(resent);
+        when(keyImportWriter.resending(attempt.uuid(), keyDigests)).thenReturn(Optional.of(resent));
         when(adapter.importKey(terms, resent, key, "imported key")).thenReturn(imported(key.subjectPublicKeyInfo()));
 
         // when
@@ -324,6 +324,22 @@ class KeyImportSagaTest {
         resend.verify(keyImportWriter).resending(attempt.uuid(), keyDigests);
         resend.verify(adapter).importKey(terms, resent, key, "imported key");
         verify(keyImportWriter, never()).open(any(), any(), any(), any());
+    }
+
+    @Test
+    void importKey_doesNotResendAnAttemptThatClosedMeanwhile() throws Exception {
+        // given
+        openAttempt(attempt);
+        when(adapter.importKeyResult(terms.profile(), attempt.uuid(), SENT, "imported key"))
+                .thenReturn(new ImportAnswer.NotAccepted());
+        when(keyImportWriter.resending(attempt.uuid(), keyDigests)).thenReturn(Optional.empty());
+
+        // when
+        // then
+        assertThatThrownBy(() -> saga.importKey(terms, RETRY, key, metadata))
+                .isInstanceOf(ConnectorServerException.class)
+                .hasMessage(KeyImportSaga.UNCONFIRMED);
+        verify(adapter, never()).importKey(any(), any(), any(), any());
     }
 
     @Test
@@ -483,7 +499,7 @@ class KeyImportSagaTest {
         // then
         assertThat(result.key()).isSameAs(registered);
         assertThat(result.repeat()).isTrue();
-        verify(keyImportWriter).fail(eq(attempt.uuid()), anyString());
+        verify(keyImportWriter).failUnsent(eq(attempt), anyString());
         verify(adapter, never()).importKey(any(), any(), any(), any());
     }
 
@@ -499,7 +515,7 @@ class KeyImportSagaTest {
         assertThatThrownBy(() -> saga.importKey(terms, RETRY, key, metadata))
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining(CryptographicKeyWriter.KEY_ALREADY_HELD);
-        verify(keyImportWriter).fail(attempt.uuid(), CryptographicKeyWriter.KEY_ALREADY_HELD);
+        verify(keyImportWriter).failUnsent(attempt, CryptographicKeyWriter.KEY_ALREADY_HELD);
         verify(adapter, never()).importKey(any(), any(), any(), any());
     }
 
