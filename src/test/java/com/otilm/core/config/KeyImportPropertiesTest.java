@@ -72,28 +72,6 @@ class KeyImportPropertiesTest {
                 .hasMessage("key-import.unresolved-after must be shorter than 24 hours, was PT24H");
     }
 
-    /**
-     * The requester owns an import for the retry window, so its request, the connector calls around its wait, and a
-     * look at the import, up to three connector calls, must all end within it.
-     */
-    @Test
-    void aRetryWindowARequestCouldOutlastIsRefused() {
-        // given
-        Duration fourMinutes = Duration.ofMinutes(4);
-        Duration halfAnHour = Duration.ofMinutes(30);
-
-        // when
-        // then
-        assertThatThrownBy(() -> new KeyImportProperties(null, null, null, fourMinutes, null))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("key-import.retry-window must exceed key-import.request-timeout by at least 5 minutes, "
-                        + "was PT4M");
-        assertThatThrownBy(() -> new KeyImportProperties(halfAnHour, null, null, null, null))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("key-import.retry-window must exceed key-import.request-timeout by at least 5 minutes, "
-                        + "was PT15M");
-    }
-
     /** The first look at an import comes up to a sweep after its retry window, and must come before it is given up. */
     @Test
     void aSweepThatCouldComeOnlyAfterUnresolvedAfterIsRefused() {

@@ -48,7 +48,7 @@ public class ProxyClientImpl implements ProxyClient {
      * completing within its own configured budget. Tunable per-environment; the 5 s default reflects observed broker +
      * deserialization overhead.
      */
-    private static final long MESSAGE_ROUND_TRIP_BUFFER_MS = 5_000L;
+    public static final long MESSAGE_ROUND_TRIP_BUFFER_MS = 5_000L;
 
     private final CoreMessageProducer producer;
     private final ProxyMessageCorrelator correlator;

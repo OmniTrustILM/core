@@ -442,9 +442,9 @@ key-import:
   # reconciliation gives up on an import this long after it was last sent.
   unresolved-after: 20h
   # How long an import is left to its requester's retries after each send before the reconciliation looks at it, and
-  # how long the reconciliation waits between two looks at one import. It exceeds request-timeout by at least 5
-  # minutes, room for the connector calls around a request's wait or for one look, and with sweep-interval stays
-  # shorter than unresolved-after.
+  # how long the reconciliation waits between two looks at one import. It outlasts request-timeout and three connector
+  # calls at the connector timeouts configured (checked at startup), and with sweep-interval stays shorter than
+  # unresolved-after.
   retry-window: 15m
   # How often the reconciliation runs.
   sweep-interval: 60s
