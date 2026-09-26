@@ -71,4 +71,17 @@ class KeyImportPropertiesTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("key-import.unresolved-after must be shorter than 24 hours, was PT24H");
     }
+
+    /** The reconciliation's first look at an import comes a retry window after it is sent, before it gives up on it. */
+    @Test
+    void aRetryWindowNoShorterThanUnresolvedAfterIsRefused() {
+        // given
+        Duration hour = Duration.ofHours(1);
+
+        // when
+        // then
+        assertThatThrownBy(() -> new KeyImportProperties(null, null, hour, hour, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("key-import.retry-window must be shorter than key-import.unresolved-after, was PT1H");
+    }
 }

@@ -37,6 +37,10 @@ public record KeyImportProperties(Duration requestTimeout, Duration pollInterval
                     "key-import.unresolved-after must be shorter than 24 hours, was " + unresolvedAfter);
         }
         retryWindow = positive(retryWindow == null ? Duration.ofMinutes(15) : retryWindow, "retry-window");
+        if (retryWindow.compareTo(unresolvedAfter) >= 0) {
+            throw new IllegalArgumentException(
+                    "key-import.retry-window must be shorter than key-import.unresolved-after, was " + retryWindow);
+        }
         sweepInterval = positive(sweepInterval == null ? Duration.ofSeconds(60) : sweepInterval, "sweep-interval");
     }
 
