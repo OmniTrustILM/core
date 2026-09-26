@@ -72,29 +72,44 @@ class KeyImportPropertiesTest {
                 .hasMessage("key-import.unresolved-after must be shorter than 24 hours, was PT24H");
     }
 
-    /** One look at an import makes up to three connector calls, and another node may take the import once it ends. */
+    /**
+     * The requester owns an import for the retry window, so its request, the connector calls around its wait, and a
+     * look at the import, up to three connector calls, must all end within it.
+     */
     @Test
-    void aRetryWindowTooShortForOneLookIsRefused() {
+    void aRetryWindowARequestCouldOutlastIsRefused() {
         // given
         Duration fourMinutes = Duration.ofMinutes(4);
+        Duration halfAnHour = Duration.ofMinutes(30);
 
         // when
         // then
         assertThatThrownBy(() -> new KeyImportProperties(null, null, null, fourMinutes, null))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("key-import.retry-window must be at least 5 minutes, was PT4M");
+                .hasMessage("key-import.retry-window must exceed key-import.request-timeout by at least 5 minutes, "
+                        + "was PT4M");
+        assertThatThrownBy(() -> new KeyImportProperties(halfAnHour, null, null, null, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("key-import.retry-window must exceed key-import.request-timeout by at least 5 minutes, "
+                        + "was PT15M");
     }
 
-    /** The reconciliation's first look at an import comes a retry window after it is sent, before it gives up on it. */
+    /** The first look at an import comes up to a sweep after its retry window, and must come before it is given up. */
     @Test
-    void aRetryWindowNoShorterThanUnresolvedAfterIsRefused() {
+    void aSweepThatCouldComeOnlyAfterUnresolvedAfterIsRefused() {
         // given
         Duration hour = Duration.ofHours(1);
+        Duration day = Duration.ofHours(24);
 
         // when
         // then
         assertThatThrownBy(() -> new KeyImportProperties(null, null, hour, hour, null))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("key-import.retry-window must be shorter than key-import.unresolved-after, was PT1H");
+                .hasMessage("key-import.retry-window and key-import.sweep-interval together must be shorter than "
+                        + "key-import.unresolved-after, were PT1H and PT1M");
+        assertThatThrownBy(() -> new KeyImportProperties(null, null, null, null, day))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("key-import.retry-window and key-import.sweep-interval together must be shorter than "
+                        + "key-import.unresolved-after, were PT15M and PT24H");
     }
 }
