@@ -55,8 +55,9 @@ public class KeyNormalizer {
     /**
      * Opens the key file and protects its key for the connector.
      *
-     * @param file the uploaded file
-     * @param passphrase the passphrase that opens the file, or {@code null} for a file without protection
+     * @param file the uploaded file, which stays the caller's to overwrite once the call returns
+     * @param passphrase the passphrase that opens the file, or {@code null} for a file without protection; it stays the
+     * caller's to clear once the call returns
      * @param type the key type the import asks for
      * @return the key's algorithm and public key, and the envelope for the connector
      * @throws ValidationException with a fixed message when the file cannot be imported; behind a passphrase the
@@ -98,11 +99,7 @@ public class KeyNormalizer {
                 Arrays.fill(password, '\0');
             }
         });
-        try {
-            return KeyFileReader.parse(plaintext, PrivateKeyInfo::getInstance);
-        } finally {
-            Arrays.fill(plaintext, (byte) 0);
-        }
+        return KeyFileReader.parse(plaintext, PrivateKeyInfo::getInstance);
     }
 
     /**
@@ -126,11 +123,7 @@ public class KeyNormalizer {
                         .build(characters)
                         .get(key.cipher())
                         .decrypt(key.cipherText(), key.iv()));
-        try {
-            return key.kind().privateKeyInfo(plaintext);
-        } finally {
-            Arrays.fill(plaintext, (byte) 0);
-        }
+        return key.kind().privateKeyInfo(plaintext);
     }
 
     /**

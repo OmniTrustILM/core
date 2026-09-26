@@ -1,6 +1,7 @@
 package com.otilm.core.key.normalization;
 
 import java.io.IOException;
+import java.util.Arrays;
 import org.bouncycastle.asn1.ASN1Primitive;
 import org.bouncycastle.asn1.DERNull;
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
@@ -31,7 +32,8 @@ enum TraditionalKey {
     };
 
     /**
-     * The key as PKCS#8. Content that is not this kind of key makes the file damaged.
+     * The key as PKCS#8, after which the bytes, which hold the key, are overwritten. Content that is not this kind of
+     * key makes the file damaged.
      *
      * @param der the DER-encoded {@code RSAPrivateKey} or {@code ECPrivateKey}
      * @return the key as a {@code PrivateKeyInfo}
@@ -41,6 +43,8 @@ enum TraditionalKey {
             return wrap(ASN1Primitive.fromByteArray(der));
         } catch (IOException | RuntimeException e) {
             throw KeyFileRefusal.unreadableKey();
+        } finally {
+            Arrays.fill(der, (byte) 0);
         }
     }
 

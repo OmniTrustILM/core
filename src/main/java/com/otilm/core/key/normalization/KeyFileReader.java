@@ -63,8 +63,9 @@ final class KeyFileReader {
     }
 
     /**
-     * The structure DER bytes hold, read as the given type. Bytes Bouncy Castle cannot read that way make the file
-     * damaged; it signals that with a range of unchecked exceptions, each meaning the same here.
+     * The structure DER bytes hold, read as the given type, after which the bytes are overwritten, since they may hold
+     * a key. Bytes Bouncy Castle cannot read that way make the file damaged; it signals that with a range of unchecked
+     * exceptions, each meaning the same here.
      *
      * @param der the DER bytes
      * @param reader reads the structure as the expected type
@@ -76,6 +77,8 @@ final class KeyFileReader {
             parsed = reader.apply(ASN1Primitive.fromByteArray(der));
         } catch (IOException | RuntimeException e) {
             throw KeyFileRefusal.unreadableKey();
+        } finally {
+            Arrays.fill(der, (byte) 0);
         }
         if (parsed == null) {
             throw KeyFileRefusal.unreadableKey();

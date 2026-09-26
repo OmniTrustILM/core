@@ -116,6 +116,31 @@ class KeyFileReaderTest {
         assertThat(refusal.getMessage()).isEqualTo(NESTING_LIMIT);
     }
 
+    @Test
+    void parse_overwritesTheBytesItReads() throws Exception {
+        // given
+        byte[] der = KeyFiles.pkcs8(ec).clone();
+
+        // when
+        PrivateKeyInfo parsed = KeyFileReader.parse(der, PrivateKeyInfo::getInstance);
+
+        // then
+        assertThat(parsed.getEncoded()).isEqualTo(ec.getPrivate().getEncoded());
+        assertThat(der).containsOnly((byte) 0);
+    }
+
+    @Test
+    void parse_overwritesTheBytesEvenWhenItCannotReadThem() {
+        // given
+        byte[] notDer = ascii("not DER");
+
+        // when
+        assertThrows(ValidationException.class, () -> KeyFileReader.parse(notDer, PrivateKeyInfo::getInstance));
+
+        // then
+        assertThat(notDer).containsOnly((byte) 0);
+    }
+
     static Stream<Arguments> keysWithoutProtection() throws Exception {
         String pem = new String(KeyFiles.pem("PRIVATE KEY", KeyFiles.pkcs8(ec)), StandardCharsets.US_ASCII);
         return Stream
