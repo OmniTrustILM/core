@@ -72,6 +72,19 @@ class KeyImportPropertiesTest {
                 .hasMessage("key-import.unresolved-after must be shorter than 24 hours, was PT24H");
     }
 
+    /** One look at an import makes up to three connector calls, and another node may take the import once it ends. */
+    @Test
+    void aRetryWindowTooShortForOneLookIsRefused() {
+        // given
+        Duration fourMinutes = Duration.ofMinutes(4);
+
+        // when
+        // then
+        assertThatThrownBy(() -> new KeyImportProperties(null, null, null, fourMinutes, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("key-import.retry-window must be at least 5 minutes, was PT4M");
+    }
+
     /** The reconciliation's first look at an import comes a retry window after it is sent, before it gives up on it. */
     @Test
     void aRetryWindowNoShorterThanUnresolvedAfterIsRefused() {

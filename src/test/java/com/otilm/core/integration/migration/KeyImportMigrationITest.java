@@ -158,6 +158,38 @@ class KeyImportMigrationITest extends BaseSpringBootTest {
         }
     }
 
+    /** An open import last changed when it was last sent, so one sent again before the upgrade keeps its window. */
+    @Test
+    void anOpenImportIsScheduledFromItsLastSend() throws Exception {
+        try (Connection connection = dataSource.getConnection()) {
+            try {
+                // given
+                applyMigration(connection);
+                insertAttempt(connection, "REQUESTED");
+                try (Statement statement = connection.createStatement()) {
+                    statement
+                            .executeUpdate("UPDATE key_import SET created_at = now() - interval '21 hours', "
+                                    + "updated_at = now() - interval '10 minutes'");
+                }
+
+                // when
+                runMigration(connection, RECONCILIATION_RESOURCE);
+
+                // then
+                try (Statement statement = connection.createStatement();
+                        ResultSet rows = statement
+                                .executeQuery("SELECT last_sent_at = updated_at, next_check_at - updated_at "
+                                        + "FROM key_import")) {
+                    assertThat(rows.next()).isTrue();
+                    assertThat(rows.getBoolean(1)).isTrue();
+                    assertThat(rows.getString(2)).isEqualTo("00:15:00");
+                }
+            } finally {
+                dropScratchSchema(connection);
+            }
+        }
+    }
+
     /** The reconciliation gives up on an import a while after it was last sent, so every import knows when that was. */
     @Test
     void everyImportKnowsWhenItWasLastSent() throws Exception {

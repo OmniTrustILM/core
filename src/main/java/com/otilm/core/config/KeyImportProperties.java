@@ -13,8 +13,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * record of it for at least 24 hours, so it has to be shorter; an older import the connector does not know is not sent
  * again, and the reconciliation gives up on an import this long after it was last sent
  * @param retryWindow how long an import is left to its requester's retries after each send before the reconciliation
- * looks at it, and how long the reconciliation waits between two looks; it must outlast one look, which makes up to
- * three connector calls
+ * looks at it, and how long the reconciliation waits between two looks; at least 5 minutes, since it must outlast one
+ * look, which makes up to three connector calls
  * @param sweepInterval how often the reconciliation runs
  */
 @ConfigurationProperties(prefix = "key-import")
@@ -22,6 +22,9 @@ public record KeyImportProperties(Duration requestTimeout, Duration pollInterval
         Duration retryWindow, Duration sweepInterval) {
 
     private static final Duration CONNECTOR_RETENTION = Duration.ofHours(24);
+
+    /** Up to three connector calls fit in it at the default connector timeouts, which one look at an import makes. */
+    private static final Duration SHORTEST_RETRY_WINDOW = Duration.ofMinutes(5);
 
     public KeyImportProperties {
         requestTimeout = positive(requestTimeout == null ? Duration.ofSeconds(60) : requestTimeout, "request-timeout");
@@ -37,6 +40,10 @@ public record KeyImportProperties(Duration requestTimeout, Duration pollInterval
                     "key-import.unresolved-after must be shorter than 24 hours, was " + unresolvedAfter);
         }
         retryWindow = positive(retryWindow == null ? Duration.ofMinutes(15) : retryWindow, "retry-window");
+        if (retryWindow.compareTo(SHORTEST_RETRY_WINDOW) < 0) {
+            throw new IllegalArgumentException(
+                    "key-import.retry-window must be at least 5 minutes, was " + retryWindow);
+        }
         if (retryWindow.compareTo(unresolvedAfter) >= 0) {
             throw new IllegalArgumentException(
                     "key-import.retry-window must be shorter than key-import.unresolved-after, was " + retryWindow);
