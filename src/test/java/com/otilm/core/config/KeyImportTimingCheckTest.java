@@ -18,11 +18,11 @@ class KeyImportTimingCheckTest {
     @Test
     void theDefaultsFit() {
         // given
-        ConnectorApiClientProperties client = client(Duration.ofSeconds(35));
+        KeyImportTimingCheck check = new KeyImportTimingCheck(DEFAULTS, client(Duration.ofSeconds(35)), noProxy());
 
         // when
         // then
-        assertThatCode(() -> new KeyImportTimingCheck(DEFAULTS, client, noProxy())).doesNotThrowAnyException();
+        assertThatCode(check::check).doesNotThrowAnyException();
     }
 
     /**
@@ -34,10 +34,11 @@ class KeyImportTimingCheckTest {
         // given
         ConnectorApiClientProperties slow = client(Duration.ofSeconds(115));
         KeyImportProperties keyImport = new KeyImportProperties(null, null, null, Duration.ofMinutes(5), null);
+        KeyImportTimingCheck check = new KeyImportTimingCheck(keyImport, slow, noProxy());
 
         // when
         // then
-        assertThatThrownBy(() -> new KeyImportTimingCheck(keyImport, slow, noProxy()))
+        assertThatThrownBy(check::check)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("key-import.retry-window must be at least PT7M24S, the request timeout and three "
                         + "connector calls at the connector timeouts configured, was PT5M");
@@ -49,11 +50,11 @@ class KeyImportTimingCheckTest {
         ProxyProperties proxy = mock(ProxyProperties.class);
         when(proxy.requestTimeout()).thenReturn(Duration.ofMinutes(5));
         ObjectProvider<ProxyProperties> proxied = provider(proxy);
-        ConnectorApiClientProperties client = client(Duration.ofSeconds(35));
+        KeyImportTimingCheck check = new KeyImportTimingCheck(DEFAULTS, client(Duration.ofSeconds(35)), proxied);
 
         // when
         // then
-        assertThatThrownBy(() -> new KeyImportTimingCheck(DEFAULTS, client, proxied))
+        assertThatThrownBy(check::check)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("key-import.retry-window must be at least PT16M15S, the request timeout and three "
                         + "connector calls at the connector timeouts configured, was PT15M");
