@@ -2,6 +2,8 @@ package com.otilm.core.integration.service;
 
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
@@ -15,6 +17,7 @@ import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
+import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
@@ -534,6 +537,28 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         }
     }
 
+    /** Custom attributes are stored with the key, so a registration that cannot store them registers nothing. */
+    @Test
+    void complete_registersNothingWhenTheCustomAttributesCannotBeStored() throws Exception {
+        // given
+        TokenProfileFullModel profile = persistedProfile();
+        KeyPair pair = rsa();
+        KeyImportAttempt attempt = keyImportWriter.open(terms(profile, pair), "retry-attributes", "imported key", SENT);
+        RequestAttributeV3 undefined = new RequestAttributeV3();
+        undefined.setUuid(UUID.randomUUID());
+        undefined.setName("undefined-" + UUID.randomUUID());
+        undefined.setContentType(AttributeContentType.STRING);
+        undefined.setContent(List.of(new StringAttributeContentV3("value")));
+        ImportedKeyRegistration registration = registration(profile, pair, attempt, Set.of(), List.of(undefined));
+
+        // when
+        // then
+        assertThatThrownBy(() -> keyImportWriter.complete(attempt.uuid(), registration)).isInstanceOf(Exception.class);
+        assertThat(keyImportRepository.findById(attempt.uuid()).orElseThrow().getState())
+                .isEqualTo(KeyImportState.REQUESTED);
+        assertThat(cryptographicKeyItemRepository.findByFingerprint(fingerprintOf(pair))).isEmpty();
+    }
+
     /** A public key an operator marked compromised is not taken over by an import, even one that got this far. */
     @Test
     void complete_refusesToAdoptARecordThatIsNoLongerActive() throws Exception {
@@ -797,6 +822,11 @@ class KeyImportWriterITest extends BaseSpringBootTest {
 
     private static ImportedKeyRegistration registration(TokenProfileFullModel profile, KeyPair pair,
             KeyImportAttempt attempt, Set<UUID> groups) {
+        return registration(profile, pair, attempt, groups, List.of());
+    }
+
+    private static ImportedKeyRegistration registration(TokenProfileFullModel profile, KeyPair pair,
+            KeyImportAttempt attempt, Set<UUID> groups, List<RequestAttribute> customAttributes) {
         KeyMaterial publicMaterial = new KeyMaterial(KeyFormat.SPKI,
                 Base64.getEncoder().encodeToString(pair.getPublic().getEncoded()));
         ProviderKeyItem publicKey = new ProviderKeyItem("imported key public key", KeyType.PUBLIC_KEY, KeyAlgorithm.RSA,
@@ -806,7 +836,8 @@ class KeyImportWriterITest extends BaseSpringBootTest {
                 KeyAlgorithm.RSA, 2048,
                 new RemoteKeyReference.MetadataReference(List.of(handle("private-handle", "q"))), null, List.of());
         return new ImportedKeyRegistration(profile, List.of(publicKey, privateKey), attempt.keyReference(),
-                fingerprintOf(pair), true, new KeyImportMetadata("imported key", "imported for the test", groups),
+                fingerprintOf(pair), true,
+                new KeyImportMetadata("imported key", "imported for the test", groups, customAttributes),
                 new NameAndUuidDto(UUID.randomUUID().toString(), "requester"));
     }
 

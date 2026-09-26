@@ -148,7 +148,7 @@ public class CryptographicKeyWriter {
     /**
      * Registers an imported key: as a key of its own, or by adopting the public-key-only record the platform already
      * holds for its public key, which gains the token profile and the private key and keeps its certificates. The
-     * requester becomes the owner and the groups are added, whichever it is.
+     * requester becomes the owner, the groups are added and the custom attributes written, whichever it is.
      *
      * @return the UUID of the registered key
      * @throws ValidationException when the platform holds the public key otherwise than as a public-key-only record
@@ -167,6 +167,9 @@ public class CryptographicKeyWriter {
         for (UUID groupUuid : registration.metadata().groupUuids()) {
             objectAssociationService.addGroup(Resource.CRYPTOGRAPHIC_KEY, keyUuid, groupUuid);
         }
+        attributeEngine
+                .updateObjectCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, keyUuid,
+                        registration.metadata().customAttributes());
         // The unique fingerprint is the last guard against a key registered meanwhile; flushing through the
         // repository reports it as a data integrity violation.
         cryptographicKeyItemRepository.flush();

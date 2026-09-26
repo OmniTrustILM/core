@@ -104,7 +104,7 @@ class KeyImportSagaTest {
         keyDigests = OutboundSecretContainment.digestsOf(key.transportSecrets());
         terms = new KeyImportTerms(profile, KeyRequestType.KEY_PAIR, KeyAlgorithm.RSA, "fingerprint", false, List.of(),
                 new NameAndUuidDto(UUID.randomUUID().toString(), "requester"));
-        metadata = new KeyImportMetadata("imported key", null, Set.of());
+        metadata = new KeyImportMetadata("imported key", null, Set.of(), List.of());
         attempt = new KeyImportAttempt(UUID.randomUUID(), UUID.randomUUID(), KeyImportState.REQUESTED, null,
                 OffsetDateTime.now(), SENT);
         when(cryptographicKeyRepository.findByName(anyString())).thenReturn(Optional.empty());

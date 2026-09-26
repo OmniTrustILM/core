@@ -108,8 +108,8 @@ class KeyProviderV2AdapterImportTest {
         resolver = mock(OperationAttributeResolver.class);
         client = mock(KeySyncApiClient.class);
         when(apiClients.getKeyManagementApiClient(connector)).thenReturn(client);
-        when(apiClients.getCryptographicOperationsApiClient(connector))
-                .thenReturn(mock(CryptographicOperationsSyncApiClient.class));
+        CryptographicOperationsSyncApiClient operations = mock(CryptographicOperationsSyncApiClient.class);
+        when(apiClients.getCryptographicOperationsApiClient(connector)).thenReturn(operations);
         when(attributes.getRequestObjectDataAttributesContent(any())).thenReturn(List.of());
         when(resolver.resolveForConnectorRequestAsSystem(connectorUuid, List.of())).thenReturn(List.of());
         adapter = new KeyProviderV2Adapter(apiClients, connector, attributes, resolver,

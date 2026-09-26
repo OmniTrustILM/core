@@ -6,7 +6,6 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
-import com.otilm.api.model.client.attribute.ResponseAttribute;
 import com.otilm.api.model.client.cryptography.key.KeyImportRequestDto;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
@@ -115,7 +114,7 @@ public class CryptographicKeyImportServiceImpl implements CryptographicKeyImport
         TokenProfileFullModel profile = requireAccess(tokenInstanceUuid, tokenProfileUuid);
         Set<KeyAlgorithm> importable = requireImportable(profile, type);
         KeyImportMetadata metadata = new KeyImportMetadata(request.getName(), request.getDescription(),
-                requireGroups(request.getGroupUuids()));
+                requireGroups(request.getGroupUuids()), request.getCustomAttributes());
         attributeEngine.validateCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, request.getCustomAttributes());
         List<RequestAttribute> importAttributes = requireImportAttributes(profile, type, request.getImportAttributes());
         boolean exportable = Boolean.TRUE.equals(request.getExportable());
@@ -129,7 +128,7 @@ public class CryptographicKeyImportServiceImpl implements CryptographicKeyImport
                         exportable, importAttributes, AuthHelper.getUserIdentification());
                 ImportedKey imported = keyImportSaga
                         .importKey(terms, ImportIdempotencyKey.of(terms, file), key, metadata);
-                return detailOf(imported, request.getCustomAttributes());
+                return detailOf(imported);
             } finally {
                 key.clear();
             }
@@ -200,23 +199,19 @@ public class CryptographicKeyImportServiceImpl implements CryptographicKeyImport
     }
 
     /**
-     * The key's detail, named in the audit record. A new key gets its custom attributes as key creation writes them; a
-     * repeat changes nothing, and shows the key as it is now to a caller who may still see it.
+     * The key's detail as it is now, named in the audit record. A repeat changed nothing, and is shown only to a caller
+     * who may still see the key.
      */
-    private KeyDetailDto detailOf(ImportedKey imported, List<RequestAttribute> customAttributes)
-            throws NotFoundException, AttributeException {
+    private KeyDetailDto detailOf(ImportedKey imported) {
         CryptographicKeyFullModel key = imported.key();
-        List<ResponseAttribute> keyAttributes;
         if (imported.repeat()) {
             authorizationEnforcer
                     .enforce(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.DETAIL, SecuredUUID.fromUUID(key.uuid()));
-            keyAttributes = attributeEngine.getObjectCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, key.uuid());
-        } else {
-            keyAttributes = attributeEngine
-                    .updateObjectCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, key.uuid(), customAttributes);
         }
         KeyDetailDto detail = CryptographicKeyDtoMapper.mapToDetailDto(key);
-        detail.setCustomAttributes(keyAttributes);
+        detail
+                .setCustomAttributes(
+                        attributeEngine.getObjectCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, key.uuid()));
         LoggingHelper.putLogResourceInfo(Resource.CRYPTOGRAPHIC_KEY, false, key.uuid().toString(), key.name());
         return detail;
     }

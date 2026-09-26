@@ -29,7 +29,6 @@ import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import com.otilm.core.service.writer.CryptographicKeyWriter;
 import com.otilm.core.service.writer.KeyImportWriter;
 import java.time.Instant;
-import java.time.OffsetDateTime;
 import java.util.Base64;
 import java.util.EnumSet;
 import java.util.List;
@@ -53,7 +52,7 @@ import org.springframework.stereotype.Component;
 public class KeyImportSaga {
 
     public static final String NAME_TAKEN = "A key named %s already exists.";
-    public static final String UNCONFIRMED = "The key import was not confirmed. Retry it to learn its outcome; an import that is not confirmed is undone.";
+    public static final String UNCONFIRMED = "The key import was not confirmed. Retry it to learn its outcome.";
     public static final String NOT_IMPORTED = "The connector could not import the key.";
     public static final String CANCELLED = "The key import did not finish within %d seconds and was cancelled.";
     public static final String ALREADY_IMPORTING = "The same key is already being imported. Try again once that import has finished.";
@@ -164,7 +163,7 @@ public class KeyImportSaga {
      * shows the attempt was never accepted.
      */
     private boolean pastRetention(KeyImportAttempt attempt) {
-        return attempt.createdAt().plus(properties.unresolvedAfter()).isBefore(OffsetDateTime.now());
+        return attempt.createdAt().toInstant().plus(properties.unresolvedAfter()).isBefore(Instant.now());
     }
 
     /**
