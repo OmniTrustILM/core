@@ -282,14 +282,19 @@ public class KeyImportSaga {
     }
 
     /**
-     * Registers the key once it is shown to be the key in the file, of the type asked for. A key registered meanwhile
-     * with the same public key refuses the import; the attempt stays open, so the imported key is not left unaccounted.
+     * Registers the key once it is shown to be the key in the file, of the type asked for and described with its
+     * algorithm. A key registered meanwhile with the same public key refuses the import; the attempt stays open, so the
+     * imported key is not left unaccounted.
      */
     private ImportedKey registered(Call call, KeyImportAttempt attempt, ImportAnswer.Imported imported)
             throws ConnectorServerException, NotFoundException, AttributeException {
         KeyImportTerms terms = call.terms();
         String expected = Base64.getEncoder().encodeToString(call.key().subjectPublicKeyInfo());
-        if (imported.type() != terms.type() || !Objects.equals(imported.publicKey(), expected)) {
+        boolean ofTheKeysAlgorithm = imported
+                .items()
+                .stream()
+                .allMatch(item -> item.algorithm() == call.key().algorithm());
+        if (imported.type() != terms.type() || !Objects.equals(imported.publicKey(), expected) || !ofTheKeysAlgorithm) {
             logger.warn("Key import {} was answered with a key other than the one in the file", attempt.uuid());
             throw unconfirmed(attempt);
         }

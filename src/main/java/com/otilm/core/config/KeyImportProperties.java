@@ -5,7 +5,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * How long a key import request waits on a connector that imports asynchronously, and how often it asks meanwhile.
- * Bound from {@code key-import.*}; a value left out takes its default, and one that is not positive fails at startup.
+ * Bound from {@code key-import.*}; a value left out takes its default, and one out of range fails at startup.
  *
  * @param requestTimeout how long the request waits before it cancels the import
  * @param pollInterval how long it waits between two questions
@@ -21,6 +21,10 @@ public record KeyImportProperties(Duration requestTimeout, Duration pollInterval
     public KeyImportProperties {
         requestTimeout = positive(requestTimeout == null ? Duration.ofSeconds(60) : requestTimeout, "request-timeout");
         pollInterval = positive(pollInterval == null ? Duration.ofSeconds(2) : pollInterval, "poll-interval");
+        if (pollInterval.compareTo(Duration.ofMillis(1)) < 0) {
+            throw new IllegalArgumentException(
+                    "key-import.poll-interval must be at least a millisecond, was " + pollInterval);
+        }
         unresolvedAfter = positive(unresolvedAfter == null ? Duration.ofHours(20) : unresolvedAfter,
                 "unresolved-after");
         if (unresolvedAfter.compareTo(CONNECTOR_RETENTION) >= 0) {

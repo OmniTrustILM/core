@@ -446,6 +446,25 @@ class KeyImportSagaTest {
         verify(keyImportWriter, never()).complete(any(), any());
     }
 
+    /** The public key proves the key, and the items must describe it too: an item of another algorithm is refused. */
+    @Test
+    void importKey_leavesAnImportDescribedWithAnotherAlgorithmOpen() throws Exception {
+        // given
+        ImportAnswer.Imported answer = imported(key.subjectPublicKeyInfo());
+        ProviderKeyItem privateKey = answer.items().get(1);
+        ProviderKeyItem mislabelled = new ProviderKeyItem(privateKey.name(), privateKey.type(), KeyAlgorithm.ECDSA,
+                privateKey.length(), privateKey.reference(), privateKey.material(), privateKey.metadata());
+        when(adapter.importKey(terms, attempt, key, "imported key"))
+                .thenReturn(new ImportAnswer.Imported(answer.type(), List.of(answer.items().get(0), mislabelled)));
+
+        // when
+        // then
+        assertThatThrownBy(() -> saga.importKey(terms, RETRY, key, metadata))
+                .isInstanceOf(ConnectorServerException.class)
+                .hasMessage(KeyImportSaga.UNCONFIRMED);
+        verify(keyImportWriter, never()).complete(any(), any());
+    }
+
     @Test
     void importKey_leavesAnImportOfAnotherTypeOpen() throws Exception {
         // given

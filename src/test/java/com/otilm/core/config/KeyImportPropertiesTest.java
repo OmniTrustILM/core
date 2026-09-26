@@ -38,6 +38,19 @@ class KeyImportPropertiesTest {
                 .hasMessageContaining("key-import.unresolved-after");
     }
 
+    /** The request sleeps in whole milliseconds, so a shorter poll interval would ask the connector without a pause. */
+    @Test
+    void aPollIntervalShorterThanAMillisecondIsRefused() {
+        // given
+        Duration microsecond = Duration.ofNanos(1_000);
+
+        // when
+        // then
+        assertThatThrownBy(() -> new KeyImportProperties(null, microsecond, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("key-import.poll-interval must be at least a millisecond, was PT0.000001S");
+    }
+
     /** A connector keeps its record of an import for at least 24 hours; past that, a missing record proves nothing. */
     @Test
     void anUnresolvedAfterOfADayOrMoreIsRefused() {
