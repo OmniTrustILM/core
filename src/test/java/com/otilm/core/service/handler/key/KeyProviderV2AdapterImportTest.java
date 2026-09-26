@@ -577,6 +577,25 @@ class KeyProviderV2AdapterImportTest {
         assertThatCode(() -> adapter.destroyImportedKeyItem(profile, handle)).doesNotThrowAnyException();
     }
 
+    /**
+     * A stored credential Core cannot resolve stops the destroy before the connector is asked, so nothing was refused.
+     */
+    @Test
+    void destroyImportedKeyItem_takesACredentialCoreCannotResolveAsAFailure() throws Exception {
+        // given
+        when(resolver.resolveForConnectorRequestAsSystem(any(), any()))
+                .thenThrow(new ValidationException("The credential is disabled."));
+        ImmutableTokenProfileFullModel profile = profile(List.of(FeatureFlag.KEY_IMPORT));
+        List<MetadataAttribute> handle = metadata("private-handle");
+
+        // when
+        // then
+        assertThatThrownBy(() -> adapter.destroyImportedKeyItem(profile, handle))
+                .isInstanceOf(ConnectorServerException.class)
+                .hasMessage("The connector failed to destroy the imported key.");
+        verifyNoInteractions(client);
+    }
+
     /** A connector names a handle it does not know as a missing resource, as it does once the key is destroyed. */
     @Test
     void destroyImportedKeyItem_takesAKeyTheConnectorNamesMissingAsDestroyed() throws Exception {

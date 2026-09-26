@@ -693,9 +693,9 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         if (keyMeta == null || keyMeta.isEmpty()) {
             throw new IllegalArgumentException(NO_DESTROY_HANDLE);
         }
-        DestroyKeyRequestV2Dto request = destroyRequest(tokenProfileScopedRequest(tokenProfile), keyMeta);
         ResponseEntity<KeyOperationResponseV2Dto> response;
         try {
+            DestroyKeyRequestV2Dto request = destroyRequest(tokenProfileScopedRequest(tokenProfile), keyMeta);
             response = keyManagementSyncApiClient.destroyKey(connectorInfo, request);
         } catch (ConnectorException | RuntimeException e) {
             if (isGone(e)) {
