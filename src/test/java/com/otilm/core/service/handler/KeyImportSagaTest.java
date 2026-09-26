@@ -56,6 +56,7 @@ import org.springframework.http.HttpStatus;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -256,6 +257,26 @@ class KeyImportSagaTest {
                 .isInstanceOf(ConnectorServerException.class)
                 .hasMessage(KeyImportSaga.CANCELLED.formatted(0));
         verify(keyImportWriter).fail(attempt.uuid(), KeyImportSaga.CANCELLED.formatted(0));
+    }
+
+    /** A poll interval longer than the time an import may take does not hold the request past its deadline. */
+    @Test
+    void importKey_cancelsInTimeWhenThePollIntervalOutlastsTheDeadline() throws Exception {
+        // given
+        KeyImportSaga impatient = new KeyImportSaga(keyImportRepository, cryptographicKeyRepository,
+                cryptographicKeyWriter, keyImportWriter, eventHistory, adapterFactory,
+                new KeyImportProperties(Duration.ofMillis(100), Duration.ofHours(1), Duration.ofHours(20)));
+        when(adapter.importKey(terms, attempt, key, "imported key")).thenReturn(new ImportAnswer.Running(HANDLE));
+        when(adapter.importKeyStatus(terms.profile(), HANDLE, SENT, "imported key"))
+                .thenReturn(new ImportAnswer.Running(HANDLE));
+        when(adapter.cancelImportKey(HANDLE)).thenReturn(true);
+
+        // when
+        // then
+        assertTimeoutPreemptively(Duration.ofSeconds(10),
+                () -> assertThatThrownBy(() -> impatient.importKey(terms, RETRY, key, metadata))
+                        .isInstanceOf(ConnectorServerException.class)
+                        .hasMessage(KeyImportSaga.CANCELLED.formatted(0)));
     }
 
     @Test

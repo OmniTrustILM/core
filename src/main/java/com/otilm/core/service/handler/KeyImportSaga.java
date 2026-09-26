@@ -28,6 +28,7 @@ import com.otilm.core.service.handler.key.KeyProviderAdapter;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import com.otilm.core.service.writer.CryptographicKeyWriter;
 import com.otilm.core.service.writer.KeyImportWriter;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.EnumSet;
@@ -232,7 +233,7 @@ public class KeyImportSaga {
             if (!Instant.now().isBefore(deadline)) {
                 throw abandoned(call, attempt, handle);
             }
-            pause(attempt);
+            pause(attempt, deadline);
             answer = polled(call, attempt, handle);
         }
         if (answer instanceof ImportAnswer.Imported imported) {
@@ -269,9 +270,11 @@ public class KeyImportSaga {
         return unconfirmed(attempt);
     }
 
-    private void pause(KeyImportAttempt attempt) throws ConnectorServerException {
+    /** Waits the poll interval, but not past the deadline. */
+    private void pause(KeyImportAttempt attempt, Instant deadline) throws ConnectorServerException {
+        long untilDeadline = Math.max(0, Duration.between(Instant.now(), deadline).toMillis());
         try {
-            Thread.sleep(properties.pollInterval());
+            Thread.sleep(Math.min(properties.pollInterval().toMillis(), untilDeadline));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw unconfirmed(attempt);
