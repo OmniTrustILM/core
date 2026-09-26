@@ -21,6 +21,7 @@ import com.otilm.core.model.crypto.KeyImportAttempt;
 import com.otilm.core.model.crypto.KeyImportTerms;
 import jakarta.persistence.EntityManager;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
@@ -240,7 +241,7 @@ public class KeyImportWriter {
     /** Hands the attempt to the reconciliation's next look, while it is unsettled. */
     @Transactional(rollbackFor = Exception.class)
     public void dueNow(UUID attemptUuid) {
-        schedule(locked(attemptUuid), OffsetDateTime.now());
+        schedule(locked(attemptUuid), now());
     }
 
     /**
@@ -276,7 +277,7 @@ public class KeyImportWriter {
 
     /** Now, as precisely as the database keeps it, so a time read back equals the one written. */
     private static OffsetDateTime now() {
-        return OffsetDateTime.now().truncatedTo(ChronoUnit.MICROS);
+        return OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS);
     }
 
     /** The key as the database holds it now, while it still exists. */

@@ -8,6 +8,7 @@ import com.otilm.core.dao.repository.KeyImportRepository;
 import com.otilm.core.model.crypto.KeyImportCheck;
 import com.otilm.core.service.writer.KeyImportWriter;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.Optional;
 import java.util.Set;
@@ -66,7 +67,7 @@ public class KeyImportClaimer {
             logger.debug("Key import reconciliation skipped: another instance holds the lock");
             return Optional.empty();
         }
-        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         for (KeyImport due : keyImportRepository
                 .findForUpdateByStateInAndNextCheckAtLessThanEqualOrderByNextCheckAt(UNSETTLED, now,
                         PageRequest.of(0, LOOK_AHEAD))) {
