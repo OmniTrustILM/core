@@ -55,14 +55,18 @@ public class KeyImportReconciler {
         this.keyImportWriter = keyImportWriter;
     }
 
-    /** Settles the attempt; one whose token profile is gone or whose connector cannot say is left for its next look. */
-    public void reconcile(KeyImportCheck check) {
+    /**
+     * Settles the attempt; one whose token profile is gone or whose connector cannot say is left for its next look.
+     *
+     * @return whether the connector answered, so that it can be asked about other attempts now
+     */
+    public boolean reconcile(KeyImportCheck check) {
         UUID attemptUuid = check.attempt().uuid();
         Optional<TokenProfileFullModel> profile = tokenProfileRepository
                 .findFullModelByUuidAndTokenInstanceReferenceUuid(check.tokenProfileUuid(), check.tokenInstanceUuid());
         if (profile.isEmpty()) {
             logger.debug("Key import {} is left for its next look: its token profile no longer exists", attemptUuid);
-            return;
+            return true;
         }
         KeyProviderAdapter adapter;
         ImportAnswer answer;
@@ -73,22 +77,25 @@ public class KeyImportReconciler {
             logger
                     .info("Key import {} is left for its next look: the connector could not report on it ({})",
                             attemptUuid, e.getClass().getSimpleName());
-            return;
+            return false;
         }
         if (answer instanceof ImportAnswer.NotAccepted) {
             keyImportWriter.failUnsent(check.attempt(), NEVER_ACCEPTED);
         } else if (answer instanceof ImportAnswer.NotImported) {
             keyImportWriter.failUnsent(check.attempt(), KeyImportSaga.NOT_IMPORTED);
         } else if (answer instanceof ImportAnswer.Imported imported && keyImportWriter.compensating(check.attempt())) {
-            compensate(check, profile.get(), adapter, imported);
+            return compensate(check, profile.get(), adapter, imported);
         }
+        return true;
     }
 
     /**
      * Destroys the imported key, private key first. The attempt is compensated once the connector has destroyed the
      * private key, even when the public key stays in the token, which exposes nothing.
+     *
+     * @return whether the connector answered about the private key
      */
-    private void compensate(KeyImportCheck check, TokenProfileFullModel profile, KeyProviderAdapter adapter,
+    private boolean compensate(KeyImportCheck check, TokenProfileFullModel profile, KeyProviderAdapter adapter,
             ImportAnswer.Imported imported) {
         UUID attemptUuid = check.attempt().uuid();
         try {
@@ -99,12 +106,12 @@ public class KeyImportReconciler {
             }
         } catch (ValidationException refused) {
             quarantine(check, profile, imported);
-            return;
+            return true;
         } catch (ConnectorException | RuntimeException e) {
             logger
                     .info("Key import {} is undone at its next look: the connector did not destroy its key ({})",
                             attemptUuid, e.getClass().getSimpleName());
-            return;
+            return false;
         }
         imported
                 .items()
@@ -115,6 +122,7 @@ public class KeyImportReconciler {
         logger
                 .info("Key import {} is undone: the connector destroyed the key its requester never received",
                         attemptUuid);
+        return true;
     }
 
     private static void destroyPublicKey(UUID attemptUuid, TokenProfileFullModel profile, KeyProviderAdapter adapter,

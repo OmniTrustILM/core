@@ -228,6 +228,27 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
         assertThat(open.getNextCheckAt()).isAfter(OffsetDateTime.now().plusMinutes(14));
     }
 
+    /**
+     * A connector that does not answer holds a run up for one import of its token, so the others are not kept waiting.
+     */
+    @Test
+    void sweep_asksAConnectorThatDoesNotAnswerAboutOneImportARun() throws Exception {
+        // given
+        KeyImportAttempt first = dueAttempt(pair);
+        KeyImportAttempt second = dueAttempt(KeyImportWriterITest.rsa());
+        connectorMock.stubImportKeyResultUnreachable();
+
+        // when
+        sweep();
+
+        // then
+        connectorMock.verifyImportKeyResultRequests(1);
+        assertThat(keyImportRepository.findAllById(List.of(first.uuid(), second.uuid()))).allSatisfy(attempt -> {
+            assertThat(attempt.getState()).isEqualTo(KeyImportState.REQUESTED);
+            assertThat(attempt.getNextCheckAt()).isAfter(OffsetDateTime.now().plusMinutes(14));
+        });
+    }
+
     @Test
     void sweep_finishesACompensationALaterLookFinds() throws Exception {
         // given
