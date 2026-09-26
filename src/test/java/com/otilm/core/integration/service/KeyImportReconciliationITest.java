@@ -249,9 +249,13 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
         assertThat(cryptographicKeyRepository.count()).isZero();
     }
 
-    /** An earlier look destroyed the key and stopped before it recorded so; the connector no longer knows the key. */
+    /**
+     * A connector that no longer knows the key may have destroyed it on an earlier look, or may no longer reach its
+     * token, so the key is neither registered nor taken as destroyed; the attempt ends unresolved unless a look
+     * confirms.
+     */
     @Test
-    void sweep_finishesACompensationWhoseKeyIsAlreadyGone() throws Exception {
+    void sweep_keepsUndoingAKeyTheConnectorNoLongerKnows() throws Exception {
         // given
         KeyImportAttempt attempt = dueAttempt();
         keyImportWriter.compensating(attempt);
@@ -263,7 +267,7 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
 
         // then
         assertThat(keyImportRepository.findById(attempt.uuid()).orElseThrow().getState())
-                .isEqualTo(KeyImportState.COMPENSATED);
+                .isEqualTo(KeyImportState.COMPENSATING);
         assertThat(cryptographicKeyRepository.count()).isZero();
     }
 

@@ -79,7 +79,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.groups.Tuple.tuple;
 import static org.mockito.ArgumentMatchers.any;
@@ -565,16 +564,28 @@ class KeyProviderV2AdapterImportTest {
         verifyNoInteractions(client);
     }
 
+    /**
+     * A connector that knows no such key may have destroyed it, or may no longer reach the token that holds it, so a
+     * not-found answer, with a problem document or without one, neither destroys nor refuses.
+     */
     @Test
-    void destroyImportedKeyItem_takesAGoneItemAsDestroyed() throws Exception {
+    void destroyImportedKeyItem_takesNoNotFoundAsDestroyed() throws Exception {
         // given
-        when(client.destroyKey(eq(connector), any())).thenThrow(new ConnectorEntityNotFoundException("gone"));
+        when(client.destroyKey(eq(connector), any()))
+                .thenThrow(new ConnectorEntityNotFoundException("gone"))
+                .thenThrow(new ConnectorProblemException(ProblemDetailExtended
+                        .fromErrorCode(ErrorCode.RESOURCE_NOT_FOUND, "no such token", null, null)));
         ImmutableTokenProfileFullModel profile = profile(List.of(FeatureFlag.KEY_IMPORT));
         List<MetadataAttribute> handle = metadata("private-handle");
 
         // when
         // then
-        assertThatCode(() -> adapter.destroyImportedKeyItem(profile, handle)).doesNotThrowAnyException();
+        assertThatThrownBy(() -> adapter.destroyImportedKeyItem(profile, handle))
+                .isInstanceOf(ConnectorServerException.class)
+                .hasMessage("The connector failed to destroy the imported key.");
+        assertThatThrownBy(() -> adapter.destroyImportedKeyItem(profile, handle))
+                .isInstanceOf(ConnectorServerException.class)
+                .hasMessage("The connector failed to destroy the imported key.");
     }
 
     /**
@@ -594,21 +605,6 @@ class KeyProviderV2AdapterImportTest {
                 .isInstanceOf(ConnectorServerException.class)
                 .hasMessage("The connector failed to destroy the imported key.");
         verifyNoInteractions(client);
-    }
-
-    /** A connector names a handle it does not know as a missing resource, as it does once the key is destroyed. */
-    @Test
-    void destroyImportedKeyItem_takesAKeyTheConnectorNamesMissingAsDestroyed() throws Exception {
-        // given
-        when(client.destroyKey(eq(connector), any()))
-                .thenThrow(new ConnectorProblemException(
-                        ProblemDetailExtended.fromErrorCode(ErrorCode.RESOURCE_NOT_FOUND, "no such key", null, null)));
-        ImmutableTokenProfileFullModel profile = profile(List.of(FeatureFlag.KEY_IMPORT));
-        List<MetadataAttribute> handle = metadata("private-handle");
-
-        // when
-        // then
-        assertThatCode(() -> adapter.destroyImportedKeyItem(profile, handle)).doesNotThrowAnyException();
     }
 
     @Test

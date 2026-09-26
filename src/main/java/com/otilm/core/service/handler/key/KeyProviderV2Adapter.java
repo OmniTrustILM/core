@@ -698,13 +698,9 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
             DestroyKeyRequestV2Dto request = destroyRequest(tokenProfileScopedRequest(tokenProfile), keyMeta);
             response = keyManagementSyncApiClient.destroyKey(connectorInfo, request);
         } catch (ConnectorException | RuntimeException e) {
-            if (isGone(e)) {
-                log
-                        .info("Connector {} holds no key under the handle of an imported key; taking it as destroyed",
-                                connectorInfo.getUuid());
-                return;
-            }
-            if (e instanceof ConnectorProblemException problem && isRefusal(problem.getProblemDetail())) {
+            // A connector that knows no such key may have destroyed it, or may no longer reach its token: no refusal.
+            if (e instanceof ConnectorProblemException problem && isRefusal(problem.getProblemDetail())
+                    && problem.getProblemDetail().getStatus() != HttpStatus.NOT_FOUND.value()) {
                 throw new ValidationException(ValidationError
                         .create(DESTROY_REFUSED.formatted(problem.getProblemDetail().getErrorCode().name())));
             }
@@ -740,12 +736,6 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
                             e.getClass().getSimpleName());
             return false;
         }
-    }
-
-    /** A connector that knows no key under the handle: a 404 without a body, or one naming the resource missing. */
-    private static boolean isGone(Exception e) {
-        return e instanceof ConnectorEntityNotFoundException || e instanceof ConnectorProblemException problem
-                && problem.getProblemDetail().getErrorCode() == ErrorCode.RESOURCE_NOT_FOUND;
     }
 
     /**

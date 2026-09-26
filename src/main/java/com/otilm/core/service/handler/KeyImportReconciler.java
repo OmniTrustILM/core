@@ -85,8 +85,8 @@ public class KeyImportReconciler {
     }
 
     /**
-     * Destroys the imported key, private key first. The attempt is compensated once the private key is gone, even when
-     * the public key stays in the token, which exposes nothing.
+     * Destroys the imported key, private key first. The attempt is compensated once the connector has destroyed the
+     * private key, even when the public key stays in the token, which exposes nothing.
      */
     private void compensate(KeyImportCheck check, TokenProfileFullModel profile, KeyProviderAdapter adapter,
             ImportAnswer.Imported imported) {

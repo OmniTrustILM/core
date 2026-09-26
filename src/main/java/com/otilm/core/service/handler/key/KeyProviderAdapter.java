@@ -161,7 +161,8 @@ public interface KeyProviderAdapter {
      * Destroys an item of an imported key the platform never registered, by the connector's handle for it.
      *
      * @throws ValidationException naming the connector's error code when it refuses; the item is still there
-     * @throws ConnectorException in the platform's words for any other outcome; whether the item is gone is unknown
+     * @throws ConnectorException in the platform's words for any other outcome, an answer that the connector knows no
+     * such item included; whether the item is gone is unknown
      * @throws IllegalArgumentException when there is no handle to destroy the item by; the connector is not asked
      */
     void destroyImportedKeyItem(TokenProfileFullModel tokenProfile, List<MetadataAttribute> keyMeta)
