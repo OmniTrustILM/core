@@ -89,6 +89,12 @@ public interface CertificateInternalService extends ResourceExtensionService {
      * protocol-association row is recorded and the protocol profile's certificate associations (owner, groups, custom
      * attributes) are applied — a profile-configured owner or group replaces one set earlier, including at registration
      * time.
+     *
+     * <p>
+     * Runs in a transaction of its own: the association is committed on return, so a caller that goes on to re-read the
+     * certificate sees it, and a rollback of the caller's transaction does not drop the attribution of a certificate
+     * that is already issuing.
+     * </p>
      */
     void applyProtocolAssociations(UUID certificateUuid, CertificateProtocolInfo protocolInfo)
             throws NotFoundException, AttributeException;

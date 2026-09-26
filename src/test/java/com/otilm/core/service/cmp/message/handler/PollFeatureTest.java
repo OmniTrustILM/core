@@ -7,7 +7,6 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateInternalService;
 import jakarta.persistence.EntityManager;
-import java.lang.reflect.Field;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.bouncycastle.asn1.DEROctetString;
@@ -46,21 +45,14 @@ class PollFeatureTest {
     private PollFeature pollFeature;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp() {
         certificateService = mock(CertificateInternalService.class);
         EntityManager entityManager = mock(EntityManager.class);
         pollFeature = new PollFeature();
         pollFeature.setCertificateService(certificateService);
-        // @Value / @PersistenceContext fields set via reflection so the test runs without a
-        // Spring context. Budget-exhaustion tests set the timeout to 0 so they don't wait.
-        setField("pollFeatureTimeout", 1);
-        setField("entityManager", entityManager);
-    }
-
-    private void setField(String name, Object value) throws Exception {
-        Field field = PollFeature.class.getDeclaredField(name);
-        field.setAccessible(true);
-        field.set(pollFeature, value);
+        pollFeature.setEntityManager(entityManager);
+        // Budget-exhaustion tests set the timeout to 0 so they don't wait.
+        pollFeature.setPollFeatureTimeout(1);
     }
 
     @Test
@@ -69,7 +61,7 @@ class PollFeatureTest {
         // exhausted the poll reports StillPending — not a timeout exception. Budget is 0 here so
         // the test doesn't spend real wall-clock; the "rides out the budget" behaviour is covered
         // by the ride-through test below.
-        setField("pollFeatureTimeout", 0);
+        pollFeature.setPollFeatureTimeout(0);
         UUID certUuid = UUID.randomUUID();
         Certificate cert = certificateInState(certUuid, CertificateState.PENDING_ISSUE);
         when(certificateService.getCertificateEntity(any(SecuredUUID.class))).thenReturn(cert);
@@ -87,7 +79,7 @@ class PollFeatureTest {
         // A registration completion leaves the placeholder REGISTERED until the actions listener claims it
         // into PENDING_ISSUE. If that claim outlasts the budget the poll must report StillPending (client polls
         // again), not a timeout — otherwise a registration that issues moments later hard-fails the client.
-        setField("pollFeatureTimeout", 0);
+        pollFeature.setPollFeatureTimeout(0);
         UUID certUuid = UUID.randomUUID();
         Certificate cert = certificateInState(certUuid, CertificateState.REGISTERED);
         when(certificateService.getCertificateEntity(any(SecuredUUID.class))).thenReturn(cert);
@@ -127,7 +119,7 @@ class PollFeatureTest {
 
     @Test
     void returnsStillPending_whenCertStuckInPendingRevoke_afterBudgetExhausted() throws Exception {
-        setField("pollFeatureTimeout", 0); // 0 budget so the exhaustion is immediate (no real wait)
+        pollFeature.setPollFeatureTimeout(0); // 0 budget so the exhaustion is immediate (no real wait)
         UUID certUuid = UUID.randomUUID();
         Certificate cert = certificateInState(certUuid, CertificateState.PENDING_REVOKE);
         when(certificateService.getCertificateEntity(any(SecuredUUID.class))).thenReturn(cert);
@@ -220,9 +212,7 @@ class PollFeatureTest {
         Certificate cert = certificateInState(certUuid, CertificateState.ISSUED);
         when(certificateService.getCertificateEntity(any(SecuredUUID.class))).thenReturn(cert);
 
-        Field timeoutField = PollFeature.class.getDeclaredField("pollFeatureTimeout");
-        timeoutField.setAccessible(true);
-        timeoutField.set(pollFeature, 0);
+        pollFeature.setPollFeatureTimeout(0);
 
         assertThatThrownBy(() -> pollFeature
                 .pollCertificate(new DEROctetString(new byte[]{1}), "01", certUuid.toString(),
@@ -305,7 +295,7 @@ class PollFeatureTest {
     @Test
     void throwsCmpProcessingException_whenTimeoutAndStillTransitional() throws Exception {
         // Cert in REQUESTED state never reaches ISSUED; 0 budget makes the timeout immediate.
-        setField("pollFeatureTimeout", 0);
+        pollFeature.setPollFeatureTimeout(0);
         UUID certUuid = UUID.randomUUID();
         Certificate cert = certificateInState(certUuid, CertificateState.REQUESTED);
         when(certificateService.getCertificateEntity(any(SecuredUUID.class))).thenReturn(cert);

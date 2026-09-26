@@ -63,7 +63,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.NoTransactionException;
+import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.interceptor.TransactionAspectSupport;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import static com.otilm.core.service.cmp.CmpConstants.HTTP_HEADER_CONTENT_TYPE;
@@ -305,26 +308,33 @@ public class CmpServiceImpl implements CmpExternalService {
             return buildOk(pkiResponse);
         } catch (CmpBaseException e) {
             return errorResponse(tid, logPrefix, requestAsString, "processing", e,
-                    buildProcessingErrorResponse(configuration, pkiRequest, e));
+                    buildProcessingErrorResponse(configuration, pkiRequest, e.toPKIBody()));
         } catch (IOException e) {
             return errorResponse(tid, logPrefix, requestAsString, "parsing", e,
-                    PkiMessageError
-                            .unprotectedMessage(pkiRequest.getHeader(), PKIFailureInfo.badDataFormat,
-                                    ImplFailureInfo.CMPSRV101));
+                    buildProcessingErrorResponse(configuration, pkiRequest,
+                            PkiMessageError.generateBody(PKIFailureInfo.badDataFormat, ImplFailureInfo.CMPSRV101)));
         } catch (Exception e) {
             return errorResponse(tid, logPrefix, requestAsString, "handling", e,
-                    safeUnprotectedError(pkiRequest.getHeader(), e));
+                    buildProcessingErrorResponse(configuration, pkiRequest, safeErrorBody(e)));
         }
     }
 
     /**
-     * Fails a transaction, logs the given processing phase, and returns the CMP error response to the client. The
-     * {@code pkiResponse} is built by the caller because each phase shapes it differently (protected vs. unprotected,
-     * domain body vs. generic body).
+     * Records the failure on the CMP transaction, logs the given processing phase, and returns the CMP error response
+     * to the client. The {@code pkiResponse} is built by the caller because each phase shapes it differently (protected
+     * vs. unprotected, domain body vs. generic body).
+     *
+     * <p>
+     * A request transaction a collaborator has already doomed is left without the failure record: the write would only
+     * be discarded with the rollback, and it fails outright when the database has aborted the transaction, which would
+     * replace this response with the generic JSON error.
+     * </p>
      */
     private ResponseEntity<byte[]> errorResponse(ASN1OctetString tid, String logPrefix, String requestAsString,
             String phase, Exception e, PKIMessage pkiResponse) {
-        handleTrxError(tid, e);
+        if (!ownDoomedTransaction()) {
+            handleTrxError(tid, e);
+        }
         if (LOG.isErrorEnabled()) {
             if (verbose) {
                 LOG
@@ -340,15 +350,14 @@ public class CmpServiceImpl implements CmpExternalService {
     }
 
     /**
-     * Builds the CMP error response for a domain exception raised during processing. The response is protected with the
+     * Builds the CMP error response for a failure raised during processing. The response is protected with the
      * profile's response strategy when possible; if that construction itself fails (e.g. a misconfigured profile), it
-     * falls back to an unprotected CMP error carrying the same domain body. RFC 4210 permits unprotected error
-     * messages, and this guarantees the endpoint always answers with {@code application/pkixcmp} rather than leaking to
-     * the generic JSON error handler.
+     * falls back to an unprotected CMP error carrying the same body. RFC 4210 permits unprotected error messages, and
+     * this guarantees the endpoint always answers with {@code application/pkixcmp} rather than leaking to the generic
+     * JSON error handler.
      */
     private PKIMessage buildProcessingErrorResponse(ConfigurationContext configuration, PKIMessage pkiRequest,
-            CmpBaseException e) {
-        PKIBody errorBody = e.toPKIBody();
+            PKIBody errorBody) {
         // In registration mode the response MAC is keyed by the matched registration's challenge. A rejection
         // raised before any registration matched (unresolved senderKID, wrong state, wrong MAC) has no such
         // key; protecting with the empty shared secret would produce a MAC anyone can reproduce, so the error
@@ -387,6 +396,29 @@ public class CmpServiceImpl implements CmpExternalService {
                 updatedTransaction.setCustomReason(customReason.substring(0, Math.min(254, customReason.length())));
                 cmpTransactionService.save(updatedTransaction);
             }
+        }
+    }
+
+    /**
+     * A failure that crossed a nested transactional collaborator (a message handler, or a service running under
+     * {@code rollbackFor = Exception.class}) has already marked the request transaction rollback-only. Left at that,
+     * the commit at the boundary throws and the CMP error built here is replaced by the generic JSON error. Marking the
+     * rollback locally makes the boundary roll back quietly and return the protocol response. A transaction nothing has
+     * doomed still commits.
+     *
+     * @return whether the request transaction is rolling back
+     */
+    private static boolean ownDoomedTransaction() {
+        try {
+            TransactionStatus status = TransactionAspectSupport.currentTransactionStatus();
+            if (!status.isRollbackOnly()) {
+                return false;
+            }
+            status.setRollbackOnly();
+            return true;
+        } catch (NoTransactionException e) {
+            LOG.debug("No active transaction for the failed CMP request");
+            return false;
         }
     }
 
@@ -485,9 +517,12 @@ public class CmpServiceImpl implements CmpExternalService {
      * {@link #safeCmpDetail(Exception, String)}.
      */
     static PKIMessage safeUnprotectedError(PKIHeader header, Exception e) {
+        return PkiMessageError.unprotectedMessage(header, safeErrorBody(e));
+    }
+
+    private static PKIBody safeErrorBody(Exception e) {
         return PkiMessageError
-                .unprotectedMessage(header, PkiMessageError
-                        .generateBody(PKIFailureInfo.systemFailure, safeCmpDetail(e, "CMP request handling failed")));
+                .generateBody(PKIFailureInfo.systemFailure, safeCmpDetail(e, "CMP request handling failed"));
     }
 
     /**
