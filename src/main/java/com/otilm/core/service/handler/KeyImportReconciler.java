@@ -78,7 +78,7 @@ public class KeyImportReconciler {
         if (answer instanceof ImportAnswer.NotAccepted) {
             keyImportWriter.failUnsent(check.attempt(), NEVER_ACCEPTED);
         } else if (answer instanceof ImportAnswer.NotImported) {
-            keyImportWriter.fail(attemptUuid, KeyImportSaga.NOT_IMPORTED);
+            keyImportWriter.failUnsent(check.attempt(), KeyImportSaga.NOT_IMPORTED);
         } else if (answer instanceof ImportAnswer.Imported imported && keyImportWriter.compensating(check.attempt())) {
             compensate(check, profile.get(), adapter, imported);
         }

@@ -180,7 +180,7 @@ class KeyImportWriterITest extends BaseSpringBootTest {
     void addTheOpenAttemptIndex() {
         jdbcTemplate
                 .execute("CREATE UNIQUE INDEX IF NOT EXISTS \"" + OPEN_ATTEMPT_INDEX + "\" ON " + dbSchema
-                        + ".\"key_import\" (\"spki_fingerprint\") WHERE \"state\" IN ('REQUESTED', 'ACCEPTED')");
+                        + ".\"key_import\" (\"spki_fingerprint\") WHERE \"state\" IN ('REQUESTED', 'ACCEPTED', 'COMPENSATING')");
     }
 
     @AfterEach
@@ -335,6 +335,20 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         // when
         // then
         assertThatThrownBy(() -> keyImportWriter.open(sameKey, "another-retry", "key", SENT))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    /** Another import of a key the reconciliation is undoing would put a second copy in the token meanwhile. */
+    @Test
+    void open_refusesAnImportOfAKeyBeingUndone() {
+        // given
+        KeyImportAttempt undone = keyImportWriter.open(terms("fingerprint-v", false), "retry-v", "key", SENT);
+        keyImportWriter.compensating(undone);
+        KeyImportTerms sameKey = terms("fingerprint-v", false);
+
+        // when
+        // then
+        assertThatThrownBy(() -> keyImportWriter.open(sameKey, "retry-v", "key", SENT))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
@@ -1140,21 +1154,20 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         assertThat(cryptographicKeyRepository.findAll()).extracting(CryptographicKey::getUuid).containsExactly(keyUuid);
     }
 
-    /** The requester imported the key again once the attempt was taken, so the platform now holds it otherwise. */
+    /** The platform holds the key in a token already, so the key the connector would not destroy is not registered. */
     @Test
     void quarantine_refusesAKeyThePlatformHoldsOtherwise() throws Exception {
         // given
         TokenProfileFullModel profile = persistedProfile();
         KeyPair pair = rsa();
+        UUID holderUuid = certificatePublicKey(pair);
+        CryptographicKey holder = cryptographicKeyRepository.findById(holderUuid).orElseThrow();
+        holder.setTokenProfileUuid(profile.uuid());
+        holder.setTokenInstanceReferenceUuid(profile.tokenInstanceReferenceUuid());
+        cryptographicKeyRepository.saveAndFlush(holder);
         KeyImportAttempt taken = keyImportWriter.open(terms(profile, pair), "retry-taken", "imported key", SENT);
         keyImportWriter.compensating(taken);
-        KeyImportAttempt again = keyImportWriter.open(terms(profile, pair), "retry-again", "imported key", SENT);
-        UUID keyUuid = keyImportWriter
-                .complete(again.uuid(), registration(profile, pair, again, Set.of()))
-                .orElseThrow()
-                .key()
-                .uuid();
-        ImportedKeyRegistration registration = quarantineRegistration(profile, pair, taken, "quarantined key");
+        ImportedKeyRegistration registration = quarantineRegistration(profile, pair, taken);
         UUID takenUuid = taken.uuid();
 
         // when
@@ -1164,7 +1177,7 @@ class KeyImportWriterITest extends BaseSpringBootTest {
                 .hasMessageContaining(CryptographicKeyWriter.KEY_ALREADY_HELD);
         assertThat(keyImportRepository.findById(takenUuid).orElseThrow().getState())
                 .isEqualTo(KeyImportState.COMPENSATING);
-        assertThat(cryptographicKeyRepository.findAll()).extracting(CryptographicKey::getUuid).containsExactly(keyUuid);
+        assertThat(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(holderUuid))).hasSize(1);
     }
 
     /** The requester gave the name to another key once the import went unconfirmed, and keys are known by name. */
@@ -1260,14 +1273,9 @@ class KeyImportWriterITest extends BaseSpringBootTest {
     /** The key of an attempt the reconciliation could not undo, registered with what the attempt keeps. */
     private static ImportedKeyRegistration quarantineRegistration(TokenProfileFullModel profile, KeyPair pair,
             KeyImportAttempt attempt) {
-        return quarantineRegistration(profile, pair, attempt, "imported key");
-    }
-
-    private static ImportedKeyRegistration quarantineRegistration(TokenProfileFullModel profile, KeyPair pair,
-            KeyImportAttempt attempt, String name) {
         ImportedKeyRegistration imported = registration(profile, pair, attempt, Set.of());
         return new ImportedKeyRegistration(profile, imported.items(), attempt.keyReference(), fingerprintOf(pair), true,
-                new KeyImportMetadata(name, null, Set.of(), null), imported.owner(), true);
+                new KeyImportMetadata("imported key", null, Set.of(), null), imported.owner(), true);
     }
 
     /** An import that adopts the certificate's public key record, completed by another request. */

@@ -38,6 +38,7 @@ import com.otilm.core.service.handler.KeyImportClaimer;
 import com.otilm.core.service.handler.KeyImportReconciler;
 import com.otilm.core.service.handler.KeyImportSaga;
 import com.otilm.core.service.handler.KeyImportSweeper;
+import com.otilm.core.service.writer.CertificateKeyWriter;
 import com.otilm.core.service.writer.KeyImportWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.mocks.ConnectorMockFactory;
@@ -103,6 +104,8 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
     private TokenInstanceReferenceRepository tokenInstanceReferenceRepository;
     @Autowired
     private TokenProfileRepository tokenProfileRepository;
+    @Autowired
+    private CertificateKeyWriter certificateKeyWriter;
 
     private CryptographyProviderV2ConnectorMock connectorMock;
     private TokenProfileFullModel profile;
@@ -332,17 +335,18 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
         connectorMock.verifyImportKeyResultRequests(1);
     }
 
-    /** The requester imported the key again meanwhile, so the key the connector would not destroy is held otherwise. */
+    /** The platform holds the key in a token already, so the key the connector would not destroy is not registered. */
     @Test
     void sweep_leavesUnresolvedAKeyItCannotQuarantine() throws Exception {
         // given
         KeyImportAttempt attempt = dueAttempt();
-        KeyImportAttempt again = keyImportWriter.open(terms(), "retry-again", "imported key", SENT);
-        UUID keyUuid = keyImportWriter
-                .complete(again.uuid(), KeyImportWriterITest.registration(profile, pair, again, Set.of()))
-                .orElseThrow()
-                .key()
-                .uuid();
+        UUID holderUuid = certificateKeyWriter
+                .uploadCertificatePublicKey("certKey_imported", pair.getPublic(), 2048,
+                        KeyImportWriterITest.fingerprintOf(pair));
+        CryptographicKey holder = cryptographicKeyRepository.findById(holderUuid).orElseThrow();
+        holder.setTokenProfileUuid(profile.uuid());
+        holder.setTokenInstanceReferenceUuid(profile.tokenInstanceReferenceUuid());
+        cryptographicKeyRepository.saveAndFlush(holder);
         connectorMock.stubImportKeyResult(status(OperationStatus.COMPLETED));
         connectorMock.stubDestroyKeyProblem(ErrorCode.VALIDATION_FAILED);
 
@@ -353,7 +357,7 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
         KeyImport unresolved = keyImportRepository.findById(attempt.uuid()).orElseThrow();
         assertThat(unresolved.getState()).isEqualTo(KeyImportState.UNRESOLVED);
         assertThat(unresolved.getErrorMessage()).isEqualTo(KeyImportReconciler.NOT_REGISTERED);
-        assertThat(cryptographicKeyRepository.findAll()).extracting(CryptographicKey::getUuid).containsExactly(keyUuid);
+        assertThat(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(holderUuid))).hasSize(1);
     }
 
     /** A retry registered the key between the claim and the connector's answer, so there is nothing to undo. */
@@ -430,6 +434,24 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
         assertThat(keyImportRepository.findById(attempt.uuid()).orElseThrow().getState())
                 .isEqualTo(KeyImportState.REQUESTED);
         connectorMock.verifyDestroyKeyRequests(0);
+    }
+
+    /** A retry sent the import again after the claim, so the answer that it ended without a key may predate that. */
+    @Test
+    void reconcile_leavesAnImportThatEndedWithoutAKeyToARetrySendingItAgain() throws Exception {
+        // given
+        KeyImportAttempt attempt = dueAttempt();
+        KeyImportCheck check = claimer.claimNext().orElseThrow();
+        keyImportWriter.resending(attempt.uuid(), List.of("resent-secret-digest"));
+        connectorMock.stubImportKeyResult(status(OperationStatus.FAILED));
+
+        // when
+        SecurityContextHolder.clearContext();
+        reconciler.reconcile(check);
+
+        // then
+        assertThat(keyImportRepository.findById(attempt.uuid()).orElseThrow().getState())
+                .isEqualTo(KeyImportState.REQUESTED);
     }
 
     /** Unresolved attempts are closed a page at a time, so a backlog of them never outgrows one claim. */

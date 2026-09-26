@@ -13,6 +13,11 @@ ALTER TABLE "key_import" ALTER COLUMN "last_sent_at" SET NOT NULL;
 ALTER TABLE "key_import" ALTER COLUMN "next_check_at" SET DEFAULT now() + INTERVAL '15 minutes';
 ALTER TABLE "key_import" ALTER COLUMN "last_sent_at" SET DEFAULT now();
 
+-- A key has at most one import whose outcome is open, including one the reconciliation is undoing.
+DROP INDEX "uq_key_import_open_attempt";
+CREATE UNIQUE INDEX "uq_key_import_open_attempt" ON "key_import" ("spki_fingerprint")
+    WHERE "state" IN ('REQUESTED', 'ACCEPTED', 'COMPENSATING');
+
 -- The reconciliation looks only at the imports it still has to settle.
 CREATE INDEX "idx_key_import_next_check_at" ON "key_import" ("next_check_at")
     WHERE "state" IN ('REQUESTED', 'ACCEPTED', 'COMPENSATING');

@@ -58,6 +58,27 @@ class KeyImportMigrationITest extends BaseSpringBootTest {
         }
     }
 
+    /** Another import of a key the reconciliation is undoing would put a second copy in the token meanwhile. */
+    @Test
+    void aKeyBeingUndoneTakesNoOtherImport() throws Exception {
+        try (Connection connection = dataSource.getConnection()) {
+            try {
+                // given
+                applyMigration(connection);
+                runMigration(connection, RECONCILIATION_RESOURCE);
+                insertAttempt(connection, "COMPENSATING");
+
+                // when
+                // then
+                assertThatThrownBy(() -> insertAttempt(connection, "REQUESTED"))
+                        .isInstanceOf(SQLException.class)
+                        .hasMessageContaining("uq_key_import_open_attempt");
+            } finally {
+                dropScratchSchema(connection);
+            }
+        }
+    }
+
     @Test
     void settledImportsLeaveRoomForAnother() throws Exception {
         try (Connection connection = dataSource.getConnection()) {

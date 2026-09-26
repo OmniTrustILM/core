@@ -103,13 +103,16 @@ public class KeyImportWriter {
     }
 
     /**
-     * Closes an attempt this request opened and never sent, unless another request claimed it for a send meanwhile, as
-     * the digests it added show: that send's answer settles the attempt instead.
+     * Closes an attempt as it was read, unless a request claimed it for a send since, as the digests it added show:
+     * that send's answer settles the attempt instead. A request closes this way an attempt it opened and never sent,
+     * and the reconciliation one the connector answered about after it claimed it.
+     *
+     * @param read the attempt as the caller read it
      */
     @Transactional(rollbackFor = Exception.class)
-    public void failUnsent(KeyImportAttempt opened, String errorMessage) {
-        KeyImport attempt = locked(opened.uuid());
-        if (attempt.getState().isOpen() && attempt.getSecretDigests().equals(opened.secretDigests())) {
+    public void failUnsent(KeyImportAttempt read, String errorMessage) {
+        KeyImport attempt = locked(read.uuid());
+        if (attempt.getState().isOpen() && attempt.getSecretDigests().equals(read.secretDigests())) {
             attempt.setState(KeyImportState.FAILED);
             attempt.setErrorMessage(errorMessage);
         }
