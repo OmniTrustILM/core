@@ -505,7 +505,7 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
         ValidationException refused = assertThrows(ValidationException.class, () -> importKey(anotherKey));
 
         // then
-        assertThat(refused.getMessage()).isEqualTo(KeyImportSaga.NAME_TAKEN.formatted("taken"));
+        assertThat(refused.getMessage()).isEqualTo(CryptographicKeyWriter.NAME_TAKEN.formatted("taken"));
         connectorMock.verifyImportKeyRequests(1);
     }
 
@@ -905,7 +905,7 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
         return status(status, pair.getPublic());
     }
 
-    private static KeyPairOperationStatusResponseV2Dto status(OperationStatus status, PublicKey publicKey) {
+    static KeyPairOperationStatusResponseV2Dto status(OperationStatus status, PublicKey publicKey) {
         KeyPairOperationStatusResponseV2Dto answer = new KeyPairOperationStatusResponseV2Dto();
         answer.setStatus(status);
         if (status == OperationStatus.COMPLETED) {

@@ -4,6 +4,7 @@ import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.cryptography.key.EditKeyItemDto;
 import com.otilm.api.model.client.cryptography.key.EditKeyRequestDto;
 import com.otilm.api.model.client.cryptography.key.KeyCompromiseReason;
@@ -66,6 +67,9 @@ import static java.util.function.Predicate.not;
 public class CryptographicKeyWriter {
 
     private static final Logger logger = LoggerFactory.getLogger(CryptographicKeyWriter.class);
+
+    /** The refusal of a key whose name another key has. */
+    public static final String NAME_TAKEN = "A key named %s already exists.";
 
     /** The refusal of an import whose public key the platform already holds in a key of its own. */
     public static final String KEY_ALREADY_HELD = "A key with the same public key already exists.";
@@ -148,7 +152,8 @@ public class CryptographicKeyWriter {
     /**
      * Registers an imported key: as a key of its own, or by adopting the public-key-only record the platform already
      * holds for its public key, which gains the token profile and the private key and keeps its certificates. The
-     * requester becomes the owner, the groups are added and the custom attributes written, whichever it is.
+     * requester becomes the owner, the groups are added and the custom attributes written, whichever it is. A
+     * quarantined key's items are registered deactivated, except an adopted public key, which keeps its state.
      *
      * @return the UUID of the registered key
      * @throws ValidationException when the platform holds the public key otherwise than as a public-key-only record
@@ -167,9 +172,10 @@ public class CryptographicKeyWriter {
         for (UUID groupUuid : registration.metadata().groupUuids()) {
             objectAssociationService.addGroup(Resource.CRYPTOGRAPHIC_KEY, keyUuid, groupUuid);
         }
-        attributeEngine
-                .updateObjectCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, keyUuid,
-                        registration.metadata().customAttributes());
+        List<RequestAttribute> customAttributes = registration.metadata().customAttributes();
+        if (customAttributes != null) {
+            attributeEngine.updateObjectCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, keyUuid, customAttributes);
+        }
         // The unique fingerprint is the last guard against a key registered meanwhile; flushing through the
         // repository reports it as a data integrity violation.
         cryptographicKeyItemRepository.flush();
@@ -181,7 +187,7 @@ public class CryptographicKeyWriter {
         KeyImportMetadata metadata = registration.metadata();
         CryptographicKeyBasicModel key = save(metadata.name(), metadata.description(), profile.uuid(),
                 profile.tokenInstanceReferenceUuid());
-        KeyItemOrigin origin = importOrigin(profile, registration.keyReference());
+        KeyItemOrigin origin = importOrigin(profile, registration.keyReference(), registration.quarantined());
         for (ProviderKeyItem item : registration.items()) {
             createKeyContent(profile, profile.tokenInstance(), item, key, false, registration.exportable(), origin);
         }
@@ -224,7 +230,7 @@ public class CryptographicKeyWriter {
         adopted.setDescription(registration.metadata().description());
         CryptographicKeyItem publicKey = adopted.getItems().iterator().next();
         CryptographicKeyBasicModel key = ImmutableCryptographicKeyBasicModel.from(adopted);
-        KeyItemOrigin origin = importOrigin(profile, registration.keyReference());
+        KeyItemOrigin origin = importOrigin(profile, registration.keyReference(), registration.quarantined());
         for (ProviderKeyItem item : registration.items()) {
             if (item.type() == KeyType.PUBLIC_KEY) {
                 adoptPublicKeyItem(publicKey, item, profile, key, origin);
@@ -264,14 +270,18 @@ public class CryptographicKeyWriter {
         }
         publicKey.setUsage(usagesFor(profile, KeyType.PUBLIC_KEY, publicKey.getKeyAlgorithm()));
         keyEventHistoryService
-                .addEventHistory(origin.event(), KeyEventStatus.SUCCESS, origin.historyMessage(), null,
-                        publicKey.getUuid());
+                .addEventHistory(origin.event(), origin.status(), origin.historyMessage(), null, publicKey.getUuid());
         storeItemMetadata(item, publicKey.getUuid(), profile.tokenInstance(), key);
     }
 
-    private static KeyItemOrigin importOrigin(TokenProfileFullModel profile, UUID keyReference) {
-        return new KeyItemOrigin(KeyEvent.IMPORT, "Key Imported to Token Profile " + profile.name()
-                + " on Token Instance " + profile.tokenInstance().name(), keyReference);
+    private static KeyItemOrigin importOrigin(TokenProfileFullModel profile, UUID keyReference, boolean quarantined) {
+        String imported = "Key Imported to Token Profile " + profile.name() + " on Token Instance "
+                + profile.tokenInstance().name();
+        return quarantined
+                ? new KeyItemOrigin(KeyEvent.IMPORT,
+                        imported + " without confirmation; the connector refused to destroy it", keyReference,
+                        KeyState.DEACTIVATED, KeyEventStatus.FAILED)
+                : new KeyItemOrigin(KeyEvent.IMPORT, imported, keyReference);
     }
 
     /** Only the halves Core would ever hand out carry the permission; a public key is readable regardless. */
@@ -304,7 +314,7 @@ public class CryptographicKeyWriter {
         if (origin.keyReference() != null && holdsPrivateMaterial(item.type())) {
             keyItem.setKeyReferenceUuid(origin.keyReference());
         }
-        keyItem.setState(KeyState.ACTIVE);
+        keyItem.setState(origin.state());
         keyItem.setEnabled(enabled);
         keyItem.setExportable(exportable && holdsPrivateMaterial(item.type()));
         if (tokenProfile != null) {
@@ -313,8 +323,7 @@ public class CryptographicKeyWriter {
 
         cryptographicKeyItemRepository.save(keyItem);
         keyEventHistoryService
-                .addEventHistory(origin.event(), KeyEventStatus.SUCCESS, origin.historyMessage(), null,
-                        keyItem.getUuid());
+                .addEventHistory(origin.event(), origin.status(), origin.historyMessage(), null, keyItem.getUuid());
         storeItemMetadata(item, keyItem.getUuid(), tokenInstance, cryptographicKey);
         if (item.type().equals(KeyType.PUBLIC_KEY)) {
             certificateService.updateCertificateKeys(cryptographicKey.uuid(), keyItem.getFingerprint());
@@ -732,9 +741,15 @@ public class CryptographicKeyWriter {
     }
 
     /**
-     * What brought a key item into the inventory: the history event and message it is recorded with, and the platform's
-     * own reference for the private half of an imported key.
+     * What brought a key item into the inventory: the history event, message and status it is recorded with, the
+     * platform's own reference for the private half of an imported key, and the state the item starts in.
      */
-    private record KeyItemOrigin(KeyEvent event, String historyMessage, UUID keyReference) {
+    private record KeyItemOrigin(KeyEvent event, String historyMessage, UUID keyReference, KeyState state,
+            KeyEventStatus status) {
+
+        /** An origin whose items start active, recorded as a success. */
+        KeyItemOrigin(KeyEvent event, String historyMessage, UUID keyReference) {
+            this(event, historyMessage, keyReference, KeyState.ACTIVE, KeyEventStatus.SUCCESS);
+        }
     }
 }

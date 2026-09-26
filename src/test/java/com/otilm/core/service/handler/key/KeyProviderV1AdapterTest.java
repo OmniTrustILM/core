@@ -194,6 +194,7 @@ class KeyProviderV1AdapterTest {
         assertThrows(ValidationException.class, () -> adapter.importKeyStatus(null, handle, null, "key"));
         assertThrows(ValidationException.class, () -> adapter.importKeyResult(null, keyImportId, null, "key"));
         assertThrows(ValidationException.class, () -> adapter.cancelImportKey(handle));
+        assertThrows(ValidationException.class, () -> adapter.destroyImportedKeyItem(null, handle));
     }
 
     @Test

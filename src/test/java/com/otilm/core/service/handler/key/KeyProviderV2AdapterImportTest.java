@@ -30,8 +30,10 @@ import com.otilm.api.model.connector.common.v2.OperationStatus;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.cryptography.v2.OperationResponseValidator;
 import com.otilm.api.model.connector.cryptography.v2.OperationTrackingRequestV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.DestroyKeyRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ImportKeyRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ImportKeyResultRequestV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.KeyOperationResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyPairDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyPairOperationStatusResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.PrivateKeyDataResponseV2Dto;
@@ -77,6 +79,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.groups.Tuple.tuple;
 import static org.mockito.ArgumentMatchers.any;
@@ -84,6 +87,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class KeyProviderV2AdapterImportTest {
@@ -528,6 +532,104 @@ class KeyProviderV2AdapterImportTest {
         assertThatThrownBy(() -> adapter.importKeyResult(profile, keyImportId, sent, "key"))
                 .isInstanceOf(ConnectorServerException.class)
                 .hasMessage("The connector failed to report on the key import.");
+    }
+
+    @Test
+    void destroyImportedKeyItem_destroysTheItemUnderItsHandle() throws Exception {
+        // given
+        when(client.destroyKey(eq(connector), any())).thenReturn(ResponseEntity.ok(new KeyOperationResponseV2Dto()));
+        ImmutableTokenProfileFullModel profile = profile(List.of(FeatureFlag.KEY_IMPORT));
+        List<MetadataAttribute> handle = metadata("private-handle");
+
+        // when
+        adapter.destroyImportedKeyItem(profile, handle);
+
+        // then
+        ArgumentCaptor<DestroyKeyRequestV2Dto> sent = ArgumentCaptor.forClass(DestroyKeyRequestV2Dto.class);
+        verify(client).destroyKey(eq(connector), sent.capture());
+        assertThat(sent.getValue().getKeyMeta()).isEqualTo(handle);
+        assertThat(sent.getValue().getExecutionMode()).isEqualTo(OperationExecutionMode.SYNCHRONOUS);
+    }
+
+    /** Without its handle the connector cannot tell which key to destroy, so a "not found" would prove nothing. */
+    @Test
+    void destroyImportedKeyItem_refusesAnItemWithoutAHandle() {
+        // given
+        ImmutableTokenProfileFullModel profile = profile(List.of(FeatureFlag.KEY_IMPORT));
+        List<MetadataAttribute> noHandle = List.of();
+
+        // when
+        // then
+        assertThatThrownBy(() -> adapter.destroyImportedKeyItem(profile, noHandle))
+                .isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(client);
+    }
+
+    @Test
+    void destroyImportedKeyItem_takesAGoneItemAsDestroyed() throws Exception {
+        // given
+        when(client.destroyKey(eq(connector), any())).thenThrow(new ConnectorEntityNotFoundException("gone"));
+        ImmutableTokenProfileFullModel profile = profile(List.of(FeatureFlag.KEY_IMPORT));
+        List<MetadataAttribute> handle = metadata("private-handle");
+
+        // when
+        // then
+        assertThatCode(() -> adapter.destroyImportedKeyItem(profile, handle)).doesNotThrowAnyException();
+    }
+
+    /** A connector names a handle it does not know as a missing resource, as it does once the key is destroyed. */
+    @Test
+    void destroyImportedKeyItem_takesAKeyTheConnectorNamesMissingAsDestroyed() throws Exception {
+        // given
+        when(client.destroyKey(eq(connector), any()))
+                .thenThrow(new ConnectorProblemException(
+                        ProblemDetailExtended.fromErrorCode(ErrorCode.RESOURCE_NOT_FOUND, "no such key", null, null)));
+        ImmutableTokenProfileFullModel profile = profile(List.of(FeatureFlag.KEY_IMPORT));
+        List<MetadataAttribute> handle = metadata("private-handle");
+
+        // when
+        // then
+        assertThatCode(() -> adapter.destroyImportedKeyItem(profile, handle)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void destroyImportedKeyItem_namesOnlyTheCodeOfARefusal() throws Exception {
+        // given
+        when(client.destroyKey(eq(connector), any()))
+                .thenThrow(new ConnectorProblemException(ProblemDetailExtended
+                        .fromErrorCode(ErrorCode.VALIDATION_FAILED, "refused for reasons of the connector", null,
+                                null)));
+        ImmutableTokenProfileFullModel profile = profile(List.of(FeatureFlag.KEY_IMPORT));
+        List<MetadataAttribute> handle = metadata("private-handle");
+
+        // when
+        // then
+        assertThatThrownBy(() -> adapter.destroyImportedKeyItem(profile, handle))
+                .isInstanceOf(ValidationException.class)
+                .hasMessage("The connector refused to destroy the imported key (VALIDATION_FAILED).");
+    }
+
+    /** A failure, an unreachable connector, or an answer that did not destroy the key now is no refusal. */
+    @Test
+    void destroyImportedKeyItem_reportsAnyOtherOutcomeInThePlatformsWords() throws Exception {
+        // given
+        KeyOperationResponseV2Dto accepted = new KeyOperationResponseV2Dto();
+        accepted.setOperationMeta(metadata("operation"));
+        when(client.destroyKey(eq(connector), any()))
+                .thenThrow(new ConnectorProblemException(ProblemDetailExtended
+                        .fromErrorCode(ErrorCode.INTERNAL_SERVER_ERROR, "failed in words of its own", null, null)))
+                .thenThrow(new ConnectorCommunicationException("down", null))
+                .thenReturn(ResponseEntity.accepted().body(accepted));
+        ImmutableTokenProfileFullModel profile = profile(List.of(FeatureFlag.KEY_IMPORT));
+        List<MetadataAttribute> handle = metadata("private-handle");
+
+        // when
+        // then
+        for (int answer = 0; answer < 3; answer++) {
+            assertThatThrownBy(() -> adapter.destroyImportedKeyItem(profile, handle))
+                    .isInstanceOf(ConnectorServerException.class)
+                    .hasMessage("The connector failed to destroy the imported key.");
+        }
     }
 
     @Test

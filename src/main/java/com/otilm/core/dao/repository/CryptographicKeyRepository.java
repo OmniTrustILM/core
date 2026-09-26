@@ -60,6 +60,8 @@ public interface CryptographicKeyRepository extends SecurityFilterRepository<Cry
 
     Optional<CryptographicKey> findByName(String name);
 
+    boolean existsByName(String name);
+
     @EntityGraph(attributePaths = {"tokenProfile", "items"})
     List<CryptographicKey> findByUuidIn(List<UUID> uuids);
 

@@ -88,6 +88,10 @@ public class KeyImport extends UniquelyIdentified {
     @Column(name = "key_uuid")
     private UUID keyUuid;
 
+    /** When the reconciliation next looks at the attempt, while it is unsettled. */
+    @Column(name = "next_check_at")
+    private OffsetDateTime nextCheckAt;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;

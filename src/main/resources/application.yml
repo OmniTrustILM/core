@@ -440,6 +440,12 @@ key-import:
   # How long the outcome of an import can still be learned from its connector, which keeps a record of it for at
   # least 24 hours, so it has to be shorter. An older import the connector does not know is not sent again.
   unresolved-after: 20h
+  # How long an import is left to its requester's retries after each send before the reconciliation looks at it, and
+  # how long the reconciliation waits between two looks at one import. It must outlast one look, which makes up to
+  # three connector calls.
+  retry-window: 15m
+  # How often the reconciliation runs.
+  sweep-interval: 60s
 
 cbom:
   client:

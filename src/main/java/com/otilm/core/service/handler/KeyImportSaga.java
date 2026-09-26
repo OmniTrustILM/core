@@ -52,7 +52,6 @@ import org.springframework.stereotype.Component;
 @Component
 public class KeyImportSaga {
 
-    public static final String NAME_TAKEN = "A key named %s already exists.";
     public static final String UNCONFIRMED = "The key import was not confirmed. Retry it to learn its outcome.";
     public static final String NOT_IMPORTED = "The connector could not import the key.";
     public static final String CANCELLED = "The key import did not finish within %d seconds and was cancelled.";
@@ -127,7 +126,7 @@ public class KeyImportSaga {
 
     private void requireNameFree(String name) {
         if (cryptographicKeyRepository.findByName(name).isPresent()) {
-            throw new ValidationException(ValidationError.create(NAME_TAKEN.formatted(name)));
+            throw new ValidationException(ValidationError.create(CryptographicKeyWriter.NAME_TAKEN.formatted(name)));
         }
     }
 
@@ -284,7 +283,8 @@ public class KeyImportSaga {
     /**
      * Registers the key once it is shown to be the key in the file, of the type asked for and described with its
      * algorithm. A key registered meanwhile with the same public key refuses the import; the attempt stays open, so the
-     * imported key is not left unaccounted.
+     * imported key is not left unaccounted. An imported key that is not the key in the file, or that the platform
+     * refuses to register, is handed to the reconciliation at once.
      */
     private ImportedKey registered(Call call, KeyImportAttempt attempt, ImportAnswer.Imported imported)
             throws ConnectorServerException, NotFoundException, AttributeException {
@@ -296,16 +296,21 @@ public class KeyImportSaga {
                 .allMatch(item -> item.algorithm() == call.key().algorithm());
         if (imported.type() != terms.type() || !Objects.equals(imported.publicKey(), expected) || !ofTheKeysAlgorithm) {
             logger.warn("Key import {} was answered with a key other than the one in the file", attempt.uuid());
+            keyImportWriter.dueNow(attempt.uuid());
             throw unconfirmed(attempt);
         }
         ImportedKeyRegistration registration = new ImportedKeyRegistration(terms.profile(), imported.items(),
-                attempt.keyReference(), terms.spkiFingerprint(), terms.exportable(), call.metadata(),
-                terms.requester());
+                attempt.keyReference(), terms.spkiFingerprint(), terms.exportable(), call.metadata(), terms.requester(),
+                false);
         Optional<ImportedKey> key;
         try {
             key = keyImportWriter.complete(attempt.uuid(), registration);
         } catch (DataIntegrityViolationException lostRace) {
+            keyImportWriter.dueNow(attempt.uuid());
             throw new ValidationException(ValidationError.create(CryptographicKeyWriter.KEY_ALREADY_HELD));
+        } catch (ValidationException | NotFoundException | AttributeException refused) {
+            keyImportWriter.dueNow(attempt.uuid());
+            throw refused;
         }
         if (key.isEmpty()) {
             throw unconfirmed(attempt);

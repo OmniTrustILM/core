@@ -183,6 +183,15 @@ the connector does not know is sent again only within `key-import.unresolved-aft
 still keeps its records. Registration and `COMPLETED` commit in one transaction under the attempt's row lock, so a retry
 racing the original request registers the key once.
 
+`KeyImportSweeper` settles the attempts whose outcome their requesters never learned. A requester keeps an attempt for
+`key-import.retry-window` after each send; then one node at a time claims it under `KEY_IMPORT_SWEEP`, with its row
+locked, and asks `/import/result` after the claim commits. A key the connector imported is destroyed through the
+connector's handles only after the attempt moved to `COMPENSATING` under its row lock, so a retry that reaches
+registration afterwards finds it closed. A key the connector refuses to destroy is registered deactivated
+(`QUARANTINED`); an attempt older than `key-import.unresolved-after`, or whose key can be neither destroyed nor
+registered, ends `UNRESOLVED` with its key reference logged. A registration that fails in the request makes the attempt
+due at once.
+
 An import may adopt a certificate's public-key-only record, so writers of keys and key items must not act on a copy read
 before it: `CryptographicKey` and `CryptographicKeyItem` are `@DynamicUpdate`, every local item deletion or destruction
 passes the key as the caller read it and is refused when its token changed, and compliance results are stored through

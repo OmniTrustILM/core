@@ -11,7 +11,7 @@ import java.util.UUID;
  * @param name the key's name
  * @param description the key's description, or {@code null}
  * @param groupUuids the groups the key joins
- * @param customAttributes the custom attributes the key is registered with
+ * @param customAttributes the custom attributes the key is registered with, or {@code null} to leave them as they are
  */
 public record KeyImportMetadata(String name, String description, Set<UUID> groupUuids,
         List<RequestAttribute> customAttributes) {

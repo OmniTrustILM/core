@@ -112,6 +112,9 @@ import org.springframework.http.ResponseEntity;
 public class KeyProviderV2Adapter implements KeyProviderAdapter {
 
     private static final String IMPORT_REFUSED = "The connector refused to import the key (%s).";
+    private static final String DESTROY_REFUSED = "The connector refused to destroy the imported key (%s).";
+    private static final String DESTROY_FAILED = "The connector failed to destroy the imported key.";
+    private static final String NO_DESTROY_HANDLE = "V2 key destruction requires a non-empty metadata handle.";
     private static final String IMPORT_FAILED = "The connector failed to import the key.";
     private static final String IMPORT_UNREPORTED = "The connector failed to report on the key import.";
 
@@ -148,14 +151,10 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
             throws ConnectorException {
         if (!(reference instanceof RemoteKeyReference.MetadataReference(List<MetadataAttribute> keyMeta))
                 || keyMeta == null || keyMeta.isEmpty()) {
-            throw new IllegalArgumentException("V2 key destruction requires a non-empty metadata handle.");
+            throw new IllegalArgumentException(NO_DESTROY_HANDLE);
         }
-        TokenProfileScopedRequestV2Dto scope = tokenProfileScopedRequest(cryptographicKey.tokenProfile());
-        DestroyKeyRequestV2Dto request = new DestroyKeyRequestV2Dto();
-        request.setTokenAttributes(scope.getTokenAttributes());
-        request.setTokenProfileAttributes(scope.getTokenProfileAttributes());
-        request.setKeyMeta(keyMeta);
-        request.setExecutionMode(OperationExecutionMode.SYNCHRONOUS);
+        DestroyKeyRequestV2Dto request = destroyRequest(tokenProfileScopedRequest(cryptographicKey.tokenProfile()),
+                keyMeta);
 
         try {
             ResponseEntity<KeyOperationResponseV2Dto> response = keyManagementSyncApiClient
@@ -689,6 +688,46 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
     }
 
     @Override
+    public void destroyImportedKeyItem(TokenProfileFullModel tokenProfile, List<MetadataAttribute> keyMeta)
+            throws ConnectorException {
+        if (keyMeta == null || keyMeta.isEmpty()) {
+            throw new IllegalArgumentException(NO_DESTROY_HANDLE);
+        }
+        DestroyKeyRequestV2Dto request = destroyRequest(tokenProfileScopedRequest(tokenProfile), keyMeta);
+        ResponseEntity<KeyOperationResponseV2Dto> response;
+        try {
+            response = keyManagementSyncApiClient.destroyKey(connectorInfo, request);
+        } catch (ConnectorException | RuntimeException e) {
+            if (isGone(e)) {
+                log
+                        .info("Connector {} holds no key under the handle of an imported key; taking it as destroyed",
+                                connectorInfo.getUuid());
+                return;
+            }
+            if (e instanceof ConnectorProblemException problem && isRefusal(problem.getProblemDetail())) {
+                throw new ValidationException(ValidationError
+                        .create(DESTROY_REFUSED.formatted(problem.getProblemDetail().getErrorCode().name())));
+            }
+            throw connectorFault(DESTROY_FAILED);
+        }
+        KeyOperationResponseV2Dto body = response.getBody();
+        if (response.getStatusCode().value() != HttpStatus.OK.value() || body == null
+                || body.getOperationMeta() != null) {
+            throw connectorFault(DESTROY_FAILED);
+        }
+    }
+
+    private static DestroyKeyRequestV2Dto destroyRequest(TokenProfileScopedRequestV2Dto scope,
+            List<MetadataAttribute> keyMeta) {
+        DestroyKeyRequestV2Dto request = new DestroyKeyRequestV2Dto();
+        request.setTokenAttributes(scope.getTokenAttributes());
+        request.setTokenProfileAttributes(scope.getTokenProfileAttributes());
+        request.setKeyMeta(keyMeta);
+        request.setExecutionMode(OperationExecutionMode.SYNCHRONOUS);
+        return request;
+    }
+
+    @Override
     public boolean cancelImportKey(List<MetadataAttribute> operationMeta) {
         OperationTrackingRequestV2Dto request = new OperationTrackingRequestV2Dto();
         request.setOperationMeta(operationMeta);
@@ -701,6 +740,12 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
                             e.getClass().getSimpleName());
             return false;
         }
+    }
+
+    /** A connector that knows no key under the handle: a 404 without a body, or one naming the resource missing. */
+    private static boolean isGone(Exception e) {
+        return e instanceof ConnectorEntityNotFoundException || e instanceof ConnectorProblemException problem
+                && problem.getProblemDetail().getErrorCode() == ErrorCode.RESOURCE_NOT_FOUND;
     }
 
     /**

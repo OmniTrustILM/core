@@ -1,6 +1,7 @@
 package com.otilm.core.util.mocks;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.github.tomakehurst.wiremock.http.Fault;
 import com.github.tomakehurst.wiremock.http.Request;
@@ -13,6 +14,7 @@ import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.cryptography.v2.key.ExportableKeyTypeV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ImportableKeyTypeV2Dto;
 import com.otilm.core.serialization.ObjectMapperFactory;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
@@ -32,6 +34,7 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
     private static final String IMPORT_KEY_CANCEL = "/v2/cryptographyProvider/keys/import/cancel";
     private static final String IMPORT_KEY_RESULT = "/v2/cryptographyProvider/keys/import/result";
     private static final String IMPORT_STATUS_SCENARIO = "import status";
+    private static final String DESTROY_KEY = "/v2/cryptographyProvider/keys/destroy";
 
     CryptographyProviderV2ConnectorMock() {
         stubV2Info(List.of(ConnectorInterface.CRYPTOGRAPHY));
@@ -446,6 +449,61 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
                                 .withHeader("Content-Type", "application/problem+json")
                                 .withBody(ObjectMapperFactory.wire().writeValueAsString(problem))));
         return this;
+    }
+
+    /** A connector that cannot say how an import stands: the connection is reset. */
+    public CryptographyProviderV2ConnectorMock stubImportKeyResultUnreachable() {
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo(IMPORT_KEY_RESULT))
+                        .willReturn(WireMock.aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER)));
+        return this;
+    }
+
+    public CryptographyProviderV2ConnectorMock stubDestroyKey() {
+        server.stubFor(WireMock.post(WireMock.urlPathEqualTo(DESTROY_KEY)).willReturn(WireMock.okJson("{}")));
+        return this;
+    }
+
+    public CryptographyProviderV2ConnectorMock stubDestroyKeyProblem(ErrorCode errorCode)
+            throws JsonProcessingException {
+        ProblemDetailExtended problem = ProblemDetailExtended.fromErrorCode(errorCode, "refused", null, null);
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo(DESTROY_KEY))
+                        .willReturn(WireMock
+                                .aResponse()
+                                .withStatus(problem.getStatus())
+                                .withHeader("Content-Type", "application/problem+json")
+                                .withBody(ObjectMapperFactory.wire().writeValueAsString(problem))));
+        return this;
+    }
+
+    public CryptographyProviderV2ConnectorMock stubDestroyKeyFailing() {
+        server.stubFor(WireMock.post(WireMock.urlPathEqualTo(DESTROY_KEY)).willReturn(WireMock.serverError()));
+        return this;
+    }
+
+    /** A destroy of the item under the named handle fails; this stub wins over those added before it. */
+    public CryptographyProviderV2ConnectorMock stubDestroyKeyFailing(String handleName) {
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo(DESTROY_KEY))
+                        .withRequestBody(WireMock.matchingJsonPath("$.keyMeta[0].name", WireMock.equalTo(handleName)))
+                        .willReturn(WireMock.serverError()));
+        return this;
+    }
+
+    public List<JsonNode> destroyKeyRequestBodies() throws JsonProcessingException {
+        List<JsonNode> bodies = new ArrayList<>();
+        for (Request request : server.findAll(postRequestedFor(WireMock.urlPathEqualTo(DESTROY_KEY)))) {
+            bodies.add(ObjectMapperFactory.wire().readTree(request.getBodyAsString()));
+        }
+        return bodies;
+    }
+
+    public void verifyDestroyKeyRequests(int count) {
+        server.verify(count, postRequestedFor(WireMock.urlPathEqualTo(DESTROY_KEY)));
     }
 
     public CryptographyProviderV2ConnectorMock stubCancelImportKey() {

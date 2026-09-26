@@ -92,8 +92,8 @@ class KeyImportSagaTest {
     @BeforeEach
     void setUp() throws Exception {
         saga = new KeyImportSaga(keyImportRepository, cryptographicKeyRepository, cryptographicKeyWriter,
-                keyImportWriter, eventHistory, adapterFactory,
-                new KeyImportProperties(Duration.ofMillis(300), Duration.ofMillis(10), Duration.ofHours(20)));
+                keyImportWriter, eventHistory, adapterFactory, new KeyImportProperties(Duration.ofMillis(300),
+                        Duration.ofMillis(10), Duration.ofHours(20), null, null));
         TokenProfileFullModel profile = mock(TokenProfileFullModel.class);
         TokenInstanceFullModel token = mock(TokenInstanceFullModel.class);
         when(profile.tokenInstance()).thenReturn(token);
@@ -265,7 +265,7 @@ class KeyImportSagaTest {
         // given
         KeyImportSaga impatient = new KeyImportSaga(keyImportRepository, cryptographicKeyRepository,
                 cryptographicKeyWriter, keyImportWriter, eventHistory, adapterFactory,
-                new KeyImportProperties(Duration.ofMillis(100), Duration.ofHours(1), Duration.ofHours(20)));
+                new KeyImportProperties(Duration.ofMillis(100), Duration.ofHours(1), Duration.ofHours(20), null, null));
         when(adapter.importKey(terms, attempt, key, "imported key")).thenReturn(new ImportAnswer.Running(HANDLE));
         when(adapter.importKeyStatus(terms.profile(), HANDLE, SENT, "imported key"))
                 .thenReturn(new ImportAnswer.Running(HANDLE));
@@ -433,8 +433,9 @@ class KeyImportSagaTest {
         verify(adapter, never()).importKey(any(), any(), any(), any());
     }
 
+    /** The key in the token is not the key in the file, so the reconciliation is to destroy it at once. */
     @Test
-    void importKey_leavesAnImportOfAnotherKeyOpen() throws Exception {
+    void importKey_handsAnImportOfAnotherKeyToTheReconciliation() throws Exception {
         // given
         when(adapter.importKey(terms, attempt, key, "imported key")).thenReturn(imported(new byte[]{9, 9, 9}));
 
@@ -444,6 +445,7 @@ class KeyImportSagaTest {
                 .isInstanceOf(ConnectorServerException.class)
                 .hasMessage(KeyImportSaga.UNCONFIRMED);
         verify(keyImportWriter, never()).complete(any(), any());
+        verify(keyImportWriter).dueNow(attempt.uuid());
     }
 
     /** The public key proves the key, and the items must describe it too: an item of another algorithm is refused. */
@@ -481,7 +483,7 @@ class KeyImportSagaTest {
     }
 
     @Test
-    void importKey_refusesAKeyRegisteredMeanwhileAndLeavesTheAttemptOpen() throws Exception {
+    void importKey_handsALostRaceToTheReconciliation() throws Exception {
         // given
         when(adapter.importKey(terms, attempt, key, "imported key")).thenReturn(imported(key.subjectPublicKeyInfo()));
         when(keyImportWriter.complete(eq(attempt.uuid()), any()))
@@ -494,6 +496,23 @@ class KeyImportSagaTest {
                 .hasMessageContaining(CryptographicKeyWriter.KEY_ALREADY_HELD)
                 .hasMessageNotContaining("duplicate fingerprint");
         verify(keyImportWriter, never()).fail(any(), any());
+        verify(keyImportWriter).dueNow(attempt.uuid());
+    }
+
+    /** A retry would be refused the same way, so the key the connector holds is left to the reconciliation. */
+    @Test
+    void importKey_handsAKeyThePlatformRefusesToRegisterToTheReconciliation() throws Exception {
+        // given
+        when(adapter.importKey(terms, attempt, key, "imported key")).thenReturn(imported(key.subjectPublicKeyInfo()));
+        when(keyImportWriter.complete(eq(attempt.uuid()), any()))
+                .thenThrow(new ValidationException(ValidationError.create(CryptographicKeyWriter.KEY_NOT_ACTIVE)));
+
+        // when
+        // then
+        assertThatThrownBy(() -> saga.importKey(terms, RETRY, key, metadata))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining(CryptographicKeyWriter.KEY_NOT_ACTIVE);
+        verify(keyImportWriter).dueNow(attempt.uuid());
     }
 
     @Test

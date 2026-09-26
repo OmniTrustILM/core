@@ -223,6 +223,11 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
     }
 
     @Override
+    public void destroyImportedKeyItem(TokenProfileFullModel tokenProfile, List<MetadataAttribute> keyMeta) {
+        throw importNotSupported();
+    }
+
+    @Override
     public boolean cancelImportKey(List<MetadataAttribute> operationMeta) {
         throw importNotSupported();
     }

@@ -16,12 +16,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Runs {@code V202609261200__key_import.sql} as Flyway will. The test bootstrap generates its schema from the entities,
- * which cannot express a partial index, so this is where the one-open-attempt rule is proven.
+ * Runs the key import migrations as Flyway will. The test bootstrap generates its schema from the entities, which
+ * cannot express a partial index or a backfill, so this is where the one-open-attempt rule and the reconciliation
+ * schedule are proven.
  */
 class KeyImportMigrationITest extends BaseSpringBootTest {
 
     private static final String MIGRATION_RESOURCE = "db/migration/V202609261200__key_import.sql";
+
+    private static final String RECONCILIATION_RESOURCE = "db/migration/V202609261800__key_import_reconciliation.sql";
 
     private static final String SCRATCH_SCHEMA = "key_import_migration_check";
 
@@ -79,12 +82,97 @@ class KeyImportMigrationITest extends BaseSpringBootTest {
         }
     }
 
+    /** An import open when the reconciliation arrives is looked at once its requester had the retry window to retry. */
+    @Test
+    void anOpenImportIsLookedAtOnceItsRetryWindowPassed() throws Exception {
+        try (Connection connection = dataSource.getConnection()) {
+            try {
+                // given
+                applyMigration(connection);
+                insertAttempt(connection, "ACCEPTED");
+                insertAttempt(connection, "FAILED");
+
+                // when
+                runMigration(connection, RECONCILIATION_RESOURCE);
+
+                // then
+                try (Statement statement = connection.createStatement();
+                        ResultSet rows = statement
+                                .executeQuery(
+                                        "SELECT state, next_check_at - created_at FROM key_import ORDER BY state")) {
+                    assertThat(rows.next()).isTrue();
+                    assertThat(rows.getString(1)).isEqualTo("ACCEPTED");
+                    assertThat(rows.getString(2)).isEqualTo("00:15:00");
+                    assertThat(rows.next()).isTrue();
+                    assertThat(rows.getString(1)).isEqualTo("FAILED");
+                    assertThat(rows.getString(2)).isNull();
+                }
+            } finally {
+                dropScratchSchema(connection);
+            }
+        }
+    }
+
+    /** An instance that does not know the schedule yet records imports the reconciliation still looks at. */
+    @Test
+    void anImportRecordedWithoutItsScheduleIsLookedAtOnceItsRetryWindowPassed() throws Exception {
+        try (Connection connection = dataSource.getConnection()) {
+            try {
+                // given
+                applyMigration(connection);
+                runMigration(connection, RECONCILIATION_RESOURCE);
+
+                // when
+                insertAttempt(connection, "REQUESTED");
+
+                // then
+                try (Statement statement = connection.createStatement();
+                        ResultSet rows = statement.executeQuery("SELECT next_check_at - created_at FROM key_import")) {
+                    assertThat(rows.next()).isTrue();
+                    assertThat(rows.getString(1)).isEqualTo("00:15:00");
+                }
+            } finally {
+                dropScratchSchema(connection);
+            }
+        }
+    }
+
+    @Test
+    void theReconciliationLooksOnlyAtImportsItHasToSettle() throws Exception {
+        try (Connection connection = dataSource.getConnection()) {
+            try {
+                // given
+                applyMigration(connection);
+
+                // when
+                runMigration(connection, RECONCILIATION_RESOURCE);
+
+                // then
+                try (Statement statement = connection.createStatement();
+                        ResultSet index = statement
+                                .executeQuery("SELECT indexdef FROM pg_indexes WHERE schemaname = '" + SCRATCH_SCHEMA
+                                        + "' AND indexname = 'idx_key_import_next_check_at'")) {
+                    assertThat(index.next()).isTrue();
+                    assertThat(index.getString(1)).contains("REQUESTED", "ACCEPTED", "COMPENSATING");
+                }
+            } finally {
+                dropScratchSchema(connection);
+            }
+        }
+    }
+
     private void applyMigration(Connection connection) throws Exception {
-        String migration = new ClassPathResource(MIGRATION_RESOURCE).getContentAsString(StandardCharsets.UTF_8);
         try (Statement statement = connection.createStatement()) {
             statement.execute("DROP SCHEMA IF EXISTS " + SCRATCH_SCHEMA + " CASCADE");
             statement.execute("CREATE SCHEMA " + SCRATCH_SCHEMA);
             statement.execute("SET search_path TO " + SCRATCH_SCHEMA);
+        }
+        runMigration(connection, MIGRATION_RESOURCE);
+    }
+
+    private static void runMigration(Connection connection, String resource) throws Exception {
+        String migration = new ClassPathResource(resource).getContentAsString(StandardCharsets.UTF_8);
+        try (Statement statement = connection.createStatement()) {
             statement.execute(migration);
         }
     }

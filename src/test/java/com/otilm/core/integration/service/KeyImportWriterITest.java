@@ -4,6 +4,7 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
+import com.otilm.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
@@ -31,6 +32,7 @@ import com.otilm.api.model.core.cryptography.key.KeyEvent;
 import com.otilm.api.model.core.cryptography.key.KeyEventStatus;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
+import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.Connector;
@@ -69,6 +71,7 @@ import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.security.authz.SecurityResourceFilter;
+import com.otilm.core.service.AttributeExternalService;
 import com.otilm.core.service.ResourceObjectAssociationService;
 import com.otilm.core.service.handler.ComplianceSubjectHandler;
 import com.otilm.core.service.writer.CertificateKeyWriter;
@@ -85,6 +88,8 @@ import java.security.KeyPairGenerator;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.Month;
+import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -102,6 +107,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.orm.jpa.EntityManagerHolder;
@@ -163,6 +170,10 @@ class KeyImportWriterITest extends BaseSpringBootTest {
     private PlatformTransactionManager transactionManager;
     @Autowired
     private EntityManager entityManager;
+    @Autowired
+    private CacheManager cacheManager;
+    @Autowired
+    private AttributeExternalService attributeService;
 
     /** The entity-generated test schema cannot carry the migration's partial index, so each test adds it. */
     @BeforeEach
@@ -192,6 +203,22 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         assertThat(resent.secretDigests()).containsExactly("sent-secret-digest", "resent-secret-digest");
         assertThat(keyImportRepository.findById(attempt.uuid()).orElseThrow().getSecretDigests())
                 .containsExactly("sent-secret-digest", "resent-secret-digest");
+    }
+
+    @Test
+    void resending_leavesTheAttemptToItsRequesterForAnotherRetryWindow() {
+        // given
+        KeyImportAttempt attempt = keyImportWriter.open(terms("fingerprint-s", false), "retry-s", "key", SENT);
+        keyImportWriter.dueNow(attempt.uuid());
+        OffsetDateTime before = OffsetDateTime.now();
+
+        // when
+        keyImportWriter.resending(attempt.uuid(), List.of("resent-secret-digest"));
+
+        // then
+        assertThat(keyImportRepository.findById(attempt.uuid()).orElseThrow().getNextCheckAt())
+                .isAfterOrEqualTo(before.plusMinutes(15))
+                .isBefore(OffsetDateTime.now().plusMinutes(15).plusSeconds(1));
     }
 
     @Test
@@ -235,6 +262,21 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         KeyImport closed = keyImportRepository.findById(opened.uuid()).orElseThrow();
         assertThat(closed.getState()).isEqualTo(KeyImportState.FAILED);
         assertThat(closed.getErrorMessage()).isEqualTo("closed meanwhile");
+    }
+
+    @Test
+    void open_leavesTheAttemptToItsRequesterForTheRetryWindow() {
+        // given
+        OffsetDateTime before = OffsetDateTime.now();
+
+        // when
+        KeyImportAttempt attempt = keyImportWriter.open(terms("fingerprint-j", false), "retry-j", "key", SENT);
+
+        // then
+        OffsetDateTime nextCheck = keyImportRepository.findById(attempt.uuid()).orElseThrow().getNextCheckAt();
+        assertThat(nextCheck)
+                .isAfterOrEqualTo(before.plusMinutes(15))
+                .isBefore(OffsetDateTime.now().plusMinutes(15).plusSeconds(1));
     }
 
     @Test
@@ -323,6 +365,124 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         assertThat(recorded.getState()).isEqualTo(KeyImportState.FAILED);
         assertThat(recorded.getErrorMessage()).isEqualTo("first");
         assertThat(recorded.getOperationMeta()).isNull();
+    }
+
+    /** A later look finishes a compensation an earlier one started. */
+    @Test
+    void compensating_takesAnOpenAttemptOrOneAlreadyTaken() {
+        // given
+        KeyImportAttempt attempt = keyImportWriter.open(terms("fingerprint-k", false), "retry-k", "key", SENT);
+
+        // when
+        boolean taken = keyImportWriter.compensating(attempt);
+        boolean takenAgain = keyImportWriter.compensating(attempt);
+
+        // then
+        assertThat(taken).isTrue();
+        assertThat(takenAgain).isTrue();
+        assertThat(keyImportRepository.findById(attempt.uuid()).orElseThrow().getState())
+                .isEqualTo(KeyImportState.COMPENSATING);
+    }
+
+    /** A retry sent the attempt again after its claim, so the claim's answer may carry what that send carried. */
+    @Test
+    void compensating_leavesAnAttemptSentAgainSinceItsClaim() {
+        // given
+        KeyImportAttempt claimed = keyImportWriter.open(terms("fingerprint-t", false), "retry-t", "key", SENT);
+        keyImportWriter.resending(claimed.uuid(), List.of("resent-secret-digest"));
+
+        // when
+        boolean taken = keyImportWriter.compensating(claimed);
+
+        // then
+        assertThat(taken).isFalse();
+        assertThat(keyImportRepository.findById(claimed.uuid()).orElseThrow().getState())
+                .isEqualTo(KeyImportState.REQUESTED);
+    }
+
+    @Test
+    void compensated_settlesOnlyACompensatingAttempt() {
+        // given
+        KeyImportAttempt open = keyImportWriter.open(terms("fingerprint-l", false), "retry-l", "key", SENT);
+        KeyImportAttempt taken = keyImportWriter.open(terms("fingerprint-m", false), "retry-m", "key", SENT);
+        keyImportWriter.compensating(taken);
+
+        // when
+        keyImportWriter.compensated(open.uuid());
+        keyImportWriter.compensated(taken.uuid());
+
+        // then
+        assertThat(keyImportRepository.findById(open.uuid()).orElseThrow().getState())
+                .isEqualTo(KeyImportState.REQUESTED);
+        assertThat(keyImportRepository.findById(taken.uuid()).orElseThrow().getState())
+                .isEqualTo(KeyImportState.COMPENSATED);
+    }
+
+    @Test
+    void unresolved_settlesAnUnsettledAttempt() {
+        // given
+        KeyImportAttempt open = keyImportWriter.open(terms("fingerprint-n", false), "retry-n", "key", SENT);
+        KeyImportAttempt taken = keyImportWriter.open(terms("fingerprint-o", false), "retry-o", "key", SENT);
+        keyImportWriter.compensating(taken);
+
+        // when
+        keyImportWriter.unresolved(open.uuid(), "unresolved");
+        keyImportWriter.unresolved(taken.uuid(), "unresolved");
+
+        // then
+        assertThat(keyImportRepository.findAllById(List.of(open.uuid(), taken.uuid()))).allSatisfy(attempt -> {
+            assertThat(attempt.getState()).isEqualTo(KeyImportState.UNRESOLVED);
+            assertThat(attempt.getErrorMessage()).isEqualTo("unresolved");
+        });
+    }
+
+    @Test
+    void reschedule_setsTheNextCheck() {
+        // given
+        KeyImportAttempt attempt = keyImportWriter.open(terms("fingerprint-p", false), "retry-p", "key", SENT);
+        OffsetDateTime nextCheck = OffsetDateTime.now().plusHours(1).truncatedTo(ChronoUnit.SECONDS);
+
+        // when
+        keyImportWriter.reschedule(attempt.uuid(), nextCheck);
+
+        // then
+        assertThat(keyImportRepository.findById(attempt.uuid()).orElseThrow().getNextCheckAt())
+                .isAtSameInstantAs(nextCheck);
+    }
+
+    @Test
+    void dueNow_makesAnUnsettledAttemptDue() {
+        // given
+        KeyImportAttempt attempt = keyImportWriter.open(terms("fingerprint-q", false), "retry-q", "key", SENT);
+
+        // when
+        keyImportWriter.dueNow(attempt.uuid());
+
+        // then
+        assertThat(keyImportRepository.findById(attempt.uuid()).orElseThrow().getNextCheckAt())
+                .isBeforeOrEqualTo(OffsetDateTime.now());
+    }
+
+    @Test
+    void theSettlingTransitions_leaveASettledAttemptAsItIs() {
+        // given
+        KeyImportAttempt attempt = keyImportWriter.open(terms("fingerprint-r", false), "retry-r", "key", SENT);
+        keyImportWriter.fail(attempt.uuid(), "first");
+        OffsetDateTime nextCheck = keyImportRepository.findById(attempt.uuid()).orElseThrow().getNextCheckAt();
+
+        // when
+        boolean taken = keyImportWriter.compensating(attempt);
+        keyImportWriter.compensated(attempt.uuid());
+        keyImportWriter.unresolved(attempt.uuid(), "second");
+        keyImportWriter.reschedule(attempt.uuid(), OffsetDateTime.now().plusHours(1));
+        keyImportWriter.dueNow(attempt.uuid());
+
+        // then
+        assertThat(taken).isFalse();
+        KeyImport settled = keyImportRepository.findById(attempt.uuid()).orElseThrow();
+        assertThat(settled.getState()).isEqualTo(KeyImportState.FAILED);
+        assertThat(settled.getErrorMessage()).isEqualTo("first");
+        assertThat(settled.getNextCheckAt()).isAtSameInstantAs(nextCheck);
     }
 
     // ---- fixtures ----
@@ -824,6 +984,199 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         assertThat(edited.getTokenInstanceReferenceUuid()).isEqualTo(profile.tokenInstanceReferenceUuid());
     }
 
+    /** The reconciliation took the attempt, so a retry that reaches registration afterwards registers nothing. */
+    @Test
+    void complete_leavesAnAttemptTheReconciliationCompensates() throws Exception {
+        // given
+        TokenProfileFullModel profile = persistedProfile();
+        KeyPair pair = rsa();
+        KeyImportAttempt attempt = keyImportWriter
+                .open(terms(profile, pair), "retry-compensated", "imported key", SENT);
+        keyImportWriter.compensating(attempt);
+
+        // when
+        Optional<ImportedKey> key = keyImportWriter
+                .complete(attempt.uuid(), registration(profile, pair, attempt, Set.of()));
+
+        // then
+        assertThat(key).isEmpty();
+        assertThat(cryptographicKeyItemRepository.findByFingerprint(fingerprintOf(pair))).isEmpty();
+        assertThat(keyImportRepository.findById(attempt.uuid()).orElseThrow().getState())
+                .isEqualTo(KeyImportState.COMPENSATING);
+    }
+
+    @Test
+    void quarantine_registersTheKeyDeactivatedAndDisabled() throws Exception {
+        // given
+        TokenProfileFullModel profile = persistedProfile();
+        KeyPair pair = rsa();
+        KeyImportAttempt attempt = keyImportWriter.open(terms(profile, pair), "retry-quarantine", "imported key", SENT);
+        keyImportWriter.compensating(attempt);
+
+        // when
+        Optional<UUID> keyUuid = keyImportWriter
+                .quarantine(attempt.uuid(), quarantineRegistration(profile, pair, attempt));
+
+        // then
+        KeyImport settled = keyImportRepository.findById(attempt.uuid()).orElseThrow();
+        assertThat(settled.getState()).isEqualTo(KeyImportState.QUARANTINED);
+        assertThat(settled.getKeyUuid()).isEqualTo(keyUuid.orElseThrow());
+        List<CryptographicKeyItem> items = cryptographicKeyItemRepository.findByKeyUuidIn(List.of(keyUuid.get()));
+        assertThat(items).hasSize(2).allSatisfy(item -> {
+            assertThat(item.getState()).isEqualTo(KeyState.DEACTIVATED);
+            assertThat(item.isEnabled()).isFalse();
+        });
+        assertThat(importEvents(KeyEventStatus.FAILED))
+                .containsExactlyInAnyOrderElementsOf(items.stream().map(CryptographicKeyItem::getUuid).toList());
+        assertThat(importEvents(KeyEventStatus.SUCCESS)).isEmpty();
+    }
+
+    @Test
+    void quarantine_keepsTheStateOfAnAdoptedCertificateKey() throws Exception {
+        // given
+        TokenProfileFullModel profile = persistedProfile();
+        KeyPair pair = rsa();
+        UUID recordUuid = certificatePublicKey(pair);
+        KeyImportAttempt attempt = keyImportWriter
+                .open(terms(profile, pair), "retry-quarantine-adopt", "imported key", SENT);
+        keyImportWriter.compensating(attempt);
+
+        // when
+        keyImportWriter.quarantine(attempt.uuid(), quarantineRegistration(profile, pair, attempt));
+
+        // then
+        CryptographicKeyItem publicKey = item(recordUuid, KeyType.PUBLIC_KEY);
+        CryptographicKeyItem privateKey = item(recordUuid, KeyType.PRIVATE_KEY);
+        assertThat(publicKey.getState()).isEqualTo(KeyState.ACTIVE);
+        assertThat(publicKey.isEnabled()).isTrue();
+        assertThat(privateKey.getState()).isEqualTo(KeyState.DEACTIVATED);
+        assertThat(privateKey.isEnabled()).isFalse();
+    }
+
+    /** The adopted public key changed with the quarantine, so a copy cached before it is dropped. */
+    @Test
+    void quarantine_evictsTheAdoptedPublicKeyFromTheCache() throws Exception {
+        // given
+        TokenProfileFullModel profile = persistedProfile();
+        KeyPair pair = rsa();
+        UUID publicKeyUuid = item(certificatePublicKey(pair), KeyType.PUBLIC_KEY).getUuid();
+        Cache cache = cacheManager.getCache(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE);
+        cache.put(publicKeyUuid, "cached before the quarantine");
+        KeyImportAttempt attempt = keyImportWriter
+                .open(terms(profile, pair), "retry-quarantine-cache", "imported key", SENT);
+        keyImportWriter.compensating(attempt);
+
+        // when
+        keyImportWriter.quarantine(attempt.uuid(), quarantineRegistration(profile, pair, attempt));
+
+        // then
+        assertThat(cache.get(publicKeyUuid)).isNull();
+    }
+
+    /** The attempt keeps no custom attributes, so a quarantine writes none, whatever keys must carry otherwise. */
+    @Test
+    void quarantine_registersTheKeyWhereKeysRequireACustomAttribute() throws Exception {
+        // given
+        CustomAttributeCreateRequestDto required = new CustomAttributeCreateRequestDto();
+        required.setName("required-" + UUID.randomUUID());
+        required.setLabel("Required");
+        required.setResources(List.of(Resource.CRYPTOGRAPHIC_KEY));
+        required.setContentType(AttributeContentType.STRING);
+        required.setRequired(true);
+        attributeService.createCustomAttribute(required);
+        TokenProfileFullModel profile = persistedProfile();
+        KeyPair pair = rsa();
+        KeyImportAttempt attempt = keyImportWriter
+                .open(terms(profile, pair), "retry-quarantine-required", "imported key", SENT);
+        keyImportWriter.compensating(attempt);
+
+        // when
+        Optional<UUID> keyUuid = keyImportWriter
+                .quarantine(attempt.uuid(), quarantineRegistration(profile, pair, attempt));
+
+        // then
+        assertThat(keyUuid).isPresent();
+        assertThat(keyImportRepository.findById(attempt.uuid()).orElseThrow().getState())
+                .isEqualTo(KeyImportState.QUARANTINED);
+    }
+
+    /** A second look that also found the key undestroyable leaves the key the first one registered. */
+    @Test
+    void quarantine_registersTheKeyOnce() throws Exception {
+        // given
+        TokenProfileFullModel profile = persistedProfile();
+        KeyPair pair = rsa();
+        KeyImportAttempt attempt = keyImportWriter
+                .open(terms(profile, pair), "retry-quarantine-once", "imported key", SENT);
+        keyImportWriter.compensating(attempt);
+        UUID keyUuid = keyImportWriter
+                .quarantine(attempt.uuid(), quarantineRegistration(profile, pair, attempt))
+                .orElseThrow();
+
+        // when
+        Optional<UUID> again = keyImportWriter
+                .quarantine(attempt.uuid(), quarantineRegistration(profile, pair, attempt));
+
+        // then
+        assertThat(again).isEmpty();
+        assertThat(cryptographicKeyRepository.findAll()).extracting(CryptographicKey::getUuid).containsExactly(keyUuid);
+    }
+
+    /** The requester imported the key again once the attempt was taken, so the platform now holds it otherwise. */
+    @Test
+    void quarantine_refusesAKeyThePlatformHoldsOtherwise() throws Exception {
+        // given
+        TokenProfileFullModel profile = persistedProfile();
+        KeyPair pair = rsa();
+        KeyImportAttempt taken = keyImportWriter.open(terms(profile, pair), "retry-taken", "imported key", SENT);
+        keyImportWriter.compensating(taken);
+        KeyImportAttempt again = keyImportWriter.open(terms(profile, pair), "retry-again", "imported key", SENT);
+        UUID keyUuid = keyImportWriter
+                .complete(again.uuid(), registration(profile, pair, again, Set.of()))
+                .orElseThrow()
+                .key()
+                .uuid();
+        ImportedKeyRegistration registration = quarantineRegistration(profile, pair, taken, "quarantined key");
+        UUID takenUuid = taken.uuid();
+
+        // when
+        // then
+        assertThatThrownBy(() -> keyImportWriter.quarantine(takenUuid, registration))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining(CryptographicKeyWriter.KEY_ALREADY_HELD);
+        assertThat(keyImportRepository.findById(takenUuid).orElseThrow().getState())
+                .isEqualTo(KeyImportState.COMPENSATING);
+        assertThat(cryptographicKeyRepository.findAll()).extracting(CryptographicKey::getUuid).containsExactly(keyUuid);
+    }
+
+    /** The requester gave the name to another key once the import went unconfirmed, and keys are known by name. */
+    @Test
+    void quarantine_refusesANameAnotherKeyHas() throws Exception {
+        // given
+        TokenProfileFullModel profile = persistedProfile();
+        KeyPair pair = rsa();
+        KeyImportAttempt taken = keyImportWriter.open(terms(profile, pair), "retry-name-taken", "imported key", SENT);
+        keyImportWriter.compensating(taken);
+        KeyPair other = rsa();
+        KeyImportAttempt named = keyImportWriter.open(terms(profile, other), "retry-name-given", "imported key", SENT);
+        UUID keyUuid = keyImportWriter
+                .complete(named.uuid(), registration(profile, other, named, Set.of()))
+                .orElseThrow()
+                .key()
+                .uuid();
+        ImportedKeyRegistration registration = quarantineRegistration(profile, pair, taken);
+        UUID takenUuid = taken.uuid();
+
+        // when
+        // then
+        assertThatThrownBy(() -> keyImportWriter.quarantine(takenUuid, registration))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining(CryptographicKeyWriter.NAME_TAKEN.formatted("imported key"));
+        assertThat(keyImportRepository.findById(takenUuid).orElseThrow().getState())
+                .isEqualTo(KeyImportState.COMPENSATING);
+        assertThat(cryptographicKeyRepository.findAll()).extracting(CryptographicKey::getUuid).containsExactly(keyUuid);
+    }
+
     // ---- registration fixtures ----
 
     private TokenProfileFullModel persistedProfile() {
@@ -865,8 +1218,8 @@ class KeyImportWriterITest extends BaseSpringBootTest {
                 List.of(), new NameAndUuidDto(UUID.randomUUID().toString(), "requester"));
     }
 
-    private static ImportedKeyRegistration registration(TokenProfileFullModel profile, KeyPair pair,
-            KeyImportAttempt attempt, Set<UUID> groups) {
+    static ImportedKeyRegistration registration(TokenProfileFullModel profile, KeyPair pair, KeyImportAttempt attempt,
+            Set<UUID> groups) {
         return registration(profile, pair, attempt, groups, List.of());
     }
 
@@ -883,7 +1236,20 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         return new ImportedKeyRegistration(profile, List.of(publicKey, privateKey), attempt.keyReference(),
                 fingerprintOf(pair), true,
                 new KeyImportMetadata("imported key", "imported for the test", groups, customAttributes),
-                new NameAndUuidDto(UUID.randomUUID().toString(), "requester"));
+                new NameAndUuidDto(UUID.randomUUID().toString(), "requester"), false);
+    }
+
+    /** The key of an attempt the reconciliation could not undo, registered with what the attempt keeps. */
+    private static ImportedKeyRegistration quarantineRegistration(TokenProfileFullModel profile, KeyPair pair,
+            KeyImportAttempt attempt) {
+        return quarantineRegistration(profile, pair, attempt, "imported key");
+    }
+
+    private static ImportedKeyRegistration quarantineRegistration(TokenProfileFullModel profile, KeyPair pair,
+            KeyImportAttempt attempt, String name) {
+        ImportedKeyRegistration imported = registration(profile, pair, attempt, Set.of());
+        return new ImportedKeyRegistration(profile, imported.items(), attempt.keyReference(), fingerprintOf(pair), true,
+                new KeyImportMetadata(name, null, Set.of(), null), imported.owner(), true);
     }
 
     /** An import that adopts the certificate's public key record, completed by another request. */
@@ -938,13 +1304,13 @@ class KeyImportWriterITest extends BaseSpringBootTest {
                 .toList();
     }
 
-    private static KeyPair rsa() throws Exception {
+    static KeyPair rsa() throws Exception {
         KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
         generator.initialize(2048);
         return generator.generateKeyPair();
     }
 
-    private static String fingerprintOf(KeyPair pair) {
+    static String fingerprintOf(KeyPair pair) {
         return CryptographyUtil
                 .calculateKeyFingerprint(new KeyMaterial(KeyFormat.SPKI,
                         Base64.getEncoder().encodeToString(pair.getPublic().getEncoded())));

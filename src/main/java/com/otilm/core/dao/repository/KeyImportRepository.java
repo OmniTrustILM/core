@@ -3,9 +3,12 @@ package com.otilm.core.dao.repository;
 import com.otilm.core.dao.entity.KeyImport;
 import com.otilm.core.dao.entity.KeyImportState;
 import jakarta.persistence.LockModeType;
+import java.time.OffsetDateTime;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -21,4 +24,12 @@ public interface KeyImportRepository extends JpaRepository<KeyImport, UUID> {
 
     Optional<KeyImport> findFirstByIdempotencyKeyAndStateInOrderByCreatedAtDesc(String idempotencyKey,
             Collection<KeyImportState> states);
+
+    /**
+     * The attempts in the given states that are due for a look, the longest waiting first, locked: an attempt a retry
+     * is sending again meanwhile is read as the retry leaves it.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    List<KeyImport> findForUpdateByStateInAndNextCheckAtLessThanEqualOrderByNextCheckAt(
+            Collection<KeyImportState> states, OffsetDateTime now, Pageable page);
 }
