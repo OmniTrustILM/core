@@ -1,0 +1,6 @@
+-- RFC 5280 4.2.1.2 Subject Key Identifier
+SubjectKeyIdentifierModule DEFINITIONS IMPLICIT TAGS ::= BEGIN
+
+SubjectKeyIdentifier ::= OCTET STRING
+
+END

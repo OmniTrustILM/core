@@ -37,6 +37,17 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 class CustomOidEntryServiceITest extends BaseSpringBootTest {
 
+    /** The module an extension registers: what its values are, in the X.680 subset Core reads. */
+    private static final String SEQUENCE_MODULE = """
+            M DEFINITIONS IMPLICIT TAGS ::= BEGIN
+            Ext ::= SEQUENCE { a INTEGER }
+            END""";
+
+    private static final String SET_MODULE = """
+            M DEFINITIONS IMPLICIT TAGS ::= BEGIN
+            Ext ::= SET { a INTEGER }
+            END""";
+
     public static final String NON_EXISTENT_OID = "1.2";
     @Autowired
     CustomOidEntryExternalService customOidEntryService;
@@ -174,17 +185,17 @@ class CustomOidEntryServiceITest extends BaseSpringBootTest {
         CertificateExtensionOidPropertiesDto properties = new CertificateExtensionOidPropertiesDto();
         properties.setDefaultCritical(false);
         properties.setValueEncoding(ExtensionValueEncoding.DER);
-        properties.setValueSchema("{\"type\":\"object\",\"required\":[\"sequence\"]}");
+        properties.setValueSchema(SEQUENCE_MODULE);
         request.setAdditionalProperties(properties);
 
         CustomOidEntryDetailResponseDto response = customOidEntryService.createCustomOidEntry(request);
 
         CertificateExtensionOidPropertiesDto responseProps = (CertificateExtensionOidPropertiesDto) response
                 .getAdditionalProperties();
-        Assertions.assertEquals("{\"type\":\"object\",\"required\":[\"sequence\"]}", responseProps.getValueSchema());
+        Assertions.assertEquals(SEQUENCE_MODULE, responseProps.getValueSchema());
         OidRecord cachedRecord = OidHandler.getOidCache(OidCategory.CERTIFICATE_EXTENSION).get(request.getOid());
         Assertions.assertNotNull(cachedRecord);
-        Assertions.assertEquals("{\"type\":\"object\",\"required\":[\"sequence\"]}", cachedRecord.valueSchema());
+        Assertions.assertEquals(SEQUENCE_MODULE, cachedRecord.valueSchema());
     }
 
     @Test
@@ -196,7 +207,7 @@ class CustomOidEntryServiceITest extends BaseSpringBootTest {
         CertificateExtensionOidPropertiesDto createProperties = new CertificateExtensionOidPropertiesDto();
         createProperties.setDefaultCritical(false);
         createProperties.setValueEncoding(ExtensionValueEncoding.DER);
-        createProperties.setValueSchema("{\"type\":\"object\",\"required\":[\"sequence\"]}");
+        createProperties.setValueSchema(SEQUENCE_MODULE);
         createRequest.setAdditionalProperties(createProperties);
         customOidEntryService.createCustomOidEntry(createRequest);
 
@@ -205,17 +216,17 @@ class CustomOidEntryServiceITest extends BaseSpringBootTest {
         CertificateExtensionOidPropertiesDto updateProperties = new CertificateExtensionOidPropertiesDto();
         updateProperties.setDefaultCritical(false);
         updateProperties.setValueEncoding(ExtensionValueEncoding.DER);
-        updateProperties.setValueSchema("{\"type\":\"object\",\"required\":[\"set\"]}");
+        updateProperties.setValueSchema(SET_MODULE);
         updateRequest.setAdditionalProperties(updateProperties);
 
         CustomOidEntryDetailResponseDto response = customOidEntryService.editCustomOidEntry("1.2.3.8", updateRequest);
 
         CertificateExtensionOidPropertiesDto responseProps = (CertificateExtensionOidPropertiesDto) response
                 .getAdditionalProperties();
-        Assertions.assertEquals("{\"type\":\"object\",\"required\":[\"set\"]}", responseProps.getValueSchema());
+        Assertions.assertEquals(SET_MODULE, responseProps.getValueSchema());
         OidRecord cachedRecord = OidHandler.getOidCache(OidCategory.CERTIFICATE_EXTENSION).get("1.2.3.8");
         Assertions.assertNotNull(cachedRecord);
-        Assertions.assertEquals("{\"type\":\"object\",\"required\":[\"set\"]}", cachedRecord.valueSchema());
+        Assertions.assertEquals(SET_MODULE, cachedRecord.valueSchema());
     }
 
     @Test
@@ -235,7 +246,7 @@ class CustomOidEntryServiceITest extends BaseSpringBootTest {
         CertificateExtensionOidPropertiesDto updateProperties = new CertificateExtensionOidPropertiesDto();
         updateProperties.setDefaultCritical(false);
         updateProperties.setValueEncoding(ExtensionValueEncoding.DER);
-        updateProperties.setValueSchema("this is not json");
+        updateProperties.setValueSchema("this is not a module");
         updateRequest.setAdditionalProperties(updateProperties);
 
         Assertions
@@ -252,7 +263,7 @@ class CustomOidEntryServiceITest extends BaseSpringBootTest {
         CertificateExtensionOidPropertiesDto properties = new CertificateExtensionOidPropertiesDto();
         properties.setDefaultCritical(false);
         properties.setValueEncoding(ExtensionValueEncoding.DER);
-        properties.setValueSchema("this is not json");
+        properties.setValueSchema("this is not a module");
         request.setAdditionalProperties(properties);
 
         Assertions.assertThrows(ValidationException.class, () -> customOidEntryService.createCustomOidEntry(request));

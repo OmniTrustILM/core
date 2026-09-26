@@ -1,0 +1,6 @@
+-- RFC 7633 TLS Feature, as the RFC writes it: no bound on the feature numbers.
+TlsFeatureModule DEFINITIONS IMPLICIT TAGS ::= BEGIN
+
+Features ::= SEQUENCE OF INTEGER
+
+END

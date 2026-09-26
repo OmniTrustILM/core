@@ -65,6 +65,8 @@ import com.otilm.core.dao.repository.AttributeContent2ObjectRepository;
 import com.otilm.core.dao.repository.AttributeContentItemRepository;
 import com.otilm.core.dao.repository.AttributeDefinitionRepository;
 import com.otilm.core.dao.repository.AttributeRelationRepository;
+import com.otilm.core.extension.ExtensionValues;
+import com.otilm.core.extension.JerCodec;
 import com.otilm.core.model.SearchFieldObject;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.oid.OidHandler;
@@ -72,10 +74,9 @@ import com.otilm.core.oid.OidRecord;
 import com.otilm.core.security.authz.SecurityResourceFilter;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.writer.AttributeDefinitionWriter;
-import com.otilm.core.util.AsnJsonCodec;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.AuthHelper;
-import com.otilm.core.util.ExtensionSchemas;
+import com.otilm.core.util.ConstraintSchemas;
 import com.otilm.core.util.SearchHelper;
 import com.otilm.core.util.SecretEncodingVersion;
 import com.otilm.core.util.SecretsUtil;
@@ -817,7 +818,7 @@ public class AttributeEngine {
                     continue;
                 }
                 try {
-                    ExtensionSchemas.requireValidSchema((String) constraint.getData());
+                    ConstraintSchemas.requireValidSchema((String) constraint.getData());
                 } catch (ValidationException e) {
                     throw new AttributeException(
                             "JSON Schema constraint of attribute '%s': %s"
@@ -840,9 +841,9 @@ public class AttributeEngine {
     }
 
     /**
-     * Grammar and registry-shape layers for JSON values of DER-encoded extension mappings. The constraint layer is not
-     * here: it already runs with the other constraint types in the general content validation above. Only JSON values
-     * (starting with '{') are checked; base64 values are the legacy path and were never shape-checked.
+     * The ASN.1-type layer for values of DER-encoded extension mappings. The constraint layer is not here: it already
+     * runs with the other constraint types in the general content validation above. An OID whose module is registered
+     * holds its values to that type; one nobody has described takes DER as bytes, which nothing here can check.
      */
     private static List<ValidationError> validateJsonExtensionValues(
             Map<String, AttributeDefinition> definitionsMapping, List<RequestAttribute> requestAttributes) {
@@ -858,8 +859,8 @@ public class AttributeEngine {
     }
 
     /**
-     * Grammar and registry-shape layers for one definition's submitted values. Package-private so the layering can be
-     * driven directly in a unit test; the map-based caller above is what production goes through.
+     * The ASN.1-type layer for one definition's submitted values. Package-private so it can be driven directly in a
+     * unit test; the map-based caller above is what production goes through.
      */
     static List<ValidationError> validateJsonExtensionValues(DataAttributeV3 definition,
             RequestAttribute requestAttribute) {
@@ -874,40 +875,54 @@ public class AttributeEngine {
                 : definition.getName();
         for (Object item : content) {
             if (!(item instanceof AttributeContent attributeContent)
-                    || !(attributeContent.getData() instanceof String value) || !value.strip().startsWith("{")) {
+                    || !(attributeContent.getData() instanceof String value)) {
                 continue;
             }
-            checkJsonExtensionValue(value, extensionOids, label, errors);
+            checkExtensionValue(value, extensionOids, label, errors);
         }
         return errors;
     }
 
-    /** Checks one tree value: that the grammar accepts it, then that each mapped OID permits it. */
-    private static void checkJsonExtensionValue(String value, List<String> extensionOids, String label,
+    /**
+     * Checks one submitted value against each OID the definition maps. An OID whose ASN.1 module is registered holds
+     * its value to that type; an OID nobody has described takes DER as bytes, which the renderer decodes and nothing
+     * here can say more about.
+     */
+    private static void checkExtensionValue(String value, List<String> extensionOids, String label,
             List<ValidationError> errors) {
-        JsonNode tree;
+        JsonNode written;
         try {
-            tree = AsnJsonCodec.parse(value);
-            AsnJsonCodec.encode(tree);
+            written = JerCodec.tryParse(value).orElse(null);
         } catch (ValidationException e) {
             errors.add(ValidationError.create("Extension value of attribute {}: {}", label, e.getMessage()));
             return;
         }
+        if (written == null) {
+            return;
+        }
         for (String extensionOid : extensionOids) {
-            String structuredTarget = StructuredExtensionCodec.structuredTargetName(extensionOid);
-            if (structuredTarget != null) {
-                // Authoring a new opaque mapping for these OIDs is already refused; a legacy one must not gain
-                // a second, weaker way in. The typed target takes its values from a closed vocabulary, so it
-                // cannot express a malformed one - a hand-written tree can.
-                errors
-                        .add(ValidationError
-                                .create("Extension value of attribute {} cannot be a JSON tree: extension {} has the {} mapping target, which is the only way to set it",
-                                        label, extensionOid, structuredTarget));
-                continue;
-            }
-            for (String violation : ExtensionSchemas.validateShape(extensionOid, tree)) {
-                errors.add(ValidationError.create("Extension value of attribute {} {}", label, violation));
-            }
+            checkWrittenValue(written, extensionOid, label, errors);
+        }
+    }
+
+    /** One written value against one mapped OID; the first reason it cannot be accepted is the one reported. */
+    private static void checkWrittenValue(JsonNode written, String extensionOid, String label,
+            List<ValidationError> errors) {
+        String structuredTarget = StructuredExtensionCodec.structuredTargetName(extensionOid);
+        if (structuredTarget != null) {
+            // Authoring a new opaque mapping for these OIDs is already refused; a legacy one must not gain
+            // a second, weaker way in. The typed target takes its values from a closed vocabulary, so it
+            // cannot express a malformed one.
+            errors
+                    .add(ValidationError
+                            .create("Extension value of attribute {} cannot be written here: extension {} has the {} mapping target, which is the only way to set it",
+                                    label, extensionOid, structuredTarget));
+            return;
+        }
+        try {
+            ExtensionValues.encode(extensionOid, written);
+        } catch (ValidationException e) {
+            errors.add(ValidationError.create("Extension value of attribute {}: {}", label, e.getMessage()));
         }
     }
 
