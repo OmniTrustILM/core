@@ -671,7 +671,7 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         try {
             status = keyManagementSyncApiClient.getImportKeyResult(connectorInfo, request);
         } catch (ConnectorException | RuntimeException e) {
-            if (isNotFound(e)) {
+            if (isNotTracked(e)) {
                 return new ImportAnswer.NotAccepted();
             }
             throw connectorFault(IMPORT_UNREPORTED);
@@ -703,10 +703,13 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         }
     }
 
-    /** A connector with no record of the import answers 404, with a problem document or without one. */
-    private static boolean isNotFound(Exception e) {
+    /**
+     * A connector with no record of the import says so with {@code OPERATION_NOT_TRACKED}, or answers 404 without a
+     * problem document, as it arrives when the transport drops the document.
+     */
+    private static boolean isNotTracked(Exception e) {
         return e instanceof ConnectorEntityNotFoundException || e instanceof ConnectorProblemException problem
-                && problem.getProblemDetail().getStatus() == HttpStatus.NOT_FOUND.value();
+                && problem.getProblemDetail().getErrorCode() == ErrorCode.OPERATION_NOT_TRACKED;
     }
 
     private ImportAnswer answerOf(KeyCreationStatusResponseV2Dto status, List<MetadataAttribute> operationMeta,

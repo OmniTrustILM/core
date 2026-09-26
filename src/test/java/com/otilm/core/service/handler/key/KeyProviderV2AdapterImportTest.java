@@ -510,6 +510,26 @@ class KeyProviderV2AdapterImportTest {
         assertThat(List.of(problem, legacy)).containsOnly(new ImportAnswer.NotAccepted());
     }
 
+    /**
+     * Only a connector that says it tracks no such import shows the import was never accepted; any other 404 does not.
+     */
+    @Test
+    void importKeyResult_doesNotReadAnotherNotFoundAsNeverAccepted() throws Exception {
+        // given
+        when(client.getImportKeyResult(eq(connector), any()))
+                .thenThrow(new ConnectorProblemException(ProblemDetailExtended
+                        .fromErrorCode(ErrorCode.RESOURCE_NOT_FOUND, "no such token", null, null)));
+        ImmutableTokenProfileFullModel profile = profile(List.of(FeatureFlag.KEY_IMPORT));
+        UUID keyImportId = UUID.randomUUID();
+        List<String> sent = sentSecretDigests();
+
+        // when
+        // then
+        assertThatThrownBy(() -> adapter.importKeyResult(profile, keyImportId, sent, "key"))
+                .isInstanceOf(ConnectorServerException.class)
+                .hasMessage("The connector failed to report on the key import.");
+    }
+
     @Test
     void cancelImportKey_isTrueOnlyWhenTheConnectorAbortedTheImport() throws Exception {
         // given
