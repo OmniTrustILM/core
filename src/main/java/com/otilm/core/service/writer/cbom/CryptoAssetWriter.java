@@ -2,7 +2,9 @@ package com.otilm.core.service.writer.cbom;
 
 import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cryptoasset.PqcVerdict;
+import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.cbom.asset.CompositeCurve;
 import com.otilm.core.cbom.asset.CryptoAssetIdentityFields;
 import com.otilm.core.cbom.asset.JsonColumnText;
@@ -32,12 +34,14 @@ public class CryptoAssetWriter {
     private final CryptoAssetRepository assetRepository;
     private final CryptoAssetAliasRepository aliasRepository;
     private final ClusterOperationSynchronizer clusterOperationSynchronizer;
+    private final AttributeEngine attributeEngine;
 
     public CryptoAssetWriter(CryptoAssetRepository assetRepository, CryptoAssetAliasRepository aliasRepository,
-            ClusterOperationSynchronizer clusterOperationSynchronizer) {
+            ClusterOperationSynchronizer clusterOperationSynchronizer, AttributeEngine attributeEngine) {
         this.assetRepository = assetRepository;
         this.aliasRepository = aliasRepository;
         this.clusterOperationSynchronizer = clusterOperationSynchronizer;
+        this.attributeEngine = attributeEngine;
     }
 
     /**
@@ -216,12 +220,17 @@ public class CryptoAssetWriter {
     }
 
     /**
-     * Deletes an asset. Its source rows and aliases go with it by cascade; the CBOM rows they referenced do not.
+     * Deletes an asset. Its source rows and aliases go with it by cascade, and its custom attribute content is purged.
+     * The CBOM rows referenced by those sources remain.
      *
      * @return 1 if a row was deleted, 0 if it was already gone
      */
     @Transactional
     public int delete(UUID assetUuid) {
-        return assetRepository.deleteAsset(assetUuid);
+        int deleted = assetRepository.deleteAsset(assetUuid);
+        if (deleted == 1) {
+            attributeEngine.deleteObjectAttributeContent(Resource.CRYPTO_ASSET, assetUuid);
+        }
+        return deleted;
     }
 }

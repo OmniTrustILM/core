@@ -13,8 +13,8 @@ import java.util.List;
 
 /**
  * Read side of the cryptographic asset inventory — the deduplicated cross-CBOM asset view served under
- * {@code /v1/cryptoAssets}. Assets enter the inventory through the CBOM document sync, so this service has no write
- * operations; the sync itself stays on the CBOM services.
+ * {@code /v1/cryptoAssets}. Assets enter the inventory through the CBOM document sync, so this service has no asset
+ * creation or deletion operations. Custom attribute content is updated through the generic resource endpoint.
  *
  * <p>
  * The ratified contract (interfaces#909, interfaces#913) is fully served: list, detail, the searchable-field

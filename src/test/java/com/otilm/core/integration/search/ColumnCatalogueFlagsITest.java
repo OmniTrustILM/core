@@ -15,7 +15,6 @@ import com.otilm.api.model.core.search.SortDirection;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.CbomExternalService;
 import com.otilm.core.service.DiscoveryExternalService;
 import com.otilm.core.service.SigningRecordExternalService;
 import com.otilm.core.service.TimeQualityConfigurationExternalService;
@@ -42,9 +41,6 @@ class ColumnCatalogueFlagsITest extends BaseSpringBootTest {
 
     @Autowired
     private DiscoveryExternalService discoveryService;
-
-    @Autowired
-    private CbomExternalService cbomService;
 
     @Autowired
     private SigningRecordExternalService signingRecordService;
@@ -224,22 +220,17 @@ class ColumnCatalogueFlagsITest extends BaseSpringBootTest {
     }
 
     @Test
-    void aResourceWithoutCustomAttributesPublishesNoEmptyGroup() {
-        // CBOMs and signing records carry no custom attributes; the catalogue says so by leaving the group out
-        // rather than by publishing an empty one for the picker to render as a bare heading.
-        for (List<SearchFieldDataByGroupDto> catalogue : List
-                .of(cbomService.getSearchableFieldInformationByGroup(),
-                        signingRecordService.getSearchableFieldInformation())) {
-            Assertions
-                    .assertTrue(catalogue
-                            .stream()
-                            .noneMatch(group -> group.getSearchFieldData() == null
-                                    || group.getSearchFieldData().isEmpty()));
-            Assertions
-                    .assertTrue(catalogue
-                            .stream()
-                            .noneMatch(group -> group.getFilterFieldSource() == FilterFieldSource.CUSTOM));
-        }
+    void signingRecordsPublishNoEmptyCustomAttributeGroup() {
+        List<SearchFieldDataByGroupDto> catalogue = signingRecordService.getSearchableFieldInformation();
+        Assertions
+                .assertTrue(catalogue
+                        .stream()
+                        .noneMatch(
+                                group -> group.getSearchFieldData() == null || group.getSearchFieldData().isEmpty()));
+        Assertions
+                .assertTrue(catalogue
+                        .stream()
+                        .noneMatch(group -> group.getFilterFieldSource() == FilterFieldSource.CUSTOM));
     }
 
     private void registerCustomAttribute(String name, AttributeContentType contentType) throws Exception {

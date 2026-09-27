@@ -173,6 +173,7 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
     }
 
     @Override
+    @Transactional(rollbackOn = AttributeException.class)
     @ExternalAuthorizationDynamic(action = ResourceAction.UPDATE)
     public List<ResponseAttribute> updateAttributeContentForObject(SecuredResource securedResource,
             SecuredUUID objectUuid, UUID attributeUuid, List<? extends AttributeContent> attributeContentItems)

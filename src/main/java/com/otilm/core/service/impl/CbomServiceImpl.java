@@ -1,10 +1,12 @@
 package com.otilm.core.service.impl;
 
 import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.CbomRepositoryException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.common.BulkActionMessageDto;
@@ -93,6 +95,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.function.TriFunction;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -338,6 +341,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         detailDto.setAssetSyncState(cbomDto.getAssetSyncState());
         detailDto.setAssetSyncedAt(cbomDto.getAssetSyncedAt());
         detailDto.setAssetSyncError(cbomDto.getAssetSyncError());
+        detailDto.setCustomAttributes(attributeEngine.getObjectCustomAttributesContent(Resource.CBOM, cbom.getUuid()));
 
         return detailDto;
     }
@@ -365,6 +369,26 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
                 .map(Object::toString)
                 .filter(s -> StringUtils.isNotBlank(s))
                 .orElseThrow(() -> new ValidationException("specVersion must not be empty"));
+
+        List<RequestAttribute> requestedAttributes = request.getCustomAttributes() == null
+                ? List.of()
+                : request.getCustomAttributes();
+        attributeEngine.validateCustomAttributesContent(Resource.CBOM, requestedAttributes);
+        List<RequestAttribute> permittedAttributes = attributeEngine
+                .applySecurityFilterForRequestAttributes(requestedAttributes);
+        if (permittedAttributes.size() != requestedAttributes.size()) {
+            Set<UUID> permittedUuids = permittedAttributes
+                    .stream()
+                    .map(RequestAttribute::getUuid)
+                    .collect(Collectors.toSet());
+            String forbiddenNames = requestedAttributes
+                    .stream()
+                    .filter(attribute -> !permittedUuids.contains(attribute.getUuid()))
+                    .map(RequestAttribute::getName)
+                    .collect(Collectors.joining(", "));
+            throw new ValidationException(
+                    ValidationError.create("Not allowed to set custom attributes: {}", forbiddenNames));
+        }
 
         // upload JSON to cbom-repository
         CryptoStatsDto cryptoStats = null;
@@ -443,6 +467,20 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         } catch (DataIntegrityViolationException e) {
             throw new AlreadyExistException(
                     "CBOM with serialNumber %s and version %s already exists".formatted(serialNumber, version));
+        }
+        try {
+            attributeEngine.updateObjectCustomAttributesContent(Resource.CBOM, cbom.getUuid(), requestedAttributes);
+        } catch (NotFoundException e) {
+            throw new ValidationException(ValidationError.create("Custom attribute definition not found"));
+        } catch (AttributeException e) {
+            for (RequestAttribute attribute : requestedAttributes) {
+                if (("Updating custom attribute `%s` is not allowed".formatted(attribute.getName()))
+                        .equals(e.getMessage())) {
+                    throw new ValidationException(ValidationError
+                            .create("Updating custom attribute `{}` is not allowed", attribute.getName()));
+                }
+            }
+            throw new ValidationException(ValidationError.create("Custom attribute content is invalid"));
         }
         logger
                 .logEvent(Operation.CREATE, OperationResult.SUCCESS, null,
@@ -614,10 +652,11 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      */
     private void deleteAndTombstone(UUID uuid) {
         clusterSynchronizer.lock(CbomAssetIngestService.assetSyncLockKey(uuid));
-        final Cbom cbom = cbomRepository.findById(uuid).orElse(null);
+        final Cbom cbom = cbomRepository.findForUpdateByUuid(uuid).orElse(null);
         if (cbom == null) {
             return;
         }
+        attributeEngine.deleteObjectAttributeContent(Resource.CBOM, uuid);
         cbomRepository.delete(cbom);
         cbomRepository.flush();
         tombstoneWriter
@@ -719,6 +758,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
     @ExternalAuthorization(resource = Resource.CBOM, action = ResourceAction.UPDATE)
     public void evaluatePermissionChain(SecuredUUID uuid) throws NotFoundException {
         getEntity(uuid);
+        cbomRepository.findForUpdateByUuid(uuid.getValue()).orElseThrow(() -> new NotFoundException(Cbom.class, uuid));
     }
 
     @Override

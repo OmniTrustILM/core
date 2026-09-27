@@ -2,6 +2,7 @@ package com.otilm.core.dao.repository;
 
 import com.otilm.api.model.core.cbom.CbomAssetSyncState;
 import com.otilm.core.dao.entity.Cbom;
+import jakarta.persistence.LockModeType;
 import java.time.OffsetDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -9,6 +10,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.data.domain.Limit;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -16,6 +18,10 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface CbomRepository extends SecurityFilterRepository<Cbom, UUID> {
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT c FROM Cbom c WHERE c.uuid = :uuid")
+    Optional<Cbom> findForUpdateByUuid(@Param("uuid") UUID uuid);
 
     @Query("""
             SELECT c2

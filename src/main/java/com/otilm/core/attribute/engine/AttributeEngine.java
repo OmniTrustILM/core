@@ -1760,12 +1760,15 @@ public class AttributeEngine {
         // filter out updating
         processSecurityFilter(definitionUuid, attributeDefinition);
 
-        // custom attributes content is automatically replaced
-        deleteObjectAttributeDefinitionContent(attributeDefinition.getUuid(), objectType, objectUuid);
+        List<BaseAttributeContentV3<?>> contentV3s = null;
         if (attributeContentItems != null && !attributeContentItems.isEmpty()) {
-            List<BaseAttributeContentV3<?>> contentV3s = AttributeVersionHelper
-                    .getBaseAttributeContentV3s(attributeContentItems, attributeDefinition);
+            contentV3s = AttributeVersionHelper.getBaseAttributeContentV3s(attributeContentItems, attributeDefinition);
             validateAttributeContent(attributeDefinition, contentV3s);
+        }
+
+        // custom attributes content is automatically replaced after the new content has been validated
+        deleteObjectAttributeDefinitionContent(attributeDefinition.getUuid(), objectType, objectUuid);
+        if (contentV3s != null) {
             createObjectAttributeContent(attributeDefinition,
                     ObjectAttributeContentInfo.builder(objectType, objectUuid).build(), contentV3s);
         }

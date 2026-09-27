@@ -4,11 +4,13 @@ import com.otilm.core.dao.entity.cbom.CryptoAsset;
 import com.otilm.core.dao.repository.SecurityFilterRepository;
 import com.otilm.core.model.cbom.CryptoAssetListRow;
 import com.otilm.core.model.cbom.PqcStaleVerdictRow;
+import jakarta.persistence.LockModeType;
 import jakarta.persistence.Tuple;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -24,6 +26,10 @@ import org.springframework.stereotype.Repository;
  */
 @Repository
 public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAsset, UUID> {
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT a FROM CryptoAsset a WHERE a.uuid = :uuid")
+    Optional<CryptoAsset> findForUpdateByUuid(@Param("uuid") UUID uuid);
 
     Optional<CryptoAsset> findByIdentityKey(String identityKey);
 
@@ -424,9 +430,8 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
     /**
      * Distinct stored values of one normalized filter column, for the searchable-fields value lists. The columns hold
      * the stored normalized spelling (case/whitespace/Unicode-folded), so the lists collapse casing variants of one
-     * token. Class-level canonicalization -- folding P-256 and secp256r1 into one secg/* representative -- is the
-     * ingest pipeline's obligation (core#2072): these lists offer exactly what that pipeline stores, one entry per
-     * stored spelling, and become the ratified class representatives the moment it writes them.
+     * token. Class-level canonicalization -- folding P-256 and secp256r1 into one secg/* representative -- belongs to
+     * the ingest pipeline; these lists offer exactly what it stores, one entry per stored spelling.
      *
      * <p>
      * Native recursive CTEs -- a loose index scan. Postgres has no btree skip scan, so {@code SELECT DISTINCT} walks

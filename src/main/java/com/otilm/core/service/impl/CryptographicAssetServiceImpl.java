@@ -77,6 +77,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.concurrent.DelegatingSecurityContextExecutorService;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Serves the ratified cryptographic asset inventory contract: list, detail, searchable-fields and the dashboard
@@ -170,7 +171,11 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
                 .findByUuid(uuid)
                 .orElseThrow(() -> new NotFoundException(CryptoAsset.class, uuid));
         List<CryptoAssetSource> sources = cryptoAssetSourceRepository.findWithCbomByAssetUuid(asset.getUuid());
-        return toDetailDto(asset, sources, visibleCbomUuids(asset.getUuid()));
+        CryptographicAssetDetailDto detail = toDetailDto(asset, sources, visibleCbomUuids(asset.getUuid()));
+        detail
+                .setCustomAttributes(
+                        attributeEngine.getObjectCustomAttributesContent(Resource.CRYPTO_ASSET, asset.getUuid()));
+        return detail;
     }
 
     /**
@@ -207,15 +212,14 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
     }
 
     /**
-     * The group is PROPERTY only: crypto assets carry no attribute-engine attributes, so offering CUSTOM/META groups
-     * would advertise filter sources this resource does not serve. Curve values are the distinct stored spellings of
-     * the normalized column -- one entry per stored token; they become the ratified class representatives once
-     * core#2072's ingest canonicalization writes them (see the value-list queries' javadoc). The enum-backed and
-     * boolean fields get their values from {@link SearchHelper} (enum codes, or none).
+     * Curve values are the distinct stored spellings of the normalized column -- one entry per stored token. The
+     * enum-backed and boolean fields get their values from {@link SearchHelper} (enum codes, or none).
      */
     @Override
     @ExternalAuthorization(resource = Resource.CRYPTO_ASSET, action = ResourceAction.LIST)
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformationByGroup() {
+        List<SearchFieldDataByGroupDto> groups = attributeEngine
+                .getResourceSearchableFields(Resource.CRYPTO_ASSET, false);
         List<SearchFieldDataDto> fields = List
                 .of(SearchHelper.prepareSearch(FilterField.CBOM_ASSET_FREE_TEXT),
                         SearchHelper.prepareSearch(FilterField.CBOM_ASSET_TYPE),
@@ -248,7 +252,8 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
                                 .prepareSearch(FilterField.CBOM_ASSET_SOURCE_CBOM, cbomSerialNumbersScopedToCaller()));
         List<SearchFieldDataDto> sorted = new ArrayList<>(fields);
         sorted.sort(new SearchFieldDataComparator());
-        return List.of(new SearchFieldDataByGroupDto(sorted, FilterFieldSource.PROPERTY));
+        groups.add(new SearchFieldDataByGroupDto(sorted, FilterFieldSource.PROPERTY));
+        return groups;
     }
 
     @Override
@@ -366,14 +371,14 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
                 .listResourceObjects(filter, CryptographicAssetServiceImpl::displayLabel, where, pagination);
     }
 
-    // DETAIL is this resource's own object-read gate, and it has no parent resource to chain through. Sibling
-    // extension services gate this with UPDATE because their one generic caller writes attribute content; that
-    // caller is unreachable here while hasCustomAttributes stays false, and DETAIL avoids syncing a spurious
-    // update action onto a read-only resource -- if custom attributes are ever enabled, this must become UPDATE.
     @Override
-    @ExternalAuthorization(resource = Resource.CRYPTO_ASSET, action = ResourceAction.DETAIL)
+    @Transactional
+    @ExternalAuthorization(resource = Resource.CRYPTO_ASSET, action = ResourceAction.UPDATE)
     public void evaluatePermissionChain(SecuredUUID uuid) throws NotFoundException {
         cryptoAssetRepository.findByUuid(uuid).orElseThrow(() -> new NotFoundException(CryptoAsset.class, uuid));
+        cryptoAssetRepository
+                .findForUpdateByUuid(uuid.getValue())
+                .orElseThrow(() -> new NotFoundException(CryptoAsset.class, uuid));
     }
 
     private static void validatePaging(SearchRequestDto request) {
