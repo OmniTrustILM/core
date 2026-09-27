@@ -11,9 +11,9 @@ import java.security.GeneralSecurityException;
 import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
 import java.security.cert.CertificateException;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -66,8 +66,8 @@ public final class InspectedEntryMapper {
         inspected.setSubjectDn(X500Name.getInstance(style, certificate.getSubject()).toString());
         inspected.setIssuerDn(X500Name.getInstance(style, certificate.getIssuer()).toString());
         inspected.setSerialNumber(certificate.getSerialNumber().toString(16));
-        inspected.setNotBefore(utc(certificate.getNotBefore()));
-        inspected.setNotAfter(utc(certificate.getNotAfter()));
+        inspected.setNotBefore(utc(certificate.getNotBefore().toInstant()));
+        inspected.setNotAfter(utc(certificate.getNotAfter().toInstant()));
         byte[] encoded;
         try {
             encoded = certificate.getEncoded();
@@ -120,8 +120,8 @@ public final class InspectedEntryMapper {
         return length > 0 ? length : null;
     }
 
-    private static OffsetDateTime utc(Date date) {
-        return date.toInstant().atOffset(ZoneOffset.UTC);
+    private static OffsetDateTime utc(Instant instant) {
+        return instant.atOffset(ZoneOffset.UTC);
     }
 
 }

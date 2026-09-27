@@ -10,11 +10,11 @@ import com.otilm.core.key.normalization.KeyDescription;
 import com.otilm.core.key.normalization.KeyFileRefusal;
 import com.otilm.core.key.normalization.KeyNormalizer;
 import java.io.IOException;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
@@ -204,7 +204,7 @@ class ContainerAssembler {
                 if (identifies(key, candidate)) {
                     return Optional.of(candidate);
                 }
-                if (leaf == null || candidate.notBefore().after(leaf.notBefore())) {
+                if (leaf == null || candidate.notBefore().isAfter(leaf.notBefore())) {
                     leaf = candidate;
                 }
             }
@@ -238,7 +238,7 @@ class ContainerAssembler {
     // S6218: compared by identity only, nothing hashes or prints it; the arrays are compared by content where needed.
     @SuppressWarnings("java:S6218")
     private record Certified(String reference, RawItem.Certificate item, X509CertificateHolder holder,
-            byte[] subjectPublicKeyInfo, Date notBefore, Link link) implements Read {
+            byte[] subjectPublicKeyInfo, Instant notBefore, Link link) implements Read {
 
         /**
          * The certificate the DER holds. DER that is no certificate makes the file one of no supported format; Bouncy
@@ -251,8 +251,8 @@ class ContainerAssembler {
                 X509CertificateHolder holder = new X509CertificateHolder(certificate.der());
                 requireNamedCurveSize(holder.getSubjectPublicKeyInfo());
                 return new Certified(EntryReference.of(holder.getEncoded()), certificate, holder,
-                        holder.getSubjectPublicKeyInfo().getEncoded(ASN1Encoding.DER), holder.getNotBefore(),
-                        Link.of(holder));
+                        holder.getSubjectPublicKeyInfo().getEncoded(ASN1Encoding.DER),
+                        holder.getNotBefore().toInstant(), Link.of(holder));
             } catch (IOException | RuntimeException e) {
                 throw ContainerRefusal.notSupportedFormat();
             }

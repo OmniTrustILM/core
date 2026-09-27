@@ -136,10 +136,6 @@ public class KeyImportGates {
                 .orElseGet(() -> Offer.refused(profile.name(), PROFILE_CHANGED.formatted(profile.name())));
     }
 
-    private static String nameOf(KeyRequestType type) {
-        return type.getLabel().toLowerCase(Locale.ROOT);
-    }
-
     /**
      * The type and algorithm of a key, which decide whether a profile takes it.
      *
@@ -192,6 +188,10 @@ public class KeyImportGates {
             }
             return Optional
                     .of(ALGORITHM_NOT_OFFERED.formatted(profileName, kind.algorithm().getLabel(), nameOf(kind.type())));
+        }
+
+        private static String nameOf(KeyRequestType type) {
+            return type.getLabel().toLowerCase(Locale.ROOT);
         }
     }
 }
