@@ -37,6 +37,7 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
+import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.proxy.HibernateProxy;
 import org.hibernate.type.SqlTypes;
@@ -51,6 +52,9 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 @Entity
 @Table(name = "cryptographic_key_item")
 @EntityListeners(AuditingEntityListener.class)
+// A request may hold a copy read before an import adopted the item; writing only what it changed keeps the handle and
+// usages the adoption gave it.
+@DynamicUpdate
 public class CryptographicKeyItem extends UniquelyIdentified
         implements
             ComplianceSubject,
@@ -123,9 +127,8 @@ public class CryptographicKeyItem extends UniquelyIdentified
      * ever narrowed afterwards, and never written from what a connector reports.
      *
      * <p>
-     * Not updatable: this entity carries neither {@code @DynamicUpdate} nor a version, so every flush writes every
-     * column, and a copy loaded before the permission was withdrawn would put it back. Withdrawal is the statement in
-     * {@code CryptographicKeyItemRepository}, which is the only thing that may change it.
+     * Not updatable: a copy loaded before the permission was withdrawn must never put it back. Withdrawal is the
+     * statement in {@code CryptographicKeyItemRepository}, which is the only thing that may change it.
      * </p>
      */
     @Column(name = "exportable", nullable = false, updatable = false)

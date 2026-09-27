@@ -42,6 +42,7 @@ import com.otilm.core.service.ComplianceExternalService;
 import com.otilm.core.service.ComplianceInternalService;
 import com.otilm.core.service.handler.ComplianceProfileRuleHandler;
 import com.otilm.core.service.handler.ComplianceSubjectHandler;
+import com.otilm.core.service.writer.ComplianceSubjectWriter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.EnumMap;
@@ -90,9 +91,16 @@ public class ComplianceServiceImpl implements ComplianceExternalService, Complia
 
     private EventProducer eventProducer;
 
+    private ComplianceSubjectWriter complianceSubjectWriter;
+
     @Autowired
     public void setEventProducer(EventProducer eventProducer) {
         this.eventProducer = eventProducer;
+    }
+
+    @Autowired
+    public void setComplianceSubjectWriter(ComplianceSubjectWriter complianceSubjectWriter) {
+        this.complianceSubjectWriter = complianceSubjectWriter;
     }
 
     @Autowired
@@ -665,18 +673,20 @@ public class ComplianceServiceImpl implements ComplianceExternalService, Complia
         Map<Resource, ComplianceSubjectHandler<? extends ComplianceSubject>> map = new EnumMap<>(Resource.class);
         map
                 .put(Resource.CERTIFICATE, new ComplianceSubjectHandler<>(checkByProfiles, Resource.CERTIFICATE,
-                        certificateTriggerEvaluator, certificateRepository));
+                        certificateTriggerEvaluator, certificateRepository, complianceSubjectWriter));
         map
                 .put(Resource.CERTIFICATE_REQUEST,
                         new ComplianceSubjectHandler<>(checkByProfiles, Resource.CERTIFICATE_REQUEST,
-                                certificateRequestTriggerEvaluator, certificateRequestRepository));
+                                certificateRequestTriggerEvaluator, certificateRequestRepository,
+                                complianceSubjectWriter));
         map
                 .put(Resource.CRYPTOGRAPHIC_KEY,
                         new ComplianceSubjectHandler<>(checkByProfiles, Resource.CRYPTOGRAPHIC_KEY_ITEM,
-                                cryptographicKeyItemTriggerEvaluator, cryptographicKeyItemRepository));
+                                cryptographicKeyItemTriggerEvaluator, cryptographicKeyItemRepository,
+                                complianceSubjectWriter));
         map
                 .put(Resource.SECRET, new ComplianceSubjectHandler<>(checkByProfiles, Resource.SECRET,
-                        secretTriggerEvaluator, secretRepository));
+                        secretTriggerEvaluator, secretRepository, complianceSubjectWriter));
 
         return map;
     }

@@ -197,6 +197,43 @@ class CryptographicKeyExportServiceV2ITest extends BaseSpringBootTest {
         assertEquals(KeyEventStatus.SUCCESS, onlyExportEvent().getStatus());
     }
 
+    /** An imported key carries the reference the platform minted for it, and the connector has to echo it. */
+    @Test
+    void exportKey_asksForAnImportedKeyByItsReference() throws Exception {
+        // given
+        UUID keyReference = UUID.randomUUID();
+        privateKey.setKeyReferenceUuid(keyReference);
+        cryptographicKeyItemRepository.saveAndFlush(privateKey);
+        byte[] envelope = ExportEnvelopeFixtures.pinnedEnvelope(pair.getPrivate(), PASSPHRASE);
+        connectorMock
+                .stubExportKey(ExportEnvelopeFixtures
+                        .keyPairResponseJson(envelope, KeyAlgorithm.RSA, 2048, pair.getPublic(), keyReference));
+
+        // when
+        exportService.exportKey(key.getUuid(), privateKey.getUuid(), exportRequest());
+
+        // then
+        connectorMock.verifyExportKeyRequestContaining("{\"keyReference\":\"" + keyReference + "\"}");
+    }
+
+    @Test
+    void exportKey_refusesAnAnswerThatDoesNotEchoTheReference() {
+        // given
+        privateKey.setKeyReferenceUuid(UUID.randomUUID());
+        cryptographicKeyItemRepository.saveAndFlush(privateKey);
+        connectorMock.stubExportKey(exportAnswer(ExportEnvelopeFixtures.pinnedEnvelope(pair.getPrivate(), PASSPHRASE)));
+        UUID keyUuid = key.getUuid();
+        UUID privateKeyUuid = privateKey.getUuid();
+        KeyExportRequestDto request = exportRequest();
+
+        // when
+        ConnectorServerException failed = assertThrows(ConnectorServerException.class,
+                () -> exportService.exportKey(keyUuid, privateKeyUuid, request));
+
+        // then
+        assertEquals("The connector failed to export key item %s.".formatted(privateKeyUuid), failed.getMessage());
+    }
+
     /** Only key-pair algorithms exist, so the secret is described with one; there is no public key to look up. */
     @Test
     void exportKey_exportsASecretKey() throws Exception {
