@@ -1099,7 +1099,8 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         UUID recordUuid = certificatePublicKey(pair);
         CryptographicKeyItem readByTheCheck = item(recordUuid, KeyType.PUBLIC_KEY);
         ComplianceSubjectHandler<CryptographicKeyItem> handler = new ComplianceSubjectHandler<>(false,
-                Resource.CRYPTOGRAPHIC_KEY_ITEM, null, cryptographicKeyItemRepository, complianceSubjectWriter);
+                Resource.CRYPTOGRAPHIC_KEY_ITEM, null, cryptographicKeyItemRepository, complianceSubjectWriter,
+                entityManager);
         handler.initSubjectComplianceResult(readByTheCheck);
         adopt(pair, "retry-compliance");
         LocalDateTime beforeTheResult = LocalDateTime.of(2020, Month.JANUARY, 1, 0, 0);

@@ -132,6 +132,10 @@ Use pessimistic locking on the read-and-update path: a custom repository finder 
 
 Don't span the lock across slow external calls (see "Transactions and external calls" above) — split the transaction so the lock covers only the local writes that need atomicity.
 
+## Open-in-view keeps what a request reads managed
+
+`spring.jpa.open-in-view` is on, so an entity a request thread reads outside a transaction stays managed in the request's persistence context, and the next transaction that joins that context flushes every change made to it, as a whole row unless the entity is `@DynamicUpdate`. Inside a `Propagation.NOT_SUPPORTED` method, transactions started after the method has read through the request's EntityManager run on EntityManagers of their own; the flush comes from the request's first transaction after the method returns. Code that changes an entity the request may hold without meaning to write the row detaches it first, as `ComplianceSubjectHandler.finalizeComplianceCheck` does. A test of this binds an EntityManager to the thread and runs a transaction after the call, or it passes whatever the code does.
+
 ## New operator-facing settings go through the Settings UI, not env vars
 
 An operator-configurable tunable belongs in the Settings subsystem (persisted, exposed via the settings API/UI), not in
