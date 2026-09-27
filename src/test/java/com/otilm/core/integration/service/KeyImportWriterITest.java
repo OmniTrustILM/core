@@ -125,6 +125,8 @@ class KeyImportWriterITest extends BaseSpringBootTest {
 
     private static final String OPEN_ATTEMPT_INDEX = "uq_key_import_open_attempt";
 
+    private static final String OPEN_SECRET_ATTEMPT_INDEX = "uq_key_import_open_secret_attempt";
+
     private static final List<String> SENT = List.of("sent-secret-digest");
 
     private static final List<KeyUsage> PROFILE_USAGES = List
@@ -175,17 +177,22 @@ class KeyImportWriterITest extends BaseSpringBootTest {
     @Autowired
     private AttributeExternalService attributeService;
 
-    /** The entity-generated test schema cannot carry the migration's partial index, so each test adds it. */
+    /** The entity-generated test schema cannot carry the migrations' partial indexes, so each test adds them. */
     @BeforeEach
-    void addTheOpenAttemptIndex() {
+    void addTheOpenAttemptIndexes() {
         jdbcTemplate
                 .execute("CREATE UNIQUE INDEX IF NOT EXISTS \"" + OPEN_ATTEMPT_INDEX + "\" ON " + dbSchema
                         + ".\"key_import\" (\"spki_fingerprint\") WHERE \"state\" IN ('REQUESTED', 'ACCEPTED', 'COMPENSATING')");
+        jdbcTemplate
+                .execute("CREATE UNIQUE INDEX IF NOT EXISTS \"" + OPEN_SECRET_ATTEMPT_INDEX + "\" ON " + dbSchema
+                        + ".\"key_import\" (\"idempotency_key\") WHERE \"spki_fingerprint\" IS NULL"
+                        + " AND \"state\" IN ('REQUESTED', 'ACCEPTED', 'COMPENSATING')");
     }
 
     @AfterEach
-    void dropTheOpenAttemptIndex() {
+    void dropTheOpenAttemptIndexes() {
         jdbcTemplate.execute("DROP INDEX IF EXISTS " + dbSchema + ".\"" + OPEN_ATTEMPT_INDEX + "\"");
+        jdbcTemplate.execute("DROP INDEX IF EXISTS " + dbSchema + ".\"" + OPEN_SECRET_ATTEMPT_INDEX + "\"");
     }
 
     /** A re-send adds the digests of what it sends, so an answer is checked against every copy the connector got. */
@@ -366,6 +373,66 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         KeyImport failed = keyImportRepository.findById(first.uuid()).orElseThrow();
         assertThat(failed.getState()).isEqualTo(KeyImportState.FAILED);
         assertThat(failed.getErrorMessage()).isEqualTo("The connector could not import the key.");
+    }
+
+    /** A secret key has no fingerprint, so its import is known by its idempotency key. */
+    @Test
+    void open_refusesASecondOpenAttemptOfTheSameSecretKeyImport() {
+        // given
+        KeyImportTerms secretKey = secretKeyTerms(persistedProfile());
+        keyImportWriter.open(secretKey, "retry-secret", "key", SENT);
+
+        // when
+        // then
+        assertThatThrownBy(() -> keyImportWriter.open(secretKey, "retry-secret", "key", SENT))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    /** A retry while the reconciliation undoes the import would put a second copy of the secret key in the token. */
+    @Test
+    void open_refusesASecretKeyImportBeingUndone() {
+        // given
+        KeyImportTerms secretKey = secretKeyTerms(persistedProfile());
+        KeyImportAttempt undone = keyImportWriter.open(secretKey, "retry-secret-undone", "key", SENT);
+        keyImportWriter.compensating(undone);
+
+        // when
+        // then
+        assertThatThrownBy(() -> keyImportWriter.open(secretKey, "retry-secret-undone", "key", SENT))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void open_startsASecretKeyImportAgainOnceItsAttemptClosed() {
+        // given
+        KeyImportTerms secretKey = secretKeyTerms(persistedProfile());
+        KeyImportAttempt first = keyImportWriter.open(secretKey, "retry-secret-closed", "key", SENT);
+        keyImportWriter.compensating(first);
+        keyImportWriter.compensated(first.uuid());
+
+        // when
+        KeyImportAttempt second = keyImportWriter.open(secretKey, "retry-secret-closed", "key", SENT);
+
+        // then
+        assertThat(second.uuid()).isNotEqualTo(first.uuid());
+        assertThat(keyImportRepository.findById(first.uuid()).orElseThrow().getState())
+                .isEqualTo(KeyImportState.COMPENSATED);
+    }
+
+    /** Only the same import is held back, so other imports of secret keys open meanwhile. */
+    @Test
+    void open_letsAnotherSecretKeyImportOpenMeanwhile() {
+        // given
+        TokenProfileFullModel profile = persistedProfile();
+        KeyImportAttempt first = keyImportWriter.open(secretKeyTerms(profile), "retry-secret-one", "key", SENT);
+
+        // when
+        KeyImportAttempt other = keyImportWriter.open(secretKeyTerms(profile), "retry-secret-other", "key", SENT);
+
+        // then
+        assertThat(keyImportRepository.findAllById(List.of(first.uuid(), other.uuid())))
+                .extracting(KeyImport::getState)
+                .containsExactly(KeyImportState.REQUESTED, KeyImportState.REQUESTED);
     }
 
     @Test
@@ -643,6 +710,51 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         KeyImport completed = keyImportRepository.findById(attempt.uuid()).orElseThrow();
         assertThat(completed.getState()).isEqualTo(KeyImportState.COMPLETED);
         assertThat(completed.getKeyUuid()).isEqualTo(key.uuid());
+    }
+
+    /**
+     * A secret key has no public key, so it is registered as a key of its own, whatever other keys hold items without a
+     * fingerprint, and no certificate is linked to it.
+     */
+    @Test
+    void complete_registersASecretKeyAsAKeyOfItsOwn() throws Exception {
+        // given
+        TokenProfileFullModel profile = persistedProfile();
+        KeyPair pair = rsa();
+        KeyImportAttempt keyPairImport = keyImportWriter
+                .open(terms(profile, pair), "retry-key-pair", "imported key", SENT);
+        UUID keyPairUuid = keyImportWriter
+                .complete(keyPairImport.uuid(), registration(profile, pair, keyPairImport, Set.of()))
+                .orElseThrow()
+                .key()
+                .uuid();
+        UUID certificateUuid = persistedCertificateOf(null);
+        KeyImportAttempt attempt = keyImportWriter
+                .open(secretKeyTerms(profile), "retry-secret-key", "imported secret key", SENT);
+
+        // when
+        CryptographicKeyFullModel key = keyImportWriter
+                .complete(attempt.uuid(), secretKeyRegistration(profile, attempt))
+                .orElseThrow()
+                .key();
+
+        // then
+        assertThat(key.uuid()).isNotEqualTo(keyPairUuid);
+        assertThat(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(key.uuid())))
+                .singleElement()
+                .satisfies(secretKey -> {
+                    assertThat(secretKey.getType()).isEqualTo(KeyType.SECRET_KEY);
+                    assertThat(secretKey.getFingerprint()).isNull();
+                    assertThat(secretKey.getKeyReferenceUuid()).isEqualTo(attempt.keyReference());
+                    assertThat(secretKey.getKeyMeta())
+                            .extracting(MetadataAttribute::getName)
+                            .containsExactly("secret-handle");
+                });
+        assertThat(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(keyPairUuid))).hasSize(2);
+        assertThat(certificateRepository.findById(certificateUuid).orElseThrow().getKeyUuid()).isNull();
+        KeyImport completed = keyImportRepository.findById(attempt.uuid()).orElseThrow();
+        assertThat(completed.getState()).isEqualTo(KeyImportState.COMPLETED);
+        assertThat(completed.getSpkiFingerprint()).isNull();
     }
 
     @Test
@@ -1317,6 +1429,21 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         return new ImportedKeyRegistration(profile, List.of(publicKey, privateKey), attempt.keyReference(),
                 fingerprintOf(pair), true,
                 new KeyImportMetadata("imported key", "imported for the test", groups, customAttributes),
+                new NameAndUuidDto(UUID.randomUUID().toString(), "requester"), false);
+    }
+
+    private static KeyImportTerms secretKeyTerms(TokenProfileFullModel profile) {
+        return new KeyImportTerms(profile, KeyRequestType.SECRET, KeyAlgorithm.AES, null, true, List.of(),
+                new NameAndUuidDto(UUID.randomUUID().toString(), "requester"));
+    }
+
+    /** An imported AES key as the connector describes it: one secret item, and no public key to fingerprint. */
+    private static ImportedKeyRegistration secretKeyRegistration(TokenProfileFullModel profile,
+            KeyImportAttempt attempt) {
+        ProviderKeyItem secretKey = new ProviderKeyItem("imported secret key", KeyType.SECRET_KEY, KeyAlgorithm.AES,
+                256, new RemoteKeyReference.MetadataReference(List.of(handle("secret-handle", "s"))), null, List.of());
+        return new ImportedKeyRegistration(profile, List.of(secretKey), attempt.keyReference(), null, true,
+                new KeyImportMetadata("imported secret key", "imported for the test", Set.of(), List.of()),
                 new NameAndUuidDto(UUID.randomUUID().toString(), "requester"), false);
     }
 

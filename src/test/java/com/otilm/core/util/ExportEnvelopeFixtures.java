@@ -5,7 +5,11 @@ import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.util.Base64;
 import java.util.UUID;
+import org.bouncycastle.asn1.ASN1Encodable;
+import org.bouncycastle.asn1.ASN1Integer;
 import org.bouncycastle.asn1.DERNull;
+import org.bouncycastle.asn1.DEROctetString;
+import org.bouncycastle.asn1.DERSequence;
 import org.bouncycastle.asn1.nist.NISTObjectIdentifiers;
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
@@ -34,8 +38,34 @@ public final class ExportEnvelopeFixtures {
 
     /** The same protection with another iteration count, as a connector outside the contract might produce it. */
     public static byte[] envelope(PrivateKey privateKey, char[] passphrase, int iterations) {
+        return envelope(PrivateKeyInfo.getInstance(privateKey.getEncoded()), passphrase, iterations);
+    }
+
+    /**
+     * The AES key in its PKCS#8 shape, protected as {@link #pinnedEnvelope(PrivateKey, char[])} protects a private key.
+     *
+     * @param aesKey the raw key
+     * @return the DER-encoded EncryptedPrivateKeyInfo
+     */
+    public static byte[] pinnedAesEnvelope(byte[] aesKey, char[] passphrase) {
+        return envelope(aesKeyInfo(aesKey), passphrase, PINNED_ITERATIONS);
+    }
+
+    /**
+     * The AES key in the PKCS#8 shape the JDK gives a secret key, which the contract's envelope takes for one: the
+     * key's algorithm, and the raw key as the key octets.
+     */
+    public static PrivateKeyInfo aesKeyInfo(byte[] aesKey) {
+        return PrivateKeyInfo
+                .getInstance(new DERSequence(new ASN1Encodable[]{
+                        new ASN1Integer(0),
+                        new AlgorithmIdentifier(NISTObjectIdentifiers.aes),
+                        new DEROctetString(aesKey)}));
+    }
+
+    private static byte[] envelope(PrivateKeyInfo key, char[] passphrase, int iterations) {
         try {
-            return new PKCS8EncryptedPrivateKeyInfoBuilder(PrivateKeyInfo.getInstance(privateKey.getEncoded()))
+            return new PKCS8EncryptedPrivateKeyInfoBuilder(key)
                     .build(new JcePKCSPBEOutputEncryptorBuilder(NISTObjectIdentifiers.id_aes256_CBC)
                             .setProvider(new BouncyCastleProvider())
                             .setPRF(new AlgorithmIdentifier(PKCSObjectIdentifiers.id_hmacWithSHA256, DERNull.INSTANCE))

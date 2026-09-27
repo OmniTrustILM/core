@@ -15,9 +15,8 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cryptography.key.KeyDetailDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.dao.entity.Group;
-import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.repository.GroupRepository;
-import com.otilm.core.dao.repository.TokenProfileRepository;
+import com.otilm.core.key.normalization.DerivationBudget;
 import com.otilm.core.key.normalization.KeyNormalizer;
 import com.otilm.core.key.normalization.NormalizedKey;
 import com.otilm.core.logging.LoggingHelper;
@@ -33,6 +32,7 @@ import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CryptographicKeyImportExternalService;
+import com.otilm.core.service.handler.KeyImportGates;
 import com.otilm.core.service.handler.KeyImportSaga;
 import com.otilm.core.service.handler.KeyTransferCapabilityService;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
@@ -50,6 +50,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import static com.otilm.core.service.handler.KeyImportGates.ALGORITHM_NOT_OFFERED;
+import static com.otilm.core.service.handler.KeyImportGates.PROFILE_CHANGED;
+
 /**
  * Takes plain UUIDs, so the import permission is checked on its own: the owner of an object is granted any action
  * checked against that object, and import must never be granted that way.
@@ -63,15 +66,11 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 public class CryptographicKeyImportServiceImpl implements CryptographicKeyImportExternalService {
 
-    private static final String DISABLED = "Token profile %s is disabled.";
-    private static final String NOT_OFFERED = "Token profile %s does not import a %s.";
-    private static final String PROFILE_CHANGED = "Token profile %s changed while its import was checked. Try again.";
-    private static final String ALGORITHM_NOT_OFFERED = "Token profile %s does not import the %s algorithm for a %s.";
     private static final String NOT_EXPORTED = "Token profile %s does not export the %s algorithm for a %s, so the key cannot be imported as exportable.";
     private static final String NOT_A_GROUP = "Group UUID %s is not valid.";
 
     private final AuthorizationEnforcer authorizationEnforcer;
-    private final TokenProfileRepository tokenProfileRepository;
+    private final KeyImportGates keyImportGates;
     private final KeyTransferCapabilityService keyTransferCapabilityService;
     private final KeyProviderAdapterFactory keyProviderAdapterFactory;
     private final AttributeEngine attributeEngine;
@@ -79,12 +78,12 @@ public class CryptographicKeyImportServiceImpl implements CryptographicKeyImport
     private final KeyImportSaga keyImportSaga;
     private final GroupRepository groupRepository;
 
-    public CryptographicKeyImportServiceImpl(AuthorizationEnforcer authorizationEnforcer,
-            TokenProfileRepository tokenProfileRepository, KeyTransferCapabilityService keyTransferCapabilityService,
+    public CryptographicKeyImportServiceImpl(AuthorizationEnforcer authorizationEnforcer, KeyImportGates keyImportGates,
+            KeyTransferCapabilityService keyTransferCapabilityService,
             KeyProviderAdapterFactory keyProviderAdapterFactory, AttributeEngine attributeEngine,
             KeyNormalizer keyNormalizer, KeyImportSaga keyImportSaga, GroupRepository groupRepository) {
         this.authorizationEnforcer = authorizationEnforcer;
-        this.tokenProfileRepository = tokenProfileRepository;
+        this.keyImportGates = keyImportGates;
         this.keyTransferCapabilityService = keyTransferCapabilityService;
         this.keyProviderAdapterFactory = keyProviderAdapterFactory;
         this.attributeEngine = attributeEngine;
@@ -97,8 +96,8 @@ public class CryptographicKeyImportServiceImpl implements CryptographicKeyImport
     @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.IMPORT_KEY)
     public List<BaseAttribute> listImportKeyAttributes(UUID tokenInstanceUuid, UUID tokenProfileUuid,
             KeyRequestType type) throws ConnectorException, NotFoundException {
-        TokenProfileFullModel profile = requireAccess(tokenInstanceUuid, tokenProfileUuid);
-        requireImportable(profile, type);
+        TokenProfileFullModel profile = keyImportGates.requireAccess(tokenInstanceUuid, tokenProfileUuid);
+        keyImportGates.requireImportable(profile, type);
         return keyProviderAdapterFactory.forToken(profile.tokenInstance()).listImportKeyAttributes(profile, type);
     }
 
@@ -111,8 +110,8 @@ public class CryptographicKeyImportServiceImpl implements CryptographicKeyImport
     @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.IMPORT_KEY)
     public KeyDetailDto importKey(UUID tokenInstanceUuid, UUID tokenProfileUuid, KeyRequestType type,
             KeyImportRequestDto request) throws ConnectorException, NotFoundException, AttributeException {
-        TokenProfileFullModel profile = requireAccess(tokenInstanceUuid, tokenProfileUuid);
-        Set<KeyAlgorithm> importable = requireImportable(profile, type);
+        TokenProfileFullModel profile = keyImportGates.requireAccess(tokenInstanceUuid, tokenProfileUuid);
+        Set<KeyAlgorithm> importable = keyImportGates.requireImportable(profile, type);
         KeyImportMetadata metadata = new KeyImportMetadata(request.getName(), request.getDescription(),
                 requireGroups(request.getGroupUuids()), request.getCustomAttributes());
         attributeEngine.validateCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, request.getCustomAttributes());
@@ -120,7 +119,8 @@ public class CryptographicKeyImportServiceImpl implements CryptographicKeyImport
         boolean exportable = Boolean.TRUE.equals(request.getExportable());
         byte[] file = request.getFile().content();
         try {
-            NormalizedKey key = keyNormalizer.normalize(file, request.getInputPassphrase(), type);
+            NormalizedKey key = keyNormalizer
+                    .normalize(file, request.getInputPassphrase(), type, DerivationBudget.forFile());
             try {
                 requireAlgorithm(profile, type, importable, key.algorithm());
                 requireExportable(profile, type, key.algorithm(), exportable);
@@ -192,7 +192,11 @@ public class CryptographicKeyImportServiceImpl implements CryptographicKeyImport
         }
     }
 
+    /** The fingerprint of the key's public key, as the inventory computes it; a secret key has none. */
     private static String fingerprintOf(NormalizedKey key) {
+        if (key.type() == KeyRequestType.SECRET) {
+            return null;
+        }
         return CryptographyUtil
                 .calculateKeyFingerprint(new KeyMaterial(KeyFormat.SPKI,
                         Base64.getEncoder().encodeToString(key.subjectPublicKeyInfo())));
@@ -214,36 +218,6 @@ public class CryptographicKeyImportServiceImpl implements CryptographicKeyImport
                         attributeEngine.getObjectCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, key.uuid()));
         LoggingHelper.putLogResourceInfo(Resource.CRYPTOGRAPHIC_KEY, false, key.uuid().toString(), key.name());
         return detail;
-    }
-
-    /** The detail of the token profile, and the detail and members of its token, as exporting a key requires. */
-    private TokenProfileFullModel requireAccess(UUID tokenInstanceUuid, UUID tokenProfileUuid)
-            throws NotFoundException {
-        TokenProfileFullModel profile = tokenProfileRepository
-                .findFullModelByUuidAndTokenInstanceReferenceUuid(tokenProfileUuid, tokenInstanceUuid)
-                .orElseThrow(() -> new NotFoundException(TokenProfile.class, tokenProfileUuid));
-        authorizationEnforcer
-                .enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, SecuredUUID.fromUUID(tokenProfileUuid));
-        SecuredUUID token = SecuredUUID.fromUUID(tokenInstanceUuid);
-        authorizationEnforcer.enforce(Resource.TOKEN, ResourceAction.DETAIL, token);
-        authorizationEnforcer.enforce(Resource.TOKEN, ResourceAction.MEMBERS, token);
-        return profile;
-    }
-
-    /** Core's gates for the profile, in order: enabled, then importing the type at all. */
-    private Set<KeyAlgorithm> requireImportable(TokenProfileFullModel profile, KeyRequestType type)
-            throws ConnectorException, NotFoundException {
-        if (!Boolean.TRUE.equals(profile.enabled())) {
-            throw refusal(DISABLED, profile.name());
-        }
-        Map<KeyRequestType, Set<KeyAlgorithm>> importable = keyTransferCapabilityService
-                .importableKeyTypes(profile)
-                .orElseThrow(() -> refusal(PROFILE_CHANGED, profile.name()));
-        Set<KeyAlgorithm> algorithms = importable.getOrDefault(type, Set.of());
-        if (algorithms.isEmpty()) {
-            throw refusal(NOT_OFFERED, profile.name(), type.getLabel().toLowerCase(Locale.ROOT));
-        }
-        return algorithms;
     }
 
     private static ValidationException refusal(String message, Object... arguments) {

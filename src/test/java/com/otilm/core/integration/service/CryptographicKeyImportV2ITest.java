@@ -13,8 +13,6 @@ import com.otilm.api.interfaces.core.web.CryptographicKeyController;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.attribute.ResponseAttribute;
-import com.otilm.api.model.client.connector.v2.ConnectorInterface;
-import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.cryptography.key.KeyImportRequestDto;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
@@ -29,22 +27,22 @@ import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.connector.common.v2.OperationStatus;
-import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyPairDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyPairOperationStatusResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.PrivateKeyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.PrivateKeyDataV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.PublicKeyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.PublicKeyDataV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyDataResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyDataV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyOperationStatusResponseV2Dto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.group.GroupDto;
-import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.cryptography.key.KeyDetailDto;
 import com.otilm.api.model.core.cryptography.key.KeyEvent;
 import com.otilm.api.model.core.cryptography.key.KeyEventStatus;
 import com.otilm.api.model.core.cryptography.key.KeyItemDetailDto;
 import com.otilm.api.model.core.cryptography.key.KeyState;
-import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.logging.enums.AuditLogOutput;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.logging.enums.OperationResult;
@@ -56,8 +54,6 @@ import com.otilm.api.model.core.settings.logging.LoggingSettingsDto;
 import com.otilm.api.model.core.settings.logging.ResourceLoggingSettingsDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.dao.entity.AuditLog;
-import com.otilm.core.dao.entity.Connector;
-import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyEventHistory;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
@@ -68,16 +64,12 @@ import com.otilm.core.dao.entity.OwnerAssociation;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.repository.AuditLogRepository;
-import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
-import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.CryptographicKeyEventHistoryRepository;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.KeyImportRepository;
 import com.otilm.core.dao.repository.OwnerAssociationRepository;
-import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
-import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.crypto.KeyMaterial;
 import com.otilm.core.serialization.ObjectMapperFactory;
@@ -91,7 +83,6 @@ import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CryptographyUtil;
 import com.otilm.core.util.ExportEnvelopeFixtures;
-import com.otilm.core.util.mocks.ConnectorMockFactory;
 import com.otilm.core.util.mocks.CryptographyProviderV2ConnectorMock;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -102,6 +93,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import javax.crypto.KeyGenerator;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.openssl.jcajce.JceOpenSSLPKCS8DecryptorProviderBuilder;
 import org.bouncycastle.pkcs.PKCS8EncryptedPrivateKeyInfo;
@@ -127,9 +119,6 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
 
     private static final char[] PASSPHRASE = "correct horse battery staple".toCharArray();
 
-    private static final List<KeyUsage> PROFILE_USAGES = List
-            .of(KeyUsage.SIGN, KeyUsage.VERIFY, KeyUsage.ENCRYPT, KeyUsage.DECRYPT);
-
     private static final String REQUIRED_LABEL_SCHEMA = "[{\"uuid\":\"" + UUID.randomUUID()
             + "\",\"name\":\"importLabel\",\"type\":\"data\",\"contentType\":\"string\",\"version\":3,"
             + "\"properties\":{\"label\":\"Import label\",\"visible\":true,\"required\":true,\"readOnly\":false,"
@@ -140,13 +129,7 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
     @Autowired
     private CryptographicKeyController keyController;
     @Autowired
-    private ConnectorRepository connectorRepository;
-    @Autowired
-    private ConnectorInterfaceRepository connectorInterfaceRepository;
-    @Autowired
-    private TokenInstanceReferenceRepository tokenInstanceReferenceRepository;
-    @Autowired
-    private TokenProfileRepository tokenProfileRepository;
+    private V2TokenFixture v2TokenFixture;
     @Autowired
     private CryptographicKeyRepository cryptographicKeyRepository;
     @Autowired
@@ -166,28 +149,24 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
     @Autowired
     private SettingExternalService settingService;
     @Autowired
-    private ConnectorMockFactory connectorMockFactory;
-    @Autowired
     private JdbcTemplate jdbcTemplate;
     @Autowired
     private AttributeEngine attributeEngine;
     @Autowired
     private GroupRepository groupRepository;
 
+    private V2TokenFixture.V2Token v2Token;
     private CryptographyProviderV2ConnectorMock connectorMock;
-    private Connector connector;
-    private ConnectorInterfaceEntity cryptographyInterface;
     private TokenInstanceReference token;
     private TokenProfile profile;
     private KeyPair pair;
 
     @BeforeEach
     void setUp() throws Exception {
-        connectorMock = connectorMockFactory.startCryptographyProviderV2();
-        connector = persistV2Connector(connectorMock.getUrl());
-        cryptographyInterface = persistCryptographyInterface();
-        token = persistToken();
-        profile = persistProfile();
+        v2Token = v2TokenFixture.start();
+        connectorMock = v2Token.connectorMock();
+        token = v2Token.token();
+        profile = v2Token.profile();
         connectorMock.stubImportableKeyTypes(KeyRequestType.KEY_PAIR, KeyAlgorithm.RSA);
         connectorMock.stubImportKeyAttributes("[]");
         pair = rsa();
@@ -576,6 +555,81 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
     }
 
     @Test
+    void importKey_importsAnAesSecretKey() throws Exception {
+        // given
+        connectorMock.stubImportableKeyTypes(KeyRequestType.SECRET, KeyAlgorithm.AES);
+        connectorMock.stubImportKey(200, importedSecretKey());
+        byte[] aesKey = aes();
+
+        // when
+        KeyDetailDto detail = importSecretKey(
+                secretKeyRequest("imported secret key", ExportEnvelopeFixtures.pinnedAesEnvelope(aesKey, PASSPHRASE)));
+
+        // then
+        KeyImport attempt = onlyAttempt();
+        assertThat(attempt.getState()).isEqualTo(KeyImportState.COMPLETED);
+        assertThat(attempt.getKeyUuid()).hasToString(detail.getUuid());
+        assertThat(attempt.getSpkiFingerprint()).isNull();
+        assertThat(detail.getItems()).singleElement().satisfies(item -> {
+            assertThat(item.getType()).isEqualTo(KeyType.SECRET_KEY);
+            assertThat(item.getKeyAlgorithm()).isEqualTo(KeyAlgorithm.AES);
+            assertThat(item.getLength()).isEqualTo(256);
+        });
+        CryptographicKeyItem secretKey = item(attempt.getKeyUuid(), KeyType.SECRET_KEY);
+        assertThat(secretKey.getFingerprint()).isNull();
+        assertThat(secretKey.getKeyData()).isNull();
+        assertThat(secretKey.getKeyReferenceUuid()).isEqualTo(attempt.getKeyReference());
+        assertThat(importEvents()).singleElement().satisfies(event -> {
+            assertThat(event.getKeyUuid()).isEqualTo(secretKey.getUuid());
+            assertThat(event.getStatus()).isEqualTo(KeyEventStatus.SUCCESS);
+        });
+        JsonNode sent = onlyImportRequest();
+        assertThat(sent.get("keyRequestType").asText()).isEqualTo(KeyRequestType.Codes.SECRET);
+        assertThat(opened(sent)).isEqualTo(ExportEnvelopeFixtures.aesKeyInfo(aesKey).getEncoded());
+    }
+
+    @Test
+    void importKey_refusesASecretKeyTheProfileDoesNotImport() throws Exception {
+        // given
+        KeyImportRequestDto request = secretKeyRequest("imported secret key",
+                ExportEnvelopeFixtures.pinnedAesEnvelope(aes(), PASSPHRASE));
+
+        // when
+        ValidationException refused = assertThrows(ValidationException.class, () -> importSecretKey(request));
+
+        // then
+        assertThat(refused.getMessage())
+                .isEqualTo("Token profile " + profile.getName() + " does not import a secret key.");
+        connectorMock.verifyImportKeyRequests(0);
+        assertThat(keyImportRepository.count()).isZero();
+    }
+
+    @Test
+    void importKey_convergesOnARetryOfASecretKey() throws Exception {
+        // given
+        connectorMock.stubImportableKeyTypes(KeyRequestType.SECRET, KeyAlgorithm.AES);
+        connectorMock.stubImportKeyUnanswered();
+        byte[] file = ExportEnvelopeFixtures.pinnedAesEnvelope(aes(), PASSPHRASE);
+        KeyImportRequestDto first = secretKeyRequest("imported secret key", file);
+        assertThrows(ConnectorServerException.class, () -> importSecretKey(first));
+        connectorMock.stubImportKeyResult(completedSecretKeyImport());
+
+        // when
+        KeyDetailDto detail = importSecretKey(secretKeyRequest("imported secret key", file));
+
+        // then
+        KeyImport attempt = onlyAttempt();
+        assertThat(attempt.getState()).isEqualTo(KeyImportState.COMPLETED);
+        assertThat(attempt.getKeyUuid()).hasToString(detail.getUuid());
+        assertThat(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(attempt.getKeyUuid())))
+                .singleElement()
+                .extracting(CryptographicKeyItem::getType)
+                .isEqualTo(KeyType.SECRET_KEY);
+        connectorMock.verifyImportKeyRequests(1);
+        connectorMock.verifyImportKeyResultRequests(1);
+    }
+
+    @Test
     void importKey_neverAsksAConnectorWithoutKeyImport() {
         // given
         declare(FeatureFlag.STATELESS, FeatureFlag.KEY_EXPORT);
@@ -846,6 +900,10 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
         return importService.importKey(token.getUuid(), profile.getUuid(), KeyRequestType.KEY_PAIR, request);
     }
 
+    private KeyDetailDto importSecretKey(KeyImportRequestDto request) throws Exception {
+        return importService.importKey(token.getUuid(), profile.getUuid(), KeyRequestType.SECRET, request);
+    }
+
     /** The refusal as the caller sees it, through the audited endpoint. */
     private String failureOf(String tokenUuid, String profileUuid, KeyImportRequestDto request) {
         Exception failure = assertThrows(Exception.class,
@@ -861,6 +919,10 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
         return request(name, ExportEnvelopeFixtures.pinnedEnvelope(pair.getPrivate(), PASSPHRASE), PASSPHRASE);
     }
 
+    private static KeyImportRequestDto secretKeyRequest(String name, byte[] file) {
+        return request(name, file, PASSPHRASE);
+    }
+
     private static KeyImportRequestDto request(String name, byte[] file, char[] passphrase) {
         KeyImportRequestDto request = new KeyImportRequestDto();
         request.setName(name);
@@ -872,7 +934,7 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
     }
 
     /** The connector's synchronous answer for a key pair: its public key and handles. */
-    private static KeyPairDataResponseV2Dto imported(PublicKey publicKey) {
+    static KeyPairDataResponseV2Dto imported(PublicKey publicKey) {
         PublicKeyDataV2Dto publicData = new PublicKeyDataV2Dto();
         publicData.setAlgorithm(KeyAlgorithm.RSA);
         publicData.setLength(2048);
@@ -892,6 +954,26 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
         answer.setPublicKeyData(publicKeyData);
         answer.setPrivateKeyData(privateKeyData);
         answer.setKeyPairMeta(List.of(KeyImportWriterITest.handle("pair-handle", "r")));
+        return answer;
+    }
+
+    /** The connector's synchronous answer for an AES key: its descriptor and handle. */
+    static SecretKeyDataResponseV2Dto importedSecretKey() {
+        SecretKeyDataV2Dto secretData = new SecretKeyDataV2Dto();
+        secretData.setAlgorithm(KeyAlgorithm.AES);
+        secretData.setLength(256);
+        secretData.setMetadata(List.of());
+        SecretKeyDataResponseV2Dto answer = new SecretKeyDataResponseV2Dto();
+        answer.setKeyData(secretData);
+        answer.setKeyMeta(List.of(KeyImportWriterITest.handle("secret-handle", "s")));
+        return answer;
+    }
+
+    /** The connector's record of an AES key import it completed. */
+    static SecretKeyOperationStatusResponseV2Dto completedSecretKeyImport() {
+        SecretKeyOperationStatusResponseV2Dto answer = new SecretKeyOperationStatusResponseV2Dto();
+        answer.setStatus(OperationStatus.COMPLETED);
+        answer.setResult(importedSecretKey());
         return answer;
     }
 
@@ -918,8 +1000,7 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
     }
 
     private void declare(FeatureFlag... features) {
-        cryptographyInterface.setFeatures(List.of(features));
-        connectorInterfaceRepository.save(cryptographyInterface);
+        v2TokenFixture.declare(v2Token, features);
     }
 
     private UUID certificatePublicKey() {
@@ -983,6 +1064,12 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
         return generator.generateKeyPair();
     }
 
+    private static byte[] aes() throws Exception {
+        KeyGenerator generator = KeyGenerator.getInstance("AES");
+        generator.init(256);
+        return generator.generateKey().getEncoded();
+    }
+
     private void auditLogsTo(AuditLogOutput output, boolean verbose) {
         AuditLoggingSettingsDto auditLogs = new AuditLoggingSettingsDto();
         auditLogs.setOutput(output);
@@ -993,48 +1080,6 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
         settings.setAuditLogs(auditLogs);
         settings.setEventLogs(new ResourceLoggingSettingsDto());
         settingService.updateLoggingSettings(settings);
-    }
-
-    private Connector persistV2Connector(String url) {
-        Connector value = new Connector();
-        value.setName("import-provider-v2");
-        value.setUrl(url);
-        value.setVersion(ConnectorVersion.V2);
-        value.setStatus(ConnectorStatus.CONNECTED);
-        return connectorRepository.save(value);
-    }
-
-    private ConnectorInterfaceEntity persistCryptographyInterface() {
-        ConnectorInterfaceEntity value = new ConnectorInterfaceEntity();
-        value.setConnector(connector);
-        value.setConnectorUuid(connector.getUuid());
-        value.setInterfaceCode(ConnectorInterface.CRYPTOGRAPHY);
-        value.setVersion("v2");
-        value.setFeatures(List.of(FeatureFlag.STATELESS, FeatureFlag.KEY_IMPORT));
-        value = connectorInterfaceRepository.save(value);
-        connector.getInterfaces().add(value);
-        return value;
-    }
-
-    private TokenInstanceReference persistToken() {
-        TokenInstanceReference value = new TokenInstanceReference();
-        value.setName("import-token-" + UUID.randomUUID());
-        value.setConnector(connector);
-        value.setConnectorUuid(connector.getUuid());
-        value.setConnectorInterface(cryptographyInterface);
-        value.setKind("SOFT");
-        value.setStatus(TokenInstanceStatus.ACTIVATED);
-        return tokenInstanceReferenceRepository.save(value);
-    }
-
-    private TokenProfile persistProfile() {
-        TokenProfile value = new TokenProfile();
-        value.setName("import-profile-" + UUID.randomUUID());
-        value.setTokenInstanceReference(token);
-        value.setTokenInstanceName(token.getName());
-        value.setEnabled(true);
-        value.setUsage(PROFILE_USAGES);
-        return tokenProfileRepository.save(value);
     }
 
     private CustomAttributeV3 departmentAttribute() throws Exception {

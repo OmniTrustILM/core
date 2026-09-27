@@ -11,11 +11,13 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * What makes a later import request the same import as an earlier one: the requester, the token profile, the file, the
- * key it holds, and the terms the connector is asked to import it under. The attributes are read in name order, so a
- * retry that lists them differently is still the same import.
+ * public key of the key it holds, and the terms the connector is asked to import it under. A secret key has no public
+ * key, so its file alone names it. The attributes are read in name order, so a retry that lists them differently is
+ * still the same import.
  */
 final class ImportIdempotencyKey {
 
@@ -27,7 +29,7 @@ final class ImportIdempotencyKey {
     static String of(KeyImportTerms terms, byte[] file) {
         String identity = String
                 .join("\n", terms.requester().getUuid(), terms.profile().uuid().toString(), sha256(file),
-                        terms.spkiFingerprint(), Boolean.toString(terms.exportable()),
+                        Objects.requireNonNullElse(terms.spkiFingerprint(), ""), Boolean.toString(terms.exportable()),
                         sha256(canonicalJson(terms.importAttributes())));
         return sha256(identity.getBytes(StandardCharsets.UTF_8));
     }

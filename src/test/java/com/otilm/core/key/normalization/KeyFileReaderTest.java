@@ -27,7 +27,7 @@ import static org.junit.jupiter.params.provider.Arguments.arguments;
 
 class KeyFileReaderTest {
 
-    private static final String NESTING_LIMIT = KeyFileRefusal.LIMIT_EXCEEDED.formatted("nesting depth", 32);
+    private static final String NESTING_LIMIT = "The file exceeds the nesting depth limit of 32.";
 
     private static final PemHeader PROTECTED = new PemHeader("Proc-Type", "4,ENCRYPTED");
 
@@ -46,7 +46,7 @@ class KeyFileReaderTest {
     @MethodSource("keysWithoutProtection")
     void read_takesAKeyWithoutProtectionAsPkcs8(byte[] file, KeyPair keyPair) throws Exception {
         // when
-        KeyFile read = KeyFileReader.read(file);
+        KeyFile read = KeyFileReader.read(file, DerivationBudget.forFile());
 
         // then
         assertThat(read).isInstanceOf(KeyFile.Plain.class);
@@ -57,7 +57,7 @@ class KeyFileReaderTest {
     @MethodSource("protectedPkcs8Keys")
     void read_takesAProtectedPkcs8KeyInDerOrPem(byte[] file) {
         // when
-        KeyFile read = KeyFileReader.read(file);
+        KeyFile read = KeyFileReader.read(file, DerivationBudget.forFile());
 
         // then
         assertThat(read).isInstanceOf(KeyFile.Pkcs8Protected.class);
@@ -66,7 +66,7 @@ class KeyFileReaderTest {
     @Test
     void read_takesAProtectedTraditionalKeyWithItsCipherAndInitializationVector() throws Exception {
         // when
-        KeyFile read = KeyFileReader.read(KeyFiles.traditional(rsa, "AES-256-CBC"));
+        KeyFile read = KeyFileReader.read(KeyFiles.traditional(rsa, "AES-256-CBC"), DerivationBudget.forFile());
 
         // then
         assertThat(read).isInstanceOfSatisfying(KeyFile.TraditionalProtected.class, key -> {
@@ -79,18 +79,25 @@ class KeyFileReaderTest {
     @ParameterizedTest
     @MethodSource("filesThatAreNotASingleKey")
     void read_refusesAFileThatDoesNotHoldExactlyOneKey(byte[] file) {
+        // given
+        DerivationBudget budget = DerivationBudget.forFile();
+
         // when
-        ValidationException refusal = assertThrows(ValidationException.class, () -> KeyFileReader.read(file));
+        ValidationException refusal = assertThrows(ValidationException.class, () -> KeyFileReader.read(file, budget));
 
         // then
-        assertThat(refusal.getMessage()).isEqualTo(KeyFileRefusal.NOT_A_KEY_FILE);
+        assertThat(refusal.getMessage())
+                .isEqualTo("The file must hold exactly one key, as PKCS#8, OpenSSL traditional PEM or OpenSSH.");
     }
 
     @ParameterizedTest
     @MethodSource("damagedKeys")
     void read_refusesADamagedKeyAsUnreadable(byte[] file) {
+        // given
+        DerivationBudget budget = DerivationBudget.forFile();
+
         // when
-        ValidationException refusal = assertThrows(ValidationException.class, () -> KeyFileReader.read(file));
+        ValidationException refusal = assertThrows(ValidationException.class, () -> KeyFileReader.read(file, budget));
 
         // then
         assertThat(refusal.getMessage()).isEqualTo(KeyFileRefusal.UNREADABLE);
@@ -99,18 +106,24 @@ class KeyFileReaderTest {
     @ParameterizedTest
     @MethodSource("unsupportedProtections")
     void read_namesAnUnsupportedProtectionBeforeAnyPassphraseIsUsed(byte[] file, String named) {
+        // given
+        DerivationBudget budget = DerivationBudget.forFile();
+
         // when
-        ValidationException refusal = assertThrows(ValidationException.class, () -> KeyFileReader.read(file));
+        ValidationException refusal = assertThrows(ValidationException.class, () -> KeyFileReader.read(file, budget));
 
         // then
-        assertThat(refusal.getMessage()).isEqualTo(KeyFileRefusal.UNSUPPORTED_PROTECTION.formatted(named));
+        assertThat(refusal.getMessage()).isEqualTo("The file is protected with " + named + ", which is not supported.");
     }
 
     @ParameterizedTest
     @MethodSource("deeplyNestedFiles")
     void read_refusesNestingDeeperThanAKeyFileMay(byte[] file) {
+        // given
+        DerivationBudget budget = DerivationBudget.forFile();
+
         // when
-        ValidationException refusal = assertThrows(ValidationException.class, () -> KeyFileReader.read(file));
+        ValidationException refusal = assertThrows(ValidationException.class, () -> KeyFileReader.read(file, budget));
 
         // then
         assertThat(refusal.getMessage()).isEqualTo(NESTING_LIMIT);
@@ -175,7 +188,6 @@ class KeyFileReaderTest {
                 .of(named("text", ascii("not a key")), named("an empty file", new byte[0]),
                         named("a certificate", certificate),
                         named("a public key", KeyFiles.pem("PUBLIC KEY", ec.getPublic().getEncoded())),
-                        named("an OpenSSH key", KeyFiles.pem("OPENSSH PRIVATE KEY", new byte[]{1, 2, 3})),
                         named("a key with its certificate", concatenated(key, certificate)),
                         named("two keys", concatenated(key, KeyFiles.pem("PRIVATE KEY", KeyFiles.pkcs8(rsa)))),
                         named("PKCS#12", pkcs12()),
@@ -192,6 +204,8 @@ class KeyFileReaderTest {
         return Stream
                 .of(named("PEM that is not base64",
                         ascii("-----BEGIN PRIVATE KEY-----\n@@@@\n-----END PRIVATE KEY-----\n")),
+                        named("an OpenSSH key too short for its header",
+                                KeyFiles.pem("OPENSSH PRIVATE KEY", new byte[]{1, 2, 3})),
                         named("a key that is not DER", KeyFiles.pem("PRIVATE KEY", notDer)),
                         named("a protected key that is not DER", KeyFiles.pem("ENCRYPTED PRIVATE KEY", notDer)),
                         named("a traditional key that is not DER", KeyFiles.pem("EC PRIVATE KEY", notDer)),
@@ -222,7 +236,7 @@ class KeyFileReaderTest {
     }
 
     static Stream<Named<byte[]>> deeplyNestedFiles() throws Exception {
-        byte[] nested = KeyFiles.nested(KeyFileReader.MAXIMUM_NESTING_DEPTH + 1);
+        byte[] nested = KeyFiles.nested(KeyNormalizer.MAXIMUM_NESTING_DEPTH + 1);
         return Stream
                 .of(named("DER", nested), named("PKCS#8 as PEM", KeyFiles.pem("PRIVATE KEY", nested)),
                         named("traditional PEM", KeyFiles.pem("EC PRIVATE KEY", nested)));

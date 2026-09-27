@@ -428,7 +428,7 @@ public class AuditLogAspect {
                 ResourceObjectIdentity objectIdentity = storedResource.objects().getFirst();
                 // If UUID is missing and the name is same, add the stored UUID (or if both are missing)
                 if (loggedResourceUuid == null
-                        && (objectIdentity.name().equals(resourceName) || resourceName == null)) {
+                        && (Objects.equals(objectIdentity.name(), resourceName) || resourceName == null)) {
                     loggedResourceUuid = objectIdentity.uuid();
                 }
                 // If name is missing and the UUID is same, add the stored name (or if both are missing)

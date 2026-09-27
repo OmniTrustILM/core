@@ -1,6 +1,8 @@
 package com.otilm.core.key.normalization;
 
 import com.otilm.api.exception.ValidationException;
+import java.math.BigInteger;
+import java.time.Duration;
 import java.util.stream.Stream;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.DERNull;
@@ -26,6 +28,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Named.named;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
 
@@ -48,15 +51,19 @@ class KeyProtectionTest {
     @MethodSource("acceptedProtections")
     void requireAccepted_acceptsEveryProtectionInTheSet(AlgorithmIdentifier protection) {
         // when, then
-        assertThatCode(() -> KeyProtection.requireAccepted(protection)).doesNotThrowAnyException();
+        assertThatCode(() -> KeyProtection.requireAccepted(protection, DerivationBudget.forFile()))
+                .doesNotThrowAnyException();
     }
 
     @ParameterizedTest
     @MethodSource("unsupportedProtections")
     void requireAccepted_namesThePartThatIsNotSupported(AlgorithmIdentifier protection, String named) {
+        // given
+        DerivationBudget budget = DerivationBudget.forFile();
+
         // when
         ValidationException refusal = assertThrows(ValidationException.class,
-                () -> KeyProtection.requireAccepted(protection));
+                () -> KeyProtection.requireAccepted(protection, budget));
 
         // then
         assertThat(refusal.getMessage()).isEqualTo(KeyFileRefusal.UNSUPPORTED_PROTECTION.formatted(named));
@@ -65,20 +72,60 @@ class KeyProtectionTest {
     @ParameterizedTest
     @MethodSource("protectionsOverTheirCeiling")
     void requireAccepted_refusesWorkOverTheCeiling(AlgorithmIdentifier protection, String limit) {
+        // given
+        DerivationBudget budget = DerivationBudget.forFile();
+
         // when
         ValidationException refusal = assertThrows(ValidationException.class,
-                () -> KeyProtection.requireAccepted(protection));
+                () -> KeyProtection.requireAccepted(protection, budget));
 
         // then
         assertThat(refusal.getMessage()).isEqualTo(limit);
     }
 
+    /**
+     * scrypt parameters of a million bytes each, of either sign, would make the check itself costly were they
+     * multiplied first; one below 1 makes the protection damaged.
+     */
+    @ParameterizedTest
+    @MethodSource("attackerSizedScrypt")
+    void requireAccepted_refusesScryptParametersOutOfBoundsBeforeMultiplyingThem(AlgorithmIdentifier protection,
+            String refused) {
+        // given
+        DerivationBudget budget = DerivationBudget.forFile();
+
+        // when
+        ValidationException refusal = assertTimeoutPreemptively(Duration.ofMillis(100),
+                () -> assertThrows(ValidationException.class, () -> KeyProtection.requireAccepted(protection, budget)));
+
+        // then
+        assertThat(refusal.getMessage()).isEqualTo(refused);
+    }
+
+    @ParameterizedTest
+    @MethodSource("chargedProtections")
+    void requireAccepted_chargesTheKeyDerivationToTheFilesBudget(AlgorithmIdentifier protection, int iterations) {
+        // given
+        DerivationBudget budget = DerivationBudget.forFile();
+        BigInteger rest = BigInteger.valueOf(DerivationBudget.FILE_ITERATIONS - iterations);
+
+        // when
+        KeyProtection.requireAccepted(protection, budget);
+
+        // then
+        assertThatCode(() -> budget.charge(rest)).doesNotThrowAnyException();
+        assertThrows(ValidationException.class, () -> budget.charge(BigInteger.ONE));
+    }
+
     @ParameterizedTest
     @MethodSource("damagedProtections")
     void requireAccepted_refusesParametersItCannotRead(AlgorithmIdentifier protection) {
+        // given
+        DerivationBudget budget = DerivationBudget.forFile();
+
         // when
         ValidationException refusal = assertThrows(ValidationException.class,
-                () -> KeyProtection.requireAccepted(protection));
+                () -> KeyProtection.requireAccepted(protection, budget));
 
         // then
         assertThat(refusal.getMessage()).isEqualTo(KeyFileRefusal.UNREADABLE);
@@ -156,7 +203,19 @@ class KeyProtectionTest {
                         arguments(named("PBES1 MD2 and RC2", pbes1(PKCSObjectIdentifiers.pbeWithMD2AndRC2_CBC, 2048)),
                                 "1.2.840.113549.1.5.4"),
                         arguments(named("an unknown scheme",
-                                new AlgorithmIdentifier(new ASN1ObjectIdentifier("1.2.3.5"))), "1.2.3.5"));
+                                new AlgorithmIdentifier(new ASN1ObjectIdentifier("1.2.3.5"))), "1.2.3.5"),
+                        arguments(
+                                named("an unknown scheme named in 64 characters, as many as a refusal repeats",
+                                        new AlgorithmIdentifier(KeyFiles.identifierOfLength(64))),
+                                KeyFiles.identifierOfLength(64).getId()),
+                        arguments(
+                                named("an unknown scheme named in 65 characters",
+                                        new AlgorithmIdentifier(KeyFiles.identifierOfLength(65))),
+                                "an unrecognized scheme"),
+                        arguments(
+                                named("PBES2 with a PRF named in 65 characters",
+                                        pbes2(KeyFiles.identifierOfLength(65), 2048, AES256)),
+                                "an unrecognized scheme"));
     }
 
     static Stream<Arguments> protectionsOverTheirCeiling() {
@@ -169,8 +228,34 @@ class KeyProtectionTest {
                         arguments(named("scrypt memory by its cost", scrypt(1 << 16, 8, 1)), SCRYPT_MEMORY_LIMIT),
                         arguments(named("scrypt memory by its block size", scrypt(1 << 14, 17, 1)),
                                 SCRYPT_MEMORY_LIMIT),
+                        arguments(named("scrypt memory by its cost with a block size of 1", scrypt(1 << 19, 1, 1)),
+                                SCRYPT_MEMORY_LIMIT),
                         arguments(named("scrypt parallelization", scrypt(1 << 14, 8, 2)),
                                 SCRYPT_PARALLELIZATION_LIMIT));
+    }
+
+    static Stream<Arguments> attackerSizedScrypt() {
+        BigInteger huge = BigInteger.ONE.shiftLeft(8 * 1_000_000).subtract(BigInteger.ONE);
+        BigInteger alsoHuge = huge.subtract(BigInteger.TWO);
+        return Stream
+                .of(arguments(named("huge r and N", scrypt(alsoHuge, huge, BigInteger.ONE)), SCRYPT_MEMORY_LIMIT),
+                        arguments(
+                                named("huge negative r and N",
+                                        scrypt(alsoHuge.negate(), huge.negate(), BigInteger.ONE)),
+                                KeyFileRefusal.UNREADABLE),
+                        arguments(
+                                named("huge negative r and p, with N = 2",
+                                        scrypt(BigInteger.TWO, huge.negate(), alsoHuge.negate())),
+                                KeyFileRefusal.UNREADABLE));
+    }
+
+    static Stream<Arguments> chargedProtections() {
+        return Stream
+                .of(arguments(named("scrypt, as r·N·p", scrypt(1 << 15, 8, 1)), 262_144),
+                        arguments(named("PBES1", pbes1(PKCSObjectIdentifiers.pbeWithSHA1AndDES_CBC, 2048)), 2048),
+                        arguments(named("PKCS#12", pkcs12(PKCSObjectIdentifiers.pbeWithSHAAnd3_KeyTripleDES_CBC, 4096)),
+                                4096),
+                        arguments(named("PBKDF2", pbes2(SHA256, 600_000, AES256)), 600_000));
     }
 
     static Stream<Named<AlgorithmIdentifier>> damagedProtections() {
@@ -178,7 +263,9 @@ class KeyProtectionTest {
                 .of(named("PBES2 with NULL parameters",
                         new AlgorithmIdentifier(PKCSObjectIdentifiers.id_PBES2, DERNull.INSTANCE)),
                         named("PBES1 without parameters",
-                                new AlgorithmIdentifier(PKCSObjectIdentifiers.pbeWithMD5AndDES_CBC)));
+                                new AlgorithmIdentifier(PKCSObjectIdentifiers.pbeWithMD5AndDES_CBC)),
+                        named("scrypt with a cost of 0", scrypt(0, 8, 1)),
+                        named("scrypt with a parallelization of 0", scrypt(1 << 14, 8, 0)));
     }
 
     private static AlgorithmIdentifier pbes2(ASN1ObjectIdentifier prf, int iterations, ASN1ObjectIdentifier cipher) {
@@ -194,8 +281,14 @@ class KeyProtectionTest {
     }
 
     private static AlgorithmIdentifier scrypt(int cost, int blockSize, int parallelization) {
-        return pbes2(new KeyDerivationFunc(MiscObjectIdentifiers.id_scrypt,
-                new ScryptParams(new byte[16], cost, blockSize, parallelization, 32)), AES256);
+        return scrypt(BigInteger.valueOf(cost), BigInteger.valueOf(blockSize), BigInteger.valueOf(parallelization));
+    }
+
+    private static AlgorithmIdentifier scrypt(BigInteger cost, BigInteger blockSize, BigInteger parallelization) {
+        return pbes2(
+                new KeyDerivationFunc(MiscObjectIdentifiers.id_scrypt,
+                        new ScryptParams(new byte[16], cost, blockSize, parallelization, BigInteger.valueOf(32))),
+                AES256);
     }
 
     private static AlgorithmIdentifier pbes1(ASN1ObjectIdentifier scheme, int iterations) {

@@ -60,7 +60,8 @@ public class KeyImportWriter {
      *
      * @param name the name the key is to be registered under
      * @param secretDigests the digests of the secrets the attempt is to be sent with
-     * @throws org.springframework.dao.DataIntegrityViolationException while another import of the same key is open
+     * @throws org.springframework.dao.DataIntegrityViolationException while another attempt is open for the same key,
+     * or for the same import of a secret key
      */
     @Transactional(rollbackFor = Exception.class)
     public KeyImportAttempt open(KeyImportTerms terms, String idempotencyKey, String name, List<String> secretDigests) {

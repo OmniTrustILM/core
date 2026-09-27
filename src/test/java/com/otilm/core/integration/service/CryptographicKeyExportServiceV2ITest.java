@@ -234,17 +234,20 @@ class CryptographicKeyExportServiceV2ITest extends BaseSpringBootTest {
         assertEquals("The connector failed to export key item %s.".formatted(privateKeyUuid), failed.getMessage());
     }
 
-    /** Only key-pair algorithms exist, so the secret is described with one; there is no public key to look up. */
+    /** A secret key has no public key to look up. */
     @Test
     void exportKey_exportsASecretKey() throws Exception {
         // given
         profile
                 .setExportableKeyTypes(
-                        List.of(new TransferableKeyType(KeyRequestType.SECRET, Set.of(KeyAlgorithm.RSA))));
+                        List.of(new TransferableKeyType(KeyRequestType.SECRET, Set.of(KeyAlgorithm.AES))));
         tokenProfileRepository.save(profile);
-        CryptographicKeyItem secret = persistKeyItem(key, KeyType.SECRET_KEY, true, KeyState.ACTIVE, true);
+        CryptographicKeyItem held = keyItem(key, KeyType.SECRET_KEY, true, KeyState.ACTIVE, true);
+        held.setKeyAlgorithm(KeyAlgorithm.AES);
+        held.setLength(256);
+        CryptographicKeyItem secret = cryptographicKeyItemRepository.save(held);
         byte[] envelope = ExportEnvelopeFixtures.pinnedEnvelope(pair.getPrivate(), PASSPHRASE);
-        connectorMock.stubExportKey(ExportEnvelopeFixtures.secretKeyResponseJson(envelope, KeyAlgorithm.RSA, 2048));
+        connectorMock.stubExportKey(ExportEnvelopeFixtures.secretKeyResponseJson(envelope, KeyAlgorithm.AES, 256));
 
         // when
         ExportedKeyMaterial exported = exportService.exportKey(key.getUuid(), secret.getUuid(), exportRequest());

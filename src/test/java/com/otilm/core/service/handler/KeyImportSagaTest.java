@@ -46,10 +46,14 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -57,6 +61,7 @@ import org.springframework.http.HttpStatus;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
+import static org.junit.jupiter.api.Named.named;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -85,6 +90,8 @@ class KeyImportSagaTest {
     private KeyImportSaga saga;
     private KeyImportTerms terms;
     private NormalizedKey key;
+    private KeyImportTerms secretKeyTerms;
+    private NormalizedKey secretKey;
     private KeyImportMetadata metadata;
     private KeyImportAttempt attempt;
     private List<String> keyDigests;
@@ -101,10 +108,15 @@ class KeyImportSagaTest {
         KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
         generator.initialize(2048);
         byte[] spki = generator.generateKeyPair().getPublic().getEncoded();
-        key = new NormalizedKey(KeyAlgorithm.RSA, spki, new byte[]{1}, new Passphrase("transport".toCharArray()));
+        key = new NormalizedKey(KeyRequestType.KEY_PAIR, KeyAlgorithm.RSA, 2048, spki, new byte[]{1},
+                new Passphrase("transport".toCharArray()));
         keyDigests = OutboundSecretContainment.digestsOf(key.transportSecrets());
         terms = new KeyImportTerms(profile, KeyRequestType.KEY_PAIR, KeyAlgorithm.RSA, "fingerprint", false, List.of(),
                 new NameAndUuidDto(UUID.randomUUID().toString(), "requester"));
+        secretKey = new NormalizedKey(KeyRequestType.SECRET, KeyAlgorithm.AES, 256, null, new byte[]{2},
+                new Passphrase("secret transport".toCharArray()));
+        secretKeyTerms = new KeyImportTerms(profile, KeyRequestType.SECRET, KeyAlgorithm.AES, null, false, List.of(),
+                terms.requester());
         metadata = new KeyImportMetadata("imported key", null, Set.of(), List.of());
         attempt = new KeyImportAttempt(UUID.randomUUID(), UUID.randomUUID(), KeyImportState.REQUESTED, null,
                 OffsetDateTime.now(), SENT, null);
@@ -113,6 +125,10 @@ class KeyImportSagaTest {
         when(keyImportRepository.findFirstByIdempotencyKeyAndStateInOrderByCreatedAtDesc(eq(RETRY), any()))
                 .thenReturn(Optional.empty());
         when(keyImportWriter.open(terms, RETRY, "imported key", keyDigests)).thenReturn(attempt);
+        when(keyImportWriter
+                .open(secretKeyTerms, RETRY, "imported key",
+                        OutboundSecretContainment.digestsOf(secretKey.transportSecrets())))
+                .thenReturn(attempt);
         when(keyImportWriter.complete(eq(attempt.uuid()), any()))
                 .thenReturn(Optional.of(new ImportedKey(registered, false)));
     }
@@ -497,6 +513,56 @@ class KeyImportSagaTest {
         verify(keyImportWriter, never()).complete(any(), any());
     }
 
+    /** A secret key has no public key: it adopts no record, and it is registered without a fingerprint. */
+    @Test
+    void importKey_registersASecretKeyWithoutAFingerprint() throws Exception {
+        // given
+        ImportAnswer.Imported answer = importedSecretKey(secretKeyItem(KeyType.SECRET_KEY, KeyAlgorithm.AES, 256));
+        when(adapter.importKey(secretKeyTerms, attempt, secretKey, "imported key")).thenReturn(answer);
+
+        // when
+        ImportedKey result = saga.importKey(secretKeyTerms, RETRY, secretKey, metadata);
+
+        // then
+        assertThat(result.key()).isSameAs(registered);
+        ArgumentCaptor<ImportedKeyRegistration> registration = ArgumentCaptor.forClass(ImportedKeyRegistration.class);
+        verify(keyImportWriter).complete(eq(attempt.uuid()), registration.capture());
+        assertThat(registration.getValue().spkiFingerprint()).isNull();
+        assertThat(registration.getValue().items()).isEqualTo(answer.items());
+        verify(cryptographicKeyWriter, never()).adoptablePublicKey(any());
+    }
+
+    /** A secret key has no public key, so the answer must be one secret key of the key's algorithm and length. */
+    @ParameterizedTest
+    @MethodSource("answersWithAnotherSecretKey")
+    void importKey_handsAnImportAnsweredWithAnotherSecretKeyToTheReconciliation(ImportAnswer.Imported answer)
+            throws Exception {
+        // given
+        when(adapter.importKey(secretKeyTerms, attempt, secretKey, "imported key")).thenReturn(answer);
+
+        // when
+        // then
+        assertThatThrownBy(() -> saga.importKey(secretKeyTerms, RETRY, secretKey, metadata))
+                .isInstanceOf(ConnectorServerException.class)
+                .hasMessage(KeyImportSaga.UNCONFIRMED);
+        verify(keyImportWriter, never()).complete(any(), any());
+        verify(keyImportWriter).dueNow(attempt.uuid());
+    }
+
+    static Stream<Named<ImportAnswer.Imported>> answersWithAnotherSecretKey() {
+        ProviderKeyItem aes = secretKeyItem(KeyType.SECRET_KEY, KeyAlgorithm.AES, 256);
+        return Stream
+                .of(named("of another algorithm",
+                        importedSecretKey(secretKeyItem(KeyType.SECRET_KEY, KeyAlgorithm.UNKNOWN, 256))),
+                        named("of another length",
+                                importedSecretKey(secretKeyItem(KeyType.SECRET_KEY, KeyAlgorithm.AES, 128))),
+                        named("as another kind of item",
+                                importedSecretKey(secretKeyItem(KeyType.PRIVATE_KEY, KeyAlgorithm.AES, 256))),
+                        named("with a second item",
+                                new ImportAnswer.Imported(KeyRequestType.SECRET, List.of(aes, aes))),
+                        named("as a key pair", new ImportAnswer.Imported(KeyRequestType.KEY_PAIR, List.of(aes))));
+    }
+
     @Test
     void importKey_handsALostRaceToTheReconciliation() throws Exception {
         // given
@@ -636,6 +702,15 @@ class KeyImportSagaTest {
                 KeyAlgorithm.RSA, 2048, new RemoteKeyReference.MetadataReference(List.of(meta("private"))), null,
                 List.of());
         return new ImportAnswer.Imported(KeyRequestType.KEY_PAIR, List.of(publicKey, privateKey));
+    }
+
+    private static ImportAnswer.Imported importedSecretKey(ProviderKeyItem item) {
+        return new ImportAnswer.Imported(KeyRequestType.SECRET, List.of(item));
+    }
+
+    private static ProviderKeyItem secretKeyItem(KeyType type, KeyAlgorithm algorithm, int length) {
+        return new ProviderKeyItem("imported key", type, algorithm, length,
+                new RemoteKeyReference.MetadataReference(List.of(meta("secret"))), null, List.of());
     }
 
     private static MetadataAttribute meta(String name) {

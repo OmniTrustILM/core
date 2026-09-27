@@ -7,7 +7,9 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.PlatformException;
 import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.core.cryptography.key.KeyEvent;
 import com.otilm.api.model.core.cryptography.key.KeyEventStatus;
 import com.otilm.core.attribute.engine.OutboundSecretContainment;
@@ -22,6 +24,7 @@ import com.otilm.core.model.crypto.ImportedKeyRegistration;
 import com.otilm.core.model.crypto.KeyImportAttempt;
 import com.otilm.core.model.crypto.KeyImportMetadata;
 import com.otilm.core.model.crypto.KeyImportTerms;
+import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.service.CryptographicKeyEventHistoryService;
 import com.otilm.core.service.handler.key.ImportAnswer;
 import com.otilm.core.service.handler.key.KeyProviderAdapter;
@@ -88,9 +91,9 @@ public class KeyImportSaga {
 
     /**
      * Imports the key into the token profile and registers it. A repeat of an import already registered answers with
-     * its key; otherwise the name and the public key are checked against what the platform holds, and an open attempt
-     * of the same import is resumed rather than a second one started. A failure of an import that would adopt a
-     * public-key-only record is recorded in that record's history.
+     * its key; otherwise the name, and a key pair's public key, are checked against what the platform holds, and an
+     * open attempt of the same import is resumed rather than a second one started. A failure of an import that would
+     * adopt a public-key-only record is recorded in that record's history.
      *
      * @param idempotencyKey what makes a later request the same import
      * @return the registered key
@@ -102,7 +105,7 @@ public class KeyImportSaga {
             return new ImportedKey(repeated.get(), true);
         }
         requireNameFree(metadata.name());
-        Optional<UUID> adoptedPublicKey = cryptographicKeyWriter.adoptablePublicKey(terms.spkiFingerprint());
+        Optional<UUID> adoptedPublicKey = adoptablePublicKey(terms);
         try {
             Call call = new Call(keyProviderAdapterFactory.forToken(terms.profile().tokenInstance()), terms, key,
                     metadata);
@@ -128,6 +131,19 @@ public class KeyImportSaga {
         if (cryptographicKeyRepository.findByName(name).isPresent()) {
             throw new ValidationException(ValidationError.create(CryptographicKeyWriter.NAME_TAKEN.formatted(name)));
         }
+    }
+
+    /**
+     * The public key item of the public-key-only record the import would adopt. A secret key has no public key, so it
+     * adopts none.
+     *
+     * @throws ValidationException when the platform holds the public key otherwise, or holds a record no longer active
+     */
+    private Optional<UUID> adoptablePublicKey(KeyImportTerms terms) {
+        if (terms.type() == KeyRequestType.SECRET) {
+            return Optional.empty();
+        }
+        return cryptographicKeyWriter.adoptablePublicKey(terms.spkiFingerprint());
     }
 
     /**
@@ -189,7 +205,7 @@ public class KeyImportSaga {
             return new ImportedKey(meanwhile.get(), true);
         }
         try {
-            cryptographicKeyWriter.adoptablePublicKey(call.terms().spkiFingerprint());
+            adoptablePublicKey(call.terms());
         } catch (ValidationException held) {
             keyImportWriter.failUnsent(attempt, held.getMessage());
             throw held;
@@ -290,12 +306,7 @@ public class KeyImportSaga {
     private ImportedKey registered(Call call, KeyImportAttempt attempt, ImportAnswer.Imported imported)
             throws ConnectorServerException, NotFoundException, AttributeException {
         KeyImportTerms terms = call.terms();
-        String expected = Base64.getEncoder().encodeToString(call.key().subjectPublicKeyInfo());
-        boolean ofTheKeysAlgorithm = imported
-                .items()
-                .stream()
-                .allMatch(item -> item.algorithm() == call.key().algorithm());
-        if (imported.type() != terms.type() || !Objects.equals(imported.publicKey(), expected) || !ofTheKeysAlgorithm) {
+        if (imported.type() != terms.type() || !isTheKeyInTheFile(imported, call.key())) {
             logger.warn("Key import {} was answered with a key other than the one in the file", attempt.uuid());
             keyImportWriter.dueNow(attempt.uuid());
             throw unconfirmed(attempt);
@@ -318,6 +329,25 @@ public class KeyImportSaga {
         }
         logger.info("Key {} imported into token profile {}", key.get().key().uuid(), terms.profile().uuid());
         return key.get();
+    }
+
+    /**
+     * Whether the imported items describe the key in the file. A key pair is shown by its public key, and each of its
+     * items must be of its algorithm. A secret key has no public key, so its one item must be a secret key of its
+     * algorithm and length.
+     */
+    private static boolean isTheKeyInTheFile(ImportAnswer.Imported imported, NormalizedKey key) {
+        if (key.type() == KeyRequestType.SECRET) {
+            return imported.items().size() == 1 && isSecretKeyOf(imported.items().getFirst(), key);
+        }
+        String expected = Base64.getEncoder().encodeToString(key.subjectPublicKeyInfo());
+        return Objects.equals(imported.publicKey(), expected)
+                && imported.items().stream().allMatch(item -> item.algorithm() == key.algorithm());
+    }
+
+    private static boolean isSecretKeyOf(ProviderKeyItem item, NormalizedKey key) {
+        return item.type() == KeyType.SECRET_KEY && item.algorithm() == key.algorithm()
+                && item.length() == key.length();
     }
 
     private ConnectorServerException failed(KeyImportAttempt attempt, String message) {

@@ -701,7 +701,8 @@ class KeyProviderV2AdapterImportTest {
     }
 
     private NormalizedKey normalizedKey() {
-        return new NormalizedKey(KeyAlgorithm.RSA, publicKeySpki, envelope, new Passphrase(TRANSPORT_PASSPHRASE));
+        return new NormalizedKey(KeyRequestType.KEY_PAIR, KeyAlgorithm.RSA, 2048, publicKeySpki, envelope,
+                new Passphrase(TRANSPORT_PASSPHRASE));
     }
 
     /** A resolved attribute carrying a secret, as a token or profile credential reaches the adapter. */

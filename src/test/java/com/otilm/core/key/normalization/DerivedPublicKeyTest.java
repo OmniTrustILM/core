@@ -9,14 +9,20 @@ import java.security.interfaces.RSAPrivateCrtKey;
 import java.security.spec.ECGenParameterSpec;
 import java.security.spec.RSAPrivateCrtKeySpec;
 import java.security.spec.RSAPrivateKeySpec;
+import java.util.Optional;
 import java.util.stream.Stream;
+import org.bouncycastle.asn1.ASN1Encodable;
+import org.bouncycastle.asn1.ASN1Integer;
+import org.bouncycastle.asn1.ASN1Sequence;
 import org.bouncycastle.asn1.DERNull;
+import org.bouncycastle.asn1.DERSequence;
 import org.bouncycastle.asn1.bc.BCObjectIdentifiers;
 import org.bouncycastle.asn1.nist.NISTObjectIdentifiers;
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
 import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
+import org.bouncycastle.asn1.x9.X9FieldID;
 import org.bouncycastle.asn1.x9.X9ObjectIdentifiers;
 import org.bouncycastle.jcajce.spec.MLDSAParameterSpec;
 import org.bouncycastle.jcajce.spec.MLKEMParameterSpec;
@@ -49,7 +55,9 @@ class DerivedPublicKeyTest {
     @MethodSource("platformKeys")
     void of_namesTheAlgorithmAndDerivesThePublicKeyAConnectorReturns(KeyPair keyPair, KeyAlgorithm algorithm) {
         // when
-        DerivedPublicKey derived = DerivedPublicKey.of(PrivateKeyInfo.getInstance(KeyFiles.pkcs8(keyPair)));
+        DerivedPublicKey derived = DerivedPublicKey
+                .of(PrivateKeyInfo.getInstance(KeyFiles.pkcs8(keyPair)))
+                .orElseThrow();
 
         // then
         assertThat(derived.algorithm()).isEqualTo(algorithm);
@@ -69,22 +77,39 @@ class DerivedPublicKeyTest {
                 stated.parsePrivateKey(), null, anotherPublicKey);
 
         // when
-        DerivedPublicKey derived = DerivedPublicKey.of(statingAnotherPublicKey);
+        DerivedPublicKey derived = DerivedPublicKey.of(statingAnotherPublicKey).orElseThrow();
 
         // then
         assertThat(derived.publicKey().getEncoded()).isEqualTo(keyPair.getPublic().getEncoded());
     }
 
     @Test
-    void of_refusesAKeyOfAnAlgorithmThePlatformDoesNotHold() throws Exception {
+    void of_findsNothingInAKeyOfAnAlgorithmThePlatformDoesNotHold() throws Exception {
         // given
         PrivateKeyInfo ed25519 = PrivateKeyInfo.getInstance(KeyFiles.pkcs8(KeyFiles.keyPair("Ed25519", null, BC)));
 
         // when
-        ValidationException refusal = assertThrows(ValidationException.class, () -> DerivedPublicKey.of(ed25519));
+        Optional<DerivedPublicKey> derived = DerivedPublicKey.of(ed25519);
 
         // then
-        assertThat(refusal.getMessage()).isEqualTo(KeyFileRefusal.UNSUPPORTED_ALGORITHM.formatted("1.3.101.112"));
+        assertThat(derived).isEmpty();
+    }
+
+    /** The field alone decides, so nothing else of such a key is read. */
+    @Test
+    void of_findsNothingInAKeyOverABinaryFieldLargerThanAnyNamedCurve() {
+        // given
+        ASN1Sequence parameters = new DERSequence(
+                new ASN1Encodable[]{new ASN1Integer(1), new X9FieldID(ExplicitCurve.MAXIMUM_FIELD_BITS + 1, 1)});
+        PrivateKeyInfo key = KeyFiles
+                .privateKeyInfo(new AlgorithmIdentifier(X9ObjectIdentifiers.id_ecPublicKey, parameters),
+                        new byte[]{1, 2, 3});
+
+        // when
+        Optional<DerivedPublicKey> derived = DerivedPublicKey.of(key);
+
+        // then
+        assertThat(derived).isEmpty();
     }
 
     @Test
@@ -110,7 +135,7 @@ class DerivedPublicKeyTest {
         // given
         PrivateKeyInfo deep = KeyFiles
                 .privateKeyInfo(new AlgorithmIdentifier(PKCSObjectIdentifiers.rsaEncryption, DERNull.INSTANCE),
-                        KeyFiles.nested(KeyFileReader.MAXIMUM_NESTING_DEPTH + 1));
+                        KeyFiles.nested(KeyNormalizer.MAXIMUM_NESTING_DEPTH + 1));
 
         // when
         ValidationException refusal = assertThrows(ValidationException.class, () -> DerivedPublicKey.of(deep));
@@ -157,6 +182,10 @@ class DerivedPublicKeyTest {
                         named("EC",
                                 new AlgorithmIdentifier(X9ObjectIdentifiers.id_ecPublicKey,
                                         X9ObjectIdentifiers.prime256v1)),
+                        named("EC without parameters", new AlgorithmIdentifier(X9ObjectIdentifiers.id_ecPublicKey)),
+                        named("EC with parameters that name no field",
+                                new AlgorithmIdentifier(X9ObjectIdentifiers.id_ecPublicKey,
+                                        new DERSequence(new ASN1Integer(1)))),
                         named("ML-DSA", new AlgorithmIdentifier(NISTObjectIdentifiers.id_ml_dsa_44)),
                         named("SLH-DSA", new AlgorithmIdentifier(NISTObjectIdentifiers.id_slh_dsa_sha2_128f)),
                         named("ML-KEM", new AlgorithmIdentifier(NISTObjectIdentifiers.id_alg_ml_kem_512)),

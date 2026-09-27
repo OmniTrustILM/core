@@ -37,6 +37,7 @@ import com.otilm.api.model.core.certificate.CertificateRelationsDto;
 import com.otilm.api.model.core.certificate.CertificateValidationResultDto;
 import com.otilm.api.model.core.certificate.FingerprintDto;
 import com.otilm.api.model.core.location.LocationDto;
+import com.otilm.api.model.core.logging.Sensitive;
 import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
@@ -49,6 +50,7 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.ApprovalExternalService;
 import com.otilm.core.service.CertificateEventHistoryExternalService;
 import com.otilm.core.service.CertificateExternalService;
+import com.otilm.core.service.CertificateImportExternalService;
 import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.util.converter.CertificateFormatConverter;
 import com.otilm.core.util.converter.CertificateFormatEncodingConverter;
@@ -78,6 +80,8 @@ public class CertificateControllerImpl implements CertificateController {
     private ClientOperationExternalService clientOperationService;
 
     private ApprovalExternalService approvalService;
+
+    private CertificateImportExternalService certificateImportService;
 
     @InitBinder
     public void initBinder(final WebDataBinder webdataBinder) {
@@ -154,10 +158,18 @@ public class CertificateControllerImpl implements CertificateController {
     }
 
     @Override
-    public CertificateImportResponseDto importCertificates(@Valid CertificateImportRequestDto request)
-            throws ValidationException, NotFoundException, ConnectorException, AttributeException, CertificateException,
-            IOException {
-        return null;
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.IMPORT,
+            synchronous = true)
+    public CertificateImportResponseDto importCertificates(@Sensitive @Valid CertificateImportRequestDto request)
+            throws NotFoundException {
+        try {
+            return certificateImportService.importCertificates(request);
+        } finally {
+            request.getFile().clear();
+            if (request.getPassphrase() != null) {
+                request.getPassphrase().clear();
+            }
+        }
     }
 
     @Override
@@ -335,5 +347,10 @@ public class CertificateControllerImpl implements CertificateController {
     @Autowired
     public void setApprovalService(ApprovalExternalService approvalService) {
         this.approvalService = approvalService;
+    }
+
+    @Autowired
+    public void setCertificateImportService(CertificateImportExternalService certificateImportService) {
+        this.certificateImportService = certificateImportService;
     }
 }
