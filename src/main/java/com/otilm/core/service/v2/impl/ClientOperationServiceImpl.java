@@ -2316,10 +2316,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         } else {
             if (oldCertificate.getCertificateRequest() != null) {
                 signatureAttributes = attributeEngine
-                        .getRequestObjectDataAttributesContent(ObjectAttributeContentInfo
+                        .getRequestOperationDataAttributesContent(ObjectAttributeContentInfo
                                 .builder(Resource.CERTIFICATE_REQUEST, oldCertificate.getCertificateRequest().getUuid())
-                                .connector(keyInternalService
-                                        .getSignAttributeOwner(oldCertificate.getCertificateRequest().getKeyUuid()))
                                 .operation(AttributeOperation.SIGN)
                                 .build());
             } else {
@@ -2339,12 +2337,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             } else {
                 if (oldCertificate.getCertificateRequest() != null) {
                     altSignatureAttributes = attributeEngine
-                            .getRequestObjectDataAttributesContent(ObjectAttributeContentInfo
+                            .getRequestOperationDataAttributesContent(ObjectAttributeContentInfo
                                     .builder(Resource.CERTIFICATE_REQUEST,
                                             oldCertificate.getCertificateRequest().getUuid())
-                                    .connector(keyInternalService
-                                            .getSignAttributeOwner(
-                                                    oldCertificate.getCertificateRequest().getAltKeyUuid()))
                                     .operation(AttributeOperation.SIGN)
                                     .purpose(AttributeContentPurpose.CERTIFICATE_REQUEST_ALT_KEY)
                                     .build());

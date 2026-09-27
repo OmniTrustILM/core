@@ -1497,6 +1497,65 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         TokenInstanceReference token = persistV2Token();
         CryptographicKey oldKey = persistV2Key(token);
         CryptographicKey newKey = persistV2Key(token);
+        signCertificateRequestWith(oldKey, token);
+
+        // when
+        ClientCertificateDataResponseDto rekeyed = rekeyWith(newKey);
+
+        // then
+        Assertions
+                .assertEquals(List.of("signatureAlgorithm=SHA256withRSA"),
+                        describeRequested(signatureAttributesGeneratedWith(newKey)));
+        CertificateDetailDto detail = certificateExternalService
+                .getCertificate(SecuredUUID.fromString(rekeyed.getUuid()));
+        Assertions
+                .assertEquals(List.of("signatureAlgorithm=SHA256withRSA"),
+                        describe(detail.getCertificateRequest().getSignatureAttributes()));
+    }
+
+    @Test
+    void rekeyCertificate_reusesTheSignatureAttributesOfADeletedV2Key() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        TokenInstanceReference token = persistV2Token();
+        CryptographicKey oldKey = persistV2Key(token);
+        CryptographicKey newKey = persistV2Key(token);
+        signCertificateRequestWith(oldKey, token);
+        deleteKey(oldKey);
+
+        // when
+        rekeyWith(newKey);
+
+        // then
+        Assertions
+                .assertEquals(List.of("signatureAlgorithm=SHA256withRSA"),
+                        describeRequested(signatureAttributesGeneratedWith(newKey)));
+    }
+
+    @Test
+    void getCertificate_readsAV2KeysSignatureAttributesAfterTheKeyIsDeleted() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        TokenInstanceReference token = persistV2Token();
+        CryptographicKey key = persistV2Key(token);
+        when(cryptographicOperationService.listSignAttributeSchema(key.getUuid()))
+                .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
+        CertificateDetailDto submitted = clientOperationService
+                .submitCertificateRequest(uploadedRequest(key.getUuid(), sha256WithRsa()), null);
+        deleteKey(key);
+
+        // when
+        CertificateDetailDto detail = certificateExternalService
+                .getCertificate(SecuredUUID.fromString(submitted.getUuid()));
+
+        // then
+        Assertions
+                .assertEquals(List.of("signatureAlgorithm=SHA256withRSA"),
+                        describe(detail.getCertificateRequest().getSignatureAttributes()));
+    }
+
+    /** Stores a request the key signed with SHA256withRSA as the fixture certificate's, as a v2 issuance leaves it. */
+    private void signCertificateRequestWith(CryptographicKey key, TokenInstanceReference token) throws Exception {
         when(cryptographicOperationService.listSignAttributeSchema(any()))
                 .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
         X509Certificate predecessor = CertificateTestUtil
@@ -1509,7 +1568,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 .aCertificateRequest()
                 .withContent("content")
                 .build();
-        signedRequest.setKeyUuid(oldKey.getUuid());
+        signedRequest.setKeyUuid(key.getUuid());
         certificateRequestRepository.save(signedRequest);
         attributeEngine
                 .validateUpdateDataAttributes(token.getConnectorUuid(), AttributeOperation.SIGN,
@@ -1523,37 +1582,42 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         certificate.setCertificateContent(content);
         certificate.setHybridCertificate(false);
         certificate.setAltKeyUuid(null);
-        certificate.setKeyUuid(oldKey.getUuid());
+        certificate.setKeyUuid(key.getUuid());
         certificate.setCertificateRequest(signedRequest);
         certificate.setCertificateRequestUuid(signedRequest.getUuid());
         certificateRepository.save(certificate);
+    }
+
+    private ClientCertificateDataResponseDto rekeyWith(CryptographicKey key) throws Exception {
         ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
         request.setFormat(CertificateRequestFormat.PKCS10);
-        request.setKeyUuid(newKey.getUuid());
-        request.setTokenProfileUuid(newKey.getTokenProfileUuid());
+        request.setKeyUuid(key.getUuid());
+        request.setTokenProfileUuid(key.getTokenProfileUuid());
         when(cryptographicOperationService
-                .generateCsr(eq(newKey.getUuid()), eq(newKey.getTokenProfileUuid()), any(), any(), anyList(), any(),
-                        any(), any()))
+                .generateCsr(eq(key.getUuid()), eq(key.getTokenProfileUuid()), any(), any(), anyList(), any(), any(),
+                        any()))
                 .thenReturn(SAMPLE_PKCS10);
-
-        // when
-        ClientCertificateDataResponseDto rekeyed = clientOperationService
+        return clientOperationService
                 .rekeyCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
                         String.valueOf(certificate.getUuid()), request);
+    }
 
-        // then
+    private List<RequestAttribute> signatureAttributesGeneratedWith(CryptographicKey key) throws Exception {
         ArgumentCaptor<List<RequestAttribute>> signatureAttributes = ArgumentCaptor.captor();
         verify(cryptographicOperationService)
-                .generateCsr(eq(newKey.getUuid()), eq(newKey.getTokenProfileUuid()), any(), any(),
+                .generateCsr(eq(key.getUuid()), eq(key.getTokenProfileUuid()), any(), any(),
                         signatureAttributes.capture(), any(), any(), any());
-        Assertions
-                .assertEquals(List.of("signatureAlgorithm=SHA256withRSA"),
-                        describeRequested(signatureAttributes.getValue()));
-        CertificateDetailDto detail = certificateExternalService
-                .getCertificate(SecuredUUID.fromString(rekeyed.getUuid()));
-        Assertions
-                .assertEquals(List.of("signatureAlgorithm=SHA256withRSA"),
-                        describe(detail.getCertificateRequest().getSignatureAttributes()));
+        return signatureAttributes.getValue();
+    }
+
+    /** Deletes the key as CryptographicKeyWriter.deleteKeyWithAssociations does; its certificate requests stay. */
+    private void deleteKey(CryptographicKey key) {
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            certificateRepository.clearKeyAssociations(key.getUuid());
+            cryptographicKeyItemRepository
+                    .deleteAll(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(key.getUuid())));
+            cryptographicKeyRepository.deleteById(key.getUuid());
+        });
     }
 
     private TokenInstanceReference persistV2Token() {

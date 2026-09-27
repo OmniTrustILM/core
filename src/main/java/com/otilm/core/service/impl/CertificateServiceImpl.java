@@ -2401,7 +2401,10 @@ public class CertificateServiceImpl
         return response;
     }
 
-    /** Reads a request's attributes, its signature attributes under the connector whose schema defines them. */
+    /**
+     * Reads a request's attributes. Its signature attributes are read under whichever connector stored them, so they
+     * stay readable after the key that signed the request is deleted.
+     */
     private void setCertificateRequestAttributes(CertificateRequestDto dto, CertificateRequestEntity request) {
         dto
                 .setAttributes(attributeEngine
@@ -2410,16 +2413,14 @@ public class CertificateServiceImpl
                                 .build()));
         dto
                 .setSignatureAttributes(attributeEngine
-                        .getObjectDataAttributesContent(ObjectAttributeContentInfo
+                        .getOperationDataAttributesContent(ObjectAttributeContentInfo
                                 .builder(Resource.CERTIFICATE_REQUEST, request.getUuid())
-                                .connector(cryptographicKeyService.getSignAttributeOwner(request.getKeyUuid()))
                                 .operation(AttributeOperation.SIGN)
                                 .build()));
         dto
                 .setAltSignatureAttributes(attributeEngine
-                        .getObjectDataAttributesContent(ObjectAttributeContentInfo
+                        .getOperationDataAttributesContent(ObjectAttributeContentInfo
                                 .builder(Resource.CERTIFICATE_REQUEST, request.getUuid())
-                                .connector(cryptographicKeyService.getSignAttributeOwner(request.getAltKeyUuid()))
                                 .operation(AttributeOperation.SIGN)
                                 .purpose(AttributeContentPurpose.CERTIFICATE_REQUEST_ALT_KEY)
                                 .build()));
@@ -2485,15 +2486,13 @@ public class CertificateServiceImpl
                             .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
                             .build());
             requestSignatureAttributes = attributeEngine
-                    .getObjectDataAttributesContent(ObjectAttributeContentInfo
+                    .getOperationDataAttributesContent(ObjectAttributeContentInfo
                             .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
-                            .connector(signatureAttributeOwner)
                             .operation(AttributeOperation.SIGN)
                             .build());
             requestAltSignatureAttributes = attributeEngine
-                    .getObjectDataAttributesContent(ObjectAttributeContentInfo
+                    .getOperationDataAttributesContent(ObjectAttributeContentInfo
                             .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
-                            .connector(altSignatureAttributeOwner)
                             .operation(AttributeOperation.SIGN)
                             .purpose(AttributeContentPurpose.CERTIFICATE_REQUEST_ALT_KEY)
                             .build());
