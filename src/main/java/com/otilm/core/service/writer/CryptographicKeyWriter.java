@@ -151,9 +151,10 @@ public class CryptographicKeyWriter {
 
     /**
      * Registers an imported key: as a key of its own, or by adopting the public-key-only record the platform already
-     * holds for its public key, which gains the token profile and the private key and keeps its certificates. The
-     * requester becomes the owner, the groups are added and the custom attributes written, whichever it is. A
-     * quarantined key's items are registered deactivated, except an adopted public key, which keeps its state.
+     * holds for its public key, which gains the token profile and the private key and keeps its certificates. A secret
+     * key has no public key, so it is always a key of its own, and no certificate is linked to it. The requester
+     * becomes the owner, the groups are added and the custom attributes written, whichever it is. A quarantined key's
+     * items are registered deactivated, except an adopted public key, which keeps its state.
      *
      * @return the UUID of the registered key
      * @throws ValidationException when the platform holds the public key otherwise than as a public-key-only record
@@ -161,8 +162,10 @@ public class CryptographicKeyWriter {
      */
     @Transactional(rollbackFor = Exception.class)
     public UUID registerImportedKey(ImportedKeyRegistration registration) throws AttributeException, NotFoundException {
-        Optional<CryptographicKeyItem> held = cryptographicKeyItemRepository
-                .findByFingerprint(registration.spkiFingerprint());
+        // A lookup by a null fingerprint would match every item that has none.
+        Optional<CryptographicKeyItem> held = registration.spkiFingerprint() == null
+                ? Optional.empty()
+                : cryptographicKeyItemRepository.findByFingerprint(registration.spkiFingerprint());
         UUID keyUuid = held.isPresent()
                 ? adoptPublicKeyRecord(held.get().getKeyUuid(), registration)
                 : registerNewImportedKey(registration);

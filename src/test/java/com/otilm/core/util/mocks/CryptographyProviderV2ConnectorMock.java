@@ -2,6 +2,7 @@ package com.otilm.core.util.mocks;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.github.tomakehurst.wiremock.http.Fault;
 import com.github.tomakehurst.wiremock.http.Request;
@@ -16,6 +17,7 @@ import com.otilm.api.model.connector.cryptography.v2.key.ImportableKeyTypeV2Dto;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
@@ -34,6 +36,7 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
     private static final String IMPORT_KEY_CANCEL = "/v2/cryptographyProvider/keys/import/cancel";
     private static final String IMPORT_KEY_RESULT = "/v2/cryptographyProvider/keys/import/result";
     private static final String IMPORT_STATUS_SCENARIO = "import status";
+    private static final String IMPORT_SCENARIO = "imports";
     private static final String DESTROY_KEY = "/v2/cryptographyProvider/keys/destroy";
 
     CryptographyProviderV2ConnectorMock() {
@@ -161,14 +164,23 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
 
     public CryptographyProviderV2ConnectorMock stubImportableKeyTypes(KeyRequestType type, KeyAlgorithm... algorithms)
             throws JsonProcessingException {
-        ImportableKeyTypeV2Dto declaration = new ImportableKeyTypeV2Dto();
-        declaration.setKeyRequestType(type);
-        declaration.setAlgorithms(Set.of(algorithms));
+        return stubImportableKeyTypes(Map.of(type, Set.of(algorithms)));
+    }
+
+    /** The algorithms the connector imports, one declaration per key type. */
+    public CryptographyProviderV2ConnectorMock stubImportableKeyTypes(Map<KeyRequestType, Set<KeyAlgorithm>> importable)
+            throws JsonProcessingException {
+        List<ImportableKeyTypeV2Dto> declarations = new ArrayList<>();
+        for (Map.Entry<KeyRequestType, Set<KeyAlgorithm>> type : importable.entrySet()) {
+            ImportableKeyTypeV2Dto declaration = new ImportableKeyTypeV2Dto();
+            declaration.setKeyRequestType(type.getKey());
+            declaration.setAlgorithms(type.getValue());
+            declarations.add(declaration);
+        }
         server
                 .stubFor(WireMock
                         .post(WireMock.urlPathEqualTo(IMPORTABLE_KEY_TYPES))
-                        .willReturn(
-                                WireMock.okJson(ObjectMapperFactory.wire().writeValueAsString(List.of(declaration)))));
+                        .willReturn(WireMock.okJson(ObjectMapperFactory.wire().writeValueAsString(declarations))));
         return this;
     }
 
@@ -291,6 +303,11 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
         return this;
     }
 
+    public CryptographyProviderV2ConnectorMock stubImportableKeyTypesFailing() {
+        server.stubFor(WireMock.post(WireMock.urlPathEqualTo(IMPORTABLE_KEY_TYPES)).willReturn(WireMock.serverError()));
+        return this;
+    }
+
     public void verifyExportableKeyTypesRequestContaining(String expectedRequestJson) {
         verifyExportableKeyTypesRequestsContaining(1, expectedRequestJson);
     }
@@ -394,15 +411,37 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
     public CryptographyProviderV2ConnectorMock stubImportKeyProblem(ErrorCode errorCode, String detail)
             throws JsonProcessingException {
         ProblemDetailExtended problem = ProblemDetailExtended.fromErrorCode(errorCode, detail, null, null);
-        server
-                .stubFor(WireMock
-                        .post(WireMock.urlPathEqualTo(IMPORT_KEY))
-                        .willReturn(WireMock
-                                .aResponse()
-                                .withStatus(problem.getStatus())
-                                .withHeader("Content-Type", "application/problem+json")
-                                .withBody(ObjectMapperFactory.wire().writeValueAsString(problem))));
+        server.stubFor(WireMock.post(WireMock.urlPathEqualTo(IMPORT_KEY)).willReturn(importAnswer(problem)));
         return this;
+    }
+
+    /**
+     * Successive answers to imports, one per import in the order they are made; the last repeats. A problem document is
+     * answered as the connector's refusal, anything else with 200 as the key it imported.
+     */
+    public CryptographyProviderV2ConnectorMock stubImportKeys(Object... answers) throws JsonProcessingException {
+        for (int index = 0; index < answers.length; index++) {
+            String state = index == 0 ? Scenario.STARTED : "import " + index;
+            var stub = WireMock
+                    .post(WireMock.urlPathEqualTo(IMPORT_KEY))
+                    .inScenario(IMPORT_SCENARIO)
+                    .whenScenarioStateIs(state)
+                    .willReturn(importAnswer(answers[index]));
+            server.stubFor(index < answers.length - 1 ? stub.willSetStateTo("import " + (index + 1)) : stub);
+        }
+        return this;
+    }
+
+    private static ResponseDefinitionBuilder importAnswer(Object answer) throws JsonProcessingException {
+        String body = ObjectMapperFactory.wire().writeValueAsString(answer);
+        if (answer instanceof ProblemDetailExtended problem) {
+            return WireMock
+                    .aResponse()
+                    .withStatus(problem.getStatus())
+                    .withHeader("Content-Type", "application/problem+json")
+                    .withBody(body);
+        }
+        return WireMock.okJson(body);
     }
 
     /** An import the connector never answers: the connection is reset. */

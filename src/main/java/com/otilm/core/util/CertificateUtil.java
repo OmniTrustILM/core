@@ -23,6 +23,7 @@ import com.otilm.api.model.core.oid.SystemOid;
 import com.otilm.api.model.core.settings.CertificateValidationSettingsDto;
 import com.otilm.api.model.core.settings.PlatformSettingsDto;
 import com.otilm.api.model.core.settings.SettingsSection;
+import com.otilm.core.container.KeystoreDetection;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.DiscoveryCertificate;
@@ -39,7 +40,6 @@ import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.KeyFactory;
-import java.security.KeyStore;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
@@ -315,8 +315,11 @@ public class CertificateUtil {
     public static X509Certificate parseUploadedCertificateContent(String certificateContent) {
         var decodedContent = Base64.getDecoder().decode(certificateContent);
 
+        if (KeystoreDetection.isKeystore(decodedContent)) {
+            throw new ValidationException("The file is a keystore. Import it with the certificate import operation.");
+        }
+
         // check if certificate content is PEM encoded X.509 certificate
-        boolean isPem = false;
         try (StringReader contentReader = new StringReader(new String(decodedContent));
                 PEMParser pemParser = new PEMParser(contentReader)) {
 
@@ -331,7 +334,6 @@ public class CertificateUtil {
                 if (pemObject.getType().equals(PEMParser.TYPE_CERTIFICATE)
                         || pemObject.getType().equals(PEMParser.TYPE_X509_CERTIFICATE)
                         || pemObject.getType().equals(PEMParser.TYPE_PKCS7)) {
-                    isPem = true;
                     decodedContent = pemObject.getContent();
                 } else {
                     throw new ValidationException("Uploaded PEM encoded content is not certificate. Uploaded PEM type: "
@@ -342,19 +344,7 @@ public class CertificateUtil {
             logger.debug("Failed to parse uploaded certificate content as PEM encoded.");
         }
 
-        // if not PEM is uploaded, check if it is not supported PKCS#12 format
         logger.debug("Binary certificate content uploaded");
-        if (!isPem) {
-            try (ByteArrayInputStream contentStream = new ByteArrayInputStream(decodedContent)) {
-                KeyStore ks = KeyStore.getInstance("pkcs12", BouncyCastleProvider.PROVIDER_NAME);
-                ks.load(contentStream, null);
-            } catch (Exception e) {
-                if (e.getMessage().equals("no password supplied when one expected")) {
-                    throw new ValidationException("Unsupported certificate format PKCS#12");
-                }
-                logger.debug("Uploaded certificate is not PKCS12. Try parse content as binary X509Certificate");
-            }
-        }
 
         try {
             return getX509Certificate(decodedContent);

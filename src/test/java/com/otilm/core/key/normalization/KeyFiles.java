@@ -5,6 +5,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.StringWriter;
+import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.KeyPair;
@@ -17,6 +18,7 @@ import java.security.spec.ECGenParameterSpec;
 import java.security.spec.RSAKeyGenParameterSpec;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import javax.crypto.Cipher;
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.IvParameterSpec;
@@ -32,10 +34,18 @@ import org.bouncycastle.asn1.DEROctetString;
 import org.bouncycastle.asn1.DERSequence;
 import org.bouncycastle.asn1.nist.NISTObjectIdentifiers;
 import org.bouncycastle.asn1.pkcs.EncryptedPrivateKeyInfo;
+import org.bouncycastle.asn1.pkcs.EncryptionScheme;
+import org.bouncycastle.asn1.pkcs.KeyDerivationFunc;
 import org.bouncycastle.asn1.pkcs.PBEParameter;
+import org.bouncycastle.asn1.pkcs.PBES2Parameters;
+import org.bouncycastle.asn1.pkcs.PBKDF2Params;
+import org.bouncycastle.asn1.pkcs.PKCS12PBEParams;
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
+import org.bouncycastle.asn1.sec.ECPrivateKey;
 import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
+import org.bouncycastle.asn1.x9.X9ECParameters;
+import org.bouncycastle.asn1.x9.X9ObjectIdentifiers;
 import org.bouncycastle.crypto.util.ScryptConfig;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.openssl.PKCS8Generator;
@@ -60,6 +70,19 @@ final class KeyFiles {
 
     /** Few iterations, so that a test file opens fast; the ceilings are tested with parameters alone. */
     static final int ITERATIONS = 2048;
+
+    /** The JDK's PBKDF2 over each HMAC a PBES2 protection may name. */
+    private static final Map<ASN1ObjectIdentifier, String> JDK_PBKDF2 = Map
+            .of(PKCSObjectIdentifiers.id_hmacWithSHA224, "PBKDF2WithHmacSHA224",
+                    PKCSObjectIdentifiers.id_hmacWithSHA256, "PBKDF2WithHmacSHA256",
+                    PKCSObjectIdentifiers.id_hmacWithSHA384, "PBKDF2WithHmacSHA384",
+                    PKCSObjectIdentifiers.id_hmacWithSHA512, "PBKDF2WithHmacSHA512");
+
+    /** The JDK's cipher of each PBES2 cipher, with its key and initialization vector lengths in bytes. */
+    private static final Map<ASN1ObjectIdentifier, JdkCipher> JDK_CIPHERS = Map
+            .of(NISTObjectIdentifiers.id_aes128_CBC, new JdkCipher("AES", 16, 16), NISTObjectIdentifiers.id_aes192_CBC,
+                    new JdkCipher("AES", 24, 16), NISTObjectIdentifiers.id_aes256_CBC, new JdkCipher("AES", 32, 16),
+                    PKCSObjectIdentifiers.des_EDE3_CBC, new JdkCipher("DESede", 24, 8));
 
     private KeyFiles() {
     }
@@ -112,9 +135,19 @@ final class KeyFiles {
 
     static byte[] encrypted(KeyPair keyPair, ASN1ObjectIdentifier scheme, AlgorithmIdentifier prf, char[] passphrase)
             throws Exception {
+        return encrypted(keyPair, scheme, prf, passphrase, ITERATIONS);
+    }
+
+    /** The key under PBES2 with PBKDF2 over HMAC-SHA256 and AES-256-CBC, at the iteration count. */
+    static byte[] encrypted(KeyPair keyPair, int iterations) throws Exception {
+        return encrypted(keyPair, PKCS8Generator.AES_256_CBC, PKCS8Generator.PRF_HMACSHA256, PASSPHRASE, iterations);
+    }
+
+    private static byte[] encrypted(KeyPair keyPair, ASN1ObjectIdentifier scheme, AlgorithmIdentifier prf,
+            char[] passphrase, int iterations) throws Exception {
         JceOpenSSLPKCS8EncryptorBuilder builder = new JceOpenSSLPKCS8EncryptorBuilder(scheme)
                 .setProvider(BouncyCastleProvider.PROVIDER_NAME)
-                .setIterationCount(ITERATIONS)
+                .setIterationCount(iterations)
                 .setPassword(passphrase);
         if (prf != null) {
             builder.setPRF(prf);
@@ -184,6 +217,58 @@ final class KeyFiles {
         return pem.toString().getBytes(StandardCharsets.US_ASCII);
     }
 
+    /**
+     * Content under a PKCS#12 scheme and an empty passphrase, encrypted by the JDK's own provider, which derives the
+     * key from the password's BMPString terminator alone, as OpenSSL does, where Bouncy Castle derives it from no
+     * bytes.
+     *
+     * @param cipher the JDK's name of the scheme
+     * @param scheme the scheme's object identifier
+     * @return the content in the envelope a protected key takes
+     */
+    static EncryptedPrivateKeyInfo jdkPkcs12UnderAnEmptyPassphrase(byte[] content, String cipher,
+            ASN1ObjectIdentifier scheme) throws GeneralSecurityException {
+        byte[] salt = new byte[20];
+        new SecureRandom().nextBytes(salt);
+        Cipher encryption = Cipher.getInstance(cipher, "SunJCE");
+        encryption
+                .init(Cipher.ENCRYPT_MODE,
+                        SecretKeyFactory.getInstance(cipher, "SunJCE").generateSecret(new PBEKeySpec(new char[0])),
+                        new PBEParameterSpec(salt, ITERATIONS));
+        return new EncryptedPrivateKeyInfo(new AlgorithmIdentifier(scheme, new PKCS12PBEParams(salt, ITERATIONS)),
+                encryption.doFinal(content));
+    }
+
+    /**
+     * Content under PBES2 with PBKDF2 and an empty passphrase, the key derived and the content encrypted by the JDK's
+     * own provider, which unlike Bouncy Castle's derives a key from an empty passphrase.
+     *
+     * @param prf one of the HMACs over SHA-2 that PBKDF2 may use
+     * @param cipher AES in CBC mode, or DES-EDE3-CBC
+     * @return the content in the envelope a protected key takes
+     */
+    static EncryptedPrivateKeyInfo underAnEmptyPassphrase(byte[] content, ASN1ObjectIdentifier prf,
+            ASN1ObjectIdentifier cipher) throws GeneralSecurityException {
+        JdkCipher jdkCipher = JDK_CIPHERS.get(cipher);
+        SecureRandom random = new SecureRandom();
+        byte[] salt = new byte[16];
+        random.nextBytes(salt);
+        byte[] iv = new byte[jdkCipher.ivBytes()];
+        random.nextBytes(iv);
+        byte[] key = SecretKeyFactory
+                .getInstance(JDK_PBKDF2.get(prf), "SunJCE")
+                .generateSecret(new PBEKeySpec(new char[0], salt, ITERATIONS, jdkCipher.keyBytes() * Byte.SIZE))
+                .getEncoded();
+        Cipher encryption = Cipher.getInstance(jdkCipher.algorithm() + "/CBC/PKCS5Padding", "SunJCE");
+        encryption.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key, jdkCipher.algorithm()), new IvParameterSpec(iv));
+        AlgorithmIdentifier protection = new AlgorithmIdentifier(PKCSObjectIdentifiers.id_PBES2,
+                new PBES2Parameters(
+                        new KeyDerivationFunc(PKCSObjectIdentifiers.id_PBKDF2,
+                                new PBKDF2Params(salt, ITERATIONS, new AlgorithmIdentifier(prf, DERNull.INSTANCE))),
+                        new EncryptionScheme(cipher, new DEROctetString(iv))));
+        return new EncryptedPrivateKeyInfo(protection, encryption.doFinal(content));
+    }
+
     /** An envelope stating the protection over the ciphertext, for protection nothing is meant to decrypt. */
     static byte[] envelope(AlgorithmIdentifier protection, byte[] cipherText) throws IOException {
         return new EncryptedPrivateKeyInfo(protection, cipherText).getEncoded(ASN1Encoding.DER);
@@ -209,6 +294,29 @@ final class KeyFiles {
         return PrivateKeyInfo
                 .getInstance(new DERSequence(
                         new ASN1Encodable[]{new ASN1Integer(0), algorithm, new DEROctetString(payload)}));
+    }
+
+    /**
+     * An EC key as {@link #explicitCurvePkcs8(int, int, BigInteger)} makes it, stating an order as long as its field.
+     */
+    static byte[] explicitCurvePkcs8(int fieldBits) throws IOException {
+        return explicitCurvePkcs8(fieldBits, fieldBits, BigInteger.ONE);
+    }
+
+    /**
+     * An EC key as DER PKCS#8 stating its curve by parameters: a curve {@link ExplicitCurveFixtures#madeUp} makes, and
+     * a private value just below the order it states.
+     */
+    static byte[] explicitCurvePkcs8(int fieldBits, int orderBits, BigInteger cofactor) throws IOException {
+        X9ECParameters curve = ExplicitCurveFixtures.madeUp(fieldBits, orderBits, cofactor);
+        return new PrivateKeyInfo(new AlgorithmIdentifier(X9ObjectIdentifiers.id_ecPublicKey, curve),
+                new ECPrivateKey(orderBits, curve.getN().subtract(BigInteger.TWO), curve)).getEncoded(ASN1Encoding.DER);
+    }
+
+    /** An object identifier exactly {@code length} characters long: a last arc as long as it needs to be. */
+    static ASN1ObjectIdentifier identifierOfLength(int length) {
+        String base = "1.3.6.1.4.1.";
+        return new ASN1ObjectIdentifier(base + "1".repeat(length - base.length()));
     }
 
     /** Constructed values nested {@code depth} deep. */
@@ -241,5 +349,8 @@ final class KeyFiles {
             writer.writeObject(block);
         }
         return pem.toString().getBytes(StandardCharsets.US_ASCII);
+    }
+
+    private record JdkCipher(String algorithm, int keyBytes, int ivBytes) {
     }
 }

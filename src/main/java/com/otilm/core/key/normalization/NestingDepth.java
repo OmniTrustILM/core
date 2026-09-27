@@ -7,7 +7,7 @@ import java.util.Deque;
  * How deeply an ASN.1 encoding nests constructed values, read from its tags and lengths alone, so that a limit holds
  * before anything parses the encoding. An encoding this cannot read is left for the parser to refuse.
  */
-final class NestingDepth {
+public final class NestingDepth {
 
     private static final int INDEFINITE = -1;
 
@@ -21,7 +21,7 @@ final class NestingDepth {
      * @param maximum the deepest nesting allowed
      * @return {@code false} when a constructed value nests deeper than {@code maximum}
      */
-    static boolean within(byte[] encoding, int maximum) {
+    public static boolean within(byte[] encoding, int maximum) {
         Deque<Integer> ends = new ArrayDeque<>();
         int position = 0;
         while (position < encoding.length) {

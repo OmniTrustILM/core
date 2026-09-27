@@ -6,6 +6,7 @@ import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.connector.common.v2.OperationStatus;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
@@ -211,6 +212,60 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
         assertThat(objectAssociationService.getOwner(Resource.CRYPTOGRAPHIC_KEY, key.getUuid()).getName())
                 .isEqualTo("requester");
         connectorMock.verifyDestroyKeyRequests(1);
+    }
+
+    @Test
+    void sweep_compensatesAnUnansweredSecretKeyImport() throws Exception {
+        // given
+        KeyImportAttempt attempt = dueSecretKeyAttempt();
+        connectorMock.stubImportKeyResult(CryptographicKeyImportV2ITest.completedSecretKeyImport());
+        connectorMock.stubDestroyKey();
+
+        // when
+        sweep();
+
+        // then
+        assertThat(keyImportRepository.findById(attempt.uuid()).orElseThrow().getState())
+                .isEqualTo(KeyImportState.COMPENSATED);
+        assertThat(connectorMock.destroyKeyRequestBodies())
+                .extracting(body -> body.at("/keyMeta/0/name").asText())
+                .containsExactly("secret-handle");
+        assertThat(cryptographicKeyRepository.count()).isZero();
+    }
+
+    /**
+     * A secret key has no public key, so the key the connector would not destroy is registered as a key of its own,
+     * whatever other keys hold items without a fingerprint.
+     */
+    @Test
+    void sweep_registersASecretKeyTheConnectorWouldNotDestroyDeactivated() throws Exception {
+        // given
+        KeyImportAttempt keyPairImport = keyImportWriter.open(terms(), "retry-key-pair", "imported key", SENT);
+        UUID keyPairUuid = keyImportWriter
+                .complete(keyPairImport.uuid(),
+                        KeyImportWriterITest.registration(profile, pair, keyPairImport, Set.of()))
+                .orElseThrow()
+                .key()
+                .uuid();
+        KeyImportAttempt attempt = dueSecretKeyAttempt();
+        connectorMock.stubImportKeyResult(CryptographicKeyImportV2ITest.completedSecretKeyImport());
+        connectorMock.stubDestroyKeyProblem(ErrorCode.VALIDATION_FAILED);
+
+        // when
+        sweep();
+
+        // then
+        KeyImport quarantined = keyImportRepository.findById(attempt.uuid()).orElseThrow();
+        assertThat(quarantined.getState()).isEqualTo(KeyImportState.QUARANTINED);
+        assertThat(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(quarantined.getKeyUuid())))
+                .singleElement()
+                .satisfies(item -> {
+                    assertThat(item.getType()).isEqualTo(KeyType.SECRET_KEY);
+                    assertThat(item.getFingerprint()).isNull();
+                    assertThat(item.getState()).isEqualTo(KeyState.DEACTIVATED);
+                    assertThat(item.isEnabled()).isFalse();
+                });
+        assertThat(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(keyPairUuid))).hasSize(2);
     }
 
     @Test
@@ -710,6 +765,16 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
     private KeyImportAttempt dueAttempt(KeyPair keyPair) {
         KeyImportAttempt attempt = keyImportWriter
                 .open(terms(keyPair), "retry-" + UUID.randomUUID(), "imported key", SENT);
+        makeDue(attempt);
+        return attempt;
+    }
+
+    /** An AES key import, which is recorded without a fingerprint, due for its next look. */
+    private KeyImportAttempt dueSecretKeyAttempt() {
+        KeyImportTerms secretKey = new KeyImportTerms(profile, KeyRequestType.SECRET, KeyAlgorithm.AES, null, true,
+                List.of(), new NameAndUuidDto(UUID.randomUUID().toString(), "requester"));
+        KeyImportAttempt attempt = keyImportWriter
+                .open(secretKey, "retry-" + UUID.randomUUID(), "imported secret key", SENT);
         makeDue(attempt);
         return attempt;
     }

@@ -34,4 +34,22 @@ sealed interface KeyFile {
     @SuppressWarnings("java:S6218")
     record TraditionalProtected(TraditionalKey kind, String cipher, byte[] iv, byte[] cipherText) implements KeyFile {
     }
+
+    /**
+     * A secret key as a JCEKS store seals it, its key derivation already charged to the file's budget.
+     *
+     * @param sealed the sealed key
+     */
+    record JceksSealed(JceksSealedKey sealed) implements KeyFile {
+    }
+
+    /**
+     * An {@code openssh-key-v1} key, its header already checked for an accepted cipher, KDF and key count.
+     *
+     * @param blob the decoded content of the block
+     */
+    // S6218: nothing compares, hashes or prints this value; it only carries the block to its decryption.
+    @SuppressWarnings("java:S6218")
+    record OpenSsh(byte[] blob) implements KeyFile {
+    }
 }

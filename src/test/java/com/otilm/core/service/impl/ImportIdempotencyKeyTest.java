@@ -57,6 +57,20 @@ class ImportIdempotencyKeyTest {
                 .doesNotHaveDuplicates();
     }
 
+    /** A secret key has no public key, so its file alone tells its import from another. */
+    @Test
+    void of_namesASecretKeyByItsFile() {
+        // when
+        String secretKey = ImportIdempotencyKey.of(secretKeyTerms(), FILE);
+        String again = ImportIdempotencyKey.of(secretKeyTerms(), FILE.clone());
+        String anotherFile = ImportIdempotencyKey.of(secretKeyTerms(), new byte[]{1, 2, 3});
+        String keyPair = ImportIdempotencyKey.of(terms(PROFILE, REQUESTER, "fingerprint", false, List.of()), FILE);
+
+        // then
+        assertThat(secretKey).isEqualTo(again).matches("[0-9a-f]{64}");
+        assertThat(List.of(anotherFile, keyPair)).doesNotContain(secretKey);
+    }
+
     @Test
     void of_readsTheAttributesWhateverTheirOrder() {
         // when
@@ -89,6 +103,12 @@ class ImportIdempotencyKeyTest {
         when(profile.uuid()).thenReturn(profileUuid);
         return new KeyImportTerms(profile, KeyRequestType.KEY_PAIR, KeyAlgorithm.RSA, fingerprint, exportable,
                 attributes, requester);
+    }
+
+    private static KeyImportTerms secretKeyTerms() {
+        TokenProfileFullModel profile = mock(TokenProfileFullModel.class);
+        when(profile.uuid()).thenReturn(PROFILE);
+        return new KeyImportTerms(profile, KeyRequestType.SECRET, KeyAlgorithm.AES, null, false, List.of(), REQUESTER);
     }
 
     private static RequestAttribute attribute(String name, String value) {
