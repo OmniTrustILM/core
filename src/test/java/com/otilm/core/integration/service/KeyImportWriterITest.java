@@ -293,7 +293,7 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         // then
         OffsetDateTime nextCheck = keyImportRepository.findById(attempt.uuid()).orElseThrow().getNextCheckAt();
         assertThat(nextCheck)
-                .isAfterOrEqualTo(before.plusMinutes(15))
+                .isAfterOrEqualTo(before.plusMinutes(15).truncatedTo(ChronoUnit.MICROS))
                 .isBefore(OffsetDateTime.now().plusMinutes(15).plusSeconds(1));
     }
 
