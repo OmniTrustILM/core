@@ -457,7 +457,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         } catch (NotFoundException e) {
             throw new ValidationException(ValidationError.create("Custom attribute definition not found"));
         } catch (AttributeException e) {
-            throw new ValidationException(ValidationError.create("Custom attribute content is invalid"));
+            throw new ValidationException(ValidationError.create(e.getMessage()));
         }
         logger
                 .logEvent(Operation.CREATE, OperationResult.SUCCESS, null,
