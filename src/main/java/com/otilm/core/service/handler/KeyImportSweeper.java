@@ -2,6 +2,7 @@ package com.otilm.core.service.handler;
 
 import com.otilm.core.model.crypto.KeyImportCheck;
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -13,7 +14,8 @@ import org.springframework.stereotype.Component;
  * attempts are claimed one at a time through {@link KeyImportClaimer}, just before each is reconciled, and each is
  * reconciled after its claim has committed, so no connector call holds the cluster lock or a database connection. A
  * connector that does not answer is asked about one attempt of its token a run; the token's other attempts claimed in
- * the run wait for their next look, so a connector that hangs does not hold up the others.
+ * the run wait for their next look, so a connector that hangs does not hold up the others. An attempt on its last look
+ * is asked about regardless, since it has no later one.
  */
 @Component
 public class KeyImportSweeper {
@@ -34,12 +36,13 @@ public class KeyImportSweeper {
     public void sweep() {
         Set<UUID> silentTokens = new HashSet<>();
         for (int claims = 0; claims < MAX_CLAIMS_PER_RUN; claims++) {
-            KeyImportClaim claim = claimer.claimNext();
-            if (claim instanceof KeyImportClaim.Nothing) {
+            Optional<KeyImportCheck> claimed = claimer.claimNext();
+            if (claimed.isEmpty()) {
                 return;
             }
-            if (claim instanceof KeyImportClaim.Claimed(KeyImportCheck check)
-                    && !silentTokens.contains(check.tokenInstanceUuid()) && !reconcile(check)) {
+            KeyImportCheck check = claimed.get();
+            boolean asked = check.lastLook() || !silentTokens.contains(check.tokenInstanceUuid());
+            if (asked && !reconcile(check)) {
                 silentTokens.add(check.tokenInstanceUuid());
             }
         }

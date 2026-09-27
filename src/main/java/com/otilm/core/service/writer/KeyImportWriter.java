@@ -222,14 +222,22 @@ public class KeyImportWriter {
         return Optional.of(keyUuid);
     }
 
-    /** Closes an attempt whose outcome could not be learned, while it is unsettled. */
+    /**
+     * Closes an attempt as it was read whose outcome could not be learned, while it is unsettled, unless a request took
+     * it since: that request settles it instead.
+     *
+     * @param read the attempt as the caller read it
+     * @return whether the attempt was closed
+     */
     @Transactional(rollbackFor = Exception.class)
-    public void unresolved(UUID attemptUuid, String errorMessage) {
-        KeyImport attempt = locked(attemptUuid);
-        if (attempt.getState().isUnsettled()) {
-            attempt.setState(KeyImportState.UNRESOLVED);
-            attempt.setErrorMessage(errorMessage);
+    public boolean unresolved(KeyImportAttempt read, String errorMessage) {
+        KeyImport attempt = locked(read.uuid());
+        if (!attempt.getState().isUnsettled() || !untakenSince(attempt, read)) {
+            return false;
         }
+        attempt.setState(KeyImportState.UNRESOLVED);
+        attempt.setErrorMessage(errorMessage);
+        return true;
     }
 
     /** Sets when the reconciliation next looks at the attempt, while it is unsettled. */

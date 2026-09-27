@@ -40,6 +40,7 @@ import org.springframework.stereotype.Component;
 public class KeyImportReconciler {
 
     public static final String NEVER_ACCEPTED = "The connector never accepted the key import.";
+    public static final String UNRESOLVED = "The outcome of the key import could not be learned in time.";
     public static final String NOT_REGISTERED = "The connector refused to destroy the imported key, and the platform could not register it.";
 
     private static final Logger logger = LoggerFactory.getLogger(KeyImportReconciler.class);
@@ -56,7 +57,9 @@ public class KeyImportReconciler {
     }
 
     /**
-     * Settles the attempt; one whose token profile is gone or whose connector cannot say is left for its next look.
+     * Settles the attempt; one whose token profile is gone or whose connector cannot say is left for its next look, or
+     * ends unresolved on its last look. On its last look a connector that no longer knows the attempt proves nothing,
+     * but one that still holds its key has it undone.
      *
      * @return whether the connector answered, so that it can be asked about other attempts now
      */
@@ -65,7 +68,7 @@ public class KeyImportReconciler {
         Optional<TokenProfileFullModel> profile = tokenProfileRepository
                 .findFullModelByUuidAndTokenInstanceReferenceUuid(check.tokenProfileUuid(), check.tokenInstanceUuid());
         if (profile.isEmpty()) {
-            logger.debug("Key import {} is left for its next look: its token profile no longer exists", attemptUuid);
+            unsettled(check, "its token profile no longer exists");
             return true;
         }
         KeyProviderAdapter adapter;
@@ -74,19 +77,41 @@ public class KeyImportReconciler {
             adapter = keyProviderAdapterFactory.forToken(profile.get().tokenInstance());
             answer = adapter.importKeyResult(profile.get(), attemptUuid, check.attempt().secretDigests(), check.name());
         } catch (ConnectorException | NotFoundException | RuntimeException e) {
-            logger
-                    .info("Key import {} is left for its next look: the connector could not report on it ({})",
-                            attemptUuid, e.getClass().getSimpleName());
+            unsettled(check, "the connector could not report on it (" + e.getClass().getSimpleName() + ")");
             return false;
         }
         if (answer instanceof ImportAnswer.NotAccepted) {
-            keyImportWriter.failUnsent(check.attempt(), NEVER_ACCEPTED);
+            if (check.lastLook()) {
+                unsettled(check, "the connector no longer knows it");
+            } else {
+                keyImportWriter.failUnsent(check.attempt(), NEVER_ACCEPTED);
+            }
         } else if (answer instanceof ImportAnswer.NotImported) {
             keyImportWriter.failUnsent(check.attempt(), KeyImportSaga.NOT_IMPORTED);
         } else if (answer instanceof ImportAnswer.Imported imported && keyImportWriter.compensating(check.attempt())) {
             return compensate(check, profile.get(), adapter, imported);
+        } else if (answer instanceof ImportAnswer.Running) {
+            unsettled(check, "it is still running");
         }
         return true;
+    }
+
+    /** Leaves the attempt for its next look, or on its last look closes it as unresolved, with its key reference. */
+    private void unsettled(KeyImportCheck check, String reason) {
+        UUID attemptUuid = check.attempt().uuid();
+        if (!check.lastLook()) {
+            logger.info("Key import {} is left for its next look: {}", attemptUuid, reason);
+            return;
+        }
+        if (keyImportWriter.unresolved(check.attempt(), UNRESOLVED)) {
+            logger
+                    .warn("Key import {} is unresolved: {}; key reference {} identifies its key in token instance {}",
+                            attemptUuid, reason, check.attempt().keyReference(), check.tokenInstanceUuid());
+        } else {
+            logger
+                    .info("Key import {} is left to the request that took it since its last look was claimed",
+                            attemptUuid);
+        }
     }
 
     /**
@@ -108,9 +133,7 @@ public class KeyImportReconciler {
             quarantine(check, profile, imported);
             return true;
         } catch (ConnectorException | RuntimeException e) {
-            logger
-                    .info("Key import {} is undone at its next look: the connector did not destroy its key ({})",
-                            attemptUuid, e.getClass().getSimpleName());
+            unsettled(check, "the connector did not destroy its key (" + e.getClass().getSimpleName() + ")");
             return false;
         }
         imported
@@ -154,11 +177,12 @@ public class KeyImportReconciler {
                             .warn("Key import {} could not be undone: the connector refused to destroy its key, registered deactivated as key {}",
                                     attempt.uuid(), keyUuid));
         } catch (ValidationException | DataIntegrityViolationException | AttributeException | NotFoundException e) {
-            keyImportWriter.unresolved(attempt.uuid(), NOT_REGISTERED);
-            logger
-                    .warn("Key import {} is unresolved: the connector refused to destroy its key and the platform could not register it ({}); key reference {} identifies the key in token instance {}",
-                            attempt.uuid(), e.getClass().getSimpleName(), attempt.keyReference(),
-                            check.tokenInstanceUuid());
+            if (keyImportWriter.unresolved(attempt, NOT_REGISTERED)) {
+                logger
+                        .warn("Key import {} is unresolved: the connector refused to destroy its key and the platform could not register it ({}); key reference {} identifies the key in token instance {}",
+                                attempt.uuid(), e.getClass().getSimpleName(), attempt.keyReference(),
+                                check.tokenInstanceUuid());
+            }
         }
     }
 

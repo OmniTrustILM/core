@@ -439,7 +439,8 @@ key-import:
   poll-interval: 2s
   # How long the outcome of an import can still be learned from its connector, which keeps a record of it for at
   # least 24 hours, so it has to be shorter. An older import the connector does not know is not sent again, and the
-  # reconciliation gives up on an import this long after it was last sent.
+  # reconciliation gives an import its last look this long after it was last sent. With retry-window and
+  # sweep-interval it stays shorter than 24 hours, so that last look comes while the connector keeps the record.
   unresolved-after: 20h
   # How long an import is left to its requester's retries after each send before the reconciliation looks at it, and
   # how long the reconciliation waits between two looks at one import. It outlasts request-timeout and three connector

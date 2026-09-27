@@ -490,14 +490,32 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         keyImportWriter.compensating(taken);
 
         // when
-        keyImportWriter.unresolved(open.uuid(), "unresolved");
-        keyImportWriter.unresolved(taken.uuid(), "unresolved");
+        boolean openClosed = keyImportWriter.unresolved(open, "unresolved");
+        boolean takenClosed = keyImportWriter.unresolved(taken, "unresolved");
 
         // then
+        assertThat(openClosed).isTrue();
+        assertThat(takenClosed).isTrue();
         assertThat(keyImportRepository.findAllById(List.of(open.uuid(), taken.uuid()))).allSatisfy(attempt -> {
             assertThat(attempt.getState()).isEqualTo(KeyImportState.UNRESOLVED);
             assertThat(attempt.getErrorMessage()).isEqualTo("unresolved");
         });
+    }
+
+    /** A request resumed the attempt since it was read, so that request, not the reader, settles it. */
+    @Test
+    void unresolved_leavesAnAttemptARequestTookSinceItWasRead() {
+        // given
+        KeyImportAttempt read = keyImportWriter.open(terms("fingerprint-y", false), "retry-y", "key", SENT);
+        keyImportWriter.resuming(read.uuid());
+
+        // when
+        boolean closed = keyImportWriter.unresolved(read, "unresolved");
+
+        // then
+        assertThat(closed).isFalse();
+        assertThat(keyImportRepository.findById(read.uuid()).orElseThrow().getState())
+                .isEqualTo(KeyImportState.REQUESTED);
     }
 
     @Test
@@ -537,7 +555,7 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         // when
         boolean taken = keyImportWriter.compensating(attempt);
         keyImportWriter.compensated(attempt.uuid());
-        keyImportWriter.unresolved(attempt.uuid(), "second");
+        keyImportWriter.unresolved(attempt, "second");
         keyImportWriter.reschedule(attempt.uuid(), OffsetDateTime.now().plusHours(1));
         keyImportWriter.dueNow(attempt.uuid());
 

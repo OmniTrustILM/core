@@ -188,8 +188,9 @@ racing the original request registers the key once.
 locked, and asks `/import/result` after the claim commits. A key the connector imported is destroyed through the
 connector's handles only after the attempt moved to `COMPENSATING` under its row lock, so a retry that reaches
 registration afterwards finds it closed, and no other import of the key starts until the attempt settles. A key the connector refuses to destroy is registered deactivated
-(`QUARANTINED`); an attempt last sent longer than `key-import.unresolved-after` ago, or whose key can be neither
-destroyed nor registered, ends `UNRESOLVED` with its key reference logged. A registration that fails in the request makes the attempt
+(`QUARANTINED`). An attempt last sent longer than `key-import.unresolved-after` ago gets one last look, where a
+connector that no longer knows it proves nothing but one that holds its key still has it undone; what that look cannot
+settle, like a key that can be neither destroyed nor registered, ends `UNRESOLVED` with its key reference logged. A registration that fails in the request makes the attempt
 due at once.
 
 An import may adopt a certificate's public-key-only record, so writers of keys and key items must not act on a copy read

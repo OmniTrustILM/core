@@ -72,6 +72,23 @@ class KeyImportPropertiesTest {
                 .hasMessage("key-import.unresolved-after must be shorter than 24 hours, was PT24H");
     }
 
+    /**
+     * The last look comes up to a retry window and a sweep after the cutoff, and must come while the record is kept.
+     */
+    @Test
+    void aLastLookThatCouldComeAfterTheConnectorForgetsIsRefused() {
+        // given
+        Duration twentyThreeHours = Duration.ofHours(23);
+        Duration twoHours = Duration.ofHours(2);
+
+        // when
+        // then
+        assertThatThrownBy(() -> new KeyImportProperties(null, null, twentyThreeHours, twoHours, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("key-import.unresolved-after, key-import.retry-window and key-import.sweep-interval "
+                        + "together must be shorter than 24 hours, were PT23H, PT2H and PT1M");
+    }
+
     /** The first look at an import comes up to a sweep after its retry window, and must come before it is given up. */
     @Test
     void aSweepThatCouldComeOnlyAfterUnresolvedAfterIsRefused() {
