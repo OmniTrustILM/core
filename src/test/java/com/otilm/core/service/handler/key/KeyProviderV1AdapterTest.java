@@ -658,6 +658,42 @@ class KeyProviderV1AdapterTest {
     }
 
     @Test
+    void signData_reportsAnEmptyConnectorAnswer_asAConnectorFailure() throws Exception {
+        // given
+        OperationKeyContext context = OperationKeyContext
+                .legacy(keyItem(KeyAlgorithm.MLDSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
+                        UUID.randomUUID()));
+        SignDataRequestDto request = new SignDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        request.setData(List.of());
+        when(operationsClient.signData(any(), any(), any(), any())).thenReturn(null);
+
+        // when
+        Executable sign = () -> adapter.signData(context, request);
+
+        // then
+        assertThrows(ConnectorException.class, sign);
+    }
+
+    @Test
+    void verifyData_reportsAnEmptyConnectorAnswer_asAConnectorFailure() throws Exception {
+        // given
+        OperationKeyContext context = OperationKeyContext
+                .legacy(keyItem(KeyAlgorithm.MLDSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
+                        UUID.randomUUID()));
+        VerifyDataRequestDto request = new VerifyDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        request.setSignatures(List.of());
+        when(operationsClient.verifyData(any(), any(), any(), any())).thenReturn(null);
+
+        // when
+        Executable verify = () -> adapter.verifyData(context, request);
+
+        // then
+        assertThrows(ConnectorException.class, verify);
+    }
+
+    @Test
     void listSignAttributes_returnsCoreSchema_byAlgorithm() {
         // given
         OperationKeyContext rsa = OperationKeyContext
