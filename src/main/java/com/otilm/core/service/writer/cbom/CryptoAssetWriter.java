@@ -84,22 +84,34 @@ public class CryptoAssetWriter {
      */
     @Transactional
     public UUID upsertIdentity(String identityKey, CryptoAssetIdentityFields fields, CryptoAssetIdentityGuard guard) {
+        return upsertIdentityWithOutcome(identityKey, fields, guard).uuid();
+    }
+
+    public record UpsertOutcome(UUID uuid, boolean inserted) {
+    }
+
+    /** Whether the caller's insert won the identity-key arbiter, without a racing pre-insert read. */
+    @Transactional
+    public UpsertOutcome upsertIdentityWithOutcome(String identityKey, CryptoAssetIdentityFields fields,
+            CryptoAssetIdentityGuard guard) {
         CryptoAssetIdentityFields stored = fields.normalized();
         requireIdentityKeyShape(identityKey);
         requireWithinLengthBounds(stored);
         if (guard != null) {
             requireNoAlias(identityKey, guard);
         }
+        UUID proposedUuid = UUID.randomUUID();
         assetRepository
-                .upsertIdentity(UUID.randomUUID(), identityKey, IdentityRuleset.VERSION,
+                .upsertIdentity(proposedUuid, identityKey, IdentityRuleset.VERSION,
                         stored.assetType() == null ? null : stored.assetType().name(), stored.name(), stored.oid(),
                         stored.algorithmFamily(), stored.primitive(), stored.parameterSet(), curveMembers(stored),
                         stored.mode(), stored.padding(), stored.variant(), guard == null ? null : guard.name());
-        return assetRepository
+        UUID storedUuid = assetRepository
                 .findUuidByIdentityKey(identityKey)
                 // Deliberately says nothing about the key: this text can reach an operator.
                 .orElseThrow(() -> new IllegalStateException(
                         "The cryptographic asset row disappeared between its upsert and its lookup"));
+        return new UpsertOutcome(storedUuid, proposedUuid.equals(storedUuid));
     }
 
     /**

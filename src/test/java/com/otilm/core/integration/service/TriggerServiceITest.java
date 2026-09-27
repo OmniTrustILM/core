@@ -129,6 +129,25 @@ class TriggerServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void inventoryEventsCanBeUsedByTriggers() throws NotFoundException, AlreadyExistException {
+        for (ResourceEvent event : List.of(ResourceEvent.CBOM_SYNCED, ResourceEvent.CRYPTO_ASSET_ADDED)) {
+            TriggerRequestDto request = new TriggerRequestDto();
+            request.setName("Inventory event " + event.getCode());
+            request.setType(TriggerType.EVENT);
+            request.setEvent(event);
+            request.setResource(event.getResource());
+            request.setIgnoreTrigger(true);
+            request.setRulesUuids(List.of());
+            request.setActionsUuids(List.of());
+
+            TriggerDetailDto created = triggerService.createTrigger(request);
+
+            Assertions.assertEquals(event, created.getEvent());
+            Assertions.assertEquals(event.getResource(), created.getResource());
+        }
+    }
+
+    @Test
     void testCreateTrigger() throws NotFoundException, AlreadyExistException {
         // create trigger
         TriggerRequestDto triggerRequest = new TriggerRequestDto();

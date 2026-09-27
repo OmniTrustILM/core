@@ -58,6 +58,12 @@ public interface CbomRepository extends SecurityFilterRepository<Cbom, UUID> {
             """)
     List<UUID> findSupersededVersionUuids(@Param("uuid") UUID uuid);
 
+    @Query("""
+            SELECT older.uuid FROM Cbom self, Cbom older
+            WHERE self.uuid = :uuid AND older.serialNumber = self.serialNumber AND older.version < self.version
+            """)
+    List<UUID> findOlderVersionUuids(@Param("uuid") UUID uuid);
+
     /**
      * Whether a later version of the same serial number has itself been ingested. Such a document is obsolete on
      * arrival: ingesting it would attach the inventory to a revision another row already speaks for, and that row's own
@@ -295,7 +301,7 @@ public interface CbomRepository extends SecurityFilterRepository<Cbom, UUID> {
      * which clears the error, so the re-ingest that follows records its success normally.
      *
      * @param notOverError the error text this write refuses to displace
-     * @return 1 if the success was recorded, 0 if the row was carrying that error
+     * @return 1 if the row transitioned to the requested state, 0 if it was already there or carried that error
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
@@ -305,7 +311,13 @@ public interface CbomRepository extends SecurityFilterRepository<Cbom, UUID> {
                    c.assetSyncAttemptedAt = CURRENT_TIMESTAMP,
                    c.assetsSyncedAt = COALESCE(:syncedAt, c.assetsSyncedAt)
              WHERE c.uuid = :uuid
+               AND c.assetSyncState <> :state
                AND (c.assetSyncError IS NULL OR c.assetSyncError <> :notOverError)
+               AND NOT EXISTS (
+                   SELECT newer.uuid FROM Cbom newer
+                   WHERE newer.serialNumber = c.serialNumber
+                     AND newer.version > c.version
+                     AND newer.assetSyncState = :state)
             """)
     int updateAssetSyncStateUnlessError(@Param("uuid") UUID uuid, @Param("state") CbomAssetSyncState state,
             @Param("syncedAt") OffsetDateTime syncedAt, @Param("notOverError") String notOverError);

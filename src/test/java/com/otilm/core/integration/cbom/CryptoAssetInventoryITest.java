@@ -3,15 +3,19 @@ package com.otilm.core.integration.cbom;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.common.BulkActionMessageDto;
+import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cbom.CbomAssetSyncState;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetType;
 import com.otilm.api.model.core.cryptoasset.PqcVerdict;
+import com.otilm.api.model.core.search.FilterConditionOperator;
+import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.core.cbom.asset.AssetRowKeys;
 import com.otilm.core.cbom.asset.CryptoAssetIdentityFields;
 import com.otilm.core.cbom.asset.identity.IdentityRuleset;
 import com.otilm.core.cbom.ingest.CbomAssetDetachService;
 import com.otilm.core.cbom.ingest.CbomAssetIngestService;
 import com.otilm.core.cbom.ingest.CbomIngestTestFixtures;
+import com.otilm.core.cbom.ingest.InventoryEventOutboxDispatcher;
 import com.otilm.core.cbom.sync.CbomSyncPolicy;
 import com.otilm.core.dao.CryptoAssetConstraintTranslator;
 import com.otilm.core.dao.entity.Cbom;
@@ -20,12 +24,17 @@ import com.otilm.core.dao.entity.cbom.CbomTombstone;
 import com.otilm.core.dao.entity.cbom.CryptoAsset;
 import com.otilm.core.dao.entity.cbom.CryptoAssetAlias;
 import com.otilm.core.dao.entity.cbom.CryptoAssetSource;
+import com.otilm.core.dao.entity.cbom.InventoryEventOutbox;
+import com.otilm.core.dao.entity.workflows.ConditionItem;
 import com.otilm.core.dao.repository.CbomRepository;
 import com.otilm.core.dao.repository.cbom.CbomIngestFindingRepository;
 import com.otilm.core.dao.repository.cbom.CbomTombstoneRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetAliasRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetSourceRepository;
+import com.otilm.core.dao.repository.cbom.InventoryEventOutboxRepository;
+import com.otilm.core.enums.FilterField;
+import com.otilm.core.evaluator.TriggerEvaluator;
 import com.otilm.core.model.cbom.CbomIngestFindingKind;
 import com.otilm.core.model.cbom.CryptoAssetIdentityGuard;
 import com.otilm.core.service.CbomExternalService;
@@ -34,6 +43,7 @@ import com.otilm.core.service.writer.cbom.CbomTombstoneWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetAliasWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetSourceWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetWriter;
+import com.otilm.core.service.writer.cbom.InventoryEventOutboxWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
@@ -92,6 +102,9 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
     private CryptoAssetWriter assetWriter;
 
     @Autowired
+    private TriggerEvaluator<CryptoAsset> assetTriggerEvaluator;
+
+    @Autowired
     private CryptoAssetSourceWriter sourceWriter;
 
     @Autowired
@@ -108,6 +121,15 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
 
     @Autowired
     private CbomAssetIngestService ingestService;
+
+    @Autowired
+    private InventoryEventOutboxWriter eventOutboxWriter;
+
+    @Autowired
+    private InventoryEventOutboxDispatcher eventOutboxDispatcher;
+
+    @Autowired
+    private InventoryEventOutboxRepository eventOutboxRepository;
 
     @Autowired
     private PlatformTransactionManager transactionManager;
@@ -130,6 +152,120 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
 
         assertThat(second).isEqualTo(first);
         assertThat(assetRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void identityUpsertReportsOnlyTheWinningInsertAsNew() {
+        CryptoAssetIdentityFields fields = rsa2048();
+        String key = AssetRowKeys.forFields(fields);
+
+        CryptoAssetWriter.UpsertOutcome first = assetWriter.upsertIdentityWithOutcome(key, fields, null);
+        CryptoAssetWriter.UpsertOutcome second = assetWriter.upsertIdentityWithOutcome(key, fields, null);
+
+        assertThat(first.inserted()).isTrue();
+        assertThat(second.inserted()).isFalse();
+        assertThat(second.uuid()).isEqualTo(first.uuid());
+    }
+
+    @Test
+    void onlyTheFirstSyncedStateTransitionCanPublishTheCbomEvent() {
+        assertThat(syncStateWriter.markSynced(leanCbom.getUuid(), NOW)).isEqualTo(1);
+        assertThat(syncStateWriter.markSynced(leanCbom.getUuid(), NOW.plusMinutes(1))).isZero();
+        assertThat(cbomRepository.findById(leanCbom.getUuid()).orElseThrow().getAssetsSyncedAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    void aVersionCannotAnnounceSyncAfterANewerVersionAlreadySynced() {
+        Cbom newer = cbom(leanCbom.getSerialNumber(), leanCbom.getVersion() + 1);
+        assertThat(syncStateWriter.markSynced(newer.getUuid(), NOW)).isEqualTo(1);
+
+        assertThat(syncStateWriter.markSynced(leanCbom.getUuid(), NOW)).isZero();
+        assertThat(cbomRepository.findById(leanCbom.getUuid()).orElseThrow().getAssetSyncState())
+                .isEqualTo(CbomAssetSyncState.PENDING);
+    }
+
+    @Test
+    void inventoryEventIntentAccumulatesBatchesAndKeepsCompletedEvents() {
+        UUID cbomUuid = leanCbom.getUuid();
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        eventOutboxWriter.recordAddedAssets(cbomUuid, List.of(first));
+        eventOutboxWriter.recordAddedAssets(cbomUuid, List.of(second));
+        eventOutboxWriter.recordCbomSynced(cbomUuid, null);
+
+        InventoryEventOutbox intent = eventOutboxRepository.findById(cbomUuid).orElseThrow();
+        assertThat(intent.getAssetUuids()).containsExactly(first, second);
+        assertThat(intent.isCbomSynced()).isTrue();
+        assertThat(eventOutboxRepository.findReadyBatch(100)).contains(cbomUuid);
+        eventOutboxWriter.markAssetsReady(cbomUuid);
+        assertThat(eventOutboxRepository.existsById(cbomUuid)).isTrue();
+
+        UUID previouslyReady = UUID.randomUUID();
+        eventOutboxWriter.recordAddedAssets(richCbom.getUuid(), List.of(previouslyReady));
+        assertThat(eventOutboxRepository.findReadyBatch(100)).doesNotContain(richCbom.getUuid());
+        eventOutboxWriter.markAssetsReady(richCbom.getUuid());
+        assertThat(eventOutboxRepository.findReadyBatch(100)).contains(richCbom.getUuid());
+
+        InventoryEventOutbox ready = eventOutboxRepository.findById(richCbom.getUuid()).orElseThrow();
+        OffsetDateTime richLease = OffsetDateTime.now().plusMinutes(5).truncatedTo(ChronoUnit.MICROS);
+        assertThat(eventOutboxWriter.claim(richCbom.getUuid(), richLease)).isEqualTo(1);
+        UUID newlyAppended = UUID.randomUUID();
+        eventOutboxWriter.recordAddedAssets(richCbom.getUuid(), List.of(newlyAppended));
+        assertThat(eventOutboxWriter.deleteIfUnchanged(richCbom.getUuid(), ready.getRevision(), richLease)).isZero();
+        assertThat(eventOutboxWriter.acknowledgeSentPrefix(richCbom.getUuid(), ready.getRevision(), richLease, 1))
+                .isEqualTo(1);
+        InventoryEventOutbox remaining = eventOutboxRepository.findById(richCbom.getUuid()).orElseThrow();
+        assertThat(remaining.getAssetUuids()).containsExactly(newlyAppended);
+        assertThat(remaining.isAssetsReady()).isFalse();
+        eventOutboxWriter.release(richCbom.getUuid(), richLease);
+        syncStateWriter.markFailed(richCbom.getUuid(), "document unavailable");
+        assertThat(eventOutboxRepository.findReadyBatch(100)).contains(richCbom.getUuid());
+
+        OffsetDateTime leaseUntil = OffsetDateTime.now().plusMinutes(5).truncatedTo(ChronoUnit.MICROS);
+        assertThat(eventOutboxWriter.claim(cbomUuid, leaseUntil)).isEqualTo(1);
+        assertThat(eventOutboxWriter.deleteIfUnchanged(cbomUuid, intent.getRevision(), leaseUntil)).isEqualTo(1);
+        assertThat(eventOutboxRepository.existsById(cbomUuid)).isFalse();
+    }
+
+    @Test
+    void settledAssetEventContainsOnlyAssetsThatSurviveWithdrawal() {
+        UUID removed = upsert(rsa2048(), null);
+        UUID retained = upsert(algorithm("ECDSA", "P-256"), null);
+        sourceWriter.upsertSource(removed, leanCbom.getUuid(), null, List.of(), NOW);
+        sourceWriter.upsertSource(retained, leanCbom.getUuid(), null, List.of(), NOW);
+        sourceWriter.upsertSource(retained, richCbom.getUuid(), null, List.of(), NOW);
+        eventOutboxWriter.recordAddedAssets(leanCbom.getUuid(), List.of(removed, retained));
+
+        detachService.withdrawWaiting(leanCbom.getUuid(), POLICY.assetBatchSize());
+        eventOutboxWriter.markAssetsReady(leanCbom.getUuid());
+
+        assertThat(assetRepository.findSourcedAssets(List.of(removed, retained)))
+                .extracting(CryptoAsset::getUuid)
+                .containsExactly(retained);
+        eventOutboxDispatcher.dispatchCbom(leanCbom.getUuid());
+        assertThat(eventOutboxRepository.existsById(leanCbom.getUuid())).isFalse();
+        assertThat(assetRepository.findById(removed)).isEmpty();
+    }
+
+    @Test
+    void assetEventRulesCanReadFreeTextAndSourceCbom() throws Exception {
+        UUID assetUuid = upsert(rsa2048(), null);
+        sourceWriter.upsertSource(assetUuid, leanCbom.getUuid(), null, List.of(), NOW);
+        CryptoAsset asset = assetRepository.findById(assetUuid).orElseThrow();
+        ConditionItem condition = new ConditionItem();
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setFieldIdentifier(FilterField.CBOM_ASSET_FREE_TEXT.name());
+        condition.setOperator(FilterConditionOperator.CONTAINS);
+        condition.setValue("rsa");
+        assertThat(assetTriggerEvaluator.evaluateConditionItem(condition, asset, Resource.CRYPTO_ASSET)).isTrue();
+
+        condition.setFieldIdentifier(FilterField.CBOM_ASSET_SOURCE_CBOM.name());
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        condition.setValue(leanCbom.getSerialNumber());
+        assertThat(assetTriggerEvaluator.evaluateConditionItem(condition, asset, Resource.CRYPTO_ASSET)).isTrue();
+
+        condition.setValue("urn:uuid:unrelated");
+        assertThat(assetTriggerEvaluator.evaluateConditionItem(condition, asset, Resource.CRYPTO_ASSET)).isFalse();
     }
 
     @Test
@@ -1053,6 +1189,22 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
                 .describedAs("SYNCED here means the row owes no ingest, not that its assets are in the inventory: it "
                         + "sources nothing at all, and the version that superseded it owns what it used to say")
                 .isEqualTo(CbomAssetSyncState.SYNCED);
+    }
+
+    @Test
+    void aLateOldSourceIsWithdrawnBeforeTheNewerEventDispatch() {
+        Cbom older = cbom("urn:uuid:version-race", 1);
+        Cbom newer = cbom("urn:uuid:version-race", 2);
+        UUID assetUuid = upsert(rsa2048(), null);
+        sourceWriter.upsertSource(assetUuid, older.getUuid(), null, List.of(), NOW);
+        sourceWriter.upsertSource(assetUuid, newer.getUuid(), null, List.of(), NOW);
+        syncStateWriter.markSynced(newer.getUuid(), NOW);
+        eventOutboxWriter.recordCbomSynced(newer.getUuid(), null);
+        assertThat(sourceRepository.findAssetUuidsByCbomUuid(older.getUuid())).containsExactly(assetUuid);
+
+        eventOutboxDispatcher.dispatchCbom(newer.getUuid());
+
+        assertThat(sourceRepository.findAssetUuidsByCbomUuid(older.getUuid())).isEmpty();
     }
 
     /**

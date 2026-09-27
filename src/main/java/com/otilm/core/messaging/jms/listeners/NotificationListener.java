@@ -13,6 +13,7 @@ import com.otilm.api.model.client.notification.NotificationDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.DataAttribute;
 import com.otilm.api.model.common.events.data.ApprovalEventData;
+import com.otilm.api.model.common.events.data.CbomSyncedEventData;
 import com.otilm.api.model.common.events.data.CertificateActionPerformedEventData;
 import com.otilm.api.model.common.events.data.CertificateDiscoveredEventData;
 import com.otilm.api.model.common.events.data.CertificateEventData;
@@ -21,6 +22,7 @@ import com.otilm.api.model.common.events.data.CertificateNotCompliantEventData;
 import com.otilm.api.model.common.events.data.CertificateRegisteredEventData;
 import com.otilm.api.model.common.events.data.CertificateStatusChangedEventData;
 import com.otilm.api.model.common.events.data.CommentEventData;
+import com.otilm.api.model.common.events.data.CryptoAssetAddedEventData;
 import com.otilm.api.model.common.events.data.DiscoveryFinishedEventData;
 import com.otilm.api.model.common.events.data.EventData;
 import com.otilm.api.model.common.events.data.InternalNotificationEventData;
@@ -971,6 +973,18 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
                         data.getCompletionDeadline() == null
                                 ? null
                                 : "Issuance must be completed by %s".formatted(data.getCompletionDeadline()));
+            }
+            case CBOM_SYNCED -> {
+                CbomSyncedEventData data = (CbomSyncedEventData) eventData;
+                yield new InternalNotificationEventData("CBOM '%s' version %d has finished cryptographic asset sync"
+                        .formatted(data.getSerialNumber(), data.getVersion()), null);
+            }
+            case CRYPTO_ASSET_ADDED -> {
+                CryptoAssetAddedEventData data = (CryptoAssetAddedEventData) eventData;
+                yield new InternalNotificationEventData("Cryptographic asset '%s' has been added from CBOM %s"
+                        .formatted(data.getName() == null ? data.getCryptoAssetUuid() : data.getName(),
+                                data.getCbomUuid()),
+                        null);
             }
         };
     }

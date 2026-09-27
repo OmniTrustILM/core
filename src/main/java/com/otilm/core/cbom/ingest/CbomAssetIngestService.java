@@ -23,6 +23,8 @@ import com.otilm.core.service.writer.cbom.CbomIngestFindingWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetAliasWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetSourceWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetWriter;
+import com.otilm.core.service.writer.cbom.InventoryEventOutboxWriter;
+import com.otilm.core.util.AuthHelper;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -118,13 +120,16 @@ public class CbomAssetIngestService {
     private final ClusterOperationSynchronizer clusterSynchronizer;
     private final TransactionHandler transactionHandler;
     private final MeterRegistry meterRegistry;
+    private final InventoryEventOutboxWriter eventOutboxWriter;
+    private final InventoryEventOutboxDispatcher eventDispatcher;
 
     public CbomAssetIngestService(CbomAssetExtractor extractor, CryptoAssetWriter assetWriter,
             CryptoAssetSourceWriter sourceWriter, CbomAssetDetachService detachService,
             CbomAssetSyncStateWriter stateWriter, CbomIngestFindingWriter findingWriter, CbomRepository cbomRepository,
             CryptoAssetRepository assetRepository, PqcEvaluator evaluator,
             ClusterOperationSynchronizer clusterSynchronizer, TransactionHandler transactionHandler,
-            MeterRegistry meterRegistry) {
+            MeterRegistry meterRegistry, InventoryEventOutboxWriter eventOutboxWriter,
+            InventoryEventOutboxDispatcher eventDispatcher) {
         this.extractor = extractor;
         this.assetWriter = assetWriter;
         this.sourceWriter = sourceWriter;
@@ -137,6 +142,8 @@ public class CbomAssetIngestService {
         this.clusterSynchronizer = clusterSynchronizer;
         this.transactionHandler = transactionHandler;
         this.meterRegistry = meterRegistry;
+        this.eventOutboxWriter = eventOutboxWriter;
+        this.eventDispatcher = eventDispatcher;
     }
 
     /**
@@ -215,7 +222,8 @@ public class CbomAssetIngestService {
     }
 
     /**
-     * What this CBOM's ingest is settled as without its document, if anything -- the kill switch, and supersession.
+     * What this CBOM's ingest is settled as without its document, if anything -- the kill switch, supersession, or a
+     * row already synced by another attempt.
      *
      * <p>
      * Public because a caller that has still to <em>fetch</em> the document should ask first: {@link #ingest} calls it
@@ -240,6 +248,9 @@ public class CbomAssetIngestService {
             // caller.
             return Optional.of(supersede(cbomUuid, cbomRepository.findAssetSyncState(cbomUuid).orElse(null), policy));
         }
+        if (cbomRepository.findAssetSyncState(cbomUuid).orElse(null) == CbomAssetSyncState.SYNCED) {
+            return Optional.of(IngestOutcome.INGESTED);
+        }
         return Optional.empty();
     }
 
@@ -248,7 +259,9 @@ public class CbomAssetIngestService {
         // Captured before the claim overwrites it, so a unit that finds the lock taken can put the row back in the
         // list it came from rather than leaving it IN_PROGRESS for work no node is doing.
         final CbomAssetSyncState entryState = cbomRepository.findAssetSyncState(cbomUuid).orElse(null);
-        runInOwnTransaction(() -> stateWriter.markInProgress(cbomUuid));
+        if (transactionHandler.runInNewTransaction(() -> stateWriter.markInProgress(cbomUuid)) == 0) {
+            return IngestOutcome.LOCKED_ELSEWHERE;
+        }
 
         final CbomAssetExtractor.Extraction extraction;
         try {
@@ -306,6 +319,9 @@ public class CbomAssetIngestService {
                     log.debug("CBOM asset ingest: CBOM {} was deleted while its assets were being ingested", cbomUuid);
                     return IngestOutcome.DELETED;
                 }
+                if (outcome == BatchOutcome.ALREADY_SYNCED) {
+                    return IngestOutcome.INGESTED;
+                }
             }
             // Once more before the row is called synced, for the version that was on its last batch when a newer one
             // took the URN: nothing after the loop would otherwise look again, and this revision would be recorded as
@@ -321,11 +337,40 @@ public class CbomAssetIngestService {
             return fail(cbomUuid, "storing the cryptographic assets failed: " + safeReason(e));
         }
 
-        runInOwnTransaction(() -> stateWriter.markSynced(cbomUuid, seenAt));
+        int transitioned = transactionHandler.runInNewTransaction(() -> {
+            // A concurrent batch must finish before SYNCED is recorded; later batches see the state and stop.
+            clusterSynchronizer.lock(assetSyncLockKey(cbomUuid));
+            int stateTransition = stateWriter.markSynced(cbomUuid, seenAt);
+            if (stateTransition == 1) {
+                eventOutboxWriter.recordCbomSynced(cbomUuid, AuthHelper.getActingUserUuidOrNull());
+                for (UUID olderVersion : cbomRepository.findOlderVersionUuids(cbomUuid)) {
+                    eventOutboxWriter.markAssetsReady(olderVersion);
+                }
+            }
+            return stateTransition;
+        });
+        if (transitioned == 0 && cbomRepository.hasIngestedLaterVersion(cbomUuid)) {
+            return supersede(cbomUuid, entryState, policy);
+        }
+        if (transitioned == 0) {
+            CbomAssetSyncState finalState = cbomRepository.findAssetSyncState(cbomUuid).orElse(null);
+            if (finalState != CbomAssetSyncState.SYNCED) {
+                if (finalState == CbomAssetSyncState.FAILED) {
+                    eventOutboxWriter.markAssetsReady(cbomUuid);
+                    dispatchCommittedEvents(cbomUuid);
+                }
+                return finalState == null ? IngestOutcome.DELETED : IngestOutcome.FAILED;
+            }
+        }
+        dispatchCommittedEvents(cbomUuid);
         log
                 .debug("CBOM asset ingest: CBOM {} ingested {} assets, {} components skipped", cbomUuid, assets.size(),
                         extraction.skips().size());
         return IngestOutcome.INGESTED;
+    }
+
+    private void dispatchCommittedEvents(UUID cbomUuid) {
+        eventDispatcher.dispatchCbom(cbomUuid);
     }
 
     /**
@@ -406,7 +451,9 @@ public class CbomAssetIngestService {
         /** A newer revision took the URN while this document was being written. */
         SUPERSEDED,
         /** An operator deleted the CBOM header while this document was being written. */
-        DELETED
+        DELETED,
+        /** Another attempt completed the same CBOM between batches. */
+        ALREADY_SYNCED
     }
 
     /**
@@ -432,6 +479,9 @@ public class CbomAssetIngestService {
         if (!cbomRepository.existsById(cbomUuid)) {
             return BatchOutcome.DELETED;
         }
+        if (cbomRepository.findAssetSyncState(cbomUuid).orElse(null) == CbomAssetSyncState.SYNCED) {
+            return BatchOutcome.ALREADY_SYNCED;
+        }
         // Before the first crypto_asset row lock any writer below will take. Re-entrant within the transaction, so
         // taking it here costs the writers' own acquisitions nothing.
         clusterSynchronizer.lock(CryptoAssetAliasWriter.ALIAS_DECISION_LOCK);
@@ -439,6 +489,7 @@ public class CbomAssetIngestService {
         // A set, not a list: the verdict pass reads each row back once, after every source of the batch has been
         // merged into it.
         final Set<UUID> written = new LinkedHashSet<>();
+        final List<UUID> inserted = new ArrayList<>();
         // In uuid order, which is the order CryptoAssetPqcVerdictWriter.applyStaleBatch takes crypto_asset row
         // locks in. Every asset an ingest creates is immediately on the sweep's work list -- upsertIdentity leaves
         // pqc_ruleset_version null -- and the sweep holds a different cluster lock, so the two do run at once; two
@@ -465,13 +516,19 @@ public class CbomAssetIngestService {
                                 Comparator.nullsLast(Comparator.naturalOrder())))
                 .toList();
         for (CbomAssetExtractor.ExtractedAsset asset : ordered) {
-            final UUID assetUuid = assetWriter.upsertIdentity(asset.identityKey(), fieldsOf(asset), asset.guard());
+            final CryptoAssetWriter.UpsertOutcome upsert = assetWriter
+                    .upsertIdentityWithOutcome(asset.identityKey(), fieldsOf(asset), asset.guard());
+            final UUID assetUuid = upsert.uuid();
             sourceWriter
                     .upsertSource(assetUuid, cbomUuid, propertiesOf(asset), asset.evidence(),
                             asset.reportedOccurrences(), seenAt);
             written.add(assetUuid);
+            if (upsert.inserted()) {
+                inserted.add(assetUuid);
+            }
         }
         stampVerdicts(written);
+        eventOutboxWriter.recordAddedAssets(cbomUuid, inserted);
         return BatchOutcome.WRITTEN;
     }
 
@@ -506,7 +563,11 @@ public class CbomAssetIngestService {
                             cbomUuid, withdrawn.detached());
         }
         clearReport(cbomUuid);
-        runInOwnTransaction(() -> stateWriter.markSuperseded(cbomUuid));
+        runInOwnTransaction(() -> {
+            stateWriter.markSuperseded(cbomUuid);
+            eventOutboxWriter.markAssetsReady(cbomUuid);
+        });
+        dispatchCommittedEvents(cbomUuid);
         return IngestOutcome.SUPERSEDED;
     }
 
@@ -568,7 +629,11 @@ public class CbomAssetIngestService {
     }
 
     private IngestOutcome refuse(UUID cbomUuid, String reason) {
-        runInOwnTransaction(() -> stateWriter.markFailed(cbomUuid, reason));
+        runInOwnTransaction(() -> {
+            stateWriter.markFailed(cbomUuid, reason);
+            eventOutboxWriter.markAssetsReady(cbomUuid);
+        });
+        dispatchCommittedEvents(cbomUuid);
         return IngestOutcome.REFUSED;
     }
 
@@ -583,12 +648,20 @@ public class CbomAssetIngestService {
      * it always was.
      */
     private IngestOutcome refuseForContent(UUID cbomUuid, String reason) {
-        runInOwnTransaction(() -> stateWriter.markRefusedForContent(cbomUuid, reason));
+        runInOwnTransaction(() -> {
+            stateWriter.markRefusedForContent(cbomUuid, reason);
+            eventOutboxWriter.markAssetsReady(cbomUuid);
+        });
+        dispatchCommittedEvents(cbomUuid);
         return IngestOutcome.REFUSED;
     }
 
     private IngestOutcome fail(UUID cbomUuid, String reason) {
-        runInOwnTransaction(() -> stateWriter.markFailed(cbomUuid, reason));
+        runInOwnTransaction(() -> {
+            stateWriter.markFailed(cbomUuid, reason);
+            eventOutboxWriter.markAssetsReady(cbomUuid);
+        });
+        dispatchCommittedEvents(cbomUuid);
         return IngestOutcome.FAILED;
     }
 

@@ -36,6 +36,25 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
     @Query("SELECT a.uuid FROM CryptoAsset a WHERE a.identityKey = :key")
     Optional<UUID> findUuidByIdentityKey(@Param("key") String key);
 
+    /** Newly inserted assets that still have a source after a CBOM's outcome settles. */
+    @Query("SELECT a FROM CryptoAsset a WHERE a.uuid IN :uuids "
+            + "AND EXISTS (SELECT s FROM CryptoAssetSource s WHERE s.assetUuid = a.uuid)")
+    List<CryptoAsset> findSourcedAssets(@Param("uuids") Collection<UUID> uuids);
+
+    @Query(value = """
+            SELECT EXISTS (
+                SELECT 1 FROM {h-schema}crypto_asset a
+                WHERE a.uuid = :uuid
+                  AND (lower(a.name) LIKE lower('%' || :literal || '%') ESCAPE '\\'
+                    OR (a.identity_guard IS DISTINCT FROM 'REFUTED_OID'
+                        AND lower(a.oid) LIKE lower('%' || :literal || '%') ESCAPE '\\'))
+                )
+            """, nativeQuery = true)
+    boolean matchesFreeText(@Param("uuid") UUID uuid, @Param("literal") String escapedLiteral);
+
+    @Query("SELECT s.cbom.serialNumber FROM CryptoAssetSource s WHERE s.assetUuid = :uuid")
+    List<String> findSourceCbomSerialNumbers(@Param("uuid") UUID uuid);
+
     /**
      * Assets keyed by a rule-set generation older than {@code version} -- the re-keying sweep's work list, and the
      * reason the rule-set version is recorded on the row instead of folded into the key.

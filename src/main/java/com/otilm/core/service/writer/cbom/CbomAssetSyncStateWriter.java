@@ -33,8 +33,8 @@ public class CbomAssetSyncStateWriter {
      * <p>
      * A run selects its work list, reads a document over HTTP, and only then writes. Another node can finish the same
      * CBOM inside that window, and a failure written unconditionally would flip a genuinely synced row to FAILED with
-     * an error that is not about it. Success is unconditional in the other direction on purpose: the run that actually
-     * ingested the assets is the one entitled to say so.
+     * an error that is not about it. A successful transition is also guarded against an already synced row or a newer
+     * version that finished first.
      */
     private static final Set<CbomAssetSyncState> NOT_YET_SYNCED = EnumSet
             .of(CbomAssetSyncState.PENDING, CbomAssetSyncState.IN_PROGRESS, CbomAssetSyncState.FAILED);
@@ -107,15 +107,14 @@ public class CbomAssetSyncStateWriter {
     public static final String DELETION_WITHDREW_THE_INVENTORY = "A deletion withdrew this CBOM's cryptographic assets and then failed; they will be ingested again.";
 
     /**
-     * Records a successful ingest -- over any state, but not over a deletion's withdrawal.
+     * Records the first successful ingest transition, unless a deletion withdrew the inventory.
      *
      * <p>
-     * Unconditional on the state on purpose: the run that actually ingested the assets is the one entitled to say so,
-     * and {@link #markInProgress}/{@link #markFailed} carry the guards that stop a stale run from overruling it. The
-     * one write it must not overrule is not a state but a fact about the inventory -- see
+     * A repeated success or a later version that already synced leaves the row untouched and returns zero, so
+     * concurrent attempts cannot announce a stale CBOM sync. A deletion's withdrawal is also protected -- see
      * {@link CbomRepository#updateAssetSyncStateUnlessError}.
      *
-     * @return 1 if the success was recorded, 0 if a deletion had withdrawn the inventory in the meantime
+     * @return 1 if the state transitioned to SYNCED, 0 if already synced, superseded, or withdrawn
      */
     @Transactional
     public int markSynced(UUID cbomUuid, OffsetDateTime syncedAt) {
