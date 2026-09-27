@@ -89,6 +89,7 @@ import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.crypto.OperationAttributeSchema;
 import com.otilm.core.model.request.CertificateRequest;
+import com.otilm.core.model.request.CertificateRequestKeys;
 import com.otilm.core.model.request.CrmfCertificateRequest;
 import com.otilm.core.model.request.Pkcs10CertificateRequest;
 import com.otilm.core.security.authz.ExternalAuthorization;
@@ -146,7 +147,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.function.BooleanSupplier;
 import javax.security.auth.x500.X500Principal;
@@ -3021,20 +3021,20 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     /**
-     * Claims the signing schemas for the keys the request's signature attributes are stored under. A request already
-     * stored with this content keeps the keys it was first submitted with, so those are the ones validated.
+     * Claims the signing schemas for the keys the request's signature attributes are stored under, the ones the
+     * certificate service resolves for storage.
      */
     private void claimSignAttributeSchemas(String certificateRequest, ClientCertificateRequestDto request)
-            throws NotFoundException, ConnectorException, AttributeException, NoSuchAlgorithmException {
+            throws NotFoundException, ConnectorException, AttributeException, NoSuchAlgorithmException,
+            CertificateRequestException {
         if (isEmpty(request.getSignatureAttributes()) && isEmpty(request.getAltSignatureAttributes())) {
             return;
         }
-        Optional<CertificateRequestEntity> stored = certificateService
-                .findCertificateRequestByContent(certificateRequest);
-        claimSignAttributeSchema(stored.map(CertificateRequestEntity::getKeyUuid).orElse(request.getKeyUuid()),
-                request.getSignatureAttributes());
-        claimSignAttributeSchema(stored.map(CertificateRequestEntity::getAltKeyUuid).orElse(request.getAltKeyUuid()),
-                request.getAltSignatureAttributes());
+        CertificateRequestKeys keys = certificateService
+                .findRequestKeys(certificateRequest, request.getFormat(), request.getKeyUuid(),
+                        request.getAltKeyUuid());
+        claimSignAttributeSchema(keys.keyUuid(), request.getSignatureAttributes());
+        claimSignAttributeSchema(keys.altKeyUuid(), request.getAltSignatureAttributes());
     }
 
     private static boolean isEmpty(List<RequestAttribute> attributes) {

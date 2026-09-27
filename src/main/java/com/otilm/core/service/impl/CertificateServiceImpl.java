@@ -133,6 +133,7 @@ import com.otilm.core.messaging.model.ValidationMessage;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.request.CertificateRequest;
+import com.otilm.core.model.request.CertificateRequestKeys;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
 import com.otilm.core.model.signing.SigningCertificate;
 import com.otilm.core.oid.OidHandler;
@@ -2427,10 +2428,43 @@ public class CertificateServiceImpl
     }
 
     @Override
-    public Optional<CertificateRequestEntity> findCertificateRequestByContent(String csr)
+    public CertificateRequestKeys findRequestKeys(String csr, CertificateRequestFormat csrFormat, UUID keyUuid,
+            UUID altKeyUuid) throws NoSuchAlgorithmException, CertificateRequestException {
+        byte[] decodedCsr = Base64.getDecoder().decode(csr);
+        return requestKeys(findCertificateRequestByContent(decodedCsr),
+                CertificateRequestUtils.createCertificateRequest(decodedCsr, csrFormat), keyUuid, altKeyUuid);
+    }
+
+    private Optional<CertificateRequestEntity> findCertificateRequestByContent(byte[] decodedCsr)
             throws NoSuchAlgorithmException {
-        return certificateRequestRepository
-                .findByFingerprint(CertificateUtil.getThumbprint(Base64.getDecoder().decode(csr)));
+        return certificateRequestRepository.findByFingerprint(CertificateUtil.getThumbprint(decodedCsr));
+    }
+
+    /**
+     * The keys a stored request with this content was first submitted with, else the given ones, else the inventory
+     * keys the request's public keys match, the ones {@link #getCertificateRequestKey} would link it to.
+     */
+    private CertificateRequestKeys requestKeys(Optional<CertificateRequestEntity> stored, CertificateRequest request,
+            UUID keyUuid, UUID altKeyUuid) throws NoSuchAlgorithmException, CertificateRequestException {
+        UUID key = stored.map(CertificateRequestEntity::getKeyUuid).orElse(keyUuid);
+        if (key == null && request.getPublicKey() != null) {
+            key = cryptographicKeyService.findKeyByFingerprint(publicKeyFingerprint(request.getPublicKey()));
+        }
+        UUID altKey = stored.map(CertificateRequestEntity::getAltKeyUuid).orElse(altKeyUuid);
+        if (altKey == null && request.getAltPublicKey() != null) {
+            altKey = cryptographicKeyService.findKeyByFingerprint(publicKeyFingerprint(request.getAltPublicKey()));
+        }
+        return new CertificateRequestKeys(key, altKey);
+    }
+
+    private static boolean isEmpty(List<RequestAttribute> attributes) {
+        return attributes == null || attributes.isEmpty();
+    }
+
+    private static String publicKeyFingerprint(PublicKey publicKey) throws NoSuchAlgorithmException {
+        return CertificateUtil
+                .getThumbprint(
+                        Base64.getEncoder().encodeToString(publicKey.getEncoded()).getBytes(StandardCharsets.UTF_8));
     }
 
     @Override
@@ -2464,20 +2498,17 @@ public class CertificateServiceImpl
         CertificateRequestEntity certificateRequestEntity;
 
         final String certificateRequestFingerprint = CertificateUtil.getThumbprint(decodedCsr);
-        Optional<CertificateRequestEntity> certificateRequestOptional = findCertificateRequestByContent(
-                certificateRequest);
+        Optional<CertificateRequestEntity> certificateRequestOptional = findCertificateRequestByContent(decodedCsr);
 
         List<ResponseAttribute> requestAttributes;
         List<ResponseAttribute> requestSignatureAttributes;
         List<ResponseAttribute> requestAltSignatureAttributes;
-        // A request keeps the key it was first submitted with, and its signature attributes live under that key's
-        // owner.
-        UUID signatureAttributeOwner = cryptographicKeyService
-                .getSignAttributeOwner(
-                        certificateRequestOptional.map(CertificateRequestEntity::getKeyUuid).orElse(keyUuid));
-        UUID altSignatureAttributeOwner = cryptographicKeyService
-                .getSignAttributeOwner(
-                        certificateRequestOptional.map(CertificateRequestEntity::getAltKeyUuid).orElse(altKeyUuid));
+        // Signature attributes are written under the connector of the key they belong to.
+        CertificateRequestKeys signingKeys = isEmpty(signatureAttributes) && isEmpty(altSignatureAttributes)
+                ? new CertificateRequestKeys(null, null)
+                : requestKeys(certificateRequestOptional, request, keyUuid, altKeyUuid);
+        UUID signatureAttributeOwner = cryptographicKeyService.getSignAttributeOwner(signingKeys.keyUuid());
+        UUID altSignatureAttributeOwner = cryptographicKeyService.getSignAttributeOwner(signingKeys.altKeyUuid());
         if (certificateRequestOptional.isPresent()) {
             certificateRequestEntity = certificateRequestOptional.get();
             // if no CSR attributes are assigned to CSR, update them with ones provided
@@ -2669,9 +2700,7 @@ public class CertificateServiceImpl
             return certificateRequest.getKeyUuid();
         }
 
-        String fingerprint = CertificateUtil
-                .getThumbprint(
-                        Base64.getEncoder().encodeToString(csrPublicKey.getEncoded()).getBytes(StandardCharsets.UTF_8));
+        String fingerprint = publicKeyFingerprint(csrPublicKey);
         UUID keyUuid = cryptographicKeyService.findKeyByFingerprint(fingerprint);
         if (keyUuid == null) {
             keyUuid = cryptographicKeyService
@@ -2691,9 +2720,7 @@ public class CertificateServiceImpl
             return;
         }
 
-        String fingerprint = CertificateUtil
-                .getThumbprint(
-                        Base64.getEncoder().encodeToString(csrPublicKey.getEncoded()).getBytes(StandardCharsets.UTF_8));
+        String fingerprint = publicKeyFingerprint(csrPublicKey);
         UUID altKeyUuid = cryptographicKeyService.findKeyByFingerprint(fingerprint);
         if (altKeyUuid == null) {
             altKeyUuid = cryptographicKeyService

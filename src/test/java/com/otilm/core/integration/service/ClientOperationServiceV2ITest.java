@@ -97,6 +97,7 @@ import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.CertificateRequestUtils;
 import com.otilm.core.util.CertificateTestUtil;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.builders.AuthorityFixtures;
@@ -104,6 +105,7 @@ import com.otilm.core.util.builders.CertificateRequestEntityBuilder;
 import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
@@ -111,6 +113,7 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.KeyStore;
 import java.security.NoSuchAlgorithmException;
+import java.security.PublicKey;
 import java.security.SignatureException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
@@ -1360,6 +1363,27 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
+    void submitCertificateRequest_storesAnUploadedCsrsAttributesUnderTheV2KeyItsPublicKeyMatches() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        TokenInstanceReference token = persistV2Token();
+        CryptographicKey key = persistV2Key(token);
+        holdPublicKeyOf(key, SAMPLE_PKCS10);
+        when(cryptographicOperationService.listSignAttributeSchema(key.getUuid()))
+                .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
+
+        // when
+        CertificateDetailDto submitted = clientOperationService
+                .submitCertificateRequest(uploadedRequest(null, sha256WithRsa()), null);
+
+        // then
+        Assertions
+                .assertEquals(List.of("signatureAlgorithm=SHA256withRSA"),
+                        describe(submitted.getCertificateRequest().getSignatureAttributes()));
+        verify(cryptographicOperationService).listSignAttributeSchema(key.getUuid());
+    }
+
+    @Test
     void getCertificate_readsAV2KeysSignatureAttributesAfterItsPrivateItemIsDeleted() throws Exception {
         // given
         stubAuthorityProviderAttributesEndpoints();
@@ -1642,6 +1666,24 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         token.setKind("HSM");
         token.setStatus(TokenInstanceStatus.ACTIVATED);
         return tokenInstanceReferenceRepository.save(token);
+    }
+
+    /** Gives the key's public item the fingerprint of the request's public key, as the key that signed it holds. */
+    private void holdPublicKeyOf(CryptographicKey key, String certificateRequest) throws Exception {
+        PublicKey publicKey = CertificateRequestUtils
+                .createCertificateRequest(certificateRequest, CertificateRequestFormat.PKCS10)
+                .getPublicKey();
+        String fingerprint = CertificateUtil
+                .getThumbprint(
+                        Base64.getEncoder().encodeToString(publicKey.getEncoded()).getBytes(StandardCharsets.UTF_8));
+        CryptographicKeyItem publicItem = cryptographicKeyItemRepository
+                .findByKeyUuidIn(List.of(key.getUuid()))
+                .stream()
+                .filter(item -> item.getType() == KeyType.PUBLIC_KEY)
+                .findFirst()
+                .orElseThrow();
+        publicItem.setFingerprint(fingerprint);
+        cryptographicKeyItemRepository.save(publicItem);
     }
 
     private CryptographicKey persistV2Key(TokenInstanceReference token) {
