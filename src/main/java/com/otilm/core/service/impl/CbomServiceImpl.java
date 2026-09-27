@@ -95,7 +95,6 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.function.TriFunction;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -373,22 +372,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         List<RequestAttribute> requestedAttributes = request.getCustomAttributes() == null
                 ? List.of()
                 : request.getCustomAttributes();
-        attributeEngine.validateCustomAttributesContent(Resource.CBOM, requestedAttributes);
-        List<RequestAttribute> permittedAttributes = attributeEngine
-                .applySecurityFilterForRequestAttributes(requestedAttributes);
-        if (permittedAttributes.size() != requestedAttributes.size()) {
-            Set<UUID> permittedUuids = permittedAttributes
-                    .stream()
-                    .map(RequestAttribute::getUuid)
-                    .collect(Collectors.toSet());
-            String forbiddenNames = requestedAttributes
-                    .stream()
-                    .filter(attribute -> !permittedUuids.contains(attribute.getUuid()))
-                    .map(RequestAttribute::getName)
-                    .collect(Collectors.joining(", "));
-            throw new ValidationException(
-                    ValidationError.create("Not allowed to set custom attributes: {}", forbiddenNames));
-        }
+        attributeEngine.validateWritableCustomAttributesContent(Resource.CBOM, requestedAttributes);
 
         // upload JSON to cbom-repository
         CryptoStatsDto cryptoStats = null;
@@ -473,13 +457,6 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         } catch (NotFoundException e) {
             throw new ValidationException(ValidationError.create("Custom attribute definition not found"));
         } catch (AttributeException e) {
-            for (RequestAttribute attribute : requestedAttributes) {
-                if (("Updating custom attribute `%s` is not allowed".formatted(attribute.getName()))
-                        .equals(e.getMessage())) {
-                    throw new ValidationException(ValidationError
-                            .create("Updating custom attribute `{}` is not allowed", attribute.getName()));
-                }
-            }
             throw new ValidationException(ValidationError.create("Custom attribute content is invalid"));
         }
         logger

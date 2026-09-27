@@ -16,6 +16,10 @@ import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.client.certificate.SearchSortRequestDto;
 import com.otilm.api.model.common.PaginationResponseDto;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.properties.CustomAttributeProperties;
+import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
 import com.otilm.api.model.common.enums.PlatformEnum;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cbom.CbomAssetSyncState;
@@ -30,6 +34,7 @@ import com.otilm.api.model.core.search.SortDirection;
 import com.otilm.api.model.core.settings.PlatformSettingsDto;
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.UtilsSettingsDto;
+import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.cbom.sync.CbomSyncPolicy;
 import com.otilm.core.cbom.sync.CbomSyncPolicyProvider;
 import com.otilm.core.cbom.sync.CbomSyncSkipSearch;
@@ -49,6 +54,7 @@ import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -78,6 +84,9 @@ class CbomSyncITest extends BaseSpringBootTest {
 
     @Autowired
     private CbomRepository cbomRepository;
+
+    @Autowired
+    private AttributeEngine attributeEngine;
 
     @Autowired
     private CbomSyncSkipRepository skipRepository;
@@ -164,6 +173,29 @@ class CbomSyncITest extends BaseSpringBootTest {
 
         assertThat(cbomRepository.findById(stored.getUuid()).orElseThrow().getAssetSyncState())
                 .isEqualTo(CbomAssetSyncState.SYNCED);
+    }
+
+    @Test
+    void syncStoresCbomWithoutRequiredCustomAttributeContent() throws Exception {
+        CustomAttributeV3 definition = new CustomAttributeV3();
+        definition.setUuid(UUID.randomUUID().toString());
+        definition.setName("requiredInventoryOwner");
+        definition.setType(AttributeType.CUSTOM);
+        definition.setContentType(AttributeContentType.TEXT);
+        CustomAttributeProperties properties = new CustomAttributeProperties();
+        properties.setLabel("Required inventory owner");
+        properties.setRequired(true);
+        definition.setProperties(properties);
+        attributeEngine.updateCustomAttributeDefinition(definition, List.of(Resource.CBOM));
+
+        stubSearchAtAnyWatermark("[" + entry("urn:uuid:required", "1", STATS, null) + "]");
+        stubDocument("urn:uuid:required", 1);
+
+        cbomInternalService.sync();
+
+        assertThat(cbomRepository.findAll())
+                .singleElement()
+                .satisfies(cbom -> assertThat(cbom.getSerialNumber()).isEqualTo("urn:uuid:required"));
     }
 
     // ---- paging ----

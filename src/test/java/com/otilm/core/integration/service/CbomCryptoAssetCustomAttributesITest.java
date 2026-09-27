@@ -36,6 +36,7 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.SecuredResource;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
+import com.otilm.core.security.authz.opa.dto.OpaObjectAccessResult;
 import com.otilm.core.service.CbomExternalService;
 import com.otilm.core.service.CryptographicAssetExternalService;
 import com.otilm.core.service.ResourceExtensionService;
@@ -60,6 +61,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.security.access.AccessDeniedException;
@@ -72,6 +74,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.when;
 
 class CbomCryptoAssetCustomAttributesITest extends BaseSpringBootTest {
 
@@ -328,6 +331,32 @@ class CbomCryptoAssetCustomAttributesITest extends BaseSpringBootTest {
     }
 
     @Test
+    void backgroundIngestStoresAssetWithoutRequiredCustomAttributeContent() throws Exception {
+        CustomAttributeV3 definition = new CustomAttributeV3();
+        definition.setUuid(UUID.randomUUID().toString());
+        definition.setName("requiredInventoryOwner");
+        definition.setType(AttributeType.CUSTOM);
+        definition.setContentType(AttributeContentType.TEXT);
+        CustomAttributeProperties properties = new CustomAttributeProperties();
+        properties.setLabel("Required inventory owner");
+        properties.setRequired(true);
+        definition.setProperties(properties);
+        attributeEngine.updateCustomAttributeDefinition(definition, List.of(Resource.CRYPTO_ASSET));
+
+        Cbom cbom = newCbom();
+        assertEquals(CbomAssetIngestService.IngestOutcome.INGESTED,
+                ingestService
+                        .ingest(cbom.getUuid(), CbomIngestTestFixtures.algorithmDocument("AES-256"),
+                                OffsetDateTime.now(), CbomSyncPolicy.DEFAULTS));
+
+        UUID assetUuid = assetByName("aes-256").getUuid();
+        assertTrue(assetRepository.existsById(assetUuid));
+        assertTrue(attributeEngine
+                .getObjectCustomAttributesContentForSystemContext(Resource.CRYPTO_ASSET, assetUuid)
+                .isEmpty());
+    }
+
+    @Test
     void assetAttributePermissionChainRequiresUpdateAction() {
         CryptoAssetIdentityFields fields = assetFields("ECDSA-P256");
         UUID assetUuid = assetWriter.upsertIdentity(AssetRowKeys.forFields(fields), fields, null);
@@ -357,17 +386,104 @@ class CbomCryptoAssetCustomAttributesITest extends BaseSpringBootTest {
 
     @Test
     void forbiddenCbomAttributeRejectsUploadBeforeRepositoryWrite() {
-        denyObjectAccess(Resource.ATTRIBUTE, ResourceAction.MEMBERS);
+        restrictAttributeAccess(false);
         CbomUploadRequestDto upload = new CbomUploadRequestDto();
         upload
                 .setContent(new LinkedHashMap<>(
                         Map.of("serialNumber", "urn:uuid:" + UUID.randomUUID(), "version", 1, "specVersion", "1.6")));
-        upload.setCustomAttributes(List.of(requestContent("alice")));
+        RequestAttributeV3 attribute = requestContent("alice");
+        attribute.setUuid(null);
+        upload.setCustomAttributes(List.of(attribute));
 
         ValidationException error = assertThrows(ValidationException.class, () -> cbomService.createCbom(upload));
-        assertTrue(error.getMessage().contains(ATTRIBUTE_NAME));
+        assertTrue(error.getMessage().contains("Not allowed to set custom attributes: " + ATTRIBUTE_NAME));
         repositoryServer.verify(0, WireMock.postRequestedFor(WireMock.urlPathEqualTo("/api/v1/bom")));
         assertEquals(0, cbomRepository.count());
+    }
+
+    @Test
+    void allowedCbomAttributeCanBeUploadedByNameOnly() throws Exception {
+        restrictAttributeAccess(true);
+        String serial = "urn:uuid:" + UUID.randomUUID();
+        repositoryServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo("/api/v1/bom"))
+                        .willReturn(WireMock
+                                .aResponse()
+                                .withStatus(201)
+                                .withHeader("Content-Type", "application/json")
+                                .withBody("{\"serialNumber\":\"" + serial + "\",\"version\":1}")));
+        CbomUploadRequestDto upload = new CbomUploadRequestDto();
+        upload.setContent(new LinkedHashMap<>(Map.of("serialNumber", serial, "version", 1, "specVersion", "1.6")));
+        RequestAttributeV3 attribute = requestContent("alice");
+        attribute.setUuid(null);
+        upload.setCustomAttributes(List.of(attribute));
+
+        UUID cbomUuid = cbomService.createCbom(upload).getUuid();
+
+        assertEquals("alice",
+                firstValue(attributeEngine.getObjectCustomAttributesContentForSystemContext(Resource.CBOM, cbomUuid)));
+        repositoryServer.verify(1, WireMock.postRequestedFor(WireMock.urlPathEqualTo("/api/v1/bom")));
+    }
+
+    @Test
+    void invalidNameOnlyAttributeIsRejectedBeforeRepositoryWrite() {
+        restrictAttributeAccess(true);
+        CbomUploadRequestDto upload = new CbomUploadRequestDto();
+        upload
+                .setContent(new LinkedHashMap<>(
+                        Map.of("serialNumber", "urn:uuid:" + UUID.randomUUID(), "version", 1, "specVersion", "1.6")));
+        RequestAttributeV3 attribute = requestContent("alice");
+        attribute.setUuid(null);
+        attribute.setContent(List.of(new TextAttributeContentV3(null, null)));
+        upload.setCustomAttributes(List.of(attribute));
+
+        ValidationException error = assertThrows(ValidationException.class, () -> cbomService.createCbom(upload));
+        assertTrue(error.getMessage().contains("malformed"));
+        repositoryServer.verify(0, WireMock.postRequestedFor(WireMock.urlPathEqualTo("/api/v1/bom")));
+    }
+
+    @Test
+    void requiredAttributeOutsideWritePermissionDoesNotBlockAllowedContent() throws Exception {
+        UUID requiredUuid = UUID.randomUUID();
+        CustomAttributeV3 definition = new CustomAttributeV3();
+        definition.setUuid(requiredUuid.toString());
+        definition.setName("requiredRestrictedOwner");
+        definition.setType(AttributeType.CUSTOM);
+        definition.setContentType(AttributeContentType.TEXT);
+        CustomAttributeProperties properties = new CustomAttributeProperties();
+        properties.setLabel("Restricted owner");
+        properties.setRequired(true);
+        definition.setProperties(properties);
+        attributeEngine.updateCustomAttributeDefinition(definition, List.of(Resource.CBOM));
+        restrictAttributeAccess(false, requiredUuid);
+
+        RequestAttributeV3 attribute = requestContent("alice");
+        attribute.setUuid(null);
+        attributeEngine.validateWritableCustomAttributesContent(Resource.CBOM, List.of(attribute));
+    }
+
+    @Test
+    void forgedUuidForForbiddenNameDoesNotDeleteExistingContent() throws Exception {
+        UUID cbomUuid = newCbom().getUuid();
+        attributeEngine.updateObjectCustomAttributesContent(Resource.CBOM, cbomUuid, List.of(requestContent("alice")));
+        CustomAttributeV3 definition = new CustomAttributeV3();
+        definition.setUuid(UUID.randomUUID().toString());
+        definition.setName("restrictedOwner");
+        definition.setType(AttributeType.CUSTOM);
+        definition.setContentType(AttributeContentType.TEXT);
+        CustomAttributeProperties properties = new CustomAttributeProperties();
+        properties.setLabel("Restricted owner");
+        definition.setProperties(properties);
+        attributeEngine.updateCustomAttributeDefinition(definition, List.of(Resource.CBOM));
+        restrictAttributeAccess(true);
+        RequestAttributeV3 forged = requestContent("mallory");
+        forged.setName("restrictedOwner");
+
+        assertThrows(ValidationException.class,
+                () -> attributeEngine.updateObjectCustomAttributesContent(Resource.CBOM, cbomUuid, List.of(forged)));
+        assertEquals("alice",
+                firstValue(attributeEngine.getObjectCustomAttributesContentForSystemContext(Resource.CBOM, cbomUuid)));
     }
 
     @Test
@@ -437,6 +553,25 @@ class CbomCryptoAssetCustomAttributesITest extends BaseSpringBootTest {
         content.setName(ATTRIBUTE_NAME);
         content.setContent(List.of(new TextAttributeContentV3(null, value)));
         return content;
+    }
+
+    private void restrictAttributeAccess(boolean allowOnlyThisAttribute) {
+        restrictAttributeAccess(allowOnlyThisAttribute, attributeUuid);
+    }
+
+    private void restrictAttributeAccess(boolean allowOnlyThisAttribute, UUID restrictedUuid) {
+        OpaObjectAccessResult result = new OpaObjectAccessResult();
+        result.setActionAllowedForGroupOfObjects(!allowOnlyThisAttribute);
+        result.setAllowedObjects(allowOnlyThisAttribute ? List.of(restrictedUuid.toString()) : List.of());
+        result.setForbiddenObjects(allowOnlyThisAttribute ? List.of() : List.of(restrictedUuid.toString()));
+        when(opaClient
+                .checkObjectAccess(Mockito.any(),
+                        Mockito
+                                .argThat(req -> req != null && req.getProperties() != null
+                                        && Resource.ATTRIBUTE.getCode().equals(req.getProperties().get("name"))
+                                        && ResourceAction.MEMBERS.getCode().equals(req.getProperties().get("action"))),
+                        Mockito.any(), Mockito.any()))
+                .thenReturn(result);
     }
 
     private static CryptoAssetIdentityFields assetFields(String name) {
