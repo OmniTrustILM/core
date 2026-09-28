@@ -1201,9 +1201,8 @@ public class FilterPredicatesBuilder {
     }
 
     /**
-     * The predicates that pin a content row to one attribute definition and to one object: the definition's type,
-     * content type and name, and the object the content is attached to. Shared by the filter predicate and the sort key
-     * so the two cannot disagree about which rows belong to a field.
+     * The predicates that pin a content row to one attribute definition and to one object: the field predicates, and
+     * the object the content is attached to.
      */
     private static <T> List<Predicate> attributeCorrelationPredicates(final CriteriaBuilder criteriaBuilder,
             final Root<T> root, final Root<AttributeContent2Object> subqueryRoot, final Join joinDefinition,
@@ -1217,7 +1216,11 @@ public class FilterPredicatesBuilder {
         return predicates;
     }
 
-    /** The predicates that pin a content row to one field of one resource, whatever object it belongs to. */
+    /**
+     * The predicates that pin a content row to one field of one resource, whatever object it belongs to: the
+     * definition's type, content type and name, and the resource the content is filed under. Shared by the filter
+     * predicate and the sort key so the two cannot disagree about which rows belong to a field.
+     */
     private static List<Predicate> attributeFieldPredicates(final CriteriaBuilder criteriaBuilder,
             final Root<AttributeContent2Object> subqueryRoot, final Join joinDefinition,
             final AttributeType attributeType, final AttributeContentType contentType, final String attributeName,

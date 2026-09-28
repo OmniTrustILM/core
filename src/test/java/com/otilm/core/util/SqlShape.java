@@ -47,8 +47,8 @@ public final class SqlShape {
     }
 
     /**
-     * Whether a sort key is still a scalar subquery fetching the first row, the per-row form. The limit is rendered as
-     * a bind parameter, so either form of it counts.
+     * Whether a sort key is a scalar subquery fetching the first row, the per-row form. The limit is rendered as a bind
+     * parameter, so either form of it counts.
      */
     public static boolean hasScalarSortSubquery(String sql) {
         return SUBQUERY_ROW_LIMIT.matcher(sql).find();

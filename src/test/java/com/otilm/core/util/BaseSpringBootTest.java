@@ -141,18 +141,7 @@ public class BaseSpringBootTest {
      * allow-all stub.
      */
     protected void restrictObjectAccess(Resource resource, ResourceAction action) {
-        OpaObjectAccessResult restricted = new OpaObjectAccessResult();
-        restricted.setActionAllowedForGroupOfObjects(false);
-        restricted.setAllowedObjects(List.of(UUID.randomUUID().toString()));
-        restricted.setForbiddenObjects(List.of());
-        when(opaClient
-                .checkObjectAccess(Mockito.any(),
-                        Mockito
-                                .argThat(req -> req != null && req.getProperties() != null
-                                        && resource.getCode().equals(req.getProperties().get("name"))
-                                        && action.getCode().equals(req.getProperties().get("action"))),
-                        Mockito.any(), Mockito.any()))
-                .thenReturn(restricted);
+        restrictObjectAccess(resource, action, List.of(UUID.randomUUID()));
     }
 
     /**

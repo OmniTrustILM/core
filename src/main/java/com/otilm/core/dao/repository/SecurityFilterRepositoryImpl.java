@@ -190,7 +190,7 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
         final Root<T> root = cr.from(entity);
         final Path<?> uuid = root.get(UniquelyIdentified_.UUID);
 
-        final SortOrderBuilder.GroupedOrdering ordering = SortOrderBuilder.resolveGrouped(root, cb, cr, sort);
+        final SortOrderBuilder.GroupedOrdering ordering = SortOrderBuilder.resolveGrouped(root, cb, sort);
         cr.multiselect(uuid, ordering.sortKey());
         cr.groupBy(uuid);
         cr.orderBy(ordering.orders());

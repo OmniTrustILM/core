@@ -32,6 +32,8 @@ import org.hibernate.query.criteria.JpaOrder;
  */
 public final class SortOrderBuilder {
 
+    private static final String NOT_SORTABLE_ON_RESOURCE = "Field %s cannot be sorted on this resource.";
+
     private SortOrderBuilder() {
     }
 
@@ -45,9 +47,9 @@ public final class SortOrderBuilder {
     }
 
     /**
-     * Whether the sort has to be applied by the query that selects a page of uuids and carries the sort key in its
-     * select list, rather than by the entity query directly. Answerable from the specification alone, so a caller can
-     * pick the shape of the query before it has a root to resolve against.
+     * Whether the sort has to be applied by the query that selects a page of uuids in the requested order, rather than
+     * by the entity query directly. Answerable from the specification alone, so a caller can pick the shape of the
+     * query before it has a root to resolve against.
      *
      * <p>
      * Two sorts need it, for different reasons. A sort through a join gives a root as many rows as the join has
@@ -99,13 +101,13 @@ public final class SortOrderBuilder {
      * request the ordering has to degrade for.
      */
     public static GroupedOrdering resolveGrouped(Root<?> root, CriteriaBuilder criteriaBuilder,
-            CommonAbstractCriteria query, SortSpecification sort) {
+            SortSpecification sort) {
         FilterField field = resolveField(root, sort);
         Expression<?> sortKey = keyAggregate(criteriaBuilder, resolveExpression(root, field), sort.direction());
 
         Order tieBreak = tieBreak(root, criteriaBuilder)
                 .orElseThrow(() -> new ValidationException(
-                        ValidationError.create("Field %s cannot be sorted on this resource.".formatted(field.name()))));
+                        ValidationError.create(NOT_SORTABLE_ON_RESOURCE.formatted(field.name()))));
 
         return new GroupedOrdering(sortKey, List.of(primary(criteriaBuilder, sortKey, sort.direction()), tieBreak));
     }
@@ -173,8 +175,8 @@ public final class SortOrderBuilder {
     public static List<Order> resolveKeyed(Root<?> root, CriteriaBuilder criteriaBuilder, Expression<?> key,
             SortSpecification sort) {
         Order tieBreak = tieBreak(root, criteriaBuilder)
-                .orElseThrow(() -> new ValidationException(ValidationError
-                        .create("Field %s cannot be sorted on this resource.".formatted(sort.fieldIdentifier()))));
+                .orElseThrow(() -> new ValidationException(
+                        ValidationError.create(NOT_SORTABLE_ON_RESOURCE.formatted(sort.fieldIdentifier()))));
         return List.of(primary(criteriaBuilder, key, sort.direction()), tieBreak);
     }
 
@@ -188,8 +190,7 @@ public final class SortOrderBuilder {
             From<?, ?> from = joinPath.isEmpty() ? root : FilterPredicatesBuilder.prepareJoin(root, joinPath);
             return FilterPredicatesBuilder.resolveFieldPath(from, field.getFieldAttribute());
         } catch (IllegalArgumentException e) {
-            throw new ValidationException(
-                    ValidationError.create("Field %s cannot be sorted on this resource.".formatted(field.name())));
+            throw new ValidationException(ValidationError.create(NOT_SORTABLE_ON_RESOURCE.formatted(field.name())));
         }
     }
 
