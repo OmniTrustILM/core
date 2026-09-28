@@ -1,0 +1,31 @@
+package com.otilm.core.util;
+
+import com.otilm.core.dao.entity.Group;
+import com.otilm.core.dao.repository.GroupRepository;
+import java.util.List;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+class SqlCaptureITest extends BaseSpringBootTest {
+
+    @Autowired
+    private GroupRepository groupRepository;
+
+    @Test
+    void recordsTheStatementsARecordingSends() throws Exception {
+        SqlCapture.Captured<List<Group>> captured = SqlCapture.during(() -> groupRepository.findAll());
+
+        assertThat(captured.statements()).anyMatch(sql -> sql.contains("\"group\""));
+        assertThat(captured.result()).isEmpty();
+    }
+
+    @Test
+    void recordsNothingOnceTheRecordingEnds() throws Exception {
+        SqlCapture.during(() -> groupRepository.findAll());
+        groupRepository.findAll();
+
+        assertThat(SqlCapture.during(() -> null).statements()).isEmpty();
+    }
+}
