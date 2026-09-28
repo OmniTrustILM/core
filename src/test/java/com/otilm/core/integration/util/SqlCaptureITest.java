@@ -1,7 +1,9 @@
-package com.otilm.core.util;
+package com.otilm.core.integration.util;
 
 import com.otilm.core.dao.entity.Group;
 import com.otilm.core.dao.repository.GroupRepository;
+import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.SqlCapture;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
