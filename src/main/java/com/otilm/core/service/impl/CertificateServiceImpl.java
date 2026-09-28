@@ -161,6 +161,7 @@ import com.otilm.core.service.LocationInternalService;
 import com.otilm.core.service.RaProfileCertificateRequestAttributeService;
 import com.otilm.core.service.RaProfileInternalService;
 import com.otilm.core.service.ResourceObjectAssociationService;
+import com.otilm.core.service.handler.KeystoreAvailability;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
@@ -591,6 +592,13 @@ public class CertificateServiceImpl
         this.stateMachine = stateMachine;
     }
 
+    private KeystoreAvailability keystoreAvailability;
+
+    @Autowired
+    public void setKeystoreAvailability(KeystoreAvailability keystoreAvailability) {
+        this.keystoreAvailability = keystoreAvailability;
+    }
+
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.LIST,
             parentResource = Resource.RA_PROFILE, parentAction = ResourceAction.MEMBERS)
@@ -661,6 +669,7 @@ public class CertificateServiceImpl
             throws NotFoundException, CertificateException, IOException {
         Certificate certificate = getCertificateEntityWithAssociations(uuid);
         CertificateDetailDto dto = certificate.mapToDto();
+        dto.setKeystoreAvailable(keystoreAvailability.of(certificate));
         if (dto.getExtendedKeyUsage() != null) {
             Map<String, OidRecord> oidToName = OidHandler.getOidCache(OidCategory.EXTENDED_KEY_USAGE);
             List<String> extendedKeyUsageNames = dto

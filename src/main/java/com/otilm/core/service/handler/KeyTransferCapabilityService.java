@@ -78,6 +78,23 @@ public class KeyTransferCapabilityService {
     }
 
     /**
+     * The algorithms the profile's connector exports, per key type, as far as the platform has recorded it. It never
+     * asks the connector and never writes: a connector that does not declare key export exports nothing, and a profile
+     * with no recorded answer yet resolves to empty.
+     *
+     * @param profile the profile to answer for
+     * @return the recorded answer, which is an empty map when the connector exports nothing from the profile, or empty
+     * when no answer is recorded yet
+     */
+    public Optional<Map<KeyRequestType, Set<KeyAlgorithm>>> recordedExportableKeyTypes(TokenProfileFullModel profile) {
+        if (!connectorCapabilityService
+                .supports(profile.tokenInstance().connectorInterface(), KeyTransfer.EXPORT.featureFlag())) {
+            return Optional.of(Map.of());
+        }
+        return Optional.ofNullable(KeyTransfer.EXPORT.recordedIn(profile));
+    }
+
+    /**
      * The algorithms the profile's connector imports, per key type, asking the connector when no answer is recorded. A
      * connector that does not declare key import imports nothing and is not asked.
      *

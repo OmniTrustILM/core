@@ -124,6 +124,45 @@ class KeyTransferCapabilityServiceTest {
     }
 
     @Test
+    void recordedExportableKeyTypes_isEmptyMapForAConnectorThatDoesNotDeclareExport() {
+        // given
+        TokenProfileFullModel profile = profile(token(List.of()), null);
+
+        // when
+        Optional<Map<KeyRequestType, Set<KeyAlgorithm>>> exportable = service.recordedExportableKeyTypes(profile);
+
+        // then
+        assertEquals(Optional.of(Map.of()), exportable);
+        verifyNoInteractions(adapters, writer);
+    }
+
+    @Test
+    void recordedExportableKeyTypes_answersFromTheRecordWithoutAskingTheConnector() {
+        // given
+        TokenProfileFullModel profile = profile(exportingToken(), RSA_KEY_PAIRS);
+
+        // when
+        Optional<Map<KeyRequestType, Set<KeyAlgorithm>>> exportable = service.recordedExportableKeyTypes(profile);
+
+        // then
+        assertEquals(Optional.of(RSA_KEY_PAIRS), exportable);
+        verifyNoInteractions(adapters, writer);
+    }
+
+    @Test
+    void recordedExportableKeyTypes_isEmptyWhenNoAnswerIsRecordedYet() {
+        // given
+        TokenProfileFullModel profile = profile(exportingToken(), null);
+
+        // when
+        Optional<Map<KeyRequestType, Set<KeyAlgorithm>>> exportable = service.recordedExportableKeyTypes(profile);
+
+        // then
+        assertTrue(exportable.isEmpty());
+        verifyNoInteractions(adapters, writer);
+    }
+
+    @Test
     void importableKeyTypes_asksTheConnectorAndRecordsTheAnswerAsTheImportAnswer() throws Exception {
         // given
         ImmutableTokenInstanceFullModel token = token(List.of(FeatureFlag.KEY_IMPORT));
