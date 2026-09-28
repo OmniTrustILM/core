@@ -13,6 +13,8 @@ import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeP
 import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
 import com.otilm.api.model.common.attribute.v3.MetadataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
+import com.otilm.api.model.common.attribute.v3.content.DateTimeAttributeContentV3;
+import com.otilm.api.model.common.attribute.v3.content.IntegerAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.TextAttributeContentV3;
 import com.otilm.api.model.connector.secrets.SecretType;
@@ -47,6 +49,8 @@ import com.otilm.core.service.SecretExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.SqlCapture;
 import com.otilm.core.util.SqlShape;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -72,6 +76,9 @@ class AttributeColumnSortITest extends BaseSpringBootTest {
 
     /** Distinct from the discovery probe: one definition per name is what the content write resolves by. */
     private static final String SECRET_ENVIRONMENT = "secret-environment";
+
+    private static final String PRIORITY = "priority";
+    private static final String DUE = "due";
 
     @Autowired
     private DiscoveryExternalService discoveryService;
@@ -324,6 +331,60 @@ class AttributeColumnSortITest extends BaseSpringBootTest {
                 .assertEquals(List.of("first-connector-bravo", "second-connector-yankee"),
                         listNamesSortedBy(FilterFieldSource.META, "region|" + AttributeContentType.STRING.name(),
                                 SortDirection.ASC).subList(0, 2));
+    }
+
+    /**
+     * A typed attribute sorts by its value rather than by its text: the key table casts the stored value before it
+     * takes the smallest or the largest. As text, "10" would lead ascending and "9" descending.
+     */
+    @Test
+    void anIntegerAttributeSortsByNumberNotByText() throws Exception {
+        UUID priority = registerCustomAttribute(PRIORITY, AttributeContentType.INTEGER, true, Resource.DISCOVERY);
+        storeCustomContent(seedDiscovery("priority-nine").getUuid(), priority, PRIORITY,
+                new IntegerAttributeContentV3(9));
+        storeCustomContent(seedDiscovery("priority-ten").getUuid(), priority, PRIORITY,
+                new IntegerAttributeContentV3(10));
+        storeCustomContent(seedDiscovery("priority-twelve-and-seven").getUuid(), priority, PRIORITY,
+                new IntegerAttributeContentV3(12), new IntegerAttributeContentV3(7));
+        String field = PRIORITY + "|" + AttributeContentType.INTEGER.name();
+
+        Assertions
+                .assertEquals(List.of("priority-twelve-and-seven", "priority-nine", "priority-ten"),
+                        listNamesSortedBy(field, SortDirection.ASC, 1, 10).subList(0, 3));
+        Assertions
+                .assertEquals(List.of("priority-twelve-and-seven", "priority-ten", "priority-nine"),
+                        listNamesSortedBy(field, SortDirection.DESC, 1, 10).subList(0, 3));
+    }
+
+    /**
+     * A date-time attribute sorts by the instant it names. Noon at UTC+5 is earlier than nine at UTC, which its text
+     * would place after it.
+     */
+    @Test
+    void aDateTimeAttributeSortsByInstant() throws Exception {
+        UUID due = registerCustomAttribute(DUE, AttributeContentType.DATETIME, true, Resource.DISCOVERY);
+        storeCustomContent(seedDiscovery("due-nine-utc").getUuid(), due, DUE,
+                new DateTimeAttributeContentV3(ZonedDateTime.of(2026, 3, 1, 9, 0, 0, 0, ZoneOffset.UTC)));
+        storeCustomContent(seedDiscovery("due-noon-plus-five").getUuid(), due, DUE,
+                new DateTimeAttributeContentV3(ZonedDateTime.of(2026, 3, 1, 12, 0, 0, 0, ZoneOffset.ofHours(5))));
+        String field = DUE + "|" + AttributeContentType.DATETIME.name();
+
+        Assertions
+                .assertEquals(List.of("due-noon-plus-five", "due-nine-utc"),
+                        listNamesSortedBy(field, SortDirection.ASC, 1, 10).subList(0, 2));
+        Assertions
+                .assertEquals(List.of("due-nine-utc", "due-noon-plus-five"),
+                        listNamesSortedBy(field, SortDirection.DESC, 1, 10).subList(0, 2));
+    }
+
+    private void storeCustomContent(UUID discoveryUuid, UUID definitionUuid, String attributeName,
+            BaseAttributeContentV3<?>... values) throws Exception {
+        RequestAttributeV3 requestAttribute = new RequestAttributeV3();
+        requestAttribute.setUuid(definitionUuid);
+        requestAttribute.setName(attributeName);
+        requestAttribute.setContent(List.of(values));
+        attributeEngine
+                .updateObjectCustomAttributesContent(Resource.DISCOVERY, discoveryUuid, List.of(requestAttribute));
     }
 
     private Connector newConnector(String name) {
