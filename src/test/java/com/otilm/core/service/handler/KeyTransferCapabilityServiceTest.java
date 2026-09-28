@@ -163,6 +163,45 @@ class KeyTransferCapabilityServiceTest {
     }
 
     @Test
+    void recordedImportableKeyTypes_isEmptyMapForAConnectorThatDoesNotDeclareImport() {
+        // given
+        TokenProfileFullModel profile = profile(token(List.of(FeatureFlag.KEY_EXPORT)), null, RSA_KEY_PAIRS);
+
+        // when
+        Optional<Map<KeyRequestType, Set<KeyAlgorithm>>> importable = service.recordedImportableKeyTypes(profile);
+
+        // then
+        assertEquals(Optional.of(Map.of()), importable);
+        verifyNoInteractions(adapters, writer);
+    }
+
+    @Test
+    void recordedImportableKeyTypes_answersFromTheRecordWithoutAskingTheConnector() {
+        // given
+        TokenProfileFullModel profile = profile(token(List.of(FeatureFlag.KEY_IMPORT)), null, RSA_KEY_PAIRS);
+
+        // when
+        Optional<Map<KeyRequestType, Set<KeyAlgorithm>>> importable = service.recordedImportableKeyTypes(profile);
+
+        // then
+        assertEquals(Optional.of(RSA_KEY_PAIRS), importable);
+        verifyNoInteractions(adapters, writer);
+    }
+
+    @Test
+    void recordedImportableKeyTypes_isEmptyWhenNoAnswerIsRecordedYet() {
+        // given
+        TokenProfileFullModel profile = profile(token(List.of(FeatureFlag.KEY_IMPORT)), null, null);
+
+        // when
+        Optional<Map<KeyRequestType, Set<KeyAlgorithm>>> importable = service.recordedImportableKeyTypes(profile);
+
+        // then
+        assertEquals(Optional.empty(), importable);
+        verifyNoInteractions(adapters, writer);
+    }
+
+    @Test
     void importableKeyTypes_asksTheConnectorAndRecordsTheAnswerAsTheImportAnswer() throws Exception {
         // given
         ImmutableTokenInstanceFullModel token = token(List.of(FeatureFlag.KEY_IMPORT));

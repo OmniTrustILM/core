@@ -98,4 +98,16 @@ public interface TokenProfileRepository extends SecurityFilterRepository<TokenPr
                 .toList();
     }
 
+    /** The profiles with their token instance and its profiles fetched, as a full model reads in one query. */
+    default List<TokenProfile> findWithTokenUsingSecurityFilter(SecurityFilter filter, Optional<Boolean> enabled) {
+        List<String> fetch = List
+                .of("tokenInstanceReference.connectorInterface", "tokenInstanceReference.tokenProfiles");
+        if (enabled.isEmpty()) {
+            return findUsingSecurityFilter(filter, fetch, null);
+        }
+        boolean value = enabled.get();
+        return findUsingSecurityFilter(filter, fetch, (Root<TokenProfile> root, CriteriaBuilder cb,
+                CriteriaQuery<?> query) -> cb.equal(root.get("enabled"), value));
+    }
+
 }

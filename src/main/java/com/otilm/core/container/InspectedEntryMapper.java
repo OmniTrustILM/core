@@ -43,8 +43,14 @@ public final class InspectedEntryMapper {
         inspected.setEntryReference(entry.reference());
         inspected.setKind(entry.kind());
         switch (entry) {
-            case CertificateEntry certificate -> describeCertificate(inspected, certificate.certificate());
-            case KeyEntry key -> describeKey(inspected, key);
+            case CertificateEntry certificate -> {
+                inspected.setAlias(certificate.alias());
+                describeCertificate(inspected, certificate.certificate());
+            }
+            case KeyEntry key -> {
+                inspected.setAlias(key.alias());
+                describeKey(inspected, key);
+            }
             case SigningRequestEntry request -> describeRequest(inspected, request.request());
         }
         return inspected;

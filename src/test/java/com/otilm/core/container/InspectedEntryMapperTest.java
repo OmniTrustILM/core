@@ -241,6 +241,35 @@ class InspectedEntryMapperTest {
         assertThat(inspected.getSubjectAlternativeNames()).isNull();
     }
 
+    @Test
+    void map_namesACertificateByItsAlias() throws Exception {
+        // given
+        X509CertificateHolder certificate = ContainerFixtures.selfSigned(ContainerFixtures.ec(), "CN=Root");
+        CertificateEntry read = (CertificateEntry) onlyEntryOf(ContainerFixtures.pem(LF, certificate));
+        ContainerEntry entry = new CertificateEntry(read.reference(), "root-ca", read.certificate());
+
+        // when
+        InspectedEntryDto inspected = InspectedEntryMapper.map(entry);
+
+        // then
+        assertThat(inspected.getAlias()).isEqualTo("root-ca");
+    }
+
+    @Test
+    void map_namesAKeyByItsAlias() throws Exception {
+        // given
+        KeyEntry read = (KeyEntry) onlyEntryOf(
+                ContainerFixtures.pem(LF, ContainerFixtures.privateKeyBlock(chain.leafKey()), chain.leaf()));
+        ContainerEntry entry = new KeyEntry(read.reference(), "web-server-01", read.keyFile(), read.description(),
+                read.leaf(), read.issuers(), read.secret());
+
+        // when
+        InspectedEntryDto inspected = InspectedEntryMapper.map(entry);
+
+        // then
+        assertThat(inspected.getAlias()).isEqualTo("web-server-01");
+    }
+
     private static ContainerEntry onlyEntryOf(byte[] file) {
         List<ContainerEntry> entries = reader.read(file, null).entries();
         assertThat(entries).hasSize(1);
