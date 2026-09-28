@@ -4,27 +4,35 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.client.certificate.SearchSortRequestDto;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.properties.CustomAttributeProperties;
+import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeProperties;
 import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
+import com.otilm.api.model.common.attribute.v3.MetadataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
+import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.TextAttributeContentV3;
 import com.otilm.api.model.connector.secrets.SecretType;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SortDirection;
 import com.otilm.api.model.core.secret.SecretDto;
 import com.otilm.api.model.core.secret.SecretState;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
+import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.Group;
 import com.otilm.core.dao.entity.Secret;
 import com.otilm.core.dao.entity.SecretVersion;
 import com.otilm.core.dao.entity.VaultInstance;
 import com.otilm.core.dao.entity.VaultProfile;
+import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.SecretRepository;
@@ -94,6 +102,9 @@ class AttributeColumnSortITest extends BaseSpringBootTest {
 
     @Autowired
     private ResourceObjectAssociationService resourceObjectAssociationService;
+
+    @Autowired
+    private ConnectorRepository connectorRepository;
 
     private UUID definitionUuid;
 
@@ -165,10 +176,19 @@ class AttributeColumnSortITest extends BaseSpringBootTest {
 
     private List<String> listNamesSortedBy(String fieldIdentifier, SortDirection direction, int pageNumber,
             int itemsPerPage) {
+        return listNamesSortedBy(FilterFieldSource.CUSTOM, fieldIdentifier, direction, pageNumber, itemsPerPage);
+    }
+
+    private List<String> listNamesSortedBy(FilterFieldSource source, String fieldIdentifier, SortDirection direction) {
+        return listNamesSortedBy(source, fieldIdentifier, direction, 1, 50);
+    }
+
+    private List<String> listNamesSortedBy(FilterFieldSource source, String fieldIdentifier, SortDirection direction,
+            int pageNumber, int itemsPerPage) {
         SearchRequestDto request = new SearchRequestDto();
         request.setPageNumber(pageNumber);
         request.setItemsPerPage(itemsPerPage);
-        request.setSort(new SearchSortRequestDto(FilterFieldSource.CUSTOM, fieldIdentifier, direction));
+        request.setSort(new SearchSortRequestDto(source, fieldIdentifier, direction));
 
         return discoveryService
                 .listDiscoveries(SecurityFilter.create(), request)
@@ -251,6 +271,88 @@ class AttributeColumnSortITest extends BaseSpringBootTest {
         Assertions
                 .assertEquals(List.of("multi", "first-created", "third-created", "second-created"),
                         listNames(SortDirection.DESC, 1, 10));
+    }
+
+    /**
+     * Walking every page returns each object exactly once, in the order one unpaged request gives, and objects without
+     * a value close the walk in both directions.
+     */
+    @Test
+    void walkingEveryPageReturnsEachObjectOnceInBothDirections() throws Exception {
+        seedDiscovery("multi", "zulu", "able");
+        seedDiscovery("no-value");
+        seedDiscovery("delta-only", "delta");
+
+        List<String> ascending = List
+                .of("multi", "second-created", "third-created", "first-created", "delta-only", "no-value");
+        List<String> descending = List
+                .of("multi", "delta-only", "first-created", "third-created", "second-created", "no-value");
+        for (SortDirection direction : SortDirection.values()) {
+            List<String> walked = new ArrayList<>();
+            for (int page = 1; page <= 3; page++) {
+                walked.addAll(listNames(direction, page, 2));
+            }
+            Assertions.assertEquals(direction == SortDirection.ASC ? ascending : descending, walked);
+        }
+    }
+
+    /** A restricted user's page is ordered by the same key, over only the objects the user may see. */
+    @Test
+    void aRestrictedUserSeesTheirObjectsInKeyOrder() throws Exception {
+        Discovery visibleFirst = seedDiscovery("visible-zulu", "zulu");
+        Discovery visibleSecond = seedDiscovery("visible-able", "able");
+        seedDiscovery("hidden-mike", "mike");
+        restrictObjectAccess(Resource.DISCOVERY, ResourceAction.LIST,
+                List.of(visibleFirst.getUuid(), visibleSecond.getUuid()));
+
+        Assertions.assertEquals(List.of("visible-able", "visible-zulu"), listNames(SortDirection.ASC, 1, 10));
+    }
+
+    /**
+     * Two connectors can register metadata under one name; the field collapses them, and so does its key: the smallest
+     * value across both definitions ascending. The older discovery holds the smaller value, so the order is not the
+     * newest-first order a listing falls back to.
+     */
+    @Test
+    void metadataSharedByTwoDefinitionsSortsOnTheSmallestValueAcrossBoth() throws Exception {
+        Discovery fromFirst = seedDiscovery("first-connector-bravo");
+        Discovery fromSecond = seedDiscovery("second-connector-yankee");
+        storeRegion(newConnector("region-connector-1"), fromFirst.getUuid(), "bravo");
+        storeRegion(newConnector("region-connector-2"), fromSecond.getUuid(), "yankee");
+
+        Assertions
+                .assertEquals(List.of("first-connector-bravo", "second-connector-yankee"),
+                        listNamesSortedBy(FilterFieldSource.META, "region|" + AttributeContentType.STRING.name(),
+                                SortDirection.ASC).subList(0, 2));
+    }
+
+    private Connector newConnector(String name) {
+        Connector connector = new Connector();
+        connector.setName(name);
+        connector.setUrl("http://localhost:0/" + name);
+        connector.setVersion(ConnectorVersion.V2);
+        connector.setStatus(ConnectorStatus.CONNECTED);
+        return connectorRepository.saveAndFlush(connector);
+    }
+
+    private void storeRegion(Connector connector, UUID discoveryUuid, String value) throws Exception {
+        MetadataAttributeV3 meta = new MetadataAttributeV3();
+        meta.setUuid(UUID.randomUUID().toString());
+        meta.setName("region");
+        meta.setType(AttributeType.META);
+        meta.setContentType(AttributeContentType.STRING);
+        MetadataAttributeProperties properties = new MetadataAttributeProperties();
+        properties.setLabel("Region");
+        properties.setVisible(true);
+        properties.setGlobal(false);
+        meta.setProperties(properties);
+        meta.setContent(List.of(new StringAttributeContentV3(value)));
+        attributeEngine
+                .updateMetadataAttribute(meta,
+                        ObjectAttributeContentInfo
+                                .builder(Resource.DISCOVERY, discoveryUuid)
+                                .connector(connector.getUuid())
+                                .build());
     }
 
     /**
