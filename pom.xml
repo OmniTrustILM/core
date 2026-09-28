@@ -360,7 +360,12 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <argLine>@{argLine} -Dspring.test.context.cache.maxSize=128</argLine>
+                    <!-- A fixed heap, so the test JVM has the same limit on every machine: the JVM default is a
+                         quarter of the RAM, 4 GB on a GitHub runner. The main Build runs the whole suite in one
+                         JVM, and the context cache keeps every Spring context the suite starts, so the suite
+                         outgrew 4 GB there. PR builds split the suite four ways and will not show when it
+                         outgrows this limit too. -->
+                    <argLine>@{argLine} -Xmx6g -Dspring.test.context.cache.maxSize=128</argLine>
                     <!-- Test classes must keep running one at a time in one JVM: WireMockPorts binds fixed ports. -->
                     <properties>
                         <configurationParameters>junit.jupiter.execution.parallel.enabled=false</configurationParameters>
