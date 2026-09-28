@@ -43,7 +43,7 @@ public class CertificateKeystoreSource {
      * @return what the download needs
      * @throws NotFoundException if the certificate does not exist, or its key holds no private key
      */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public KeystoreSource read(SecuredUUID uuid) throws NotFoundException {
         Certificate certificate = certificateService.getCertificateEntity(uuid);
         if (certificate.getCertificateContent() == null) {
