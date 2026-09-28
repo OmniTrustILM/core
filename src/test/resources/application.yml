@@ -40,6 +40,10 @@ connector:
     pending-acquire-timeout: 10s
     max-in-memory-size: 16MB
 
+key-import:
+  request-timeout: 1s
+  poll-interval: 50ms
+
 discovery:
   mq-timeouts:
     status: 30s

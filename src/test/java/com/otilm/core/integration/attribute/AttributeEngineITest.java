@@ -118,8 +118,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import org.hibernate.SessionFactory;
 import org.hibernate.stat.Statistics;
 import org.jetbrains.annotations.NotNull;
@@ -2727,6 +2729,46 @@ class AttributeEngineITest extends BaseSpringBootTest {
                     .cacheOidCategory(OidCategory.CERTIFICATE_EXTENSION,
                             savedCache != null ? new HashMap<>(savedCache) : new HashMap<>());
         }
+    }
+
+    @Test
+    void getOperationDataAttributesContent_readsAnOperationsContent_whicheverConnectorStoredIt() throws Exception {
+        // given
+        UUID objectUuid = UUID.randomUUID();
+        UUID connectorUuid = connectorDiscovery.getUuid();
+        DataAttributeV3 connectorOwned = DataAttributeV3Builder.aDataAttribute().withName("signatureAlgorithm").build();
+        DataAttributeV3 coreOwned = DataAttributeV3Builder.aDataAttribute().withName("data_sigDigest").build();
+        DataAttributeV3 otherOperation = DataAttributeV3Builder.aDataAttribute().withName("formatting").build();
+        storeOperationContent(objectUuid, connectorUuid, AttributeOperation.SIGN, connectorOwned);
+        storeOperationContent(objectUuid, null, AttributeOperation.SIGN, coreOwned);
+        storeOperationContent(objectUuid, connectorUuid, AttributeOperation.WORKFLOW_FORMATTING, otherOperation);
+
+        // when
+        List<ResponseAttribute> read = attributeEngine
+                .getOperationDataAttributesContent(ObjectAttributeContentInfo
+                        .builder(Resource.CERTIFICATE_REQUEST, objectUuid)
+                        .operation(AttributeOperation.SIGN)
+                        .build());
+
+        // then
+        Assertions
+                .assertEquals(Set.of("signatureAlgorithm", "data_sigDigest"),
+                        read.stream().map(ResponseAttribute::getName).collect(Collectors.toSet()));
+    }
+
+    private void storeOperationContent(UUID objectUuid, UUID connectorUuid, String operation,
+            DataAttributeV3 definition) throws Exception {
+        attributeEngine.updateDataAttributeDefinitions(connectorUuid, operation, List.of(definition));
+        attributeEngine
+                .updateObjectDataAttributesContent(
+                        ObjectAttributeContentInfo
+                                .builder(Resource.CERTIFICATE_REQUEST, objectUuid)
+                                .connector(connectorUuid)
+                                .operation(operation)
+                                .build(),
+                        List
+                                .of(new RequestAttributeV3(UUID.fromString(definition.getUuid()), definition.getName(),
+                                        AttributeContentType.STRING, List.of(new StringAttributeContentV3("value")))));
     }
 
     @Test

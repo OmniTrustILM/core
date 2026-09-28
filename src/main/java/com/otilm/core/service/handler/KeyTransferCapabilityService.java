@@ -10,15 +10,18 @@ import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.core.cryptography.key.KeyTransferAvailabilityDto;
 import com.otilm.api.model.core.cryptography.key.KeyTransferCapabilityDto;
+import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.model.crypto.KeyTransfer;
+import com.otilm.core.model.crypto.KeyTypeAlgorithm;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.model.crypto.TransferableKeyType;
 import com.otilm.core.service.handler.key.KeyProviderAdapter;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import com.otilm.core.service.writer.KeyTransferCapabilityWriter;
+import java.util.Collection;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
@@ -75,6 +78,47 @@ public class KeyTransferCapabilityService {
     public Optional<Map<KeyRequestType, Set<KeyAlgorithm>>> exportableKeyTypes(TokenProfileFullModel profile)
             throws ConnectorException, NotFoundException {
         return keyTypes(profile, KeyTransfer.EXPORT);
+    }
+
+    /**
+     * The algorithms the profile's connector exports, per key type, as far as the platform has recorded it. It never
+     * asks the connector and never writes: a connector that does not declare key export exports nothing, and a profile
+     * with no recorded answer yet resolves to empty.
+     *
+     * @param profile the profile to answer for
+     * @return the recorded answer, which is an empty map when the connector exports nothing from the profile, or empty
+     * when no answer is recorded yet
+     */
+    public Optional<Map<KeyRequestType, Set<KeyAlgorithm>>> recordedExportableKeyTypes(TokenProfileFullModel profile) {
+        if (!connectorCapabilityService
+                .supports(profile.tokenInstance().connectorInterface(), KeyTransfer.EXPORT.featureFlag())) {
+            return Optional.of(Map.of());
+        }
+        return Optional.ofNullable(KeyTransfer.EXPORT.recordedIn(profile));
+    }
+
+    /**
+     * Whether the profile imports every given key type and algorithm, as far as the platform has recorded it. It never
+     * asks the connector and never writes: a connector that does not declare key import imports nothing, and a profile
+     * with no recorded answer yet is left to the import, which asks.
+     *
+     * @param profile the profile, with its token instance's connector interface loaded
+     * @param pairs the key types and algorithms the profile must import
+     * @return whether the profile imports every pair, or has no recorded answer yet
+     */
+    public boolean importsAsRecorded(TokenProfile profile, Collection<KeyTypeAlgorithm> pairs) {
+        if (!connectorCapabilityService
+                .supports(profile.getTokenInstanceReference().getConnectorInterface(),
+                        KeyTransfer.IMPORT.featureFlag())) {
+            return false;
+        }
+        List<TransferableKeyType> recorded = profile.getImportableKeyTypes();
+        return recorded == null || pairs
+                .stream()
+                .allMatch(pair -> recorded
+                        .stream()
+                        .anyMatch(type -> type.keyRequestType() == pair.type()
+                                && type.algorithms().contains(pair.algorithm())));
     }
 
     /**

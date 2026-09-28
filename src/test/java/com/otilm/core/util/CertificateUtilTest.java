@@ -13,16 +13,21 @@ import com.otilm.core.model.request.CertificateRequest;
 import com.otilm.core.model.request.CrmfCertificateRequest;
 import com.otilm.core.model.request.Pkcs10CertificateRequest;
 import com.otilm.core.oid.OidHandler;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.StringWriter;
 import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.security.KeyStore;
 import java.security.NoSuchAlgorithmException;
 import java.security.SignatureException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,12 +41,19 @@ import org.bouncycastle.asn1.x509.GeneralName;
 import org.bouncycastle.asn1.x509.GeneralNames;
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
 import org.bouncycastle.cert.crmf.CertificateRequestMessageBuilder;
+import org.bouncycastle.cert.jcajce.JcaX509CertificateHolder;
+import org.bouncycastle.cms.CMSAbsentContent;
+import org.bouncycastle.cms.CMSSignedDataGenerator;
+import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
 import org.bouncycastle.operator.OperatorCreationException;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
+import org.bouncycastle.pkcs.PKCS12PfxPduBuilder;
 import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequestBuilder;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -62,6 +74,9 @@ class CertificateUtilTest {
             }
         }
     }
+
+    private static final String KEYSTORE_REFUSAL_MESSAGE = "The file is a keystore. Import it with the certificate"
+            + " import operation.";
 
     private static final String VALID_SAN_STRING = "{\"dNSName\":[\"domain.com\"],\"directoryName\":[],\"ediPartyName\":[],\"iPAddress\":[\"192.168.10.10\"],\"otherName\":[\"1.2.3.4=example othername\"],\"registeredID\":[],\"rfc822Name\":[],\"uniformResourceIdentifier\":[],\"x400Address\":[]}";
 
@@ -453,6 +468,67 @@ class CertificateUtilTest {
         CertificateUtil.applyRegistrationSubject(certificate, " ");
         assertNull(certificate.getSubjectDn());
         assertEquals("", certificate.getSubjectDnNormalized());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"PKCS12", "JKS", "JCEKS"})
+    void parseUploadedCertificateContent_refusesAKeystoreStoredWithAPassword(String type) throws Exception {
+        KeyStore keyStore = KeyStore.getInstance(type);
+        keyStore.load(null, null);
+        ByteArrayOutputStream file = new ByteArrayOutputStream();
+        keyStore.store(file, "changeit".toCharArray());
+        String content = Base64.getEncoder().encodeToString(file.toByteArray());
+
+        ValidationException exception = assertThrows(ValidationException.class,
+                () -> CertificateUtil.parseUploadedCertificateContent(content));
+        assertEquals(KEYSTORE_REFUSAL_MESSAGE, exception.getMessage());
+    }
+
+    @Test
+    void parseUploadedCertificateContent_refusesPkcs12WithoutMac() throws Exception {
+        byte[] file = new PKCS12PfxPduBuilder().build(null, null).getEncoded();
+        String content = Base64.getEncoder().encodeToString(file);
+
+        ValidationException exception = assertThrows(ValidationException.class,
+                () -> CertificateUtil.parseUploadedCertificateContent(content));
+        assertEquals(KEYSTORE_REFUSAL_MESSAGE, exception.getMessage());
+    }
+
+    @Test
+    void parseUploadedCertificateContent_uploadsPemCertificateAsBefore() throws Exception {
+        X509Certificate certificate = CertificateTestUtil.createCertificateWithoutEku();
+        StringWriter pem = new StringWriter();
+        try (JcaPEMWriter pemWriter = new JcaPEMWriter(pem)) {
+            pemWriter.writeObject(certificate);
+        }
+        String content = Base64.getEncoder().encodeToString(pem.toString().getBytes(StandardCharsets.US_ASCII));
+
+        X509Certificate parsed = CertificateUtil.parseUploadedCertificateContent(content);
+
+        Assertions.assertArrayEquals(certificate.getEncoded(), parsed.getEncoded());
+    }
+
+    @Test
+    void parseUploadedCertificateContent_uploadsDerCertificateAsBefore() throws Exception {
+        X509Certificate certificate = CertificateTestUtil.createCertificateWithoutEku();
+        String content = Base64.getEncoder().encodeToString(certificate.getEncoded());
+
+        X509Certificate parsed = CertificateUtil.parseUploadedCertificateContent(content);
+
+        Assertions.assertArrayEquals(certificate.getEncoded(), parsed.getEncoded());
+    }
+
+    @Test
+    void parseUploadedCertificateContent_uploadsPkcs7AsBefore() throws Exception {
+        X509Certificate certificate = CertificateTestUtil.createCertificateWithoutEku();
+        CMSSignedDataGenerator generator = new CMSSignedDataGenerator();
+        generator.addCertificate(new JcaX509CertificateHolder(certificate));
+        byte[] pkcs7 = generator.generate(new CMSAbsentContent()).getEncoded();
+        String content = Base64.getEncoder().encodeToString(pkcs7);
+
+        X509Certificate parsed = CertificateUtil.parseUploadedCertificateContent(content);
+
+        Assertions.assertArrayEquals(certificate.getEncoded(), parsed.getEncoded());
     }
 
 }
