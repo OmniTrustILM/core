@@ -357,14 +357,15 @@ public class ProxyClientImpl implements ProxyClient {
     }
 
     /**
-     * Throw the connector's problem detail when the reply carries one, as the REST client does for an
+     * Throw the connector's problem detail when a reply that is not a 2xx carries one, as the REST client does for an
      * {@code application/problem+json} answer, so a caller reads the connector's error code whichever way the request
      * travelled. The status is the reply's, whatever the document declares. A reply without a problem detail that can
      * be read keeps the mapping by error category and status.
      */
     private void throwProblemDetail(ConnectorResponse response, ApiClientConnectorInfo connector) {
         int statusCode = response.getStatusCode();
-        if (statusCode < 400 || response.getBody() == null || !isProblemDocument(response.getHeaders())) {
+        boolean successful = statusCode >= 200 && statusCode < 300;
+        if (successful || response.getBody() == null || !isProblemDocument(response.getHeaders())) {
             return;
         }
 

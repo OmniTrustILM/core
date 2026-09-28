@@ -606,6 +606,25 @@ class ProxyClientImplTest {
                         problem -> assertThat(problem.getProblemDetail().getStatus()).isEqualTo(422));
     }
 
+    @Test
+    @Timeout(value = 5, unit = TimeUnit.SECONDS)
+    void sendRequestForEntity_withProblemDetailOnARedirect_throwsConnectorProblemException() throws Exception {
+        ConnectorDto connector = createConnector("proxy-001");
+        replyWith(ConnectorResponse
+                .builder()
+                .statusCode(303)
+                .headers(Map.of("Content-Type", "application/problem+json"))
+                .body(objectMapper.readValue("""
+                        {"type":"about:blank","title":"See other","status":303,
+                         "timestamp":"2026-09-27T21:49:08.245Z","retryable":false}""", Object.class))
+                .build());
+
+        assertThatThrownBy(() -> proxyClient
+                .sendRequestForEntity(connector, "/v1/test", "GET", null, Map.class, Duration.ofSeconds(5)))
+                .isInstanceOfSatisfying(ConnectorProblemException.class,
+                        problem -> assertThat(problem.getProblemDetail().getStatus()).isEqualTo(303));
+    }
+
     @ParameterizedTest(name = "{0}")
     @MethodSource("repliesWithoutAReadableProblemDetail")
     @Timeout(value = 5, unit = TimeUnit.SECONDS)
