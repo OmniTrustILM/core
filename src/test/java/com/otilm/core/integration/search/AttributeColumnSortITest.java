@@ -20,11 +20,13 @@ import com.otilm.api.model.core.secret.SecretDto;
 import com.otilm.api.model.core.secret.SecretState;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.dao.entity.Discovery;
+import com.otilm.core.dao.entity.Group;
 import com.otilm.core.dao.entity.Secret;
 import com.otilm.core.dao.entity.SecretVersion;
 import com.otilm.core.dao.entity.VaultInstance;
 import com.otilm.core.dao.entity.VaultProfile;
 import com.otilm.core.dao.repository.DiscoveryRepository;
+import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.SecretRepository;
 import com.otilm.core.dao.repository.SecretVersionRepository;
 import com.otilm.core.dao.repository.VaultInstanceRepository;
@@ -32,8 +34,11 @@ import com.otilm.core.dao.repository.VaultProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.DiscoveryExternalService;
+import com.otilm.core.service.ResourceObjectAssociationService;
 import com.otilm.core.service.SecretExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.SqlCapture;
+import com.otilm.core.util.SqlShape;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -42,14 +47,16 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 /**
  * Ordering by an attribute-sourced column.
  *
  * <p>
  * Filtering an attribute is an order-agnostic {@code EXISTS} subquery, so it yields nothing to order by. These cases
- * cover the correlated scalar subquery that does: that a listing orders by the stored value rather than by the raw
- * document, that an object holding no value is kept rather than dropped, and that a multi-valued attribute resolves to
- * one key instead of multiplying the row.
+ * cover the key table that does: that a listing orders by the stored value rather than by the raw document, that an
+ * object holding no value is kept rather than dropped, and that a multi-valued attribute resolves to one key - its
+ * smallest value ascending, its largest descending - instead of multiplying the row.
  */
 class AttributeColumnSortITest extends BaseSpringBootTest {
 
@@ -81,6 +88,12 @@ class AttributeColumnSortITest extends BaseSpringBootTest {
 
     @Autowired
     private AttributeEngine attributeEngine;
+
+    @Autowired
+    private GroupRepository groupRepository;
+
+    @Autowired
+    private ResourceObjectAssociationService resourceObjectAssociationService;
 
     private UUID definitionUuid;
 
@@ -205,17 +218,39 @@ class AttributeColumnSortITest extends BaseSpringBootTest {
     }
 
     /**
-     * A multi-valued attribute has as many values as the object stores, which would leave the key ambiguous. It
-     * resolves to the value at the lowest {@code item_order} - the one the cell shows first - and the row appears once
-     * rather than once per value.
+     * The sort key is computed once for the query, as a table of one key per object joined to the listing, instead of a
+     * subquery run for every row under a GROUP BY over the whole result.
      */
     @Test
-    void aMultiValuedAttributeSortsOnItsFirstStoredValue() throws Exception {
-        seedDiscovery("multi", "aaa", "zzz");
+    void anAttributeSortJoinsOneKeyPerObjectInsteadOfGrouping() throws Exception {
+        String page = SqlShape.pageQuery(SqlCapture.during(() -> listNames(SortDirection.ASC, 1, 10)).statements());
+
+        assertThat(SqlShape.hasDerivedJoin(page)).describedAs(page).isTrue();
+        assertThat(SqlShape.groupsByRootUuid(page)).describedAs(page).isFalse();
+        assertThat(SqlShape.hasScalarSortSubquery(page)).describedAs(page).isFalse();
+    }
+
+    /**
+     * A multi-valued attribute sorts on its smallest value ascending: stored "zulu" first, it still leads the page by
+     * "able", and the row appears once rather than once per value.
+     */
+    @Test
+    void aMultiValuedAttributeSortsOnItsSmallestValueAscending() throws Exception {
+        seedDiscovery("multi", "zulu", "able");
 
         Assertions
                 .assertEquals(List.of("multi", "second-created", "third-created", "first-created"),
                         listNames(SortDirection.ASC, 1, 10));
+    }
+
+    /** And on its largest value descending: stored "able" first, it leads the reversed page by "zulu". */
+    @Test
+    void aMultiValuedAttributeSortsOnItsLargestValueDescending() throws Exception {
+        seedDiscovery("multi", "able", "zulu");
+
+        Assertions
+                .assertEquals(List.of("multi", "first-created", "third-created", "second-created"),
+                        listNames(SortDirection.DESC, 1, 10));
     }
 
     /**
@@ -313,6 +348,33 @@ class AttributeColumnSortITest extends BaseSpringBootTest {
         seedSecret("secret-second", vaultProfile, secretDefinitionUuid, "alpha");
         seedSecret("secret-third", vaultProfile, secretDefinitionUuid, "bravo");
 
+        Assertions.assertEquals(List.of("secret-second", "secret-third", "secret-first"), listSecretNames());
+    }
+
+    /**
+     * A restricted user reaches a secret through each of their groups it sits in, and the access rule joins those
+     * groups, so the listing sees the secret once per group. The key table must not turn that join into a repeated row.
+     */
+    @Test
+    void anObjectInTwoOfTheCallersGroupsIsListedOnce() throws Exception {
+        UUID secretDefinitionUuid = registerCustomAttribute(SECRET_ENVIRONMENT, AttributeContentType.TEXT, true,
+                Resource.SECRET);
+        VaultProfile vaultProfile = seedVaultProfile();
+        Secret inBothGroups = seedSecret("secret-in-both-groups", vaultProfile, secretDefinitionUuid, "alpha");
+        Secret inOneGroup = seedSecret("secret-in-one-group", vaultProfile, secretDefinitionUuid, "bravo");
+        seedSecret("secret-in-no-group", vaultProfile, secretDefinitionUuid, "charlie");
+        Group first = seedGroup("first-group");
+        Group second = seedGroup("second-group");
+        resourceObjectAssociationService.addGroup(Resource.SECRET, inBothGroups.getUuid(), first.getUuid());
+        resourceObjectAssociationService.addGroup(Resource.SECRET, inBothGroups.getUuid(), second.getUuid());
+        resourceObjectAssociationService.addGroup(Resource.SECRET, inOneGroup.getUuid(), second.getUuid());
+        restrictObjectAccess(Resource.SECRET, ResourceAction.LIST, List.of());
+        restrictObjectAccess(Resource.GROUP, ResourceAction.MEMBERS, List.of(first.getUuid(), second.getUuid()));
+
+        Assertions.assertEquals(List.of("secret-in-both-groups", "secret-in-one-group"), listSecretNames());
+    }
+
+    private List<String> listSecretNames() {
         SearchRequestDto request = new SearchRequestDto();
         request.setPageNumber(1);
         request.setItemsPerPage(10);
@@ -321,10 +383,13 @@ class AttributeColumnSortITest extends BaseSpringBootTest {
                         SECRET_ENVIRONMENT + "|" + AttributeContentType.TEXT.name(), SortDirection.ASC));
 
         PaginationResponseDto<SecretDto> response = secretService.listSecrets(request, SecurityFilter.create());
+        return response.getItems().stream().map(SecretDto::getName).toList();
+    }
 
-        Assertions
-                .assertEquals(List.of("secret-second", "secret-third", "secret-first"),
-                        response.getItems().stream().map(SecretDto::getName).toList());
+    private Group seedGroup(String name) {
+        Group group = new Group();
+        group.setName(name);
+        return groupRepository.save(group);
     }
 
     private VaultProfile seedVaultProfile() {
@@ -340,8 +405,8 @@ class AttributeColumnSortITest extends BaseSpringBootTest {
         return vaultProfileRepository.saveAndFlush(vaultProfile);
     }
 
-    private void seedSecret(String name, VaultProfile vaultProfile, UUID secretDefinitionUuid, String environmentValue)
-            throws Exception {
+    private Secret seedSecret(String name, VaultProfile vaultProfile, UUID secretDefinitionUuid,
+            String environmentValue) throws Exception {
         SecretVersion version = new SecretVersion();
         version.setVersion(1);
         version.setVaultProfile(vaultProfile);
@@ -364,5 +429,6 @@ class AttributeColumnSortITest extends BaseSpringBootTest {
         requestAttribute.setContent(List.of(new TextAttributeContentV3(null, environmentValue)));
         attributeEngine
                 .updateObjectCustomAttributesContent(Resource.SECRET, secret.getUuid(), List.of(requestAttribute));
+        return secret;
     }
 }

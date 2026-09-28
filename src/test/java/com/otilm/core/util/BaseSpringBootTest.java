@@ -155,6 +155,25 @@ public class BaseSpringBootTest {
                 .thenReturn(restricted);
     }
 
+    /**
+     * Restricts object-level access for one (resource, action) pair to exactly the given objects, for tests that need a
+     * restricted user who can still see something.
+     */
+    protected void restrictObjectAccess(Resource resource, ResourceAction action, List<UUID> allowed) {
+        OpaObjectAccessResult restricted = new OpaObjectAccessResult();
+        restricted.setActionAllowedForGroupOfObjects(false);
+        restricted.setAllowedObjects(allowed.stream().map(UUID::toString).toList());
+        restricted.setForbiddenObjects(List.of());
+        when(opaClient
+                .checkObjectAccess(Mockito.any(),
+                        Mockito
+                                .argThat(req -> req != null && req.getProperties() != null
+                                        && resource.getCode().equals(req.getProperties().get("name"))
+                                        && action.getCode().equals(req.getProperties().get("action"))),
+                        Mockito.any(), Mockito.any()))
+                .thenReturn(restricted);
+    }
+
     protected void allowResourceAccess(Resource resource, ResourceAction action) {
         OpaResourceAccessResult allowed = new OpaResourceAccessResult();
         allowed.setAuthorized(true);
