@@ -22,7 +22,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Applies {@code V202609251800__listing_query_indexes.sql} to tables shaped as in production and asserts that each
- * index answers its lookup and that uuid and fingerprint stay unique without the dropped constraints.
+ * index answers its lookup, that fingerprint stays unique without its dropped duplicate, and that the uuid index the
+ * foreign keys are bound to is left in place.
  *
  * <p>
  * The suite's schema is generated from the entities, which declare none of these indexes, so nothing else would notice
@@ -40,18 +41,26 @@ class ListingQueryIndexesMigrationITest extends BaseSpringBootTest {
      * The columns the migration touches, and a foreign key into certificate.
      *
      * <p>
-     * The duplicates are added by {@code ALTER TABLE}, as in production: {@code CREATE TABLE} would fold them into one
-     * index and leave nothing to drop. The primary key comes first, so the foreign key binds to it the same way.
+     * Built in the order the migration chain builds production: {@code certificate_uuid_unique} while {@code id} is
+     * still the primary key, then the primary key moved to {@code uuid} and the column retyped, which rebuilds both
+     * indexes with the unique one first. A foreign key that names {@code certificate(uuid)}, as the later migrations'
+     * do, binds to the first unique index on the column and so to {@code certificate_uuid_unique}. The duplicates are
+     * added by {@code ALTER TABLE}, as in production: {@code CREATE TABLE} would fold them into one index.
      */
     private static final String TABLES = """
             CREATE TABLE "certificate" (
-                "uuid" UUID PRIMARY KEY,
+                "id" BIGINT PRIMARY KEY,
+                "uuid" VARCHAR NOT NULL,
                 "fingerprint" VARCHAR,
                 "not_after" TIMESTAMP(6)
             );
             ALTER TABLE "certificate" ADD CONSTRAINT "certificate_uuid_unique" UNIQUE ("uuid");
             ALTER TABLE "certificate" ADD CONSTRAINT "certificate_fingerprint_key" UNIQUE ("fingerprint");
             ALTER TABLE "certificate" ADD CONSTRAINT "certificate_fingerprint_key1" UNIQUE ("fingerprint");
+            ALTER TABLE "certificate" DROP CONSTRAINT "certificate_pkey";
+            ALTER TABLE "certificate" ADD PRIMARY KEY ("uuid");
+            ALTER TABLE "certificate" ALTER COLUMN "uuid" TYPE UUID USING ("uuid"::UUID);
+            ALTER TABLE "certificate" DROP COLUMN "id";
             CREATE TABLE "certificate_event_history" (
                 "uuid" UUID PRIMARY KEY,
                 "certificate_uuid" UUID NOT NULL REFERENCES "certificate" ("uuid")
@@ -156,7 +165,7 @@ class ListingQueryIndexesMigrationITest extends BaseSpringBootTest {
     }
 
     @Test
-    void theDuplicateConstraintsGoWhileUuidAndFingerprintStayUnique() throws Exception {
+    void theFingerprintDuplicateGoesWhileTheUuidIndexTheForeignKeysUseStays() throws Exception {
         try (Connection connection = dataSource.getConnection()) {
             try {
                 createTables(connection);
@@ -165,14 +174,16 @@ class ListingQueryIndexesMigrationITest extends BaseSpringBootTest {
                         .containsExactlyInAnyOrder("certificate_pkey", "certificate_uuid_unique",
                                 "certificate_fingerprint_key", "certificate_fingerprint_key1");
                 assertThat(foreignKeyIndex(connection))
-                        .describedAs("the foreign key binds to the primary key before the migration, as in production")
-                        .isEqualTo("certificate_pkey");
+                        .describedAs("a foreign key naming certificate(uuid) binds to the older uuid index, as in"
+                                + " production")
+                        .isEqualTo("certificate_uuid_unique");
 
                 applyMigration(connection);
 
                 assertThat(uniqueConstraints(connection))
-                        .containsExactlyInAnyOrder("certificate_pkey", "certificate_fingerprint_key");
-                assertThat(foreignKeyIndex(connection)).isEqualTo("certificate_pkey");
+                        .containsExactlyInAnyOrder("certificate_pkey", "certificate_uuid_unique",
+                                "certificate_fingerprint_key");
+                assertThat(foreignKeyIndex(connection)).isEqualTo("certificate_uuid_unique");
 
                 execute(connection, "INSERT INTO certificate (uuid, fingerprint) VALUES ('%s', 'fingerprint-a')"
                         .formatted(SOME_UUID));

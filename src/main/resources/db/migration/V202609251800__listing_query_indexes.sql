@@ -1,4 +1,4 @@
--- Indexes for the lookups every inventory listing page makes, and two duplicate unique constraints dropped from
+-- Indexes for the lookups every inventory listing page makes, and a duplicate unique constraint dropped from
 -- certificate. ListingQueryIndexesMigrationITest pins each index to its lookup.
 --
 -- CREATE INDEX blocks writes to its table while it builds; Flyway's transaction rules out CONCURRENTLY. At 3.8M
@@ -23,8 +23,7 @@ CREATE INDEX "idx_owner_association_owner" ON "owner_association" ("owner_userna
 CREATE INDEX "idx_cryptographic_key_item_created_at" ON "cryptographic_key_item" ("created_at");
 CREATE INDEX "idx_certificate_not_after" ON "certificate" ("not_after");
 
--- Duplicates of certificate_pkey and certificate_fingerprint_key, each an extra write per certificate change. No foreign
--- key depends on them: the primary key predates certificate_uuid_unique, so foreign keys into certificate bind to
--- certificate_pkey, and none references fingerprint.
-ALTER TABLE "certificate" DROP CONSTRAINT IF EXISTS "certificate_uuid_unique";
+-- A duplicate of certificate_fingerprint_key, an extra write per certificate change; no foreign key references
+-- fingerprint. certificate_uuid_unique duplicates certificate_pkey but stays: it is the older of the two indexes on
+-- uuid, so the foreign keys that name certificate(uuid) are bound to it and would block the drop.
 ALTER TABLE "certificate" DROP CONSTRAINT IF EXISTS "certificate_fingerprint_key1";
