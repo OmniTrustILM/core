@@ -24,10 +24,10 @@ class SqlCaptureITest extends BaseSpringBootTest {
     }
 
     @Test
-    void recordsNothingOnceTheRecordingEnds() throws Exception {
-        SqlCapture.during(() -> groupRepository.findAll());
-        groupRepository.findAll();
+    void recordingEndsWhenTheActionReturns() throws Exception {
+        boolean recordingInside = SqlCapture.during(SqlCapture::isRecording).result();
 
-        assertThat(SqlCapture.during(() -> null).statements()).isEmpty();
+        assertThat(recordingInside).isTrue();
+        assertThat(SqlCapture.isRecording()).isFalse();
     }
 }

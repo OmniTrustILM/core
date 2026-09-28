@@ -27,6 +27,11 @@ public class SqlCapture implements StatementInspector {
         return sql;
     }
 
+    /** Whether the current thread is recording, which it is only while {@link #during} runs its action. */
+    public static boolean isRecording() {
+        return RECORDING.get() != null;
+    }
+
     public static <R> Captured<R> during(Callable<R> action) throws Exception {
         List<String> recorded = new ArrayList<>();
         RECORDING.set(recorded);
