@@ -14,12 +14,16 @@ import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.cryptography.key.KeyTransferAvailabilityDto;
 import com.otilm.api.model.core.cryptography.key.KeyTransferCapabilityDto;
+import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
+import com.otilm.core.dao.entity.TokenInstanceReference;
+import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.model.connector.ImmutableConnectorInterface;
 import com.otilm.core.model.crypto.ImmutableTokenInstanceFullModel;
 import com.otilm.core.model.crypto.ImmutableTokenProfileFullModel;
 import com.otilm.core.model.crypto.KeyTransfer;
+import com.otilm.core.model.crypto.KeyTypeAlgorithm;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.model.crypto.TransferableKeyType;
 import com.otilm.core.service.handler.key.KeyProviderAdapter;
@@ -52,6 +56,12 @@ class KeyTransferCapabilityServiceTest {
 
     private static final Map<KeyRequestType, Set<KeyAlgorithm>> RSA_KEY_PAIRS = Map
             .of(KeyRequestType.KEY_PAIR, Set.of(KeyAlgorithm.RSA));
+    private static final List<TransferableKeyType> RSA_IMPORT = List
+            .of(new TransferableKeyType(KeyRequestType.KEY_PAIR, Set.of(KeyAlgorithm.RSA)));
+    private static final KeyTypeAlgorithm RSA_KEY_PAIR = new KeyTypeAlgorithm(KeyRequestType.KEY_PAIR,
+            KeyAlgorithm.RSA);
+    private static final KeyTypeAlgorithm ECDSA_KEY_PAIR = new KeyTypeAlgorithm(KeyRequestType.KEY_PAIR,
+            KeyAlgorithm.ECDSA);
 
     private final KeyProviderAdapterFactory adapters = mock(KeyProviderAdapterFactory.class);
     private final KeyProviderAdapter adapter = mock(KeyProviderAdapter.class);
@@ -159,6 +169,37 @@ class KeyTransferCapabilityServiceTest {
 
         // then
         assertTrue(exportable.isEmpty());
+        verifyNoInteractions(adapters, writer);
+    }
+
+    @Test
+    void importsAsRecorded_isFalseForAConnectorThatDoesNotDeclareImport() {
+        // given
+        TokenProfile profile = profileEntity(List.of(FeatureFlag.KEY_EXPORT), RSA_IMPORT);
+
+        // when / then
+        assertFalse(service.importsAsRecorded(profile, List.of(RSA_KEY_PAIR)));
+        verifyNoInteractions(adapters, writer);
+    }
+
+    @Test
+    void importsAsRecorded_answersFromTheRecordWithoutAskingTheConnector() {
+        // given
+        TokenProfile profile = profileEntity(List.of(FeatureFlag.KEY_IMPORT), RSA_IMPORT);
+
+        // when / then
+        assertTrue(service.importsAsRecorded(profile, List.of(RSA_KEY_PAIR)));
+        assertFalse(service.importsAsRecorded(profile, List.of(RSA_KEY_PAIR, ECDSA_KEY_PAIR)));
+        verifyNoInteractions(adapters, writer);
+    }
+
+    @Test
+    void importsAsRecorded_leavesAProfileWithNoRecordedAnswerToTheImport() {
+        // given
+        TokenProfile profile = profileEntity(List.of(FeatureFlag.KEY_IMPORT), null);
+
+        // when / then
+        assertTrue(service.importsAsRecorded(profile, List.of(ECDSA_KEY_PAIR)));
         verifyNoInteractions(adapters, writer);
     }
 
@@ -516,5 +557,16 @@ class KeyTransferCapabilityServiceTest {
             Map<KeyRequestType, Set<KeyAlgorithm>> importableKeyTypes) {
         return new ImmutableTokenProfileFullModel(UUID.randomUUID(), "profile", null, token.name(), token.uuid(),
                 enabled, List.of(), token, token.connectorUuid(), exportableKeyTypes, importableKeyTypes, 0);
+    }
+
+    private static TokenProfile profileEntity(List<FeatureFlag> features, List<TransferableKeyType> importable) {
+        ConnectorInterfaceEntity connectorInterface = new ConnectorInterfaceEntity();
+        connectorInterface.setFeatures(features);
+        TokenInstanceReference token = new TokenInstanceReference();
+        token.setConnectorInterface(connectorInterface);
+        TokenProfile profile = new TokenProfile();
+        profile.setTokenInstanceReference(token);
+        profile.setImportableKeyTypes(importable);
+        return profile;
     }
 }
