@@ -185,6 +185,41 @@ class ReferencedSlotProjectionTest {
     }
 
     @Test
+    void aKeyTakesTheAlgorithmItsRelatedAssetEntryNames() throws Exception {
+        String keyIn17 = PUBLIC_KEY
+                .replace("\"algorithmRef\": \"crypto/algorithm/ecdsa-p-256\",",
+                        "\"relatedCryptographicAssets\": [{\"type\": \"algorithm\", \"ref\": \"crypto/algorithm/ecdsa-p-256\"}],");
+
+        NormalizedAsset key = keyed("crypto/key/api", keyIn17, ALGORITHM);
+        NormalizedAsset certificate = keyed("crypto/certificate/api", CERTIFICATE, keyIn17, ALGORITHM);
+
+        assertThat(key.family()).isEqualTo("ECDSA");
+        assertThat(key.curve()).isEqualTo("secg/secp256r1");
+        assertThat(certificate.family()).isEqualTo("ECDSA");
+    }
+
+    @Test
+    void aRelatedAssetEntryWinsOverTheLegacyAlgorithmRef() throws Exception {
+        String keyStatingBoth = PUBLIC_KEY
+                .replace("\"algorithmRef\": \"crypto/algorithm/ecdsa-p-256\",",
+                        "\"algorithmRef\": \"crypto/algorithm/absent\", \"relatedCryptographicAssets\": "
+                                + "[{\"type\": \"algorithm\", \"ref\": \"crypto/algorithm/ecdsa-p-256\"}],");
+
+        assertThat(keyed("crypto/key/api", keyStatingBoth, ALGORITHM).family()).isEqualTo("ECDSA");
+    }
+
+    @Test
+    void twoAlgorithmEntriesNameNoAlgorithmAndTheLegacyFieldIsNotConsulted() throws Exception {
+        String ambiguous = PUBLIC_KEY
+                .replace("\"algorithmRef\": \"crypto/algorithm/ecdsa-p-256\",",
+                        "\"algorithmRef\": \"crypto/algorithm/ecdsa-p-256\", \"relatedCryptographicAssets\": ["
+                                + "{\"type\": \"algorithm\", \"ref\": \"crypto/algorithm/ecdsa-p-256\"},"
+                                + "{\"type\": \"algorithm\", \"ref\": \"crypto/algorithm/other\"}],");
+
+        assertThat(keyed("crypto/key/api", ambiguous, ALGORITHM).family()).isNull();
+    }
+
+    @Test
     void aProtocolTakesNoSlotBecauseNoneOfThemDescribeIt() throws Exception {
         String protocol = """
                 {

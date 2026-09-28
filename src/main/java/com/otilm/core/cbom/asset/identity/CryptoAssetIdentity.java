@@ -66,6 +66,8 @@ public record CryptoAssetIdentity(AssetNormalizer normalizer) {
     /** The related-asset type that names a certificate's public key, once separators and case are dropped. */
     private static final String PUBLIC_KEY_REFERENCE = "publickey";
 
+    private static final String ALGORITHM_REFERENCE = "algorithm";
+
     /**
      * Provenance for a family or curve taken from a referenced component. Not persisted: only tests read it.
      */
@@ -273,8 +275,7 @@ public record CryptoAssetIdentity(AssetNormalizer normalizer) {
             fillEmptySlots(asset, normalizedTarget(scope.resolve(algorithmRef(key))));
         } else if (CbomNames.ASSET_TYPE_RELATED_CRYPTO_MATERIAL.equals(assetType)) {
             JsonNode material = objectOrNull(properties.get(CbomNames.RELATED_CRYPTO_MATERIAL_PROPERTIES));
-            fillEmptySlots(asset,
-                    normalizedTarget(scope.resolve(material == null ? null : material.get("algorithmRef"))));
+            fillEmptySlots(asset, normalizedTarget(scope.resolve(materialAlgorithmRef(material))));
         }
     }
 
@@ -293,7 +294,7 @@ public record CryptoAssetIdentity(AssetNormalizer normalizer) {
     }
 
     /**
-     * The {@code algorithmRef} of a resolved material component, or {@code null} when the target is not one. One hop
+     * The algorithm reference of a resolved material component, or {@code null} when the target is not one. One hop
      * only: an algorithm names nothing further, and a second hop would have to define what a cycle means.
      */
     private JsonNode algorithmRef(JsonNode target) {
@@ -302,8 +303,7 @@ public record CryptoAssetIdentity(AssetNormalizer normalizer) {
                 .equals(normalizer.normalizeAssetType(text(properties, "assetType")))) {
             return null;
         }
-        JsonNode material = objectOrNull(properties.get(CbomNames.RELATED_CRYPTO_MATERIAL_PROPERTIES));
-        return material == null ? null : material.get("algorithmRef");
+        return materialAlgorithmRef(objectOrNull(properties.get(CbomNames.RELATED_CRYPTO_MATERIAL_PROPERTIES)));
     }
 
     /**
@@ -571,29 +571,42 @@ public record CryptoAssetIdentity(AssetNormalizer normalizer) {
      * absence of {@code certificateProperties} is answered in one place instead of at every call.
      */
     private static JsonNode subjectPublicKeyRef(JsonNode certificate) {
-        if (certificate == null) {
+        return relatedReference(certificate, PUBLIC_KEY_REFERENCE, "subjectPublicKeyRef");
+    }
+
+    /**
+     * The reference a material component states to its algorithm, under the same rules as {@link #subjectPublicKeyRef}:
+     * a 1.7 {@code relatedCryptographicAssets} entry of type {@code algorithm} first, the 1.6 {@code algorithmRef} only
+     * when the array names none, and nothing when it names more than one.
+     */
+    private static JsonNode materialAlgorithmRef(JsonNode material) {
+        return relatedReference(material, ALGORITHM_REFERENCE, "algorithmRef");
+    }
+
+    private static JsonNode relatedReference(JsonNode properties, String relatedType, String legacyField) {
+        if (properties == null) {
             return null;
         }
-        JsonNode related = certificate.get("relatedCryptographicAssets");
+        JsonNode related = properties.get("relatedCryptographicAssets");
         if (related != null && related.isArray()) {
-            JsonNode publicKey = null;
-            int publicKeys = 0;
+            JsonNode match = null;
+            int matches = 0;
             for (JsonNode entry : related) {
                 JsonNode type = entry.isObject() ? entry.get("type") : null;
                 String entryType = type != null && type.isTextual() ? AsciiText.lookupKey(type.textValue()) : null;
-                if (PUBLIC_KEY_REFERENCE.equals(entryType)) {
-                    publicKey = entry.get("ref");
-                    publicKeys++;
+                if (relatedType.equals(entryType)) {
+                    match = entry.get("ref");
+                    matches++;
                 }
             }
-            if (publicKeys > 1) {
+            if (matches > 1) {
                 return null;
             }
-            if (publicKeys == 1) {
-                return publicKey;
+            if (matches == 1) {
+                return match;
             }
         }
-        return certificate.get("subjectPublicKeyRef");
+        return properties.get(legacyField);
     }
 
     /**
