@@ -581,18 +581,26 @@ public class CbomAssetIngestService {
      * sweep -- and it matters most on the first ingest, when the sweep has the largest backlog it will ever have.
      *
      * <p>
-     * Being a latency decision, it must not be able to fail the unit of work. A row the rules cannot evaluate is
-     * counted and left unstamped, which is exactly how the sweep finds it later; letting the exception out would roll
-     * back the whole batch -- every identity and source write in it -- and fail the document for ever, since the retry
-     * would meet the same row.
+     * Being a latency decision, it must not be able to fail the unit of work. A row the rules cannot evaluate receives
+     * the same explicit UNKNOWN verdict as the sweep records. A verdict write that fails leaves the row stale for the
+     * sweep; letting that exception out would roll back the whole batch and fail the document.
      */
     private void stampVerdicts(Set<UUID> assetUuids) {
         for (PqcStaleVerdictRow row : assetRepository.verdictRowsByUuids(assetUuids)) {
             try {
-                final JsonNode merged = mergedPayload(row);
-                final PqcDecision decision = evaluator
-                        .evaluate(evaluator.fromStoredRow(row.fields(), merged),
-                                PqcEvaluator.nistQuantumSecurityLevel(merged));
+                PqcDecision decision;
+                try {
+                    final JsonNode merged = mergedPayload(row);
+                    decision = evaluator
+                            .evaluate(evaluator.fromStoredRow(row.fields(), merged),
+                                    PqcEvaluator.nistQuantumSecurityLevel(merged));
+                } catch (RuntimeException e) {
+                    meterRegistry.counter("crypto_asset.ingest.verdict_failed").increment();
+                    log
+                            .warn("CBOM asset ingest: PQC evaluation failed for cryptographic asset {}; recording UNKNOWN",
+                                    row.uuid(), e);
+                    decision = PqcDecision.evaluationFailed();
+                }
                 assetWriter
                         .applyPqcVerdict(row.uuid(), decision.verdict(), decision.ruleId(), decision.reason(),
                                 PqcRuleset.VERSION, decision.evaluatedFields());

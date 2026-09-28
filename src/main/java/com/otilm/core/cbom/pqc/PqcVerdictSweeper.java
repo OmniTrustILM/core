@@ -3,7 +3,6 @@ package com.otilm.core.cbom.pqc;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.otilm.api.model.core.cryptoasset.PqcVerdict;
 import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
 import com.otilm.core.model.cbom.PqcStaleVerdictRow;
@@ -13,7 +12,6 @@ import io.micrometer.core.instrument.MeterRegistry;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
@@ -44,8 +42,7 @@ public class PqcVerdictSweeper {
      * What a row gets when evaluation throws: stamped current so the sweep moves past it instead of finding it at the
      * head of the work list forever. No evidence, because the inputs are what failed.
      */
-    private static final PqcDecision EVALUATION_FAILED = new PqcDecision(PqcVerdict.UNKNOWN, "EVALUATION-FAILED",
-            "The rule set could not be evaluated against this asset's recorded properties", Map.of());
+    private static final PqcDecision EVALUATION_FAILED = PqcDecision.evaluationFailed();
 
     private final CryptoAssetRepository assetRepository;
     private final CryptoAssetPqcVerdictWriter verdictWriter;

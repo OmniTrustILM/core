@@ -2,6 +2,7 @@ package com.otilm.core.cbom.ingest;
 
 import com.otilm.api.model.common.events.data.CryptoAssetAddedEventData;
 import com.otilm.api.model.core.cbom.CbomAssetSyncState;
+import com.otilm.core.cbom.pqc.PqcRuleset;
 import com.otilm.core.cbom.sync.CbomSyncPolicyProvider;
 import com.otilm.core.dao.entity.Cbom;
 import com.otilm.core.dao.entity.cbom.CryptoAsset;
@@ -17,6 +18,7 @@ import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -92,16 +94,20 @@ public class InventoryEventOutboxDispatcher {
             } else if (cbomRepository.hasIngestedLaterVersion(cbomUuid)) {
                 detachService.withdrawWaiting(cbomUuid, policyProvider.current().assetBatchSize());
             }
-            List<CryptoAssetAddedEventData> survivingAssets = survivingAssets(cbomUuid, row.getAssetUuids());
+            Optional<List<CryptoAssetAddedEventData>> survivingAssets = survivingAssets(cbomUuid, row.getAssetUuids());
+            if (survivingAssets.isEmpty()) {
+                writer.release(cbomUuid, leaseUntil);
+                return;
+            }
             if (row.isCbomSynced()) {
                 producer
                         .produceMessage(CbomSyncedEventHandler
-                                .constructEventMessage(cbomUuid, CbomSyncedEventHandler.snapshot(cbom), survivingAssets,
-                                        row.getCbomUserUuid()));
-            } else if (!survivingAssets.isEmpty()) {
+                                .constructEventMessage(cbomUuid, CbomSyncedEventHandler.snapshot(cbom),
+                                        survivingAssets.get(), row.getCbomUserUuid()));
+            } else if (!survivingAssets.get().isEmpty()) {
                 producer
                         .produceMessage(CryptoAssetAddedEventHandler
-                                .constructEventMessage(cbomUuid, survivingAssets, row.getCbomUserUuid()));
+                                .constructEventMessage(cbomUuid, survivingAssets.get(), row.getCbomUserUuid()));
             }
             if (writer.deleteIfUnchanged(cbomUuid, row.getRevision(), leaseUntil) == 0) {
                 if (!row.isCbomSynced() && writer
@@ -121,19 +127,29 @@ public class InventoryEventOutboxDispatcher {
         }
     }
 
-    private List<CryptoAssetAddedEventData> survivingAssets(UUID cbomUuid, List<UUID> assetUuids) {
+    private Optional<List<CryptoAssetAddedEventData>> survivingAssets(UUID cbomUuid, List<UUID> assetUuids) {
         if (assetUuids.isEmpty()) {
-            return List.of();
+            return Optional.of(List.of());
         }
         Map<UUID, CryptoAsset> assets = assetRepository
                 .findSourcedAssets(assetUuids)
                 .stream()
                 .collect(Collectors.toMap(CryptoAsset::getUuid, Function.identity()));
-        return assetUuids
-                .stream()
-                .map(assets::get)
-                .filter(asset -> asset != null)
-                .map(asset -> CryptoAssetAddedEventHandler.snapshot(asset, cbomUuid))
-                .toList();
+        if (assets.values().stream().anyMatch(asset -> !hasCurrentVerdict(asset))) {
+            return Optional.empty();
+        }
+        return Optional
+                .of(assetUuids
+                        .stream()
+                        .map(assets::get)
+                        .filter(asset -> asset != null)
+                        .map(asset -> CryptoAssetAddedEventHandler.snapshot(asset, cbomUuid))
+                        .toList());
+    }
+
+    private static boolean hasCurrentVerdict(CryptoAsset asset) {
+        return asset.getPqcVerdict() != null && asset.getPqcRulesetVersion() != null
+                && asset.getPqcRulesetVersion() >= PqcRuleset.VERSION && asset.getPqcEvaluatedAt() != null
+                && asset.getUpdated() != null && !asset.getPqcEvaluatedAt().isBefore(asset.getUpdated());
     }
 }

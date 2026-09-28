@@ -10,7 +10,14 @@ import java.util.Map;
  */
 public record PqcDecision(PqcVerdict verdict, String ruleId, String reason, Map<String, Object> evaluatedFields) {
 
+    private static final PqcDecision EVALUATION_FAILED = new PqcDecision(PqcVerdict.UNKNOWN, "EVALUATION-FAILED",
+            "The rule set could not be evaluated against this asset's recorded properties", Map.of());
+
     public PqcDecision {
         evaluatedFields = Map.copyOf(evaluatedFields);
+    }
+
+    public static PqcDecision evaluationFailed() {
+        return EVALUATION_FAILED;
     }
 }

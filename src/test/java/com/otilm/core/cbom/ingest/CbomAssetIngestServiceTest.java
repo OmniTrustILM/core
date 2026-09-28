@@ -5,6 +5,7 @@ import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.core.cbom.CbomAssetSyncState;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetType;
+import com.otilm.api.model.core.cryptoasset.PqcVerdict;
 import com.otilm.core.cbom.asset.identity.AssetNormalizer;
 import com.otilm.core.cbom.asset.identity.CbomAssetExtractor;
 import com.otilm.core.cbom.asset.identity.CryptoAssetIdentity;
@@ -367,9 +368,8 @@ class CbomAssetIngestServiceTest {
     }
 
     /**
-     * Stamping is a latency decision, so it must not be able to fail the unit of work. Letting the exception out would
-     * roll the batch back -- every identity and source write in it -- and fail the document for ever, since the retry
-     * meets the same row. Left unstamped, the row is exactly what the sweep's work list selects.
+     * A verdict write failure must not fail the asset batch. The row stays stale for the sweep, while the CBOM can
+     * finish ingesting.
      */
     @Test
     void anUnevaluableAssetDoesNotFailTheDocument() {
@@ -385,6 +385,25 @@ class CbomAssetIngestServiceTest {
         assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
         verify(stateWriter).markSynced(CBOM, SEEN_AT);
         verify(stateWriter, never()).markFailed(any(), anyString());
+    }
+
+    @Test
+    void anEvaluationFailureRecordsAnUnknownVerdictForTheNewAsset() {
+        when(synchronizer.tryLock(anyString())).thenReturn(true);
+        UUID assetUuid = UUID.randomUUID();
+        when(assetWriter.upsertIdentityWithOutcome(anyString(), any(), any()))
+                .thenReturn(new UpsertOutcome(assetUuid, true));
+        when(assetRepository.verdictRowsByUuids(any())).thenReturn(List.of(mergedRsaRow(assetUuid)));
+        PqcEvaluator failingEvaluator = mock(PqcEvaluator.class);
+        when(failingEvaluator.fromStoredRow(any(), any())).thenThrow(new IllegalStateException("evaluation failed"));
+
+        CbomAssetIngestService.IngestOutcome outcome = service(realExtractor(), failingEvaluator)
+                .ingest(CBOM, oneAlgorithm(), SEEN_AT, POLICY);
+
+        assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
+        verify(assetWriter)
+                .applyPqcVerdict(eq(assetUuid), eq(PqcVerdict.UNKNOWN), eq("EVALUATION-FAILED"), anyString(), anyInt(),
+                        any());
     }
 
     /**
@@ -788,14 +807,17 @@ class CbomAssetIngestServiceTest {
     }
 
     private CbomAssetIngestService service(CbomAssetExtractor extractor) {
+        return service(extractor, new PqcEvaluator(new AssetNormalizer(IdentityTables.load())));
+    }
+
+    private CbomAssetIngestService service(CbomAssetExtractor extractor, PqcEvaluator evaluator) {
         // The header is there unless a test says otherwise: every batch re-reads it under the lock, because a deletion
         // can remove it in the gap between two batch commits.
         when(cbomRepository.existsById(CBOM)).thenReturn(true);
         when(stateWriter.markInProgress(CBOM)).thenReturn(1);
         when(stateWriter.markSynced(CBOM, SEEN_AT)).thenReturn(1);
         return new CbomAssetIngestService(extractor, assetWriter, sourceWriter, detachService, stateWriter,
-                findingWriter, cbomRepository, assetRepository,
-                new PqcEvaluator(new AssetNormalizer(IdentityTables.load())), synchronizer, new TransactionHandler(),
+                findingWriter, cbomRepository, assetRepository, evaluator, synchronizer, new TransactionHandler(),
                 new SimpleMeterRegistry(), eventOutboxWriter, eventDispatcher);
     }
 

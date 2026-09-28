@@ -1,6 +1,8 @@
 package com.otilm.core.cbom.ingest;
 
+import com.otilm.api.model.core.cryptoasset.PqcVerdict;
 import com.otilm.api.model.core.other.ResourceEvent;
+import com.otilm.core.cbom.pqc.PqcRuleset;
 import com.otilm.core.cbom.sync.CbomSyncPolicy;
 import com.otilm.core.cbom.sync.CbomSyncPolicyProvider;
 import com.otilm.core.dao.entity.Cbom;
@@ -13,6 +15,7 @@ import com.otilm.core.events.handlers.CbomSyncedEventPayload;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.model.EventMessage;
 import com.otilm.core.service.writer.cbom.InventoryEventOutboxWriter;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -81,6 +84,52 @@ class InventoryEventOutboxDispatcherTest {
     void anUnsettledCbomKeepsNewAssetsUntilItsOutcomeIsKnown() {
         givenRow(false, List.of(UUID.randomUUID()));
         givenCbom();
+
+        dispatcher.dispatchCbom(cbomUuid);
+
+        verify(producer, never()).produceMessage(any());
+        verify(writer).release(eq(cbomUuid), any());
+    }
+
+    @Test
+    void aCompletedCbomWaitsForItsNewAssetsVerdictsBeforePublishingTriggers() {
+        UUID newAsset = UUID.randomUUID();
+        givenRow(true, List.of(newAsset));
+        givenCbom();
+        CryptoAsset asset = asset(newAsset);
+        asset.setPqcVerdict(null);
+        when(assets.findSourcedAssets(List.of(newAsset))).thenReturn(List.of(asset));
+
+        dispatcher.dispatchCbom(cbomUuid);
+
+        verify(producer, never()).produceMessage(any());
+        verify(writer).release(eq(cbomUuid), any());
+        verify(writer, never()).deleteIfUnchanged(any(), anyLong(), any());
+    }
+
+    @Test
+    void anOldVerdictAlsoKeepsTheEventPendingUntilTheCurrentRulesEvaluateIt() {
+        UUID newAsset = UUID.randomUUID();
+        givenRow(true, List.of(newAsset));
+        givenCbom();
+        CryptoAsset asset = asset(newAsset);
+        asset.setPqcRulesetVersion(PqcRuleset.VERSION - 1);
+        when(assets.findSourcedAssets(List.of(newAsset))).thenReturn(List.of(asset));
+
+        dispatcher.dispatchCbom(cbomUuid);
+
+        verify(producer, never()).produceMessage(any());
+        verify(writer).release(eq(cbomUuid), any());
+    }
+
+    @Test
+    void aVerdictPredatingTheAssetMergeKeepsTheEventPending() {
+        UUID newAsset = UUID.randomUUID();
+        givenRow(true, List.of(newAsset));
+        givenCbom();
+        CryptoAsset asset = asset(newAsset);
+        asset.setUpdated(asset.getPqcEvaluatedAt().plusSeconds(1));
+        when(assets.findSourcedAssets(List.of(newAsset))).thenReturn(List.of(asset));
 
         dispatcher.dispatchCbom(cbomUuid);
 
@@ -174,6 +223,11 @@ class InventoryEventOutboxDispatcherTest {
     private static CryptoAsset asset(UUID uuid) {
         CryptoAsset asset = new CryptoAsset();
         asset.setUuid(uuid);
+        asset.setPqcVerdict(PqcVerdict.READY);
+        asset.setPqcRulesetVersion(PqcRuleset.VERSION);
+        OffsetDateTime now = OffsetDateTime.now();
+        asset.setUpdated(now);
+        asset.setPqcEvaluatedAt(now);
         return asset;
     }
 }
