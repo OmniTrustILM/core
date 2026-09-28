@@ -5,6 +5,7 @@ import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
 import com.otilm.core.config.http.PlatformHttpClients;
+import com.otilm.core.logging.LogRedaction;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.settings.SettingsCache;
 import java.io.IOException;
@@ -95,15 +96,15 @@ public class OAuth2Util {
         try {
             tokenAudiences = SignedJWT.parse(accessToken.getTokenValue()).getJWTClaimsSet().getAudience();
         } catch (ParseException e) {
-            throw new PlatformAuthenticationException(
-                    "Could not parse JWT Access Token to validate audiences " + accessToken.getTokenValue());
+            throw new PlatformAuthenticationException("Could not parse JWT Access Token to validate audiences "
+                    + LogRedaction.token(accessToken.getTokenValue()));
         }
 
         if (!(clientAudiences == null || clientAudiences.isEmpty()
                 || tokenAudiences != null && tokenAudiences.stream().anyMatch(clientAudiences::contains))) {
             String errorMessage = "User was not authenticated: audiences %s in access token issued by OAuth2 Provider %s do not match any of audiences %s set for the provider in settings. Token: %s"
                     .formatted(StringUtils.join(tokenAudiences), providerSettings.getName(),
-                            StringUtils.join(clientAudiences), accessToken.getTokenValue());
+                            StringUtils.join(clientAudiences), LogRedaction.token(accessToken.getTokenValue()));
             throw new PlatformAuthenticationException(errorMessage);
         }
 
@@ -259,7 +260,7 @@ public class OAuth2Util {
             accessTokenClaims = SignedJWT.parse(accessTokenValue).getJWTClaimsSet().getClaims();
         } catch (ParseException e) {
             String message = "Could not convert access token to JWT and extract claims. Reason: %s Token: %s"
-                    .formatted(e.getMessage(), accessTokenValue);
+                    .formatted(e.getMessage(), LogRedaction.token(accessTokenValue));
             throw new PlatformAuthenticationException(message);
         }
 
