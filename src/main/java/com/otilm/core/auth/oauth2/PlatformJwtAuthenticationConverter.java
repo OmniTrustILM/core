@@ -3,6 +3,7 @@ package com.otilm.core.auth.oauth2;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.logging.enums.OperationResult;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
+import com.otilm.core.logging.LogRedaction;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
 import com.otilm.core.security.authn.PlatformUserDetails;
@@ -59,7 +60,7 @@ public class PlatformJwtAuthenticationConverter implements Converter<Jwt, Abstra
         } catch (PlatformAuthenticationException e) {
             auditLogService
                     .logAuthentication(Operation.AUTHENTICATION, OperationResult.FAILURE, e.getMessage(),
-                            source.getTokenValue());
+                            LogRedaction.token(source.getTokenValue()));
             throw e;
         }
 
