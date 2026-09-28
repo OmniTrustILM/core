@@ -34,6 +34,7 @@ import com.otilm.core.dao.entity.Secret;
 import com.otilm.core.dao.entity.SecretVersion;
 import com.otilm.core.dao.entity.VaultInstance;
 import com.otilm.core.dao.entity.VaultProfile;
+import com.otilm.core.dao.repository.AttributeDefinitionRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.GroupRepository;
@@ -49,6 +50,7 @@ import com.otilm.core.service.SecretExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.SqlCapture;
 import com.otilm.core.util.SqlShape;
+import java.nio.charset.StandardCharsets;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
@@ -112,6 +114,9 @@ class AttributeColumnSortITest extends BaseSpringBootTest {
 
     @Autowired
     private ConnectorRepository connectorRepository;
+
+    @Autowired
+    private AttributeDefinitionRepository attributeDefinitionRepository;
 
     private UUID definitionUuid;
 
@@ -316,21 +321,37 @@ class AttributeColumnSortITest extends BaseSpringBootTest {
     }
 
     /**
-     * Two connectors can register metadata under one name; the field collapses them, and so does its key: the smallest
-     * value across both definitions ascending. The older discovery holds the smaller value, so the order is not the
-     * newest-first order a listing falls back to.
+     * Two connectors can register metadata under one name; the field collapses them, and so does its key: an object
+     * holding a value under each definition sorts by the smallest of them ascending and the largest descending. Each
+     * object keeps its larger value under the definition whose uuid sorts first, so a key that read only that
+     * definition, or the first value in definition order, would order these objects differently in both directions.
      */
     @Test
-    void metadataSharedByTwoDefinitionsSortsOnTheSmallestValueAcrossBoth() throws Exception {
-        Discovery fromFirst = seedDiscovery("first-connector-bravo");
-        Discovery fromSecond = seedDiscovery("second-connector-yankee");
-        storeRegion(newConnector("region-connector-1"), fromFirst.getUuid(), "bravo");
-        storeRegion(newConnector("region-connector-2"), fromSecond.getUuid(), "yankee");
+    void metadataSharedByTwoDefinitionsSortsAcrossBoth() throws Exception {
+        Connector first = newConnector("region-connector-1");
+        Connector second = newConnector("region-connector-2");
+        // Both definitions exist before any value is placed, because which one sorts first is known only then.
+        Discovery middle = seedDiscovery("middle");
+        storeRegion(first, middle.getUuid(), "mike");
+        storeRegion(second, middle.getUuid(), "mike");
+        boolean firstSortsFirst = regionDefinition(first).toString().compareTo(regionDefinition(second).toString()) < 0;
+        Connector sortsFirst = firstSortsFirst ? first : second;
+        Connector sortsLast = firstSortsFirst ? second : first;
 
+        Discovery mixed = seedDiscovery("mixed");
+        storeRegion(sortsFirst, mixed.getUuid(), "yankee");
+        storeRegion(sortsLast, mixed.getUuid(), "bravo");
+        Discovery spread = seedDiscovery("spread");
+        storeRegion(sortsFirst, spread.getUuid(), "alpha");
+        storeRegion(sortsLast, spread.getUuid(), "zulu");
+
+        String region = "region|" + AttributeContentType.STRING.name();
         Assertions
-                .assertEquals(List.of("first-connector-bravo", "second-connector-yankee"),
-                        listNamesSortedBy(FilterFieldSource.META, "region|" + AttributeContentType.STRING.name(),
-                                SortDirection.ASC).subList(0, 2));
+                .assertEquals(List.of("spread", "mixed", "middle"),
+                        listNamesSortedBy(FilterFieldSource.META, region, SortDirection.ASC).subList(0, 3));
+        Assertions
+                .assertEquals(List.of("spread", "mixed", "middle"),
+                        listNamesSortedBy(FilterFieldSource.META, region, SortDirection.DESC).subList(0, 3));
     }
 
     /**
@@ -398,7 +419,8 @@ class AttributeColumnSortITest extends BaseSpringBootTest {
 
     private void storeRegion(Connector connector, UUID discoveryUuid, String value) throws Exception {
         MetadataAttributeV3 meta = new MetadataAttributeV3();
-        meta.setUuid(UUID.randomUUID().toString());
+        // One definition per connector: the metadata write resolves the definition by its uuid.
+        meta.setUuid(regionAttributeUuid(connector).toString());
         meta.setName("region");
         meta.setType(AttributeType.META);
         meta.setContentType(AttributeContentType.STRING);
@@ -414,6 +436,18 @@ class AttributeColumnSortITest extends BaseSpringBootTest {
                                 .builder(Resource.DISCOVERY, discoveryUuid)
                                 .connector(connector.getUuid())
                                 .build());
+    }
+
+    private static UUID regionAttributeUuid(Connector connector) {
+        return UUID.nameUUIDFromBytes(("region-" + connector.getName()).getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** The uuid of the definition a connector's region values are stored under, which decides definition order. */
+    private UUID regionDefinition(Connector connector) {
+        return attributeDefinitionRepository
+                .findByConnectorUuidAndAttributeUuid(connector.getUuid(), regionAttributeUuid(connector))
+                .orElseThrow()
+                .getUuid();
     }
 
     /**
