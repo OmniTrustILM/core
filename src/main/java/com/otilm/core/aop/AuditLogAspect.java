@@ -14,6 +14,7 @@ import com.otilm.api.model.core.logging.records.ResourceRecord;
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.logging.LoggingSettingsDto;
 import com.otilm.core.logging.AuditLogEnhancer;
+import com.otilm.core.logging.LogRedaction;
 import com.otilm.core.logging.LogResource;
 import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.messaging.jms.producers.AuditLogsProducer;
@@ -310,7 +311,7 @@ public class AuditLogAspect {
                     if (parameterValue instanceof Optional<?> optional) {
                         parameterValue = optional.orElse(null);
                     }
-                    data.put(parameterName, parameterValue);
+                    data.put(parameterName, LogRedaction.data(parameterValue));
                 }
             }
         }

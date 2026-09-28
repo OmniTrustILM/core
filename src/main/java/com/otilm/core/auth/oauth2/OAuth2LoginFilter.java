@@ -6,6 +6,7 @@ import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.logging.enums.OperationResult;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
+import com.otilm.core.logging.LogRedaction;
 import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
@@ -111,11 +112,12 @@ public class OAuth2LoginFilter extends OncePerRequestFilter {
                     oauth2AccessToken = authorizedClient.getAccessToken();
                 } catch (ClientAuthorizationException | PlatformAuthenticationException e) {
                     request.getSession().invalidate();
+                    String recordedToken = LogRedaction.token(oauth2AccessToken.getTokenValue());
                     String message = ("Could not refresh token: %s for access token : %s")
-                            .formatted(e.getMessage(), oauth2AccessToken.getTokenValue());
+                            .formatted(e.getMessage(), recordedToken);
                     auditLogService
                             .logAuthentication(Operation.AUTHENTICATION, OperationResult.FAILURE, message,
-                                    oauth2AccessToken.getTokenValue());
+                                    recordedToken);
                     logger.error(e.getMessage());
                     response.sendError(HttpServletResponse.SC_UNAUTHORIZED, e.getMessage());
                     return;
@@ -126,7 +128,7 @@ public class OAuth2LoginFilter extends OncePerRequestFilter {
                     request.getSession().invalidate();
                     auditLogService
                             .logAuthentication(Operation.AUTHENTICATION, OperationResult.FAILURE, e.getMessage(),
-                                    oauth2AccessToken.getTokenValue());
+                                    LogRedaction.token(oauth2AccessToken.getTokenValue()));
                     logger.error(e.getMessage());
                     response.sendError(HttpServletResponse.SC_UNAUTHORIZED, e.getMessage());
                     return;
@@ -142,7 +144,7 @@ public class OAuth2LoginFilter extends OncePerRequestFilter {
                 request.getSession().invalidate();
                 auditLogService
                         .logAuthentication(Operation.AUTHENTICATION, OperationResult.FAILURE, e.getMessage(),
-                                authorizedClient.getAccessToken().getTokenValue());
+                                LogRedaction.token(authorizedClient.getAccessToken().getTokenValue()));
                 logger.error(e.getMessage());
                 response.sendError(HttpServletResponse.SC_UNAUTHORIZED, e.getMessage());
                 return;
@@ -225,7 +227,7 @@ public class OAuth2LoginFilter extends OncePerRequestFilter {
                     .formatted(clientRegistrationId);
             auditLogService
                     .logAuthentication(Operation.AUTHENTICATION, OperationResult.FAILURE, message,
-                            oauth2AccessToken.getTokenValue());
+                            LogRedaction.token(oauth2AccessToken.getTokenValue()));
             throw new PlatformAuthenticationException(message);
         }
         return providerSettings;
