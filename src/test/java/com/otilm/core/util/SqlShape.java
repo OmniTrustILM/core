@@ -9,7 +9,8 @@ import java.util.regex.Pattern;
  */
 public final class SqlShape {
 
-    private static final Pattern GROUP_BY_ROOT_UUID = Pattern.compile("group by \\w+\\.uuid\\b");
+    /** A row limit that closes a parenthesised subquery; the page's own window ends the statement instead. */
+    private static final Pattern SUBQUERY_ROW_LIMIT = Pattern.compile("fetch first (\\?|\\d+) rows only\\)");
 
     private SqlShape() {
     }
@@ -32,18 +33,25 @@ public final class SqlShape {
                 .orElseThrow(() -> new AssertionError("no count statement among " + statements));
     }
 
-    /** Whether the outer query groups by the root's uuid. A derived table grouping by its own column does not count. */
+    /**
+     * Whether the outer query groups by the root's uuid, the only grouping these listings apply. Hibernate may render
+     * the grouping by select-list position ({@code group by 1}), so any GROUP BY outside parentheses counts; a derived
+     * table or a subquery grouping its own rows does not.
+     */
     public static boolean groupsByRootUuid(String sql) {
-        return GROUP_BY_ROOT_UUID.matcher(sql).find();
+        return outerQuery(sql).contains(" group by ");
     }
 
     public static boolean hasDerivedJoin(String sql) {
         return sql.contains("join (select");
     }
 
-    /** Whether a sort key is still a scalar subquery fetching the first row, the per-row form. */
+    /**
+     * Whether a sort key is still a scalar subquery fetching the first row, the per-row form. The limit is rendered as
+     * a bind parameter, so either form of it counts.
+     */
     public static boolean hasScalarSortSubquery(String sql) {
-        return sql.contains("fetch first 1 rows only");
+        return SUBQUERY_ROW_LIMIT.matcher(sql).find();
     }
 
     /** Whether {@code table} is joined into the statement, as opposed to read inside an EXISTS subquery. */
@@ -53,5 +61,21 @@ public final class SqlShape {
 
     public static boolean countsDistinct(String sql) {
         return sql.startsWith("select count(distinct");
+    }
+
+    /** The statement without its parenthesised parts: what the outer query alone says. */
+    private static String outerQuery(String sql) {
+        StringBuilder outer = new StringBuilder();
+        int depth = 0;
+        for (char c : sql.toCharArray()) {
+            if (c == '(') {
+                depth++;
+            } else if (c == ')') {
+                depth--;
+            } else if (depth == 0) {
+                outer.append(c);
+            }
+        }
+        return outer.toString();
     }
 }
