@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -62,5 +63,20 @@ class CryptographicKeyItemOperationRowTest {
         assertTrue(model.hasConnectorInterface());
         assertEquals(ConnectorInterface.CRYPTOGRAPHY, model.connectorInterfaceCode());
         assertEquals("v2", model.connectorInterfaceVersion());
+    }
+
+    @Test
+    void toString_leavesTheKeyDataOut() {
+        // given
+        UUID keyItemUuid = UUID.randomUUID();
+        CryptographicKeyItemOperationRow row = new CryptographicKeyItemOperationRow(keyItemUuid, true, KeyAlgorithm.RSA,
+                KeyState.ACTIVE, KeyType.PRIVATE_KEY, 0, "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC", null, null,
+                UUID.randomUUID(), UUID.randomUUID(), null, null, null);
+
+        // when
+        String text = row.toString();
+
+        // then
+        assertThat(text).contains(keyItemUuid.toString()).doesNotContain("MIIEvQIBADANBgkqhkiG9w0BAQEFAASC");
     }
 }

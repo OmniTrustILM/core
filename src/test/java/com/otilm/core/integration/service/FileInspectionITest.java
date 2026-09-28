@@ -1,10 +1,5 @@
 package com.otilm.core.integration.service;
 
-import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.Logger;
-import ch.qos.logback.classic.spi.ILoggingEvent;
-import ch.qos.logback.classic.spi.ThrowableProxyUtil;
-import ch.qos.logback.core.read.ListAppender;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.core.web.InspectionController;
@@ -39,6 +34,7 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.SettingExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.SecretLeakProbe;
 import com.otilm.core.util.mocks.CryptographyProviderV2ConnectorMock;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
@@ -49,7 +45,6 @@ import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.UUID;
 import org.bouncycastle.cert.X509CertificateHolder;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
@@ -62,7 +57,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.security.access.AccessDeniedException;
@@ -388,30 +382,16 @@ class FileInspectionITest extends BaseSpringBootTest {
         InspectionRequestDto opened = request(file, ContainerFixtures.PASSPHRASE, profileUuid);
         InspectionRequestDto refused = request(file, wrongPassphrase, profileUuid);
         List<String> seen = new ArrayList<>();
-        ListAppender<ILoggingEvent> logs = new ListAppender<>();
-        Logger root = (Logger) LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
-        Logger platform = (Logger) LoggerFactory.getLogger("com.otilm");
-        Level platformLevel = platform.getLevel();
-        logs.start();
-        root.addAppender(logs);
-        platform.setLevel(Level.DEBUG);
 
         // when
-        try {
+        SecretLeakProbe probe = SecretLeakProbe.capture();
+        try (probe) {
             seen.add(ObjectMapperFactory.wire().writeValueAsString(inspectionController.inspect(opened)));
             seen.add(assertThrows(ValidationException.class, () -> inspectionController.inspect(refused)).getMessage());
-        } finally {
-            platform.setLevel(platformLevel);
-            root.detachAppender(logs);
         }
 
         // then
-        for (ILoggingEvent event : logs.list) {
-            seen.add(event.getFormattedMessage());
-            if (event.getThrowableProxy() != null) {
-                seen.add(ThrowableProxyUtil.asString(event.getThrowableProxy()));
-            }
-        }
+        seen.addAll(probe.logged());
         List<LogRecord> auditRecords = auditRecords();
         assertThat(auditRecords).hasSize(2);
         for (LogRecord auditRecord : auditRecords) {
@@ -423,7 +403,7 @@ class FileInspectionITest extends BaseSpringBootTest {
                         Base64.getEncoder().encodeToString(protectedKey.getContent()),
                         Base64.getEncoder().encodeToString(key.getPrivate().getEncoded()),
                         HexFormat.of().formatHex(key.getPrivate().getEncoded()));
-        assertThat(seen).filteredOn(Objects::nonNull).allSatisfy(text -> assertThat(text).doesNotContain(secrets));
+        SecretLeakProbe.assertNoneReveals(seen, secrets.toArray(new String[0]));
         assertThat(opened.getFile().length()).isZero();
         assertThat(opened.getPassphrase().characters()).isEmpty();
         assertThat(refused.getFile().length()).isZero();

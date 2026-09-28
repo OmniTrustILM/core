@@ -1,10 +1,5 @@
 package com.otilm.core.integration.service;
 
-import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.Logger;
-import ch.qos.logback.classic.spi.ILoggingEvent;
-import ch.qos.logback.classic.spi.ThrowableProxyUtil;
-import ch.qos.logback.core.read.ListAppender;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.core.web.CertificateController;
@@ -62,6 +57,7 @@ import com.otilm.core.service.SettingExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.ExportEnvelopeFixtures;
+import com.otilm.core.util.SecretLeakProbe;
 import com.otilm.core.util.builders.CertificateBuilder;
 import com.otilm.core.util.mocks.CryptographyProviderV2ConnectorMock;
 import java.io.ByteArrayInputStream;
@@ -84,7 +80,6 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
-import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import org.bouncycastle.cert.X509CertificateHolder;
@@ -96,7 +91,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
@@ -434,36 +428,21 @@ class CertificateKeystoreITest extends BaseSpringBootTest {
         UUID leafUuid = leaf.getUuid();
         CertificateKeystoreRequestDto refusedRequest = request(PASSPHRASE);
         List<String> seen = new ArrayList<>();
-        ListAppender<ILoggingEvent> logs = new ListAppender<>();
-        Logger root = (Logger) LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
-        Logger platform = (Logger) LoggerFactory.getLogger("com.otilm");
-        Level platformLevel = platform.getLevel();
-        logs.start();
-        root.addAppender(logs);
-        platform.setLevel(Level.DEBUG);
 
         // when
-        try {
+        SecretLeakProbe probe = SecretLeakProbe.capture();
+        try (probe) {
             var download = certificateController.downloadKeystore(leafUuid, request(PASSPHRASE));
             download.getHeaders().forEach((name, values) -> seen.addAll(values));
             connectorMock.stubExportKeyProblem(ErrorCode.KEY_NOT_EXPORTABLE, "refused for " + PASSPHRASE);
             seen
                     .add(assertThrows(ValidationException.class,
                             () -> certificateController.downloadKeystore(leafUuid, refusedRequest)).getMessage());
-        } finally {
-            platform.setLevel(platformLevel);
-            root.detachAppender(logs);
         }
 
         // then
-        for (ILoggingEvent event : logs.list) {
-            seen.add(event.getFormattedMessage());
-            if (event.getThrowableProxy() != null) {
-                seen.add(ThrowableProxyUtil.asString(event.getThrowableProxy()));
-            }
-        }
-        List<String> auditRecords = jdbcTemplate
-                .queryForList("SELECT row_to_json(audit_log)::text FROM audit_log", String.class);
+        seen.addAll(probe.logged());
+        List<String> auditRecords = SecretLeakProbe.auditRecords(jdbcTemplate);
         assertThat(auditRecords)
                 .as("the verbose records leave the sensitive request out")
                 .noneMatch(auditRecord -> auditRecord.contains("exportAttributes"));
@@ -479,7 +458,7 @@ class CertificateKeystoreITest extends BaseSpringBootTest {
         assertThat(auditLogRepository.count()).isEqualTo(2);
         assertThat(downloadEvents()).hasSize(1);
         assertThat(exportEvents()).hasSize(2);
-        assertThat(seen).filteredOn(Objects::nonNull).allSatisfy(text -> assertThat(text).doesNotContain(PASSPHRASE));
+        SecretLeakProbe.assertNoneReveals(seen, PASSPHRASE);
     }
 
     @Test

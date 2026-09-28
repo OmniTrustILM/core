@@ -1,10 +1,5 @@
 package com.otilm.core.integration.service;
 
-import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.Logger;
-import ch.qos.logback.classic.spi.ILoggingEvent;
-import ch.qos.logback.classic.spi.ThrowableProxyUtil;
-import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.core.web.CertificateController;
@@ -67,6 +62,7 @@ import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.CertificateUploadService;
 import com.otilm.core.service.SettingExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.SecretLeakProbe;
 import com.otilm.core.util.mocks.CryptographyProviderV2ConnectorMock;
 import com.otilm.core.util.seeders.CertificateUploadTriggerSeeder;
 import java.io.IOException;
@@ -86,7 +82,6 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -105,7 +100,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -772,34 +766,20 @@ class CertificateImportITest extends BaseSpringBootTest {
         }
         secrets.addAll(heldKeys(pkcs12, PASSPHRASE));
         List<String> seen = new ArrayList<>();
-        ListAppender<ILoggingEvent> logs = new ListAppender<>();
-        Logger root = (Logger) LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
-        Logger platform = (Logger) LoggerFactory.getLogger("com.otilm");
-        Level platformLevel = platform.getLevel();
-        logs.start();
-        root.addAppender(logs);
-        platform.setLevel(Level.DEBUG);
 
         // when
-        try {
+        SecretLeakProbe probe = SecretLeakProbe.capture();
+        try (probe) {
             seen
                     .add(ObjectMapperFactory
                             .wire()
                             .writeValueAsString(certificateController.importCertificates(importing)));
             seen.add(assertThrows(ValidationException.class, () -> importCertificates(unreadable)).getMessage());
             seen.add(ObjectMapperFactory.wire().writeValueAsString(certificateController.importCertificates(refused)));
-        } finally {
-            platform.setLevel(platformLevel);
-            root.detachAppender(logs);
         }
 
         // then
-        for (ILoggingEvent event : logs.list) {
-            seen.add(event.getFormattedMessage());
-            if (event.getThrowableProxy() != null) {
-                seen.add(ThrowableProxyUtil.asString(event.getThrowableProxy()));
-            }
-        }
+        seen.addAll(probe.logged());
         seen
                 .addAll(jdbcTemplate
                         .queryForList("SELECT coalesce(message, '') || log_record::text FROM audit_log", String.class));
@@ -824,7 +804,7 @@ class CertificateImportITest extends BaseSpringBootTest {
         }
         assertThat(auditLogRepository.count()).isEqualTo(3);
         assertThat(connectorMock.importKeyRequestBodies()).hasSize(3);
-        assertThat(seen).filteredOn(Objects::nonNull).allSatisfy(text -> assertThat(text).doesNotContain(secrets));
+        SecretLeakProbe.assertNoneReveals(seen, secrets.toArray(new String[0]));
         for (CertificateImportRequestDto request : List.of(importing, unreadable, refused)) {
             assertThat(request.getFile().length()).isZero();
             assertThat(request.getPassphrase().characters()).isEmpty();

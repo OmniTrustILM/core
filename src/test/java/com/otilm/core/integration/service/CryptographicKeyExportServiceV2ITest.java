@@ -1,10 +1,5 @@
 package com.otilm.core.integration.service;
 
-import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.Logger;
-import ch.qos.logback.classic.spi.ILoggingEvent;
-import ch.qos.logback.classic.spi.ThrowableProxyUtil;
-import ch.qos.logback.core.read.ListAppender;
 import com.otilm.api.exception.ConnectorProblemException;
 import com.otilm.api.exception.ConnectorServerException;
 import com.otilm.api.exception.NotFoundException;
@@ -71,6 +66,7 @@ import com.otilm.core.service.SettingExternalService;
 import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.ExportEnvelopeFixtures;
+import com.otilm.core.util.SecretLeakProbe;
 import com.otilm.core.util.mocks.ConnectorMockFactory;
 import com.otilm.core.util.mocks.CryptographyProviderV2ConnectorMock;
 import java.nio.charset.StandardCharsets;
@@ -81,7 +77,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
-import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
@@ -95,7 +90,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpStatus;
@@ -498,16 +492,10 @@ class CryptographicKeyExportServiceV2ITest extends BaseSpringBootTest {
         String keyUuid = key.getUuid().toString();
         String itemUuid = privateKey.getUuid().toString();
         List<String> seen = new ArrayList<>();
-        ListAppender<ILoggingEvent> logs = new ListAppender<>();
-        Logger root = (Logger) LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
-        Logger platform = (Logger) LoggerFactory.getLogger("com.otilm");
-        Level platformLevel = platform.getLevel();
-        logs.start();
-        root.addAppender(logs);
-        platform.setLevel(Level.DEBUG);
 
         // when
-        try {
+        SecretLeakProbe probe = SecretLeakProbe.capture();
+        try (probe) {
             connectorMock
                     .stubExportKey(exportAnswer(ExportEnvelopeFixtures.pinnedEnvelope(pair.getPrivate(), PASSPHRASE)));
             seen
@@ -523,18 +511,10 @@ class CryptographicKeyExportServiceV2ITest extends BaseSpringBootTest {
             seen.add(refusalOf(ConnectorServerException.class, keyUuid, itemUuid));
             connectorMock.stubExportKey(echoingAnswer(passphrase));
             seen.add(refusalOf(OutboundSecretLeakException.class, keyUuid, itemUuid));
-        } finally {
-            platform.setLevel(platformLevel);
-            root.detachAppender(logs);
         }
 
         // then
-        for (ILoggingEvent event : logs.list) {
-            seen.add(event.getFormattedMessage());
-            if (event.getThrowableProxy() != null) {
-                seen.add(ThrowableProxyUtil.asString(event.getThrowableProxy()));
-            }
-        }
+        seen.addAll(probe.logged());
         List<String> auditRecords = jdbcTemplate
                 .queryForList("SELECT coalesce(message, '') || log_record::text FROM audit_log", String.class);
         assertTrue(auditRecords.stream().anyMatch(auditRecord -> auditRecord.contains("exportAttributes")),
@@ -546,7 +526,7 @@ class CryptographicKeyExportServiceV2ITest extends BaseSpringBootTest {
         }
         assertEquals(5, exportEvents().size());
         assertEquals(5, auditRecords.size());
-        assertTrue(seen.stream().filter(Objects::nonNull).noneMatch(text -> text.contains(passphrase)));
+        SecretLeakProbe.assertNoneReveals(seen, passphrase);
     }
 
     @Test

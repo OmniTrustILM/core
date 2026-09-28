@@ -1,10 +1,5 @@
 package com.otilm.core.integration.service;
 
-import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.Logger;
-import ch.qos.logback.classic.spi.ILoggingEvent;
-import ch.qos.logback.classic.spi.ThrowableProxyUtil;
-import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.otilm.api.exception.ConnectorServerException;
 import com.otilm.api.exception.NotFoundException;
@@ -83,6 +78,7 @@ import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CryptographyUtil;
 import com.otilm.core.util.ExportEnvelopeFixtures;
+import com.otilm.core.util.SecretLeakProbe;
 import com.otilm.core.util.mocks.CryptographyProviderV2ConnectorMock;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -91,7 +87,6 @@ import java.security.spec.ECGenParameterSpec;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
-import java.util.Objects;
 import java.util.UUID;
 import javax.crypto.KeyGenerator;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
@@ -104,7 +99,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -769,16 +763,10 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
         String tokenUuid = token.getUuid().toString();
         String profileUuid = profile.getUuid().toString();
         List<String> seen = new ArrayList<>();
-        ListAppender<ILoggingEvent> logs = new ListAppender<>();
-        Logger root = (Logger) LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
-        Logger platform = (Logger) LoggerFactory.getLogger("com.otilm");
-        Level platformLevel = platform.getLevel();
-        logs.start();
-        root.addAppender(logs);
-        platform.setLevel(Level.DEBUG);
 
         // when
-        try {
+        SecretLeakProbe probe = SecretLeakProbe.capture();
+        try (probe) {
             connectorMock.stubImportKeyProblem(ErrorCode.KEY_DECRYPTION_FAILED, "refused " + new String(PASSPHRASE));
             seen.add(failureOf(tokenUuid, profileUuid, request("refused", file, PASSPHRASE)));
             connectorMock.stubImportKeyProblem(ErrorCode.INTERNAL_SERVER_ERROR, "failed " + new String(PASSPHRASE));
@@ -808,18 +796,10 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
             seen
                     .add(failureOf(tokenUuid, profileUuid,
                             request("cancelled", cancelled.getPrivate().getEncoded(), null)));
-        } finally {
-            platform.setLevel(platformLevel);
-            root.detachAppender(logs);
         }
 
         // then
-        for (ILoggingEvent event : logs.list) {
-            seen.add(event.getFormattedMessage());
-            if (event.getThrowableProxy() != null) {
-                seen.add(ThrowableProxyUtil.asString(event.getThrowableProxy()));
-            }
-        }
+        seen.addAll(probe.logged());
         seen
                 .addAll(jdbcTemplate
                         .queryForList("SELECT coalesce(message, '') || log_record::text FROM audit_log", String.class));
@@ -837,7 +817,7 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
             secrets.add(sent.get("material").get("encryptedPrivateKeyInfo").asText());
         }
         assertThat(importRequests()).hasSize(5);
-        assertThat(seen).filteredOn(Objects::nonNull).allSatisfy(text -> assertThat(text).doesNotContain(secrets));
+        SecretLeakProbe.assertNoneReveals(seen, secrets.toArray(new String[0]));
     }
 
     /** A repeat changes nothing, so the custom attributes the key has now stay, whatever the repeat states. */
