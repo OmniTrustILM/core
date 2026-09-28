@@ -1,5 +1,8 @@
 package com.otilm.core.auth.oauth2;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.MACSigner;
@@ -23,6 +26,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.LoggerFactory;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -41,6 +45,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -55,6 +60,8 @@ class OAuth2LoginFilterTest {
             PlatformClientRegistrationRepository.class);
     private final OAuth2AuthorizedClientProvider authorizedClientProvider = mock(OAuth2AuthorizedClientProvider.class);
     private final OAuth2LoginFilter filter = new OAuth2LoginFilter();
+    private final Logger filterLogger = (Logger) LoggerFactory.getLogger(OAuth2LoginFilter.class);
+    private final ListAppender<ILoggingEvent> logged = new ListAppender<>();
     private AuthenticationSettingsDto previousSettings;
     private String accessToken;
     private String unsignedAccessToken;
@@ -65,6 +72,8 @@ class OAuth2LoginFilterTest {
         filter.setAuditLogService(auditLogService);
         filter.setClientRegistrationRepository(clientRegistrationRepository);
         filter.setAuthorizedClientProvider(authorizedClientProvider);
+        logged.start();
+        filterLogger.addAppender(logged);
         previousSettings = SettingsCache.getSettings(SettingsSection.AUTHENTICATION);
         DefaultOAuth2User user = new DefaultOAuth2User(List.of(), Map.of("sub", "alice"), "sub");
         SecurityContextHolder
@@ -81,6 +90,7 @@ class OAuth2LoginFilterTest {
 
     @AfterEach
     void restore() {
+        filterLogger.detachAppender(logged);
         new SettingsCache().cacheSettings(SettingsSection.AUTHENTICATION, previousSettings);
         SecurityContextHolder.clearContext();
     }
@@ -104,30 +114,51 @@ class OAuth2LoginFilterTest {
 
     @Test
     void aFailedRefresh_isRecordedWithoutTheAccessTokensSignature() throws Exception {
-        // given - the access token has expired and the provider refuses to refresh it
-        AuthenticationSettingsDto settings = new AuthenticationSettingsDto();
-        settings.getOAuth2Providers().put(REGISTRATION_ID, new OAuth2ProviderSettingsDto());
-        new SettingsCache().cacheSettings(SettingsSection.AUTHENTICATION, settings);
-        when(clientRegistrationRepository.findByRegistrationId(REGISTRATION_ID)).thenReturn(clientRegistration());
-        when(authorizedClientProvider.authorize(any()))
-                .thenThrow(new ClientAuthorizationException(new OAuth2Error("invalid_grant"), REGISTRATION_ID));
-        MockHttpServletRequest request = requestHolding(Instant.now().minusSeconds(60));
-        request
-                .getSession()
-                .setAttribute(OAuth2Constants.REFRESH_TOKEN_SESSION_ATTRIBUTE,
-                        new OAuth2RefreshToken("refresh-token-value", Instant.now().minusSeconds(3600)));
-        MockHttpServletResponse response = new MockHttpServletResponse();
-        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
-
-        // when
-        filter.doFilter(request, response, mock(FilterChain.class));
+        // when - the access token has expired and the provider refuses to refresh it
+        MockHttpServletResponse response = refreshRefusedWith(new OAuth2Error("invalid_grant"));
 
         // then
+        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
         verify(auditLogService)
                 .logAuthentication(eq(Operation.AUTHENTICATION), eq(OperationResult.FAILURE), message.capture(),
                         eq(unsignedAccessToken));
         assertThat(message.getValue()).contains(unsignedAccessToken).doesNotContain(signature);
         assertThat(response.getStatus()).isEqualTo(401);
+    }
+
+    @Test
+    void aFailedRefresh_isRecordedLoggedAndAnsweredWithOnlyTheProvidersErrorCode() throws Exception {
+        // when - the provider's error description echoes the refresh request, refresh token included
+        MockHttpServletResponse response = refreshRefusedWith(
+                new OAuth2Error("invalid_grant", "grant_type=refresh_token&refresh_token=refresh-token-value", null));
+
+        // then
+        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+        verify(auditLogService)
+                .logAuthentication(eq(Operation.AUTHENTICATION), eq(OperationResult.FAILURE), message.capture(),
+                        eq(unsignedAccessToken));
+        assertThat(message.getValue()).contains("invalid_grant").doesNotContain("refresh-token-value");
+        assertThat(logged.list)
+                .extracting(ILoggingEvent::getFormattedMessage)
+                .contains("invalid_grant")
+                .noneMatch(line -> line.contains("refresh-token-value"));
+        assertThat(response.getErrorMessage()).isEqualTo("invalid_grant");
+    }
+
+    @Test
+    void aRefreshWithoutARefreshToken_isRecordedAndAnsweredWithCoresOwnMessage() throws Exception {
+        // given - the access token has expired and the session holds no refresh token
+        configureProvider();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        // when
+        filter.doFilter(requestHolding(Instant.now().minusSeconds(60)), response, mock(FilterChain.class));
+
+        // then
+        verify(auditLogService)
+                .logAuthentication(eq(Operation.AUTHENTICATION), eq(OperationResult.FAILURE),
+                        contains("Refresh token is not available"), eq(unsignedAccessToken));
+        assertThat(response.getErrorMessage()).startsWith("Refresh token is not available");
     }
 
     @Test
@@ -169,6 +200,27 @@ class OAuth2LoginFilterTest {
                 .logAuthentication(eq(Operation.AUTHENTICATION), eq(OperationResult.FAILURE), message.capture(),
                         eq(unsignedToken));
         assertThat(message.getValue()).contains(unsignedToken).doesNotContain(parts[2]);
+    }
+
+    private void configureProvider() {
+        AuthenticationSettingsDto settings = new AuthenticationSettingsDto();
+        settings.getOAuth2Providers().put(REGISTRATION_ID, new OAuth2ProviderSettingsDto());
+        new SettingsCache().cacheSettings(SettingsSection.AUTHENTICATION, settings);
+        when(clientRegistrationRepository.findByRegistrationId(REGISTRATION_ID)).thenReturn(clientRegistration());
+    }
+
+    private MockHttpServletResponse refreshRefusedWith(OAuth2Error error) throws Exception {
+        configureProvider();
+        when(authorizedClientProvider.authorize(any()))
+                .thenThrow(new ClientAuthorizationException(error, REGISTRATION_ID));
+        MockHttpServletRequest request = requestHolding(Instant.now().minusSeconds(60));
+        request
+                .getSession()
+                .setAttribute(OAuth2Constants.REFRESH_TOKEN_SESSION_ATTRIBUTE,
+                        new OAuth2RefreshToken("refresh-token-value", Instant.now().minusSeconds(3600)));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        filter.doFilter(request, response, mock(FilterChain.class));
+        return response;
     }
 
     private MockHttpServletRequest requestHolding(Instant accessTokenExpiry) {

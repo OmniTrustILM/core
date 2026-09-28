@@ -112,14 +112,18 @@ public class OAuth2LoginFilter extends OncePerRequestFilter {
                     oauth2AccessToken = authorizedClient.getAccessToken();
                 } catch (ClientAuthorizationException | PlatformAuthenticationException e) {
                     request.getSession().invalidate();
+                    // The provider's error description is its own text and may echo the refresh request
+                    String reason = e instanceof ClientAuthorizationException clientError
+                            ? clientError.getError().getErrorCode()
+                            : e.getMessage();
                     String recordedToken = LogRedaction.token(oauth2AccessToken.getTokenValue());
                     String message = ("Could not refresh token: %s for access token : %s")
-                            .formatted(e.getMessage(), recordedToken);
+                            .formatted(reason, recordedToken);
                     auditLogService
                             .logAuthentication(Operation.AUTHENTICATION, OperationResult.FAILURE, message,
                                     recordedToken);
-                    logger.error(e.getMessage());
-                    response.sendError(HttpServletResponse.SC_UNAUTHORIZED, e.getMessage());
+                    logger.error(reason);
+                    response.sendError(HttpServletResponse.SC_UNAUTHORIZED, reason);
                     return;
                 }
                 try {
