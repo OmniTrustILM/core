@@ -27,7 +27,6 @@ import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.mapper.crypto.TokenProfileDtoMapper;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.crypto.ImmutableTokenProfileBasicModel;
-import com.otilm.core.model.crypto.ImmutableTokenProfileFullModel;
 import com.otilm.core.model.crypto.ImmutableTokenProfileListModel;
 import com.otilm.core.model.crypto.KeyTypeAlgorithm;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
@@ -45,7 +44,6 @@ import com.otilm.core.service.handler.token.TokenProviderAdapterFactory;
 import com.otilm.core.service.writer.TokenProfileWriter;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -136,23 +134,10 @@ public class TokenProfileServiceImpl implements TokenProfileExternalService, Tok
         return tokenProfileRepository
                 .findWithTokenUsingSecurityFilter(filter, enabled)
                 .stream()
-                .filter(profile -> imports(ImmutableTokenProfileFullModel.from(profile), wanted))
+                .filter(profile -> keyTransferCapabilityService.importsAsRecorded(profile, wanted))
                 .map(ImmutableTokenProfileListModel::from)
                 .map(TokenProfileDtoMapper::mapToDto)
                 .toList();
-    }
-
-    /**
-     * Whether the profile imports every pair, as far as recorded; a declared but unrecorded answer is left to the
-     * import.
-     */
-    private boolean imports(TokenProfileFullModel profile, List<KeyTypeAlgorithm> wanted) {
-        return keyTransferCapabilityService
-                .recordedImportableKeyTypes(profile)
-                .map(recorded -> wanted
-                        .stream()
-                        .allMatch(pair -> recorded.getOrDefault(pair.type(), Set.of()).contains(pair.algorithm())))
-                .orElse(true);
     }
 
     @Override

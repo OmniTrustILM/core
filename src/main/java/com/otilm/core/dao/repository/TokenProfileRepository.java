@@ -98,10 +98,9 @@ public interface TokenProfileRepository extends SecurityFilterRepository<TokenPr
                 .toList();
     }
 
-    /** The profiles with their token instance and its profiles fetched, as a full model reads in one query. */
+    /** The profiles with their token instance's connector interface fetched, as the import filter reads them. */
     default List<TokenProfile> findWithTokenUsingSecurityFilter(SecurityFilter filter, Optional<Boolean> enabled) {
-        List<String> fetch = List
-                .of("tokenInstanceReference.connectorInterface", "tokenInstanceReference.tokenProfiles");
+        List<String> fetch = List.of("tokenInstanceReference.connectorInterface");
         if (enabled.isEmpty()) {
             return findUsingSecurityFilter(filter, fetch, null);
         }
