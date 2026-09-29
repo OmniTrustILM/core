@@ -296,6 +296,19 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
     }
 
     @Test
+    void certificateRuleRejectsExtendedKeyUsageCondition() {
+        certificate.setExtendedKeyUsage("[\"1.3.6.1.5.5.7.3.1\"]");
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setFieldIdentifier(FilterField.EXTENDED_KEY_USAGE.name());
+        condition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        condition.setValue("1.3.6.1.5.5.7.3.1");
+
+        Assertions
+                .assertThrows(RuleException.class, () -> certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+    }
+
+    @Test
     void testCertificateRuleEvaluatorOnKeyAlgorithmProperty() throws RuleException {
         condition.setFieldSource(FilterFieldSource.PROPERTY);
         certificate.setPublicKeyAlgorithm("RSA");

@@ -39,6 +39,7 @@ import com.otilm.core.dao.entity.workflows.TriggerHistory;
 import com.otilm.core.dao.entity.workflows.TriggerHistoryRecord;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.enums.ResourceToClass;
+import com.otilm.core.enums.SearchFieldTypeEnum;
 import com.otilm.core.messaging.model.NotificationMessage;
 import com.otilm.core.service.TriggerInternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
@@ -236,6 +237,9 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
             filterField = Enum.valueOf(FilterField.class, fieldIdentifier);
         } catch (IllegalArgumentException e) {
             throw new RuleException("Field identifier '" + fieldIdentifier + "' is not supported.");
+        }
+        if (filterField.getType() == SearchFieldTypeEnum.EXTENDED_KEY_USAGE_ARRAY) {
+            throw new RuleException("Condition on field '" + filterField.getLabel() + "' is not supported in rules.");
         }
 
         List<Attribute> nestedJoinAttributes = null;

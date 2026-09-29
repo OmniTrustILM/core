@@ -353,6 +353,14 @@ class ResourceServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void certificateRuleFieldsExcludeExtendedKeyUsage() throws NotFoundException {
+        assertThat(resourceService.listResourceRuleFilterFields(Resource.CERTIFICATE, false))
+                .flatExtracting(SearchFieldDataByGroupDto::getSearchFieldData)
+                .extracting(SearchFieldDataDto::getFieldIdentifier)
+                .doesNotContain(FilterField.EXTENDED_KEY_USAGE.name());
+    }
+
+    @Test
     void commentHostResourceOffersOnlyTheCommentableResources() throws NotFoundException {
         assertThat(offeredValues(Resource.COMMENT, FilterField.COMMENT_HOST_RESOURCE))
                 .containsExactlyInAnyOrder(Resource.getCommentableResources().toArray())

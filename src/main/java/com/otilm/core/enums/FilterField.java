@@ -132,6 +132,8 @@ public enum FilterField {
             SearchFieldTypeEnum.LIST),
     KEY_USAGE(Resource.CERTIFICATE, null, null, Certificate_.keyUsage, "Key Usage", SearchFieldTypeEnum.LIST,
             CertificateKeyUsage.class),
+    EXTENDED_KEY_USAGE(Resource.CERTIFICATE, null, null, Certificate_.extendedKeyUsage, "Extended Key Usage",
+            SearchFieldTypeEnum.EXTENDED_KEY_USAGE_ARRAY),
     SUBJECT_TYPE(Resource.CERTIFICATE, null, null, Certificate_.subjectType, "Subject Type", SearchFieldTypeEnum.LIST,
             CertificateSubjectType.class),
     SUBJECT_ALTERNATIVE_NAMES(Resource.CERTIFICATE, null, null, Certificate_.subjectAlternativeNames,
