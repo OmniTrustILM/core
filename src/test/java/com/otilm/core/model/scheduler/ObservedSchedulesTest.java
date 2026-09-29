@@ -6,6 +6,7 @@ import com.otilm.api.model.scheduler.SchedulerResponseDto;
 import com.otilm.api.model.scheduler.SchedulerStatus;
 import com.otilm.api.model.scheduler.SchedulerTriggerState;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -115,6 +116,19 @@ class ObservedSchedulesTest {
 
         assertEquals(ScheduledJobScheduleState.UNKNOWN, schedule.state());
         assertNull(schedule.nextFireTime());
+    }
+
+    /** An entry that names no job cannot be any job's: it is passed over, and the rest of the answer still counts. */
+    @Test
+    void anEntryWithoutAJobIsIgnored() {
+        SchedulerResponseDto response = new SchedulerResponseDto(SchedulerStatus.OK);
+        response.setSchedulerJobList(Arrays.asList(null, live(null), live("job")));
+
+        ObservedSchedules observed = ObservedSchedules.of(response);
+
+        assertTrue(observed.isAvailable());
+        assertEquals(ScheduledJobScheduleState.SCHEDULED, observed.forJob("job").state());
+        assertSame(ObservedSchedule.NOT_SCHEDULED, observed.forJob(null));
     }
 
     @Test

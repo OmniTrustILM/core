@@ -3,6 +3,7 @@ package com.otilm.core.service.impl;
 import com.otilm.api.clients.SchedulerApiClient;
 import com.otilm.api.exception.SchedulerException;
 import com.otilm.api.model.core.scheduler.ScheduledJobDetailDto;
+import com.otilm.api.model.core.scheduler.ScheduledJobScheduleState;
 import com.otilm.core.dao.entity.ScheduledJob;
 import com.otilm.core.dao.repository.ScheduledJobHistoryRepository;
 import com.otilm.core.dao.repository.ScheduledJobsRepository;
@@ -75,6 +76,8 @@ class SchedulerJobRegistrationRaceTest {
 
         assertThat(registered.getUuid()).isEqualTo(winner.getUuid());
         assertThat(registered.getJobName()).isEqualTo(JOB_NAME);
+        // The mocked client answers no body: the winner's detail still carries a state, UNKNOWN.
+        assertThat(registered.getScheduleState()).isEqualTo(ScheduledJobScheduleState.UNKNOWN);
     }
 
     /**

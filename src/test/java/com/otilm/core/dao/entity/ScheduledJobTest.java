@@ -23,7 +23,7 @@ class ScheduledJobTest {
     private static final Instant NEXT = Instant.parse("2026-09-29T12:30:00Z");
     private static final Instant PREVIOUS = Instant.parse("2026-09-29T11:30:00Z");
     private static final Instant STARTED = Instant.parse("2026-09-29T10:30:00Z");
-    private static final Instant SKIPPED = Instant.parse("2026-09-29T11:30:00Z");
+    private static final Instant SKIPPED = Instant.parse("2026-09-29T11:30:07Z");
     private static final ObservedSchedule LIVE = new ObservedSchedule(ScheduledJobScheduleState.SCHEDULED, NEXT,
             PREVIOUS);
 
@@ -54,6 +54,7 @@ class ScheduledJobTest {
         ScheduledJobDto dto = job.mapToDto(null, LIVE);
 
         assertEquals(SKIPPED, dto.getLastSkippedAt());
+        assertEquals(PREVIOUS, dto.getPreviousFireTime());
         assertEquals("No stale cryptographic asset to re-evaluate", dto.getLastSkipReason());
     }
 

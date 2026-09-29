@@ -425,12 +425,15 @@ class SchedulerServiceMockedTest {
         when(scheduledJobHistoryRepository.findTopByScheduledJobUuidOrderByJobExecutionDesc(JOB_UUID))
                 .thenReturn(scheduledJobHistory);
 
+        when(schedulerApiClient.listScheduledJobs()).thenReturn(schedulerHolding(JOB_NAME));
+
         UpdateScheduledJob request = new UpdateScheduledJob();
         request.setCronExpression("0 15 * * * ?");
 
         ScheduledJobDetailDto response = schedulerService.updateScheduledJob(JOB_UUID.toString(), request);
 
         assertNotNull(response);
+        assertEquals(ScheduledJobScheduleState.SCHEDULED, response.getScheduleState());
         assertEquals("0 15 * * * ?", scheduledJob.getCronExpression());
         verify(schedulerApiClient).updateScheduledJob(any());
         verify(schedulerApiClient, never()).disableScheduledJob(anyString());
@@ -460,10 +463,12 @@ class SchedulerServiceMockedTest {
         TestTask task = new TestTask(new ScheduledTaskResult(SchedulerJobExecutionStatus.SUCCESS, "ok"));
         when(applicationContext.getBean(TestTask.class)).thenReturn(task);
         when(scheduledJobsRepository.findByJobName(task.getDefaultJobName())).thenReturn(Optional.of(scheduledJob));
+        when(schedulerApiClient.listScheduledJobs()).thenReturn(schedulerHolding(JOB_NAME));
 
         ScheduledJobDetailDto response = schedulerService.registerScheduledJob(TestTask.class);
 
         assertNotNull(response);
+        assertEquals(ScheduledJobScheduleState.SCHEDULED, response.getScheduleState());
         verify(schedulerApiClient).schedulerCreate(any());
         verify(scheduledJobsRepository, never()).save(any());
     }
@@ -481,6 +486,8 @@ class SchedulerServiceMockedTest {
                     .registerScheduledJob(TestTask.class, "CustomJob", "0 10 * * * ?", true, "payload");
 
             assertNotNull(response);
+            // The mocked client answers no body: the scheduler could not be read.
+            assertEquals(ScheduledJobScheduleState.UNKNOWN, response.getScheduleState());
 
             ArgumentCaptor<ScheduledJob> jobCaptor = ArgumentCaptor.forClass(ScheduledJob.class);
             verify(scheduledJobsRepository).save(jobCaptor.capture());
@@ -889,7 +896,6 @@ class SchedulerServiceMockedTest {
     }
 
     // Inner test class to simulate a ScheduledJobTask
-
     public static class TestTask implements ScheduledJobTask {
         private final ScheduledTaskResult result;
         private final ScheduledJobSkippedException exception;
