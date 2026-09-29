@@ -12,28 +12,23 @@ import com.networknt.schema.ValidationMessage;
 import com.networknt.schema.resource.ClasspathSchemaLoader;
 import com.networknt.schema.resource.DisallowSchemaLoader;
 import com.otilm.api.exception.ValidationException;
-import com.otilm.api.model.core.oid.OidCategory;
-import com.otilm.core.oid.OidHandler;
-import com.otilm.core.oid.OidRecord;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Resolves and applies the JSON Schema describing a DER-encoded extension's JSON value. Resolution order: the OID
- * registry entry's {@code valueSchema}, then a Core-shipped classpath resource ({@code extension-schemas/<oid>.json}),
- * else none — a schema-less extension accepts any tree the codec can encode.
+ * Checks a JSON Schema document an attribute definition carries as a constraint, before it is stored.
+ *
+ * <p>
+ * A constraint is policy over a value the extension's own ASN.1 type already governs, so this says nothing about what
+ * the value must be - only that the document is one the platform can trust to constrain anything at all.
  */
-public final class ExtensionSchemas {
+public final class ConstraintSchemas {
 
     // ObjectMapperFactory is the single home of production mapper recipes; reading a JSON tree needs
     // nothing beyond the wire recipe.
@@ -41,7 +36,7 @@ public final class ExtensionSchemas {
     // Schema loading must never reach the network. A $ref target is resolved on first use rather than when
     // the schema is compiled, so a schema reaching the table by any route other than requireValidSchema would
     // otherwise fetch a URL of its author's choosing partway through validating a request.
-    private static final Logger logger = LoggerFactory.getLogger(ExtensionSchemas.class);
+    private static final Logger logger = LoggerFactory.getLogger(ConstraintSchemas.class);
 
     /**
      * Validates a candidate schema document against the dialect's own metaschema. Classpath loading is permitted so the
@@ -72,54 +67,11 @@ public final class ExtensionSchemas {
 
     private static final Set<String> SUPPORTED_DIALECTS = Set
             .of("https://json-schema.org/draft/2020-12/schema", "https://json-schema.org/draft/2020-12/schema#");
-    private static final Map<String, Optional<String>> SHIPPED = new ConcurrentHashMap<>();
     private static final JsonSchemaFactory FACTORY = JsonSchemaFactory
             .getInstance(SpecVersion.VersionFlag.V202012,
                     builder -> builder.schemaLoaders(loaders -> loaders.add(DisallowSchemaLoader.getInstance())));
 
-    private ExtensionSchemas() {
-    }
-
-    /** The schema governing {@code oid}'s value, or empty when neither the registry nor Core ships one. */
-    public static Optional<JsonSchema> resolve(String oid) {
-        Map<String, OidRecord> registry = OidHandler.getOidCache(OidCategory.CERTIFICATE_EXTENSION);
-        OidRecord oidRecord = registry == null ? null : registry.get(oid);
-        if (oidRecord != null && oidRecord.valueSchema() != null) {
-            return Optional.of(load(oidRecord.valueSchema()));
-        }
-        if (oidRecord != null && !oidRecord.system()) {
-            // An operator's own entry is the effective one while it exists, the same way its criticality and
-            // encoding win. Declaring no schema therefore means the value is unconstrained, not that a
-            // Core-shipped shape applies — which would otherwise start constraining a legacy row whose OID has
-            // since become a system OID.
-            return Optional.empty();
-        }
-        return shippedSchema(oid).map(ExtensionSchemas::load);
-    }
-
-    /**
-     * The Core-shipped schema document for {@code oid}, or empty when Core ships none.
-     *
-     * <p>
-     * Text rather than a compiled schema, so the OID API can show it. A system OID's registry row cannot carry the
-     * schema, because an entry for one cannot be created.
-     */
-    public static Optional<String> shippedSchema(String oid) {
-        // Classpath resources cannot change while the process runs, so the miss is worth caching too.
-        return SHIPPED.computeIfAbsent(oid, ExtensionSchemas::readShippedSchema);
-    }
-
-    private static Optional<String> readShippedSchema(String oid) {
-        try (InputStream resource = ExtensionSchemas.class
-                .getClassLoader()
-                .getResourceAsStream("extension-schemas/" + oid + ".json")) {
-            if (resource == null) {
-                return Optional.empty();
-            }
-            return Optional.of(new String(resource.readAllBytes(), StandardCharsets.UTF_8));
-        } catch (IOException e) {
-            throw new IllegalStateException("Core-shipped extension schema for " + oid + " is unreadable", e);
-        }
+    private ConstraintSchemas() {
     }
 
     /**
@@ -127,7 +79,8 @@ public final class ExtensionSchemas {
      * declare no dialect but draft 2020-12, reference nothing outside itself, carry well-formed keywords, and compile.
      *
      * <p>
-     * A reference resolved only on use escapes all of that; {@link #validateShape} reports it as unverifiable.
+     * A reference resolved only on use escapes all of that, so one that cannot be resolved locally is refused here
+     * rather than discovered when a value is checked against the document.
      */
     public static void requireValidSchema(String schemaDocument) {
         if (schemaDocument == null) {
@@ -251,40 +204,5 @@ public final class ExtensionSchemas {
             value.properties().forEach(entry -> children.add(entry.getValue()));
         }
         return children;
-    }
-
-    /**
-     * Validates {@code value} against {@code oid}'s resolved schema. Messages carry the registry-layer wording,
-     * distinct from the constraint layer's, so an operator sees which schema rejected.
-     */
-    public static List<String> validateShape(String oid, JsonNode value) {
-        try {
-            Optional<JsonSchema> schema = resolve(oid);
-            if (schema.isEmpty()) {
-                return List.of();
-            }
-            List<String> messages = new ArrayList<>();
-            for (ValidationMessage violation : schema.get().validate(value)) {
-                messages
-                        .add("does not match the registered schema for extension %s (at %s): %s"
-                                .formatted(oid, violation.getInstanceLocation(), violation.getMessage()));
-            }
-            return messages;
-        } catch (RuntimeException e) {
-            // A schema written straight into the database, or saved before a tightening, must not turn every
-            // request for this extension into a 500. A $ref is resolved lazily, so an unloadable one surfaces
-            // during validation rather than from resolve. The operator's message cannot say which, so the
-            // cause is logged for whoever has to tell malformed stored data from a defect.
-            logger.warn("Registered schema for extension {} could not be applied", oid, e);
-            return List.of("cannot be checked: the registered schema for extension %s is not loadable".formatted(oid));
-        }
-    }
-
-    private static JsonSchema load(String schemaDocument) {
-        try {
-            return FACTORY.getSchema(MAPPER.readTree(schemaDocument));
-        } catch (IOException e) {
-            throw new IllegalStateException("not JSON: " + e.getMessage(), e);
-        }
     }
 }

@@ -19,10 +19,12 @@ import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.GeneralNameType;
 import com.otilm.api.model.core.oid.ExtensionValueEncoding;
 import com.otilm.api.model.core.oid.OidCategory;
+import com.otilm.core.extension.ExtensionValues;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
 import com.otilm.core.util.StructuredExtensionCodec;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -178,9 +180,9 @@ public class CertificateRequestAttributeProjector {
     }
 
     /**
-     * Projects a structured target's selection into the matching typed list. No ASN.1 happens here — the renderer
-     * encodes on the way out. The OID is still claimed, so a collision with an explicit extension mapping, or with a
-     * second attribute targeting the same extension, is rejected as it is for any other extension.
+     * Projects a structured target's selection into the matching typed list. No ASN.1 happens here for the typed lists
+     * — the renderer encodes them on the way out. The OID is still claimed, so a collision with an explicit extension
+     * mapping, or with a second attribute targeting the same extension, is rejected as it is for any other extension.
      */
     private static void projectStructuredExtension(String extensionOid, List<String> attributeValues,
             ProjectionSink sink) {
@@ -222,6 +224,14 @@ public class CertificateRequestAttributeProjector {
         if (oidRecord != null) {
             critical = Boolean.TRUE.equals(oidRecord.defaultCritical());
             encoding = oidRecord.valueEncoding();
+        }
+        if (encoding == null || encoding == ExtensionValueEncoding.DER) {
+            // The wire carries a DER extension as base64, whichever way its value was supplied; a value written
+            // out in JSON is encoded here, once, so a registration and a CSR carry the same bytes.
+            value = ExtensionValues
+                    .encodeWritten(extensionOid, value)
+                    .map(der -> Base64.getEncoder().encodeToString(der))
+                    .orElse(value);
         }
         return new RequestedExtension(extensionOid, critical, encoding, value);
     }
