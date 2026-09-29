@@ -220,12 +220,15 @@ class CryptographicAssetStatisticsITest extends BaseSpringBootTest {
         newCbom("urn:uuid:filter-invalid");
         for (Serializable value : List.of((Serializable) new ArrayList<>(List.of("true")), "yes")) {
             assertThatThrownBy(() -> listFilteredCboms(FilterConditionOperator.EQUALS, value))
-                    .isInstanceOf(ValidationException.class);
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("accepts a single boolean value");
         }
         assertThatThrownBy(() -> listFilteredCboms(FilterConditionOperator.EQUALS, null))
-                .isInstanceOf(ValidationException.class);
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("accepts a single boolean value");
         assertThatThrownBy(() -> listFilteredCboms(FilterConditionOperator.EMPTY, null))
-                .isInstanceOf(ValidationException.class);
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("does not support");
     }
 
     @Test
