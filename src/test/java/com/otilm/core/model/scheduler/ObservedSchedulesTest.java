@@ -134,6 +134,35 @@ class ObservedSchedulesTest {
         assertNull(schedule.nextFireTime());
     }
 
+    /**
+     * The scheduler reads a trigger and then its state, so a trigger deleted between the two reads reports NONE with
+     * the fire times of the trigger it no longer holds. They are not served.
+     */
+    @Test
+    void aTriggerReportedAsGoneServesNoFireTimes() {
+        SchedulerJobDto job = live("job");
+        job.setTriggerState(SchedulerTriggerState.NONE);
+
+        ObservedSchedule schedule = ObservedSchedule.of(job);
+
+        assertEquals(ScheduledJobScheduleState.NOT_SCHEDULED, schedule.state());
+        assertNull(schedule.nextFireTime());
+        assertNull(schedule.previousFireTime());
+    }
+
+    /** Fire times beside no state are not vouched for by the scheduler that sent them, and are not served. */
+    @Test
+    void aJobWithoutATriggerStateServesNoFireTimes() {
+        SchedulerJobDto job = live("job");
+        job.setTriggerState(null);
+
+        ObservedSchedule schedule = ObservedSchedule.of(job);
+
+        assertEquals(ScheduledJobScheduleState.UNKNOWN, schedule.state());
+        assertNull(schedule.nextFireTime());
+        assertNull(schedule.previousFireTime());
+    }
+
     /** An entry that names no job cannot be any job's: it is passed over, and the rest of the answer still counts. */
     @Test
     void anEntryWithoutAJobIsIgnored() {
