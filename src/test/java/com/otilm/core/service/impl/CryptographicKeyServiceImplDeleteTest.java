@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
@@ -42,6 +43,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -88,7 +90,7 @@ class CryptographicKeyServiceImplDeleteTest {
 
         // then
         assertSame(remoteFailure, assertThrows(ConnectorException.class, delete));
-        verify(writer).deleteKeyItem(firstItem.uuid());
+        verify(writer).deleteKeyItem(key, firstItem.uuid());
         verify(cacheEvictor).evict(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE, firstItem.uuid());
         verifyNoMoreInteractions(writer, cacheEvictor);
     }
@@ -105,15 +107,19 @@ class CryptographicKeyServiceImplDeleteTest {
         InOrder deletion = inOrder(adapter, writer, cacheEvictor);
         for (CryptographicKeyItemBasicModel item : key.items()) {
             deletion.verify(adapter).destroyKeyItem(key, item.reference());
-            deletion.verify(writer).deleteKeyItem(item.uuid());
+            deletion.verify(writer).deleteKeyItem(key, item.uuid());
             deletion.verify(cacheEvictor).evict(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE, item.uuid());
         }
-        deletion.verify(writer).deleteKeyWithAssociations(key);
+        deletion.verify(writer).deleteKeyWithAssociations(key, itemUuidsOf(key));
         deletion.verifyNoMoreInteractions();
     }
 
+    /**
+     * An import may adopt a key no token holds while it is being deleted, so its items go with it in the one step that
+     * checks for an item the deletion did not read.
+     */
     @Test
-    void deleteKey_withoutToken_deletesLocalItemsAndParent() throws Exception {
+    void deleteKey_withoutToken_deletesTheItemsWithTheKeyInOneStep() throws Exception {
         // given
         CryptographicKeyFullModel key = key(null);
 
@@ -121,9 +127,11 @@ class CryptographicKeyServiceImplDeleteTest {
         service.deleteKey(List.of(key.uuid().toString()));
 
         // then
-        verify(writer).deleteKeyItem(firstItem.uuid());
-        verify(writer).deleteKeyItem(secondItem.uuid());
-        verify(writer).deleteKeyWithAssociations(key);
+        InOrder deletion = inOrder(writer, cacheEvictor);
+        deletion.verify(writer).deleteKeyWithAssociations(key, itemUuidsOf(key));
+        deletion.verify(cacheEvictor).evict(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE, firstItem.uuid());
+        deletion.verify(cacheEvictor).evict(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE, secondItem.uuid());
+        verify(writer, never()).deleteKeyItem(any(), any());
         verifyNoInteractions(adapterFactory, adapter);
     }
 
@@ -159,7 +167,7 @@ class CryptographicKeyServiceImplDeleteTest {
         // then
         InOrder deletion = inOrder(authorization, writer);
         deletion.verify(authorization).enforce(eq(Resource.TOKEN), eq(ResourceAction.DETAIL), any(SecuredUUID.class));
-        deletion.verify(writer).deleteKeyWithAssociations(key);
+        deletion.verify(writer).deleteKeyWithAssociations(key, itemUuidsOf(key));
         verifyNoInteractions(adapterFactory, adapter, cacheEvictor);
     }
 
@@ -210,5 +218,9 @@ class CryptographicKeyServiceImplDeleteTest {
         RemoteKeyReference reference = new RemoteKeyReference.UuidReference(UUID.randomUUID());
         return new CryptographicKeyItemBasicModel(UUID.randomUUID(), keyUuid, "item", reference, KeyType.PRIVATE_KEY,
                 KeyAlgorithm.RSA, null, null, 2048, KeyState.ACTIVE, true, List.of(), null, null, false);
+    }
+
+    private static Set<UUID> itemUuidsOf(CryptographicKeyFullModel key) {
+        return key.items().stream().map(CryptographicKeyItemBasicModel::uuid).collect(Collectors.toSet());
     }
 }

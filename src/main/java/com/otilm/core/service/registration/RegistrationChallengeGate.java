@@ -4,6 +4,7 @@ import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
+import com.otilm.api.model.core.logging.Sensitive;
 import com.otilm.api.model.core.settings.CertificateRegistrationSettingsDto;
 import com.otilm.api.model.core.settings.PlatformSettingsDto;
 import com.otilm.api.model.core.settings.SettingsSection;
@@ -73,7 +74,7 @@ public class RegistrationChallengeGate {
      * @return {@code true} when an ACTIVE authorization's challenge verified — the self-service credential that stands
      * in for the caller's operator permission on the completion write
      */
-    public boolean verify(UUID certificateUuid, String presentedSecret, CertificateEvent operationEvent) {
+    public boolean verify(UUID certificateUuid, @Sensitive String presentedSecret, CertificateEvent operationEvent) {
         return verifyInternal(certificateUuid, operationEvent,
                 authorization -> registrationChallengeStore.verify(authorization, presentedSecret));
     }

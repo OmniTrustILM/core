@@ -50,6 +50,8 @@ import com.otilm.api.model.connector.cryptography.v2.key.CreateKeyRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.DestroyKeyRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ExportKeyRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ExportKeyResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.ImportKeyAttributesRequestV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.ImportableKeyTypeV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyCreationResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyExportableAttribute;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyOperationResponseV2Dto;
@@ -91,6 +93,7 @@ import com.otilm.core.model.crypto.ImmutableTokenProfileFullModel;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
+import com.otilm.core.model.crypto.TransferableKeyType;
 import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.OperationAttributeResolver;
 import com.otilm.core.util.ExportEnvelopeFixtures;
@@ -158,7 +161,7 @@ class KeyProviderV2AdapterTest {
         var token = new ImmutableTokenInstanceFullModel(UUID.randomUUID(), null, "token", TokenInstanceStatus.ACTIVATED,
                 null, connectorUuid, connector.name(), null, null, Set.of());
         profile = new ImmutableTokenProfileFullModel(UUID.randomUUID(), "profile", null, token.name(), token.uuid(),
-                true, List.of(KeyUsage.SIGN), token, connectorUuid, Map.of(), 0);
+                true, List.of(KeyUsage.SIGN), token, connectorUuid, Map.of(), null, 0);
         cryptographicKey = new ImmutableCryptographicKeyFullModel(UUID.randomUUID(), "key", null, profile.uuid(),
                 profile.tokenInstanceReferenceUuid(), profile, profile.tokenInstance(), Set.of(), null, null, null,
                 List.of(), List.of());
@@ -892,6 +895,73 @@ class KeyProviderV2AdapterTest {
     }
 
     @Test
+    void listImportableKeyTypes_returnsWhatTheConnectorImports() throws Exception {
+        // given
+        ImportableKeyTypeV2Dto declared = new ImportableKeyTypeV2Dto();
+        declared.setKeyRequestType(KeyRequestType.KEY_PAIR);
+        declared.setAlgorithms(Set.of(KeyAlgorithm.RSA, KeyAlgorithm.ECDSA));
+        when(client.listImportableKeyTypes(any(), any())).thenReturn(List.of(declared));
+
+        // when
+        List<TransferableKeyType> importable = adapter.listImportableKeyTypes(profile);
+
+        // then
+        assertEquals(
+                List.of(new TransferableKeyType(KeyRequestType.KEY_PAIR, Set.of(KeyAlgorithm.RSA, KeyAlgorithm.ECDSA))),
+                importable);
+    }
+
+    @Test
+    void listImportKeyAttributes_asksForTheTypesSchemaInTheProfileScopeAndPublishesIt() throws Exception {
+        // given
+        List<BaseAttribute> schema = List.of(dataAttributeDefinition("importLabel", false));
+        ArgumentCaptor<ImportKeyAttributesRequestV2Dto> sent = ArgumentCaptor
+                .forClass(ImportKeyAttributesRequestV2Dto.class);
+        when(client.listImportKeyAttributes(any(), sent.capture())).thenReturn(schema);
+
+        // when
+        List<BaseAttribute> listed = adapter.listImportKeyAttributes(profile, KeyRequestType.SECRET);
+
+        // then
+        assertEquals(schema, listed);
+        assertEquals(KeyRequestType.SECRET, sent.getValue().getKeyRequestType());
+        assertEquals(List.of(), sent.getValue().getTokenAttributes());
+        assertEquals(List.of(), sent.getValue().getTokenProfileAttributes());
+        verify(attributes).updateDataAttributeDefinitions(profile.connectorUuid(), null, schema);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Resource.class, names = {"TOKEN", "TOKEN_PROFILE"})
+    void listImportKeyAttributes_rejectsASchemaEchoingAnExpandedSecret(Resource secretScope) throws Exception {
+        // given
+        String expandedSecret = "resolved-provider-password";
+        stubExpandedSecret(secretScope, expandedSecret);
+        when(client.listImportKeyAttributes(any(), any())).thenReturn(definitionsWithDefault(expandedSecret));
+
+        // when
+        Executable listDefinitions = () -> adapter.listImportKeyAttributes(profile, KeyRequestType.KEY_PAIR);
+
+        // then
+        assertThrows(OutboundSecretLeakException.class, listDefinitions);
+        verify(attributes, never()).updateDataAttributeDefinitions(any(), any(), any());
+    }
+
+    @Test
+    void listImportKeyAttributes_leavesTheReservedExportableAttributeOut() throws Exception {
+        // given
+        BaseAttribute label = dataAttributeDefinition("importLabel", false);
+        when(client.listImportKeyAttributes(any(), any()))
+                .thenReturn(List.of(label, KeyExportableAttribute.definition()));
+
+        // when
+        List<BaseAttribute> listed = adapter.listImportKeyAttributes(profile, KeyRequestType.KEY_PAIR);
+
+        // then
+        assertEquals(List.of(label), listed);
+        verify(attributes).updateDataAttributeDefinitions(profile.connectorUuid(), null, List.of(label));
+    }
+
+    @Test
     void listExportKeyAttributes_asksForTheKeysSchemaAndPublishesIt() throws Exception {
         // given
         List<BaseAttribute> schema = List.of(dataAttributeDefinition("exportLabel", false));
@@ -1142,7 +1212,7 @@ class KeyProviderV2AdapterTest {
         var token = new ImmutableTokenInstanceFullModel(UUID.randomUUID(), null, "token", TokenInstanceStatus.ACTIVATED,
                 null, profile.connectorUuid(), "connector", cryptography.uuid(), cryptography, Set.of());
         return new ImmutableTokenProfileFullModel(UUID.randomUUID(), "profile", null, token.name(), token.uuid(), true,
-                List.of(KeyUsage.SIGN), token, profile.connectorUuid(), Map.of(), 0);
+                List.of(KeyUsage.SIGN), token, profile.connectorUuid(), Map.of(), null, 0);
     }
 
     private static RequestAttribute stringAttribute(String name, String value) {

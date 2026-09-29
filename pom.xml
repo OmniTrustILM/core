@@ -18,26 +18,14 @@
              this project's own <version>. CI overrides it with -Dinterfaces.version=...
              when a PR body carries a Depends-On or Interfaces-Version marker. -->
         <interfaces.version>2.20.0-SNAPSHOT</interfaces.version>
-        <archunit.version>1.4.2</archunit.version>
-        <!-- CVE-2026-8763 and CVE-2026-13506 in Bouncy Castle 1.84.
-             Remove when the parent BOM manages at least this version. -->
-        <bouncycastle.version>1.85</bouncycastle.version>
-        <!-- CVE-2026-65182, CVE-2026-65905, CVE-2026-68525 (auth/constraint bypasses in embedded Tomcat).
-             The announced fix version 10.1.58 was never published; 10.1.59 is its released successor.
-             Remove when the parent BOM manages at least this version. -->
-        <tomcat.version>10.1.59</tomcat.version>
-        <!-- CVE-2026-75595 in netty-handler, which reaches the image transitively through
-             spring-boot-starter-reactor-netty and azure-core-http-netty rather than any direct dependency.
-             4.1.137.Final is the fix within the managed 4.1.x line; 4.2.17.Final also carries it but is a minor move.
-             Remove when the parent BOM manages at least this version. -->
-        <netty.version>4.1.137.Final</netty.version>
+        <archunit.version>1.5.1</archunit.version>
         <log-schema.version>1.1</log-schema.version>
         <hsqldb.version>2.7.3</hsqldb.version>
-        <nimbus-jose-jwt.version>10.8</nimbus-jose-jwt.version>
-        <mockwebserver.version>5.3.2</mockwebserver.version>
+        <nimbus-jose-jwt.version>10.10</nimbus-jose-jwt.version>
+        <mockwebserver.version>5.5.0</mockwebserver.version>
         <commons-beanutils.version>1.11.0</commons-beanutils.version>
         <testcontainers.version>1.21.4</testcontainers.version>
-        <git-commit-id-maven.version>9.0.2</git-commit-id-maven.version>
+        <git-commit-id-maven.version>9.2.0</git-commit-id-maven.version>
         <java.version>21</java.version>
 
         <sonar.host.url>https://sonarcloud.io</sonar.host.url>
@@ -53,14 +41,14 @@
             <dependency>
                 <groupId>io.opentelemetry</groupId>
                 <artifactId>opentelemetry-bom</artifactId>
-                <version>1.60.1</version>
+                <version>1.66.0</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
             <dependency>
                 <groupId>io.opentelemetry.instrumentation</groupId>
                 <artifactId>opentelemetry-instrumentation-bom</artifactId>
-                <version>2.26.1</version>
+                <version>2.31.1</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -141,17 +129,17 @@
         <dependency>
             <groupId>org.apache.qpid</groupId>
             <artifactId>qpid-jms-client</artifactId>
-            <version>2.9.0</version>
+            <version>2.11.0</version>
         </dependency>
         <dependency>
             <groupId>com.azure</groupId>
             <artifactId>azure-identity</artifactId>
-            <version>1.18.1</version>
+            <version>1.18.6</version>
         </dependency>
         <dependency>
             <groupId>org.messaginghub</groupId>
             <artifactId>pooled-jms</artifactId>
-            <version>3.2.2</version>
+            <version>3.2.5</version>
         </dependency>
 
         <!-- Conditional processing of logback-spring.xml -->
@@ -326,20 +314,20 @@
         <dependency>
             <groupId>org.apache.httpcomponents.client5</groupId>
             <artifactId>httpclient5</artifactId>
-            <version>5.6.1</version>
+            <version>5.6.4</version>
         </dependency>
-        <!-- Explicit httpcore5 pins: CVE-2026-54399 is fixed in core5 5.4.3, but every released httpclient5,
-             5.6.1 included, still pulls in an httpcore5 below 5.4.3. Drop both once a httpclient5 release
-             manages httpcore5 >= 5.4.3. -->
+        <!-- Explicit httpcore5 pins: CVE-2026-54399 is fixed in core5 5.4.3. httpclient5 5.6.2+ declares that
+             version, but the parent's Spring Boot manages httpcore5 at 5.3.6, and a managed version wins over a
+             transitive one. Drop both once the parent manages httpcore5 >= 5.4.3. -->
         <dependency>
             <groupId>org.apache.httpcomponents.core5</groupId>
             <artifactId>httpcore5</artifactId>
-            <version>5.4.3</version>
+            <version>5.4.4</version>
         </dependency>
         <dependency>
             <groupId>org.apache.httpcomponents.core5</groupId>
             <artifactId>httpcore5-h2</artifactId>
-            <version>5.4.3</version>
+            <version>5.4.4</version>
         </dependency>
 
         <!-- this dependency is included to avoid warning -->
@@ -360,7 +348,12 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <argLine>@{argLine} -Dspring.test.context.cache.maxSize=128</argLine>
+                    <!-- A fixed heap, so the test JVM has the same limit on every machine: the JVM default is a
+                         quarter of the RAM, 4 GB on a GitHub runner. The main Build runs the whole suite in one
+                         JVM, and the context cache keeps every Spring context the suite starts, so the suite
+                         outgrew 4 GB there. PR builds split the suite four ways and will not show when it
+                         outgrows this limit too. -->
+                    <argLine>@{argLine} -Xmx6g -Dspring.test.context.cache.maxSize=128</argLine>
                     <!-- Test classes must keep running one at a time in one JVM: WireMockPorts binds fixed ports. -->
                     <properties>
                         <configurationParameters>junit.jupiter.execution.parallel.enabled=false</configurationParameters>

@@ -26,6 +26,7 @@ import com.otilm.api.model.core.cryptography.key.KeyDetailDto;
 import com.otilm.api.model.core.cryptography.key.KeyDto;
 import com.otilm.api.model.core.cryptography.key.KeyEventHistoryDto;
 import com.otilm.api.model.core.cryptography.key.KeyItemDetailDto;
+import com.otilm.api.model.core.logging.Sensitive;
 import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
@@ -37,6 +38,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CryptographicKeyExportExternalService;
 import com.otilm.core.service.CryptographicKeyExternalService;
+import com.otilm.core.service.CryptographicKeyImportExternalService;
 import com.otilm.core.util.converter.KeyRequestTypeConverter;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -53,6 +55,7 @@ public class CryptographicKeyControllerImpl implements CryptographicKeyControlle
 
     private CryptographicKeyExternalService cryptographicKeyService;
     private CryptographicKeyExportExternalService cryptographicKeyExportService;
+    private CryptographicKeyImportExternalService cryptographicKeyImportService;
 
     @Autowired
     public void setCryptographicKeyExternalService(CryptographicKeyExternalService cryptographicKeyService) {
@@ -63,6 +66,12 @@ public class CryptographicKeyControllerImpl implements CryptographicKeyControlle
     public void setCryptographicKeyExportExternalService(
             CryptographicKeyExportExternalService cryptographicKeyExportService) {
         this.cryptographicKeyExportService = cryptographicKeyExportService;
+    }
+
+    @Autowired
+    public void setCryptographicKeyImportExternalService(
+            CryptographicKeyImportExternalService cryptographicKeyImportService) {
+        this.cryptographicKeyImportService = cryptographicKeyImportService;
     }
 
     @InitBinder
@@ -139,9 +148,13 @@ public class CryptographicKeyControllerImpl implements CryptographicKeyControlle
     }
 
     @Override
-    public List<BaseAttribute> listImportKeyAttributes(String tokenInstanceUuid, String tokenProfileUuid,
-            KeyRequestType type) throws ConnectorException, NotFoundException {
-        return List.of();
+    @AuditLogged(module = Module.CRYPTOGRAPHIC_KEYS, resource = Resource.ATTRIBUTE, name = "import",
+            affiliatedResource = Resource.TOKEN_PROFILE, operation = Operation.LIST_ATTRIBUTES)
+    public List<BaseAttribute> listImportKeyAttributes(String tokenInstanceUuid,
+            @LogResource(uuid = true, affiliated = true) String tokenProfileUuid, KeyRequestType type)
+            throws ConnectorException, NotFoundException {
+        return cryptographicKeyImportService
+                .listImportKeyAttributes(UUID.fromString(tokenInstanceUuid), UUID.fromString(tokenProfileUuid), type);
     }
 
     @Override
@@ -155,10 +168,21 @@ public class CryptographicKeyControllerImpl implements CryptographicKeyControlle
     }
 
     @Override
-    public KeyDetailDto importKey(String tokenInstanceUuid, String tokenProfileUuid, KeyRequestType type,
-            @Valid KeyImportRequestDto request) throws AlreadyExistException, ValidationException, ConnectorException,
-            AttributeException, NotFoundException {
-        return null;
+    @AuditLogged(module = Module.CRYPTOGRAPHIC_KEYS, resource = Resource.CRYPTOGRAPHIC_KEY,
+            affiliatedResource = Resource.TOKEN_PROFILE, operation = Operation.IMPORT, synchronous = true)
+    public KeyDetailDto importKey(String tokenInstanceUuid,
+            @LogResource(uuid = true, affiliated = true) String tokenProfileUuid, KeyRequestType type,
+            @Sensitive @Valid KeyImportRequestDto request) throws AlreadyExistException, ValidationException,
+            ConnectorException, AttributeException, NotFoundException {
+        try {
+            return cryptographicKeyImportService
+                    .importKey(UUID.fromString(tokenInstanceUuid), UUID.fromString(tokenProfileUuid), type, request);
+        } finally {
+            request.getFile().clear();
+            if (request.getInputPassphrase() != null) {
+                request.getInputPassphrase().clear();
+            }
+        }
     }
 
     @Override
