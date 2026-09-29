@@ -262,9 +262,12 @@ public class AttributeServiceImpl implements AttributeExternalService, Attribute
         attribute.getProperties().setVisible(request.isVisible());
         attribute.getProperties().setGlobal(true);
 
-        return attributeEngine
+        GlobalMetadataDefinitionDetailDto edited = attributeEngine
                 .updateMetadataAttributeDefinition(attribute, null)
                 .mapToGlobalMetadataDefinitionDetailDto();
+        // An operator's rename or hide shows at once here; connector-written metadata relies on the TTL instead.
+        attributeSearchFieldCatalogue.evictAll();
+        return edited;
     }
 
     @Override

@@ -3,19 +3,32 @@ package com.otilm.core.integration.attribute;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.otilm.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
 import com.otilm.api.model.client.attribute.custom.CustomAttributeDefinitionDetailDto;
+import com.otilm.api.model.client.attribute.metadata.GlobalMetadataCreateRequestDto;
+import com.otilm.api.model.client.attribute.metadata.GlobalMetadataDefinitionDetailDto;
+import com.otilm.api.model.client.attribute.metadata.GlobalMetadataUpdateRequestDto;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.client.certificate.SearchSortRequestDto;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeProperties;
+import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
+import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.listview.ListViewColumnDto;
 import com.otilm.api.model.core.listview.ListViewRequestDto;
 import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SortDirection;
+import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeSearchFieldCatalogue;
 import com.otilm.core.attribute.engine.NamedField;
+import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.config.cache.CacheConfig;
+import com.otilm.core.dao.entity.Connector;
+import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.model.SearchFieldObject;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.AttributeExternalService;
@@ -54,6 +67,12 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
 
     @Autowired
     private DiscoveryExternalService discoveryService;
+
+    @Autowired
+    private AttributeEngine attributeEngine;
+
+    @Autowired
+    private ConnectorRepository connectorRepository;
 
     @Test
     void aSecondReadRunsNoCatalogueQuery() throws Exception {
@@ -159,6 +178,21 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
         assertThat(catalogueQueriesDuring(() -> catalogue.fields(Resource.CERTIFICATE, false))).isNotEmpty();
     }
 
+    /** An operator's rename of a global metadata attribute shows at once on the replica that made it. */
+    @Test
+    void aGlobalMetadataRenamedHereShowsOnTheNextRead() throws Exception {
+        GlobalMetadataDefinitionDetailDto owner = createGlobalMetadataOnACertificate("owner", "Owner");
+        assertThat(metadataRow(catalogue.fields(Resource.CERTIFICATE, false), "owner").getLabel()).isEqualTo("Owner");
+
+        GlobalMetadataUpdateRequestDto rename = new GlobalMetadataUpdateRequestDto();
+        rename.setLabel("Owner team");
+        rename.setVisible(true);
+        attributeService.editGlobalMetadata(UUID.fromString(owner.getUuid()), rename);
+
+        assertThat(metadataRow(catalogue.fields(Resource.CERTIFICATE, false), "owner").getLabel())
+                .isEqualTo("Owner team");
+    }
+
     /** Another replica registered the field after this one cached the catalogue: saving a view with it still works. */
     @Test
     void aViewNamingAFieldCreatedElsewhereIsSaved() throws Exception {
@@ -204,6 +238,51 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
         request.setSort(new SearchSortRequestDto(FilterFieldSource.CUSTOM, "late-sort|TEXT", SortDirection.ASC));
 
         assertThat(discoveryService.listDiscoveries(SecurityFilter.create(), request).getDiscoveries()).isEmpty();
+    }
+
+    /** A global metadata attribute is in a resource's catalogue once a connector has written it to an object. */
+    private GlobalMetadataDefinitionDetailDto createGlobalMetadataOnACertificate(String name, String label)
+            throws Exception {
+        GlobalMetadataCreateRequestDto request = new GlobalMetadataCreateRequestDto();
+        request.setName(name);
+        request.setLabel(label);
+        request.setContentType(AttributeContentType.STRING);
+        request.setVisible(true);
+        GlobalMetadataDefinitionDetailDto created = attributeService.createGlobalMetadata(request);
+
+        Connector connector = new Connector();
+        connector.setName("metadata-writer");
+        connector.setUrl("http://localhost:3665");
+        connector.setVersion(ConnectorVersion.V1);
+        connector.setStatus(ConnectorStatus.CONNECTED);
+        connector = connectorRepository.save(connector);
+
+        MetadataAttributeProperties properties = new MetadataAttributeProperties();
+        properties.setLabel(label);
+        properties.setVisible(true);
+        properties.setGlobal(true);
+        MetadataAttributeV2 written = new MetadataAttributeV2();
+        written.setUuid(created.getUuid());
+        written.setName(name);
+        written.setType(AttributeType.META);
+        written.setContentType(AttributeContentType.STRING);
+        written.setProperties(properties);
+        written.setContent(List.of(new StringAttributeContentV2("alice")));
+        attributeEngine
+                .updateMetadataAttribute(written,
+                        ObjectAttributeContentInfo
+                                .builder(Resource.CERTIFICATE, UUID.randomUUID())
+                                .connector(connector.getUuid())
+                                .build());
+        return created;
+    }
+
+    private static SearchFieldObject metadataRow(List<SearchFieldObject> rows, String name) {
+        return rows
+                .stream()
+                .filter(row -> row.getAttributeType() == AttributeType.META && row.getAttributeName().equals(name))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("no metadata row " + name + " in " + rows));
     }
 
     private static ListViewRequestDto certificateView(String name, String customFieldIdentifier) {
