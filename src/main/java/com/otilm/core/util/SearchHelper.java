@@ -21,7 +21,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.EnumSet;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -482,14 +481,14 @@ public class SearchHelper {
     }
 
     private static Set<String> filterDuplicity(final List<SearchFieldObject> searchFieldObjectList) {
-        final Set<String> uniqueNames = new HashSet<>();
-        final Set<String> duplicatesOfNames = new HashSet<>();
-        for (final SearchFieldObject attr : searchFieldObjectList) {
-            if (!uniqueNames.add(attr.getAttributeName())) {
-                duplicatesOfNames.add(attr.getAttributeName());
-            }
-        }
-        return duplicatesOfNames;
+        return searchFieldObjectList
+                .stream()
+                .collect(Collectors.groupingBy(SearchFieldObject::getAttributeName, Collectors.counting()))
+                .entrySet()
+                .stream()
+                .filter(nameCount -> nameCount.getValue() > 1)
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toSet());
     }
 
 }
