@@ -1053,11 +1053,16 @@ class PqcEvaluatorTest {
         }
     }
 
+    /**
+     * Every case also proves the explanation of the same input decides the same way; see {@link PqcExplanationTest}.
+     */
     private PqcDecision verdictOf(JsonNode component) {
         JsonNode properties = component.get("cryptoProperties");
-        return evaluator
-                .evaluate(evaluator.fromStoredRow(storedRow(normalizer.normalize(component).asset()), properties),
-                        PqcEvaluator.nistQuantumSecurityLevel(properties));
+        PqcRuleInput input = evaluator.fromStoredRow(storedRow(normalizer.normalize(component).asset()), properties);
+        Integer level = PqcEvaluator.nistQuantumSecurityLevel(properties);
+        PqcDecision decision = evaluator.evaluate(input, level);
+        PqcExplanationTest.assertExplains(evaluator.explain(input, level), decision, input.assetType());
+        return decision;
     }
 
     /**

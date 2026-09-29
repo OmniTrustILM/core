@@ -232,7 +232,6 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
             SET pqc_verdict = :verdict,
                 pqc_rule_id = :ruleId,
                 pqc_reason = :reason,
-                pqc_ruleset_version = :rulesetVersion,
                 pqc_evaluated_fields = CAST(:evaluatedFields AS jsonb),
                 pqc_evaluated_at = CURRENT_TIMESTAMP,
                 pqc_decided_at = CASE
@@ -243,8 +242,7 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
             WHERE uuid = :uuid
             """, nativeQuery = true)
     void applyPqcVerdict(@Param("uuid") UUID uuid, @Param("verdict") String verdict, @Param("ruleId") String ruleId,
-            @Param("reason") String reason, @Param("rulesetVersion") int rulesetVersion,
-            @Param("evaluatedFields") String evaluatedFields);
+            @Param("reason") String reason, @Param("evaluatedFields") String evaluatedFields);
 
     /**
      * The sweep's work list, one keyset page of it. See {@link #staleVerdictRows} for what a caller uses.
@@ -259,10 +257,10 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
      * the identity spelling, which the column stores split.
      *
      * <p>
-     * <b>Stale</b> is either half of the contract: a verdict from an older generation of the rules, or a verdict older
-     * than the row it describes. {@code pqc_evaluated_at < i_upd} catches the second -- a payload re-election, a richer
-     * source winning, an identity refresh -- because the guarded write sets both to one {@code CURRENT_TIMESTAMP}, so a
-     * verdict never re-offers itself while any later writer does.
+     * <b>Stale</b> is a verdict never taken, or one older than the row it describes. {@code pqc_evaluated_at < i_upd}
+     * catches a payload re-election, a richer source winning, an identity refresh, and a rule change, whose migration
+     * advances {@code i_upd} -- because the guarded write sets both to one {@code CURRENT_TIMESTAMP}, so a verdict
+     * never re-offers itself while any later writer does.
      *
      * <p>
      * Keyset-cursored, and that is correctness rather than performance: a written row leaves this result set, so an
@@ -284,23 +282,20 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
                    merged_crypto_properties::text AS merged_crypto_properties,
                    xmin::text::bigint AS row_version
             FROM {h-schema}crypto_asset
-            WHERE (pqc_ruleset_version IS NULL
-                    OR pqc_ruleset_version < :version
-                    OR pqc_evaluated_at < i_upd)
+            WHERE (pqc_evaluated_at IS NULL OR pqc_evaluated_at < i_upd)
               AND uuid > :after
             ORDER BY uuid
             LIMIT :limit
             """, nativeQuery = true)
-    List<Tuple> findStaleVerdictRows(@Param("version") int version, @Param("after") UUID after,
-            @Param("limit") int limit);
+    List<Tuple> findStaleVerdictRows(@Param("after") UUID after, @Param("limit") int limit);
 
     /**
      * {@link #findStaleVerdictRows} mapped onto the record the sweep evaluates. A default method rather than a
      * {@code @SqlResultSetMapping} so the column-to-component mapping is read by name, in one place, and by a caller
      * that can be mocked.
      */
-    default List<PqcStaleVerdictRow> staleVerdictRows(int version, UUID after, int limit) {
-        return findStaleVerdictRows(version, after, limit).stream().map(PqcStaleVerdictRow::fromWorkListRow).toList();
+    default List<PqcStaleVerdictRow> staleVerdictRows(UUID after, int limit) {
+        return findStaleVerdictRows(after, limit).stream().map(PqcStaleVerdictRow::fromWorkListRow).toList();
     }
 
     /**
@@ -363,9 +358,8 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
      * {@code xmin} as 2, which can only refuse a write the next sweep retries, never admit a stale one.
      *
      * <p>
-     * The staleness clause restates {@link #findStaleVerdictRows}'s definition of the work list, and has to: a row
-     * offered because its payload moved is already at the current generation, so a version-only clause would refuse
-     * every write the widened work list asks for.
+     * The staleness clause restates {@link #findStaleVerdictRows}'s definition of the work list, so a row another
+     * writer stamped since the read is refused rather than stamped twice.
      *
      * @return 1 if the row was written, 0 if it was written by someone else since it was read, or is no longer stale
      */
@@ -375,7 +369,6 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
             SET pqc_verdict = :verdict,
                 pqc_rule_id = :ruleId,
                 pqc_reason = :reason,
-                pqc_ruleset_version = :rulesetVersion,
                 pqc_evaluated_fields = CAST(:evaluatedFields AS jsonb),
                 pqc_evaluated_at = CURRENT_TIMESTAMP,
                 pqc_decided_at = CASE
@@ -384,14 +377,12 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
                 END,
                 i_upd = CURRENT_TIMESTAMP
             WHERE uuid = :uuid
-              AND (pqc_ruleset_version IS NULL
-                    OR pqc_ruleset_version < :rulesetVersion
-                    OR pqc_evaluated_at < i_upd)
+              AND (pqc_evaluated_at IS NULL OR pqc_evaluated_at < i_upd)
               AND xmin::text::bigint = :rowVersion
             """, nativeQuery = true)
     int applyPqcVerdictIfStale(@Param("uuid") UUID uuid, @Param("rowVersion") long rowVersion,
             @Param("verdict") String verdict, @Param("ruleId") String ruleId, @Param("reason") String reason,
-            @Param("rulesetVersion") int rulesetVersion, @Param("evaluatedFields") String evaluatedFields);
+            @Param("evaluatedFields") String evaluatedFields);
 
     /**
      * Collects an orphan, and only while it still is one.

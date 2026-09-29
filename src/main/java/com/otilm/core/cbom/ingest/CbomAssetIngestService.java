@@ -9,7 +9,6 @@ import com.otilm.core.cbom.asset.CryptoPropertiesDigest;
 import com.otilm.core.cbom.asset.identity.CbomAssetExtractor;
 import com.otilm.core.cbom.pqc.PqcDecision;
 import com.otilm.core.cbom.pqc.PqcEvaluator;
-import com.otilm.core.cbom.pqc.PqcRuleset;
 import com.otilm.core.cbom.sync.CbomSyncPolicy;
 import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.dao.CryptoAssetConstraintTranslator;
@@ -441,7 +440,7 @@ public class CbomAssetIngestService {
         final Set<UUID> written = new LinkedHashSet<>();
         // In uuid order, which is the order CryptoAssetPqcVerdictWriter.applyStaleBatch takes crypto_asset row
         // locks in. Every asset an ingest creates is immediately on the sweep's work list -- upsertIdentity leaves
-        // pqc_ruleset_version null -- and the sweep holds a different cluster lock, so the two do run at once; two
+        // pqc_evaluated_at null -- and the sweep holds a different cluster lock, so the two do run at once; two
         // transactions locking an overlapping row set in opposite orders deadlock, and on this side the loser fails
         // the whole document and waits out cbomSyncIngestRetryAfterSeconds. An asset with no row yet sorts last and
         // keeps
@@ -516,8 +515,8 @@ public class CbomAssetIngestService {
      * <p>
      * Read back rather than evaluated from the document: an asset several CBOMs report is evaluated on the payload the
      * merge elected, not on whichever document happened to arrive last. Stamping here rather than leaving the rows to
-     * {@code PqcVerdictSweeper} is a latency decision -- a null {@code pqc_ruleset_version} is already stale to the
-     * sweep -- and it matters most on the first ingest, when the sweep has the largest backlog it will ever have.
+     * {@code PqcVerdictSweeper} is a latency decision -- a row never evaluated is already stale to the sweep -- and it
+     * matters most on the first ingest, when the sweep has the largest backlog it will ever have.
      *
      * <p>
      * Being a latency decision, it must not be able to fail the unit of work. A row the rules cannot evaluate is
@@ -534,7 +533,7 @@ public class CbomAssetIngestService {
                                 PqcEvaluator.nistQuantumSecurityLevel(merged));
                 assetWriter
                         .applyPqcVerdict(row.uuid(), decision.verdict(), decision.ruleId(), decision.reason(),
-                                PqcRuleset.VERSION, decision.evaluatedFields());
+                                decision.evaluatedFields());
             } catch (RuntimeException e) {
                 meterRegistry.counter("crypto_asset.ingest.verdict_failed").increment();
                 // The uuid, never the identity key: this line reaches an operator's log aggregator.

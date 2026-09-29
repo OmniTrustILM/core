@@ -22,7 +22,11 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Restamps every asset whose verdict predates {@link PqcRuleset#VERSION} or the row it describes, in batches.
+ * Restamps every asset whose verdict predates the row it describes, in batches.
+ *
+ * <p>
+ * The rule set carries no version: a change to the rules re-offers every row by a migration that advances
+ * {@code crypto_asset.i_upd}, which is what the work list compares a verdict against.
  *
  * <p>
  * This transaction exists to hold the advisory lock, not to write: every write goes through
@@ -44,8 +48,8 @@ public class PqcVerdictSweeper {
      * What a row gets when evaluation throws: stamped current so the sweep moves past it instead of finding it at the
      * head of the work list forever. No evidence, because the inputs are what failed.
      */
-    private static final PqcDecision EVALUATION_FAILED = new PqcDecision(PqcVerdict.UNKNOWN, "EVALUATION-FAILED",
-            "The rule set could not be evaluated against this asset's recorded properties", Map.of());
+    private static final PqcDecision EVALUATION_FAILED = new PqcDecision(PqcVerdict.UNKNOWN, PqcRules.EVALUATION_FAILED,
+            PqcRules.EVALUATION_FAILED_REASON, Map.of());
 
     private final CryptoAssetRepository assetRepository;
     private final CryptoAssetPqcVerdictWriter verdictWriter;
@@ -85,7 +89,7 @@ public class PqcVerdictSweeper {
         try {
             List<PqcStaleVerdictRow> rows;
             do {
-                rows = assetRepository.staleVerdictRows(PqcRuleset.VERSION, cursor, batchSize);
+                rows = assetRepository.staleVerdictRows(cursor, batchSize);
                 if (rows.isEmpty()) {
                     break;
                 }
@@ -143,7 +147,7 @@ public class PqcVerdictSweeper {
      */
     private List<UUID> write(List<PqcVerdictWrite> writes, Tally tally) {
         try {
-            return verdictWriter.applyStaleBatch(writes, PqcRuleset.VERSION);
+            return verdictWriter.applyStaleBatch(writes);
         } catch (RuntimeException e) {
             meterRegistry.counter("crypto_asset.pqc_sweep.batch_retried").increment();
             log
@@ -153,7 +157,7 @@ public class PqcVerdictSweeper {
         List<UUID> landed = new ArrayList<>(writes.size());
         for (PqcVerdictWrite write : writes) {
             try {
-                if (verdictWriter.applyStaleRow(write, PqcRuleset.VERSION)) {
+                if (verdictWriter.applyStaleRow(write)) {
                     landed.add(write.assetUuid());
                 }
             } catch (RuntimeException e) {

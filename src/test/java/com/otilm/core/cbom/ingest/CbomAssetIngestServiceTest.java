@@ -231,7 +231,7 @@ class CbomAssetIngestServiceTest {
         ingest(oneAlgorithm(), 100);
 
         verify(assetRepository, never()).findById(any());
-        verify(assetWriter, times(1)).applyPqcVerdict(eq(assetUuid), any(), anyString(), anyString(), anyInt(), any());
+        verify(assetWriter, times(1)).applyPqcVerdict(eq(assetUuid), any(), anyString(), anyString(), any());
     }
 
     /**
@@ -668,7 +668,7 @@ class CbomAssetIngestServiceTest {
         org.mockito.Mockito
                 .doThrow(new IllegalStateException("the rules could not evaluate this row"))
                 .when(assetWriter)
-                .applyPqcVerdict(any(), any(), anyString(), anyString(), anyInt(), any());
+                .applyPqcVerdict(any(), any(), anyString(), anyString(), any());
     }
 
     private static CbomAssetExtractor realExtractor() {

@@ -55,6 +55,8 @@ class CryptographicAssetControllerITest extends BaseSpringBootTest {
         UUID seededUuid = seedOneAsset();
         CryptographicAssetDetailDto detail = cryptographicAssetController.getCryptographicAsset(seededUuid);
         assertThat(detail.getUuid()).isEqualTo(seededUuid);
+        assertThat(cryptographicAssetController.getCryptographicAssetPqcExplanation(seededUuid).getUuid())
+                .isEqualTo(seededUuid);
 
         CryptographicAssetStatisticsDto statistics = statisticsController.getCryptographicAssetStatistics();
         assertThat(statistics).isNotNull();

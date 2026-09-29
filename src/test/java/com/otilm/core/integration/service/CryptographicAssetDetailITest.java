@@ -4,8 +4,10 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetDetailDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetEvidenceDto;
+import com.otilm.api.model.core.cryptoasset.CryptographicAssetPqcExplanationDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetSourceDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetType;
+import com.otilm.api.model.core.cryptoasset.PqcExplanationStepOutcome;
 import com.otilm.api.model.core.cryptoasset.PqcVerdict;
 import com.otilm.core.cbom.asset.AssetRowKeys;
 import com.otilm.core.cbom.asset.CryptoAssetIdentityFields;
@@ -107,7 +109,7 @@ class CryptographicAssetDetailITest extends BaseSpringBootTest {
                         new HashMap<>(Map.of("location", "src/b.c", "line", 2)),
                         new HashMap<>(Map.of("location", "src/c.c", "line", 3)));
         sourceWriter.upsertSource(assetUuid, cbom.getUuid(), Map.of("name", "AES-256-GCM"), threeOccurrences, NOW);
-        assetWriter.applyPqcVerdict(assetUuid, PqcVerdict.READY, "rule", "reason", 1, Map.of());
+        assetWriter.applyPqcVerdict(assetUuid, PqcVerdict.READY, "rule", "reason", Map.of());
 
         CryptographicAssetDetailDto detail = cryptographicAssetService
                 .getCryptographicAsset(SecuredUUID.fromUUID(assetUuid));
@@ -133,8 +135,7 @@ class CryptographicAssetDetailITest extends BaseSpringBootTest {
     void servesVerdictProvenanceWhenEvaluated() throws NotFoundException {
         UUID assetUuid = upsert(fields("RSA-2048"), null);
         assetWriter
-                .applyPqcVerdict(assetUuid, PqcVerdict.NOT_READY, "shor-breakable", "RSA is Shor-breakable", 3,
-                        Map.of());
+                .applyPqcVerdict(assetUuid, PqcVerdict.NOT_READY, "shor-breakable", "RSA is Shor-breakable", Map.of());
 
         CryptographicAssetDetailDto detail = cryptographicAssetService
                 .getCryptographicAsset(SecuredUUID.fromUUID(assetUuid));
@@ -142,7 +143,6 @@ class CryptographicAssetDetailITest extends BaseSpringBootTest {
         assertThat(detail.getVerdict()).isNotNull();
         assertThat(detail.getVerdict().getRuleId()).isEqualTo("shor-breakable");
         assertThat(detail.getVerdict().getReason()).isEqualTo("RSA is Shor-breakable");
-        assertThat(detail.getVerdict().getRuleSetVersion()).isEqualTo(3);
         assertThat(detail.getVerdict().getDecidedAt()).isNotNull();
         assertThat(detail.getVerdict().getEvaluatedAt()).isNotNull();
         assertThat(detail.getPqcVerdict()).isEqualTo(PqcVerdict.NOT_READY);
@@ -268,6 +268,64 @@ class CryptographicAssetDetailITest extends BaseSpringBootTest {
         assertThat(servedEvidence.get(1).getLocation())
                 .describedAs("location is REQUIRED; an occurrence with no location key must not serve null")
                 .isEqualTo("");
+    }
+
+    /**
+     * The explanation recomputes rather than reads, so it can be compared with what the sweep stored: never evaluated,
+     * matching, and stale are the three states an operator sees.
+     */
+    @Test
+    void theExplanationSaysWhetherTheStoredVerdictStillHolds() throws NotFoundException {
+        UUID assetUuid = upsert(new CryptoAssetIdentityFields(CryptographicAssetType.ALGORITHM, "rsa-2048", null, "RSA",
+                null, "2048", null, null, null, null), null);
+        SecuredUUID secured = SecuredUUID.fromUUID(assetUuid);
+
+        CryptographicAssetPqcExplanationDto neverEvaluated = cryptographicAssetService
+                .getCryptographicAssetPqcExplanation(secured);
+
+        assertThat(neverEvaluated.getUuid()).isEqualTo(assetUuid);
+        assertThat(neverEvaluated.getVerdict()).isEqualTo(PqcVerdict.NOT_READY);
+        assertThat(neverEvaluated.getRuleId()).isEqualTo("CLASSICAL-SHOR");
+        assertThat(neverEvaluated.isMatchesStored()).isFalse();
+        assertThat(neverEvaluated.getStoredVerdict()).isNull();
+        assertThat(neverEvaluated.getStoredEvaluatedAt()).isNull();
+        assertThat(neverEvaluated.getInputs()).containsEntry("algorithmFamily", "RSA");
+        assertThat(neverEvaluated.getExplainedAt()).isNotNull();
+        assertThat(neverEvaluated.getSteps())
+                .filteredOn(step -> step.getOutcome() == PqcExplanationStepOutcome.DECIDED)
+                .singleElement()
+                .satisfies(step -> {
+                    assertThat(step.getRuleId()).isEqualTo("CLASSICAL-SHOR");
+                    assertThat(step.getTitle()).isEqualTo("Quantum-vulnerable family");
+                });
+        assertThat(cryptoAssetRepository.findById(assetUuid).orElseThrow().getPqcEvaluatedAt())
+                .describedAs("the explanation writes nothing back")
+                .isNull();
+
+        assetWriter
+                .applyPqcVerdict(assetUuid, neverEvaluated.getVerdict(), neverEvaluated.getRuleId(),
+                        neverEvaluated.getReason(), Map.of());
+        CryptographicAssetPqcExplanationDto current = cryptographicAssetService
+                .getCryptographicAssetPqcExplanation(secured);
+        assertThat(current.isMatchesStored()).isTrue();
+        assertThat(current.getStoredRuleId()).isEqualTo("CLASSICAL-SHOR");
+        assertThat(current.getStoredEvaluatedAt()).isNotNull();
+
+        assetWriter.applyPqcVerdict(assetUuid, PqcVerdict.READY, "AN-OLDER-RULE", "stamped by older rules", Map.of());
+        CryptographicAssetPqcExplanationDto stale = cryptographicAssetService
+                .getCryptographicAssetPqcExplanation(secured);
+        assertThat(stale.isMatchesStored()).isFalse();
+        assertThat(stale.getStoredVerdict()).isEqualTo(PqcVerdict.READY);
+        assertThat(stale.getStoredRuleId()).isEqualTo("AN-OLDER-RULE");
+        assertThat(stale.getVerdict()).isEqualTo(PqcVerdict.NOT_READY);
+    }
+
+    @Test
+    void theExplanationOfAnUnknownAssetIsNotFound() {
+        SecuredUUID unknown = SecuredUUID.fromUUID(UUID.randomUUID());
+
+        assertThatThrownBy(() -> cryptographicAssetService.getCryptographicAssetPqcExplanation(unknown))
+                .isInstanceOf(NotFoundException.class);
     }
 
     /**

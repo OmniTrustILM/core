@@ -13,8 +13,10 @@ import com.otilm.api.model.core.cryptoasset.CryptographicAssetDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetEvidenceDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetNormalizedFieldsDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetOidDto;
+import com.otilm.api.model.core.cryptoasset.CryptographicAssetPqcExplanationDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetSourceDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetVerdictDto;
+import com.otilm.api.model.core.cryptoasset.PqcExplanationStepDto;
 import com.otilm.api.model.core.cryptoasset.PqcVerdict;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.api.model.core.search.FilterFieldSource;
@@ -24,6 +26,8 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
 import com.otilm.core.cbom.asset.CompositeCurve;
 import com.otilm.core.cbom.asset.ServedAssetType;
+import com.otilm.core.cbom.pqc.PqcExplanation;
+import com.otilm.core.cbom.pqc.PqcVerdictExplainer;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.dao.entity.Cbom;
 import com.otilm.core.dao.entity.Cbom_;
@@ -108,6 +112,13 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
 
     private AttributeEngine attributeEngine;
 
+    private PqcVerdictExplainer verdictExplainer;
+
+    @Autowired
+    public void setVerdictExplainer(PqcVerdictExplainer verdictExplainer) {
+        this.verdictExplainer = verdictExplainer;
+    }
+
     @Autowired
     public void setAttributeEngine(AttributeEngine attributeEngine) {
         this.attributeEngine = attributeEngine;
@@ -171,6 +182,53 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
                 .orElseThrow(() -> new NotFoundException(CryptoAsset.class, uuid));
         List<CryptoAssetSource> sources = cryptoAssetSourceRepository.findWithCbomByAssetUuid(asset.getUuid());
         return toDetailDto(asset, sources, visibleCbomUuids(asset.getUuid()));
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.CRYPTO_ASSET, action = ResourceAction.DETAIL)
+    public CryptographicAssetPqcExplanationDto getCryptographicAssetPqcExplanation(SecuredUUID uuid)
+            throws NotFoundException {
+        CryptoAsset asset = cryptoAssetRepository
+                .findByUuid(uuid)
+                .orElseThrow(() -> new NotFoundException(CryptoAsset.class, uuid));
+        PqcVerdictExplainer.Result result = verdictExplainer
+                .explain(asset.getUuid())
+                .orElseThrow(() -> new NotFoundException(CryptoAsset.class, uuid));
+        return toExplanationDto(asset, result);
+    }
+
+    private static CryptographicAssetPqcExplanationDto toExplanationDto(CryptoAsset asset,
+            PqcVerdictExplainer.Result result) {
+        PqcExplanation explanation = result.explanation();
+        CryptographicAssetPqcExplanationDto dto = new CryptographicAssetPqcExplanationDto();
+        dto.setUuid(asset.getUuid());
+        dto.setVerdict(explanation.decision().verdict());
+        dto.setRuleId(explanation.decision().ruleId());
+        dto.setReason(explanation.decision().reason());
+        dto.setInputs(result.inputs());
+        dto.setSteps(explanation.steps().stream().map(CryptographicAssetServiceImpl::toStepDto).toList());
+        boolean evaluated = asset.getPqcEvaluatedAt() != null;
+        if (evaluated) {
+            dto.setStoredVerdict(asset.getPqcVerdict());
+            dto.setStoredRuleId(asset.getPqcRuleId());
+            dto.setStoredEvaluatedAt(asset.getPqcEvaluatedAt());
+        }
+        dto
+                .setMatchesStored(evaluated && asset.getPqcVerdict() == explanation.decision().verdict()
+                        && Objects.equals(asset.getPqcRuleId(), explanation.decision().ruleId()));
+        dto.setExplainedAt(OffsetDateTime.now());
+        return dto;
+    }
+
+    private static PqcExplanationStepDto toStepDto(PqcExplanation.Step step) {
+        PqcExplanationStepDto dto = new PqcExplanationStepDto();
+        dto.setRuleId(step.ruleId());
+        dto.setTitle(step.title());
+        dto.setOutcome(step.outcome());
+        dto.setVerdict(step.verdict());
+        dto.setMessage(step.message());
+        dto.setEvaluatedFields(step.evaluatedFields());
+        return dto;
     }
 
     /**
@@ -242,7 +300,6 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
                                 .prepareSearch(FilterField.CBOM_ASSET_VARIANT,
                                         cryptoAssetRepository.findDistinctVariant()),
                         SearchHelper.prepareSearch(FilterField.CBOM_ASSET_PQC_VERDICT),
-                        SearchHelper.prepareSearch(FilterField.CBOM_ASSET_PQC_RULESET_VERSION),
                         SearchHelper.prepareSearch(FilterField.CBOM_ASSET_RULESET_VERSION),
                         SearchHelper.prepareSearch(FilterField.CBOM_ASSET_SOURCE_COUNT), SearchHelper
                                 .prepareSearch(FilterField.CBOM_ASSET_SOURCE_CBOM, cbomSerialNumbersScopedToCaller()));
@@ -563,8 +620,8 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
      * Verdict provenance exists only once a rule set has evaluated the asset, and a row without it is reachable by
      * design, not only before the rule set shipped: a row waits between its upsert and its first evaluation (only the
      * sweep evaluates until ingest does), and a row whose first verdict write failed or was refused by the row-version
-     * guard stays on the work list -- the {@code pqc_ruleset_version IS NULL} arm of the sweep's query offers both
-     * again on the next run. A failed <em>evaluation</em> is not one of these: the sweep stamps it {@code UNKNOWN} /
+     * guard stays on the work list -- the {@code pqc_evaluated_at IS NULL} arm of the sweep's query offers both again
+     * on the next run. A failed <em>evaluation</em> is not one of these: the sweep stamps it {@code UNKNOWN} /
      * {@code EVALUATION-FAILED} with a current {@code pqc_evaluated_at}, so that row serves a block naming the failure
      * and leaves the work list. Until a row is stamped, a fabricated all-default block would present "never evaluated"
      * as a decision, so the block is omitted -- the contract marks it not required (interfaces#938, PR interfaces#940)
@@ -575,7 +632,6 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
             return null;
         }
         CryptographicAssetVerdictDto dto = new CryptographicAssetVerdictDto();
-        dto.setRuleSetVersion(asset.getPqcRulesetVersion() == null ? 0 : asset.getPqcRulesetVersion());
         dto.setRuleId(asset.getPqcRuleId());
         dto.setReason(asset.getPqcReason());
         dto.setEvaluatedFields(asset.getPqcEvaluatedFields());

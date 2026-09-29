@@ -2,6 +2,7 @@ package com.otilm.core.cbom.pqc;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetType;
+import com.otilm.api.model.core.cryptoasset.PqcExplanationStepOutcome;
 import com.otilm.api.model.core.cryptoasset.PqcVerdict;
 import com.otilm.core.cbom.asset.CryptoAssetIdentityFields;
 import com.otilm.core.cbom.asset.identity.AsciiText;
@@ -59,6 +60,10 @@ public class PqcEvaluator {
 
     private static final String NIST_LEVEL = PqcRules.NIST_QUANTUM_SECURITY_LEVEL;
 
+    private static final String NOT_MATCHED = "The rule's condition did not hold for this asset";
+
+    private static final String NOT_REACHED = "Not evaluated: an earlier rule decided";
+
     /** The ratified "the producer said nothing" spelling for a material type, per core#2196's ruling C10. */
     private static final String MATERIAL_TYPE_UNKNOWN = "unknown";
 
@@ -89,6 +94,65 @@ public class PqcEvaluator {
             }
         }
         return nameDecision(input, nistQuantumSecurityLevel);
+    }
+
+    /**
+     * {@link #evaluate}, with every catalogue rule the asset's type is tested against laid out around the one that
+     * decided. The decision is {@code evaluate}'s own, so the two cannot disagree.
+     *
+     * @throws IllegalStateException when the decided rule id has no catalogue entry for the asset's type
+     */
+    public PqcExplanation explain(PqcRuleInput input, Integer nistQuantumSecurityLevel) {
+        PqcDecision decision = evaluate(input, nistQuantumSecurityLevel);
+        List<PqcRuleCatalog.Entry> served = PqcRuleCatalog.servedFor(input.assetType());
+        String decidedEntry = PqcRuleCatalog.entryIdOf(decision.ruleId());
+        int decidedAt = -1;
+        for (int i = 0; i < served.size() && decidedAt < 0; i++) {
+            if (served.get(i).id().equals(decidedEntry)) {
+                decidedAt = i;
+            }
+        }
+        if (decidedAt < 0) {
+            throw new IllegalStateException("Rule " + decision.ruleId() + " has no catalogue entry for its asset type");
+        }
+        List<PqcExplanation.Step> steps = new ArrayList<>(served.size());
+        for (int i = 0; i < served.size(); i++) {
+            PqcRuleCatalog.Entry entry = served.get(i);
+            if (i < decidedAt) {
+                steps
+                        .add(new PqcExplanation.Step(entry.id(), entry.title(), PqcExplanationStepOutcome.NOT_MATCHED,
+                                null, NOT_MATCHED,
+                                projectEvidence(readsFieldsOf(entry), input, nistQuantumSecurityLevel, entry.id()),
+                                null));
+            } else if (i == decidedAt) {
+                steps
+                        .add(new PqcExplanation.Step(decision.ruleId(), entry.title(),
+                                PqcExplanationStepOutcome.DECIDED, decision.verdict(), decision.reason(),
+                                decision.evaluatedFields(), null));
+            } else {
+                steps
+                        .add(new PqcExplanation.Step(entry.id(), entry.title(), PqcExplanationStepOutcome.NOT_REACHED,
+                                null, NOT_REACHED, null, null));
+            }
+        }
+        return new PqcExplanation(decision, steps);
+    }
+
+    /** Every value the rules can read for this asset, in {@link PqcRules#INPUT_FIELDS} order; absent ones omitted. */
+    public static Map<String, Object> inputsOf(PqcRuleInput input, Integer nistQuantumSecurityLevel) {
+        return projectEvidence(PqcRules.INPUT_FIELDS, input, nistQuantumSecurityLevel, "inputs");
+    }
+
+    private List<String> readsFieldsOf(PqcRuleCatalog.Entry entry) {
+        if (entry.readsFields() != null) {
+            return entry.readsFields();
+        }
+        return rules
+                .stream()
+                .filter(rule -> rule.id().equals(entry.id()))
+                .findFirst()
+                .map(PqcRule::readsFields)
+                .orElseThrow(() -> new IllegalStateException("Catalogue entry " + entry.id() + " is not in the table"));
     }
 
     /**

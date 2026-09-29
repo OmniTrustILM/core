@@ -49,9 +49,12 @@ public final class PqcRules {
 
     public static final String NIST_QUANTUM_SECURITY_LEVEL = "nistQuantumSecurityLevel";
 
-    public static final Set<String> EVIDENCE_FIELDS = Set
+    /** What the rules read, in the order an explanation serves them as its inputs. */
+    public static final List<String> INPUT_FIELDS = List
             .of(ASSET_TYPE, ALGORITHM_FAMILY, PARAMETER_SET, CURVE, "mode", "padding", VARIANT, NAME, HYBRID_COMPONENTS,
                     MATERIAL_TYPE, MATERIAL_SIZE, NIST_QUANTUM_SECURITY_LEVEL);
+
+    public static final Set<String> EVIDENCE_FIELDS = Set.copyOf(INPUT_FIELDS);
 
     /** Symmetric key or shared secret: quantum-resistant if long enough. */
     public static final Set<String> SYMMETRIC_MATERIAL = Set.of("secret-key", "symmetric-key", "shared-secret");
@@ -74,6 +77,12 @@ public final class PqcRules {
     public static final String FAMILY_UNRESOLVED = "FAMILY-UNRESOLVED";
 
     public static final String HYBRID = "PQC-HYBRID";
+
+    /** Stamped on a row the rules threw on. Not a rule, so it has no catalogue entry. */
+    public static final String EVALUATION_FAILED = "EVALUATION-FAILED";
+
+    public static final String EVALUATION_FAILED_REASON = "The rule set could not be evaluated against this asset's "
+            + "recorded properties";
 
     /** The size arms' own fields, and every field the name decision they consult can read. */
     private static final List<String> SYMMETRIC_MATERIAL_FIELDS = List

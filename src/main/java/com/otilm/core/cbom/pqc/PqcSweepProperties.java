@@ -8,8 +8,8 @@ import org.springframework.validation.annotation.Validated;
  * Sweep batching. {@code maxBatchesPerSweep} of 0 disables it, hence {@code @Min(0)}.
  *
  * <p>
- * Deploy-time rather than Settings because there is no policy knob here: which rows are due is
- * {@link PqcRuleset#VERSION}, not an operator's risk appetite. What an operator can reach is the schedule.
+ * Deploy-time rather than Settings because there is no policy knob here: which rows are due is whether their verdict
+ * predates them, not an operator's risk appetite. What an operator can reach is the schedule.
  */
 @Validated
 @ConfigurationProperties(prefix = "crypto-asset.pqc-sweep")

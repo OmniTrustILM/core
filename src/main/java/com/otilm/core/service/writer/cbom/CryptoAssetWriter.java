@@ -108,16 +108,16 @@ public class CryptoAssetWriter {
     }
 
     /**
-     * Stores a PQC verdict with the rule that produced it, the rule-set generation, and the fields the rule read. The
-     * identity columns and the identity rule-set version are untouched: a verdict is not an identity.
+     * Stores a PQC verdict with the rule that produced it and the fields the rule read. The identity columns and the
+     * identity rule-set version are untouched: a verdict is not an identity.
      *
      * @param reason operator-facing text, which the caller must have shaped itself
      */
     @Transactional
-    public void applyPqcVerdict(UUID assetUuid, PqcVerdict verdict, String ruleId, String reason, int rulesetVersion,
+    public void applyPqcVerdict(UUID assetUuid, PqcVerdict verdict, String ruleId, String reason,
             Map<String, Object> evaluatedFields) {
         assetRepository
-                .applyPqcVerdict(assetUuid, verdict == null ? null : verdict.name(), ruleId, reason, rulesetVersion,
+                .applyPqcVerdict(assetUuid, verdict == null ? null : verdict.name(), ruleId, reason,
                         JsonColumnText.render(evaluatedFields));
     }
 

@@ -148,9 +148,6 @@ public class CryptoAsset extends UniquelyIdentifiedAndAudited {
     @Column(name = "pqc_reason", columnDefinition = "TEXT")
     private String pqcReason;
 
-    @Column(name = "pqc_ruleset_version")
-    private Integer pqcRulesetVersion;
-
     /**
      * When the current verdict <em>value</em> was decided. Unmoved by a re-evaluation that reaches the same verdict.
      */

@@ -165,13 +165,13 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
         CryptoAsset before = asset(assetUuid);
 
         assetWriter
-                .applyPqcVerdict(assetUuid, PqcVerdict.NOT_READY, "RSA-CLASSICAL", "RSA is not quantum resistant", 7,
+                .applyPqcVerdict(assetUuid, PqcVerdict.NOT_READY, "RSA-CLASSICAL", "RSA is not quantum resistant",
                         Map.of("algorithmFamily", "rsa", "parameterSetIdentifier", "2048"));
 
         CryptoAsset after = asset(assetUuid);
         assertThat(after.getPqcVerdict()).isEqualTo(PqcVerdict.NOT_READY);
         assertThat(after.getPqcRuleId()).isEqualTo("RSA-CLASSICAL");
-        assertThat(after.getPqcRulesetVersion()).isEqualTo(7);
+        assertThat(after.getPqcEvaluatedAt()).isNotNull();
         assertThat(after.getPqcEvaluatedFields()).containsEntry("parameterSetIdentifier", "2048");
         assertThat(after.getRulesetVersion())
                 .describedAs("a verdict is not an identity")
@@ -187,12 +187,12 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
     void aReEvaluationAdvancesEvaluatedAtButNotDecidedAt() {
         UUID assetUuid = upsert(rsa2048(), null);
 
-        assetWriter.applyPqcVerdict(assetUuid, PqcVerdict.NOT_READY, "RSA-CLASSICAL", "not quantum resistant", 7, null);
+        assetWriter.applyPqcVerdict(assetUuid, PqcVerdict.NOT_READY, "RSA-CLASSICAL", "not quantum resistant", null);
         CryptoAsset firstVerdict = asset(assetUuid);
         assertThat(firstVerdict.getPqcDecidedAt()).isNotNull();
         assertThat(firstVerdict.getPqcEvaluatedAt()).isNotNull();
 
-        assetWriter.applyPqcVerdict(assetUuid, PqcVerdict.NOT_READY, "RSA-CLASSICAL", "not quantum resistant", 8, null);
+        assetWriter.applyPqcVerdict(assetUuid, PqcVerdict.NOT_READY, "RSA-CLASSICAL", "not quantum resistant", null);
         CryptoAsset confirmed = asset(assetUuid);
         assertThat(confirmed.getPqcDecidedAt())
                 .describedAs("the verdict did not change, so the date it was decided must not move")
@@ -201,7 +201,7 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
                 .describedAs("but it was looked at again")
                 .isAfterOrEqualTo(firstVerdict.getPqcEvaluatedAt());
 
-        assetWriter.applyPqcVerdict(assetUuid, PqcVerdict.READY, "RSA-REKEYED", "re-keyed to ML-DSA", 8, null);
+        assetWriter.applyPqcVerdict(assetUuid, PqcVerdict.READY, "RSA-REKEYED", "re-keyed to ML-DSA", null);
         assertThat(asset(assetUuid).getPqcDecidedAt())
                 .describedAs("a changed verdict is a new decision")
                 .isAfter(firstVerdict.getPqcDecidedAt());
@@ -341,15 +341,15 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
     @Test
     void aVerdictCanBeCleared() {
         UUID assetUuid = upsert(rsa2048(), null);
-        assetWriter.applyPqcVerdict(assetUuid, PqcVerdict.NOT_READY, "RSA-CLASSICAL", "reason", 7, Map.of("a", "b"));
+        assetWriter.applyPqcVerdict(assetUuid, PqcVerdict.NOT_READY, "RSA-CLASSICAL", "reason", Map.of("a", "b"));
 
-        assetWriter.applyPqcVerdict(assetUuid, null, null, null, 8, null);
+        assetWriter.applyPqcVerdict(assetUuid, null, null, null, null);
 
         CryptoAsset cleared = asset(assetUuid);
         assertThat(cleared.getPqcVerdict()).isNull();
         assertThat(cleared.getPqcRuleId()).isNull();
         assertThat(cleared.getPqcEvaluatedFields()).isNull();
-        assertThat(cleared.getPqcRulesetVersion()).isEqualTo(8);
+        assertThat(cleared.getPqcEvaluatedAt()).isNotNull();
     }
 
     // ---- evidence capping ----

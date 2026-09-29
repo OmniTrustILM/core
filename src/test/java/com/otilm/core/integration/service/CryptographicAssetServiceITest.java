@@ -148,7 +148,7 @@ class CryptographicAssetServiceITest extends BaseSpringBootTest {
         sourceWriter
                 .upsertSource(sourced, cbomTwo.getUuid(), Map.of("k", "v"),
                         List.of(Map.of("location", "d"), Map.of("location", "e")), OffsetDateTime.now());
-        assetWriter.applyPqcVerdict(sourced, PqcVerdict.NOT_READY, "rule", "reason", 3, Map.of());
+        assetWriter.applyPqcVerdict(sourced, PqcVerdict.NOT_READY, "rule", "reason", Map.of());
 
         UUID guarded = upsert(new CryptoAssetIdentityFields(CryptographicAssetType.CERTIFICATE, "some-cn", null, null,
                 null, null, null, null, null, null), CryptoAssetIdentityGuard.BARE_CN_SUBJECT);

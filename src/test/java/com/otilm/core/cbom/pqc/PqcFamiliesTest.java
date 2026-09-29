@@ -204,9 +204,9 @@ class PqcFamiliesTest {
      * <p>
      * Nothing else couples the two. The carried rulings move verdicts without touching a line of this package -- C8
      * alone turns {@code RC4-MD5} from a {@code CLASSICAL-LEGACY} family into a suite name, and C12 would replace this
-     * whole table -- so a regenerated artifact must force someone to decide whether {@link PqcRuleset#VERSION} bumps
-     * and the sweep re-runs. Failing here is not a defect: re-read the dispositions against the new tables, bump the
-     * rule-set version if any verdict moved, and update this digest in the same commit.
+     * whole table -- so a regenerated artifact must force someone to decide whether the sweep re-runs. Failing here is
+     * not a defect: re-read the dispositions against the new tables, add a migration re-offering every row if any
+     * verdict moved, and update this digest in the same commit.
      */
     @Test
     void theRuleSetIsPinnedToTheTablesItWasAuthoredAgainst() throws Exception {
