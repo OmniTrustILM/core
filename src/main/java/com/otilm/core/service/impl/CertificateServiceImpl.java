@@ -1157,9 +1157,6 @@ public class CertificateServiceImpl
         // 3. Do the work.
         locationInternalService.removeCertificatesFromLocationsOnDelete(permittedSecuredUuids);
 
-        scepProfileRepository.clearCaCertificateReferenceIn(permittedUuids);
-        cmpProfileRepository.clearSigningCertificateReferenceIn(permittedUuids);
-
         crlService.clearCrlsForCaCertificate(permittedUuids);
 
         certificates.forEach(c -> {
@@ -1169,6 +1166,10 @@ public class CertificateServiceImpl
         objectAssociationService.bulkRemoveObjectAssociations(Resource.CERTIFICATE, permittedUuids);
         commentService.bulkRemoveObjectComments(Resource.CERTIFICATE, permittedUuids);
         attributeEngine.bulkDeleteObjectAttributeContent(Resource.CERTIFICATE, permittedUuids);
+
+        // After the comment locks, as in deleteCertificate: the opposite order could deadlock the two paths
+        scepProfileRepository.clearCaCertificateReferenceIn(permittedUuids);
+        cmpProfileRepository.clearSigningCertificateReferenceIn(permittedUuids);
 
         certificateRepository.deleteAllInBatch(certificates);
         certificateContentRepository.deleteUnusedCertificateContents();
