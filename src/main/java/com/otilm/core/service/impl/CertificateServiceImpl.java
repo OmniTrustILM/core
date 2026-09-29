@@ -1167,6 +1167,11 @@ public class CertificateServiceImpl
             c.getGroups().clear();
         });
         objectAssociationService.bulkRemoveObjectAssociations(Resource.CERTIFICATE, permittedUuids);
+        // Each removal takes a per-certificate lock; a fixed order keeps overlapping bulk deletions from deadlocking.
+        permittedUuids
+                .stream()
+                .sorted()
+                .forEach(uuid -> commentService.removeObjectComments(Resource.CERTIFICATE, uuid));
         attributeEngine.bulkDeleteObjectAttributeContent(Resource.CERTIFICATE, permittedUuids);
 
         certificateRepository.deleteAllInBatch(certificates);

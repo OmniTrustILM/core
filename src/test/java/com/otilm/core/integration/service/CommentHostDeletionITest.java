@@ -2,16 +2,21 @@ package com.otilm.core.integration.service;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
+import com.otilm.api.model.client.certificate.RemoveCertificateDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.dao.entity.Comment;
 import com.otilm.core.dao.repository.CommentRepository;
+import com.otilm.core.security.authz.SecurityFilter;
+import com.otilm.core.service.CertificateExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CommentableHostObjects;
 import com.otilm.core.util.mockbeans.ProducerMocks;
+import java.util.List;
 import java.util.UUID;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,6 +40,9 @@ class CommentHostDeletionITest extends BaseSpringBootTest {
 
     @Autowired
     private CommentRepository commentRepository;
+
+    @Autowired
+    private CertificateExternalService certificateService;
 
     private CommentableHostObjects hostObjects;
 
@@ -85,5 +93,29 @@ class CommentHostDeletionITest extends BaseSpringBootTest {
         assertThat(commentRepository.existsByResourceAndObjectUuid(resource, objectUuid))
                 .as("comments of %s %s survive its deletion", resource, objectUuid)
                 .isFalse();
+    }
+
+    @Test
+    void bulkDeletingCertificatesRemovesTheirThreads() throws Exception {
+        List<UUID> deletedUuids = List
+                .of(hostObjects.create(Resource.CERTIFICATE), hostObjects.create(Resource.CERTIFICATE));
+        UUID keptUuid = hostObjects.create(Resource.CERTIFICATE);
+        for (UUID objectUuid : List.of(deletedUuids.get(0), deletedUuids.get(1), keptUuid)) {
+            Comment root = commentRepository.saveAndFlush(newComment(Resource.CERTIFICATE, objectUuid, null));
+            commentRepository.saveAndFlush(newComment(Resource.CERTIFICATE, objectUuid, root.getUuid()));
+        }
+
+        RemoveCertificateDto request = new RemoveCertificateDto();
+        request.setUuids(deletedUuids.stream().map(UUID::toString).toList());
+        certificateService.bulkDeleteCertificate(SecurityFilter.create(), request);
+
+        for (UUID objectUuid : deletedUuids) {
+            assertThat(commentRepository.existsByResourceAndObjectUuid(Resource.CERTIFICATE, objectUuid))
+                    .as("comments of certificate %s survive its bulk deletion", objectUuid)
+                    .isFalse();
+        }
+        assertThat(commentRepository.existsByResourceAndObjectUuid(Resource.CERTIFICATE, keptUuid))
+                .as("comments of certificate %s left out of the bulk deletion", keptUuid)
+                .isTrue();
     }
 }
