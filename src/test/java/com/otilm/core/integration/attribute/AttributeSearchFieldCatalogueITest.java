@@ -213,6 +213,31 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
     }
 
     @Test
+    void enablingOrDisablingACustomAttributeKeepsTheCachedEntry() throws Exception {
+        UUID toggled = UUID.fromString(createCustomAttribute("toggled").getUuid());
+        catalogue.fields(Resource.CERTIFICATE, false);
+
+        attributeService.enableCustomAttribute(toggled, false);
+        attributeService.enableCustomAttribute(toggled, true);
+
+        assertThat(catalogueQueriesDuring(() -> catalogue.fields(Resource.CERTIFICATE, false))).isEmpty();
+    }
+
+    @Test
+    void promotingOrDemotingConnectorMetadataKeepsTheCachedEntry() throws Exception {
+        Connector connector = savedConnector();
+        UUID metadata = UUID.randomUUID();
+        writeMetadataToACertificate(connector, metadata, "connector-meta", "Connector meta", false);
+        catalogue.fields(Resource.CERTIFICATE, false);
+
+        GlobalMetadataDefinitionDetailDto promoted = attributeService
+                .promoteConnectorMetadata(metadata, connector.getUuid());
+        attributeService.demoteConnectorMetadata(UUID.fromString(promoted.getUuid()));
+
+        assertThat(catalogueQueriesDuring(() -> catalogue.fields(Resource.CERTIFICATE, false))).isEmpty();
+    }
+
+    @Test
     void aGlobalMetadataRenamedHereShowsOnTheNextRead() throws Exception {
         GlobalMetadataDefinitionDetailDto owner = createGlobalMetadataOnACertificate("owner", "Owner");
         assertThat(metadataRow(catalogue.fields(Resource.CERTIFICATE, false), "owner").getLabel()).isEqualTo("Owner");
@@ -315,14 +340,18 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
         request.setContentType(AttributeContentType.STRING);
         request.setVisible(true);
         GlobalMetadataDefinitionDetailDto created = attributeService.createGlobalMetadata(request);
-        Connector connector = savedConnector();
+        writeMetadataToACertificate(savedConnector(), UUID.fromString(created.getUuid()), name, label, true);
+        return created;
+    }
 
+    private void writeMetadataToACertificate(Connector connector, UUID uuid, String name, String label, boolean global)
+            throws Exception {
         MetadataAttributeProperties properties = new MetadataAttributeProperties();
         properties.setLabel(label);
         properties.setVisible(true);
-        properties.setGlobal(true);
+        properties.setGlobal(global);
         MetadataAttributeV2 written = new MetadataAttributeV2();
-        written.setUuid(created.getUuid());
+        written.setUuid(uuid.toString());
         written.setName(name);
         written.setType(AttributeType.META);
         written.setContentType(AttributeContentType.STRING);
@@ -334,7 +363,6 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
                                 .builder(Resource.CERTIFICATE, UUID.randomUUID())
                                 .connector(connector.getUuid())
                                 .build());
-        return created;
     }
 
     private void writeDataAttributeToACertificate(Connector connector, String name) throws Exception {

@@ -301,7 +301,6 @@ public class AttributeServiceImpl implements AttributeExternalService, Attribute
                 .orElseThrow(() -> new NotFoundException(AttributeDefinition.class, uuid.toString()));
         definition.setEnabled(enable);
         attributeDefinitionRepository.save(definition);
-        attributeSearchFieldCatalogue.evictAll();
     }
 
     @Override
@@ -353,7 +352,6 @@ public class AttributeServiceImpl implements AttributeExternalService, Attribute
                 .orElseThrow(() -> new NotFoundException(AttributeDefinition.class, uuid.toString()));
         definition.setGlobal(true);
         attributeDefinitionRepository.save(definition);
-        attributeSearchFieldCatalogue.evictAll();
         return getGlobalMetadata(definition.getUuid());
     }
 
@@ -365,7 +363,6 @@ public class AttributeServiceImpl implements AttributeExternalService, Attribute
                 .orElseThrow(() -> new NotFoundException(AttributeDefinition.class, uuid.toString()));
         definition.setGlobal(false);
         attributeDefinitionRepository.save(definition);
-        attributeSearchFieldCatalogue.evictAll();
     }
 
     @Override
