@@ -14,6 +14,7 @@ import com.otilm.api.model.core.cryptoasset.CryptographicAssetEvidenceDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetNormalizedFieldsDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetOidDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetSourceDto;
+import com.otilm.api.model.core.cryptoasset.CryptographicAssetType;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetVerdictDto;
 import com.otilm.api.model.core.cryptoasset.PqcVerdict;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
@@ -57,6 +58,7 @@ import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Order;
+import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
@@ -482,9 +484,10 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
     }
 
     /**
-     * The value a cell serves where it differs from its column: the display label for the name, and UNKNOWN for a
-     * never-evaluated verdict, as {@link #servedName} and {@link #servedVerdict} serve them. {@code null} for any other
-     * sort, which the repository resolves to the column itself.
+     * The value a cell serves where it differs from its column: the display label for the name, no type for a stored
+     * tier CycloneDX has no value for, and UNKNOWN for a never-evaluated verdict, as {@link #servedName},
+     * {@link ServedAssetType#of} and {@link #servedVerdict} serve them. {@code null} for any other sort, which the
+     * repository resolves to the column itself.
      */
     private static SortKey servedSortKey(SortSpecification sort) {
         if (sort == null || sort.fieldSource() != FilterFieldSource.PROPERTY) {
@@ -493,10 +496,21 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
         if (FilterField.CBOM_ASSET_NAME.name().equals(sort.fieldIdentifier())) {
             return CryptographicAssetServiceImpl::displayLabel;
         }
+        if (FilterField.CBOM_ASSET_TYPE.name().equals(sort.fieldIdentifier())) {
+            return CryptographicAssetServiceImpl::servedAssetType;
+        }
         if (FilterField.CBOM_ASSET_PQC_VERDICT.name().equals(sort.fieldIdentifier())) {
             return (root, cb) -> cb.coalesce(root.get(CryptoAsset_.pqcVerdict), PqcVerdict.UNKNOWN);
         }
         return null;
+    }
+
+    private static Expression<CryptographicAssetType> servedAssetType(Root<CryptoAsset> root, CriteriaBuilder cb) {
+        Path<CryptographicAssetType> stored = root.get(CryptoAsset_.assetType);
+        return cb
+                .<CryptographicAssetType>selectCase()
+                .when(stored.in(ServedAssetType.VALUES), stored)
+                .otherwise(cb.nullLiteral(CryptographicAssetType.class));
     }
 
     /** Rows with nothing to serve stay last in either direction, as they do under every other column sort. */

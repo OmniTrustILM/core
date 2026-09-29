@@ -241,6 +241,21 @@ class CryptographicAssetServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void sortsARowServedWithNoTypeLastInBothDirections() {
+        UUID untyped = seedNamed(CryptographicAssetType.UNROUTABLE, "unclassified", null);
+        UUID algorithm = seedNamed(CryptographicAssetType.ALGORITHM, "bravo", null);
+        UUID material = seedNamed(CryptographicAssetType.RELATED_CRYPTO_MATERIAL, "charlie", null);
+
+        assertThat(list(sortedBy(FilterField.CBOM_ASSET_TYPE, SortDirection.ASC)).getItems())
+                .extracting(CryptographicAssetDto::getUuid)
+                .containsExactly(algorithm, material, untyped);
+        assertThat(list(sortedBy(FilterField.CBOM_ASSET_TYPE, SortDirection.DESC)).getItems())
+                .extracting(CryptographicAssetDto::getUuid)
+                .describedAs("a row with no type to show stays last when the order is reversed")
+                .containsExactly(material, algorithm, untyped);
+    }
+
+    @Test
     void theNextPageContinuesTheRequestedOrder() {
         UUID alpha = seedNamed(CryptographicAssetType.ALGORITHM, "alpha", "2.0.1");
         UUID bravo = seedNamed(CryptographicAssetType.ALGORITHM, "bravo", "2.0.2");
