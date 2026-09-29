@@ -28,6 +28,8 @@ import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateEvent;
+import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
@@ -47,6 +49,7 @@ import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.RegistrationState;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
+import com.otilm.core.dao.repository.CertificateEventHistoryRepository;
 import com.otilm.core.dao.repository.CertificateLocationRepository;
 import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -108,6 +111,8 @@ class LocationServiceITest extends BaseSpringBootTest {
     private CertificateLocationRepository certificateLocationRepository;
     @Autowired
     private CertificateRegistrationAuthorizationRepository authorizationRepository;
+    @Autowired
+    private CertificateEventHistoryRepository eventHistoryRepository;
     @Autowired
     private RegistrationChallengeStore registrationChallengeStore;
     @MockitoBean
@@ -922,6 +927,14 @@ class LocationServiceITest extends BaseSpringBootTest {
                 .verify(0, WireMock
                         .postRequestedFor(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/csr")));
         verify(clientOperationService, never()).renewCertificate(any(), any(), any(), any());
+        Assertions
+                .assertTrue(
+                        eventHistoryRepository
+                                .findByCertificateOrderByCreatedDesc(certificate)
+                                .stream()
+                                .anyMatch(h -> h.getEvent() == CertificateEvent.RENEW
+                                        && h.getStatus() == CertificateEventStatus.FAILED),
+                        "the refused renew must be recorded in the certificate history, as the gate records it");
     }
 
     @Test

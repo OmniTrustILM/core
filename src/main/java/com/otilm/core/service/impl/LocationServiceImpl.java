@@ -944,9 +944,15 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
                     "Certificate with UUID %s is archived. Cannot renew the certificate in the location with UUID %s."
                             .formatted(certificateUuid, locationUuid));
         }
-        // Location renew cannot present a registration challenge, so the renew gate would deny it; refuse
-        // before the location generates a key and CSR for a renewal that cannot happen.
-        if (registrationChallengeGate.requiresChallenge(certificateInScope.getUuid())) {
+        // Location renew cannot present a registration challenge. Ask the renew gate now, with no secret, so a
+        // registration-protected certificate is refused and the attempt recorded before the location generates
+        // a key and CSR for a renewal that cannot happen.
+        try {
+            registrationChallengeGate.verify(certificateInScope.getUuid(), null, CertificateEvent.RENEW);
+        } catch (ValidationException e) {
+            logger
+                    .debug("Renewal of the Certificate {} in the Location {} refused by the registration challenge gate: {}",
+                            certificateUuid, locationUuid, e.getMessage());
             throw new LocationException(
                     "Certificate with UUID %s is protected by a certificate registration. Renewing it in a location cannot present the registration challenge; renew it through the API with its authorization secret."
                             .formatted(certificateUuid));
