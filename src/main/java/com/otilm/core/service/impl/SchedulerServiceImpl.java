@@ -31,6 +31,7 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.SchedulerExternalService;
 import com.otilm.core.service.SchedulerInternalService;
 import com.otilm.core.service.writer.scheduler.ScheduledJobHistoryWriter;
+import com.otilm.core.service.writer.scheduler.ScheduledJobWriter;
 import com.otilm.core.tasks.ScheduledJobInfo;
 import com.otilm.core.tasks.ScheduledJobTask;
 import com.otilm.core.util.AuthHelper;
@@ -77,6 +78,8 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
 
     private ScheduledJobHistoryWriter historyWriter;
 
+    private ScheduledJobWriter scheduledJobWriter;
+
     @Autowired
     public void setAuthHelper(AuthHelper authHelper) {
         this.authHelper = authHelper;
@@ -110,6 +113,11 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
     @Autowired
     public void setHistoryWriter(ScheduledJobHistoryWriter historyWriter) {
         this.historyWriter = historyWriter;
+    }
+
+    @Autowired
+    public void setScheduledJobWriter(ScheduledJobWriter scheduledJobWriter) {
+        this.scheduledJobWriter = scheduledJobWriter;
     }
 
     @Override
@@ -330,15 +338,8 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
             outcomeHandled = true;
         } catch (ScheduledJobSkippedException e) {
             outcomeHandled = true;
-            logger.debug("Skipping scheduled job '{}', removing history entry", scheduledJob.getJobName());
-            try {
-                historyWriter.removeSkipped(history.getUuid());
-            } catch (RuntimeException bookkeeping) {
-                // A skip is not a failure; the row that should have gone is named so an operator can remove it.
-                logger
-                        .error("Scheduled job '{}' was skipped but its history row {} could not be removed",
-                                scheduledJob.getJobName(), history.getUuid(), bookkeeping);
-            }
+            logger.debug("Scheduled job '{}' declined its run: {}", scheduledJob.getJobName(), e.getReason());
+            recordSkip(scheduledJob, history.getUuid(), e.getReason());
             return;
         } catch (RuntimeException e) {
             outcomeHandled = true;
@@ -394,6 +395,28 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
                 .findByUuid(SecuredUUID.fromUUID(event.scheduledJobInfo().jobUuid()))
                 .orElseThrow(() -> new NotFoundException(ScheduledJob.class, event.scheduledJobInfo().jobUuid()));
         finalizeFinishedScheduledJob(scheduledJob, event.scheduledJobInfo().jobHistoryUuid(), result);
+    }
+
+    /**
+     * A declined run: the skip goes on the job, then the run's row goes. Each is the writer's own transaction and each
+     * failing is logged, never thrown -- a skip is not a failure, and the row that should have gone is named so an
+     * operator can remove it.
+     */
+    private void recordSkip(ScheduledJob scheduledJob, UUID historyUuid, String reason) {
+        try {
+            scheduledJobWriter.recordSkipped(scheduledJob.getUuid(), reason);
+        } catch (RuntimeException bookkeeping) {
+            logger
+                    .error("Scheduled job '{}' declined its run but the skip could not be recorded on the job",
+                            scheduledJob.getJobName(), bookkeeping);
+        }
+        try {
+            historyWriter.removeSkipped(historyUuid);
+        } catch (RuntimeException bookkeeping) {
+            logger
+                    .error("Scheduled job '{}' declined its run but its history row {} could not be removed",
+                            scheduledJob.getJobName(), historyUuid, bookkeeping);
+        }
     }
 
     /**

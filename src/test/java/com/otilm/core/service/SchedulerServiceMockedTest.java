@@ -22,6 +22,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.impl.SchedulerServiceImpl;
 import com.otilm.core.service.writer.scheduler.ScheduledJobHistoryWriter;
+import com.otilm.core.service.writer.scheduler.ScheduledJobWriter;
 import com.otilm.core.tasks.ScheduledJobInfo;
 import com.otilm.core.tasks.ScheduledJobTask;
 import com.otilm.core.util.AuthHelper;
@@ -74,6 +75,9 @@ class SchedulerServiceMockedTest {
 
     @Mock
     private ScheduledJobHistoryWriter historyWriter;
+
+    @Mock
+    private ScheduledJobWriter scheduledJobWriter;
 
     @Mock
     private ApplicationContext applicationContext;
@@ -442,7 +446,8 @@ class SchedulerServiceMockedTest {
     }
 
     @Test
-    void testRunScheduledJob_WhenJobThrowsScheduledJobSkippedException_DeletesHistory() throws Exception {
+    void testRunScheduledJob_WhenJobThrowsScheduledJobSkippedException_RecordsTheSkipAndDeletesHistory()
+            throws Exception {
         TestTask testTask = spy(new TestTask(new ScheduledJobSkippedException("nothing to do")));
 
         when(scheduledJobsRepository.findByJobName(JOB_NAME)).thenReturn(Optional.of(scheduledJob));
@@ -452,9 +457,42 @@ class SchedulerServiceMockedTest {
         schedulerService.runScheduledJob(JOB_NAME);
 
         verify(testTask).performJob(any(ScheduledJobInfo.class), any());
+        verify(scheduledJobWriter).recordSkipped(JOB_UUID, "nothing to do");
         verify(historyWriter).removeSkipped(HISTORY_UUID);
         verify(historyWriter, never()).recordFinished(any(), any());
+        verify(historyWriter, never()).recordFailed(any(), any());
         verify(eventProducer, never()).produceMessage(any());
+    }
+
+    /** A skip is not a failure: bookkeeping that fails is logged, and the other write still happens. */
+    @Test
+    void testRunScheduledJob_WhenTheSkipCannotBeRecorded_StillRemovesTheHistoryRow() throws Exception {
+        TestTask testTask = spy(new TestTask(new ScheduledJobSkippedException("nothing to do")));
+
+        when(scheduledJobsRepository.findByJobName(JOB_NAME)).thenReturn(Optional.of(scheduledJob));
+        when(historyWriter.recordStarted(scheduledJob)).thenReturn(scheduledJobHistory);
+        when(applicationContext.getBean(eq(TestTask.class))).thenReturn(testTask);
+        doThrow(new IllegalStateException("vanished"))
+                .when(scheduledJobWriter)
+                .recordSkipped(JOB_UUID, "nothing to do");
+
+        assertDoesNotThrow(() -> schedulerService.runScheduledJob(JOB_NAME));
+
+        verify(historyWriter).removeSkipped(HISTORY_UUID);
+    }
+
+    @Test
+    void testRunScheduledJob_WhenTheHistoryRowCannotBeRemoved_TheSkipIsStillRecorded() throws Exception {
+        TestTask testTask = spy(new TestTask(new ScheduledJobSkippedException("nothing to do")));
+
+        when(scheduledJobsRepository.findByJobName(JOB_NAME)).thenReturn(Optional.of(scheduledJob));
+        when(historyWriter.recordStarted(scheduledJob)).thenReturn(scheduledJobHistory);
+        when(applicationContext.getBean(eq(TestTask.class))).thenReturn(testTask);
+        doThrow(new IllegalStateException("vanished")).when(historyWriter).removeSkipped(HISTORY_UUID);
+
+        assertDoesNotThrow(() -> schedulerService.runScheduledJob(JOB_NAME));
+
+        verify(scheduledJobWriter).recordSkipped(JOB_UUID, "nothing to do");
     }
 
     @Test
