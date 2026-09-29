@@ -450,7 +450,7 @@ class CryptographicKeyServiceImplCreationValidationTest {
                 UUID.randomUUID().toString(), "token", TokenInstanceStatus.ACTIVATED, null, connectorUuid, "connector",
                 connectorInterface.uuid(), connectorInterface, Set.of());
         return new ImmutableTokenProfileFullModel(UUID.randomUUID(), "profile", null, token.name(), token.uuid(), true,
-                List.of(), token, connectorUuid, Map.of(KeyRequestType.KEY_PAIR, Set.of(KeyAlgorithm.RSA)), 0);
+                List.of(), token, connectorUuid, Map.of(KeyRequestType.KEY_PAIR, Set.of(KeyAlgorithm.RSA)), null, 0);
     }
 
     private static KeyRequestDto keyRequest() {

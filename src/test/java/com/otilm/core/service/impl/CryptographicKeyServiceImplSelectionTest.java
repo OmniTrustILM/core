@@ -14,6 +14,8 @@ import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
+import com.otilm.core.model.crypto.CryptographicKeyFullModel;
+import com.otilm.core.model.crypto.CryptographicKeyItemBasicModel;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationRow;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
 import com.otilm.core.service.CryptographicKeyEventHistoryService;
@@ -21,7 +23,9 @@ import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import com.otilm.core.service.writer.CryptographicKeyWriter;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
@@ -143,10 +147,13 @@ class CryptographicKeyServiceImplSelectionTest {
         mutate(operation, emptySelection);
 
         // then
-        verifyItemMutation(operation, first.getUuid());
-        verifyItemMutation(operation, second.getUuid());
         if (operation == Operation.DELETE) {
-            verify(writer).deleteKeyWithAssociations(ImmutableCryptographicKeyFullModel.from(parent));
+            verify(writer)
+                    .deleteKeyWithAssociations(ImmutableCryptographicKeyFullModel.from(parent),
+                            itemUuidsOf(ImmutableCryptographicKeyFullModel.from(parent)));
+        } else {
+            verifyItemMutation(operation, first.getUuid());
+            verifyItemMutation(operation, second.getUuid());
         }
         verifyNoMoreInteractions(writer);
     }
@@ -161,10 +168,13 @@ class CryptographicKeyServiceImplSelectionTest {
         mutate(operation, omittedSelection);
 
         // then
-        verifyItemMutation(operation, first.getUuid());
-        verifyItemMutation(operation, second.getUuid());
         if (operation == Operation.DELETE) {
-            verify(writer).deleteKeyWithAssociations(ImmutableCryptographicKeyFullModel.from(parent));
+            verify(writer)
+                    .deleteKeyWithAssociations(ImmutableCryptographicKeyFullModel.from(parent),
+                            itemUuidsOf(ImmutableCryptographicKeyFullModel.from(parent)));
+        } else {
+            verifyItemMutation(operation, first.getUuid());
+            verifyItemMutation(operation, second.getUuid());
         }
         verifyNoMoreInteractions(writer);
     }
@@ -190,8 +200,9 @@ class CryptographicKeyServiceImplSelectionTest {
         switch (operation) {
             case ENABLE -> verify(writer).setKeyItemEnabled(itemUuid, true);
             case DISABLE -> verify(writer).setKeyItemEnabled(itemUuid, false);
-            case DELETE -> verify(writer).deleteKeyItem(itemUuid);
-            case DESTROY -> verify(writer).finalizeKeyItemDestruction(itemUuid);
+            case DELETE -> verify(writer).deleteKeyItem(ImmutableCryptographicKeyFullModel.from(parent), itemUuid);
+            case DESTROY ->
+                verify(writer).finalizeKeyItemDestruction(ImmutableCryptographicKeyFullModel.from(parent), itemUuid);
             case COMPROMISE -> verify(writer).setKeyItemCompromised(itemUuid, reason);
             case USAGE -> verify(writer).updateUsage(itemUuid, usages);
         }
@@ -254,5 +265,9 @@ class CryptographicKeyServiceImplSelectionTest {
         DESTROY,
         COMPROMISE,
         USAGE
+    }
+
+    private static Set<UUID> itemUuidsOf(CryptographicKeyFullModel key) {
+        return key.items().stream().map(CryptographicKeyItemBasicModel::uuid).collect(Collectors.toSet());
     }
 }

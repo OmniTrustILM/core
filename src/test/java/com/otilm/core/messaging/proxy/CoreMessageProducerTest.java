@@ -3,28 +3,47 @@ package com.otilm.core.messaging.proxy;
 import com.otilm.api.clients.mq.model.ConnectorRequest;
 import com.otilm.api.clients.mq.model.CoreMessage;
 import com.otilm.core.messaging.jms.configuration.MessagingProperties;
+import jakarta.jms.DeliveryMode;
+import jakarta.jms.Destination;
 import jakarta.jms.JMSException;
 import jakarta.jms.Message;
+import jakarta.jms.MessageProducer;
+import jakarta.jms.Session;
 import java.time.Duration;
 import java.time.Instant;
+import org.apache.qpid.jms.JmsQueue;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.jms.UncategorizedJmsException;
 import org.springframework.jms.core.JmsTemplate;
-import org.springframework.jms.core.MessagePostProcessor;
+import org.springframework.jms.core.ProducerCallback;
+import org.springframework.jms.support.converter.MessageConverter;
 import org.springframework.retry.RetryCallback;
 import org.springframework.retry.support.RetryTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.reset;
+import static org.mockito.ArgumentMatchers.longThat;
+import static org.mockito.ArgumentMatchers.same;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -32,6 +51,8 @@ import static org.mockito.Mockito.when;
  */
 @ExtendWith(MockitoExtension.class)
 class CoreMessageProducerTest {
+
+    private static final Duration TIME_TO_LIVE = Duration.ofSeconds(30);
 
     @Mock
     private JmsTemplate jmsTemplate;
@@ -42,26 +63,39 @@ class CoreMessageProducerTest {
     @Mock
     private RetryTemplate retryTemplate;
 
+    @Mock
+    private MessageConverter messageConverter;
+
+    @Mock
+    private Session session;
+
+    @Mock
+    private MessageProducer jmsProducer;
+
+    @Mock
+    private Message jmsMessage;
+
     @Captor
-    private ArgumentCaptor<MessagePostProcessor> postProcessorCaptor;
+    private ArgumentCaptor<ProducerCallback<Object>> sendCaptor;
 
     private ProxyProperties proxyProperties;
     private CoreMessageProducer producer;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp() {
         proxyProperties = new ProxyProperties("ilm-proxy", // exchange
                 "core", // responseQueue
                 "test-instance", // instanceId
                 Duration.ofSeconds(30), 1000, null);
 
         // Default: execute callback immediately for RetryTemplate
-        when(retryTemplate.execute(any())).thenAnswer(invocation -> {
+        lenient().when(retryTemplate.execute(any())).thenAnswer(invocation -> {
             RetryCallback<?, ?> callback = invocation.getArgument(0);
             return callback.doWithRetry(null);
         });
 
-        producer = new CoreMessageProducer(jmsTemplate, proxyProperties, messagingProperties, retryTemplate);
+        producer = new CoreMessageProducer(jmsTemplate, proxyProperties, messagingProperties, retryTemplate,
+                messageConverter);
     }
 
     // ==================== ServiceBus Tests ====================
@@ -70,41 +104,30 @@ class CoreMessageProducerTest {
     void send_withServiceBus_usesTopicDirectly() throws JMSException {
         when(messagingProperties.brokerType()).thenReturn(MessagingProperties.BrokerType.SERVICEBUS);
 
-        CoreMessage message = createCoreMessage("corr-1");
-        producer.send(message, "proxy-001");
+        producer.send(createCoreMessage("corr-1"), "proxy-001", TIME_TO_LIVE);
 
-        verify(jmsTemplate).convertAndSend(eq("ilm-proxy"), eq(message), any(MessagePostProcessor.class));
+        runSendTo("ilm-proxy");
+        verify(jmsProducer).send(same(jmsMessage), anyInt(), anyInt(), anyLong());
     }
 
     @Test
     void send_withServiceBus_setsJMSTypeToRoutingKey() throws JMSException {
         when(messagingProperties.brokerType()).thenReturn(MessagingProperties.BrokerType.SERVICEBUS);
 
-        CoreMessage message = createCoreMessage("corr-1");
-        producer.send(message, "proxy-001");
+        producer.send(createCoreMessage("corr-1"), "proxy-001", TIME_TO_LIVE);
 
-        verify(jmsTemplate).convertAndSend(any(String.class), eq(message), postProcessorCaptor.capture());
-
-        // Verify the post processor sets JMSType correctly
-        Message mockMessage = mock(Message.class);
-        postProcessorCaptor.getValue().postProcessMessage(mockMessage);
-
-        verify(mockMessage).setJMSType("coremessage.proxy-001");
+        runSendTo("ilm-proxy");
+        verify(jmsMessage).setJMSType("coremessage.proxy-001");
     }
 
     @Test
     void send_withServiceBus_setsJMSCorrelationID() throws JMSException {
         when(messagingProperties.brokerType()).thenReturn(MessagingProperties.BrokerType.SERVICEBUS);
 
-        CoreMessage message = createCoreMessage("my-correlation-id");
-        producer.send(message, "proxy-001");
+        producer.send(createCoreMessage("my-correlation-id"), "proxy-001", TIME_TO_LIVE);
 
-        verify(jmsTemplate).convertAndSend(any(String.class), eq(message), postProcessorCaptor.capture());
-
-        Message mockMessage = mock(Message.class);
-        postProcessorCaptor.getValue().postProcessMessage(mockMessage);
-
-        verify(mockMessage).setJMSCorrelationID("my-correlation-id");
+        runSendTo("ilm-proxy");
+        verify(jmsMessage).setJMSCorrelationID("my-correlation-id");
     }
 
     // ==================== RabbitMQ Tests ====================
@@ -113,83 +136,149 @@ class CoreMessageProducerTest {
     void send_withRabbitMQ_prefixesExchangeAndAppendsRoutingKey() throws JMSException {
         when(messagingProperties.brokerType()).thenReturn(MessagingProperties.BrokerType.RABBITMQ);
 
-        CoreMessage message = createCoreMessage("corr-1");
-        producer.send(message, "proxy-002");
+        producer.send(createCoreMessage("corr-1"), "proxy-002", TIME_TO_LIVE);
 
-        verify(jmsTemplate)
-                .convertAndSend(eq("/exchanges/ilm-proxy/coremessage.proxy-002"), eq(message),
-                        any(MessagePostProcessor.class));
+        runSendTo("/exchanges/ilm-proxy/coremessage.proxy-002");
+        verify(jmsProducer).send(same(jmsMessage), anyInt(), anyInt(), anyLong());
     }
 
     @Test
     void send_withRabbitMQ_setsCorrectRoutingKey() throws JMSException {
         when(messagingProperties.brokerType()).thenReturn(MessagingProperties.BrokerType.RABBITMQ);
 
+        producer.send(createCoreMessage("corr-1"), "my-proxy-instance", TIME_TO_LIVE);
+
+        runSendTo("/exchanges/ilm-proxy/coremessage.my-proxy-instance");
+        verify(jmsMessage).setJMSType("coremessage.my-proxy-instance");
+    }
+
+    // ==================== Time to Live Tests ====================
+
+    @ParameterizedTest
+    @CsvSource({"SERVICEBUS, ilm-proxy", "RABBITMQ, /exchanges/ilm-proxy/coremessage.proxy-001"})
+    void send_expiresTheMessageWhenTheRequestsTimeRunsOut(MessagingProperties.BrokerType brokerType, String destination)
+            throws JMSException {
+        when(messagingProperties.brokerType()).thenReturn(brokerType);
+
+        producer.send(createCoreMessage("corr-1"), "proxy-001", TIME_TO_LIVE);
+
+        runSendTo(destination);
+        verify(jmsProducer).send(same(jmsMessage), anyInt(), anyInt(), longThat(ttl -> ttl > 25_000 && ttl <= 30_000));
+    }
+
+    @Test
+    void send_keepsTheProducersDeliveryModeAndPriority() throws JMSException {
+        when(messagingProperties.brokerType()).thenReturn(MessagingProperties.BrokerType.RABBITMQ);
+        when(jmsProducer.getDeliveryMode()).thenReturn(DeliveryMode.NON_PERSISTENT);
+        when(jmsProducer.getPriority()).thenReturn(7);
+
+        producer.send(createCoreMessage("corr-1"), "proxy-001", TIME_TO_LIVE);
+
+        runSendTo("/exchanges/ilm-proxy/coremessage.proxy-001");
+        verify(jmsProducer).send(same(jmsMessage), eq(DeliveryMode.NON_PERSISTENT), eq(7), anyLong());
+    }
+
+    @Test
+    void send_givesARetriedSendOnlyTheTimeThatIsLeft() throws JMSException {
+        when(messagingProperties.brokerType()).thenReturn(MessagingProperties.BrokerType.RABBITMQ);
+        RetryTemplate retrying = RetryTemplate
+                .builder()
+                .maxAttempts(2)
+                .fixedBackoff(200)
+                .retryOn(UncategorizedJmsException.class)
+                .build();
+        CoreMessageProducer retryingProducer = new CoreMessageProducer(jmsTemplate, proxyProperties,
+                messagingProperties, retrying, messageConverter);
+        when(jmsTemplate.execute(anyString(), ArgumentMatchers.<ProducerCallback<Object>>any()))
+                .thenThrow(new UncategorizedJmsException("broker unavailable"))
+                .thenReturn(null);
+
+        retryingProducer.send(createCoreMessage("corr-1"), "proxy-001", TIME_TO_LIVE);
+
+        verify(jmsTemplate, times(2)).execute(eq("/exchanges/ilm-proxy/coremessage.proxy-001"), sendCaptor.capture());
+        when(messageConverter.toMessage(any(CoreMessage.class), same(session))).thenReturn(jmsMessage);
+        sendCaptor.getAllValues().getLast().doInJms(session, jmsProducer);
+        verify(jmsProducer).send(same(jmsMessage), anyInt(), anyInt(), longThat(ttl -> ttl > 25_000 && ttl <= 29_800));
+    }
+
+    @Test
+    void send_givesTheMessageTheTimeLeftWhenItGoesOut() throws JMSException {
+        when(messagingProperties.brokerType()).thenReturn(MessagingProperties.BrokerType.RABBITMQ);
+        Instant sentAt = Instant.now();
+
+        producer.send(createCoreMessage("corr-1"), "proxy-001", TIME_TO_LIVE);
+        // The template may take a while to open a connection before it runs the send
+        await().until(() -> Instant.now().isAfter(sentAt.plusMillis(300)));
+
+        runSendTo("/exchanges/ilm-proxy/coremessage.proxy-001");
+        verify(jmsProducer).send(same(jmsMessage), anyInt(), anyInt(), longThat(ttl -> ttl > 25_000 && ttl <= 29_800));
+    }
+
+    @Test
+    void send_doesNotSendWhenTheTimeRunsOutWhileTheConnectionOpens() throws JMSException {
+        when(messagingProperties.brokerType()).thenReturn(MessagingProperties.BrokerType.RABBITMQ);
+        lenient().when(messageConverter.toMessage(any(CoreMessage.class), same(session))).thenReturn(jmsMessage);
+        Instant sentAt = Instant.now();
+
+        producer.send(createCoreMessage("corr-1"), "proxy-001", Duration.ofMillis(50));
+        await().until(() -> Instant.now().isAfter(sentAt.plusMillis(150)));
+
+        verify(jmsTemplate).execute(eq("/exchanges/ilm-proxy/coremessage.proxy-001"), sendCaptor.capture());
+        sendCaptor.getValue().doInJms(session, jmsProducer);
+        verifyNoInteractions(messageConverter, jmsProducer);
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {-1_000_000_000L, 0L, 999_999L})
+    void send_doesNotSendARequestWhoseTimeHasRunOut(long timeToLiveNanos) {
+        producer.send(createCoreMessage("corr-1"), "proxy-001", Duration.ofNanos(timeToLiveNanos));
+
+        verifyNoInteractions(jmsTemplate);
+    }
+
+    @Test
+    void send_refusesAMissingTimeToLive() {
         CoreMessage message = createCoreMessage("corr-1");
-        producer.send(message, "my-proxy-instance");
 
-        verify(jmsTemplate).convertAndSend(any(String.class), eq(message), postProcessorCaptor.capture());
-
-        Message mockMessage = mock(Message.class);
-        postProcessorCaptor.getValue().postProcessMessage(mockMessage);
-
-        verify(mockMessage).setJMSType("coremessage.my-proxy-instance");
+        assertThatThrownBy(() -> producer.send(message, "proxy-001", null)).isInstanceOf(NullPointerException.class);
+        verifyNoInteractions(jmsTemplate);
     }
 
     // ==================== Retry Tests ====================
 
     @Test
-    void send_usesRetryTemplate() throws Exception {
+    void send_usesRetryTemplate() throws JMSException {
         when(messagingProperties.brokerType()).thenReturn(MessagingProperties.BrokerType.SERVICEBUS);
 
-        CoreMessage message = createCoreMessage("corr-1");
-        producer.send(message, "proxy-001");
+        producer.send(createCoreMessage("corr-1"), "proxy-001", TIME_TO_LIVE);
 
         verify(retryTemplate).execute(any());
-        verify(jmsTemplate).convertAndSend(any(String.class), eq(message), any(MessagePostProcessor.class));
+        runSendTo("ilm-proxy");
     }
 
     // ==================== Different ProxyId Tests ====================
 
     @Test
     void send_withDifferentProxyIds_usesCorrectRoutingKey() throws JMSException {
-        when(messagingProperties.brokerType()).thenReturn(MessagingProperties.BrokerType.SERVICEBUS);
+        when(messagingProperties.brokerType()).thenReturn(MessagingProperties.BrokerType.RABBITMQ);
 
-        // First request
-        producer.send(createCoreMessage("corr-1"), "proxy-alpha");
+        producer.send(createCoreMessage("corr-1"), "proxy-alpha", TIME_TO_LIVE);
+        producer.send(createCoreMessage("corr-2"), "proxy-beta", TIME_TO_LIVE);
 
-        verify(jmsTemplate).convertAndSend(any(String.class), any(CoreMessage.class), postProcessorCaptor.capture());
-
-        Message mockMessage1 = mock(Message.class);
-        postProcessorCaptor.getValue().postProcessMessage(mockMessage1);
-        verify(mockMessage1).setJMSType("coremessage.proxy-alpha");
-
-        // Reset for second request
-        reset(jmsTemplate);
-
-        // Second request with different proxyId
-        producer.send(createCoreMessage("corr-2"), "proxy-beta");
-
-        verify(jmsTemplate).convertAndSend(any(String.class), any(CoreMessage.class), postProcessorCaptor.capture());
-
-        Message mockMessage2 = mock(Message.class);
-        postProcessorCaptor.getValue().postProcessMessage(mockMessage2);
-        verify(mockMessage2).setJMSType("coremessage.proxy-beta");
+        runSendTo("/exchanges/ilm-proxy/coremessage.proxy-alpha");
+        verify(jmsMessage).setJMSType("coremessage.proxy-alpha");
+        runSendTo("/exchanges/ilm-proxy/coremessage.proxy-beta");
+        verify(jmsMessage).setJMSType("coremessage.proxy-beta");
     }
 
     @Test
     void send_preservesMessageCorrelationId() throws JMSException {
         when(messagingProperties.brokerType()).thenReturn(MessagingProperties.BrokerType.SERVICEBUS);
 
-        CoreMessage message = createCoreMessage("unique-correlation-123");
-        producer.send(message, "proxy-001");
+        producer.send(createCoreMessage("unique-correlation-123"), "proxy-001", TIME_TO_LIVE);
 
-        verify(jmsTemplate).convertAndSend(any(String.class), eq(message), postProcessorCaptor.capture());
-
-        Message mockMessage = mock(Message.class);
-        postProcessorCaptor.getValue().postProcessMessage(mockMessage);
-
-        verify(mockMessage).setJMSCorrelationID("unique-correlation-123");
+        runSendTo("ilm-proxy");
+        verify(jmsMessage).setJMSCorrelationID("unique-correlation-123");
     }
 
     // ==================== Reply-To Tests ====================
@@ -198,21 +287,23 @@ class CoreMessageProducerTest {
     void send_setsJMSReplyToWithInstanceId() throws JMSException {
         when(messagingProperties.brokerType()).thenReturn(MessagingProperties.BrokerType.RABBITMQ);
 
-        CoreMessage message = createCoreMessage("corr-1");
-        producer.send(message, "proxy-001");
+        producer.send(createCoreMessage("corr-1"), "proxy-001", TIME_TO_LIVE);
 
-        verify(jmsTemplate).convertAndSend(any(String.class), eq(message), postProcessorCaptor.capture());
-
-        Message mockMessage = mock(Message.class);
-        postProcessorCaptor.getValue().postProcessMessage(mockMessage);
-
-        ArgumentCaptor<jakarta.jms.Destination> destCaptor = ArgumentCaptor.forClass(jakarta.jms.Destination.class);
-        verify(mockMessage).setJMSReplyTo(destCaptor.capture());
-        assertThat(destCaptor.getValue()).isInstanceOf(org.apache.qpid.jms.JmsQueue.class);
-        assertThat(destCaptor.getValue().toString()).contains("test-instance");
+        runSendTo("/exchanges/ilm-proxy/coremessage.proxy-001");
+        ArgumentCaptor<Destination> replyTo = ArgumentCaptor.forClass(Destination.class);
+        verify(jmsMessage).setJMSReplyTo(replyTo.capture());
+        assertThat(replyTo.getValue()).isInstanceOf(JmsQueue.class);
+        assertThat(replyTo.getValue().toString()).contains("test-instance");
     }
 
     // ==================== Helper Methods ====================
+
+    /** Runs the send the producer handed to the template, as the template would, against the mocked session. */
+    private void runSendTo(String destination) throws JMSException {
+        verify(jmsTemplate).execute(eq(destination), sendCaptor.capture());
+        when(messageConverter.toMessage(any(CoreMessage.class), same(session))).thenReturn(jmsMessage);
+        sendCaptor.getValue().doInJms(session, jmsProducer);
+    }
 
     private CoreMessage createCoreMessage(String correlationId) {
         return CoreMessage

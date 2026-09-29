@@ -1,0 +1,11 @@
+-- RFC 3280 4.2.1.4 Private Key Usage Period. The RFC forbids the extension unless at least one
+-- of the two components is present, which OPTIONAL alone cannot say; the component constraint does.
+PrivateKeyUsagePeriodModule DEFINITIONS IMPLICIT TAGS ::= BEGIN
+
+PrivateKeyUsagePeriod ::= SEQUENCE {
+     notBefore       [0]     GeneralizedTime OPTIONAL,
+     notAfter        [1]     GeneralizedTime OPTIONAL }
+  (WITH COMPONENTS { ..., notBefore PRESENT } |
+   WITH COMPONENTS { ..., notAfter PRESENT })
+
+END
