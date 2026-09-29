@@ -44,7 +44,6 @@ import com.otilm.core.service.CryptographicKeyImportExternalService;
 import com.otilm.core.service.handler.KeyImportGates;
 import java.io.IOException;
 import java.security.cert.CertificateException;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.HashMap;
@@ -177,10 +176,11 @@ public class CertificateImportServiceImpl implements CertificateImportExternalSe
      * attributes.
      */
     private List<Selection> selections(Container container, CertificateImportRequestDto request) {
-        List<Selection> selections = new ArrayList<>();
-        for (CertificateImportEntryDto requested : request.getEntries()) {
-            selections.add(selection(container, requested));
-        }
+        List<Selection> selections = request
+                .getEntries()
+                .stream()
+                .map(requested -> selection(container, requested))
+                .toList();
         List<RequestAttribute> customAttributes = request.getCustomAttributes();
         if (customAttributes != null && !customAttributes.isEmpty()) {
             attributeEngine.validateCustomAttributesContent(Resource.CERTIFICATE, customAttributes);
@@ -264,10 +264,10 @@ public class CertificateImportServiceImpl implements CertificateImportExternalSe
 
     /** One result per selection, in request order, and what they produced named in the audit record. */
     private CertificateImportResponseDto responseOf(Context context, List<Selection> selections) {
-        List<CertificateImportResultDto> results = new ArrayList<>();
-        for (Selection selection : selections) {
-            results.add(imported(context, selection));
-        }
+        List<CertificateImportResultDto> results = selections
+                .stream()
+                .map(selection -> imported(context, selection))
+                .toList();
         nameInAuditRecord(new ImportedObjects(distinct(results, CertificateImportResultDto::getCertificateUuid),
                 distinct(results, CertificateImportResultDto::getKeyUuid)));
         CertificateImportResponseDto response = new CertificateImportResponseDto();
