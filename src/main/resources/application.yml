@@ -453,6 +453,10 @@ key-import:
   retry-window: 15m
   # How often the reconciliation runs.
   sweep-interval: 60s
+  # How long an import that completed, failed or was compensated is kept after it finished, before the reconciliation
+  # deletes it. It is longer than an import can stay open, unresolved-after, retry-window and sweep-interval together
+  # (checked at startup).
+  retention: 7d
 
 cbom:
   client:
