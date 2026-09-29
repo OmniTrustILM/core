@@ -22,6 +22,6 @@ class AttributeSearchFieldsCacheConfigTest {
         assertThat(shipped.getProperty("caching.attribute-search-fields.ttl-minutes"))
                 .isEqualTo("${ATTRIBUTE_SEARCH_FIELDS_CACHE_TTL_MINUTES:5}");
         assertThat(shipped.getProperty("caching.attribute-search-fields.max-size"))
-                .isEqualTo("${ATTRIBUTE_SEARCH_FIELDS_CACHE_MAX_SIZE:100}");
+                .isEqualTo("${ATTRIBUTE_SEARCH_FIELDS_CACHE_MAX_SIZE:200}");
     }
 }
