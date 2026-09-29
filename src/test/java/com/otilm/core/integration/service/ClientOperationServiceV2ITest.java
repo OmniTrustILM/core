@@ -25,8 +25,10 @@ import com.otilm.api.model.common.attribute.common.properties.DataAttributePrope
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.content.ObjectAttributeContentV2;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
+import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.common.enums.cryptography.RsaSignatureScheme;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorithmAttribute;
@@ -49,6 +51,8 @@ import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
 import com.otilm.core.attribute.CsrAttributes;
+import com.otilm.core.attribute.RsaSignatureAttributes;
+import com.otilm.core.attribute.SignatureAlgorithmFields;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
@@ -164,6 +168,10 @@ import static org.mockito.Mockito.when;
 
 @SpringBootTest
 class ClientOperationServiceV2ITest extends BaseSpringBootTest {
+
+    /** SHA256withRSA in the fields, sorted: stored attributes come back ordered by their definitions' random UUIDs. */
+    private static final List<String> SHA256_WITH_RSA_FIELDS = List
+            .of("data_rsaSigScheme=PKCS1-v1_5", "data_sigDigest=SHA-256");
 
     private static final String SAMPLE_PKCS10 = """
             -----BEGIN CERTIFICATE REQUEST-----
@@ -1296,7 +1304,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         CertificateDetailDto detail = certificateExternalService
                 .getCertificate(SecuredUUID.fromString(submitted.getUuid()));
         Assertions
-                .assertEquals(List.of("signatureAlgorithm=SHA256withRSA"),
+                .assertEquals(SHA256_WITH_RSA_FIELDS,
                         describe(detail.getCertificateRequest().getSignatureAttributes()));
     }
 
@@ -1317,8 +1325,58 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         CertificateDetailDto detail = certificateExternalService
                 .getCertificate(SecuredUUID.fromString(submitted.getUuid()));
         Assertions
-                .assertEquals(List.of("signatureAlgorithm=SHA256withRSA"),
+                .assertEquals(SHA256_WITH_RSA_FIELDS,
                         describe(detail.getCertificateRequest().getSignatureAttributes()));
+    }
+
+    @Test
+    void submitCertificateRequest_refusesASchemeAndDigestTheV2KeyDoesNotOfferTogether() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        TokenInstanceReference token = persistV2Token();
+        CryptographicKey key = persistV2Key(token);
+        List<BaseAttribute> published = List
+                .of(SignatureAlgorithmAttribute
+                        .definition(
+                                List.of(SignatureAlgorithm.SHA256_WITH_RSA, SignatureAlgorithm.SHA384_WITH_RSA_PSS)));
+        when(cryptographicOperationService.listSignAttributeSchema(key.getUuid()))
+                .thenReturn(new OperationAttributeSchema(token.getConnectorUuid(),
+                        SignatureAlgorithmFields.form(published), published));
+        ClientCertificateRequestDto request = uploadedRequest(key.getUuid(),
+                List
+                        .of(RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PSS),
+                                RsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_256)));
+
+        // when
+        Executable submit = () -> clientOperationService.submitCertificateRequest(request, null);
+
+        // then
+        ValidationException failure = Assertions.assertThrows(ValidationException.class, submit);
+        Assertions.assertTrue(failure.getMessage().contains("PSS with SHA-256"), failure.getMessage());
+    }
+
+    @Test
+    void submitCertificateRequest_refusesASignatureAlgorithmStatedBesideTheFieldsOfAV2Key() throws Exception {
+        // given: a definition of the connector's attribute stored before Core presented the fields
+        stubAuthorityProviderAttributesEndpoints();
+        TokenInstanceReference token = persistV2Token();
+        CryptographicKey key = persistV2Key(token);
+        attributeEngine
+                .updateDataAttributeDefinitions(token.getConnectorUuid(), AttributeOperation.SIGN,
+                        List.of(SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA))));
+        when(cryptographicOperationService.listSignAttributeSchema(key.getUuid()))
+                .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
+        List<RequestAttribute> attributes = new ArrayList<>(sha256WithRsa());
+        attributes.add(SignatureAlgorithmAttribute.request(SignatureAlgorithm.SHA256_WITH_RSA));
+        ClientCertificateRequestDto request = uploadedRequest(key.getUuid(), attributes);
+
+        // when
+        Executable submit = () -> clientOperationService.submitCertificateRequest(request, null);
+
+        // then
+        ValidationException failure = Assertions.assertThrows(ValidationException.class, submit);
+        Assertions
+                .assertTrue(failure.getMessage().contains("attributes the signing key presents"), failure.getMessage());
     }
 
     @Test
@@ -1337,7 +1395,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         // then
         Assertions
-                .assertEquals(List.of("signatureAlgorithm=SHA256withRSA"),
+                .assertEquals(SHA256_WITH_RSA_FIELDS,
                         describe(resubmitted.getCertificateRequest().getSignatureAttributes()));
     }
 
@@ -1357,7 +1415,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         // then
         Assertions
-                .assertEquals(List.of("signatureAlgorithm=SHA256withRSA"),
+                .assertEquals(SHA256_WITH_RSA_FIELDS,
                         describe(resubmitted.getCertificateRequest().getSignatureAttributes()));
         verify(cryptographicOperationService).listSignAttributeSchema(key.getUuid());
     }
@@ -1378,7 +1436,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         // then
         Assertions
-                .assertEquals(List.of("signatureAlgorithm=SHA256withRSA"),
+                .assertEquals(SHA256_WITH_RSA_FIELDS,
                         describe(submitted.getCertificateRequest().getSignatureAttributes()));
         verify(cryptographicOperationService).listSignAttributeSchema(key.getUuid());
     }
@@ -1406,7 +1464,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         // then
         Assertions
-                .assertEquals(List.of("signatureAlgorithm=SHA256withRSA"),
+                .assertEquals(SHA256_WITH_RSA_FIELDS,
                         describe(detail.getCertificateRequest().getSignatureAttributes()));
     }
 
@@ -1527,13 +1585,11 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         ClientCertificateDataResponseDto rekeyed = rekeyWith(newKey);
 
         // then
-        Assertions
-                .assertEquals(List.of("signatureAlgorithm=SHA256withRSA"),
-                        describeRequested(signatureAttributesGeneratedWith(newKey)));
+        Assertions.assertEquals(SHA256_WITH_RSA_FIELDS, describeRequested(signatureAttributesGeneratedWith(newKey)));
         CertificateDetailDto detail = certificateExternalService
                 .getCertificate(SecuredUUID.fromString(rekeyed.getUuid()));
         Assertions
-                .assertEquals(List.of("signatureAlgorithm=SHA256withRSA"),
+                .assertEquals(SHA256_WITH_RSA_FIELDS,
                         describe(detail.getCertificateRequest().getSignatureAttributes()));
     }
 
@@ -1551,9 +1607,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         rekeyWith(newKey);
 
         // then
-        Assertions
-                .assertEquals(List.of("signatureAlgorithm=SHA256withRSA"),
-                        describeRequested(signatureAttributesGeneratedWith(newKey)));
+        Assertions.assertEquals(SHA256_WITH_RSA_FIELDS, describeRequested(signatureAttributesGeneratedWith(newKey)));
     }
 
     @Test
@@ -1574,7 +1628,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         // then
         Assertions
-                .assertEquals(List.of("signatureAlgorithm=SHA256withRSA"),
+                .assertEquals(SHA256_WITH_RSA_FIELDS,
                         describe(detail.getCertificateRequest().getSignatureAttributes()));
     }
 
@@ -1712,13 +1766,17 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         return key;
     }
 
+    /** The schema Core presents for a v2 key whose connector offers SHA256withRSA. */
     private static OperationAttributeSchema signatureAlgorithmSchema(UUID connectorUuid) {
-        return new OperationAttributeSchema(connectorUuid,
-                List.of(SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA))));
+        List<BaseAttribute> published = List
+                .of(SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA)));
+        return new OperationAttributeSchema(connectorUuid, SignatureAlgorithmFields.form(published), published);
     }
 
     private static List<RequestAttribute> sha256WithRsa() {
-        return List.of(SignatureAlgorithmAttribute.request(SignatureAlgorithm.SHA256_WITH_RSA));
+        return List
+                .of(RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PKCS1_v1_5),
+                        RsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_256));
     }
 
     private static List<RequestAttribute> commonName(String value) {
@@ -1751,14 +1809,14 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         return attributes.stream().map(attribute -> {
             List<? extends AttributeContent> content = attribute.getContent();
             return attribute.getName() + "=" + content.getFirst().getData();
-        }).toList();
+        }).sorted().toList();
     }
 
     private static List<String> describe(List<ResponseAttribute> attributes) {
         return attributes.stream().map(attribute -> {
             List<? extends AttributeContent> content = attribute.getContent();
             return attribute.getName() + "=" + content.getFirst().getData();
-        }).toList();
+        }).sorted().toList();
     }
 
     private CryptographicKey createCryptographicKey(String fingerprint) {
