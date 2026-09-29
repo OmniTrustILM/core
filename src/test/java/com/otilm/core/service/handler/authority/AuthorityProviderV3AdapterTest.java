@@ -1085,6 +1085,35 @@ class AuthorityProviderV3AdapterTest {
     }
 
     @Test
+    void resourceNotFoundProblemResolvesEmpty_404() throws ConnectorException {
+        // ms-adcs-ng and DLM answer unmatched routes with a RESOURCE_NOT_FOUND problem document, not a bare 404.
+        ProblemDetailExtended problem = ProblemDetailExtended
+                .fromErrorCode(ErrorCode.RESOURCE_NOT_FOUND, "No endpoint matched the request path.", null, null);
+        when(certClientV3.listRenewAttributes(eq(connectorInfo), any()))
+                .thenThrow(new ConnectorProblemException(problem));
+        assertEquals(List.of(), adapter.listRenewAttributes(authority, raProfile));
+    }
+
+    @Test
+    void notFoundProblemWithoutErrorCodeResolvesEmpty() throws ConnectorException {
+        ProblemDetailExtended problem = new ProblemDetailExtended();
+        problem.setStatus(HttpStatus.NOT_FOUND.value());
+        problem.setTitle("Not Found");
+        when(certClientV3.listRequestAttributes(eq(connectorInfo), any()))
+                .thenThrow(new ConnectorProblemException(problem));
+        assertEquals(List.of(), adapter.listCertificateRequestAttributes(authority, raProfile));
+    }
+
+    @Test
+    void notFoundProblemWithSpecificErrorCodeStillPropagates() throws ConnectorException {
+        ProblemDetailExtended problem = ProblemDetailExtended
+                .fromErrorCode(ErrorCode.ATTRIBUTE_DEFINITION_NOT_FOUND, "stale definition", null, null);
+        when(certClientV3.listIdentifyAttributes(eq(connectorInfo), any()))
+                .thenThrow(new ConnectorProblemException(problem));
+        assertThrows(ConnectorProblemException.class, () -> adapter.listIdentifyAttributes(authority, raProfile));
+    }
+
+    @Test
     void otherProblemCodesStillPropagate() throws ConnectorException {
         ProblemDetailExtended problem = ProblemDetailExtended
                 .fromErrorCode(ErrorCode.CREDENTIAL_INVALID, "bad credentials", null, null);
