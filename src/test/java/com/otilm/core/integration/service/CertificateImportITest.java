@@ -547,8 +547,7 @@ class CertificateImportITest extends BaseSpringBootTest {
 
     @Test
     void importCertificates_adoptsTheKeyOfALeafAlreadyInTheInventory() throws Exception {
-        // given
-        authServiceKnowsTheRequester();
+        // given — no auth service runs: the signed-in requester needs no lookup
         String registered = certificateUploadService
                 .upload(Base64.getEncoder().encodeToString(chain.leaf().getEncoded()), null, true);
         Certificate leaf = certificateRepository.findByFingerprint(registered).orElseThrow();
