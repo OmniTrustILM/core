@@ -581,31 +581,38 @@ class X509RequestContentRendererTest {
         private static final String EXT_OID = "2.5.29.37";
 
         @Test
-        void encodesAJsonTree_whenDerValueStartsWithABrace() throws Exception {
-            byte[] extnValue = extnValueOf(extension(EXT_OID, ExtensionValueEncoding.DER,
-                    "{\"sequence\":[{\"boolean\":true},{\"integer\":0}]}"));
+        void encodesAWrittenValueAgainstTheExtensionsModule() throws Exception {
+            byte[] extnValue = extnValueOf(
+                    extension("2.5.29.19", ExtensionValueEncoding.DER, "{\"cA\":true,\"pathLenConstraint\":0}"));
 
-            // then — the Basic Constraints golden vector
             assertThat(extnValue).isEqualTo(new byte[]{0x30, 0x06, 0x01, 0x01, (byte) 0xFF, 0x02, 0x01, 0x00});
         }
 
         @Test
-        void encodesAJsonTree_whenTheValueIsIndentedOrNewlinePrefixed() throws Exception {
+        void encodesAWrittenValue_whenItIsIndentedOrNewlinePrefixed() throws Exception {
             // A pasted value often carries leading whitespace; without trimming it takes the base64 path and
             // fails with a misleading "invalid base64" message.
-            byte[] extnValue = extnValueOf(extension(EXT_OID, ExtensionValueEncoding.DER,
-                    "\n  {\"sequence\":[{\"boolean\":true},{\"integer\":0}]}"));
+            byte[] extnValue = extnValueOf(
+                    extension("2.5.29.19", ExtensionValueEncoding.DER, "\n  {\"cA\":true,\"pathLenConstraint\":0}"));
 
             assertThat(extnValue).isEqualTo(new byte[]{0x30, 0x06, 0x01, 0x01, (byte) 0xFF, 0x02, 0x01, 0x00});
         }
 
         @Test
-        void namesBothAcceptedForms_whenADerValueIsNeither() {
-            // The leading '{' routes it to the JSON path, so it can no longer be read as base64.
-            assertThatThrownBy(() -> extnValueOf(extension(EXT_OID, ExtensionValueEncoding.DER, "{broken")))
+        void namesTheMemberAtFault_whenAWrittenValueIsWrong() {
+            assertThatThrownBy(
+                    () -> extnValueOf(extension("2.5.29.19", ExtensionValueEncoding.DER, "{\"pathLenConstraint\":-1}")))
                     .isInstanceOf(IOException.class)
-                    .hasMessageContaining("JSON")
-                    .hasMessageContaining("base64");
+                    .hasMessageContaining("2.5.29.19")
+                    .hasMessageContaining("$.pathLenConstraint");
+        }
+
+        @Test
+        void refusesAWrittenValueForAnExtensionWithNoModule() {
+            // Without a type there is nothing to encode it against, and saying so beats reporting bad base64.
+            assertThatThrownBy(() -> extnValueOf(extension(EXT_OID, ExtensionValueEncoding.DER, "{\"a\":1}")))
+                    .isInstanceOf(IOException.class)
+                    .hasMessageContaining("no registered ASN.1 module");
         }
 
         @Test
