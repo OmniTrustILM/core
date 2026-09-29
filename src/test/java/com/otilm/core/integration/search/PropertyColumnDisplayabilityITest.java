@@ -28,7 +28,8 @@ import org.junit.jupiter.api.Test;
  */
 class PropertyColumnDisplayabilityITest extends BaseSpringBootTest {
 
-    // FilterField uses JPA metamodel attributes, which Spring initializes before test methods run.
+    // A method, and no @EnumSource: either would load FilterField before Spring populates the JPA metamodel its
+    // constants read.
     private static Map<Resource, Set<FilterField>> offeredColumns() {
         Map<Resource, Set<FilterField>> offeredColumns = new EnumMap<>(Resource.class);
         offeredColumns

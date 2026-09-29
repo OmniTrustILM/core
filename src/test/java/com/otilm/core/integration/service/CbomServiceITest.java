@@ -1235,6 +1235,10 @@ class CbomServiceITest extends BaseSpringBootTest {
         assertTrue(fieldNames.contains(FilterField.CBOM_ASSETS_SYNCED_AT.name()));
         // Filterable and, since CbomDto carries the reason, a column the picker may offer.
         assertTrue(fieldNames.contains(FilterField.CBOM_ASSET_SYNC_ERROR.name()));
+        assertTrue(SearchHelper.isDisplayable(FilterField.CBOM_ASSET_SYNC_ERROR),
+                "the listing returns the reason, so the field is a column candidate");
+        assertTrue(SearchHelper.isOrderableOnListing(FilterField.CBOM_ASSET_SYNC_ERROR),
+                "a column the listing serves can also be ordered on");
         SearchFieldDataDto contributed = propertyGroup
                 .getSearchFieldData()
                 .stream()
@@ -1247,10 +1251,6 @@ class CbomServiceITest extends BaseSpringBootTest {
                 contributed.getConditions());
         assertEquals(false, contributed.getDisplayable());
         assertEquals(false, contributed.getSortable());
-        assertTrue(SearchHelper.isDisplayable(FilterField.CBOM_ASSET_SYNC_ERROR),
-                "the listing returns the reason, so the field is a column candidate");
-        assertTrue(SearchHelper.isOrderableOnListing(FilterField.CBOM_ASSET_SYNC_ERROR),
-                "a column the listing serves can also be ordered on");
     }
 
     /**
