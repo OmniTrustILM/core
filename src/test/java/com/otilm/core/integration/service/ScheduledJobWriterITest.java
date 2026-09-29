@@ -1,6 +1,7 @@
 package com.otilm.core.integration.service;
 
 import com.otilm.core.dao.entity.ScheduledJob;
+import com.otilm.core.dao.repository.ScheduledJobHistoryRepository;
 import com.otilm.core.dao.repository.ScheduledJobsRepository;
 import com.otilm.core.service.writer.scheduler.ScheduledJobWriter;
 import com.otilm.core.tasks.CryptoAssetPqcSweepTask;
@@ -14,6 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -29,6 +31,9 @@ class ScheduledJobWriterITest extends BaseSpringBootTest {
 
     @Autowired
     private ScheduledJobsRepository scheduledJobsRepository;
+
+    @Autowired
+    private ScheduledJobHistoryRepository scheduledJobHistoryRepository;
 
     private ScheduledJob scheduledJob;
 
@@ -69,7 +74,9 @@ class ScheduledJobWriterITest extends BaseSpringBootTest {
         ScheduledJob stored = scheduledJobsRepository.findById(scheduledJob.getUuid()).orElseThrow();
         assertEquals("The CBOM repository answered 503 Service Unavailable", stored.getLastSkipReason());
         assertTrue(!stored.getLastSkippedAt().isBefore(first));
-        assertEquals(1, scheduledJobsRepository.count());
+        // Neither skip left a run in the job's history: a skip is recorded on the job, not as a history row.
+        assertNull(
+                scheduledJobHistoryRepository.findTopByScheduledJobUuidOrderByJobExecutionDesc(scheduledJob.getUuid()));
     }
 
     /**
