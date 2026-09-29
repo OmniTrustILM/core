@@ -148,7 +148,7 @@ public final class SortOrderBuilder {
      * descending. Shared by every sort path so a nullable column cannot place its blanks differently depending on
      * whether the ordering happened to be reached directly, through a join or through a key table.
      */
-    private static Order primary(CriteriaBuilder criteriaBuilder, Expression<?> expression, SortDirection direction) {
+    public static Order primary(CriteriaBuilder criteriaBuilder, Expression<?> expression, SortDirection direction) {
         Order order = direction == SortDirection.DESC
                 ? criteriaBuilder.desc(expression)
                 : criteriaBuilder.asc(expression);
