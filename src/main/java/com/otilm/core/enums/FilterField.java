@@ -404,6 +404,7 @@ public enum FilterField {
     // serve it, so it is a column as well as a filter.
     CBOM_ASSET_SYNC_ERROR(Resource.CBOM, null, null, Cbom_.assetSyncError, "Asset Sync Error",
             SearchFieldTypeEnum.STRING),
+    CBOM_HAS_CONTRIBUTED_ASSETS(Resource.CBOM, null, null, null, "Has Contributed Assets", SearchFieldTypeEnum.BOOLEAN),
 
     // CBOM cryptographic asset inventory.
     //

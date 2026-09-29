@@ -1,12 +1,17 @@
 package com.otilm.core.integration.service;
 
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.client.dashboard.CryptographicAssetStatisticsDto;
 import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.cbom.CbomDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetType;
 import com.otilm.api.model.core.cryptoasset.PqcVerdict;
+import com.otilm.api.model.core.search.FilterConditionOperator;
+import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.core.cbom.asset.AssetRowKeys;
 import com.otilm.core.cbom.asset.CryptoAssetIdentityFields;
 import com.otilm.core.dao.entity.Cbom;
@@ -15,14 +20,17 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.cbom.CryptoAssetIdentityGuard;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.security.authz.opa.dto.OpaObjectAccessResult;
+import com.otilm.core.service.CbomExternalService;
 import com.otilm.core.service.CryptographicAssetExternalService;
 import com.otilm.core.service.writer.cbom.CbomAssetSyncStateWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetSourceWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetWriter;
 import com.otilm.core.util.BaseSpringBootTest;
+import java.io.Serializable;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -31,6 +39,7 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.when;
 
@@ -50,6 +59,9 @@ class CryptographicAssetStatisticsITest extends BaseSpringBootTest {
 
     @Autowired
     private CryptographicAssetExternalService cryptographicAssetService;
+
+    @Autowired
+    private CbomExternalService cbomService;
 
     @Autowired
     private CryptoAssetWriter assetWriter;
@@ -174,6 +186,79 @@ class CryptographicAssetStatisticsITest extends BaseSpringBootTest {
         assertThat(dto.getSourceCbomCount())
                 .describedAs("one cbom sourcing two assets counts once; the untouched cbom counts zero")
                 .isEqualTo(1L);
+    }
+
+    @Test
+    void sourceCbomFilterReconcilesWithDashboardCountAndSupportsBothTruthValues() {
+        UUID assetA = seedTyped(CryptographicAssetType.ALGORITHM, "filter-a");
+        UUID assetB = seedTyped(CryptographicAssetType.ALGORITHM, "filter-b");
+        Cbom contributing = newCbom("urn:uuid:filter-contributing");
+        Cbom untracked = newCbom("urn:uuid:filter-untracked");
+        untracked.setTotalAssetsCount(7);
+        cbomRepository.save(untracked);
+        syncStateWriter.markSynced(untracked.getUuid(), OffsetDateTime.now(ZoneOffset.UTC));
+        sourceWriter
+                .upsertSource(assetA, contributing.getUuid(), Map.of("name", "filter-a"),
+                        List.of(Map.of("location", "a.c")), OffsetDateTime.now());
+        sourceWriter
+                .upsertSource(assetB, contributing.getUuid(), Map.of("name", "filter-b"),
+                        List.of(Map.of("location", "b.c")), OffsetDateTime.now());
+
+        assertThat(
+                cryptographicAssetService.getCryptographicAssetStatistics(SecurityFilter.create()).getSourceCbomCount())
+                .isEqualTo(1L);
+        assertFilteredCboms(FilterConditionOperator.EQUALS, true, contributing.getUuid());
+        assertFilteredCboms(FilterConditionOperator.NOT_EQUALS, false, contributing.getUuid());
+        assertFilteredCboms(FilterConditionOperator.EQUALS, "true", contributing.getUuid());
+        assertFilteredCboms(FilterConditionOperator.EQUALS, false, untracked.getUuid());
+        assertFilteredCboms(FilterConditionOperator.NOT_EQUALS, true, untracked.getUuid());
+        assertFilteredCboms(FilterConditionOperator.EQUALS, "false", untracked.getUuid());
+    }
+
+    @Test
+    void sourceCbomFilterRejectsInvalidValues() {
+        newCbom("urn:uuid:filter-invalid");
+        for (Serializable value : List.of((Serializable) new ArrayList<>(List.of("true")), "yes")) {
+            assertThatThrownBy(() -> listFilteredCboms(FilterConditionOperator.EQUALS, value))
+                    .isInstanceOf(ValidationException.class);
+        }
+        assertThatThrownBy(() -> listFilteredCboms(FilterConditionOperator.EQUALS, null))
+                .isInstanceOf(ValidationException.class);
+        assertThatThrownBy(() -> listFilteredCboms(FilterConditionOperator.EMPTY, null))
+                .isInstanceOf(ValidationException.class);
+    }
+
+    @Test
+    void sourceCbomFilterRespectsCbomListScope() {
+        UUID asset = seedTyped(CryptographicAssetType.ALGORITHM, "filter-scoped");
+        Cbom visible = newCbom("urn:uuid:filter-visible");
+        Cbom hidden = newCbom("urn:uuid:filter-hidden");
+        for (Cbom cbom : List.of(visible, hidden)) {
+            sourceWriter
+                    .upsertSource(asset, cbom.getUuid(), Map.of("name", "filter-scoped"),
+                            List.of(Map.of("location", "a.c")), OffsetDateTime.now());
+        }
+        forbidCbomObjects(List.of(hidden.getUuid()));
+
+        assertThat(
+                cryptographicAssetService.getCryptographicAssetStatistics(SecurityFilter.create()).getSourceCbomCount())
+                .isEqualTo(1L);
+        assertFilteredCboms(FilterConditionOperator.EQUALS, true, visible.getUuid());
+    }
+
+    private void assertFilteredCboms(FilterConditionOperator condition, Serializable value, UUID expected) {
+        PaginationResponseDto<CbomDto> page = listFilteredCboms(condition, value);
+        assertThat(page.getTotalItems()).isEqualTo(1L);
+        assertThat(page.getItems()).extracting(CbomDto::getUuid).containsExactly(expected);
+    }
+
+    private PaginationResponseDto<CbomDto> listFilteredCboms(FilterConditionOperator condition, Serializable value) {
+        SearchRequestDto request = new SearchRequestDto();
+        request
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, "CBOM_HAS_CONTRIBUTED_ASSETS",
+                                condition, value)));
+        return cbomService.listCboms(SecurityFilter.create(), request);
     }
 
     @Test

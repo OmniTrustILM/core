@@ -51,6 +51,7 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.security.authz.SecurityResourceFilter;
 import com.otilm.core.service.CryptographicAssetExternalService;
 import com.otilm.core.service.ResourceExtensionService;
+import com.otilm.core.util.CbomAssetSourcePredicates;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import com.otilm.core.util.RequestValidatorHelper;
 import com.otilm.core.util.SearchHelper;
@@ -209,7 +210,8 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
      * The CBOM documents whose content the caller may read, scoped by the caller's own {@code cboms:list} object access
      * -- serial numbers and payloads belong to the CBOM resource, the same rule
      * {@link #cbomSerialNumbersScopedToCaller} applies to the source-CBOM value list. Narrowed to the documents that
-     * actually contribute to this asset, mirroring {@link #hasContributedAssets}, so the EXISTS subquery stays cheap.
+     * actually contribute to this asset, mirroring {@link CbomAssetSourcePredicates#hasContributedAssets}, so the
+     * EXISTS subquery stays cheap.
      */
     private Set<UUID> visibleCbomUuids(UUID assetUuid) {
         SecurityFilter cbomFilter = SecurityFilter.create();
@@ -223,7 +225,8 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
     }
 
     /**
-     * {@link #hasContributedAssets}, narrowed to one asset: the EXISTS subquery a per-detail visibility scope needs.
+     * {@link CbomAssetSourcePredicates#hasContributedAssets}, narrowed to one asset: the EXISTS subquery a per-detail
+     * visibility scope needs.
      */
     private static TriFunction<Root<Cbom>, CriteriaBuilder, CriteriaQuery<?>, Predicate> contributesToAsset(
             UUID assetUuid) {
@@ -309,7 +312,7 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
                             .countGroupedUsingSecurityFilter(filter, null, CryptoAsset_.algorithmFamily, null, null));
             Future<Long> sourceCbomCount = executor
                     .submit(() -> cbomRepository
-                            .countUsingSecurityFilter(cbomFilter, CryptographicAssetServiceImpl::hasContributedAssets));
+                            .countUsingSecurityFilter(cbomFilter, CbomAssetSourcePredicates::hasContributedAssets));
             Future<Map<String, Long>> bySyncState = executor
                     .submit(() -> cbomRepository
                             .countGroupedUsingSecurityFilter(cbomFilter, null, Cbom_.assetSyncState, null, null));
@@ -347,16 +350,6 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
         SecurityResourceFilter resourceFilter = filter.getResourceFilter();
         return resourceFilter != null && resourceFilter.areOnlySpecificObjectsAllowed()
                 && resourceFilter.getAllowedObjects().isEmpty();
-    }
-
-    /** A document contributed to the inventory when at least one asset-source row points at it. */
-    private static Predicate hasContributedAssets(Root<Cbom> root, CriteriaBuilder cb, CriteriaQuery<?> query) {
-        Subquery<Integer> contributed = query.subquery(Integer.class);
-        Root<CryptoAssetSource> source = contributed.from(CryptoAssetSource.class);
-        contributed
-                .select(cb.literal(1))
-                .where(cb.equal(source.get(CryptoAssetSource_.cbomUuid), root.get(UniquelyIdentified_.uuid)));
-        return cb.exists(contributed);
     }
 
     private OffsetDateTime lastCompletedSyncAt(SecurityFilter cbomFilter) {

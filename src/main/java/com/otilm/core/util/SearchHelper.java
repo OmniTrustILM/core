@@ -160,6 +160,9 @@ public class SearchHelper {
      * available values.
      */
     public static List<FilterConditionOperator> availableConditions(final FilterField filterField) {
+        if (filterField == FilterField.CBOM_HAS_CONTRIBUTED_ASSETS) {
+            return List.of(FilterConditionOperator.EQUALS, FilterConditionOperator.NOT_EQUALS);
+        }
         // A FREE_TEXT field has no single attribute by design (it spans several columns), so the
         // null-attribute downgrade to presence-only conditions must not apply to it.
         boolean presenceOnly = filterField.getFieldAttribute() == null
