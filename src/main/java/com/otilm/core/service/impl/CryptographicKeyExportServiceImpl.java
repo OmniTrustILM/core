@@ -22,6 +22,7 @@ import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.crypto.CryptographicKeyBasicModel;
 import com.otilm.core.model.crypto.CryptographicKeyItemBasicModel;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.crypto.ExportedKeyMaterial;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
@@ -32,8 +33,8 @@ import com.otilm.core.service.CryptographicKeyExportExternalService;
 import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.service.handler.KeyTransferCapabilityService;
 import com.otilm.core.service.handler.key.HeldKey;
+import com.otilm.core.service.handler.key.KeyProviderAdapter;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
-import com.otilm.core.service.handler.key.OperationKeyContext;
 import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
@@ -95,8 +96,8 @@ public class CryptographicKeyExportServiceImpl implements CryptographicKeyExport
             throws ConnectorException, NotFoundException {
         CryptographicKeyBasicModel key = requireAccess(keyUuid);
         CryptographicKeyItemBasicModel item = requireItemOf(key, keyItemUuid);
-        OperationKeyContext context = requireExportable(key, item);
-        return keyProviderAdapterFactory.forKeyItem(context.keyItem()).listExportKeyAttributes(context);
+        CryptographicKeyItemOperationModel operationKeyItem = requireExportable(key, item);
+        return exportAdapter(key, operationKeyItem).listExportKeyAttributes(operationKeyItem);
     }
 
     /**
@@ -112,10 +113,9 @@ public class CryptographicKeyExportServiceImpl implements CryptographicKeyExport
         CryptographicKeyBasicModel key = requireAccess(keyUuid);
         CryptographicKeyItemBasicModel item = requireItemOf(key, keyItemUuid);
         try {
-            OperationKeyContext context = requireExportable(key, item);
-            byte[] envelope = keyProviderAdapterFactory
-                    .forKeyItem(context.keyItem())
-                    .exportKey(context, heldKey(item), request.getPassphrase(), request.getExportAttributes());
+            CryptographicKeyItemOperationModel operationKeyItem = requireExportable(key, item);
+            byte[] envelope = exportAdapter(key, operationKeyItem)
+                    .exportKey(operationKeyItem, heldKey(item), request.getPassphrase(), request.getExportAttributes());
             if (!cryptographicKeyItemRepository.isExportable(item.uuid())) {
                 throw refusal(CHANGED, item.uuid());
             }
@@ -126,6 +126,17 @@ public class CryptographicKeyExportServiceImpl implements CryptographicKeyExport
             recordFailure(item.uuid(), e);
             throw e;
         }
+    }
+
+    /** Refuses a reassignment before resolving the operation's attributes or sending the export passphrase. */
+    private KeyProviderAdapter exportAdapter(CryptographicKeyBasicModel key, CryptographicKeyItemOperationModel item)
+            throws NotFoundException {
+        return keyProviderAdapterFactory.forKeyItem(item, scope -> {
+            if (!scope.tokenProfileUuid().equals(key.tokenProfileUuid())
+                    || !scope.tokenInstanceReferenceUuid().equals(key.tokenInstanceReferenceUuid())) {
+                throw refusal(PROFILE_CHANGED, scope.tokenProfileUuid());
+            }
+        });
     }
 
     /**
@@ -173,8 +184,8 @@ public class CryptographicKeyExportServiceImpl implements CryptographicKeyExport
     }
 
     /** Core's gates, in order; the connector is asked what it offers only once the key item's own gates pass. */
-    private OperationKeyContext requireExportable(CryptographicKeyBasicModel key, CryptographicKeyItemBasicModel item)
-            throws ConnectorException, NotFoundException {
+    private CryptographicKeyItemOperationModel requireExportable(CryptographicKeyBasicModel key,
+            CryptographicKeyItemBasicModel item) throws ConnectorException, NotFoundException {
         KeyRequestType type = requestTypeOf(item);
         if (!item.exportable()) {
             throw refusal(NOT_EXPORTABLE, item.uuid());
@@ -193,7 +204,7 @@ public class CryptographicKeyExportServiceImpl implements CryptographicKeyExport
             throw refusal(NOT_OFFERED, profile.name(), item.algorithm().getLabel(),
                     type.getLabel().toLowerCase(Locale.ROOT));
         }
-        return new OperationKeyContext(cryptographicKeyService.getKeyItemModel(item.uuid()), profile);
+        return cryptographicKeyService.getKeyItemModel(item.uuid());
     }
 
     private static KeyRequestType requestTypeOf(CryptographicKeyItemBasicModel item) {

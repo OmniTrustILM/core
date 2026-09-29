@@ -45,7 +45,6 @@ import com.otilm.core.service.CryptographicKeyEventHistoryService;
 import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.service.handler.key.KeyProviderAdapter;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
-import com.otilm.core.service.handler.key.OperationKeyContext;
 import com.otilm.core.service.handler.key.ResolvedSignatureAlgorithm;
 import com.otilm.core.service.handler.token.TokenProviderAdapter;
 import com.otilm.core.service.handler.token.TokenProviderAdapterFactory;
@@ -54,6 +53,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -294,7 +294,7 @@ class CryptographicOperationServiceImplTest {
         // given
         CryptographicKeyItemOperationModel key = legacyKey();
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
-        when(keyProviderAdapterFactory.forKeyItem(key)).thenReturn(adapter);
+        when(keyProviderAdapterFactory.forKeyItem(eq(key), any())).thenReturn(adapter);
         SignDataResponseDto expected = new SignDataResponseDto();
         when(adapter.signData(any(), any())).thenReturn(expected);
 
@@ -305,24 +305,22 @@ class CryptographicOperationServiceImplTest {
 
         // then
         assertSame(expected, response);
-        ArgumentCaptor<OperationKeyContext> context = ArgumentCaptor.forClass(OperationKeyContext.class);
+        ArgumentCaptor<CryptographicKeyItemOperationModel> context = ArgumentCaptor
+                .forClass(CryptographicKeyItemOperationModel.class);
         verify(adapter).signData(context.capture(), any());
-        assertSame(key, context.getValue().keyItem());
-        assertNull(context.getValue().tokenProfile());
+        assertSame(key, context.getValue());
         verify(eventHistoryService)
                 .addEventHistory(KeyEvent.SIGN, KeyEventStatus.SUCCESS, "Signing data success ", null,
                         key.keyItemUuid());
-        verifyNoInteractions(cryptographicKeyRepository);
     }
 
     @Test
-    void signData_loadsProfileScope_forV2Item_andChecksPathAssociation() throws Exception {
+    void signData_checksTheAdapterResolvedScope_forV2Item() throws Exception {
         // given
         CryptographicKeyItemOperationModel key = v2Key();
         KeyOperationScope scope = scope();
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
-        when(cryptographicKeyRepository.findOperationScopeByUuid(key.keyUuid())).thenReturn(Optional.of(scope));
-        when(keyProviderAdapterFactory.forKeyItem(key)).thenReturn(adapter);
+        useResolvedScope(key, scope);
         when(adapter.signData(any(), any())).thenReturn(new SignDataResponseDto());
 
         // when
@@ -332,9 +330,10 @@ class CryptographicOperationServiceImplTest {
                         signRequest());
 
         // then
-        ArgumentCaptor<OperationKeyContext> context = ArgumentCaptor.forClass(OperationKeyContext.class);
+        ArgumentCaptor<CryptographicKeyItemOperationModel> context = ArgumentCaptor
+                .forClass(CryptographicKeyItemOperationModel.class);
         verify(adapter).signData(context.capture(), any());
-        assertEquals(scope.tokenProfileUuid(), context.getValue().tokenProfile().uuid());
+        assertSame(key, context.getValue());
     }
 
     @Test
@@ -343,7 +342,7 @@ class CryptographicOperationServiceImplTest {
         CryptographicKeyItemOperationModel key = v2Key();
         KeyOperationScope scope = scope();
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
-        when(cryptographicKeyRepository.findOperationScopeByUuid(key.keyUuid())).thenReturn(Optional.of(scope));
+        useResolvedScope(key, scope);
 
         // when
         Executable sign = () -> service
@@ -352,7 +351,7 @@ class CryptographicOperationServiceImplTest {
 
         // then
         assertThrows(ValidationException.class, sign);
-        verifyNoInteractions(keyProviderAdapterFactory, adapter);
+        verifyNoInteractions(adapter);
     }
 
     @Test
@@ -361,7 +360,7 @@ class CryptographicOperationServiceImplTest {
         CryptographicKeyItemOperationModel key = v2Key();
         KeyOperationScope scope = scope();
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
-        when(cryptographicKeyRepository.findOperationScopeByUuid(key.keyUuid())).thenReturn(Optional.of(scope));
+        useResolvedScope(key, scope);
 
         // when
         Executable sign = () -> service
@@ -371,7 +370,7 @@ class CryptographicOperationServiceImplTest {
 
         // then
         assertThrows(ValidationException.class, sign);
-        verifyNoInteractions(keyProviderAdapterFactory, adapter);
+        verifyNoInteractions(adapter);
     }
 
     @Test
@@ -380,7 +379,7 @@ class CryptographicOperationServiceImplTest {
         CryptographicKeyItemOperationModel key = v2Key();
         KeyOperationScope scope = scope();
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
-        when(cryptographicKeyRepository.findOperationScopeByUuid(key.keyUuid())).thenReturn(Optional.of(scope));
+        useResolvedScope(key, scope);
 
         // when
         Executable sign = () -> service
@@ -389,7 +388,7 @@ class CryptographicOperationServiceImplTest {
 
         // then
         assertThrows(ValidationException.class, sign);
-        verifyNoInteractions(keyProviderAdapterFactory, adapter);
+        verifyNoInteractions(adapter);
     }
 
     @Test
@@ -397,7 +396,7 @@ class CryptographicOperationServiceImplTest {
         // given
         CryptographicKeyItemOperationModel key = legacyKey();
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
-        when(keyProviderAdapterFactory.forKeyItem(key)).thenReturn(adapter);
+        when(keyProviderAdapterFactory.forKeyItem(eq(key), any())).thenReturn(adapter);
         ConnectorException failure = new ConnectorException("boom");
         when(adapter.signData(any(), any())).thenThrow(failure);
 
@@ -418,7 +417,7 @@ class CryptographicOperationServiceImplTest {
         // given
         CryptographicKeyItemOperationModel key = legacyKey();
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
-        when(keyProviderAdapterFactory.forKeyItem(key)).thenReturn(adapter);
+        when(keyProviderAdapterFactory.forKeyItem(eq(key), any())).thenReturn(adapter);
         when(adapter.signData(any(), any())).thenReturn(new SignDataResponseDto());
         RuntimeException auditFailure = new RuntimeException("history unavailable");
         doThrow(auditFailure)
@@ -442,7 +441,7 @@ class CryptographicOperationServiceImplTest {
         // given
         CryptographicKeyItemOperationModel key = legacyKey();
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
-        when(keyProviderAdapterFactory.forKeyItem(key)).thenReturn(adapter);
+        when(keyProviderAdapterFactory.forKeyItem(eq(key), any())).thenReturn(adapter);
         when(adapter.signData(any(), any())).thenReturn(new SignDataResponseDto());
 
         // when
@@ -501,7 +500,7 @@ class CryptographicOperationServiceImplTest {
         // given
         CryptographicKeyItemOperationModel key = legacyKey();
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
-        when(keyProviderAdapterFactory.forKeyItem(key)).thenReturn(adapter);
+        when(keyProviderAdapterFactory.forKeyItem(eq(key), any())).thenReturn(adapter);
         List<BaseAttribute> schema = List.of(new DataAttributeV2());
         when(adapterListing.list(adapter)).thenReturn(schema);
 
@@ -533,7 +532,7 @@ class CryptographicOperationServiceImplTest {
 
     @FunctionalInterface
     interface AdapterListing {
-        List<BaseAttribute> list(KeyProviderAdapter adapter) throws ConnectorException;
+        List<BaseAttribute> list(KeyProviderAdapter adapter) throws ConnectorException, NotFoundException;
     }
 
     @FunctionalInterface
@@ -594,27 +593,27 @@ class CryptographicOperationServiceImplTest {
 
         // then
         assertEquals(SignatureAlgorithm.ML_DSA_65, resolved);
-        verifyNoInteractions(cryptographicKeyRepository);
     }
 
     @Test
     void listSignAttributeSchema_servesCoresRegistry_forALegacyKey_withoutLoadingScope() throws Exception {
         // given
         CryptographicKeyItemOperationModel key = legacyKey();
-        OperationAttributeSchema registry = new OperationAttributeSchema(null, List.of(new DataAttributeV3()));
+        List<BaseAttribute> registry = List.of(new DataAttributeV3());
         when(keyService.getPrivateKeyItemModel(key.keyUuid())).thenReturn(key);
         when(keyProviderAdapterFactory.forKeyItem(key)).thenReturn(adapter);
-        when(adapter.signAttributeSchema(any())).thenReturn(registry);
+        when(adapter.listSignAttributes(any())).thenReturn(registry);
 
         // when
         OperationAttributeSchema schema = service.listSignAttributeSchema(key.keyUuid());
 
         // then
-        assertSame(registry, schema);
-        ArgumentCaptor<OperationKeyContext> context = ArgumentCaptor.forClass(OperationKeyContext.class);
-        verify(adapter).signAttributeSchema(context.capture());
-        assertNull(context.getValue().tokenProfile());
-        verifyNoInteractions(cryptographicKeyRepository);
+        assertNull(schema.ownerConnectorUuid());
+        assertSame(registry, schema.definitions());
+        ArgumentCaptor<CryptographicKeyItemOperationModel> context = ArgumentCaptor
+                .forClass(CryptographicKeyItemOperationModel.class);
+        verify(adapter).listSignAttributes(context.capture());
+        assertSame(key, context.getValue());
     }
 
     @Test
@@ -634,25 +633,24 @@ class CryptographicOperationServiceImplTest {
     }
 
     @Test
-    void listSignAttributeSchema_asksTheConnector_inTheKeysTokenProfile_forAV2Key() throws Exception {
+    void listSignAttributeSchema_asksTheConnector_andNamesItTheOwner_forAV2Key() throws Exception {
         // given
         CryptographicKeyItemOperationModel key = v2Key();
-        KeyOperationScope scope = scope();
-        OperationAttributeSchema connectorSchema = new OperationAttributeSchema(key.connectorUuid(),
-                List.of(new DataAttributeV3()));
+        List<BaseAttribute> connectorSchema = List.of(new DataAttributeV3());
         when(keyService.getPrivateKeyItemModel(key.keyUuid())).thenReturn(key);
-        when(cryptographicKeyRepository.findOperationScopeByUuid(key.keyUuid())).thenReturn(Optional.of(scope));
         when(keyProviderAdapterFactory.forKeyItem(key)).thenReturn(adapter);
-        when(adapter.signAttributeSchema(any())).thenReturn(connectorSchema);
+        when(adapter.listSignAttributes(any())).thenReturn(connectorSchema);
 
         // when
         OperationAttributeSchema schema = service.listSignAttributeSchema(key.keyUuid());
 
         // then
-        assertSame(connectorSchema, schema);
-        ArgumentCaptor<OperationKeyContext> context = ArgumentCaptor.forClass(OperationKeyContext.class);
-        verify(adapter).signAttributeSchema(context.capture());
-        assertEquals(scope.tokenProfileUuid(), context.getValue().tokenProfile().uuid());
+        assertEquals(key.connectorUuid(), schema.ownerConnectorUuid());
+        assertSame(connectorSchema, schema.definitions());
+        ArgumentCaptor<CryptographicKeyItemOperationModel> context = ArgumentCaptor
+                .forClass(CryptographicKeyItemOperationModel.class);
+        verify(adapter).listSignAttributes(context.capture());
+        assertSame(key, context.getValue());
     }
 
     @Test
@@ -660,14 +658,23 @@ class CryptographicOperationServiceImplTest {
         // given
         CryptographicKeyItemOperationModel key = v2Key();
         when(keyService.getPrivateKeyItemModel(key.keyUuid())).thenReturn(key);
-        when(cryptographicKeyRepository.findOperationScopeByUuid(key.keyUuid())).thenReturn(Optional.empty());
+        when(keyProviderAdapterFactory.forKeyItem(key)).thenReturn(adapter);
+        when(adapter.listSignAttributes(key)).thenThrow(new NotFoundException("Missing token profile"));
 
         // when
         Executable list = () -> service.listSignAttributeSchema(key.keyUuid());
 
         // then
         assertThrows(NotFoundException.class, list);
-        verifyNoInteractions(keyProviderAdapterFactory);
+    }
+
+    private void useResolvedScope(CryptographicKeyItemOperationModel key, KeyOperationScope scope)
+            throws NotFoundException {
+        when(keyProviderAdapterFactory.forKeyItem(eq(key), any())).thenAnswer(invocation -> {
+            Consumer<KeyOperationScope> validator = invocation.getArgument(1);
+            validator.accept(scope);
+            return adapter;
+        });
     }
 
     private static CryptographicKeyItemOperationModel legacyKey() {

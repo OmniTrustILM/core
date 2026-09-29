@@ -9,15 +9,18 @@ import com.otilm.core.attribute.engine.OutboundSecretContainment;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.client.CryptographyV2ApiClients;
 import com.otilm.core.dao.entity.Connector;
+import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.exception.UnsupportedCryptographyProviderVersionException;
 import com.otilm.core.model.connector.ImmutableConnectorFullModel;
 import com.otilm.core.model.connector.ImmutableConnectorInterface;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
+import com.otilm.core.model.crypto.KeyOperationScope;
 import com.otilm.core.model.crypto.TokenInstanceFullModel;
 import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.OperationAttributeResolver;
 import com.otilm.core.service.v2.ConnectorInternalService;
 import java.util.Objects;
+import java.util.function.Consumer;
 import org.springframework.stereotype.Component;
 
 /** Selects the key-provider adapter from the token's persisted connector-interface association. */
@@ -32,12 +35,13 @@ public class KeyProviderAdapterFactory {
     private final CryptographyV2ApiClients cryptographyV2ApiClients;
     private final ConnectorCapabilityService connectorCapabilityService;
     private final OperationResponseValidator responseValidator;
+    private final CryptographicKeyRepository cryptographicKeyRepository;
 
     public KeyProviderAdapterFactory(ConnectorInternalService connectorInternalService,
             ConnectorApiFactory connectorApiFactory, AttributeEngine attributeEngine,
             OperationAttributeResolver operationAttributeResolver, OutboundSecretContainment outboundSecretContainment,
             CryptographyV2ApiClients cryptographyV2ApiClients, ConnectorCapabilityService connectorCapabilityService,
-            OperationResponseValidator responseValidator) {
+            OperationResponseValidator responseValidator, CryptographicKeyRepository cryptographicKeyRepository) {
         this.connectorInternalService = connectorInternalService;
         this.connectorApiFactory = connectorApiFactory;
         this.attributeEngine = attributeEngine;
@@ -46,6 +50,7 @@ public class KeyProviderAdapterFactory {
         this.cryptographyV2ApiClients = cryptographyV2ApiClients;
         this.connectorCapabilityService = connectorCapabilityService;
         this.responseValidator = responseValidator;
+        this.cryptographicKeyRepository = cryptographicKeyRepository;
     }
 
     /** A missing interface association identifies a legacy token, even if its connector now advertises v2. */
@@ -67,6 +72,18 @@ public class KeyProviderAdapterFactory {
 
     /** Selects the adapter for a key item from the interface columns cached on its operation model. */
     public KeyProviderAdapter forKeyItem(CryptographicKeyItemOperationModel keyItem) throws NotFoundException {
+        return forKeyItem(keyItem, scope -> {
+        });
+    }
+
+    /**
+     * Checks the service's authorization constraints against the exact scope used to construct a stateless request. The
+     * adapter resolves that scope once, before any attribute resolution or connector call. Legacy operations retain
+     * their existing UUID-based routing without a profile scope.
+     */
+    public KeyProviderAdapter forKeyItem(CryptographicKeyItemOperationModel keyItem,
+            Consumer<KeyOperationScope> scopeValidator) throws NotFoundException {
+        Objects.requireNonNull(scopeValidator, "A scope validator is required.");
         Objects.requireNonNull(keyItem, "A key item is required to select a key-provider adapter.");
         if (keyItem.connectorUuid() == null) {
             throw new NotFoundException(Connector.class, keyItem.keyItemUuid());
@@ -78,7 +95,7 @@ public class KeyProviderAdapterFactory {
             return new KeyProviderV1Adapter(connectorApiFactory, connector, attributeEngine);
         }
         return forInterface(keyItem.connectorInterfaceCode(), keyItem.connectorInterfaceVersion(), connector,
-                "key item " + keyItem.toIdentifierString());
+                "key item " + keyItem.toIdentifierString(), scopeValidator);
     }
 
     private KeyProviderAdapter forInterface(ImmutableConnectorInterface iface, ImmutableConnectorFullModel connector,
@@ -88,6 +105,12 @@ public class KeyProviderAdapterFactory {
 
     private KeyProviderAdapter forInterface(ConnectorInterface code, String version, ApiClientConnectorInfo connector,
             String owner) {
+        return forInterface(code, version, connector, owner, scope -> {
+        });
+    }
+
+    private KeyProviderAdapter forInterface(ConnectorInterface code, String version, ApiClientConnectorInfo connector,
+            String owner, Consumer<KeyOperationScope> scopeValidator) {
         if (code != ConnectorInterface.CRYPTOGRAPHY) {
             throw new UnsupportedCryptographyProviderVersionException(
                     "Key provider is associated with a non-cryptography connector interface (" + owner + ")");
@@ -99,7 +122,7 @@ public class KeyProviderAdapterFactory {
         if ("v2".equals(version)) {
             return new KeyProviderV2Adapter(cryptographyV2ApiClients, connector, attributeEngine,
                     operationAttributeResolver, outboundSecretContainment, connectorCapabilityService,
-                    responseValidator);
+                    responseValidator, cryptographicKeyRepository, scopeValidator);
         }
         throw new UnsupportedCryptographyProviderVersionException(
                 "Unsupported cryptography connector interface version: " + version + " (" + owner + ")");

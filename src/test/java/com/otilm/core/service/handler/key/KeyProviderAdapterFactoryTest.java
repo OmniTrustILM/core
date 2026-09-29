@@ -1,6 +1,7 @@
 package com.otilm.core.service.handler.key;
 
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
@@ -14,16 +15,19 @@ import com.otilm.core.attribute.engine.OutboundSecretContainment;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.client.CryptographyV2ApiClients;
 import com.otilm.core.dao.entity.Connector;
+import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.exception.UnsupportedCryptographyProviderVersionException;
 import com.otilm.core.model.connector.ImmutableConnectorFullModel;
 import com.otilm.core.model.connector.ImmutableConnectorInterface;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.crypto.ImmutableTokenInstanceFullModel;
+import com.otilm.core.model.crypto.KeyOperationScope;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.OperationAttributeResolver;
 import com.otilm.core.service.v2.ConnectorInternalService;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -51,6 +55,7 @@ class KeyProviderAdapterFactoryTest {
     private ConnectorInternalService connectorService;
     private ConnectorApiFactory clients;
     private CryptographyV2ApiClients v2Clients;
+    private final CryptographicKeyRepository keyRepository = mock(CryptographicKeyRepository.class);
     private KeyProviderAdapterFactory factory;
     private ImmutableConnectorFullModel connector;
 
@@ -61,7 +66,7 @@ class KeyProviderAdapterFactoryTest {
         v2Clients = mock(CryptographyV2ApiClients.class);
         factory = new KeyProviderAdapterFactory(connectorService, clients, mock(AttributeEngine.class),
                 mock(OperationAttributeResolver.class), mock(OutboundSecretContainment.class), v2Clients,
-                new ConnectorCapabilityService(), mock(OperationResponseValidator.class));
+                new ConnectorCapabilityService(), mock(OperationResponseValidator.class), keyRepository);
         connector = new ImmutableConnectorFullModel(UUID.randomUUID(), "provider", ConnectorVersion.V2,
                 "http://connector.test", null, List.of(), null, null, List.of(cryptographyInterface("v2")), List.of());
         when(connectorService.getConnectorFullModelForApiClient(connector.uuid())).thenReturn(connector);
@@ -177,6 +182,28 @@ class KeyProviderAdapterFactoryTest {
         // then
         assertInstanceOf(KeyProviderV2Adapter.class, adapter);
         verify(v2Clients).getKeyManagementApiClient(connector);
+    }
+
+    @Test
+    void forKeyItem_appliesServiceScopeValidation_beforeBuildingTheRequest() throws Exception {
+        // given
+        CryptographicKeyItemOperationModel item = keyItem(ConnectorInterface.CRYPTOGRAPHY, "v2");
+        KeyOperationScope scope = new KeyOperationScope(UUID.randomUUID(), "reassigned-profile", null, "token",
+                UUID.randomUUID(), true, 0);
+        when(keyRepository.findOperationScopeByUuid(item.keyUuid())).thenReturn(Optional.of(scope));
+        ValidationException rejectedScope = new ValidationException(
+                "The key no longer belongs to the authorized profile.");
+        KeyProviderAdapter adapter = factory.forKeyItem(item, resolvedScope -> {
+            assertSame(scope, resolvedScope);
+            throw rejectedScope;
+        });
+
+        // when
+        Executable list = () -> adapter.listSignAttributes(item);
+
+        // then
+        assertSame(rejectedScope, assertThrows(ValidationException.class, list));
+        verify(keyRepository).findOperationScopeByUuid(item.keyUuid());
     }
 
     @ParameterizedTest(name = "{0} {1}")

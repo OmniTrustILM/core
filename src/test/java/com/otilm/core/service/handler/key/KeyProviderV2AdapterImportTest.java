@@ -53,6 +53,7 @@ import com.otilm.core.attribute.engine.OutboundSecretContainment;
 import com.otilm.core.attribute.engine.OutboundSecretLeakException;
 import com.otilm.core.client.CryptographyV2ApiClients;
 import com.otilm.core.dao.entity.KeyImportState;
+import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.key.normalization.NormalizedKey;
 import com.otilm.core.messaging.proxy.ConnectorAuthConverter;
 import com.otilm.core.messaging.proxy.CoreMessageProducer;
@@ -127,7 +128,11 @@ class KeyProviderV2AdapterImportTest {
         resolver = mock(OperationAttributeResolver.class);
         client = mock(KeySyncApiClient.class);
         when(resolver.resolveForConnectorRequestAsSystem(connectorUuid, List.of())).thenReturn(List.of());
-        adapter = adapterFor(connector, client);
+        adapter = new KeyProviderV2Adapter(apiClients, connector, attributes, resolver,
+                new OutboundSecretContainment(new ObjectMapper()), new ConnectorCapabilityService(),
+                new OperationResponseValidator(Validation.buildDefaultValidatorFactory().getValidator()),
+                mock(CryptographicKeyRepository.class), scope -> {
+                });
         KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
         generator.initialize(2048);
         publicKeySpki = generator.generateKeyPair().getPublic().getEncoded();

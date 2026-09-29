@@ -194,12 +194,12 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
     }
 
     @Override
-    public List<BaseAttribute> listExportKeyAttributes(OperationKeyContext context) {
+    public List<BaseAttribute> listExportKeyAttributes(CryptographicKeyItemOperationModel key) {
         return List.of();
     }
 
     @Override
-    public byte[] exportKey(OperationKeyContext context, HeldKey heldKey, Passphrase passphrase,
+    public byte[] exportKey(CryptographicKeyItemOperationModel key, HeldKey heldKey, Passphrase passphrase,
             List<RequestAttribute> attributes) {
         throw new ValidationException(
                 ValidationError.create("Key export is not part of the v1 cryptography provider contract."));
@@ -251,9 +251,8 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
     }
 
     @Override
-    public EncryptDataResponseDto encryptData(OperationKeyContext context, CipherDataRequestDto request)
+    public EncryptDataResponseDto encryptData(CryptographicKeyItemOperationModel key, CipherDataRequestDto request)
             throws ConnectorException {
-        CryptographicKeyItemOperationModel key = context.keyItem();
         var connectorRequest = LegacyOperationCodec
                 .cipherRequest(cipherItems(request.getCipherData()), request.getCipherAttributes());
         var response = operationsApiClient
@@ -266,9 +265,8 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
     }
 
     @Override
-    public DecryptDataResponseDto decryptData(OperationKeyContext context, CipherDataRequestDto request)
+    public DecryptDataResponseDto decryptData(CryptographicKeyItemOperationModel key, CipherDataRequestDto request)
             throws ConnectorException {
-        CryptographicKeyItemOperationModel key = context.keyItem();
         var connectorRequest = LegacyOperationCodec
                 .cipherRequest(cipherItems(request.getCipherData()), request.getCipherAttributes());
         var response = operationsApiClient
@@ -295,9 +293,8 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
     }
 
     @Override
-    public SignDataResponseDto signData(OperationKeyContext context, SignDataRequestDto request)
+    public SignDataResponseDto signData(CryptographicKeyItemOperationModel key, SignDataRequestDto request)
             throws ConnectorException {
-        CryptographicKeyItemOperationModel key = context.keyItem();
         validateSignatureAttributes(key.keyAlgorithm(), request.getSignatureAttributes());
         var connectorRequest = LegacyOperationCodec
                 .signRequest(signatureItems(request.getData()), request.getSignatureAttributes());
@@ -321,9 +318,8 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
     }
 
     @Override
-    public VerifyDataResponseDto verifyData(OperationKeyContext context, VerifyDataRequestDto request)
+    public VerifyDataResponseDto verifyData(CryptographicKeyItemOperationModel key, VerifyDataRequestDto request)
             throws ConnectorException {
-        CryptographicKeyItemOperationModel key = context.keyItem();
         validateSignatureAttributes(key.keyAlgorithm(), request.getSignatureAttributes());
         var connectorRequest = LegacyOperationCodec
                 .verifyRequest(request.getData() == null ? null : signatureItems(request.getData()),
@@ -349,23 +345,23 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
     }
 
     @Override
-    public List<BaseAttribute> listEncryptAttributes(OperationKeyContext context) {
-        return cipherAttributes(context.keyItem().keyAlgorithm());
+    public List<BaseAttribute> listEncryptAttributes(CryptographicKeyItemOperationModel key) {
+        return cipherAttributes(key.keyAlgorithm());
     }
 
     @Override
-    public List<BaseAttribute> listDecryptAttributes(OperationKeyContext context) {
-        return cipherAttributes(context.keyItem().keyAlgorithm());
+    public List<BaseAttribute> listDecryptAttributes(CryptographicKeyItemOperationModel key) {
+        return cipherAttributes(key.keyAlgorithm());
     }
 
     @Override
-    public List<BaseAttribute> listSignAttributes(OperationKeyContext context) {
-        return signatureAttributes(context.keyItem().keyAlgorithm());
+    public List<BaseAttribute> listSignAttributes(CryptographicKeyItemOperationModel key) {
+        return signatureAttributes(key.keyAlgorithm());
     }
 
     @Override
-    public List<BaseAttribute> listVerifyAttributes(OperationKeyContext context) {
-        return signatureAttributes(context.keyItem().keyAlgorithm());
+    public List<BaseAttribute> listVerifyAttributes(CryptographicKeyItemOperationModel key) {
+        return signatureAttributes(key.keyAlgorithm());
     }
 
     /** Core-internal cipher schema served for legacy providers, which publish none of their own. */
