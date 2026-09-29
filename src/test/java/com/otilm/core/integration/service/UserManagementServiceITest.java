@@ -310,8 +310,8 @@ class UserManagementServiceITest extends BaseSpringBootTest {
 
         userManagementService.deleteUser(deletedUser.toString());
 
-        Assertions.assertTrue(listViewRepository.findByUserUuidOrderByNameAsc(deletedUser).isEmpty());
-        Assertions.assertEquals(1, listViewRepository.findByUserUuidOrderByNameAsc(survivingUser).size());
+        Assertions.assertTrue(listViewRepository.findByUserUuidOrderByCreatedAscUuidAsc(deletedUser).isEmpty());
+        Assertions.assertEquals(1, listViewRepository.findByUserUuidOrderByCreatedAscUuidAsc(survivingUser).size());
     }
 
     private void saveListView(UUID userUuid, String name) {
