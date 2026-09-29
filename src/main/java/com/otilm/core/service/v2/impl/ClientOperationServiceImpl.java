@@ -998,7 +998,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private static void rejectPastRegistrationWindow(ClientCertificateRegistrationDto request) {
         String secret = request.getAuthorizationSecret();
         OffsetDateTime expiresAt = request.getExpiresAt();
-        if (secret != null && !secret.isBlank() && expiresAt != null
+        if (RegistrationChallengeGate.isPresented(secret) && expiresAt != null
                 && !expiresAt.isAfter(OffsetDateTime.now(ZoneOffset.UTC))) {
             throw new ValidationException("The registration issuance window (expiresAt) must be in the future.");
         }
@@ -1012,7 +1012,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      */
     private static void rejectWindowWithoutChallenge(ClientCertificateRegistrationDto request) {
         String secret = request.getAuthorizationSecret();
-        if ((secret == null || secret.isBlank()) && request.getExpiresAt() != null) {
+        if (!RegistrationChallengeGate.isPresented(secret) && request.getExpiresAt() != null) {
             throw new ValidationException(
                     "A registration issuance window (expiresAt) requires an authorization secret; a registration without a challenge has no completion deadline.");
         }
@@ -1044,7 +1044,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private void maybeCreateRegistrationAuthorization(Certificate certificate,
             ClientCertificateRegistrationDto request) {
         String secret = request.getAuthorizationSecret();
-        if (secret == null || secret.isBlank()) {
+        if (!RegistrationChallengeGate.isPresented(secret)) {
             return;
         }
         OffsetDateTime expiresAt = request.getExpiresAt();
@@ -1893,7 +1893,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         // authorization exists (never created, closed, or raced away between a protocol match and this
         // gate) would complete the registration without its challenge ever being checked — and would
         // silently ignore a credential the caller clearly expected to be validated.
-        if (!challengeAuthorized && presentedSecret != null && !presentedSecret.isBlank()) {
+        if (!challengeAuthorized && RegistrationChallengeGate.isPresented(presentedSecret)) {
             throw new ValidationException(ValidationError
                     .create("An authorization secret was presented but the certificate has no active registration authorization to verify it against. Certificate: %s"
                             .formatted(certificate.toStringShort())));
@@ -1984,9 +1984,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 ResourceAction.RENEW);
 
         // Self-service gate: a certificate with a live registration authorization renews only against its
-        // challenge; a wrong or missing secret is denied (and counted) before any successor exists. A verified
-        // challenge lets the authorization follow the successor (copied below). A certificate with no
-        // authorization row, or a CLOSED one, renews without challenge verification.
+        // challenge; a wrong or missing secret is denied before any successor exists. A verified challenge
+        // lets the authorization follow the successor (copied below). A certificate with no authorization
+        // row, or a CLOSED one, renews without challenge verification.
         boolean challengeAuthorized = registrationChallengeGate
                 .verify(oldCertificate.getUuid(), request != null ? request.getAuthorizationSecret() : null,
                         CertificateEvent.RENEW);
@@ -3056,6 +3056,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         attributeEngine
                 .validateUpdateDataAttributes(schema.ownerConnectorUuid(), AttributeOperation.SIGN,
                         schema.definitions(), signatureAttributes);
+        schema.requireOfferedSignatureAlgorithm(signatureAttributes);
     }
 
     /**

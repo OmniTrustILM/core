@@ -18,10 +18,13 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * connector calls at the connector timeouts configured (checked at startup), and with the sweep interval stays shorter
  * than the time after which the reconciliation gives an import its last look
  * @param sweepInterval how often the reconciliation runs
+ * @param retention how long an import that completed, failed or was compensated is kept after it finished, before the
+ * reconciliation deletes it; longer than an import can stay open, the unresolved-after, the retry window and the sweep
+ * interval together
  */
 @ConfigurationProperties(prefix = "key-import")
 public record KeyImportProperties(Duration requestTimeout, Duration pollInterval, Duration unresolvedAfter,
-        Duration retryWindow, Duration sweepInterval) {
+        Duration retryWindow, Duration sweepInterval, Duration retention) {
 
     private static final Duration CONNECTOR_RETENTION = Duration.ofHours(24);
 
@@ -44,10 +47,17 @@ public record KeyImportProperties(Duration requestTimeout, Duration pollInterval
             throw new IllegalArgumentException("key-import.retry-window and key-import.sweep-interval together must "
                     + "be shorter than key-import.unresolved-after, were " + retryWindow + " and " + sweepInterval);
         }
-        if (unresolvedAfter.plus(retryWindow).plus(sweepInterval).compareTo(CONNECTOR_RETENTION) >= 0) {
+        Duration longestOpen = unresolvedAfter.plus(retryWindow).plus(sweepInterval);
+        if (longestOpen.compareTo(CONNECTOR_RETENTION) >= 0) {
             throw new IllegalArgumentException("key-import.unresolved-after, key-import.retry-window and "
                     + "key-import.sweep-interval together must be shorter than 24 hours, were " + unresolvedAfter + ", "
                     + retryWindow + " and " + sweepInterval);
+        }
+        retention = retention == null ? Duration.ofDays(7) : retention;
+        if (retention.compareTo(longestOpen) <= 0) {
+            throw new IllegalArgumentException("key-import.retention must be longer than key-import.unresolved-after, "
+                    + "key-import.retry-window and key-import.sweep-interval together (" + longestOpen + "), was "
+                    + retention);
         }
     }
 
