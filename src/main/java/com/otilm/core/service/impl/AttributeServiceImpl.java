@@ -25,6 +25,7 @@ import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.AttributeSearchFieldCatalogue;
 import com.otilm.core.attribute.engine.AttributeVersionHelper;
 import com.otilm.core.dao.entity.AttributeDefinition;
 import com.otilm.core.dao.repository.AttributeDefinitionRepository;
@@ -53,6 +54,7 @@ public class AttributeServiceImpl implements AttributeExternalService, Attribute
 
     private AttributeEngine attributeEngine;
     private AttributeDefinitionRepository attributeDefinitionRepository;
+    private AttributeSearchFieldCatalogue attributeSearchFieldCatalogue;
 
     @Autowired
     public void setAttributeEngine(AttributeEngine attributeEngine) {
@@ -62,6 +64,11 @@ public class AttributeServiceImpl implements AttributeExternalService, Attribute
     @Autowired
     public void setAttributeDefinitionRepository(AttributeDefinitionRepository attributeDefinitionRepository) {
         this.attributeDefinitionRepository = attributeDefinitionRepository;
+    }
+
+    @Autowired
+    public void setAttributeSearchFieldCatalogue(AttributeSearchFieldCatalogue attributeSearchFieldCatalogue) {
+        this.attributeSearchFieldCatalogue = attributeSearchFieldCatalogue;
     }
 
     @Override
@@ -288,6 +295,7 @@ public class AttributeServiceImpl implements AttributeExternalService, Attribute
                 .orElseThrow(() -> new NotFoundException(AttributeDefinition.class, uuid.toString()));
         definition.setEnabled(enable);
         attributeDefinitionRepository.save(definition);
+        attributeSearchFieldCatalogue.evictAll();
     }
 
     @Override
@@ -339,6 +347,7 @@ public class AttributeServiceImpl implements AttributeExternalService, Attribute
                 .orElseThrow(() -> new NotFoundException(AttributeDefinition.class, uuid.toString()));
         definition.setGlobal(true);
         attributeDefinitionRepository.save(definition);
+        attributeSearchFieldCatalogue.evictAll();
         return getGlobalMetadata(definition.getUuid());
     }
 
@@ -350,6 +359,7 @@ public class AttributeServiceImpl implements AttributeExternalService, Attribute
                 .orElseThrow(() -> new NotFoundException(AttributeDefinition.class, uuid.toString()));
         definition.setGlobal(false);
         attributeDefinitionRepository.save(definition);
+        attributeSearchFieldCatalogue.evictAll();
     }
 
     @Override

@@ -16,10 +16,12 @@ import com.otilm.core.util.SqlCapture;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.CacheManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -34,13 +36,14 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
     @Autowired
     private CacheManager cacheManager;
 
+    @Autowired
+    private TransactionTemplate transactionTemplate;
+
     @Test
     void aSecondReadRunsNoCatalogueQuery() throws Exception {
         catalogue.fields(Resource.CERTIFICATE, false);
 
-        List<String> statements = SqlCapture.during(() -> catalogue.fields(Resource.CERTIFICATE, false)).statements();
-
-        assertThat(statements).noneMatch(sql -> sql.contains("attribute_definition"));
+        assertThat(catalogueQueriesDuring(() -> catalogue.fields(Resource.CERTIFICATE, false))).isEmpty();
     }
 
     @Test
@@ -97,6 +100,56 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
                 .statements();
 
         assertThat(statements).isEmpty();
+    }
+
+    @Test
+    void aCustomAttributeMovedOffTheResourceLeavesItsCatalogue() throws Exception {
+        CustomAttributeDefinitionDetailDto created = createCustomAttribute("moved");
+        catalogue.fields(Resource.CERTIFICATE, false);
+
+        attributeService.updateResources(UUID.fromString(created.getUuid()), List.of(Resource.CRYPTOGRAPHIC_KEY));
+
+        assertThat(catalogue.fields(Resource.CERTIFICATE, false))
+                .noneMatch(row -> row.getAttributeName().equals("moved"));
+    }
+
+    @Test
+    void aDeletedCustomAttributeLeavesTheCatalogue() throws Exception {
+        CustomAttributeDefinitionDetailDto created = createCustomAttribute("deleted");
+        catalogue.fields(Resource.CERTIFICATE, false);
+
+        attributeService.deleteCustomAttribute(UUID.fromString(created.getUuid()));
+
+        assertThat(catalogue.fields(Resource.CERTIFICATE, false))
+                .noneMatch(row -> row.getAttributeName().equals("deleted"));
+    }
+
+    /** The same write drops the cached entry once it commits, and leaves it when it rolls back. */
+    @Test
+    void onlyACommittedChangeDropsTheCachedEntry() throws Exception {
+        catalogue.fields(Resource.CERTIFICATE, false);
+
+        transactionTemplate.executeWithoutResult(status -> {
+            try {
+                createCustomAttribute("rolled-back");
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
+            status.setRollbackOnly();
+        });
+        assertThat(catalogueQueriesDuring(() -> catalogue.fields(Resource.CERTIFICATE, false))).isEmpty();
+
+        createCustomAttribute("committed");
+        assertThat(catalogueQueriesDuring(() -> catalogue.fields(Resource.CERTIFICATE, false))).isNotEmpty();
+    }
+
+    private static List<String> catalogueQueriesDuring(Callable<?> read) throws Exception {
+        return SqlCapture
+                .during(read)
+                .statements()
+                .stream()
+                .filter(sql -> sql.contains("attribute_definition"))
+                .toList();
     }
 
     private CustomAttributeDefinitionDetailDto createCustomAttribute(String name) throws Exception {
