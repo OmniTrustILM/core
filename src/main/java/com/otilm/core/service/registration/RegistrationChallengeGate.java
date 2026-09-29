@@ -29,9 +29,8 @@ import org.springframework.transaction.support.DefaultTransactionDefinition;
  * protocol enrolments. A certificate with no authorization row is not self-service and passes untouched. On an ACTIVE
  * authorization it enforces, under a per-row pessimistic lock, the issuance window then the presented challenge;
  * LOCKED/EXPIRED deny; CLOSED passes as unregistered. A wrong challenge is counted toward lockout; a missing one is
- * denied with the same answer but not counted. The failed-attempt increment and lockout are committed before the caller
- * rejects the request, so the counter survives the rejection — a rollback would erase it and lockout could never
- * trigger.
+ * denied as missing and not counted. The failed-attempt increment and lockout are committed before the caller rejects
+ * the request, so the counter survives the rejection — a rollback would erase it and lockout could never trigger.
  *
  * <p>
  * Two verification forms share one locked evaluator: an equality form for a presented secret string (the plaintext
@@ -42,6 +41,9 @@ import org.springframework.transaction.support.DefaultTransactionDefinition;
 public class RegistrationChallengeGate {
 
     private static final String INVALID_CHALLENGE = "The certificate registration challenge is invalid.";
+    // Both answers come back only for an ACTIVE authorization within its window, and a caller knows whether it sent
+    // a secret, so telling a missing challenge apart from a wrong one reveals nothing.
+    private static final String REQUIRED_CHALLENGE = "The certificate registration challenge is required.";
 
     private PlatformTransactionManager transactionManager;
     private CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository;
@@ -166,10 +168,13 @@ public class RegistrationChallengeGate {
         }
         if (state == RegistrationState.LOCKED) {
             // Record every attempt against an already-locked authorization — persistent hammering is exactly when
-            // the audit trail matters most.
+            // the audit trail matters most. A call without a secret is recorded too, but not as an attempt.
             certificateEventHistoryService
                     .addEventHistory(certificateUuid, operationEvent, CertificateEventStatus.FAILED,
-                            "Certificate registration challenge attempted against a locked authorization", "");
+                            presented
+                                    ? "Certificate registration challenge attempted against a locked authorization"
+                                    : "Certificate registration challenge not presented against a locked authorization",
+                            "");
             return RegistrationChallengeOutcome
                     .denied("The certificate registration authorization is locked after too many failed attempts.");
         }
@@ -187,11 +192,11 @@ public class RegistrationChallengeGate {
         }
         if (!presented) {
             // A missing secret is not a guess, so it spends no attempt: counting it would let callers that never
-            // send one (the UI renew, a location renew) lock the holder out. It reads the same as a wrong secret.
+            // send one (the UI renew, a location renew) lock the holder out.
             certificateEventHistoryService
                     .addEventHistory(certificateUuid, operationEvent, CertificateEventStatus.FAILED,
                             "Certificate registration challenge not presented", "");
-            return RegistrationChallengeOutcome.denied(INVALID_CHALLENGE);
+            return RegistrationChallengeOutcome.denied(REQUIRED_CHALLENGE);
         }
         if (matches.test(authorization)) {
             if (authorization.getFailedAttempts() != 0) {

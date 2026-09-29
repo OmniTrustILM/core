@@ -922,7 +922,12 @@ class LocationServiceITest extends BaseSpringBootTest {
                         () -> locationService
                                 .renewCertificateInLocation(entityInstanceReference.getSecuredParentUuid(),
                                         location.getSecuredUuid(), certificate.getUuid().toString()));
-        Assertions.assertTrue(ex.getMessage().contains("registration"), "the refusal must name the registration");
+        Assertions
+                .assertTrue(ex.getMessage().contains("The certificate registration challenge is required."),
+                        "the refusal must carry the gate's reason");
+        Assertions
+                .assertFalse(ex.getMessage().contains("through the API"),
+                        "a Locked or Expired registration shares this path, so no retry advice may be given");
         mockServer
                 .verify(0, WireMock
                         .postRequestedFor(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/csr")));

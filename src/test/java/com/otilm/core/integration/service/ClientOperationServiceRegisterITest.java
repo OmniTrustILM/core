@@ -1583,6 +1583,7 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     // ── registration challenge authorization ────────────────────────────────
 
     private static final String CHALLENGE = "s3cret-value-1234";
+    private static final String CHALLENGE_REQUIRED = "The certificate registration challenge is required.";
     // The default maximum failed challenge-verification attempts before the authorization locks.
     private static final int MAX_FAILED_ATTEMPTS = 5;
 
@@ -1770,15 +1771,14 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
                 .assertThrows(ValidationException.class, () -> clientOperationService
                         .issueExistingCertificate(authorityParent, securedRaProfile, certUuid, issueRequest));
         Assertions
-                .assertTrue(ex.getMessage().contains("The certificate registration challenge is invalid."),
-                        "a missing secret must read the same as a wrong one");
+                .assertTrue(ex.getMessage().contains(CHALLENGE_REQUIRED), "a missing secret must be denied as missing");
         assertNoAttemptSpent(UUID.fromString(certUuid));
         verify(actionProducer, never()).produceMessage(Mockito.any());
         Certificate placeholder = certificateRepository.findByUuid(UUID.fromString(certUuid)).orElseThrow();
         Assertions
                 .assertEquals(CertificateState.REGISTERED, placeholder.getState(),
                         "a denied issue must not consume the placeholder");
-        assertFailedEventRecorded(placeholder, CertificateEvent.ISSUE);
+        assertNotPresentedRecorded(placeholder, CertificateEvent.ISSUE);
     }
 
     @Test
@@ -1792,10 +1792,10 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
                 .assertThrows(ValidationException.class, () -> clientOperationService
                         .renewCertificate(authorityParent, securedRaProfile, certUuid, request));
         Assertions
-                .assertTrue(ex.getMessage().contains("The certificate registration challenge is invalid."),
-                        "the challenge gate must reject, and a missing secret must read the same as a wrong one");
+                .assertTrue(ex.getMessage().contains(CHALLENGE_REQUIRED),
+                        "the challenge gate must reject a missing secret as missing");
         assertNoAttemptSpent(issued.getUuid());
-        assertFailedEventRecorded(issued, CertificateEvent.RENEW);
+        assertNotPresentedRecorded(issued, CertificateEvent.RENEW);
         verify(actionProducer, never()).produceMessage(Mockito.any());
     }
 
@@ -1811,10 +1811,10 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
                 .assertThrows(ValidationException.class, () -> clientOperationService
                         .renewCertificate(authorityParent, securedRaProfile, certUuid, request));
         Assertions
-                .assertTrue(ex.getMessage().contains("The certificate registration challenge is invalid."),
+                .assertTrue(ex.getMessage().contains(CHALLENGE_REQUIRED),
                         "the challenge gate must reject a blank secret, not some downstream step");
         assertNoAttemptSpent(issued.getUuid());
-        assertFailedEventRecorded(issued, CertificateEvent.RENEW);
+        assertNotPresentedRecorded(issued, CertificateEvent.RENEW);
     }
 
     @Test
@@ -1829,12 +1829,12 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
         seeded.setFailedAttempts(MAX_FAILED_ATTEMPTS - 1);
         authorizationRepository.save(seeded);
         String certUuid = issued.getUuid().toString();
+        ClientCertificateRenewRequestDto secretless = new ClientCertificateRenewRequestDto();
 
-        Assertions
-                .assertThrows(ValidationException.class,
-                        () -> clientOperationService
-                                .renewCertificate(authorityParent, securedRaProfile, certUuid,
-                                        new ClientCertificateRenewRequestDto()));
+        ValidationException ex = Assertions
+                .assertThrows(ValidationException.class, () -> clientOperationService
+                        .renewCertificate(authorityParent, securedRaProfile, certUuid, secretless));
+        Assertions.assertTrue(ex.getMessage().contains(CHALLENGE_REQUIRED), "the gate must be what denied it");
         CertificateRegistrationAuthorization afterSecretless = authorizationRepository
                 .findByCertificateUuid(issued.getUuid())
                 .orElseThrow();
@@ -1862,15 +1862,16 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
         seeded.setState(RegistrationState.LOCKED);
         authorizationRepository.save(seeded);
         String certUuid = issued.getUuid().toString();
+        ClientCertificateRenewRequestDto secretless = new ClientCertificateRenewRequestDto();
 
         ValidationException ex = Assertions
-                .assertThrows(ValidationException.class,
-                        () -> clientOperationService
-                                .renewCertificate(authorityParent, securedRaProfile, certUuid,
-                                        new ClientCertificateRenewRequestDto()));
+                .assertThrows(ValidationException.class, () -> clientOperationService
+                        .renewCertificate(authorityParent, securedRaProfile, certUuid, secretless));
         Assertions
                 .assertTrue(ex.getMessage().toLowerCase().contains("locked"),
                         "the state checks run before the missing-secret check");
+        // A Renew click after the lockout is not an attempt against the lock.
+        assertNotPresentedRecorded(issued, CertificateEvent.RENEW);
     }
 
     @Test
@@ -1883,12 +1884,11 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
         seeded.setExpiresAt(OffsetDateTime.now().minusMinutes(1));
         authorizationRepository.save(seeded);
         String certUuid = issued.getUuid().toString();
+        ClientCertificateRenewRequestDto secretless = new ClientCertificateRenewRequestDto();
 
         ValidationException ex = Assertions
-                .assertThrows(ValidationException.class,
-                        () -> clientOperationService
-                                .renewCertificate(authorityParent, securedRaProfile, certUuid,
-                                        new ClientCertificateRenewRequestDto()));
+                .assertThrows(ValidationException.class, () -> clientOperationService
+                        .renewCertificate(authorityParent, securedRaProfile, certUuid, secretless));
         Assertions
                 .assertTrue(ex.getMessage().toLowerCase().contains("expired"),
                         "the window check runs before the missing-secret check");
@@ -1908,9 +1908,10 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
         ClientCertificateRenewRequestDto secretless = new ClientCertificateRenewRequestDto();
 
         for (int i = 0; i < MAX_FAILED_ATTEMPTS; i++) {
-            Assertions
+            ValidationException ex = Assertions
                     .assertThrows(ValidationException.class, () -> clientOperationService
                             .renewCertificate(authorityParent, securedRaProfile, certUuid, secretless));
+            Assertions.assertTrue(ex.getMessage().contains(CHALLENGE_REQUIRED), "the gate must be what denied it");
         }
         assertNoAttemptSpent(issued.getUuid());
 
@@ -1957,10 +1958,10 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
                 .assertThrows(ValidationException.class, () -> clientOperationService
                         .rekeyCertificate(authorityParent, securedRaProfile, certUuid, request));
         Assertions
-                .assertTrue(ex.getMessage().contains("The certificate registration challenge is invalid."),
-                        "the challenge gate must reject, and a missing secret must read the same as a wrong one");
+                .assertTrue(ex.getMessage().contains(CHALLENGE_REQUIRED),
+                        "the challenge gate must reject a missing secret as missing");
         assertNoAttemptSpent(issued.getUuid());
-        assertFailedEventRecorded(issued, CertificateEvent.REKEY);
+        assertNotPresentedRecorded(issued, CertificateEvent.REKEY);
         verify(actionProducer, never()).produceMessage(Mockito.any());
     }
 
@@ -2538,14 +2539,15 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
         Assertions.assertEquals(RegistrationState.ACTIVE, auth.getState());
     }
 
-    private void assertFailedEventRecorded(Certificate certificate, CertificateEvent event) {
+    private void assertNotPresentedRecorded(Certificate certificate, CertificateEvent event) {
         Assertions
                 .assertTrue(
                         eventHistoryRepository
                                 .findByCertificateOrderByCreatedDesc(certificate)
                                 .stream()
-                                .anyMatch(h -> h.getEvent() == event && h.getStatus() == CertificateEventStatus.FAILED),
-                        "the denied %s must be recorded in the certificate history".formatted(event));
+                                .anyMatch(h -> h.getEvent() == event && h.getStatus() == CertificateEventStatus.FAILED
+                                        && h.getMessage().contains("not presented")),
+                        "the denied %s must be recorded as a challenge not presented".formatted(event));
     }
 
     private String registerSyncRegistered() throws Exception {

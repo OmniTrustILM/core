@@ -950,12 +950,9 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         try {
             registrationChallengeGate.verify(certificateInScope.getUuid(), null, CertificateEvent.RENEW);
         } catch (ValidationException e) {
-            logger
-                    .debug("Renewal of the Certificate {} in the Location {} refused by the registration challenge gate: {}",
-                            certificateUuid, locationUuid, e.getMessage());
             throw new LocationException(
-                    "Certificate with UUID %s is protected by a certificate registration. Renewing it in a location cannot present the registration challenge; renew it through the API with its authorization secret."
-                            .formatted(certificateUuid));
+                    "Certificate with UUID %s cannot be renewed in a location, which cannot present its registration challenge: %s"
+                            .formatted(certificateUuid, e.getMessage()));
         }
         if (certificateInScope.getRaProfile() == null) {
             logger

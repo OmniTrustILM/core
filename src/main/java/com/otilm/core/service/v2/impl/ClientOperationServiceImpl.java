@@ -998,7 +998,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private static void rejectPastRegistrationWindow(ClientCertificateRegistrationDto request) {
         String secret = request.getAuthorizationSecret();
         OffsetDateTime expiresAt = request.getExpiresAt();
-        if (secret != null && !secret.isBlank() && expiresAt != null
+        if (RegistrationChallengeGate.isPresented(secret) && expiresAt != null
                 && !expiresAt.isAfter(OffsetDateTime.now(ZoneOffset.UTC))) {
             throw new ValidationException("The registration issuance window (expiresAt) must be in the future.");
         }
@@ -1012,7 +1012,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      */
     private static void rejectWindowWithoutChallenge(ClientCertificateRegistrationDto request) {
         String secret = request.getAuthorizationSecret();
-        if ((secret == null || secret.isBlank()) && request.getExpiresAt() != null) {
+        if (!RegistrationChallengeGate.isPresented(secret) && request.getExpiresAt() != null) {
             throw new ValidationException(
                     "A registration issuance window (expiresAt) requires an authorization secret; a registration without a challenge has no completion deadline.");
         }
@@ -1044,7 +1044,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private void maybeCreateRegistrationAuthorization(Certificate certificate,
             ClientCertificateRegistrationDto request) {
         String secret = request.getAuthorizationSecret();
-        if (secret == null || secret.isBlank()) {
+        if (!RegistrationChallengeGate.isPresented(secret)) {
             return;
         }
         OffsetDateTime expiresAt = request.getExpiresAt();
