@@ -221,7 +221,7 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
         CryptographicAssetDetailDto detail = toDetailDto(asset, sources, visibleCbomUuids);
         if (detail.getVerdict() != null) {
             detail.getVerdict().setReferencedAsset(referencedAsset(asset.getPqcReferencedAssetUuid()));
-            if (!electingDocumentVisible(asset, sources, visibleCbomUuids)) {
+            if (!storedEvidenceVisible(asset, sources, visibleCbomUuids)) {
                 detail.getVerdict().setEvaluatedFields(withoutDocumentFields(detail.getVerdict().getEvaluatedFields()));
             }
         }
@@ -270,6 +270,18 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
         List<CryptoAssetSource> sources = cryptoAssetSourceRepository.findWithCbomByAssetUuid(asset.getUuid());
         return toExplanationDto(asset, result,
                 electingDocumentVisible(asset, sources, visibleCbomUuids(asset.getUuid())));
+    }
+
+    /**
+     * Whether the stored verdict's document values may be served: they were copied from the source elected when the
+     * verdict was taken, which is the current one only while the row is still at the revision the verdict evaluated --
+     * a re-election advances it. A stale verdict may carry a withdrawn or hidden source's values under a visible
+     * successor, so it is served without them until the sweep restamps it.
+     */
+    private static boolean storedEvidenceVisible(CryptoAsset asset, List<CryptoAssetSource> sources,
+            Set<UUID> visibleCbomUuids) {
+        return Objects.equals(asset.getPqcEvaluatedRevision(), asset.getInputRevision())
+                && electingDocumentVisible(asset, sources, visibleCbomUuids);
     }
 
     /**

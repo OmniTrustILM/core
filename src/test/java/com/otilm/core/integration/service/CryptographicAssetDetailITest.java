@@ -462,6 +462,41 @@ class CryptographicAssetDetailITest extends BaseSpringBootTest {
                         .doesNotContainKeys("subjectPublicKeyRef", "unresolvedRefs"));
     }
 
+    /**
+     * A stored verdict's document values come from the source elected when it was taken. Once the row has moved on -- a
+     * withdrawal or a richer source re-elects -- the current source's visibility says nothing about them, so they are
+     * withheld until the sweep restamps the verdict.
+     */
+    @Test
+    void aStaleVerdictIsServedWithoutItsDocumentValuesWhateverTheCurrentSourceShows() throws NotFoundException {
+        OffsetDateTime seen = NOW.truncatedTo(ChronoUnit.MICROS);
+        UUID certificate = upsert(new CryptoAssetIdentityFields(CryptographicAssetType.CERTIFICATE, "moved.example",
+                null, null, null, null, null, null, null, null), null);
+        sourceWriter
+                .upsertSource(certificate, newCbom("urn:uuid:first").getUuid(), Map.of("name", "moved.example"),
+                        List.of(), seen);
+        assetWriter
+                .applyPqcVerdict(certificate, PqcVerdict.UNKNOWN, "CERT-REFERENCE-UNRESOLVED", "reason",
+                        Map.of("assetType", "certificate", "subjectPublicKeyRef", "a-ref-from-the-first-document"));
+        assertThat(cryptographicAssetService
+                .getCryptographicAsset(SecuredUUID.fromUUID(certificate))
+                .getVerdict()
+                .getEvaluatedFields()).containsKey("subjectPublicKeyRef");
+
+        sourceWriter
+                .upsertSource(certificate, newCbom("urn:uuid:richer").getUuid(),
+                        Map.of("name", "moved.example", "certificateProperties", Map.of("subjectName", "CN=x")),
+                        List.of(), seen);
+
+        assertThat(cryptographicAssetService
+                .getCryptographicAsset(SecuredUUID.fromUUID(certificate))
+                .getVerdict()
+                .getEvaluatedFields())
+                .describedAs("a re-election moved the row past the verdict, so its values no longer have a source")
+                .containsEntry("assetType", "certificate")
+                .doesNotContainKey("subjectPublicKeyRef");
+    }
+
     @Test
     void theExplanationOfAnUnknownAssetIsNotFound() {
         SecuredUUID unknown = SecuredUUID.fromUUID(UUID.randomUUID());
