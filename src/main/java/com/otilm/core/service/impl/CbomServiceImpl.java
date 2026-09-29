@@ -12,6 +12,7 @@ import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cbom.CbomAssetSyncState;
+import com.otilm.api.model.core.cbom.CbomContributedAssetDto;
 import com.otilm.api.model.core.cbom.CbomDetailDto;
 import com.otilm.api.model.core.cbom.CbomDto;
 import com.otilm.api.model.core.cbom.CbomSyncSkipDto;
@@ -64,6 +65,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CbomExternalService;
 import com.otilm.core.service.CbomInternalService;
+import com.otilm.core.service.CryptographicAssetExternalService;
 import com.otilm.core.service.writer.cbom.CbomAssetSyncStateWriter;
 import com.otilm.core.service.writer.cbom.CbomSyncSkipWriter;
 import com.otilm.core.service.writer.cbom.CbomTombstoneWriter;
@@ -201,6 +203,8 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
 
     private AuditorAware<String> auditorAware;
 
+    private CryptographicAssetExternalService cryptographicAssetService;
+
     @Autowired
     public void setCbomRepository(CbomRepository cbomRepository) {
         this.cbomRepository = cbomRepository;
@@ -291,6 +295,11 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         this.auditorAware = auditorAware;
     }
 
+    @Autowired
+    public void setCryptographicAssetService(CryptographicAssetExternalService cryptographicAssetService) {
+        this.cryptographicAssetService = cryptographicAssetService;
+    }
+
     @Override
     @ExternalAuthorization(resource = Resource.CBOM, action = ResourceAction.LIST)
     public PaginationResponseDto<CbomDto> listCboms(SecurityFilter filter, SearchRequestDto request) {
@@ -352,6 +361,19 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         detailDto.setAssetSyncError(cbomDto.getAssetSyncError());
 
         return detailDto;
+    }
+
+    /**
+     * Detail access to the CBOM is this method's gate; the assets are listed by the inventory service under its own
+     * {@code CRYPTO_ASSET/LIST} gate, which re-scopes the same filter -- the shape
+     * {@code SigningProfileServiceImpl#listSigningRecordsForSigningProfile} established for a child listing.
+     */
+    @Override
+    @ExternalAuthorization(resource = Resource.CBOM, action = ResourceAction.DETAIL)
+    public PaginationResponseDto<CbomContributedAssetDto> listCbomAssets(SecuredUUID uuid, SearchRequestDto request,
+            SecurityFilter filter) throws NotFoundException {
+        Cbom cbom = getEntity(uuid);
+        return cryptographicAssetService.listCbomContributedAssets(cbom.getUuid(), request, filter);
     }
 
     @Override

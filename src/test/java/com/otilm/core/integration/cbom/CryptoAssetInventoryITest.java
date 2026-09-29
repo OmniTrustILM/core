@@ -1226,6 +1226,146 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
         });
     }
 
+    // ---- bom-ref navigation data ----
+
+    private static JsonNode threeComponentsTwoAssets() {
+        return CbomIngestTestFixtures
+                .documentOf(CbomIngestTestFixtures.algorithmWithRef("AES-256", "a1"),
+                        CbomIngestTestFixtures.algorithmWithRef("RSA-2048", "b"),
+                        CbomIngestTestFixtures.algorithmWithRef("AES-256", "a2"));
+    }
+
+    private UUID assetNamed(String name) {
+        return assetRepository
+                .findAll()
+                .stream()
+                .filter(asset -> name.equals(asset.getName()))
+                .map(CryptoAsset::getUuid)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("no asset named " + name));
+    }
+
+    private List<String> storedRefs(UUID assetUuid, UUID cbomUuid) {
+        return sourceRepository.findByAssetUuidAndCbomUuid(assetUuid, cbomUuid).orElseThrow().getBomRefs();
+    }
+
+    @Test
+    void theRefsOfEveryComponentFoldedIntoAnAssetAreStoredOnItsSourceRow() {
+        assertThat(ingestService.ingest(leanCbom.getUuid(), threeComponentsTwoAssets(), NOW, POLICY))
+                .isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
+
+        assertThat(storedRefs(assetNamed("aes-256"), leanCbom.getUuid())).containsExactly("a1", "a2");
+        assertThat(storedRefs(assetNamed("rsa-2048"), leanCbom.getUuid())).containsExactly("b");
+    }
+
+    /** A re-sync rewrites the list; folded before the write, it can never be appended to. */
+    @Test
+    void reIngestingTheSameDocumentRewritesTheRefsRatherThanAccumulatingThem() {
+        ingestService.ingest(leanCbom.getUuid(), threeComponentsTwoAssets(), NOW, POLICY);
+        ingestService.ingest(leanCbom.getUuid(), threeComponentsTwoAssets(), NOW.plusSeconds(1), POLICY);
+
+        assertThat(storedRefs(assetNamed("aes-256"), leanCbom.getUuid())).containsExactly("a1", "a2");
+        assertThat(sourceRepository.count()).isEqualTo(2);
+    }
+
+    /**
+     * A newer observation carrying different refs replaces the stored list whole: the refs of components the document
+     * no longer carries are gone, not kept beside the new ones and not frozen at the first insert.
+     */
+    @Test
+    void aNewerObservationReplacesTheRefsWhole() {
+        ingestService.ingest(leanCbom.getUuid(), threeComponentsTwoAssets(), NOW, POLICY);
+        JsonNode renamedRefs = CbomIngestTestFixtures
+                .documentOf(CbomIngestTestFixtures.algorithmWithRef("AES-256", "a3"),
+                        CbomIngestTestFixtures.algorithmWithRef("RSA-2048", "b2"));
+
+        ingestService.ingest(leanCbom.getUuid(), renamedRefs, NOW.plusSeconds(1), POLICY);
+
+        assertThat(storedRefs(assetNamed("aes-256"), leanCbom.getUuid())).containsExactly("a3");
+        assertThat(storedRefs(assetNamed("rsa-2048"), leanCbom.getUuid())).containsExactly("b2");
+    }
+
+    /** The refs follow the payload's recency rule: an older observation widens the window and changes nothing. */
+    @Test
+    void aStrictlyOlderObservationLeavesTheRefsAlone() {
+        ingestService.ingest(leanCbom.getUuid(), threeComponentsTwoAssets(), NOW, POLICY);
+        JsonNode renamedRefs = CbomIngestTestFixtures
+                .documentOf(CbomIngestTestFixtures.algorithmWithRef("AES-256", "stale"),
+                        CbomIngestTestFixtures.algorithmWithRef("RSA-2048", "stale-b"));
+
+        ingestService.ingest(leanCbom.getUuid(), renamedRefs, NOW.minusSeconds(1), POLICY);
+
+        assertThat(storedRefs(assetNamed("aes-256"), leanCbom.getUuid())).containsExactly("a1", "a2");
+        assertThat(storedRefs(assetNamed("rsa-2048"), leanCbom.getUuid())).containsExactly("b");
+    }
+
+    /** A ref the document cannot encode links nothing, and the asset is still ingested. */
+    @Test
+    void anUnencodableRefIsNotStoredButItsAssetIs() {
+        JsonNode document = CbomIngestTestFixtures
+                .read("{\"components\":[{\"type\":\"cryptographic-asset\",\"bom-ref\":\"\\ud800\",\"name\":\"AES-256\","
+                        + "\"cryptoProperties\":{\"assetType\":\"algorithm\",\"algorithmProperties\":{}}}]}");
+
+        assertThat(ingestService.ingest(leanCbom.getUuid(), document, NOW, POLICY))
+                .isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
+
+        assertThat(storedRefs(assetNamed("aes-256"), leanCbom.getUuid())).isEmpty();
+    }
+
+    /**
+     * PostgreSQL stores no NUL character in any text column, so writing this ref would fail the batch and leave the
+     * document FAILED on every retry. It links nothing instead, and the asset is ingested.
+     */
+    @Test
+    void aRefCarryingANulCharacterIsNotStoredButItsAssetIs() {
+        JsonNode document = CbomIngestTestFixtures
+                .documentOf(CbomIngestTestFixtures.algorithmWithRef("AES-256", "aes\\u0000x"));
+
+        assertThat(ingestService.ingest(leanCbom.getUuid(), document, NOW, POLICY))
+                .isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
+
+        assertThat(storedRefs(assetNamed("aes-256"), leanCbom.getUuid())).isEmpty();
+    }
+
+    /**
+     * Real refs are purls and URNs, so the array keeps each element whole whatever it carries: a separator, a quote, a
+     * brace, a backslash, a space, or the spelling of an absent element. Read back as the listing reads them too.
+     */
+    @Test
+    void refsThatNeedQuotingInAnArrayAreReadBackExactly() {
+        UUID assetUuid = upsert(rsa2048(), null);
+        List<String> refs = List.of("pkg:a,b", "q\"t", "{x}", "b\\s", "s p", "NULL");
+
+        sourceWriter.upsertSource(assetUuid, leanCbom.getUuid(), Map.of("name", "RSA"), List.of(), 0, refs, NOW);
+
+        assertThat(storedRefs(assetUuid, leanCbom.getUuid())).containsExactlyElementsOf(refs);
+        assertThat(sourceRepository.findBomRefsByCbomUuidAndAssetUuids(leanCbom.getUuid(), List.of(assetUuid)))
+                .singleElement()
+                .satisfies(row -> assertThat(row.bomRefs()).containsExactlyElementsOf(refs));
+    }
+
+    /** The writer's short form, which every persistence test uses, stores an empty list rather than nothing. */
+    @Test
+    void aSourceWrittenWithoutRefsReadsAnEmptyList() {
+        UUID assetUuid = upsert(rsa2048(), null);
+
+        sourceWriter.upsertSource(assetUuid, leanCbom.getUuid(), Map.of("name", "RSA"), List.of(), NOW);
+
+        assertThat(storedRefs(assetUuid, leanCbom.getUuid())).isNotNull().isEmpty();
+    }
+
+    /** The short form is an answer of no refs: an equal or newer call empties the refs a fuller write stored. */
+    @Test
+    void theShortFormClearsStoredRefsOnAnEqualOrNewerObservation() {
+        UUID assetUuid = upsert(rsa2048(), null);
+        sourceWriter
+                .upsertSource(assetUuid, leanCbom.getUuid(), Map.of("name", "RSA"), List.of(), 0, List.of("r"), NOW);
+
+        sourceWriter.upsertSource(assetUuid, leanCbom.getUuid(), Map.of("name", "RSA"), List.of(), NOW);
+
+        assertThat(storedRefs(assetUuid, leanCbom.getUuid())).isEmpty();
+    }
+
     // ---- helpers ----
 
     private void assertKeysUnchanged(Map<UUID, String> keysBefore) {

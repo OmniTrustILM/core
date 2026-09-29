@@ -1,0 +1,27 @@
+-- The bom-ref values each source row was folded from (core#2316). The components of one document that normalize to
+-- the same asset share one crypto_asset_source row -- uq_crypto_asset_source is (asset_uuid, cbom_uuid) -- so a
+-- per-component pointer has to be array-valued. Navigation data only: a client holding the document maps a component
+-- row to its inventory asset through it. It is never an input to the key the asset is deduplicated by, to the
+-- canonical projection or to properties_hash, and a ref the document defines more than once, or that has no valid
+-- encoding, is not stored at all, so such a component links to nothing. Stored in document order, capped by the
+-- extractor, and assigned whole on every re-sync under the same recency rule as the payload.
+--
+-- NOT NULL with an empty default rather than nullable: an empty array and "not yet extracted" would otherwise be two
+-- states in one column, and every reader would have to know which it was looking at. A constant DEFAULT on ADD
+-- COLUMN is metadata-only, so this does not rewrite the table, and an insert from a node still on the previous
+-- release, which names no bom_refs, keeps working during a rolling deploy.
+ALTER TABLE "crypto_asset_source" ADD COLUMN "bom_refs" TEXT[] NOT NULL DEFAULT '{}';
+
+-- No backfill. The refs cannot be derived in SQL: the document is not in this database -- Core stores a CBOM's header
+-- and reads its content from the CBOM Repository on demand -- neither retained column on the source row carries the
+-- ref (original_crypto_properties is the component's cryptoProperties object, which does not contain bom-ref, and
+-- evidence is the occurrence array), and mapping a component to its row needs the identity pipeline, which runs in
+-- Core. Nor is anything owed on a released upgrade path: crypto_asset_source ships in the same release as this column,
+-- so no released version holds source rows without it, and on that path the table is still empty when this runs.
+--
+-- A deployment that ran an unreleased build in between does hold source rows, and they read an empty array until
+-- their record is ingested again; nothing re-offers a SYNCED record to the ingest on its own. An operator who wants
+-- the links sooner can move that deployment's SYNCED cbom records that hold source rows back to PENDING, and the asset
+-- ingest re-reads each one and refills its rows -- at the cost that each sync run re-reads at most
+-- cbomSyncMaxIngestDocuments of them from the CBOM Repository, and a record whose document is no longer there turns
+-- FAILED.

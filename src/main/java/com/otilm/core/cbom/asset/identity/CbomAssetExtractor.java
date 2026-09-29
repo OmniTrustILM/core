@@ -88,6 +88,11 @@ public final class CbomAssetExtractor {
      * {@code cbom_ingest_finding} report the ingest writes for the document.
      *
      * <p>
+     * {@code bomRefs} is the {@code bom-ref} of every component folded into the asset, spelled as the document spells
+     * it and in document order; the ingest resolves other assets' {@code references} against it. A source row stores
+     * only its bounded, storable part, {@link #storedBomRefs}, as navigation data. Neither is an input to the key.
+     *
+     * <p>
      * <b>{@code identityKey}, and this file is allowlisted for that vocabulary.</b> The component was called
      * {@code key} so the exposure fence's regex would not see it -- which worked, and was the wrong shape: a production
      * source routing <em>around</em> a fence is invisible to the next reader, where an allowlist entry is a reviewed
@@ -107,6 +112,46 @@ public final class CbomAssetExtractor {
         }
 
         /**
+         * How many {@code bom-ref} values one source row keeps: the first this many in document order, the rest dropped
+         * whole. Every component of a document that folds into one asset adds its ref, so a document naming one
+         * algorithm from thousands of components would otherwise grow one row -- and every page that serves it --
+         * without bound. A component past the cap links to nothing, which the contract says: this is the number
+         * {@code CbomContributedAssetDto} documents.
+         */
+        public static final int MAX_BOM_REFS = 256;
+
+        /**
+         * The longest {@code bom-ref} a source row stores. A longer one links to nothing, like an unencodable one: the
+         * JSON reader bounds a string at megabytes, and a row -- and every page serving it -- must not carry that.
+         */
+        public static final int MAX_BOM_REF_LENGTH = 1024;
+
+        /**
+         * The refs the source row stores as navigation data: {@link #bomRefs} in document order, each once, without the
+         * ones no row can hold, and at most {@link #MAX_BOM_REFS} of them.
+         *
+         * <p>
+         * Derived when the row is written rather than filtered into {@code bomRefs}, because that list is also the
+         * index the ingest resolves a certificate's and a protocol's references against, and has to stay every ref the
+         * document defines: a reference to the 300th component folded into one algorithm, or to a ref too long to
+         * store, still resolves. Each once is insurance: a document that repeats a ref is refused before any write.
+         *
+         * <p>
+         * A ref that cannot be stored is dropped, not refused like every other string headed for storage
+         * ({@link CbomAssetExtractor#requireEncodable}): it is not part of the asset, and a component whose ref cannot
+         * be stored is still an asset the inventory has to hold. The NUL rule is PostgreSQL's: no text column can hold
+         * that character, so a ref carrying one would fail the source write, and with it the document's ingest on every
+         * retry.
+         */
+        public List<String> storedBomRefs() {
+            return bomRefs.stream().filter(ExtractedAsset::isStorable).distinct().limit(MAX_BOM_REFS).toList();
+        }
+
+        private static boolean isStorable(String ref) {
+            return ref.length() <= MAX_BOM_REF_LENGTH && ref.indexOf('\0') < 0 && hasEncoding(ref);
+        }
+
+        /**
          * Folds the assets of one document that key as the same asset into one, in first-seen order.
          *
          * <p>
@@ -122,8 +167,8 @@ public final class CbomAssetExtractor {
          * key as its own field, so no method outside this record has to hand the value on to group by it.
          *
          * @param richness how much detail a payload carries, by whatever measure the caller's merge elects on. The
-         * richest payload of the group survives; a tie keeps the earlier component, so the fold does not depend on
-         * document order
+         * richest payload of the group survives wherever it sits in the document, and a tie keeps the earlier
+         * component's; the refs are not elected but kept, every component's, in document order
          */
         public static List<ExtractedAsset> coalesceByIdentity(List<ExtractedAsset> assets,
                 ToIntFunction<ExtractedAsset> richness) {
@@ -211,9 +256,9 @@ public final class CbomAssetExtractor {
      * Extracts every cryptographic asset in the document.
      *
      * <p>
-     * Output order is document order, and that is a convenience for a reader rather than a guarantee anything depends
-     * on: an asset's identity is a function of the asset alone, so permuting the components -- or the documents --
-     * cannot change which rows result or what they are keyed as.
+     * Output order is document order. Which rows result, and what they are keyed as, do not depend on it: an asset's
+     * identity is a function of the asset alone, so permuting the components -- or the documents -- changes neither.
+     * The order of the refs folded into a row does depend on it.
      *
      * @param batchRefutedDigests certificate digests a batch-scoped index found contradicted <em>across</em> documents;
      * empty reduces to document-scoped refutation
@@ -337,16 +382,20 @@ public final class CbomAssetExtractor {
         return encodable(name, UNENCODABLE_NAME);
     }
 
+    private static boolean hasEncoding(String text) {
+        try {
+            IdentityDigests.requireWellFormedUnicode(text);
+            return true;
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
     private static String encodable(String text, String standIn) {
         if (text == null) {
             return null;
         }
-        try {
-            IdentityDigests.requireWellFormedUnicode(text);
-            return text;
-        } catch (IllegalArgumentException e) {
-            return standIn;
-        }
+        return hasEncoding(text) ? text : standIn;
     }
 
     /** The component's occurrence objects in producer order, or {@code null} when it reported none. */
@@ -487,7 +536,8 @@ public final class CbomAssetExtractor {
      *
      * <p>
      * An explicit stack rather than a recursive descent: see {@link #MAX_DEPTH}. The children of a component are pushed
-     * in reverse so they pop in document order, which keeps the output readable without making anything depend on it.
+     * in reverse so they pop in document order -- depth first, the components nested in one before its next sibling.
+     * How an asset is keyed does not depend on that order; the order of the refs folded into it does.
      */
     private static Walk walkComponents(JsonNode document) {
         List<JsonNode> found = new ArrayList<>();
