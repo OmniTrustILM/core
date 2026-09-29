@@ -1,6 +1,10 @@
 package com.otilm.core.integration.service;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.github.tomakehurst.wiremock.WireMockServer;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.core.web.CertificateController;
 import com.otilm.api.model.client.attribute.RequestAttribute;
@@ -10,8 +14,10 @@ import com.otilm.api.model.client.certificate.CertificateEntryKeyDestinationDto;
 import com.otilm.api.model.client.certificate.CertificateImportEntryDto;
 import com.otilm.api.model.client.certificate.CertificateImportRequestDto;
 import com.otilm.api.model.client.certificate.CertificateImportResultDto;
+import com.otilm.api.model.client.certificate.ImportOutcome;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.client.inspection.InspectedEntryKind;
+import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.properties.CustomAttributeProperties;
@@ -21,6 +27,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
+import com.otilm.api.model.connector.common.v2.OperationStatus;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.logging.enums.AuditLogOutput;
 import com.otilm.api.model.core.logging.enums.Operation;
@@ -41,26 +48,38 @@ import com.otilm.core.container.Pkcs12Fixtures;
 import com.otilm.core.dao.entity.AuditLog;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateEventHistory;
-import com.otilm.core.dao.entity.CertificateImportEntry;
-import com.otilm.core.dao.entity.CertificateImportEntryState;
 import com.otilm.core.dao.entity.CryptographicKeyEventHistory;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
+import com.otilm.core.dao.entity.KeyImport;
+import com.otilm.core.dao.entity.KeyImportState;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.repository.AuditLogRepository;
 import com.otilm.core.dao.repository.CertificateEventHistoryRepository;
-import com.otilm.core.dao.repository.CertificateImportEntryRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CryptographicKeyEventHistoryRepository;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.KeyImportRepository;
+import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.enums.FilterField;
-import com.otilm.core.exception.ImportIdReusedException;
 import com.otilm.core.key.normalization.JavaKeyStoreFixtures;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.model.crypto.ImportedKeyRegistration;
+import com.otilm.core.model.crypto.KeyImportAttempt;
+import com.otilm.core.model.crypto.TokenProfileFullModel;
+import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
 import com.otilm.core.serialization.ObjectMapperFactory;
+import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.CertificateUploadService;
+import com.otilm.core.service.ResourceObjectAssociationService;
 import com.otilm.core.service.SettingExternalService;
+import com.otilm.core.service.handler.KeyImportSaga;
+import com.otilm.core.service.impl.CertificateImportServiceImpl;
+import com.otilm.core.service.writer.CertificateKeyWriter;
+import com.otilm.core.service.writer.CryptographicKeyWriter;
+import com.otilm.core.service.writer.KeyImportWriter;
+import com.otilm.core.util.AuthHelper;
+import com.otilm.core.util.AuthServiceWireMockStubs;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.SecretLeakProbe;
 import com.otilm.core.util.mocks.CryptographyProviderV2ConnectorMock;
@@ -75,6 +94,9 @@ import java.security.KeyStore;
 import java.security.PublicKey;
 import java.security.cert.X509Certificate;
 import java.security.spec.X509EncodedKeySpec;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
@@ -84,6 +106,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BooleanSupplier;
 import java.util.stream.Stream;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
@@ -100,11 +130,18 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.mockito.Mockito;
+import org.mockito.stubbing.Answer;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
@@ -116,6 +153,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.when;
 
 @SpringBootTest
 class CertificateImportITest extends BaseSpringBootTest {
@@ -128,6 +168,8 @@ class CertificateImportITest extends BaseSpringBootTest {
 
     private static final String NOT_REGISTERED = "A certificate of the entry was not uploaded. See Certificate Uploaded"
             + " Event History for more details.";
+
+    private static final long NODE_TIMEOUT_SECONDS = 60;
 
     private static Chain chain;
 
@@ -152,11 +194,7 @@ class CertificateImportITest extends BaseSpringBootTest {
     @Autowired
     private CryptographicKeyRepository cryptographicKeyRepository;
     @Autowired
-    private CryptographicKeyItemRepository cryptographicKeyItemRepository;
-    @Autowired
     private CryptographicKeyEventHistoryRepository keyEventHistoryRepository;
-    @Autowired
-    private CertificateImportEntryRepository certificateImportEntryRepository;
     @Autowired
     private KeyImportRepository keyImportRepository;
     @Autowired
@@ -167,6 +205,20 @@ class CertificateImportITest extends BaseSpringBootTest {
     private SettingExternalService settingService;
     @Autowired
     private JdbcTemplate jdbcTemplate;
+    @Autowired
+    private ResourceObjectAssociationService objectAssociationService;
+    @Autowired
+    private CertificateKeyWriter certificateKeyWriter;
+    @Autowired
+    private KeyImportWriter keyImportWriter;
+    @Autowired
+    private TokenProfileRepository tokenProfileRepository;
+    @MockitoSpyBean
+    private CertificateInternalService certificateInternalService;
+    @MockitoSpyBean
+    private CryptographicKeyItemRepository cryptographicKeyItemRepository;
+
+    private WireMockServer authService;
 
     private CryptographyProviderV2ConnectorMock connectorMock;
     private TokenProfile profile;
@@ -194,6 +246,9 @@ class CertificateImportITest extends BaseSpringBootTest {
     @AfterEach
     void tearDown() {
         connectorMock.stop();
+        if (authService != null) {
+            authService.stop();
+        }
         RequestContextHolder.resetRequestAttributes();
     }
 
@@ -212,10 +267,12 @@ class CertificateImportITest extends BaseSpringBootTest {
         // then
         assertThat(results)
                 .extracting(CertificateImportResultDto::getKind, CertificateImportResultDto::isImported,
+                        CertificateImportResultDto::getCertificateOutcome, CertificateImportResultDto::getKeyOutcome,
                         CertificateImportResultDto::getMessage)
-                .containsExactly(tuple(InspectedEntryKind.CERTIFICATE, true, null),
-                        tuple(InspectedEntryKind.KEY_PAIR_WITH_CHAIN, true, null),
-                        tuple(InspectedEntryKind.SECRET_KEY, true, null));
+                .containsExactly(tuple(InspectedEntryKind.CERTIFICATE, true, ImportOutcome.CREATED, null, null),
+                        tuple(InspectedEntryKind.KEY_PAIR_WITH_CHAIN, true, ImportOutcome.CREATED,
+                                ImportOutcome.CREATED, null),
+                        tuple(InspectedEntryKind.SECRET_KEY, true, null, ImportOutcome.CREATED, null));
         assertThat(results.getFirst()).satisfies(certificate -> {
             assertThat(certificate.getCertificateUuid()).isEqualTo(inventoried(other).getUuid().toString());
             assertThat(certificate.getKeyUuid()).isNull();
@@ -235,10 +292,6 @@ class CertificateImportITest extends BaseSpringBootTest {
                     .isEqualTo(KeyType.SECRET_KEY);
         });
         connectorMock.verifyImportKeyRequests(2);
-        assertThat(certificateImportEntryRepository.findAll())
-                .hasSize(3)
-                .extracting(CertificateImportEntry::getState)
-                .containsOnly(CertificateImportEntryState.COMPLETED);
     }
 
     @Test
@@ -288,50 +341,81 @@ class CertificateImportITest extends BaseSpringBootTest {
     }
 
     @Test
-    void importCertificates_answersAReplayFromItsRecords() throws Exception {
+    void importCertificates_importsNothingTwiceForAResentRequest() throws Exception {
         // given
         byte[] file = pkcs12(aes());
         connectorMock.stubImportKeys(imported(chain.leafKey().getPublic()));
         List<CertificateImportResultDto> first = importCertificates(keyPairAndCertificate(file));
+        long certificates = certificateRepository.count();
+        long keys = cryptographicKeyRepository.count();
 
         // when
-        List<CertificateImportResultDto> replayed = importCertificates(keyPairAndCertificate(file));
+        List<CertificateImportResultDto> resent = importCertificates(keyPairAndCertificate(file));
 
         // then
-        assertThat(replayed)
-                .extracting(CertificateImportResultDto::isImported, CertificateImportResultDto::getCertificateUuid,
+        assertThat(first)
+                .extracting(CertificateImportResultDto::getCertificateOutcome,
+                        CertificateImportResultDto::getKeyOutcome)
+                .containsExactly(tuple(ImportOutcome.CREATED, ImportOutcome.CREATED),
+                        tuple(ImportOutcome.CREATED, null));
+        assertThat(resent)
+                .extracting(CertificateImportResultDto::isImported, CertificateImportResultDto::getCertificateOutcome,
+                        CertificateImportResultDto::getCertificateUuid, CertificateImportResultDto::getKeyOutcome,
                         CertificateImportResultDto::getKeyUuid)
-                .containsExactly(tuple(true, first.getFirst().getCertificateUuid(), first.getFirst().getKeyUuid()),
-                        tuple(true, first.get(1).getCertificateUuid(), null));
+                .containsExactly(
+                        tuple(true, ImportOutcome.EXISTING, first.getFirst().getCertificateUuid(),
+                                ImportOutcome.EXISTING, first.getFirst().getKeyUuid()),
+                        tuple(true, ImportOutcome.EXISTING, first.get(1).getCertificateUuid(), null, null));
         connectorMock.verifyImportKeyRequests(1);
-        assertThat(certificateImportEntryRepository.count()).isEqualTo(2);
+        assertThat(certificateRepository.count()).isEqualTo(certificates);
+        assertThat(cryptographicKeyRepository.count()).isEqualTo(keys);
     }
 
+    /**
+     * Two nodes import two files whose chains share a CA the inventory does not hold yet, and both have checked that it
+     * is not there before either registers it. The node whose registration of the CA fails on the other's takes the CA
+     * the other registered, and goes on to register its leaf.
+     */
     @Test
-    void importCertificates_refusesAnImportIdReusedForAnotherEntry() throws Exception {
+    void importCertificates_takesTheCaAnotherNodeRegisteredMeanwhile() throws Exception {
         // given
-        byte[] file = pkcs12(aes());
-        CertificateImportEntryDto certificate = entry(reference(other), null);
-        certificate.setImportId("shared import");
-        importCertificates(request(file, PASSPHRASE, certificate));
-        CertificateImportEntryDto keyPair = entry(keyPairReference(), destination("leaf key"));
-        String secretKeyReference = referenceOf(file, PASSPHRASE, InspectedEntryKind.SECRET_KEY);
-        CertificateImportEntryDto secretKey = entry(secretKeyReference, destination("secret key"));
-        secretKey.setImportId("shared import");
-        CertificateImportRequestDto reuse = request(file, PASSPHRASE, keyPair, secretKey);
+        KeyPair caKey = ContainerFixtures.ec();
+        X509CertificateHolder ca = ContainerFixtures.selfSigned(caKey, "CN=Shared CA");
+        KeyPair firstKey = rsa();
+        KeyPair secondKey = rsa();
+        CertificateImportRequestDto first = keyPairIssuedBy(ca, caKey, firstKey, "First");
+        CertificateImportRequestDto second = keyPairIssuedBy(ca, caKey, secondKey, "Second");
+        connectorMock.stubImportKeys(imported(firstKey.getPublic()), imported(secondKey.getPublic()));
+        CountDownLatch firstNodeWaits = new CountDownLatch(1);
+        CountDownLatch secondNodeArrives = new CountDownLatch(1);
+        holdTheFirstRegistrationUntilASecond(reference(ca), firstNodeWaits, secondNodeArrives);
+        ListAppender<ILoggingEvent> importLog = captureImportLog();
+        ExecutorService nodes = Executors.newFixedThreadPool(2);
+        List<CertificateImportResultDto> results = new ArrayList<>();
 
         // when
-        ImportIdReusedException refusal = assertThrows(ImportIdReusedException.class, () -> importCertificates(reuse));
+        try {
+            Future<List<CertificateImportResultDto>> firstNode = nodes.submit(onNode(first));
+            awaitNode(firstNodeWaits);
+            Future<List<CertificateImportResultDto>> secondNode = nodes.submit(onNode(second));
+            results.addAll(firstNode.get(NODE_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+            results.addAll(secondNode.get(NODE_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+        } finally {
+            nodes.shutdownNow();
+            releaseImportLog(importLog);
+        }
 
         // then
-        assertThat(refusal.getMessage())
-                .isEqualTo(
-                        "The importId of entry " + secretKeyReference + " was already used to import something else.");
-        connectorMock.verifyImportKeyRequests(0);
+        assertThat(results)
+                .extracting(CertificateImportResultDto::isImported, CertificateImportResultDto::getCertificateOutcome,
+                        CertificateImportResultDto::getMessage)
+                .containsExactly(tuple(true, ImportOutcome.CREATED, null), tuple(true, ImportOutcome.CREATED, null));
         assertThat(certificateRepository.findAll())
                 .extracting(Certificate::getFingerprint)
-                .containsExactly(reference(other));
-        assertThat(certificateImportEntryRepository.count()).isEqualTo(1);
+                .containsOnlyOnce(reference(ca));
+        assertThat(importLog.list)
+                .extracting(ILoggingEvent::getFormattedMessage)
+                .noneMatch(message -> message.endsWith("of a certificate import failed"));
     }
 
     @Test
@@ -363,10 +447,6 @@ class CertificateImportITest extends BaseSpringBootTest {
                 .containsExactly(tuple(false, "The connector refused to import the key (KEY_TYPE_NOT_IMPORTABLE)."),
                         tuple(true, null), tuple(true, null));
         assertThat(results.getFirst().getKeyUuid()).isNull();
-        assertThat(certificateImportEntryRepository.findAll())
-                .extracting(CertificateImportEntry::getState)
-                .containsExactlyInAnyOrder(CertificateImportEntryState.OPEN, CertificateImportEntryState.COMPLETED,
-                        CertificateImportEntryState.COMPLETED);
     }
 
     /** The key import could not tell the key from one the passphrase does not open, so it is not asked. */
@@ -394,11 +474,11 @@ class CertificateImportITest extends BaseSpringBootTest {
     }
 
     /**
-     * The first request imports the key but cannot register its leaf; the replay of the entry finds the key imported
-     * and registers the certificates the first request did not.
+     * The first request imports the key but cannot register its leaf; the resent entry finds the key imported and
+     * registers the certificates the first request did not.
      */
     @Test
-    void importCertificates_registersTheCertificatesOfAnEntryWhoseKeyAReplayFindsImported() throws Exception {
+    void importCertificates_registersTheCertificatesOfAnEntryWhoseKeyAResendFindsImported() throws Exception {
         // given
         auditLogs(false);
         RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
@@ -409,21 +489,24 @@ class CertificateImportITest extends BaseSpringBootTest {
         certificateUploadTriggerSeeder.removeIgnoreTriggers();
 
         // when
-        List<CertificateImportResultDto> replayed = importCertificates(
+        List<CertificateImportResultDto> resent = importCertificates(
                 request(keyPairPem(), null, entry(keyPairReference(), destination(null))));
 
         // then
         UUID keyUuid = keyImportRepository.findAll().getFirst().getKeyUuid();
         assertThat(first)
                 .singleElement()
-                .extracting(CertificateImportResultDto::isImported, CertificateImportResultDto::getKeyUuid,
+                .extracting(CertificateImportResultDto::isImported, CertificateImportResultDto::getCertificateOutcome,
+                        CertificateImportResultDto::getKeyOutcome, CertificateImportResultDto::getKeyUuid,
                         CertificateImportResultDto::getMessage)
-                .containsExactly(false, keyUuid.toString(), NOT_REGISTERED);
+                .containsExactly(false, null, ImportOutcome.CREATED, keyUuid.toString(), NOT_REGISTERED);
         assertThat(importAuditRecord().getLogRecord().operationData())
                 .isEqualTo(Map.of("certificateUuids", List.of(), "keyUuids", List.of(keyUuid.toString())));
         Certificate leaf = inventoried(chain.leaf());
-        assertThat(replayed).singleElement().satisfies(keyPair -> {
+        assertThat(resent).singleElement().satisfies(keyPair -> {
             assertThat(keyPair.isImported()).isTrue();
+            assertThat(keyPair.getCertificateOutcome()).isEqualTo(ImportOutcome.CREATED);
+            assertThat(keyPair.getKeyOutcome()).isEqualTo(ImportOutcome.EXISTING);
             assertThat(keyPair.getKeyUuid()).isEqualTo(keyUuid.toString());
             assertThat(keyPair.getCertificateUuid()).isEqualTo(leaf.getUuid().toString());
         });
@@ -451,9 +534,10 @@ class CertificateImportITest extends BaseSpringBootTest {
 
         // then
         assertThat(results)
-                .extracting(CertificateImportResultDto::isImported, CertificateImportResultDto::getCertificateUuid)
-                .containsExactly(tuple(true, registeredUuid.toString()),
-                        tuple(true, inventoried(another).getUuid().toString()));
+                .extracting(CertificateImportResultDto::isImported, CertificateImportResultDto::getCertificateOutcome,
+                        CertificateImportResultDto::getCertificateUuid)
+                .containsExactly(tuple(true, ImportOutcome.EXISTING, registeredUuid.toString()),
+                        tuple(true, ImportOutcome.CREATED, inventoried(another).getUuid().toString()));
         assertThat(attributeEngine.getObjectCustomAttributesContent(Resource.CERTIFICATE, registeredUuid)).isEmpty();
         assertThat(
                 attributeEngine.getObjectCustomAttributesContent(Resource.CERTIFICATE, inventoried(another).getUuid()))
@@ -464,9 +548,11 @@ class CertificateImportITest extends BaseSpringBootTest {
     @Test
     void importCertificates_adoptsTheKeyOfALeafAlreadyInTheInventory() throws Exception {
         // given
+        authServiceKnowsTheRequester();
         String registered = certificateUploadService
                 .upload(Base64.getEncoder().encodeToString(chain.leaf().getEncoded()), null, true);
         Certificate leaf = certificateRepository.findByFingerprint(registered).orElseThrow();
+        String recordName = nameOfKey(leaf.getKeyUuid().toString());
         connectorMock.stubImportKeys(imported(chain.leafKey().getPublic()));
 
         // when
@@ -476,12 +562,373 @@ class CertificateImportITest extends BaseSpringBootTest {
         // then
         assertThat(results).singleElement().satisfies(keyPair -> {
             assertThat(keyPair.isImported()).isTrue();
+            assertThat(keyPair.getCertificateOutcome()).isEqualTo(ImportOutcome.EXISTING);
             assertThat(keyPair.getCertificateUuid()).isEqualTo(leaf.getUuid().toString());
+            assertThat(keyPair.getKeyOutcome()).isEqualTo(ImportOutcome.ADOPTED);
             assertThat(keyPair.getKeyUuid()).isEqualTo(leaf.getKeyUuid().toString());
         });
         assertThat(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(leaf.getKeyUuid())))
                 .extracting(CryptographicKeyItem::getType)
                 .containsExactlyInAnyOrder(KeyType.PUBLIC_KEY, KeyType.PRIVATE_KEY);
+        assertThat(nameOfKey(leaf.getKeyUuid().toString())).isEqualTo(recordName).isNotEqualTo("adopted key");
+        connectorMock.verifyImportKeyRequests(1);
+    }
+
+    /**
+     * A certificate brings the key's public key in while the key is registered, once the registration found nothing and
+     * before it writes. The registration fails on the unique fingerprint, and the second one takes the record, whose
+     * requester may update it. The certificate commits on a thread of its own, which borrows one connection while the
+     * import holds one.
+     */
+    @Test
+    void importCertificates_adoptsARecordACertificateBroughtInWhileTheKeyWasRegistered() throws Exception {
+        // given
+        authServiceKnowsTheRequester();
+        KeyPair key = rsa();
+        connectorMock.stubImportKeys(imported(key.getPublic()));
+        String fingerprint = KeyImportWriterITest.fingerprintOf(key);
+        try (ExecutorService certificateUpload = Executors.newSingleThreadExecutor()) {
+            bringTheRecordInWhen(fingerprint, key, certificateUpload, CertificateImportITest::registering);
+
+            // when
+            List<CertificateImportResultDto> results = importCertificates(keyOnly(key, "raced key"));
+
+            // then
+            UUID recordUuid = cryptographicKeyItemRepository.findByFingerprint(fingerprint).orElseThrow().getKeyUuid();
+            assertThat(results)
+                    .singleElement()
+                    .extracting(CertificateImportResultDto::isImported, CertificateImportResultDto::getKeyOutcome,
+                            CertificateImportResultDto::getKeyUuid)
+                    .containsExactly(true, ImportOutcome.ADOPTED, recordUuid.toString());
+            assertThat(keyImportRepository.findAll())
+                    .singleElement()
+                    .extracting(KeyImport::getState)
+                    .isEqualTo(KeyImportState.COMPLETED);
+            assertThat(nameOfKey(recordUuid.toString())).isEqualTo("certKey_raced");
+            assertThat(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(recordUuid))).hasSize(2);
+        }
+    }
+
+    /**
+     * A retry resumes the attempt of an import whose answer was lost, and another node completes that attempt, from the
+     * connector's answer to the first request, before the retry registers the key: the retry is answered with the key
+     * the other node registered.
+     */
+    @Test
+    void importCertificates_answersARetryWithTheKeyAnotherNodeRegisteredForItsAttempt() throws Exception {
+        // given
+        KeyPair key = rsa();
+        connectorMock.stubImportKeyUnanswered();
+        List<CertificateImportResultDto> lost = importCertificates(keyOnly(key, "resumed key"));
+        KeyImportAttempt attempt = KeyImportAttempt.of(keyImportRepository.findAll().getFirst());
+        connectorMock
+                .stubImportKeyResult(CryptographicKeyImportV2ITest.status(OperationStatus.COMPLETED, key.getPublic()));
+        TokenProfileFullModel registeredInto = tokenProfileRepository
+                .findFullModelByUuidAndTokenInstanceReferenceUuid(profile.getUuid(),
+                        profile.getTokenInstanceReferenceUuid())
+                .orElseThrow();
+        ImportedKeyRegistration otherNodesRegistration = KeyImportWriterITest
+                .registration(registeredInto, key, attempt, Set.of());
+        String fingerprint = KeyImportWriterITest.fingerprintOf(key);
+        try (ExecutorService otherNode = Executors.newSingleThreadExecutor()) {
+            meanwhileWhen(fingerprint, this::connectorWasAskedForTheResult, otherNode,
+                    () -> keyImportWriter.complete(attempt.uuid(), otherNodesRegistration).orElseThrow());
+
+            // when
+            List<CertificateImportResultDto> results = importCertificates(keyOnly(key, "resumed key"));
+
+            // then
+            UUID keyUuid = keyImportRepository.findById(attempt.uuid()).orElseThrow().getKeyUuid();
+            assertThat(lost)
+                    .singleElement()
+                    .extracting(CertificateImportResultDto::getMessage)
+                    .isEqualTo(KeyImportSaga.UNCONFIRMED);
+            assertThat(results)
+                    .singleElement()
+                    .extracting(CertificateImportResultDto::isImported, CertificateImportResultDto::getKeyOutcome,
+                            CertificateImportResultDto::getKeyUuid, CertificateImportResultDto::getMessage)
+                    .containsExactly(true, ImportOutcome.EXISTING, keyUuid.toString(), null);
+            assertThat(cryptographicKeyRepository.count()).isEqualTo(1);
+        }
+    }
+
+    /**
+     * A certificate brings the key's public key in once the connector was asked, after the checks made before it. The
+     * record is taken only once its requester is shown, at the registration, to be allowed to update it.
+     */
+    @Test
+    void importCertificates_adoptsARecordThatAppearedAfterTheFirstCheckWhenItsRequesterMayUpdateIt() throws Exception {
+        // given
+        authServiceKnowsTheRequester();
+        KeyPair key = rsa();
+        connectorMock.stubImportKeys(imported(key.getPublic()));
+        String fingerprint = KeyImportWriterITest.fingerprintOf(key);
+        try (ExecutorService certificateUpload = Executors.newSingleThreadExecutor()) {
+            bringTheRecordInWhen(fingerprint, key, certificateUpload, this::connectorWasAsked);
+
+            // when
+            List<CertificateImportResultDto> results = importCertificates(keyOnly(key, "late key"));
+
+            // then
+            UUID recordUuid = cryptographicKeyItemRepository.findByFingerprint(fingerprint).orElseThrow().getKeyUuid();
+            assertThat(results)
+                    .singleElement()
+                    .extracting(CertificateImportResultDto::getKeyOutcome, CertificateImportResultDto::getKeyUuid)
+                    .containsExactly(ImportOutcome.ADOPTED, recordUuid.toString());
+            assertThat(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(recordUuid))).hasSize(2);
+        }
+    }
+
+    /**
+     * The same, where the requester may not update the record another user owns: the import is refused as one of a key
+     * held otherwise, the record is left as it was, and the attempt is the reconciliation's to undo at once.
+     */
+    @Test
+    void importCertificates_refusesARecordThatAppearedAfterTheFirstCheckWhenItsRequesterMayNotUpdateIt()
+            throws Exception {
+        // given
+        authServiceKnowsTheRequester();
+        denyResourceAccess(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.UPDATE);
+        KeyPair key = rsa();
+        connectorMock.stubImportKeys(imported(key.getPublic()));
+        String fingerprint = KeyImportWriterITest.fingerprintOf(key);
+        try (ExecutorService certificateUpload = Executors.newSingleThreadExecutor()) {
+            bringTheRecordInWhen(fingerprint, key, certificateUpload, this::connectorWasAsked);
+
+            // when
+            List<CertificateImportResultDto> results = importCertificates(keyOnly(key, "late key"));
+
+            // then
+            UUID recordUuid = cryptographicKeyItemRepository.findByFingerprint(fingerprint).orElseThrow().getKeyUuid();
+            assertThat(results)
+                    .singleElement()
+                    .extracting(CertificateImportResultDto::isImported, CertificateImportResultDto::getKeyOutcome,
+                            CertificateImportResultDto::getKeyUuid, CertificateImportResultDto::getMessage)
+                    .containsExactly(false, null, null, CryptographicKeyWriter.KEY_ALREADY_HELD);
+            assertThat(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(recordUuid))).hasSize(1);
+            assertThat(cryptographicKeyRepository.findById(recordUuid).orElseThrow().getTokenProfileUuid()).isNull();
+            assertThat(keyImportRepository.findAll()).singleElement().satisfies(attempt -> {
+                assertThat(attempt.getState()).isEqualTo(KeyImportState.REQUESTED);
+                assertThat(attempt.getNextCheckAt()).isBeforeOrEqualTo(OffsetDateTime.now());
+            });
+        }
+    }
+
+    /** The UUID of a certificate the import creates is checked like any other before the result carries it. */
+    @Test
+    void importCertificates_returnsTheUuidOfACertificateItCreatedToACallerWhoMaySeeIt() throws Exception {
+        // given
+        CertificateImportRequestDto request = request(ContainerFixtures.pem(LF, other), null,
+                entry(reference(other), null));
+
+        // when
+        List<CertificateImportResultDto> results = importCertificates(request);
+
+        // then
+        String registered = inventoried(other).getUuid().toString();
+        assertThat(results)
+                .singleElement()
+                .extracting(CertificateImportResultDto::getCertificateOutcome,
+                        CertificateImportResultDto::getCertificateUuid)
+                .containsExactly(ImportOutcome.CREATED, registered);
+        assertThat(captureOpaRequests())
+                .anyMatch(requested -> Resource.CERTIFICATE.getCode().equals(requested.getProperties().get("name"))
+                        && ResourceAction.DETAIL.getCode().equals(requested.getProperties().get("action"))
+                        && List.of(registered).equals(requested.getObjectUUIDs()));
+    }
+
+    /**
+     * An uploaded certificate has no owner, so a caller the policy does not let see certificates in detail could not
+     * open one it created either: the result reports it created, without its UUID.
+     */
+    @Test
+    void importCertificates_reportsACertificateItCreatedWithoutItsUuidToACallerWhoMayNotSeeIt() throws Exception {
+        // given
+        denyResourceAccess(Resource.CERTIFICATE, ResourceAction.DETAIL);
+        CertificateImportRequestDto request = request(ContainerFixtures.pem(LF, other), null,
+                entry(reference(other), null));
+
+        // when
+        List<CertificateImportResultDto> results = importCertificates(request);
+
+        // then
+        assertThat(results)
+                .singleElement()
+                .extracting(CertificateImportResultDto::isImported, CertificateImportResultDto::getCertificateOutcome,
+                        CertificateImportResultDto::getCertificateUuid)
+                .containsExactly(true, ImportOutcome.CREATED, null);
+        assertThat(certificateRepository.findByFingerprint(reference(other))).isPresent();
+    }
+
+    /**
+     * A certificate already in the inventory that the caller may not see in detail is reported as found there without
+     * its UUID, and the audit record does not name it either.
+     */
+    @Test
+    void importCertificates_reportsACertificateTheCallerMayNotSeeWithoutItsUuid() throws Exception {
+        // given
+        auditLogs(false);
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
+        X509CertificateHolder another = ContainerFixtures.selfSigned(ContainerFixtures.ec(), "CN=Another");
+        String hidden = certificateUploadService
+                .upload(Base64.getEncoder().encodeToString(other.getEncoded()), null, true);
+        UUID hiddenUuid = certificateRepository.findByFingerprint(hidden).orElseThrow().getUuid();
+        denyDetailOf(hiddenUuid);
+        CertificateImportRequestDto request = request(ContainerFixtures.pem(LF, other, another), null,
+                entry(reference(other), null), entry(reference(another), null));
+
+        // when
+        List<CertificateImportResultDto> results = importCertificates(request);
+
+        // then
+        String anotherUuid = inventoried(another).getUuid().toString();
+        assertThat(results)
+                .extracting(CertificateImportResultDto::isImported, CertificateImportResultDto::getCertificateOutcome,
+                        CertificateImportResultDto::getCertificateUuid)
+                .containsExactly(tuple(true, ImportOutcome.EXISTING, null),
+                        tuple(true, ImportOutcome.CREATED, anotherUuid));
+        assertThat(importAuditRecord().getLogRecord().operationData())
+                .isEqualTo(Map.of("certificateUuids", List.of(anotherUuid), "keyUuids", List.of()));
+        assertThat(jdbcTemplate.queryForList("SELECT log_record::text FROM audit_log", String.class))
+                .isNotEmpty()
+                .noneMatch(logRecord -> logRecord.contains(hiddenUuid.toString()));
+    }
+
+    /**
+     * The key pair of another file the inventory holds already as a key of its own: nothing is asked of the connector,
+     * and the entry reports the key as found there.
+     */
+    @Test
+    void importCertificates_reportsAKeyPairTheInventoryHoldsAsExisting() throws Exception {
+        // given
+        connectorMock.stubImportKeys(imported(chain.leafKey().getPublic()));
+        CertificateImportResultDto first = importCertificates(
+                request(keyPairPem(), null, entry(keyPairReference(), destination("leaf key")))).getFirst();
+
+        // when
+        List<CertificateImportResultDto> results = importCertificates(
+                request(pkcs12(aes()), PASSPHRASE, entry(keyPairReference(), destination("the same key"))));
+
+        // then
+        assertThat(results)
+                .singleElement()
+                .extracting(CertificateImportResultDto::isImported, CertificateImportResultDto::getKeyOutcome,
+                        CertificateImportResultDto::getKeyUuid, CertificateImportResultDto::getCertificateOutcome)
+                .containsExactly(true, ImportOutcome.EXISTING, first.getKeyUuid(), ImportOutcome.EXISTING);
+        assertThat(first.getKeyOutcome()).isEqualTo(ImportOutcome.CREATED);
+        assertThat(nameOfKey(first.getKeyUuid())).isEqualTo("leaf key");
+        connectorMock.verifyImportKeyRequests(1);
+        assertThat(keyImportRepository.count()).isEqualTo(1);
+    }
+
+    /** The key pair the inventory holds, owned by another user the caller may not see keys of, has no UUID shown. */
+    @Test
+    void importCertificates_reportsAKeyPairTheInventoryHoldsWithoutItsUuidToACallerWhoMayNotSeeIt() throws Exception {
+        // given
+        connectorMock.stubImportKeys(imported(chain.leafKey().getPublic()));
+        UUID keyUuid = UUID
+                .fromString(importCertificates(
+                        request(keyPairPem(), null, entry(keyPairReference(), destination("leaf key"))))
+                        .getFirst()
+                        .getKeyUuid());
+        objectAssociationService.setOwner(Resource.CRYPTOGRAPHIC_KEY, keyUuid, UUID.randomUUID(), "another");
+        denyKeyDetailOf(keyUuid);
+
+        // when
+        List<CertificateImportResultDto> results = importCertificates(
+                request(pkcs12(aes()), PASSPHRASE, entry(keyPairReference(), destination("the same key"))));
+
+        // then
+        assertThat(results)
+                .singleElement()
+                .extracting(CertificateImportResultDto::isImported, CertificateImportResultDto::getKeyOutcome,
+                        CertificateImportResultDto::getKeyUuid)
+                .containsExactly(true, ImportOutcome.EXISTING, null);
+        connectorMock.verifyImportKeyRequests(1);
+    }
+
+    /**
+     * The certificate's key is a record another user owns, which the caller may not update: the entry is refused in the
+     * words a key held otherwise is, before the connector is asked, and the rest of the request goes on.
+     */
+    @Test
+    void importCertificates_refusesTheKeyOfARecordTheCallerMayNotUpdate() throws Exception {
+        // given
+        String registered = certificateUploadService
+                .upload(Base64.getEncoder().encodeToString(chain.leaf().getEncoded()), null, true);
+        UUID recordUuid = certificateRepository.findByFingerprint(registered).orElseThrow().getKeyUuid();
+        objectAssociationService.setOwner(Resource.CRYPTOGRAPHIC_KEY, recordUuid, UUID.randomUUID(), "another");
+        denyResourceAccess(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.UPDATE);
+        CertificateImportRequestDto request = request(pkcs12(aes()), PASSPHRASE,
+                entry(keyPairReference(), destination("leaf key")), entry(reference(other), null));
+
+        // when
+        List<CertificateImportResultDto> results = importCertificates(request);
+
+        // then
+        assertThat(results)
+                .extracting(CertificateImportResultDto::isImported, CertificateImportResultDto::getKeyOutcome,
+                        CertificateImportResultDto::getKeyUuid, CertificateImportResultDto::getMessage)
+                .containsExactly(tuple(false, null, null, CryptographicKeyWriter.KEY_ALREADY_HELD),
+                        tuple(true, null, null, null));
+        connectorMock.verifyImportKeyRequests(0);
+        assertThat(keyImportRepository.count()).isZero();
+        assertThat(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(recordUuid))).hasSize(1);
+    }
+
+    /** A secret key has no public key; the key import's own record answers the same file sent again. */
+    @Test
+    void importCertificates_reportsASecretKeySentAgainAsExisting() throws Exception {
+        // given
+        SecretKey secretKey = aes();
+        byte[] file = pkcs12(secretKey);
+        connectorMock.stubImportKeys(importedSecretKey());
+        String reference = referenceOf(file, PASSPHRASE, InspectedEntryKind.SECRET_KEY);
+        CertificateImportResultDto first = importCertificates(
+                request(file, PASSPHRASE, entry(reference, destination("secret key")))).getFirst();
+
+        // when
+        List<CertificateImportResultDto> again = importCertificates(
+                request(file, PASSPHRASE, entry(reference, destination("secret key"))));
+
+        // then
+        assertThat(first.getKeyOutcome()).isEqualTo(ImportOutcome.CREATED);
+        assertThat(again)
+                .singleElement()
+                .extracting(CertificateImportResultDto::isImported, CertificateImportResultDto::getKeyOutcome,
+                        CertificateImportResultDto::getKeyUuid)
+                .containsExactly(true, ImportOutcome.EXISTING, first.getKeyUuid());
+        connectorMock.verifyImportKeyRequests(1);
+    }
+
+    /**
+     * A key the inventory held already, which changed hands since and the caller may not see in detail, is reported as
+     * found there without its UUID, and the audit record of the import does not name it.
+     */
+    @Test
+    void importCertificates_reportsAKeyTheCallerMayNotSeeWithoutItsUuid() throws Exception {
+        // given
+        auditLogs(false);
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
+        connectorMock.stubImportKeys(imported(chain.leafKey().getPublic()));
+        CertificateImportRequestDto request = request(keyPairPem(), null, entry(keyPairReference(), destination(null)));
+        UUID keyUuid = UUID.fromString(importCertificates(request).getFirst().getKeyUuid());
+        objectAssociationService.setOwner(Resource.CRYPTOGRAPHIC_KEY, keyUuid, UUID.randomUUID(), "another");
+        denyKeyDetailOf(keyUuid);
+
+        // when
+        List<CertificateImportResultDto> resent = importCertificates(
+                request(keyPairPem(), null, entry(keyPairReference(), destination(null))));
+
+        // then
+        String leafUuid = inventoried(chain.leaf()).getUuid().toString();
+        assertThat(resent)
+                .singleElement()
+                .extracting(CertificateImportResultDto::isImported, CertificateImportResultDto::getKeyOutcome,
+                        CertificateImportResultDto::getKeyUuid, CertificateImportResultDto::getCertificateUuid)
+                .containsExactly(true, ImportOutcome.EXISTING, null, leafUuid);
+        assertThat(lastImportAuditRecord().getLogRecord().operationData())
+                .isEqualTo(Map.of("certificateUuids", List.of(leafUuid), "keyUuids", List.of()));
         connectorMock.verifyImportKeyRequests(1);
     }
 
@@ -501,7 +948,6 @@ class CertificateImportITest extends BaseSpringBootTest {
         // then
         assertThat(refusal.getMessage()).isEqualTo(message);
         assertThat(certificateRepository.count()).isZero();
-        assertThat(certificateImportEntryRepository.count()).isZero();
         connectorMock.verifyImportKeyRequests(0);
     }
 
@@ -560,7 +1006,6 @@ class CertificateImportITest extends BaseSpringBootTest {
                 .containsExactly(InspectedEntryKind.PRIVATE_KEY, true);
         connectorMock.verifyImportKeyRequests(1);
         assertThat(keyImportRepository.count()).isEqualTo(1);
-        assertThat(certificateImportEntryRepository.count()).isEqualTo(1);
         assertThat(certificateRepository.count()).isZero();
     }
 
@@ -583,7 +1028,6 @@ class CertificateImportITest extends BaseSpringBootTest {
         assertThat(refusal.getMessage())
                 .isEqualTo("Access denied to %s:%s"
                         .formatted(Resource.CRYPTOGRAPHIC_KEY.getCode(), ResourceAction.IMPORT_KEY.getCode()));
-        assertThat(certificateImportEntryRepository.count()).isZero();
         assertThat(certificateRepository.count()).isZero();
         connectorMock.verifyImportKeyRequests(0);
     }
@@ -706,8 +1150,8 @@ class CertificateImportITest extends BaseSpringBootTest {
     }
 
     /**
-     * A key-only import produces no certificate, so its record names no object: the key its key import named there is
-     * gone, and the key is named in the operation's data.
+     * A key-only import produces no certificate, so its record names no object, and the key is named in the operation's
+     * data.
      */
     @Test
     void importCertificates_isAuditedWithTheKeyOfAKeyOnlyImport() throws Exception {
@@ -784,11 +1228,6 @@ class CertificateImportITest extends BaseSpringBootTest {
                 .addAll(jdbcTemplate
                         .queryForList("SELECT coalesce(message, '') || log_record::text FROM audit_log", String.class));
         seen.addAll(jdbcTemplate.queryForList("SELECT row_to_json(key_import)::text FROM key_import", String.class));
-        seen
-                .addAll(jdbcTemplate
-                        .queryForList(
-                                "SELECT row_to_json(certificate_import_entry)::text FROM certificate_import_entry",
-                                String.class));
         for (CryptographicKeyEventHistory event : keyEventHistoryRepository.findAll()) {
             seen.add(event.getMessage());
             seen.add(event.getAdditionalInformation());
@@ -862,7 +1301,6 @@ class CertificateImportITest extends BaseSpringBootTest {
     private static CertificateImportEntryDto entry(String reference, CertificateEntryKeyDestinationDto destination) {
         CertificateImportEntryDto entry = new CertificateImportEntryDto();
         entry.setEntryReference(reference);
-        entry.setImportId("import of " + reference);
         entry.setKeyDestination(destination);
         return entry;
     }
@@ -940,6 +1378,137 @@ class CertificateImportITest extends BaseSpringBootTest {
         }
     }
 
+    /** A key pair whose leaf the CA issued, as PEM holding the key, the leaf and the CA, to import under the name. */
+    private CertificateImportRequestDto keyPairIssuedBy(X509CertificateHolder ca, KeyPair caKey, KeyPair key,
+            String name) throws Exception {
+        X509CertificateHolder leaf = ContainerFixtures
+                .certificate("CN=" + name, key.getPublic(), ca.getSubject().toString(), caKey.getPrivate(),
+                        Instant.now().minus(Duration.ofDays(1)));
+        byte[] file = ContainerFixtures.pem(LF, ContainerFixtures.privateKeyBlock(key), leaf, ca);
+        return request(file, null, entry(sha256(key.getPublic().getEncoded()), destination(name)));
+    }
+
+    /**
+     * Holds the first registration of the certificate, in its transaction and past the check that the certificate is
+     * not there yet, until a second registration of it has come as far.
+     */
+    private void holdTheFirstRegistrationUntilASecond(String fingerprint, CountDownLatch firstWaits,
+            CountDownLatch secondArrives) {
+        AtomicBoolean held = new AtomicBoolean();
+        doAnswer(invocation -> {
+            if (fingerprint.equals(invocation.getArgument(0))) {
+                if (held.compareAndSet(false, true)) {
+                    firstWaits.countDown();
+                    awaitNode(secondArrives);
+                } else {
+                    secondArrives.countDown();
+                }
+            }
+            return invocation.callRealMethod();
+        }).when(certificateInternalService).checkAddCertificateContent(anyString(), anyString());
+    }
+
+    /**
+     * The import as a node of its own serves it: on a thread of its own, so with connections of its own, for the caller
+     * of the test.
+     */
+    private Callable<List<CertificateImportResultDto>> onNode(CertificateImportRequestDto request) {
+        Authentication caller = SecurityContextHolder.getContext().getAuthentication();
+        return () -> {
+            SecurityContextHolder.getContext().setAuthentication(caller);
+            try {
+                return importCertificates(request);
+            } finally {
+                SecurityContextHolder.clearContext();
+            }
+        };
+    }
+
+    private static void awaitNode(CountDownLatch reached) throws InterruptedException {
+        if (!reached.await(NODE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+            throw new IllegalStateException("A node did not come as far in time");
+        }
+    }
+
+    private static ListAppender<ILoggingEvent> captureImportLog() {
+        ListAppender<ILoggingEvent> importLog = new ListAppender<>();
+        importLog.start();
+        ((Logger) LoggerFactory.getLogger(CertificateImportServiceImpl.class)).addAppender(importLog);
+        return importLog;
+    }
+
+    private static void releaseImportLog(ListAppender<ILoggingEvent> importLog) {
+        ((Logger) LoggerFactory.getLogger(CertificateImportServiceImpl.class)).detachAppender(importLog);
+    }
+
+    /** A file holding only the key, imported under the name. */
+    private CertificateImportRequestDto keyOnly(KeyPair key, String name) throws IOException {
+        return request(ContainerFixtures.pem(LF, ContainerFixtures.privateKeyBlock(key)), null,
+                entry(sha256(key.getPublic().getEncoded()), destination(name)));
+    }
+
+    /**
+     * Brings the public key in as a certificate's, owned by another user, on a thread of its own and committed, when
+     * the import first looks for it where the condition holds.
+     */
+    private void bringTheRecordInWhen(String fingerprint, KeyPair key, ExecutorService certificateUpload,
+            BooleanSupplier condition) {
+        meanwhileWhen(fingerprint, condition, certificateUpload, () -> {
+            UUID recordUuid = certificateKeyWriter
+                    .uploadCertificatePublicKey("certKey_raced", key.getPublic(), 2048, fingerprint);
+            objectAssociationService.setOwner(Resource.CRYPTOGRAPHIC_KEY, recordUuid, UUID.randomUUID(), "another");
+            return recordUuid;
+        });
+    }
+
+    /**
+     * Has another node do what it does meanwhile, on a thread of its own and committed, when the import first looks for
+     * the public key where the condition holds: before the look, or right after it as the attempt completes.
+     */
+    private void meanwhileWhen(String fingerprint, BooleanSupplier condition, ExecutorService otherNode,
+            Callable<?> meanwhile) {
+        Thread importing = Thread.currentThread();
+        AtomicBoolean done = new AtomicBoolean();
+        // A repository is a proxy, whose real method a spy cannot call; the spy's own answer calls through to it.
+        Answer<?> repository = Mockito
+                .mockingDetails(cryptographicKeyItemRepository)
+                .getMockCreationSettings()
+                .getDefaultAnswer();
+        doAnswer(invocation -> {
+            boolean due = fingerprint.equals(invocation.getArgument(0)) && Thread.currentThread() == importing
+                    && condition.getAsBoolean() && done.compareAndSet(false, true);
+            if (due && registering()) {
+                Object found = repository.answer(invocation);
+                otherNode.submit(meanwhile).get(NODE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                return found;
+            }
+            if (due) {
+                otherNode.submit(meanwhile).get(NODE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            }
+            return repository.answer(invocation);
+        }).when(cryptographicKeyItemRepository).findByFingerprint(anyString());
+    }
+
+    /** Whether the call runs as the attempt completes, which registers the imported key. */
+    private static boolean registering() {
+        String transaction = TransactionSynchronizationManager.getCurrentTransactionName();
+        return transaction != null && transaction.endsWith("KeyImportWriter.complete");
+    }
+
+    private boolean connectorWasAsked() {
+        return !connectorMock.importKeyRequestBodies().isEmpty();
+    }
+
+    private boolean connectorWasAskedForTheResult() {
+        return connectorMock.importKeyResultRequestsReceived() > 0;
+    }
+
+    /** The auth service answers for the caller, so a check made as the requester can resolve them. */
+    private void authServiceKnowsTheRequester() {
+        NameAndUuidDto caller = AuthHelper.getUserIdentification();
+        authService = AuthServiceWireMockStubs.startImpersonating(UUID.fromString(caller.getUuid()), caller.getName());
+    }
+
     /** The audit record of the first import. */
     private AuditLog importAuditRecord() {
         return auditLogRepository
@@ -950,8 +1519,44 @@ class CertificateImportITest extends BaseSpringBootTest {
                 .orElseThrow();
     }
 
+    /** The audit record of the last import. */
+    private AuditLog lastImportAuditRecord() {
+        return auditLogRepository
+                .findAll()
+                .stream()
+                .filter(log -> log.getOperation() == Operation.IMPORT)
+                .max(Comparator.comparing(AuditLog::getId))
+                .orElseThrow();
+    }
+
     private Certificate inventoried(X509CertificateHolder certificate) {
         return certificateRepository.findByFingerprint(reference(certificate)).orElseThrow();
+    }
+
+    /** Refuses the caller the detail of the one certificate, as the policy does for a certificate of someone else. */
+    private void denyDetailOf(UUID certificateUuid) {
+        when(opaClient
+                .checkResourceAccess(Mockito.any(), Mockito
+                        .argThat(requested -> requested != null && requested.getProperties() != null
+                                && Resource.CERTIFICATE.getCode().equals(requested.getProperties().get("name"))
+                                && ResourceAction.DETAIL.getCode().equals(requested.getProperties().get("action"))
+                                && requested.getObjectUUIDs() != null
+                                && requested.getObjectUUIDs().contains(certificateUuid.toString())),
+                        Mockito.any(), Mockito.any()))
+                .thenReturn(OpaResourceAccessResult.unauthorized());
+    }
+
+    /** Refuses the caller the detail of the one key, as the policy does for a key of someone else. */
+    private void denyKeyDetailOf(UUID keyUuid) {
+        when(opaClient
+                .checkResourceAccess(Mockito.any(), Mockito
+                        .argThat(requested -> requested != null && requested.getProperties() != null
+                                && Resource.CRYPTOGRAPHIC_KEY.getCode().equals(requested.getProperties().get("name"))
+                                && ResourceAction.DETAIL.getCode().equals(requested.getProperties().get("action"))
+                                && requested.getObjectUUIDs() != null
+                                && requested.getObjectUUIDs().contains(keyUuid.toString())),
+                        Mockito.any(), Mockito.any()))
+                .thenReturn(OpaResourceAccessResult.unauthorized());
     }
 
     private String nameOfKey(String keyUuid) {

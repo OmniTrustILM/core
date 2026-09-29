@@ -58,8 +58,6 @@ public interface CryptographicKeyRepository extends SecurityFilterRepository<Cry
     @EntityGraph(attributePaths = {"tokenProfile", "items", "tokenInstanceReference"})
     Optional<CryptographicKey> findWithKeyItemsAndTokenByUuid(UUID uuid);
 
-    Optional<CryptographicKey> findByName(String name);
-
     boolean existsByName(String name);
 
     @EntityGraph(attributePaths = {"tokenProfile", "items"})

@@ -880,7 +880,7 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
             DataIntegrityViolationException failure = Assertions
                     .assertThrows(DataIntegrityViolationException.class, create);
             Assertions.assertTrue(failure.getMostSpecificCause().getMessage().contains(constraintName));
-            Assertions.assertTrue(cryptographicKeyRepository.findByName(keyName).isEmpty());
+            Assertions.assertFalse(cryptographicKeyRepository.existsByName(keyName));
             Assertions.assertEquals(initialItemCount, cryptographicKeyItemRepository.count());
             Assertions.assertEquals(initialHistoryCount, cryptographicKeyEventHistoryRepository.count());
         } finally {
@@ -950,6 +950,24 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
                         () -> cryptographicKeyService
                                 .createKey(tokenInstanceReference.getUuid(), tokenProfile.getSecuredParentUuid(),
                                         KeyRequestType.KEY_PAIR, request));
+    }
+
+    /** A token sync names keys after the token, so two keys can share a name; it is refused as any taken name is. */
+    @Test
+    void testAddKey_refusesANameTwoKeysShare() {
+        // given
+        createKey(KEY_NAME, tokenProfile2, tokenInstanceReference);
+        KeyRequestDto request = new KeyRequestDto();
+        request.setName(KEY_NAME);
+        UUID tokenInstanceUuid = tokenInstanceReference.getUuid();
+        SecuredParentUUID tokenProfileUuid = tokenProfile.getSecuredParentUuid();
+
+        // when
+        // then
+        Assertions
+                .assertThrows(AlreadyExistException.class, () -> cryptographicKeyService
+                        .createKey(tokenInstanceUuid, tokenProfileUuid, KeyRequestType.KEY_PAIR, request));
+        mockServer.verify(0, WireMock.anyRequestedFor(WireMock.anyUrl()));
     }
 
     @Test

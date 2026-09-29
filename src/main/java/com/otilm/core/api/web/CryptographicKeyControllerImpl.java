@@ -6,6 +6,7 @@ import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.core.web.CryptographicKeyController;
+import com.otilm.api.model.client.certificate.ImportOutcome;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.client.cryptography.CryptographicKeyResponseDto;
 import com.otilm.api.model.client.cryptography.key.BulkCompromiseKeyItemRequestDto;
@@ -33,6 +34,7 @@ import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.logging.LogResource;
 import com.otilm.core.model.crypto.ExportedKeyMaterial;
+import com.otilm.core.model.crypto.ImportedKeyDetail;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -45,6 +47,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.WebDataBinder;
 import org.springframework.web.bind.annotation.InitBinder;
@@ -170,13 +173,16 @@ public class CryptographicKeyControllerImpl implements CryptographicKeyControlle
     @Override
     @AuditLogged(module = Module.CRYPTOGRAPHIC_KEYS, resource = Resource.CRYPTOGRAPHIC_KEY,
             affiliatedResource = Resource.TOKEN_PROFILE, operation = Operation.IMPORT, synchronous = true)
-    public KeyDetailDto importKey(String tokenInstanceUuid,
+    public ResponseEntity<KeyDetailDto> importKey(String tokenInstanceUuid,
             @LogResource(uuid = true, affiliated = true) String tokenProfileUuid, KeyRequestType type,
             @Sensitive @Valid KeyImportRequestDto request) throws AlreadyExistException, ValidationException,
             ConnectorException, AttributeException, NotFoundException {
         try {
-            return cryptographicKeyImportService
+            ImportedKeyDetail imported = cryptographicKeyImportService
                     .importKey(UUID.fromString(tokenInstanceUuid), UUID.fromString(tokenProfileUuid), type, request);
+            // A key the platform already holds is answered as it is, with nothing created.
+            HttpStatus status = imported.outcome() == ImportOutcome.EXISTING ? HttpStatus.OK : HttpStatus.CREATED;
+            return ResponseEntity.status(status).body(imported.detail());
         } finally {
             request.getFile().clear();
             if (request.getInputPassphrase() != null) {
