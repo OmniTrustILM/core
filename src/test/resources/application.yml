@@ -40,6 +40,10 @@ connector:
     pending-acquire-timeout: 10s
     max-in-memory-size: 16MB
 
+key-import:
+  request-timeout: 1s
+  poll-interval: 50ms
+
 discovery:
   mq-timeouts:
     status: 30s
@@ -150,6 +154,8 @@ spring:
         type:
           preferred_duration_jdbc_type: INTERVAL_SECOND
         default_schema: core
+        session_factory:
+          statement_inspector: com.otilm.core.util.SqlCapture
   profiles:
     active: test
   session:

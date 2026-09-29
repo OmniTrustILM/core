@@ -1484,6 +1484,26 @@ public class AttributeEngine {
         return getRequestAttributes(objectContents);
     }
 
+    /**
+     * Reads an operation's data attributes under whichever connector stored them. Each stored row keeps its owner, so
+     * content stays readable after the object that named the owner, such as a key, is gone.
+     */
+    public List<ResponseAttribute> getOperationDataAttributesContent(ObjectAttributeContentInfo info) {
+        return getResponseAttributes(loadOperationDataAttributesContent(info));
+    }
+
+    /** Same as {@link #getOperationDataAttributesContent}, as request attributes to submit again. */
+    public List<RequestAttribute> getRequestOperationDataAttributesContent(ObjectAttributeContentInfo info) {
+        return getRequestAttributes(loadOperationDataAttributesContent(info));
+    }
+
+    private List<ObjectAttributeContent> loadOperationDataAttributesContent(ObjectAttributeContentInfo info) {
+        Objects.requireNonNull(info.operation(), "An operation is required to read content of any connector.");
+        return attributeContent2ObjectRepository
+                .getObjectDataAttributesContentAnyConnector(AttributeType.DATA, info.operation(), info.purpose(),
+                        info.objectType(), info.objectUuid(), info.objectVersion());
+    }
+
     public List<DataAttribute> getDataAttributesByContent(UUID connectorUuid, List<RequestAttribute> requestAttributes)
             throws AttributeException {
         List<DataAttribute> dataAttributes = new ArrayList<>();

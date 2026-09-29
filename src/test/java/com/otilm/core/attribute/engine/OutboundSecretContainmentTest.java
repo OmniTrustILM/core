@@ -26,6 +26,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -135,6 +136,23 @@ class OutboundSecretContainmentTest {
 
         assertThrows(OutboundSecretLeakException.class,
                 () -> containment.assertNoExpandedSecretOutbound(response, new HashSet<>()));
+    }
+
+    /**
+     * A secret an earlier call sent is known by its digest only, and an answer that echoes it is refused all the same.
+     */
+    @Test
+    void rejectsEchoOfASecretKnownByItsDigest() {
+        List<String> sentSecretDigests = OutboundSecretContainment.digestsOf(Set.of("sent-earlier-secret"));
+        Set<String> noSecretOfThisCall = Set.of();
+        Object echoing = Map.of("metadata", List.of(Map.of("value", "sent-earlier-secret")));
+        Object harmless = Map.of("metadata", List.of(Map.of("value", "handle")));
+
+        assertThrows(OutboundSecretLeakException.class,
+                () -> containment.assertNoExpandedSecretOutbound(echoing, noSecretOfThisCall, sentSecretDigests));
+        assertDoesNotThrow(
+                () -> containment.assertNoExpandedSecretOutbound(harmless, noSecretOfThisCall, sentSecretDigests));
+        assertFalse(sentSecretDigests.contains("sent-earlier-secret"), "a digest must not be the secret itself");
     }
 
     @Test

@@ -21,4 +21,10 @@ public @interface AuditLogged {
     Operation operation();
 
     String name() default "";
+
+    /**
+     * Writes the record, when the audit settings keep one, before the result is returned, so an operation whose record
+     * cannot be written fails instead of completing unrecorded.
+     */
+    boolean synchronous() default false;
 }
