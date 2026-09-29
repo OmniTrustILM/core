@@ -28,8 +28,9 @@ import org.springframework.transaction.support.DefaultTransactionDefinition;
  * Challenge gate for completing a pre-registered certificate, shared by the client-operations completion path and
  * protocol enrolments. A certificate with no authorization row is not self-service and passes untouched. On an ACTIVE
  * authorization it enforces, under a per-row pessimistic lock, the issuance window then the presented challenge;
- * LOCKED/EXPIRED deny; CLOSED passes as unregistered. The failed-attempt increment and lockout are committed before the
- * caller rejects the request, so the counter survives the rejection — a rollback would erase it and lockout could never
+ * LOCKED/EXPIRED deny; CLOSED passes as unregistered. A wrong challenge is counted toward lockout; a missing one is
+ * denied with the same answer but not counted. The failed-attempt increment and lockout are committed before the caller
+ * rejects the request, so the counter survives the rejection — a rollback would erase it and lockout could never
  * trigger.
  *
  * <p>
@@ -39,6 +40,8 @@ import org.springframework.transaction.support.DefaultTransactionDefinition;
  */
 @Service
 public class RegistrationChallengeGate {
+
+    private static final String INVALID_CHALLENGE = "The certificate registration challenge is invalid.";
 
     private PlatformTransactionManager transactionManager;
     private CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository;
@@ -68,14 +71,16 @@ public class RegistrationChallengeGate {
     }
 
     /**
-     * Verifies a presented registration challenge string by equality. Denials (locked, expired window, wrong challenge)
-     * throw a {@link ValidationException}; the audit trail records the failure under {@code operationEvent}.
+     * Verifies a presented registration challenge string by equality. Denials (locked, expired window, wrong or missing
+     * challenge) throw a {@link ValidationException}; the audit trail records the failure under {@code operationEvent}.
+     * A null or blank {@code presentedSecret} is missing and spends no failed attempt.
      *
      * @return {@code true} when an ACTIVE authorization's challenge verified — the self-service credential that stands
      * in for the caller's operator permission on the completion write
      */
     public boolean verify(UUID certificateUuid, @Sensitive String presentedSecret, CertificateEvent operationEvent) {
-        return verifyInternal(certificateUuid, operationEvent,
+        boolean presented = presentedSecret != null && !presentedSecret.isBlank();
+        return verifyInternal(certificateUuid, operationEvent, presented,
                 authorization -> registrationChallengeStore.verify(authorization, presentedSecret));
     }
 
@@ -85,16 +90,16 @@ public class RegistrationChallengeGate {
      * cascade, lockout, and event history.
      */
     public boolean verify(UUID certificateUuid, CertificateEvent operationEvent, Predicate<String> secretMatches) {
-        return verifyInternal(certificateUuid, operationEvent,
+        return verifyInternal(certificateUuid, operationEvent, true,
                 authorization -> secretMatches.test(registrationChallengeStore.resolvePlaintext(authorization)));
     }
 
-    private boolean verifyInternal(UUID certificateUuid, CertificateEvent operationEvent,
+    private boolean verifyInternal(UUID certificateUuid, CertificateEvent operationEvent, boolean presented,
             Predicate<CertificateRegistrationAuthorization> matches) {
         if (registrationAuthorizationRepository.findByCertificateUuid(certificateUuid).isEmpty()) {
             return false;
         }
-        RegistrationChallengeOutcome outcome = evaluateUnderLock(certificateUuid, operationEvent, matches);
+        RegistrationChallengeOutcome outcome = evaluateUnderLock(certificateUuid, operationEvent, presented, matches);
         if (outcome.denial() != null) {
             throw new ValidationException(ValidationError.create(outcome.denial()));
         }
@@ -121,7 +126,7 @@ public class RegistrationChallengeGate {
     }
 
     private RegistrationChallengeOutcome evaluateUnderLock(UUID certificateUuid, CertificateEvent operationEvent,
-            Predicate<CertificateRegistrationAuthorization> matches) {
+            boolean presented, Predicate<CertificateRegistrationAuthorization> matches) {
         // REQUIRES_NEW so the row lock, the failed-attempt increment and the lockout commit in their own
         // short transaction and the lock is released on return — never held across an ambient transaction.
         // A caller can hold a row lock the completion (issueExistingCertificate, NOT_SUPPORTED) would then
@@ -133,7 +138,8 @@ public class RegistrationChallengeGate {
         try {
             RegistrationChallengeOutcome outcome = registrationAuthorizationRepository
                     .findAndLockByCertificateUuid(certificateUuid)
-                    .map(authorization -> evaluateLockedAuthorization(authorization, operationEvent, matches))
+                    .map(authorization -> evaluateLockedAuthorization(authorization, operationEvent, presented,
+                            matches))
                     // Raced with a delete/close between the peek and the lock — treat as non-self-service.
                     .orElseGet(RegistrationChallengeOutcome::notChallengeProtected);
             transactionManager.commit(tx);
@@ -145,7 +151,8 @@ public class RegistrationChallengeGate {
     }
 
     private RegistrationChallengeOutcome evaluateLockedAuthorization(CertificateRegistrationAuthorization authorization,
-            CertificateEvent operationEvent, Predicate<CertificateRegistrationAuthorization> matches) {
+            CertificateEvent operationEvent, boolean presented,
+            Predicate<CertificateRegistrationAuthorization> matches) {
         UUID certificateUuid = authorization.getCertificateUuid();
         RegistrationState state = authorization.getState();
         if (state == RegistrationState.CLOSED) {
@@ -172,6 +179,14 @@ public class RegistrationChallengeGate {
                             "Certificate registration issuance window expired", "");
             return RegistrationChallengeOutcome.denied("The certificate registration issuance window has expired.");
         }
+        if (!presented) {
+            // A missing secret is not a guess, so it spends no attempt: counting it would let callers that never
+            // send one (the UI renew, a location renew) lock the holder out. It reads the same as a wrong secret.
+            certificateEventHistoryService
+                    .addEventHistory(certificateUuid, operationEvent, CertificateEventStatus.FAILED,
+                            "Certificate registration challenge not presented", "");
+            return RegistrationChallengeOutcome.denied(INVALID_CHALLENGE);
+        }
         if (matches.test(authorization)) {
             if (authorization.getFailedAttempts() != 0) {
                 authorization.setFailedAttempts(0);
@@ -188,7 +203,7 @@ public class RegistrationChallengeGate {
         certificateEventHistoryService
                 .addEventHistory(certificateUuid, operationEvent, CertificateEventStatus.FAILED,
                         "Certificate registration challenge verification failed (attempt %d)".formatted(attempts), "");
-        return RegistrationChallengeOutcome.denied("The certificate registration challenge is invalid.");
+        return RegistrationChallengeOutcome.denied(INVALID_CHALLENGE);
     }
 
     // The fallback uses the single canonical default (the value the settings API reports and persists) so

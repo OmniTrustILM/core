@@ -28,6 +28,7 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.auth.UserDetailDto;
 import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.certificate.CertificateEvent;
+import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateType;
@@ -1760,7 +1761,27 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     }
 
     @Test
-    void renewWithoutSecretOfChallengeProtectedCertIsDeniedAndCounted() {
+    void issueWithoutSecretIsDeniedWithoutSpendingAnAttempt() throws Exception {
+        String certUuid = registerWithSecret(null);
+        ClientCertificateIssueRequestDto issueRequest = new ClientCertificateIssueRequestDto();
+        issueRequest.setRequest(generateCsrBase64());
+
+        ValidationException ex = Assertions
+                .assertThrows(ValidationException.class, () -> clientOperationService
+                        .issueExistingCertificate(authorityParent, securedRaProfile, certUuid, issueRequest));
+        Assertions
+                .assertTrue(ex.getMessage().contains("The certificate registration challenge is invalid."),
+                        "a missing secret must read the same as a wrong one");
+        assertNoAttemptSpent(UUID.fromString(certUuid));
+        verify(actionProducer, never()).produceMessage(Mockito.any());
+        Assertions
+                .assertEquals(CertificateState.REGISTERED,
+                        certificateRepository.findByUuid(UUID.fromString(certUuid)).orElseThrow().getState(),
+                        "a denied issue must not consume the placeholder");
+    }
+
+    @Test
+    void renewWithoutSecretOfChallengeProtectedCertIsDeniedWithoutSpendingAnAttempt() {
         Certificate issued = seedIssuedCert();
         activeAuthorizationFor(issued.getUuid());
         ClientCertificateRenewRequestDto request = new ClientCertificateRenewRequestDto();
@@ -1770,16 +1791,50 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
                 .assertThrows(ValidationException.class, () -> clientOperationService
                         .renewCertificate(authorityParent, securedRaProfile, certUuid, request));
         Assertions
-                .assertTrue(ex.getMessage().toLowerCase().contains("challenge"),
-                        "the challenge gate must reject, not some downstream step");
-        Assertions
-                .assertEquals(1,
-                        authorizationRepository
-                                .findByCertificateUuid(issued.getUuid())
-                                .orElseThrow()
-                                .getFailedAttempts(),
-                        "a secretless renew of a challenge-protected certificate is a failed attempt and must be counted");
+                .assertTrue(ex.getMessage().contains("The certificate registration challenge is invalid."),
+                        "the challenge gate must reject, and a missing secret must read the same as a wrong one");
+        assertNoAttemptSpent(issued.getUuid());
+        assertFailedEventRecorded(issued, CertificateEvent.RENEW);
         verify(actionProducer, never()).produceMessage(Mockito.any());
+    }
+
+    @Test
+    void renewWithBlankSecretIsDeniedWithoutSpendingAnAttempt() {
+        Certificate issued = seedIssuedCert();
+        activeAuthorizationFor(issued.getUuid());
+        ClientCertificateRenewRequestDto request = new ClientCertificateRenewRequestDto();
+        request.setAuthorizationSecret("   ");
+        String certUuid = issued.getUuid().toString();
+
+        Assertions
+                .assertThrows(ValidationException.class, () -> clientOperationService
+                        .renewCertificate(authorityParent, securedRaProfile, certUuid, request));
+        assertNoAttemptSpent(issued.getUuid());
+    }
+
+    @Test
+    void repeatedRenewWithoutSecretNeverLocksAndTheCorrectSecretStillRenews() throws Exception {
+        // The UI renew and a location renew never send a secret; they must not be able to lock the holder out.
+        KeyPair keyPair = generateKeyPair();
+        Certificate issued = seedIssuedCertWithContent(keyPair);
+        registeringAdapter();
+        activeAuthorizationFor(issued.getUuid());
+        String certUuid = issued.getUuid().toString();
+        ClientCertificateRenewRequestDto secretless = new ClientCertificateRenewRequestDto();
+
+        for (int i = 0; i < MAX_FAILED_ATTEMPTS; i++) {
+            Assertions
+                    .assertThrows(ValidationException.class, () -> clientOperationService
+                            .renewCertificate(authorityParent, securedRaProfile, certUuid, secretless));
+        }
+        assertNoAttemptSpent(issued.getUuid());
+
+        ClientCertificateRenewRequestDto correct = new ClientCertificateRenewRequestDto();
+        correct.setRequest(csrBase64(keyPair, RENEWABLE_SUBJECT_DN));
+        correct.setAuthorizationSecret(CHALLENGE);
+        clientOperationService.renewCertificate(authorityParent, securedRaProfile, certUuid, correct);
+
+        verify(actionProducer).produceMessage(Mockito.argThat(m -> m.getResourceAction() == ResourceAction.RENEW));
     }
 
     @Test
@@ -1807,7 +1862,7 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     }
 
     @Test
-    void rekeyWithoutSecretOfChallengeProtectedCertIsDeniedAndCounted() {
+    void rekeyWithoutSecretOfChallengeProtectedCertIsDeniedWithoutSpendingAnAttempt() {
         Certificate issued = seedIssuedCert();
         activeAuthorizationFor(issued.getUuid());
         ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
@@ -1817,15 +1872,10 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
                 .assertThrows(ValidationException.class, () -> clientOperationService
                         .rekeyCertificate(authorityParent, securedRaProfile, certUuid, request));
         Assertions
-                .assertTrue(ex.getMessage().toLowerCase().contains("challenge"),
-                        "the challenge gate must reject, not some downstream step");
-        Assertions
-                .assertEquals(1,
-                        authorizationRepository
-                                .findByCertificateUuid(issued.getUuid())
-                                .orElseThrow()
-                                .getFailedAttempts(),
-                        "a secretless rekey of a challenge-protected certificate is a failed attempt and must be counted");
+                .assertTrue(ex.getMessage().contains("The certificate registration challenge is invalid."),
+                        "the challenge gate must reject, and a missing secret must read the same as a wrong one");
+        assertNoAttemptSpent(issued.getUuid());
+        assertFailedEventRecorded(issued, CertificateEvent.REKEY);
         verify(actionProducer, never()).produceMessage(Mockito.any());
     }
 
@@ -2393,6 +2443,24 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
         auth.setExpiresAt(OffsetDateTime.now().plusDays(7));
         registrationChallengeStore.store(auth, CHALLENGE);
         authorizationRepository.save(auth);
+    }
+
+    private void assertNoAttemptSpent(UUID certificateUuid) {
+        CertificateRegistrationAuthorization auth = authorizationRepository
+                .findByCertificateUuid(certificateUuid)
+                .orElseThrow();
+        Assertions.assertEquals(0, auth.getFailedAttempts(), "a missing secret is not a guess and must not be counted");
+        Assertions.assertEquals(RegistrationState.ACTIVE, auth.getState());
+    }
+
+    private void assertFailedEventRecorded(Certificate certificate, CertificateEvent event) {
+        Assertions
+                .assertTrue(
+                        eventHistoryRepository
+                                .findByCertificateOrderByCreatedDesc(certificate)
+                                .stream()
+                                .anyMatch(h -> h.getEvent() == event && h.getStatus() == CertificateEventStatus.FAILED),
+                        "the denied %s must be recorded in the certificate history".formatted(event));
     }
 
     private String registerSyncRegistered() throws Exception {

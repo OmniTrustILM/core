@@ -1984,9 +1984,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 ResourceAction.RENEW);
 
         // Self-service gate: a certificate with a live registration authorization renews only against its
-        // challenge; a wrong or missing secret is denied (and counted) before any successor exists. A verified
-        // challenge lets the authorization follow the successor (copied below). A certificate with no
-        // authorization row, or a CLOSED one, renews without challenge verification.
+        // challenge; a wrong or missing secret is denied (only a wrong one is counted) before any successor
+        // exists. A verified challenge lets the authorization follow the successor (copied below). A
+        // certificate with no authorization row, or a CLOSED one, renews without challenge verification.
         boolean challengeAuthorized = registrationChallengeGate
                 .verify(oldCertificate.getUuid(), request != null ? request.getAuthorizationSecret() : null,
                         CertificateEvent.RENEW);
