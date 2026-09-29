@@ -12,13 +12,20 @@ import com.otilm.api.model.client.attribute.metadata.GlobalMetadataUpdateRequest
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.content.data.ProtectionLevel;
 import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
+import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
+import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
+import com.otilm.core.dao.entity.AttributeContentItem;
 import com.otilm.core.dao.entity.AttributeDefinition;
 import com.otilm.core.dao.entity.Connector;
+import com.otilm.core.dao.repository.AttributeContentItemRepository;
 import com.otilm.core.dao.repository.AttributeDefinitionRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.service.AttributeExternalService;
@@ -41,6 +48,12 @@ class GlobalMetadataServiceITest extends BaseSpringBootTest {
 
     @Autowired
     private ConnectorRepository connectorRepository;
+
+    @Autowired
+    private AttributeEngine attributeEngine;
+
+    @Autowired
+    private AttributeContentItemRepository attributeContentItemRepository;
 
     private Connector connector;
     private AttributeDefinition definition;
@@ -209,6 +222,47 @@ class GlobalMetadataServiceITest extends BaseSpringBootTest {
                 .editGlobalMetadata(metaDefinition.getUuid(), request);
         Assertions.assertEquals(request.getDescription(), response.getDescription());
         Assertions.assertEquals(request.getLabel(), response.getLabel());
+    }
+
+    @Test
+    void editingAGlobalMetadataAttributeKeepsItsValuesEncrypted() throws Exception {
+        MetadataAttributeV2 declared = new MetadataAttributeV2();
+        declared.setUuid(UUID.randomUUID().toString());
+        declared.setName("encryptedMeta");
+        declared.setType(AttributeType.META);
+        declared.setContentType(AttributeContentType.STRING);
+        MetadataAttributeProperties properties = new MetadataAttributeProperties();
+        properties.setLabel("Encrypted Meta");
+        properties.setVisible(true);
+        properties.setProtectionLevel(ProtectionLevel.ENCRYPTED);
+        declared.setProperties(properties);
+        declared.setContent(List.of(new StringAttributeContentV2("sensitive-meta-value")));
+        attributeEngine
+                .updateMetadataAttribute(declared,
+                        ObjectAttributeContentInfo
+                                .builder(Resource.CERTIFICATE, UUID.randomUUID())
+                                .connector(connector.getUuid())
+                                .build());
+        GlobalMetadataDefinitionDetailDto promoted = attributeService
+                .promoteConnectorMetadata(UUID.fromString(declared.getUuid()), connector.getUuid());
+
+        GlobalMetadataUpdateRequestDto rename = new GlobalMetadataUpdateRequestDto();
+        rename.setLabel("Renamed Encrypted Meta");
+        attributeService.editGlobalMetadata(UUID.fromString(promoted.getUuid()), rename);
+
+        AttributeDefinition edited = attributeDefinitionRepository
+                .findByUuidAndTypeAndGlobalTrue(UUID.fromString(promoted.getUuid()), AttributeType.META)
+                .orElseThrow();
+        Assertions
+                .assertEquals(ProtectionLevel.ENCRYPTED, edited.getProtectionLevel(),
+                        "an operator's edit must not change how the values are kept");
+        AttributeContentItem stored = attributeContentItemRepository
+                .findByAttributeDefinitionUuid(edited.getUuid())
+                .getFirst();
+        Assertions.assertNotNull(stored.getEncryptedData(), "the stored value must stay encrypted at rest");
+        Assertions
+                .assertNull(stored.getJson().getData(),
+                        "the stored json must stay the encrypted-content placeholder, not plaintext");
     }
 
     @Test

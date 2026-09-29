@@ -261,6 +261,9 @@ public class AttributeServiceImpl implements AttributeExternalService, Attribute
         attribute.getProperties().setLabel(request.getLabel());
         attribute.getProperties().setVisible(request.isVisible());
         attribute.getProperties().setGlobal(true);
+        // The request carries no protection level, and the properties' default of NONE would decrypt every stored
+        // value.
+        attribute.getProperties().setProtectionLevel(definition.getProtectionLevel());
 
         GlobalMetadataDefinitionDetailDto edited = attributeEngine
                 .updateMetadataAttributeDefinition(attribute, null)
