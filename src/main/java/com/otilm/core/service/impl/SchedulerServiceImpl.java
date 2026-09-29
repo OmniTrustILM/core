@@ -25,6 +25,7 @@ import com.otilm.core.events.transaction.ScheduledJobFinishedEvent;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.model.ScheduledTaskResult;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.model.scheduler.ObservedSchedules;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -58,6 +59,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
+import reactor.core.Exceptions;
 
 @Service
 public class SchedulerServiceImpl implements SchedulerExternalService, SchedulerInternalService {
@@ -129,6 +131,10 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
                 .of(paginationRequestDto.getPageNumber() - 1, paginationRequestDto.getItemsPerPage());
         final List<ScheduledJob> scheduledJobList = scheduledJobsRepository
                 .findUsingSecurityFilter(filter, List.of(), null, pageable, null);
+        // One read of the scheduler per page, none for an empty page; never a failure of the page.
+        final ObservedSchedules observed = scheduledJobList.isEmpty()
+                ? ObservedSchedules.unavailable()
+                : observeSchedules();
 
         final Long maxItems = scheduledJobsRepository.countUsingSecurityFilter(filter, null);
         final ScheduledJobsResponseDto responseDto = new ScheduledJobsResponseDto();
@@ -136,8 +142,10 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
                 .setScheduledJobs(scheduledJobList
                         .stream()
                         .map(job -> job
-                                .mapToDto(scheduledJobHistoryRepository
-                                        .findTopByScheduledJobUuidOrderByJobExecutionDesc(job.getUuid())))
+                                .mapToDto(
+                                        scheduledJobHistoryRepository
+                                                .findTopByScheduledJobUuidOrderByJobExecutionDesc(job.getUuid()),
+                                        observed.forJob(job.getJobName())))
                         .toList());
         responseDto.setItemsPerPage(paginationRequestDto.getItemsPerPage());
         responseDto.setPageNumber(paginationRequestDto.getPageNumber());
@@ -152,9 +160,7 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
         final ScheduledJob scheduledJob = scheduledJobsRepository
                 .findByUuid(SecuredUUID.fromString(uuid))
                 .orElseThrow(() -> new NotFoundException(ScheduledJob.class, uuid));
-        return scheduledJob
-                .mapToDetailDto(scheduledJobHistoryRepository
-                        .findTopByScheduledJobUuidOrderByJobExecutionDesc(UUID.fromString(uuid)));
+        return detailOf(scheduledJob);
     }
 
     @Override
@@ -245,9 +251,7 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
         scheduledJob.setCronExpression(request.getCronExpression());
         scheduledJobsRepository.save(scheduledJob);
 
-        return scheduledJob
-                .mapToDetailDto(scheduledJobHistoryRepository
-                        .findTopByScheduledJobUuidOrderByJobExecutionDesc(UUID.fromString(uuid)));
+        return detailOf(scheduledJob);
     }
 
     private void changeScheduledJobState(final String uuid, final boolean enabled)
@@ -487,7 +491,7 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
         Optional<ScheduledJob> scheduledJob = scheduledJobsRepository.findByJobName(jobName);
         if (scheduledJob.isPresent()) {
             logger.info("Scheduled job '{}' was already registered.", jobName);
-            return scheduledJob.get().mapToDetailDto(null);
+            return detailOf(scheduledJob.get());
         }
 
         ScheduledJob scheduledJobEntity = new ScheduledJob();
@@ -517,7 +521,7 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
         }
 
         logger.info("Scheduled job '{}' was registered.", jobName);
-        return scheduledJobEntity.mapToDetailDto(null);
+        return detailOf(scheduledJobEntity);
     }
 
     /** The registration another node won, re-read after this node's insert lost to it. */
@@ -531,7 +535,33 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
             throw new SchedulerException("Scheduled job could not be registered: " + jobName);
         }
         logger.info("Scheduled job '{}' was registered by another node while this one was registering it.", jobName);
-        return winner.get().mapToDetailDto(null);
+        return detailOf(winner.get());
+    }
+
+    /** The detail every endpoint answers with, built the same way: latest run, and what the scheduler observes. */
+    private ScheduledJobDetailDto detailOf(ScheduledJob job) {
+        final ScheduledJobHistory latestHistory = scheduledJobHistoryRepository
+                .findTopByScheduledJobUuidOrderByJobExecutionDesc(job.getUuid());
+        return job.mapToDetailDto(latestHistory, observeSchedules().forJob(job.getJobName()));
+    }
+
+    /**
+     * What the scheduler holds, or that it could not be asked. A scheduler that is down, answers an error, or predates
+     * the trigger fields leaves every job UNKNOWN rather than failing the response. One line at WARN naming only the
+     * exception's class: without the trace, which an outage would otherwise print per listing, and without its message,
+     * which for an error status is the scheduler's own response body. The trace goes to DEBUG.
+     */
+    private ObservedSchedules observeSchedules() {
+        try {
+            return ObservedSchedules.of(schedulerApiClient.listScheduledJobs());
+        } catch (RuntimeException e) {
+            final Throwable cause = Exceptions.unwrap(e);
+            logger
+                    .warn("Scheduler job list could not be read ({}); serving schedule state 'unknown'",
+                            cause.getClass().getSimpleName());
+            logger.debug("The scheduler job list read failed", cause);
+            return ObservedSchedules.unavailable();
+        }
     }
 
 }

@@ -1,5 +1,9 @@
 package com.otilm.core.service;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.otilm.api.clients.SchedulerApiClient;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.SchedulerException;
@@ -7,8 +11,13 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.api.model.core.scheduler.ScheduledJobDetailDto;
 import com.otilm.api.model.core.scheduler.ScheduledJobHistoryResponseDto;
+import com.otilm.api.model.core.scheduler.ScheduledJobScheduleState;
 import com.otilm.api.model.core.scheduler.ScheduledJobsResponseDto;
+import com.otilm.api.model.scheduler.SchedulerJobDto;
 import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
+import com.otilm.api.model.scheduler.SchedulerResponseDto;
+import com.otilm.api.model.scheduler.SchedulerStatus;
+import com.otilm.api.model.scheduler.SchedulerTriggerState;
 import com.otilm.api.model.scheduler.UpdateScheduledJob;
 import com.otilm.core.api.ScheduledJobSkippedException;
 import com.otilm.core.dao.entity.ScheduledJob;
@@ -26,6 +35,7 @@ import com.otilm.core.service.writer.scheduler.ScheduledJobWriter;
 import com.otilm.core.tasks.ScheduledJobInfo;
 import com.otilm.core.tasks.ScheduledJobTask;
 import com.otilm.core.util.AuthHelper;
+import java.time.Instant;
 import java.util.Date;
 import java.util.List;
 import java.util.Optional;
@@ -38,6 +48,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationContext;
 import org.springframework.data.domain.Pageable;
 
@@ -61,6 +72,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -139,6 +151,87 @@ class SchedulerServiceMockedTest {
         assertEquals(1, response.getTotalPages());
         assertEquals(10, response.getItemsPerPage());
         assertEquals(1, response.getPageNumber());
+    }
+
+    @Test
+    void testListScheduledJobs_ReadsTheSchedulerOncePerPage() {
+        PaginationRequestDto pagination = new PaginationRequestDto();
+        ScheduledJob other = new ScheduledJob();
+        other.setUuid(UUID.randomUUID());
+        other.setJobName("OtherJob");
+        other.setJobClassName(TestTask.class.getName());
+        other.setCronExpression("0 0 * * * ?");
+        when(scheduledJobsRepository
+                .findUsingSecurityFilter(any(), eq(List.of()), isNull(), any(Pageable.class), isNull()))
+                .thenReturn(List.of(scheduledJob, other));
+        when(scheduledJobsRepository.countUsingSecurityFilter(any(), isNull())).thenReturn(2L);
+        when(schedulerApiClient.listScheduledJobs()).thenReturn(schedulerHolding(JOB_NAME));
+
+        ScheduledJobsResponseDto response = schedulerService.listScheduledJobs(SecurityFilter.create(), pagination);
+
+        verify(schedulerApiClient, times(1)).listScheduledJobs();
+        assertEquals(ScheduledJobScheduleState.SCHEDULED, response.getScheduledJobs().get(0).getScheduleState());
+        assertEquals(Instant.parse("2026-09-29T12:30:00Z"), response.getScheduledJobs().get(0).getNextFireTime());
+        assertEquals(ScheduledJobScheduleState.NOT_SCHEDULED, response.getScheduledJobs().get(1).getScheduleState());
+    }
+
+    /**
+     * An outage must not fail the page, and must not print a trace per listing either: one WARN, without the trace and
+     * without the exception's own text, which for an error status is the scheduler's response body.
+     */
+    @Test
+    void testListScheduledJobs_WhenTheSchedulerCannotBeRead_ServesUnknown() {
+        PaginationRequestDto pagination = new PaginationRequestDto();
+        when(scheduledJobsRepository
+                .findUsingSecurityFilter(any(), eq(List.of()), isNull(), any(Pageable.class), isNull()))
+                .thenReturn(List.of(scheduledJob));
+        when(scheduledJobsRepository.countUsingSecurityFilter(any(), isNull())).thenReturn(1L);
+        when(schedulerApiClient.listScheduledJobs())
+                .thenThrow(new IllegalStateException("Timeout on blocking read for 5000000000 NS"));
+        ListAppender<ILoggingEvent> logs = new ListAppender<>();
+        Logger serviceLogger = (Logger) LoggerFactory.getLogger(SchedulerServiceImpl.class);
+        logs.start();
+        serviceLogger.addAppender(logs);
+
+        ScheduledJobsResponseDto response;
+        try {
+            response = assertDoesNotThrow(
+                    () -> schedulerService.listScheduledJobs(SecurityFilter.create(), pagination));
+        } finally {
+            serviceLogger.detachAppender(logs);
+        }
+
+        assertEquals(1, response.getScheduledJobs().size());
+        assertEquals(ScheduledJobScheduleState.UNKNOWN, response.getScheduledJobs().get(0).getScheduleState());
+        assertNull(response.getScheduledJobs().get(0).getNextFireTime());
+        List<ILoggingEvent> warnings = logs.list.stream().filter(event -> event.getLevel() == Level.WARN).toList();
+        assertEquals(1, warnings.size());
+        assertNull(warnings.get(0).getThrowableProxy());
+        assertFalse(warnings.get(0).getFormattedMessage().contains("Timeout on blocking read"));
+    }
+
+    @Test
+    void testListScheduledJobs_WhenThePageIsEmpty_DoesNotReadTheScheduler() {
+        PaginationRequestDto pagination = new PaginationRequestDto();
+        when(scheduledJobsRepository
+                .findUsingSecurityFilter(any(), eq(List.of()), isNull(), any(Pageable.class), isNull()))
+                .thenReturn(List.of());
+        when(scheduledJobsRepository.countUsingSecurityFilter(any(), isNull())).thenReturn(0L);
+
+        schedulerService.listScheduledJobs(SecurityFilter.create(), pagination);
+
+        verify(schedulerApiClient, never()).listScheduledJobs();
+    }
+
+    @Test
+    void testGetScheduledJobDetail_CarriesTheObservedSchedule() throws Exception {
+        when(scheduledJobsRepository.findByUuid(any(SecuredUUID.class))).thenReturn(Optional.of(scheduledJob));
+        when(schedulerApiClient.listScheduledJobs()).thenReturn(schedulerHolding(JOB_NAME));
+
+        ScheduledJobDetailDto response = schedulerService.getScheduledJobDetail(JOB_UUID.toString());
+
+        assertEquals(ScheduledJobScheduleState.SCHEDULED, response.getScheduleState());
+        assertEquals(Instant.parse("2026-09-29T11:30:00Z"), response.getPreviousFireTime());
     }
 
     @Test
@@ -742,7 +835,18 @@ class SchedulerServiceMockedTest {
         verify(eventProducer, never()).produceMessage(any());
     }
 
+    private static SchedulerResponseDto schedulerHolding(String jobName) {
+        SchedulerJobDto job = new SchedulerJobDto(jobName, "0 0 * * * ?", TestTask.class.getName());
+        job.setTriggerState(SchedulerTriggerState.NORMAL);
+        job.setNextFireTime(Instant.parse("2026-09-29T12:30:00Z"));
+        job.setPreviousFireTime(Instant.parse("2026-09-29T11:30:00Z"));
+        SchedulerResponseDto response = new SchedulerResponseDto(SchedulerStatus.OK);
+        response.setSchedulerJobList(List.of(job));
+        return response;
+    }
+
     // Inner test class to simulate a ScheduledJobTask
+
     public static class TestTask implements ScheduledJobTask {
         private final ScheduledTaskResult result;
         private final ScheduledJobSkippedException exception;

@@ -4,6 +4,7 @@ import com.otilm.api.clients.SchedulerApiClient;
 import com.otilm.api.exception.SchedulerException;
 import com.otilm.api.model.core.scheduler.ScheduledJobDetailDto;
 import com.otilm.core.dao.entity.ScheduledJob;
+import com.otilm.core.dao.repository.ScheduledJobHistoryRepository;
 import com.otilm.core.dao.repository.ScheduledJobsRepository;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.tasks.CbomReconcileTask;
@@ -53,6 +54,7 @@ class SchedulerJobRegistrationRaceTest {
         service = new SchedulerServiceImpl();
         service.setApplicationContext(applicationContext);
         service.setScheduledJobsRepository(repository);
+        service.setScheduledJobHistoryRepository(mock(ScheduledJobHistoryRepository.class));
         service.setSchedulerApiClient(mock(SchedulerApiClient.class));
         service.setEventProducer(mock(EventProducer.class));
     }
