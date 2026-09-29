@@ -1,6 +1,7 @@
 package com.otilm.core.integration.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.github.tomakehurst.wiremock.WireMockServer;
 import com.otilm.api.exception.ConnectorServerException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
@@ -8,6 +9,8 @@ import com.otilm.api.interfaces.core.web.CryptographicKeyController;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.attribute.ResponseAttribute;
+import com.otilm.api.model.client.attribute.ResponseAttributeV3;
+import com.otilm.api.model.client.certificate.ImportOutcome;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.cryptography.key.KeyImportRequestDto;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
@@ -48,6 +51,7 @@ import com.otilm.api.model.core.settings.logging.AuditLoggingSettingsDto;
 import com.otilm.api.model.core.settings.logging.LoggingSettingsDto;
 import com.otilm.api.model.core.settings.logging.ResourceLoggingSettingsDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.OutboundSecretContainment;
 import com.otilm.core.dao.entity.AuditLog;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyEventHistory;
@@ -66,15 +70,19 @@ import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.KeyImportRepository;
 import com.otilm.core.dao.repository.OwnerAssociationRepository;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.model.crypto.ImportedKey;
 import com.otilm.core.model.crypto.KeyMaterial;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.CryptographicKeyImportExternalService;
 import com.otilm.core.service.ResourceObjectAssociationService;
 import com.otilm.core.service.SettingExternalService;
 import com.otilm.core.service.handler.KeyImportSaga;
+import com.otilm.core.service.impl.CryptographicKeyImportServiceImpl;
 import com.otilm.core.service.writer.CertificateKeyWriter;
 import com.otilm.core.service.writer.CryptographicKeyWriter;
+import com.otilm.core.service.writer.KeyImportWriter;
 import com.otilm.core.util.AuthHelper;
+import com.otilm.core.util.AuthServiceWireMockStubs;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CryptographyUtil;
 import com.otilm.core.util.ExportEnvelopeFixtures;
@@ -84,11 +92,19 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.PublicKey;
 import java.security.spec.ECGenParameterSpec;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import javax.crypto.KeyGenerator;
+import org.awaitility.Awaitility;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.openssl.jcajce.JceOpenSSLPKCS8DecryptorProviderBuilder;
 import org.bouncycastle.pkcs.PKCS8EncryptedPrivateKeyInfo;
@@ -101,8 +117,12 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.concurrent.DelegatingSecurityContextCallable;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -112,6 +132,9 @@ import static org.mockito.Mockito.verifyNoInteractions;
 class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
 
     private static final char[] PASSPHRASE = "correct horse battery staple".toCharArray();
+
+    /** The transport passphrase another node sent the import with. */
+    private static final String RESENT = "another node's transport passphrase";
 
     private static final String REQUIRED_LABEL_SCHEMA = "[{\"uuid\":\"" + UUID.randomUUID()
             + "\",\"name\":\"importLabel\",\"type\":\"data\",\"contentType\":\"string\",\"version\":3,"
@@ -133,6 +156,8 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
     @Autowired
     private KeyImportRepository keyImportRepository;
     @Autowired
+    private KeyImportWriter keyImportWriter;
+    @Autowired
     private CertificateKeyWriter certificateKeyWriter;
     @Autowired
     private OwnerAssociationRepository ownerAssociationRepository;
@@ -149,6 +174,7 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
     @Autowired
     private GroupRepository groupRepository;
 
+    private WireMockServer authService;
     private V2TokenFixture.V2Token v2Token;
     private CryptographyProviderV2ConnectorMock connectorMock;
     private TokenInstanceReference token;
@@ -169,6 +195,9 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
     @AfterEach
     void tearDown() {
         connectorMock.stop();
+        if (authService != null) {
+            authService.stop();
+        }
     }
 
     @Test
@@ -264,6 +293,44 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
         assertThat(cryptographicKeyRepository.count()).isZero();
     }
 
+    /**
+     * A retry on another node resumed the import while this request waited on it, so this request's deadline leaves the
+     * import running, for the retry to learn the outcome of and register. The connector answers this request's poll
+     * only after its deadline, and the test resumes the import meanwhile, as the retry does.
+     */
+    @Test
+    void importKey_leavesAnImportAnotherNodeResumedToThatNode() throws Exception {
+        // given
+        declare(FeatureFlag.STATELESS, FeatureFlag.KEY_IMPORT, FeatureFlag.ASYNCHRONOUS);
+        connectorMock.stubImportKey(202, accepted());
+        connectorMock.stubImportKeyStatusAfter(status(OperationStatus.IN_PROGRESS), 2000);
+        connectorMock.stubCancelImportKey();
+        try (ExecutorService node = Executors.newSingleThreadExecutor()) {
+            Future<KeyDetailDto> first = node.submit(onNode(() -> importKey(plainRequest("imported key"))));
+            awaitPolling();
+
+            // when
+            keyImportWriter.resuming(onlyAttempt().getUuid());
+            ExecutionException failure = assertThrows(ExecutionException.class, () -> first.get(10, TimeUnit.SECONDS));
+
+            // then
+            assertThat(failure.getCause())
+                    .isInstanceOf(ConnectorServerException.class)
+                    .hasMessage(KeyImportSaga.UNCONFIRMED);
+            connectorMock.verifyCancelImportKeyRequests(0);
+        }
+
+        // when
+        connectorMock.stubImportKeyResult(status(OperationStatus.COMPLETED));
+        KeyDetailDto detail = importKey(plainRequest("imported key"));
+
+        // then
+        KeyImport attempt = onlyAttempt();
+        assertThat(attempt.getState()).isEqualTo(KeyImportState.COMPLETED);
+        assertThat(attempt.getKeyUuid()).hasToString(detail.getUuid());
+        connectorMock.verifyImportKeyRequests(1);
+    }
+
     @ParameterizedTest
     @EnumSource(value = ErrorCode.class,
             names = {
@@ -349,6 +416,75 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
         connectorMock.verifyImportKeyRequests(1);
     }
 
+    /**
+     * A retry on another node sent the import again, with secrets of its own, while this request waited on it; an
+     * answer that echoes them is refused, so they are stored nowhere. The connector is asked again once that answer is
+     * stubbed, so it is that answer, not the deadline, that ends the wait.
+     */
+    @Test
+    void importKey_refusesAnAnswerThatEchoesWhatAnotherNodeSentWhileItWaited() throws Exception {
+        // given
+        declare(FeatureFlag.STATELESS, FeatureFlag.KEY_IMPORT, FeatureFlag.ASYNCHRONOUS);
+        connectorMock.stubImportKey(202, accepted());
+        connectorMock.stubImportKeyStatuses(status(OperationStatus.IN_PROGRESS));
+        KeyPairOperationStatusResponseV2Dto echoing = status(OperationStatus.COMPLETED);
+        echoing.getResult().getPrivateKeyData().setKeyMeta(List.of(KeyImportWriterITest.handle("echo", RESENT)));
+        List<String> seen = new ArrayList<>();
+        SecretLeakProbe probe = SecretLeakProbe.capture();
+        try (probe; ExecutorService node = Executors.newSingleThreadExecutor()) {
+            Future<KeyDetailDto> waiting = node.submit(onNode(() -> importKey(plainRequest("imported key"))));
+            awaitPolling();
+
+            // when
+            keyImportWriter.resending(onlyAttempt().getUuid(), OutboundSecretContainment.digestsOf(List.of(RESENT)));
+            connectorMock.stubImportKeyStatuses(echoing);
+            int pollsBeforeTheEcho = connectorMock.importKeyStatusRequestsReceived();
+            ExecutionException failure = assertThrows(ExecutionException.class,
+                    () -> waiting.get(10, TimeUnit.SECONDS));
+
+            // then
+            assertThat(failure.getCause())
+                    .isInstanceOf(ConnectorServerException.class)
+                    .hasMessage(KeyImportSaga.UNCONFIRMED);
+            assertThat(connectorMock.importKeyStatusRequestsReceived()).isGreaterThan(pollsBeforeTheEcho);
+            seen.addAll(probe.logged());
+        }
+        assertThat(onlyAttempt().getState()).isEqualTo(KeyImportState.ACCEPTED);
+        assertThat(cryptographicKeyRepository.count()).isZero();
+        seen.addAll(jdbcTemplate.queryForList("SELECT row_to_json(key_import)::text FROM key_import", String.class));
+        seen
+                .addAll(jdbcTemplate
+                        .queryForList("SELECT row_to_json(cryptographic_key_item)::text FROM cryptographic_key_item",
+                                String.class));
+        SecretLeakProbe.assertNoneReveals(seen, RESENT);
+    }
+
+    /**
+     * A retry on another node sent the import again while this request's send was on its way, so the connector's
+     * refusal of this send leaves the attempt open, for the retry's send to settle.
+     */
+    @Test
+    void importKey_leavesOpenAnAttemptAnotherNodeSentAgainWhenItsOwnSendIsRefused() throws Exception {
+        // given
+        connectorMock.stubImportKeyProblemAfter(ErrorCode.KEY_DECRYPTION_FAILED, "refused", 2000);
+        try (ExecutorService node = Executors.newSingleThreadExecutor()) {
+            Future<KeyDetailDto> refused = node.submit(onNode(() -> importKey(plainRequest("imported key"))));
+            awaitSending();
+
+            // when
+            keyImportWriter.resending(onlyAttempt().getUuid(), OutboundSecretContainment.digestsOf(List.of(RESENT)));
+            ExecutionException failure = assertThrows(ExecutionException.class,
+                    () -> refused.get(10, TimeUnit.SECONDS));
+
+            // then
+            assertThat(failure.getCause())
+                    .isInstanceOf(ConnectorServerException.class)
+                    .hasMessage(KeyImportSaga.UNCONFIRMED);
+        }
+        assertThat(onlyAttempt().getState()).isEqualTo(KeyImportState.REQUESTED);
+        assertThat(cryptographicKeyRepository.count()).isZero();
+    }
+
     @Test
     void importKey_resendsAnImportTheConnectorNeverAccepted() throws Exception {
         // given
@@ -411,25 +547,71 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
         assertThat(keyImportRepository.count()).isEqualTo(1);
     }
 
-    /** The same key from another file is another import, so it meets the duplicate check rather than the retry. */
+    /**
+     * The same key from another file is another import, which finds the key the platform holds: it changes nothing,
+     * asks no connector and records no attempt.
+     */
     @Test
-    void importKey_refusesAKeyThePlatformAlreadyHolds() throws Exception {
+    void importKey_answersAKeyThePlatformHoldsWithoutAskingTheConnector() throws Exception {
         // given
         connectorMock.stubImportKey(200, imported(pair.getPublic()));
-        importKey(plainRequest("imported key"));
+        KeyDetailDto held = importKey(plainRequest("imported key"));
+
+        // when
+        ImportedKey again = importKeyWithOutcome(KeyRequestType.KEY_PAIR, protectedRequest("the same key again"));
+
+        // then
+        assertThat(again.outcome()).isEqualTo(ImportOutcome.EXISTING);
+        assertThat(again.key().uuid()).hasToString(held.getUuid());
+        assertThat(again.key().name()).isEqualTo("imported key");
+        connectorMock.verifyImportKeyRequests(1);
+        assertThat(keyImportRepository.count()).isEqualTo(1);
+    }
+
+    /** A caller who may not see the key the platform holds learns nothing of it: the import is refused. */
+    @Test
+    void importKey_refusesAKeyItHoldsToACallerWhoMayNotSeeIt() throws Exception {
+        // given
+        connectorMock.stubImportKey(200, imported(pair.getPublic()));
+        KeyDetailDto held = importKey(plainRequest("imported key"));
+        objectAssociationService
+                .setOwner(Resource.CRYPTOGRAPHIC_KEY, UUID.fromString(held.getUuid()), UUID.randomUUID(), "another");
+        denyResourceAccess(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.DETAIL);
         KeyImportRequestDto sameKeyAnotherFile = protectedRequest("the same key again");
 
         // when
         ValidationException refused = assertThrows(ValidationException.class, () -> importKey(sameKeyAnotherFile));
 
         // then
-        assertThat(refused.getMessage()).isEqualTo(CryptographicKeyWriter.KEY_ALREADY_HELD);
+        assertThat(refused.getMessage()).isEqualTo(CryptographicKeyImportServiceImpl.KEY_EXISTS);
         connectorMock.verifyImportKeyRequests(1);
+    }
+
+    @Test
+    void importKey_refusesAKeyThePlatformHoldsDeactivated() throws Exception {
+        // given
+        connectorMock.stubImportKey(200, imported(pair.getPublic()));
+        KeyDetailDto held = importKey(plainRequest("imported key"));
+        for (CryptographicKeyItem item : cryptographicKeyItemRepository
+                .findByKeyUuidIn(List.of(UUID.fromString(held.getUuid())))) {
+            item.setState(KeyState.DEACTIVATED);
+            cryptographicKeyItemRepository.saveAndFlush(item);
+        }
+        KeyImportRequestDto sameKeyAnotherFile = protectedRequest("the same key again");
+
+        // when
+        ValidationException refused = assertThrows(ValidationException.class, () -> importKey(sameKeyAnotherFile));
+
+        // then
+        assertThat(refused.getMessage()).isEqualTo(CryptographicKeyWriter.KEY_NOT_ACTIVE);
+        connectorMock.verifyImportKeyRequests(1);
+        assertThat(keyImportRepository.count()).isEqualTo(1);
     }
 
     @Test
     void importKey_adoptsTheKeyACertificateBroughtIn() throws Exception {
         // given
+        authServiceKnowsTheRequester();
         UUID recordUuid = certificatePublicKey();
         connectorMock.stubImportKey(200, imported(pair.getPublic()));
 
@@ -438,13 +620,107 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
 
         // then
         assertThat(detail.getUuid()).isEqualTo(recordUuid.toString());
+        assertThat(detail.getName()).isEqualTo("certKey_imported");
         CryptographicKey adopted = cryptographicKeyRepository.findById(recordUuid).orElseThrow();
         assertThat(adopted.getTokenProfileUuid()).isEqualTo(profile.getUuid());
         assertThat(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(recordUuid))).hasSize(2);
         assertThat(importEvents())
                 .hasSize(2)
                 .allSatisfy(event -> assertThat(event.getStatus()).isEqualTo(KeyEventStatus.SUCCESS));
-        assertThat(ownerOf(recordUuid)).isEqualTo(AuthHelper.getUserIdentification().getName());
+        assertThat(objectAssociationService.getOwner(Resource.CRYPTOGRAPHIC_KEY, recordUuid)).isNull();
+    }
+
+    /**
+     * An import into a record another user owns, by a caller allowed to update it, adds the private key and nothing
+     * else: the record keeps whose it is, its groups, its custom attributes, its name, which need not be free, and its
+     * description; the imported key's items are registered under the record's name.
+     */
+    @Test
+    void importKey_adoptsARecordAnotherUserOwnsWithoutChangingIt() throws Exception {
+        // given
+        authServiceKnowsTheRequester();
+        UUID recordUuid = certificatePublicKey();
+        UUID ownerUuid = UUID.randomUUID();
+        Group recordGroup = group("record group");
+        CustomAttributeV3 department = departmentAttribute();
+        describedOwnedAndGrouped(recordUuid, ownerUuid, recordGroup, departmentValue(department, "Sales"));
+        keyNamed("taken");
+        connectorMock.stubImportKey(200, imported(pair.getPublic()));
+        KeyImportRequestDto request = plainRequest("taken");
+        request.setGroupUuids(List.of(group("import group").getUuid().toString()));
+        request.setCustomAttributes(List.of(departmentValue(department, "Engineering")));
+
+        // when
+        ImportedKey adopted = importKeyWithOutcome(KeyRequestType.KEY_PAIR, request);
+
+        // then
+        assertThat(adopted.outcome()).isEqualTo(ImportOutcome.ADOPTED);
+        assertThat(adopted.key().uuid()).isEqualTo(recordUuid);
+        CryptographicKey kept = cryptographicKeyRepository.findWithGroupsByUuid(recordUuid).orElseThrow();
+        assertThat(kept.getName()).isEqualTo("certKey_imported");
+        assertThat(kept.getDescription()).isEqualTo("the certificate's key");
+        assertThat(kept.getTokenProfileUuid()).isEqualTo(profile.getUuid());
+        assertThat(kept.getGroups()).extracting(Group::getUuid).containsExactly(recordGroup.getUuid());
+        assertThat(objectAssociationService.getOwner(Resource.CRYPTOGRAPHIC_KEY, recordUuid).getUuid())
+                .isEqualTo(ownerUuid.toString());
+        assertThat(departmentOf(recordUuid)).isEqualTo("Sales");
+        assertThat(item(recordUuid, KeyType.PRIVATE_KEY).getName()).isEqualTo("certKey_imported private key");
+        assertThat(onlyAttempt().getName()).isEqualTo("certKey_imported");
+    }
+
+    /**
+     * A caller who may not update a record another user owns is refused before anything is recorded or asked, in the
+     * words a key held otherwise is refused with, and the record is left as it was.
+     */
+    @Test
+    void importKey_refusesARecordAnotherUserOwnsToACallerWithoutUpdate() throws Exception {
+        // given
+        UUID recordUuid = certificatePublicKey();
+        UUID ownerUuid = UUID.randomUUID();
+        Group recordGroup = group("record group");
+        CustomAttributeV3 department = departmentAttribute();
+        describedOwnedAndGrouped(recordUuid, ownerUuid, recordGroup, departmentValue(department, "Sales"));
+        denyResourceAccess(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.UPDATE);
+        connectorMock.stubImportKey(200, imported(pair.getPublic()));
+        KeyImportRequestDto request = plainRequest("imported key");
+
+        // when
+        ValidationException refused = assertThrows(ValidationException.class, () -> importKey(request));
+
+        // then
+        assertThat(refused.getMessage()).isEqualTo(CryptographicKeyWriter.KEY_ALREADY_HELD);
+        connectorMock.verifyImportKeyRequests(0);
+        assertThat(keyImportRepository.count()).isZero();
+        CryptographicKey unchanged = cryptographicKeyRepository.findWithGroupsByUuid(recordUuid).orElseThrow();
+        assertThat(unchanged.getName()).isEqualTo("certKey_imported");
+        assertThat(unchanged.getDescription()).isEqualTo("the certificate's key");
+        assertThat(unchanged.getTokenProfileUuid()).isNull();
+        assertThat(unchanged.getGroups()).extracting(Group::getUuid).containsExactly(recordGroup.getUuid());
+        assertThat(objectAssociationService.getOwner(Resource.CRYPTOGRAPHIC_KEY, recordUuid).getUuid())
+                .isEqualTo(ownerUuid.toString());
+        assertThat(departmentOf(recordUuid)).isEqualTo("Sales");
+        assertThat(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(recordUuid))).hasSize(1);
+        assertThat(importEvents()).isEmpty();
+    }
+
+    /** The right to update is the record's: its owner has it, though the policy grants it on no key at large. */
+    @Test
+    void importKey_adoptsARecordTheCallerOwnsWithoutUpdateOnKeysAtLarge() throws Exception {
+        // given
+        NameAndUuidDto caller = AuthHelper.getUserIdentification();
+        authServiceKnowsTheRequester();
+        UUID recordUuid = certificatePublicKey();
+        objectAssociationService
+                .setOwner(Resource.CRYPTOGRAPHIC_KEY, recordUuid, UUID.fromString(caller.getUuid()), caller.getName());
+        denyResourceAccess(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.UPDATE);
+        connectorMock.stubImportKey(200, imported(pair.getPublic()));
+
+        // when
+        ImportedKey adopted = importKeyWithOutcome(KeyRequestType.KEY_PAIR, plainRequest("imported key"));
+
+        // then
+        assertThat(adopted.outcome()).isEqualTo(ImportOutcome.ADOPTED);
+        assertThat(ownerOf(recordUuid)).isEqualTo(caller.getName());
     }
 
     @Test
@@ -480,6 +756,23 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
         // then
         assertThat(refused.getMessage()).isEqualTo(CryptographicKeyWriter.NAME_TAKEN.formatted("taken"));
         connectorMock.verifyImportKeyRequests(1);
+    }
+
+    /** A token sync names keys after the token, so two keys can share a name; it is refused as any taken name is. */
+    @Test
+    void importKey_refusesANameTwoKeysShare() {
+        // given
+        keyNamed("shared");
+        keyNamed("shared");
+        KeyImportRequestDto request = plainRequest("shared");
+
+        // when
+        ValidationException refused = assertThrows(ValidationException.class, () -> importKey(request));
+
+        // then
+        assertThat(refused.getMessage()).isEqualTo(CryptographicKeyWriter.NAME_TAKEN.formatted("shared"));
+        connectorMock.verifyImportKeyRequests(0);
+        assertThat(keyImportRepository.count()).isZero();
     }
 
     @Test
@@ -725,11 +1018,13 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
         connectorMock.stubImportKey(200, imported(pair.getPublic()));
 
         // when
-        KeyDetailDto detail = keyController
+        ResponseEntity<KeyDetailDto> answer = keyController
                 .importKey(token.getUuid().toString(), profile.getUuid().toString(), KeyRequestType.KEY_PAIR,
                         plainRequest("imported key"));
+        KeyDetailDto detail = answer.getBody();
 
         // then
+        assertThat(answer.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         AuditLog auditRecord = auditLogRepository
                 .findAll()
                 .stream()
@@ -779,7 +1074,8 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
                             .wire()
                             .writeValueAsString(keyController
                                     .importKey(tokenUuid, profileUuid, KeyRequestType.KEY_PAIR,
-                                            request("imported", file, PASSPHRASE))));
+                                            request("imported", file, PASSPHRASE))
+                                    .getBody()));
             declare(FeatureFlag.STATELESS, FeatureFlag.KEY_IMPORT, FeatureFlag.ASYNCHRONOUS);
             connectorMock.stubImportKey(202, accepted());
             connectorMock
@@ -790,7 +1086,8 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
                             .wire()
                             .writeValueAsString(keyController
                                     .importKey(tokenUuid, profileUuid, KeyRequestType.KEY_PAIR,
-                                            request("waited for", waitedFor.getPrivate().getEncoded(), null))));
+                                            request("waited for", waitedFor.getPrivate().getEncoded(), null))
+                                    .getBody()));
             connectorMock.stubImportKeyStatuses(status(OperationStatus.IN_PROGRESS, cancelled.getPublic()));
             connectorMock.stubCancelImportKey();
             seen
@@ -838,7 +1135,10 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
         connectorMock.verifyImportKeyRequests(1);
     }
 
-    /** A repeat shows the key as it is now, so a caller who may no longer see it, once it changed hands, is refused. */
+    /**
+     * A repeat shows the key as it is now, so a caller who may no longer see it, once it changed hands, is refused in
+     * words that say only that the key exists.
+     */
     @Test
     void importKey_refusesARepeatToACallerWhoMayNoLongerSeeTheKey() throws Exception {
         // given
@@ -851,8 +1151,106 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
         KeyImportRequestDto repeat = plainRequest("imported key");
 
         // when
+        ValidationException refused = assertThrows(ValidationException.class, () -> importKey(repeat));
+
         // then
-        assertThrows(AccessDeniedException.class, () -> importKey(repeat));
+        assertThat(refused.getMessage()).isEqualTo(CryptographicKeyImportServiceImpl.KEY_EXISTS);
+        connectorMock.verifyImportKeyRequests(1);
+    }
+
+    /** A secret key has no public key, and its refusal speaks of none: it says only that the key exists. */
+    @Test
+    void importKey_refusesASecretKeyRepeatToACallerWhoMayNoLongerSeeIt() throws Exception {
+        // given
+        connectorMock.stubImportableKeyTypes(KeyRequestType.SECRET, KeyAlgorithm.AES);
+        connectorMock.stubImportKey(200, importedSecretKey());
+        byte[] file = ExportEnvelopeFixtures.pinnedAesEnvelope(aes(), PASSPHRASE);
+        KeyDetailDto imported = importSecretKey(secretKeyRequest("imported secret key", file));
+        objectAssociationService
+                .setOwner(Resource.CRYPTOGRAPHIC_KEY, UUID.fromString(imported.getUuid()), UUID.randomUUID(),
+                        "another");
+        denyResourceAccess(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.DETAIL);
+        KeyImportRequestDto repeat = secretKeyRequest("imported secret key", file);
+
+        // when
+        ValidationException refused = assertThrows(ValidationException.class, () -> importSecretKey(repeat));
+
+        // then
+        assertThat(refused.getMessage()).isEqualTo(CryptographicKeyImportServiceImpl.KEY_EXISTS);
+        connectorMock.verifyImportKeyRequests(1);
+    }
+
+    @Test
+    void importKeyWithOutcome_reportsTheKeyItCreatedAndARepeatOfItsImportAsExisting() throws Exception {
+        // given
+        connectorMock.stubImportKey(200, imported(pair.getPublic()));
+        ImportedKey created = importKeyWithOutcome(KeyRequestType.KEY_PAIR, plainRequest("imported key"));
+
+        // when
+        ImportedKey repeated = importKeyWithOutcome(KeyRequestType.KEY_PAIR, plainRequest("imported key"));
+
+        // then
+        assertThat(created.outcome()).isEqualTo(ImportOutcome.CREATED);
+        assertThat(repeated.outcome()).isEqualTo(ImportOutcome.EXISTING);
+        assertThat(repeated.key().uuid()).isEqualTo(created.key().uuid());
+        connectorMock.verifyImportKeyRequests(1);
+    }
+
+    @Test
+    void importKeyWithOutcome_reportsTheRecordItAdopted() throws Exception {
+        // given
+        authServiceKnowsTheRequester();
+        UUID recordUuid = certificatePublicKey();
+        connectorMock.stubImportKey(200, imported(pair.getPublic()));
+
+        // when
+        ImportedKey adopted = importKeyWithOutcome(KeyRequestType.KEY_PAIR, plainRequest("imported key"));
+
+        // then
+        assertThat(adopted.outcome()).isEqualTo(ImportOutcome.ADOPTED);
+        assertThat(adopted.key().uuid()).isEqualTo(recordUuid);
+    }
+
+    /**
+     * A secret key has no public key to find it by, only the key import's own record; once that record is past its
+     * retention and gone, the same file imports a second key.
+     */
+    @Test
+    void importKeyWithOutcome_importsASecretKeyAgainOnceItsImportIsPastTheRetention() throws Exception {
+        // given
+        connectorMock.stubImportableKeyTypes(KeyRequestType.SECRET, KeyAlgorithm.AES);
+        connectorMock.stubImportKey(200, importedSecretKey());
+        byte[] file = ExportEnvelopeFixtures.pinnedAesEnvelope(aes(), PASSPHRASE);
+        ImportedKey first = importKeyWithOutcome(KeyRequestType.SECRET, secretKeyRequest("first secret key", file));
+        keyImportRepository.deleteAll();
+
+        // when
+        ImportedKey second = importKeyWithOutcome(KeyRequestType.SECRET, secretKeyRequest("second secret key", file));
+
+        // then
+        assertThat(second.outcome()).isEqualTo(ImportOutcome.CREATED);
+        assertThat(second.key().uuid()).isNotEqualTo(first.key().uuid());
+        assertThat(cryptographicKeyRepository.count()).isEqualTo(2);
+        connectorMock.verifyImportKeyRequests(2);
+    }
+
+    /** The key import's own record answers a secret key imported again from the same file within the retention. */
+    @Test
+    void importKeyWithOutcome_reportsASecretKeyImportedAgainAsExisting() throws Exception {
+        // given
+        connectorMock.stubImportableKeyTypes(KeyRequestType.SECRET, KeyAlgorithm.AES);
+        connectorMock.stubImportKey(200, importedSecretKey());
+        byte[] file = ExportEnvelopeFixtures.pinnedAesEnvelope(aes(), PASSPHRASE);
+        ImportedKey created = importKeyWithOutcome(KeyRequestType.SECRET,
+                secretKeyRequest("imported secret key", file));
+
+        // when
+        ImportedKey again = importKeyWithOutcome(KeyRequestType.SECRET, secretKeyRequest("imported secret key", file));
+
+        // then
+        assertThat(created.outcome()).isEqualTo(ImportOutcome.CREATED);
+        assertThat(again.outcome()).isEqualTo(ImportOutcome.EXISTING);
+        assertThat(again.key().uuid()).isEqualTo(created.key().uuid());
         connectorMock.verifyImportKeyRequests(1);
     }
 
@@ -877,11 +1275,15 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
     // ---- fixtures ----
 
     private KeyDetailDto importKey(KeyImportRequestDto request) throws Exception {
-        return importService.importKey(token.getUuid(), profile.getUuid(), KeyRequestType.KEY_PAIR, request);
+        return importService.importKey(token.getUuid(), profile.getUuid(), KeyRequestType.KEY_PAIR, request).detail();
     }
 
     private KeyDetailDto importSecretKey(KeyImportRequestDto request) throws Exception {
-        return importService.importKey(token.getUuid(), profile.getUuid(), KeyRequestType.SECRET, request);
+        return importService.importKey(token.getUuid(), profile.getUuid(), KeyRequestType.SECRET, request).detail();
+    }
+
+    private ImportedKey importKeyWithOutcome(KeyRequestType type, KeyImportRequestDto request) throws Exception {
+        return importService.importKeyWithOutcome(token.getUuid(), profile.getUuid(), type, request);
     }
 
     /** The refusal as the caller sees it, through the audited endpoint. */
@@ -983,11 +1385,72 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
         v2TokenFixture.declare(v2Token, features);
     }
 
+    /** The call as another node serves it: on a thread of its own, so with connections of its own, for the caller. */
+    private static <T> Callable<T> onNode(Callable<T> call) {
+        return DelegatingSecurityContextCallable.create(call, SecurityContextHolder.getContext());
+    }
+
+    /** Waits until the connector received the import, which it answers only after a while. */
+    private void awaitSending() {
+        Awaitility
+                .await("the import is sent")
+                .atMost(Duration.ofSeconds(10))
+                .pollInterval(Duration.ofMillis(10))
+                .until(() -> !connectorMock.importKeyRequestBodies().isEmpty());
+    }
+
+    /** Waits until the import is waited on: the connector was asked how it stands. */
+    private void awaitPolling() {
+        Awaitility
+                .await("the import is polled")
+                .atMost(Duration.ofSeconds(10))
+                .pollInterval(Duration.ofMillis(10))
+                .until(() -> connectorMock.importKeyStatusRequestsReceived() > 0);
+    }
+
     private UUID certificatePublicKey() {
         String fingerprint = CryptographyUtil
                 .calculateKeyFingerprint(new KeyMaterial(KeyFormat.SPKI,
                         Base64.getEncoder().encodeToString(pair.getPublic().getEncoded())));
         return certificateKeyWriter.uploadCertificatePublicKey("certKey_imported", pair.getPublic(), 2048, fingerprint);
+    }
+
+    /** The auth service answers for the caller, so a check made as the requester can resolve them. */
+    private void authServiceKnowsTheRequester() {
+        NameAndUuidDto caller = AuthHelper.getUserIdentification();
+        authService = AuthServiceWireMockStubs.startImpersonating(UUID.fromString(caller.getUuid()), caller.getName());
+    }
+
+    /** Gives the record a description, an owner, a group and a department, as another user would have. */
+    private void describedOwnedAndGrouped(UUID recordUuid, UUID ownerUuid, Group group, RequestAttribute department)
+            throws Exception {
+        CryptographicKey described = cryptographicKeyRepository.findById(recordUuid).orElseThrow();
+        described.setDescription("the certificate's key");
+        cryptographicKeyRepository.saveAndFlush(described);
+        objectAssociationService.setOwner(Resource.CRYPTOGRAPHIC_KEY, recordUuid, ownerUuid, "owner");
+        objectAssociationService.addGroup(Resource.CRYPTOGRAPHIC_KEY, recordUuid, group.getUuid());
+        attributeEngine
+                .updateObjectCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, recordUuid, List.of(department));
+    }
+
+    private Group group(String name) {
+        Group group = new Group();
+        group.setName(name);
+        return groupRepository.save(group);
+    }
+
+    private String departmentOf(UUID keyUuid) {
+        List<ResponseAttribute> attributes = attributeEngine
+                .getObjectCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, keyUuid);
+        assertThat(attributes).singleElement().extracting(ResponseAttribute::getName).isEqualTo("department");
+        return ((ResponseAttributeV3) attributes.getFirst()).getContent().getFirst().getData().toString();
+    }
+
+    /** A key with only a name, saved as a sync that names keys after the token does. */
+    private void keyNamed(String name) {
+        CryptographicKey key = new CryptographicKey();
+        key.setName(name);
+        cryptographicKeyRepository.saveAndFlush(key);
     }
 
     private KeyImport onlyAttempt() {

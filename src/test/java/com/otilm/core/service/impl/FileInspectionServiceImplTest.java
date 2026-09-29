@@ -35,6 +35,7 @@ import com.otilm.core.service.handler.KeyImportGates;
 import com.otilm.core.service.handler.KeyTransferCapabilityService;
 import com.otilm.core.service.handler.key.KeyProviderAdapter;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
+import com.otilm.core.service.writer.CryptographicKeyWriter;
 import com.otilm.core.service.writer.KeyTransferCapabilityWriter;
 import java.util.List;
 import java.util.Map;
@@ -67,7 +68,8 @@ class FileInspectionServiceImplTest {
     private final FileInspectionServiceImpl service = new FileInspectionServiceImpl(authorizationEnforcer,
             new KeyImportGates(authorizationEnforcer, profiles,
                     new KeyTransferCapabilityService(new ConnectorCapabilityService(), adapters, writer,
-                            mock(TokenInstanceReferenceRepository.class), profiles)),
+                            mock(TokenInstanceReferenceRepository.class), profiles),
+                    mock(CryptographicKeyWriter.class)),
             containerReader);
 
     /** A file holding keys of several kinds asks the connector what the profile imports once, not once per kind. */

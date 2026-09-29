@@ -5,6 +5,7 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
+import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.dao.entity.TokenProfile;
@@ -13,6 +14,7 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.SecuredUUID;
+import com.otilm.core.service.writer.CryptographicKeyWriter;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -20,11 +22,13 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Component;
 
 /**
  * What a key import requires of the token profile it imports into: access to the profile and its token, and a profile
- * that takes keys of the key's type and algorithm.
+ * that takes keys of the key's type and algorithm. An import into the public-key-only record that holds the key's
+ * public key requires the right to update that record too.
  *
  * <p>
  * Whoever only asks whether a profile would take keys is answered in the words the import refuses them with, from one
@@ -42,12 +46,14 @@ public class KeyImportGates {
     private final AuthorizationEnforcer authorizationEnforcer;
     private final TokenProfileRepository tokenProfileRepository;
     private final KeyTransferCapabilityService keyTransferCapabilityService;
+    private final CryptographicKeyWriter cryptographicKeyWriter;
 
     public KeyImportGates(AuthorizationEnforcer authorizationEnforcer, TokenProfileRepository tokenProfileRepository,
-            KeyTransferCapabilityService keyTransferCapabilityService) {
+            KeyTransferCapabilityService keyTransferCapabilityService, CryptographicKeyWriter cryptographicKeyWriter) {
         this.authorizationEnforcer = authorizationEnforcer;
         this.tokenProfileRepository = tokenProfileRepository;
         this.keyTransferCapabilityService = keyTransferCapabilityService;
+        this.cryptographicKeyWriter = cryptographicKeyWriter;
     }
 
     /**
@@ -84,6 +90,52 @@ public class KeyImportGates {
                 .map(TokenProfile::getTokenInstanceReferenceUuid)
                 .orElseThrow(() -> new NotFoundException(TokenProfile.class, tokenProfileUuid));
         return requireAccess(tokenInstanceUuid, tokenProfileUuid);
+    }
+
+    /**
+     * Requires that the caller may update the public-key-only record the import would adopt, before the connector is
+     * asked.
+     *
+     * @param recordUuid UUID of the record
+     * @throws ValidationException refusing the import as the import of a key held otherwise is, which says nothing of
+     * whose the record is, when the caller may not
+     */
+    public void requireUpdatable(UUID recordUuid) {
+        try {
+            authorizationEnforcer
+                    .enforce(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.UPDATE, SecuredUUID.fromUUID(recordUuid));
+        } catch (AccessDeniedException denied) {
+            throw heldOtherwise();
+        }
+    }
+
+    /**
+     * The active public-key-only record that holds the public key now, which a registration of the imported key adopts,
+     * once the requester is shown to be allowed to update it. The right is checked as the requester, so it holds when
+     * the reconciliation registers the key, with nobody signed in, too. A key that holds the public key otherwise is
+     * left to the registration, which decides under the attempt's lock: an attempt a concurrent request completed is
+     * answered with the key that request registered, and any other import is refused.
+     *
+     * @param requester the user who asked for the import
+     * @param spkiFingerprint the fingerprint of the key's public key, or {@code null} for a secret key
+     * @return the record, or nothing when no such record holds the public key
+     * @throws ValidationException when the requester may not update the record
+     */
+    public Optional<UUID> adoptableBy(NameAndUuidDto requester, String spkiFingerprint) {
+        if (spkiFingerprint == null) {
+            return Optional.empty();
+        }
+        Optional<UUID> adoptable = cryptographicKeyWriter.adoptableRecord(spkiFingerprint);
+        if (adoptable.isPresent() && !authorizationEnforcer
+                .isAuthorizedAs(UUID.fromString(requester.getUuid()), Resource.CRYPTOGRAPHIC_KEY, ResourceAction.UPDATE,
+                        SecuredUUID.fromUUID(adoptable.get()))) {
+            throw heldOtherwise();
+        }
+        return adoptable;
+    }
+
+    private static ValidationException heldOtherwise() {
+        return new ValidationException(ValidationError.create(CryptographicKeyWriter.KEY_ALREADY_HELD));
     }
 
     /**

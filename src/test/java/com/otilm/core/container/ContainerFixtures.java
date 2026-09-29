@@ -172,8 +172,8 @@ public final class ContainerFixtures {
     }
 
     /** A certificate for the public key, issued under the issuer's name and signed with the issuer's key. */
-    static X509CertificateHolder certificate(String subject, PublicKey publicKey, String issuer, PrivateKey issuerKey,
-            Instant notBefore) throws OperatorCreationException {
+    public static X509CertificateHolder certificate(String subject, PublicKey publicKey, String issuer,
+            PrivateKey issuerKey, Instant notBefore) throws OperatorCreationException {
         return builder(subject, publicKey, issuer, notBefore).build(signer(issuerKey));
     }
 

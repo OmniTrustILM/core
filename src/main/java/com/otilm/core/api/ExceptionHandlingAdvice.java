@@ -27,7 +27,6 @@ import com.otilm.api.model.common.ErrorMessageDto;
 import com.otilm.api.model.core.acme.ProblemDocument;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.dao.CryptoAssetConstraintTranslator;
-import com.otilm.core.exception.ImportIdReusedException;
 import com.otilm.core.exception.UnsupportedAuthorityVersionException;
 import com.otilm.core.exception.UnsupportedCryptographyProviderVersionException;
 import com.otilm.core.exception.UnsupportedDiscoveryVersionException;
@@ -130,18 +129,6 @@ public class ExceptionHandlingAdvice {
     @ExceptionHandler(AlreadyExistException.class)
     @ResponseStatus(HttpStatus.CONFLICT)
     public ErrorMessageDto handleAlreadyExistException(AlreadyExistException ex) {
-        LOG.info("HTTP 409: {}", ex.getMessage());
-        return ErrorMessageDto.getInstance(ex.getMessage());
-    }
-
-    /**
-     * Handler for {@link ImportIdReusedException}.
-     *
-     * @return {@link ErrorMessageDto}
-     */
-    @ExceptionHandler(ImportIdReusedException.class)
-    @ResponseStatus(HttpStatus.CONFLICT)
-    public ErrorMessageDto handleImportIdReusedException(ImportIdReusedException ex) {
         LOG.info("HTTP 409: {}", ex.getMessage());
         return ErrorMessageDto.getInstance(ex.getMessage());
     }

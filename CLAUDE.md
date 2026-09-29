@@ -195,12 +195,17 @@ registration afterwards finds it closed, and no other import of the key starts u
 (`QUARANTINED`). An attempt last sent longer than `key-import.unresolved-after` ago gets one last look, where a
 connector that no longer knows it proves nothing but one that holds its key still has it undone; what that look cannot
 settle, like a key that can be neither destroyed nor registered, ends `UNRESOLVED` with its key reference logged. A registration that fails in the request makes the attempt
-due at once.
+due at once. Each run then deletes the attempts that completed, failed or were compensated longer than
+`key-import.retention` ago, in bounded batches of one statement and one
+transaction each. Every node deletes without the cluster lock; a batch skips the rows another node's batch holds
+(`FOR UPDATE SKIP LOCKED`), so nodes never wait for each other.
 
 An import may adopt a certificate's public-key-only record, so writers of keys and key items must not act on a copy read
 before it: `CryptographicKey` and `CryptographicKeyItem` are `@DynamicUpdate`, every local item deletion or destruction
 passes the key as the caller read it and is refused when its token changed, and compliance results are stored through
-`ComplianceSubjectWriter`, never by saving the checked subject.
+`ComplianceSubjectWriter`, never by saving the checked subject. An adoption needs `CRYPTOGRAPHIC_KEY`/`UPDATE` on the
+record, checked before the import is sent and again as the requester at registration, and it changes only the record's
+token, token profile and items, never its owner, groups, custom attributes, name or description.
 
 ## Controllers reach services through `*ExternalService` interfaces
 

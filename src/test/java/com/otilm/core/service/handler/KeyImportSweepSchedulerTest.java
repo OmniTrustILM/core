@@ -23,7 +23,7 @@ class KeyImportSweepSchedulerTest {
 
     private final KeyImportSweeper sweeper = mock(KeyImportSweeper.class);
     private final KeyImportSweepScheduler scheduler = new KeyImportSweepScheduler(sweeper,
-            new KeyImportProperties(null, null, null, null, Duration.ofSeconds(30)));
+            new KeyImportProperties(null, null, null, null, Duration.ofSeconds(30), null));
 
     @Test
     void configureTasks_startsASweepEverySweepInterval() {

@@ -5,6 +5,7 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
+import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.auth.Resource;
@@ -23,6 +24,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.handler.KeyImportGates.KeyKind;
 import com.otilm.core.service.handler.key.KeyProviderAdapter;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
+import com.otilm.core.service.writer.CryptographicKeyWriter;
 import com.otilm.core.service.writer.KeyTransferCapabilityWriter;
 import java.util.List;
 import java.util.Map;
@@ -33,12 +35,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InOrder;
+import org.springframework.security.access.AccessDeniedException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.entry;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -55,9 +59,11 @@ class KeyImportGatesTest {
     private final KeyProviderAdapterFactory adapters = mock(KeyProviderAdapterFactory.class);
     private final KeyProviderAdapter adapter = mock(KeyProviderAdapter.class);
     private final KeyTransferCapabilityWriter writer = mock(KeyTransferCapabilityWriter.class);
+    private final CryptographicKeyWriter keyWriter = mock(CryptographicKeyWriter.class);
     private final KeyImportGates gates = new KeyImportGates(authorizationEnforcer, profiles,
             new KeyTransferCapabilityService(new ConnectorCapabilityService(), adapters, writer,
-                    mock(TokenInstanceReferenceRepository.class), profiles));
+                    mock(TokenInstanceReferenceRepository.class), profiles),
+            keyWriter);
 
     @Test
     void notImportableReasons_hasNoneForAKeyTheProfileImports() throws Exception {
@@ -252,6 +258,101 @@ class KeyImportGatesTest {
 
         // then
         verifyNoInteractions(authorizationEnforcer);
+    }
+
+    @Test
+    void requireUpdatable_letsACallerWhoMayUpdateTheRecordAdoptIt() {
+        // given
+        UUID recordUuid = UUID.randomUUID();
+
+        // when
+        gates.requireUpdatable(recordUuid);
+
+        // then
+        verify(authorizationEnforcer)
+                .enforce(eq(Resource.CRYPTOGRAPHIC_KEY), eq(ResourceAction.UPDATE), secured(recordUuid));
+    }
+
+    /** The refusal is the one a key held otherwise gets, so it says nothing of whose the record is. */
+    @Test
+    void requireUpdatable_refusesACallerWhoMayNotUpdateTheRecordInNeutralWords() {
+        // given
+        UUID recordUuid = UUID.randomUUID();
+        doThrow(new AccessDeniedException("denied"))
+                .when(authorizationEnforcer)
+                .enforce(eq(Resource.CRYPTOGRAPHIC_KEY), eq(ResourceAction.UPDATE), secured(recordUuid));
+
+        // when
+        ValidationException refused = assertThrows(ValidationException.class, () -> gates.requireUpdatable(recordUuid));
+
+        // then
+        assertThat(refused.getMessage()).isEqualTo(CryptographicKeyWriter.KEY_ALREADY_HELD);
+    }
+
+    /** The right is checked as the requester, so it holds where nobody is signed in, as in the reconciliation. */
+    @Test
+    void adoptableBy_answersTheRecordItsRequesterMayUpdate() {
+        // given
+        UUID requester = UUID.randomUUID();
+        UUID recordUuid = UUID.randomUUID();
+        when(keyWriter.adoptableRecord("fingerprint")).thenReturn(Optional.of(recordUuid));
+        when(authorizationEnforcer
+                .isAuthorizedAs(eq(requester), eq(Resource.CRYPTOGRAPHIC_KEY), eq(ResourceAction.UPDATE),
+                        secured(recordUuid)))
+                .thenReturn(true);
+
+        // when
+        Optional<UUID> adoptable = gates
+                .adoptableBy(new NameAndUuidDto(requester.toString(), "requester"), "fingerprint");
+
+        // then
+        assertThat(adoptable).contains(recordUuid);
+    }
+
+    @Test
+    void adoptableBy_refusesARecordItsRequesterMayNotUpdate() {
+        // given
+        NameAndUuidDto requester = new NameAndUuidDto(UUID.randomUUID().toString(), "requester");
+        when(keyWriter.adoptableRecord("fingerprint")).thenReturn(Optional.of(UUID.randomUUID()));
+
+        // when
+        ValidationException refused = assertThrows(ValidationException.class,
+                () -> gates.adoptableBy(requester, "fingerprint"));
+
+        // then
+        assertThat(refused.getMessage()).isEqualTo(CryptographicKeyWriter.KEY_ALREADY_HELD);
+    }
+
+    /**
+     * No record the registration may adopt holds the public key: the platform does not hold it, or holds it otherwise,
+     * as a key of its own that a concurrent request may have registered for the same attempt. The registration decides
+     * that under the attempt's lock, so nothing is vouched for or refused here.
+     */
+    @Test
+    void adoptableBy_leavesAPublicKeyNoRecordHoldsToTheRegistration() {
+        // given
+        NameAndUuidDto requester = new NameAndUuidDto(UUID.randomUUID().toString(), "requester");
+        when(keyWriter.adoptableRecord("fingerprint")).thenReturn(Optional.empty());
+
+        // when
+        Optional<UUID> adoptable = gates.adoptableBy(requester, "fingerprint");
+
+        // then
+        assertThat(adoptable).isEmpty();
+        verify(keyWriter).adoptableRecord("fingerprint");
+        verifyNoInteractions(authorizationEnforcer);
+    }
+
+    /** A secret key has no public key, so no record holds it. */
+    @Test
+    void adoptableBy_answersNothingForASecretKey() {
+        // given
+        NameAndUuidDto requester = new NameAndUuidDto(UUID.randomUUID().toString(), "requester");
+
+        // when
+        // then
+        assertThat(gates.adoptableBy(requester, null)).isEmpty();
+        verifyNoInteractions(keyWriter, authorizationEnforcer);
     }
 
     /** The reason the profile gives against the one kind of key. */

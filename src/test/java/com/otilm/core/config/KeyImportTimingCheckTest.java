@@ -13,7 +13,7 @@ import static org.mockito.Mockito.when;
 
 class KeyImportTimingCheckTest {
 
-    private static final KeyImportProperties DEFAULTS = new KeyImportProperties(null, null, null, null, null);
+    private static final KeyImportProperties DEFAULTS = new KeyImportProperties(null, null, null, null, null, null);
 
     @Test
     void theDefaultsFit() {
@@ -33,7 +33,7 @@ class KeyImportTimingCheckTest {
     void aRetryWindowARequestCouldOutlastIsRefused() {
         // given
         ConnectorApiClientProperties slow = client(Duration.ofSeconds(115));
-        KeyImportProperties keyImport = new KeyImportProperties(null, null, null, Duration.ofMinutes(5), null);
+        KeyImportProperties keyImport = new KeyImportProperties(null, null, null, Duration.ofMinutes(5), null, null);
         KeyImportTimingCheck check = new KeyImportTimingCheck(keyImport, slow, noProxy());
 
         // when

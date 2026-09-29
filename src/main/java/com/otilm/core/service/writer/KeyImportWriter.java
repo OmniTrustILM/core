@@ -2,8 +2,8 @@ package com.otilm.core.service.writer;
 
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.NotFoundException;
-import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.certificate.ImportOutcome;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.core.config.KeyImportProperties;
 import com.otilm.core.config.cache.CacheConfig;
@@ -19,6 +19,7 @@ import com.otilm.core.model.crypto.ImportedKey;
 import com.otilm.core.model.crypto.ImportedKeyRegistration;
 import com.otilm.core.model.crypto.KeyImportAttempt;
 import com.otilm.core.model.crypto.KeyImportTerms;
+import com.otilm.core.model.crypto.RegisteredKey;
 import jakarta.persistence.EntityManager;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -58,7 +59,8 @@ public class KeyImportWriter {
     /**
      * Records a new attempt before the connector is asked, under an import identifier and a key reference of its own.
      *
-     * @param name the name the key is to be registered under
+     * @param name the name the imported key's items are registered under: its own, or that of the record it is to be
+     * imported into
      * @param secretDigests the digests of the secrets the attempt is to be sent with
      * @throws org.springframework.dao.DataIntegrityViolationException while another attempt is open for the same key,
      * or for the same import of a secret key
@@ -106,19 +108,36 @@ public class KeyImportWriter {
     }
 
     /**
+     * The digests of the secrets the attempt was sent with, read afresh: another request may have sent it again since
+     * this one read it, with secrets of its own.
+     */
+    @Transactional(readOnly = true)
+    public List<String> secretDigests(UUID attemptUuid) {
+        KeyImport attempt = keyImportRepository
+                .findById(attemptUuid)
+                .orElseThrow(() -> new IllegalStateException("Key import " + attemptUuid + " is not recorded."));
+        entityManager.refresh(attempt);
+        return attempt.getSecretDigests();
+    }
+
+    /**
      * Closes an attempt as it was read, unless a request took it since, to send it again or to resume it: that request
-     * settles the attempt instead. A request closes this way an attempt it opened and never sent, and the
-     * reconciliation one the connector answered about after it claimed it.
+     * settles the attempt instead. A request closes this way an attempt it opened and never sent, or one whose send the
+     * connector refused, reported as ending without a key or confirmed it cancelled, and the reconciliation one the
+     * connector answered about after it claimed it.
      *
-     * @param read the attempt as the caller read it
+     * @param read the attempt as the caller last left it
+     * @return whether the attempt was closed
      */
     @Transactional(rollbackFor = Exception.class)
-    public void failUnsent(KeyImportAttempt read, String errorMessage) {
+    public boolean failUntaken(KeyImportAttempt read, String errorMessage) {
         KeyImport attempt = locked(read.uuid());
-        if (attempt.getState().isOpen() && untakenSince(attempt, read)) {
-            attempt.setState(KeyImportState.FAILED);
-            attempt.setErrorMessage(errorMessage);
+        if (!attempt.getState().isOpen() || !untakenSince(attempt, read)) {
+            return false;
         }
+        attempt.setState(KeyImportState.FAILED);
+        attempt.setErrorMessage(errorMessage);
+        return true;
     }
 
     /** Stores the handle of an import the connector runs asynchronously, unless the attempt has settled. */
@@ -131,39 +150,32 @@ public class KeyImportWriter {
         }
     }
 
-    /** Closes an attempt that imported nothing, unless it has settled already. */
-    @Transactional(rollbackFor = Exception.class)
-    public void fail(UUID attemptUuid, String errorMessage) {
-        KeyImport attempt = locked(attemptUuid);
-        if (attempt.getState().isOpen()) {
-            attempt.setState(KeyImportState.FAILED);
-            attempt.setErrorMessage(errorMessage);
-        }
-    }
-
     /**
      * Registers the imported key and completes the attempt with it, both or neither. An attempt a concurrent request
-     * completed answers with the key it registered.
+     * completed answers with the key it registered, which this request found in the inventory.
      *
      * @return the registered key, or nothing when the attempt closed without a key meanwhile
-     * @throws ValidationException when the platform now holds the key otherwise; the attempt stays open
+     * @throws ValidationException when the platform now holds the key otherwise, or another key now has the name of a
+     * key of its own; the attempt stays open
+     * @throws CryptographicKeyWriter.UncheckedRecordException when a public-key-only record now holds the public key
+     * that the registration was not told its requester may update; the attempt stays open
      */
     @Transactional(rollbackFor = Exception.class)
     public Optional<ImportedKey> complete(UUID attemptUuid, ImportedKeyRegistration registration)
             throws AttributeException, NotFoundException {
         KeyImport attempt = locked(attemptUuid);
         if (attempt.getState() == KeyImportState.COMPLETED) {
-            return current(attempt.getKeyUuid()).map(key -> new ImportedKey(key, true));
+            return current(attempt.getKeyUuid()).map(key -> new ImportedKey(key, ImportOutcome.EXISTING));
         }
         if (!attempt.getState().isOpen()) {
             return Optional.empty();
         }
-        UUID keyUuid = cryptographicKeyWriter.registerImportedKey(registration);
+        RegisteredKey registered = cryptographicKeyWriter.registerImportedKey(registration);
         attempt.setState(KeyImportState.COMPLETED);
-        attempt.setKeyUuid(keyUuid);
-        Optional<CryptographicKeyFullModel> key = current(keyUuid);
+        attempt.setKeyUuid(registered.uuid());
+        Optional<CryptographicKeyFullModel> key = current(registered.uuid());
         key.ifPresent(this::evictItems);
-        return key.map(registered -> new ImportedKey(registered, false));
+        return key.map(inventoried -> new ImportedKey(inventoried, registered.outcome()));
     }
 
     /**
@@ -202,8 +214,10 @@ public class KeyImportWriter {
      * and closes the attempt with it, both or neither.
      *
      * @return the registered key, or nothing when the attempt is no longer the reconciliation's
-     * @throws ValidationException when the platform holds the key otherwise, or another key has its name; the attempt
-     * stays as it is
+     * @throws ValidationException when the platform holds the key otherwise, or another key has the name of a key of
+     * its own; the attempt stays as it is
+     * @throws CryptographicKeyWriter.UncheckedRecordException when a public-key-only record holds the public key that
+     * the registration was not told its requester may update; the attempt stays as it is
      */
     @Transactional(rollbackFor = Exception.class)
     public Optional<UUID> quarantine(UUID attemptUuid, ImportedKeyRegistration registration)
@@ -212,11 +226,7 @@ public class KeyImportWriter {
         if (attempt.getState() != KeyImportState.COMPENSATING) {
             return Optional.empty();
         }
-        String name = registration.metadata().name();
-        if (cryptographicKeyRepository.existsByName(name)) {
-            throw new ValidationException(ValidationError.create(CryptographicKeyWriter.NAME_TAKEN.formatted(name)));
-        }
-        UUID keyUuid = cryptographicKeyWriter.registerImportedKey(registration);
+        UUID keyUuid = cryptographicKeyWriter.registerImportedKey(registration).uuid();
         attempt.setState(KeyImportState.QUARANTINED);
         attempt.setKeyUuid(keyUuid);
         current(keyUuid).ifPresent(this::evictItems);
@@ -256,13 +266,28 @@ public class KeyImportWriter {
     /**
      * Leaves an open attempt a request is at again to that request for another retry window, as a send does, so the
      * reconciliation does not undo it meanwhile.
+     *
+     * @return the attempt as the request leaves it
      */
     @Transactional(rollbackFor = Exception.class)
-    public void resuming(UUID attemptUuid) {
+    public KeyImportAttempt resuming(UUID attemptUuid) {
         KeyImport attempt = locked(attemptUuid);
         if (attempt.getState().isOpen()) {
             attempt.setNextCheckAt(now().plus(properties.retryWindow()));
         }
+        return KeyImportAttempt.of(attempt);
+    }
+
+    /**
+     * Whether an attempt is still open and nobody took it since the caller last left it, to send it again or to resume
+     * it: a request that took it since settles it instead.
+     *
+     * @param left the attempt as the caller last left it
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public boolean untaken(KeyImportAttempt left) {
+        KeyImport attempt = locked(left.uuid());
+        return attempt.getState().isOpen() && untakenSince(attempt, left);
     }
 
     /** Records a send, which leaves the attempt to its requester for a retry window. */

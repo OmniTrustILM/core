@@ -6,6 +6,7 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.certificate.ImportOutcome;
 import com.otilm.api.model.client.cryptography.key.KeyImportRequestDto;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
@@ -24,6 +25,7 @@ import com.otilm.core.mapper.crypto.CryptographicKeyDtoMapper;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.crypto.CryptographicKeyFullModel;
 import com.otilm.core.model.crypto.ImportedKey;
+import com.otilm.core.model.crypto.ImportedKeyDetail;
 import com.otilm.core.model.crypto.KeyImportMetadata;
 import com.otilm.core.model.crypto.KeyImportTerms;
 import com.otilm.core.model.crypto.KeyMaterial;
@@ -46,6 +48,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -63,8 +66,11 @@ import static com.otilm.core.service.handler.KeyImportGates.PROFILE_CHANGED;
  * </p>
  */
 @Service
-@Transactional(propagation = Propagation.NOT_SUPPORTED)
+@Transactional(propagation = Propagation.NOT_SUPPORTED, rollbackFor = Exception.class)
 public class CryptographicKeyImportServiceImpl implements CryptographicKeyImportExternalService {
+
+    /** The refusal of a key the inventory holds already to a caller who may not see it, for either kind of key. */
+    public static final String KEY_EXISTS = "The key already exists.";
 
     private static final String NOT_EXPORTED = "Token profile %s does not export the %s algorithm for a %s, so the key cannot be imported as exportable.";
     private static final String NOT_A_GROUP = "Group UUID %s is not valid.";
@@ -101,14 +107,27 @@ public class CryptographicKeyImportServiceImpl implements CryptographicKeyImport
         return keyProviderAdapterFactory.forToken(profile.tokenInstance()).listImportKeyAttributes(profile, type);
     }
 
+    @Override
+    @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.IMPORT_KEY)
+    public ImportedKeyDetail importKey(UUID tokenInstanceUuid, UUID tokenProfileUuid, KeyRequestType type,
+            KeyImportRequestDto request) throws ConnectorException, NotFoundException, AttributeException {
+        ImportedKey imported = imported(tokenInstanceUuid, tokenProfileUuid, type, request);
+        return new ImportedKeyDetail(detailOf(imported), imported.outcome());
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.IMPORT_KEY)
+    public ImportedKey importKeyWithOutcome(UUID tokenInstanceUuid, UUID tokenProfileUuid, KeyRequestType type,
+            KeyImportRequestDto request) throws ConnectorException, NotFoundException, AttributeException {
+        return imported(tokenInstanceUuid, tokenProfileUuid, type, request);
+    }
+
     /**
      * Checks everything the file does not decide before opening it, and what the key it holds decides once opened; the
      * saga then carries the key across the connector boundary. The caller's copy of the file and the key made from it
      * are overwritten whatever the outcome.
      */
-    @Override
-    @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.IMPORT_KEY)
-    public KeyDetailDto importKey(UUID tokenInstanceUuid, UUID tokenProfileUuid, KeyRequestType type,
+    private ImportedKey imported(UUID tokenInstanceUuid, UUID tokenProfileUuid, KeyRequestType type,
             KeyImportRequestDto request) throws ConnectorException, NotFoundException, AttributeException {
         TokenProfileFullModel profile = keyImportGates.requireAccess(tokenInstanceUuid, tokenProfileUuid);
         Set<KeyAlgorithm> importable = keyImportGates.requireImportable(profile, type);
@@ -126,9 +145,7 @@ public class CryptographicKeyImportServiceImpl implements CryptographicKeyImport
                 requireExportable(profile, type, key.algorithm(), exportable);
                 KeyImportTerms terms = new KeyImportTerms(profile, type, key.algorithm(), fingerprintOf(key),
                         exportable, importAttributes, AuthHelper.getUserIdentification());
-                ImportedKey imported = keyImportSaga
-                        .importKey(terms, ImportIdempotencyKey.of(terms, file), key, metadata);
-                return detailOf(imported);
+                return keyImportSaga.importKey(terms, ImportIdempotencyKey.of(terms, file), key, metadata);
             } finally {
                 key.clear();
             }
@@ -203,14 +220,13 @@ public class CryptographicKeyImportServiceImpl implements CryptographicKeyImport
     }
 
     /**
-     * The key's detail as it is now, named in the audit record. A repeat changed nothing, and is shown only to a caller
-     * who may still see the key.
+     * The key's detail as it is now, named in the audit record. A key the inventory held already changed nothing, and
+     * is shown only to a caller who may see it; any other is refused in words that say only that the key exists.
      */
     private KeyDetailDto detailOf(ImportedKey imported) {
         CryptographicKeyFullModel key = imported.key();
-        if (imported.repeat()) {
-            authorizationEnforcer
-                    .enforce(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.DETAIL, SecuredUUID.fromUUID(key.uuid()));
+        if (imported.outcome() == ImportOutcome.EXISTING) {
+            requireVisible(key);
         }
         KeyDetailDto detail = CryptographicKeyDtoMapper.mapToDetailDto(key);
         detail
@@ -218,6 +234,15 @@ public class CryptographicKeyImportServiceImpl implements CryptographicKeyImport
                         attributeEngine.getObjectCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, key.uuid()));
         LoggingHelper.putLogResourceInfo(Resource.CRYPTOGRAPHIC_KEY, false, key.uuid().toString(), key.name());
         return detail;
+    }
+
+    private void requireVisible(CryptographicKeyFullModel key) {
+        try {
+            authorizationEnforcer
+                    .enforce(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.DETAIL, SecuredUUID.fromUUID(key.uuid()));
+        } catch (AccessDeniedException hidden) {
+            throw new ValidationException(ValidationError.create(KEY_EXISTS));
+        }
     }
 
     private static ValidationException refusal(String message, Object... arguments) {
