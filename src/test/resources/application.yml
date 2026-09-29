@@ -154,6 +154,8 @@ spring:
         type:
           preferred_duration_jdbc_type: INTERVAL_SECOND
         default_schema: core
+        session_factory:
+          statement_inspector: com.otilm.core.util.SqlCapture
   profiles:
     active: test
   session:

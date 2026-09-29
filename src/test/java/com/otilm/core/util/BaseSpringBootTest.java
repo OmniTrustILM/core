@@ -141,9 +141,17 @@ public class BaseSpringBootTest {
      * allow-all stub.
      */
     protected void restrictObjectAccess(Resource resource, ResourceAction action) {
+        restrictObjectAccess(resource, action, List.of(UUID.randomUUID()));
+    }
+
+    /**
+     * Restricts object-level access for one (resource, action) pair to exactly the given objects, for tests that need a
+     * restricted user who can still see something.
+     */
+    protected void restrictObjectAccess(Resource resource, ResourceAction action, List<UUID> allowed) {
         OpaObjectAccessResult restricted = new OpaObjectAccessResult();
         restricted.setActionAllowedForGroupOfObjects(false);
-        restricted.setAllowedObjects(List.of(UUID.randomUUID().toString()));
+        restricted.setAllowedObjects(allowed.stream().map(UUID::toString).toList());
         restricted.setForbiddenObjects(List.of());
         when(opaClient
                 .checkObjectAccess(Mockito.any(),
