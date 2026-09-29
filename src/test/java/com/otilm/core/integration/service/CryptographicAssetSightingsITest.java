@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
+import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetDetailDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetSourceDto;
@@ -83,14 +84,25 @@ class CryptographicAssetSightingsITest extends BaseSpringBootTest {
     }
 
     @Test
-    void aLocationKeyedMaterialRowCountsItsLocations() throws NotFoundException {
-        CryptographicAssetDto row = listedRow(LOCATED_MATERIAL);
+    void aLocationKeyedMaterialRowCountsReportsOfItsEntriesNotLocations() throws IOException, NotFoundException {
+        CryptographicAssetDto oneSource = listedRow(LOCATED_MATERIAL);
+        assertThat(oneSource.getSourceCbomCount()).isEqualTo(1);
+        assertThat(oneSource.getSightingCount()).isEqualTo(2);
 
-        assertThat(row.getSourceCbomCount()).isEqualTo(1);
-        assertThat(row.getSightingCount()).isEqualTo(2);
-        assertThat(detail(row).getSources())
+        ingest("urn:uuid:5b1c2d3e-0000-4000-8000-000000002367", corpusDocument("materials-and-occurrences.cdx.json"),
+                NOW.plusSeconds(3));
+
+        CryptographicAssetDto twoSources = listedRow(LOCATED_MATERIAL);
+        assertThat(twoSources.getUuid())
+                .describedAs("the same entries key the same row")
+                .isEqualTo(oneSource.getUuid());
+        assertThat(twoSources.getSourceCbomCount()).isEqualTo(2);
+        assertThat(twoSources.getSightingCount())
+                .describedAs("2 sources x 2 entries, though the row stands for 2 locations")
+                .isEqualTo(4);
+        assertThat(detail(twoSources).getSources())
                 .extracting(CryptographicAssetSourceDto::getLocationCount)
-                .containsExactly(2L);
+                .containsExactly(2L, 2L);
     }
 
     @Test
@@ -179,9 +191,12 @@ class CryptographicAssetSightingsITest extends BaseSpringBootTest {
     }
 
     private List<CryptographicAssetDto> listAll() {
-        return cryptographicAssetService
-                .listCryptographicAssets(SecurityFilter.create(), new SearchRequestDto())
-                .getItems();
+        SearchRequestDto request = new SearchRequestDto();
+        request.setItemsPerPage(1000);
+        PaginationResponseDto<CryptographicAssetDto> page = cryptographicAssetService
+                .listCryptographicAssets(SecurityFilter.create(), request);
+        assertThat(page.getTotalItems()).describedAs("one page holds every row").isEqualTo(page.getItems().size());
+        return page.getItems();
     }
 
     private CryptographicAssetDto listedRow(String name) {
