@@ -1,21 +1,35 @@
 package com.otilm.core.integration.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.certificate.SearchColumnRequestDto;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.client.certificate.SearchSortRequestDto;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.common.PaginationResponseDto;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeProperties;
+import com.otilm.api.model.common.attribute.v3.MetadataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cbom.CbomContributedAssetDto;
+import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.cryptoasset.CryptographicAssetDto;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SortDirection;
+import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.cbom.ingest.CbomAssetIngestService;
 import com.otilm.core.cbom.ingest.CbomIngestTestFixtures;
 import com.otilm.core.cbom.sync.CbomSyncPolicy;
 import com.otilm.core.dao.entity.Cbom;
+import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.cbom.CryptoAsset;
 import com.otilm.core.dao.repository.CbomRepository;
+import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.model.auth.ResourceAction;
@@ -23,6 +37,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.security.authz.opa.dto.OpaObjectAccessResult;
 import com.otilm.core.service.CbomExternalService;
+import com.otilm.core.service.CryptographicAssetExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -38,13 +53,18 @@ import static org.mockito.Mockito.when;
 
 /**
  * The assets one CBOM record contributed, read through the CBOM gate and the asset gate: what the page carries, which
- * document and which version it is scoped to, and what the caller's asset scope hides.
+ * document and which version it is scoped to, what the caller's asset scope hides, and that it orders and projects
+ * columns as the inventory listing does.
  */
 class CbomContributedAssetsITest extends BaseSpringBootTest {
 
     private static final OffsetDateTime NOW = OffsetDateTime.parse("2026-09-29T10:00:00Z");
 
     private static final CbomSyncPolicy POLICY = CbomSyncPolicy.DEFAULTS;
+
+    private static final String TIER = "tier";
+
+    private static final String TIER_COLUMN = TIER + "|" + AttributeContentType.STRING.name();
 
     @Autowired
     private CbomExternalService cbomService;
@@ -57,6 +77,15 @@ class CbomContributedAssetsITest extends BaseSpringBootTest {
 
     @Autowired
     private CryptoAssetRepository assetRepository;
+
+    @Autowired
+    private CryptographicAssetExternalService cryptographicAssetService;
+
+    @Autowired
+    private ConnectorRepository connectorRepository;
+
+    @Autowired
+    private AttributeEngine attributeEngine;
 
     @Test
     void listsTheAssetsADocumentContributedWithTheRefsTheyWereFoldedFrom() throws NotFoundException {
@@ -192,23 +221,148 @@ class CbomContributedAssetsITest extends BaseSpringBootTest {
         assertThatThrownBy(() -> list(UUID.randomUUID())).isInstanceOf(NotFoundException.class);
     }
 
+    /**
+     * A supplied sort reorders the listing as it does the inventory's, each row keeping its own refs. The other
+     * document's asset would lead the descending order, so a sort that dropped the scope would show.
+     */
     @Test
-    void sortingIsRefusedLikeTheInventoryListing() {
+    void aSuppliedSortReordersTheListingAndEachRowKeepsItsRefs() throws NotFoundException {
+        seedAnotherDocumentsContribution();
         Cbom cbom = cbom("urn:uuid:sorted", 1);
+        ingest(cbom, threeComponentsTwoAssets());
+
+        PaginationResponseDto<CbomContributedAssetDto> page = list(cbom.getUuid(),
+                sortedBy(FilterField.CBOM_ASSET_NAME, SortDirection.DESC));
+
+        assertThat(page.getTotalItems()).isEqualTo(2);
+        assertThat(page.getItems()).extracting(CbomContributedAssetDto::getName).containsExactly("rsa-2048", "aes-256");
+        assertThat(page.getItems())
+                .extracting(CbomContributedAssetDto::getBomRefs)
+                .containsExactly(List.of("b"), List.of("a1", "a2"));
+    }
+
+    @Test
+    void aSortOnAFieldTheInventoryCannotOrderByIsRefusedAsThere() {
+        Cbom cbom = cbom("urn:uuid:unsortable", 1);
+        SearchRequestDto request = sortedBy(FilterField.CBOM_ASSET_OID, SortDirection.ASC);
+
+        assertThatThrownBy(() -> list(cbom.getUuid(), request))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("cannot be used to order this listing");
+    }
+
+    /**
+     * Naming a property column asks for nothing extra: the row comes back whole, refs included, with no values member.
+     */
+    @Test
+    void aRequestedPropertyColumnServesTheWholeRow() throws NotFoundException {
+        Cbom cbom = cbom("urn:uuid:property-column", 1);
+        ingest(cbom, threeComponentsTwoAssets());
         SearchRequestDto request = new SearchRequestDto();
         request
-                .setSort(new SearchSortRequestDto(FilterFieldSource.PROPERTY, FilterField.CBOM_ASSET_NAME.name(),
-                        SortDirection.ASC));
+                .setColumns(List
+                        .of(new SearchColumnRequestDto(FilterFieldSource.PROPERTY,
+                                FilterField.CBOM_ASSET_PQC_VERDICT.name())));
 
-        assertThatThrownBy(() -> cbomService
-                .listCbomAssets(SecuredUUID.fromUUID(cbom.getUuid()), request, SecurityFilter.create()))
-                .isInstanceOf(ValidationException.class)
-                .hasMessageContaining("Sorting");
+        CbomContributedAssetDto row = rowFor(list(cbom.getUuid(), request), assetNamed("aes-256"));
+
+        assertThat(row.getName()).isEqualTo("aes-256");
+        assertThat(row.getBomRefs()).containsExactly("a1", "a2");
+        assertThat(row.getAttributeValues()).isNull();
+    }
+
+    /**
+     * An attribute-sourced column lands on the row with the values the inventory listing projects onto the same asset.
+     * No connector registers metadata against cryptographic assets today, so the value is stored here directly: what is
+     * pinned is that both listings run the one projection.
+     */
+    @Test
+    void aRequestedAttributeColumnCarriesWhatTheInventoryRowCarries() throws Exception {
+        Cbom cbom = cbom("urn:uuid:attribute-column", 1);
+        ingest(cbom, threeComponentsTwoAssets());
+        UUID aes = assetNamed("aes-256");
+        storeMetadata(aes, "gold");
+        SearchRequestDto request = new SearchRequestDto();
+        request.setColumns(List.of(new SearchColumnRequestDto(FilterFieldSource.META, TIER_COLUMN)));
+        SearchRequestDto inventoryRequest = new SearchRequestDto();
+        inventoryRequest.setColumns(request.getColumns());
+
+        PaginationResponseDto<CbomContributedAssetDto> page = list(cbom.getUuid(), request);
+        CryptographicAssetDto inventoryRow = cryptographicAssetService
+                .listCryptographicAssets(SecurityFilter.create(), inventoryRequest)
+                .getItems()
+                .stream()
+                .filter(item -> aes.equals(item.getUuid()))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(tierOf(rowFor(page, aes))).containsExactly("gold").isEqualTo(tierOf(inventoryRow));
+        assertThat(rowFor(page, aes).getBomRefs()).containsExactly("a1", "a2");
+        assertThat(rowFor(page, assetNamed("rsa-2048")).getAttributeValues())
+                .describedAs("an asset holding no value for the column carries no values member")
+                .isNull();
     }
 
     private PaginationResponseDto<CbomContributedAssetDto> list(UUID cbomUuid) throws NotFoundException {
-        return cbomService
-                .listCbomAssets(SecuredUUID.fromUUID(cbomUuid), new SearchRequestDto(), SecurityFilter.create());
+        return list(cbomUuid, new SearchRequestDto());
+    }
+
+    private PaginationResponseDto<CbomContributedAssetDto> list(UUID cbomUuid, SearchRequestDto request)
+            throws NotFoundException {
+        return cbomService.listCbomAssets(SecuredUUID.fromUUID(cbomUuid), request, SecurityFilter.create());
+    }
+
+    private static SearchRequestDto sortedBy(FilterField field, SortDirection direction) {
+        SearchRequestDto request = new SearchRequestDto();
+        request.setSort(new SearchSortRequestDto(FilterFieldSource.PROPERTY, field.name(), direction));
+        return request;
+    }
+
+    private static CbomContributedAssetDto rowFor(PaginationResponseDto<CbomContributedAssetDto> page, UUID asset) {
+        return page
+                .getItems()
+                .stream()
+                .filter(row -> asset.equals(row.getUuid()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("asset " + asset + " is not on the page"));
+    }
+
+    private static List<Object> tierOf(CryptographicAssetDto row) {
+        assertThat(row.getAttributeValues()).describedAs("projected values on " + row.getUuid()).isNotNull();
+        return row
+                .getAttributeValues()
+                .get(FilterFieldSource.META)
+                .get(TIER_COLUMN)
+                .stream()
+                .map(content -> (Object) content.getData())
+                .toList();
+    }
+
+    /** A persisted connector, because a metadata definition's connector reference carries a foreign key to it. */
+    private void storeMetadata(UUID assetUuid, String tier) throws AttributeException {
+        Connector connector = new Connector();
+        connector.setName("cbom-contributed-assets-connector");
+        connector.setUrl("http://localhost:0/cbom-contributed-assets");
+        connector.setVersion(ConnectorVersion.V2);
+        connector.setStatus(ConnectorStatus.CONNECTED);
+        connector = connectorRepository.saveAndFlush(connector);
+        MetadataAttributeProperties properties = new MetadataAttributeProperties();
+        properties.setLabel("Tier");
+        properties.setVisible(true);
+        properties.setGlobal(false);
+        MetadataAttributeV3 meta = new MetadataAttributeV3();
+        meta.setUuid(UUID.randomUUID().toString());
+        meta.setName(TIER);
+        meta.setType(AttributeType.META);
+        meta.setContentType(AttributeContentType.STRING);
+        meta.setProperties(properties);
+        meta.setContent(List.of(new StringAttributeContentV3(tier)));
+        attributeEngine
+                .updateMetadataAttribute(meta,
+                        ObjectAttributeContentInfo
+                                .builder(Resource.CRYPTO_ASSET, assetUuid)
+                                .connector(connector.getUuid())
+                                .build());
     }
 
     private void ingest(Cbom cbom, JsonNode document) {

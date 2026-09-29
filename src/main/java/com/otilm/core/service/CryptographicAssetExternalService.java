@@ -39,9 +39,10 @@ public interface CryptographicAssetExternalService {
     /**
      * One page of the assets one CBOM record contributed, each with the {@code bom-ref} values of that document's
      * components that were folded into it -- the inventory listing scoped to one source document and one version of it,
-     * each row still the inventory row with its inventory-wide counts. Gated as a {@code CRYPTO_ASSET/LIST} operation
-     * of its own, so the caller's asset scope applies exactly as on {@link #listCryptographicAssets}; whether the
-     * caller may see the CBOM is decided by the caller of this method, {@code CbomExternalService#listCbomAssets}.
+     * taking the same filters, sort and columns, each row still the inventory row with its inventory-wide counts and
+     * its projected attribute values. Gated as a {@code CRYPTO_ASSET/LIST} operation of its own, so the caller's asset
+     * scope applies exactly as on {@link #listCryptographicAssets}; whether the caller may see the CBOM is decided by
+     * the caller of this method, {@code CbomExternalService#listCbomAssets}.
      *
      * @param cbomUuid the CBOM record whose contributions are listed; a record with none yields an empty page
      */
