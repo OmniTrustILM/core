@@ -1,6 +1,7 @@
 package com.otilm.core.cluster;
 
 import jakarta.persistence.EntityManager;
+import java.util.Collection;
 import org.springframework.stereotype.Component;
 
 /**
@@ -88,5 +89,26 @@ public class ClusterOperationSynchronizer {
                 .createNativeQuery("SELECT pg_advisory_xact_lock(hashtext(:key))")
                 .setParameter("key", key)
                 .getSingleResult();
+    }
+
+    /**
+     * Acquires the cluster-wide locks for all {@code keys} in one statement, blocking until every one is available.
+     * <p>
+     * Keyed exactly as {@link #lock(String)}, so the two address the same locks. The locks are taken in ascending order
+     * of the hashed key, the lock id itself: PostgreSQL evaluates a volatile output expression only after the
+     * {@code ORDER BY} sort. Two callers locking overlapping key sets therefore acquire the shared locks in the same
+     * order and cannot deadlock on each other, even when two keys hash alike.
+     * <p>
+     * Must be called inside a transaction, for the reason {@link #tryLock(Operation)} gives.
+     */
+    public void lockAll(Collection<String> keys) {
+        if (keys.isEmpty()) {
+            return;
+        }
+        entityManager
+                .createNativeQuery("SELECT pg_advisory_xact_lock(hashtext(k)) FROM unnest(CAST(:keys AS text[])) AS k"
+                        + " ORDER BY hashtext(k)")
+                .setParameter("keys", keys.toArray(String[]::new))
+                .getResultList();
     }
 }

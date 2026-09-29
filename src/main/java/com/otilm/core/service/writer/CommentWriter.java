@@ -92,15 +92,16 @@ public class CommentWriter {
     }
 
     /**
-     * The bulk counterpart of {@link #deleteAllForObject}: one lock per host, then a single purge statement. The locks
-     * are taken in sorted order, so two bulk deletions of overlapping hosts cannot deadlock on each other.
+     * The bulk counterpart of {@link #deleteAllForObject}: every host's lock in one statement, then a single purge
+     * statement. The locks are taken in a fixed order, so two bulk deletions of overlapping hosts cannot deadlock on
+     * each other.
      */
     @Transactional
     public int deleteAllForObjects(Resource resource, Collection<UUID> objectUuids) {
         if (objectUuids.isEmpty()) {
             return 0;
         }
-        objectUuids.stream().sorted().forEach(objectUuid -> synchronizer.lock(hostLockKey(resource, objectUuid)));
+        synchronizer.lockAll(objectUuids.stream().map(objectUuid -> hostLockKey(resource, objectUuid)).toList());
         return commentRepository.deleteAllByResourceAndObjectUuidIn(resource, objectUuids);
     }
 
