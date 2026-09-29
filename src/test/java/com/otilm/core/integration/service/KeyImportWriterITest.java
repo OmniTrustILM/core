@@ -4,7 +4,9 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
+import com.otilm.api.model.client.attribute.ResponseAttributeV3;
 import com.otilm.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
+import com.otilm.api.model.client.certificate.ImportOutcome;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
@@ -32,6 +34,7 @@ import com.otilm.api.model.core.cryptography.key.KeyEvent;
 import com.otilm.api.model.core.cryptography.key.KeyEventStatus;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
+import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
@@ -68,6 +71,7 @@ import com.otilm.core.model.crypto.KeyImportMetadata;
 import com.otilm.core.model.crypto.KeyImportTerms;
 import com.otilm.core.model.crypto.KeyMaterial;
 import com.otilm.core.model.crypto.ProviderKeyItem;
+import com.otilm.core.model.crypto.PublicKeyHolder;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.security.authz.SecurityResourceFilter;
@@ -90,6 +94,7 @@ import java.time.LocalDateTime;
 import java.time.Month;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -176,6 +181,8 @@ class KeyImportWriterITest extends BaseSpringBootTest {
     private CacheManager cacheManager;
     @Autowired
     private AttributeExternalService attributeService;
+    @Autowired
+    private AttributeEngine attributeEngine;
 
     /** The entity-generated test schema cannot carry the migrations' partial indexes, so each test adds them. */
     @BeforeEach
@@ -250,7 +257,7 @@ class KeyImportWriterITest extends BaseSpringBootTest {
     void resending_leavesAnAttemptThatClosedMeanwhileUnsent() {
         // given
         KeyImportAttempt attempt = keyImportWriter.open(terms("fingerprint-g", false), "retry-g", "key", SENT);
-        keyImportWriter.failUnsent(attempt, "closed meanwhile");
+        keyImportWriter.failUntaken(attempt, "closed meanwhile");
 
         // when
         Optional<KeyImportAttempt> resent = keyImportWriter.resending(attempt.uuid(), List.of("resent-secret-digest"));
@@ -260,33 +267,59 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         assertThat(keyImportRepository.findById(attempt.uuid()).orElseThrow().getSecretDigests()).isEqualTo(SENT);
     }
 
+    /**
+     * The request's persistence context keeps the attempt as the request read it, so the digests another node added by
+     * a send since are read from the database.
+     */
+    @Test
+    void secretDigests_readsWhatAnotherNodeAddedSinceTheRequestReadTheAttempt() throws Exception {
+        // given
+        KeyImportAttempt attempt = keyImportWriter.open(terms("fingerprint-z", false), "retry-z", "key", SENT);
+        List<String> digests = new ArrayList<>();
+
+        // when
+        withARequestBoundEntityManager(KeyImport.class, attempt.uuid(), () -> {
+            try (ExecutorService otherNode = Executors.newSingleThreadExecutor()) {
+                otherNode
+                        .submit(() -> keyImportWriter.resending(attempt.uuid(), List.of("resent-secret-digest")))
+                        .get(10, TimeUnit.SECONDS);
+            }
+            digests.addAll(keyImportWriter.secretDigests(attempt.uuid()));
+        });
+
+        // then
+        assertThat(digests).containsExactly("sent-secret-digest", "resent-secret-digest");
+    }
+
     /** Another request claimed the attempt for a send, so its answer, not this request's decision, settles it. */
     @Test
-    void failUnsent_leavesAnAttemptAnotherRequestResends() {
+    void failUntaken_leavesAnAttemptAnotherRequestResends() {
         // given
         KeyImportAttempt opened = keyImportWriter.open(terms("fingerprint-h", false), "retry-h", "key", SENT);
         keyImportWriter.resending(opened.uuid(), List.of("resent-secret-digest"));
 
         // when
-        keyImportWriter.failUnsent(opened, "closed meanwhile");
+        boolean closed = keyImportWriter.failUntaken(opened, "closed meanwhile");
 
         // then
+        assertThat(closed).isFalse();
         assertThat(keyImportRepository.findById(opened.uuid()).orElseThrow().getState())
                 .isEqualTo(KeyImportState.REQUESTED);
     }
 
     @Test
-    void failUnsent_closesAnAttemptNobodySent() {
+    void failUntaken_closesAnAttemptNobodySent() {
         // given
         KeyImportAttempt opened = keyImportWriter.open(terms("fingerprint-i", false), "retry-i", "key", SENT);
 
         // when
-        keyImportWriter.failUnsent(opened, "closed meanwhile");
+        boolean closed = keyImportWriter.failUntaken(opened, "closed meanwhile");
 
         // then
-        KeyImport closed = keyImportRepository.findById(opened.uuid()).orElseThrow();
-        assertThat(closed.getState()).isEqualTo(KeyImportState.FAILED);
-        assertThat(closed.getErrorMessage()).isEqualTo("closed meanwhile");
+        assertThat(closed).isTrue();
+        KeyImport failed = keyImportRepository.findById(opened.uuid()).orElseThrow();
+        assertThat(failed.getState()).isEqualTo(KeyImportState.FAILED);
+        assertThat(failed.getErrorMessage()).isEqualTo("closed meanwhile");
     }
 
     @Test
@@ -363,7 +396,7 @@ class KeyImportWriterITest extends BaseSpringBootTest {
     void open_startsAgainOnceTheOpenAttemptFailed() {
         // given
         KeyImportAttempt first = keyImportWriter.open(terms("fingerprint-c", false), "retry-c", "key", SENT);
-        keyImportWriter.fail(first.uuid(), "The connector could not import the key.");
+        keyImportWriter.failUntaken(first, "The connector could not import the key.");
 
         // when
         KeyImportAttempt second = keyImportWriter.open(terms("fingerprint-c", false), "retry-c", "key", SENT);
@@ -450,16 +483,17 @@ class KeyImportWriterITest extends BaseSpringBootTest {
     }
 
     @Test
-    void failAndAccept_leaveASettledAttemptAsItIs() {
+    void failUntakenAndAccept_leaveASettledAttemptAsItIs() {
         // given
         KeyImportAttempt attempt = keyImportWriter.open(terms("fingerprint-e", false), "retry-e", "key", SENT);
-        keyImportWriter.fail(attempt.uuid(), "first");
+        keyImportWriter.failUntaken(attempt, "first");
 
         // when
-        keyImportWriter.fail(attempt.uuid(), "second");
+        boolean closedAgain = keyImportWriter.failUntaken(attempt, "second");
         keyImportWriter.accept(attempt.uuid(), List.of(handle("operation", "2")));
 
         // then
+        assertThat(closedAgain).isFalse();
         KeyImport recorded = keyImportRepository.findById(attempt.uuid()).orElseThrow();
         assertThat(recorded.getState()).isEqualTo(KeyImportState.FAILED);
         assertThat(recorded.getErrorMessage()).isEqualTo("first");
@@ -513,6 +547,35 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         assertThat(keyImportRepository.findById(attempt.uuid()).orElseThrow().getNextCheckAt())
                 .isAfterOrEqualTo(before.plusMinutes(15).truncatedTo(ChronoUnit.MICROS))
                 .isBefore(OffsetDateTime.now().plusMinutes(15).plusSeconds(1));
+    }
+
+    /** A resume returns the attempt as the request leaves it, so the request can tell whether another took it since. */
+    @Test
+    void resuming_returnsTheAttemptAsTheRequestLeavesIt() {
+        // given
+        KeyImportAttempt read = keyImportWriter.open(terms("fingerprint-aa", false), "retry-aa", "key", SENT);
+
+        // when
+        KeyImportAttempt resumed = keyImportWriter.resuming(read.uuid());
+
+        // then
+        assertThat(keyImportWriter.untaken(resumed)).isTrue();
+        assertThat(keyImportWriter.untaken(read)).isFalse();
+    }
+
+    /** An attempt that closed, or that another request sent again, since it was read is no longer the reader's. */
+    @Test
+    void untaken_isFalseForAnAttemptClosedOrSentAgainSinceItWasRead() {
+        // given
+        KeyImportAttempt closed = keyImportWriter.open(terms("fingerprint-ab", false), "retry-ab", "key", SENT);
+        KeyImportAttempt resent = keyImportWriter.open(terms("fingerprint-ac", false), "retry-ac", "key", SENT);
+        keyImportWriter.failUntaken(closed, "closed meanwhile");
+        keyImportWriter.resending(resent.uuid(), List.of("resent-secret-digest"));
+
+        // when
+        // then
+        assertThat(keyImportWriter.untaken(closed)).isFalse();
+        assertThat(keyImportWriter.untaken(resent)).isFalse();
     }
 
     /** A request resumed the attempt after its claim, and may be registering its key now. */
@@ -616,7 +679,7 @@ class KeyImportWriterITest extends BaseSpringBootTest {
     void theSettlingTransitions_leaveASettledAttemptAsItIs() {
         // given
         KeyImportAttempt attempt = keyImportWriter.open(terms("fingerprint-r", false), "retry-r", "key", SENT);
-        keyImportWriter.fail(attempt.uuid(), "first");
+        keyImportWriter.failUntaken(attempt, "first");
         OffsetDateTime nextCheck = keyImportRepository.findById(attempt.uuid()).orElseThrow().getNextCheckAt();
 
         // when
@@ -673,12 +736,13 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         KeyImportAttempt attempt = keyImportWriter.open(terms(profile, pair), "retry-new", "imported key", SENT);
 
         // when
-        CryptographicKeyFullModel key = keyImportWriter
+        ImportedKey imported = keyImportWriter
                 .complete(attempt.uuid(), registration(profile, pair, attempt, Set.of(group.getUuid())))
-                .orElseThrow()
-                .key();
+                .orElseThrow();
 
         // then
+        assertThat(imported.outcome()).isEqualTo(ImportOutcome.CREATED);
+        CryptographicKeyFullModel key = imported.key();
         assertThat(key.name()).isEqualTo("imported key");
         assertThat(key.description()).isEqualTo("imported for the test");
         assertThat(key.tokenProfileUuid()).isEqualTo(profile.uuid());
@@ -768,14 +832,15 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         KeyImportAttempt attempt = keyImportWriter.open(terms(profile, pair), "retry-adopt", "imported key", SENT);
 
         // when
-        CryptographicKeyFullModel key = keyImportWriter
-                .complete(attempt.uuid(), registration(profile, pair, attempt, Set.of()))
-                .orElseThrow()
-                .key();
+        ImportedKey imported = keyImportWriter
+                .complete(attempt.uuid(), registration(profile, pair, attempt, Set.of()).adopting(recordUuid))
+                .orElseThrow();
 
         // then
+        assertThat(imported.outcome()).isEqualTo(ImportOutcome.ADOPTED);
+        CryptographicKeyFullModel key = imported.key();
         assertThat(key.uuid()).isEqualTo(recordUuid);
-        assertThat(key.name()).isEqualTo("imported key");
+        assertThat(key.name()).isEqualTo("certKey_imported");
         assertThat(key.tokenProfileUuid()).isEqualTo(profile.uuid());
         CryptographicKeyItem publicKey = item(recordUuid, KeyType.PUBLIC_KEY);
         CryptographicKeyItem privateKey = item(recordUuid, KeyType.PRIVATE_KEY);
@@ -788,28 +853,81 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         assertThat(certificateRepository.findById(certificateUuid).orElseThrow().getKeyUuid()).isEqualTo(recordUuid);
         assertThat(importEvents(KeyEventStatus.SUCCESS))
                 .containsExactlyInAnyOrder(publicKey.getUuid(), privateKey.getUuid());
-        assertThat(objectAssociationService.getOwner(Resource.CRYPTOGRAPHIC_KEY, recordUuid).getName())
-                .isEqualTo("requester");
+        assertThat(objectAssociationService.getOwner(Resource.CRYPTOGRAPHIC_KEY, recordUuid)).isNull();
     }
 
-    /** The gate saw no key; a certificate uploaded since brought the public key in, so the import adopts it. */
+    /**
+     * An import changes nothing of a record that exists but its token and items: the record keeps whose it is, its
+     * groups, its custom attributes, its name and its description, whatever the import states for a key of its own.
+     */
     @Test
-    void complete_adoptsARecordThatAppearedAfterTheGate() throws Exception {
+    void complete_adoptsARecordWithoutChangingItsOwnerGroupsAttributesNameOrDescription() throws Exception {
+        // given
+        TokenProfileFullModel profile = persistedProfile();
+        KeyPair pair = rsa();
+        UUID recordUuid = certificatePublicKey(pair);
+        CryptographicKey described = cryptographicKeyRepository.findById(recordUuid).orElseThrow();
+        described.setDescription("the certificate's key");
+        cryptographicKeyRepository.saveAndFlush(described);
+        UUID ownerUuid = UUID.randomUUID();
+        objectAssociationService.setOwner(Resource.CRYPTOGRAPHIC_KEY, recordUuid, ownerUuid, "owner");
+        Group recordGroup = persistedGroup();
+        objectAssociationService.addGroup(Resource.CRYPTOGRAPHIC_KEY, recordUuid, recordGroup.getUuid());
+        CustomAttributeCreateRequestDto definition = new CustomAttributeCreateRequestDto();
+        definition.setName("department-" + UUID.randomUUID());
+        definition.setLabel("Department");
+        definition.setResources(List.of(Resource.CRYPTOGRAPHIC_KEY));
+        definition.setContentType(AttributeContentType.STRING);
+        UUID definitionUuid = UUID.fromString(attributeService.createCustomAttribute(definition).getUuid());
+        attributeEngine
+                .updateObjectCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, recordUuid,
+                        List.of(department(definitionUuid, definition.getName(), "Sales")));
+        KeyImportAttempt attempt = keyImportWriter.open(terms(profile, pair), "retry-keep", "imported key", SENT);
+        ImportedKeyRegistration registration = registration(profile, pair, attempt, Set.of(persistedGroup().getUuid()),
+                List.of(department(definitionUuid, definition.getName(), "Engineering"))).adopting(recordUuid);
+
+        // when
+        ImportedKey imported = keyImportWriter.complete(attempt.uuid(), registration).orElseThrow();
+
+        // then
+        assertThat(imported.outcome()).isEqualTo(ImportOutcome.ADOPTED);
+        CryptographicKey adopted = cryptographicKeyRepository.findWithGroupsByUuid(recordUuid).orElseThrow();
+        assertThat(adopted.getName()).isEqualTo("certKey_imported");
+        assertThat(adopted.getDescription()).isEqualTo("the certificate's key");
+        assertThat(adopted.getTokenProfileUuid()).isEqualTo(profile.uuid());
+        assertThat(adopted.getGroups()).extracting(Group::getUuid).containsExactly(recordGroup.getUuid());
+        NameAndUuidDto owner = objectAssociationService.getOwner(Resource.CRYPTOGRAPHIC_KEY, recordUuid);
+        assertThat(owner.getUuid()).isEqualTo(ownerUuid.toString());
+        assertThat(attributeEngine.getObjectCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, recordUuid))
+                .singleElement()
+                .satisfies(attribute -> assertThat(((ResponseAttributeV3) attribute).getContent())
+                        .extracting(content -> content.getData().toString())
+                        .containsExactly("Sales"));
+        assertThat(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(recordUuid))).hasSize(2);
+    }
+
+    /**
+     * The requester's right to update the record was checked before the registration; a record that came to hold the
+     * public key since was not checked, so the registration takes nothing and leaves the attempt open.
+     */
+    @Test
+    void complete_refusesARecordItWasNotToldItMayAdopt() throws Exception {
         // given
         TokenProfileFullModel profile = persistedProfile();
         KeyPair pair = rsa();
         KeyImportAttempt attempt = keyImportWriter.open(terms(profile, pair), "retry-late", "imported key", SENT);
         UUID recordUuid = certificatePublicKey(pair);
+        ImportedKeyRegistration registration = registration(profile, pair, attempt, Set.of());
+        UUID attemptUuid = attempt.uuid();
 
         // when
-        CryptographicKeyFullModel key = keyImportWriter
-                .complete(attempt.uuid(), registration(profile, pair, attempt, Set.of()))
-                .orElseThrow()
-                .key();
-
         // then
-        assertThat(key.uuid()).isEqualTo(recordUuid);
-        assertThat(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(recordUuid))).hasSize(2);
+        assertThatThrownBy(() -> keyImportWriter.complete(attemptUuid, registration))
+                .isInstanceOf(CryptographicKeyWriter.UncheckedRecordException.class);
+        assertThat(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(recordUuid))).hasSize(1);
+        assertThat(cryptographicKeyRepository.findById(recordUuid).orElseThrow().getTokenProfileUuid()).isNull();
+        assertThat(keyImportRepository.findById(attemptUuid).orElseThrow().getState())
+                .isEqualTo(KeyImportState.REQUESTED);
     }
 
     @Test
@@ -836,6 +954,36 @@ class KeyImportWriterITest extends BaseSpringBootTest {
                 .isEqualTo(KeyImportState.REQUESTED);
     }
 
+    /**
+     * The name was checked before the connector was asked, a connector round trip ago; a key registered under it since
+     * refuses the new key, and the attempt stays open for the reconciliation to undo the key.
+     */
+    @Test
+    void complete_refusesANameTakenSinceTheCheck() throws Exception {
+        // given
+        TokenProfileFullModel profile = persistedProfile();
+        KeyPair pair = rsa();
+        KeyImportAttempt attempt = keyImportWriter.open(terms(profile, pair), "retry-name-since", "imported key", SENT);
+        KeyPair other = rsa();
+        KeyImportAttempt named = keyImportWriter.open(terms(profile, other), "retry-name-first", "imported key", SENT);
+        UUID keyUuid = keyImportWriter
+                .complete(named.uuid(), registration(profile, other, named, Set.of()))
+                .orElseThrow()
+                .key()
+                .uuid();
+        ImportedKeyRegistration registration = registration(profile, pair, attempt, Set.of());
+        UUID attemptUuid = attempt.uuid();
+
+        // when
+        // then
+        assertThatThrownBy(() -> keyImportWriter.complete(attemptUuid, registration))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining(CryptographicKeyWriter.NAME_TAKEN.formatted("imported key"));
+        assertThat(keyImportRepository.findById(attemptUuid).orElseThrow().getState())
+                .isEqualTo(KeyImportState.REQUESTED);
+        assertThat(cryptographicKeyRepository.findAll()).extracting(CryptographicKey::getUuid).containsExactly(keyUuid);
+    }
+
     /** A retry racing the original request both learn the import completed; the key is registered once. */
     @Test
     void complete_answersWithTheKeyAConcurrentRequestRegistered() throws Exception {
@@ -851,7 +999,7 @@ class KeyImportWriterITest extends BaseSpringBootTest {
 
         // then
         assertThat(second.key().uuid()).isEqualTo(first);
-        assertThat(second.repeat()).isTrue();
+        assertThat(second.outcome()).isEqualTo(ImportOutcome.EXISTING);
         assertThat(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(first))).hasSize(2);
         assertThat(cryptographicKeyRepository.count()).isEqualTo(1);
     }
@@ -862,7 +1010,7 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         TokenProfileFullModel profile = persistedProfile();
         KeyPair pair = rsa();
         KeyImportAttempt attempt = keyImportWriter.open(terms(profile, pair), "retry-failed", "imported key", SENT);
-        keyImportWriter.fail(attempt.uuid(), "The connector could not import the key.");
+        keyImportWriter.failUntaken(attempt, "The connector could not import the key.");
 
         // when
         Optional<ImportedKey> key = keyImportWriter
@@ -998,7 +1146,7 @@ class KeyImportWriterITest extends BaseSpringBootTest {
                 .orElseThrow();
         UUID publicKeyUuid = item(recordUuid, KeyType.PUBLIC_KEY).getUuid();
         KeyImportAttempt attempt = keyImportWriter.open(terms(profile, pair), "retry-deleted", "imported key", SENT);
-        keyImportWriter.complete(attempt.uuid(), registration(profile, pair, attempt, Set.of()));
+        keyImportWriter.complete(attempt.uuid(), registration(profile, pair, attempt, Set.of()).adopting(recordUuid));
         Set<UUID> itemsRead = Set.of(publicKeyUuid);
 
         // when
@@ -1009,9 +1157,12 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         assertThat(item(recordUuid, KeyType.PRIVATE_KEY).getKeyReferenceUuid()).isEqualTo(attempt.keyReference());
     }
 
-    /** A request checks the record before and after its attempt opens; the second check sees what changed between. */
+    /**
+     * A request checks the record before and after its attempt opens, and again before it registers the key; each check
+     * sees what changed since the one before.
+     */
     @Test
-    void adoptablePublicKey_readsTheRecordAfresh() throws Exception {
+    void publicKeyReads_readTheRecordAfresh() throws Exception {
         // given
         KeyPair pair = rsa();
         UUID recordUuid = certificatePublicKey(pair);
@@ -1020,14 +1171,110 @@ class KeyImportWriterITest extends BaseSpringBootTest {
 
         // when
         // then
-        withARequestBoundEntityManager(recordUuid, () -> {
-            assertThat(cryptographicKeyWriter.adoptablePublicKey(fingerprint)).contains(publicKeyUuid);
+        withARequestBoundEntityManager(CryptographicKey.class, recordUuid, () -> {
+            assertThat(cryptographicKeyWriter.publicKeyHolder(fingerprint))
+                    .hasValueSatisfying(holder -> assertThat(holder.publicKeyItemUuid()).isEqualTo(publicKeyUuid));
+            assertThat(cryptographicKeyWriter.adoptableRecord(fingerprint)).contains(recordUuid);
             behindTheCaller("UPDATE cryptographic_key_item SET state = 'COMPROMISED' WHERE uuid = :uuid",
                     Map.of("uuid", publicKeyUuid));
-            assertThatThrownBy(() -> cryptographicKeyWriter.adoptablePublicKey(fingerprint))
+            assertThatThrownBy(() -> cryptographicKeyWriter.publicKeyHolder(fingerprint))
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining(CryptographicKeyWriter.KEY_NOT_ACTIVE);
+            assertThat(cryptographicKeyWriter.adoptableRecord(fingerprint)).isEmpty();
         });
+    }
+
+    /**
+     * The record a registration may adopt is an active public-key-only record. A key of its own, a record no longer
+     * active and a public key a token holds without its private key are left to the registration, which refuses them
+     * under its lock.
+     */
+    @Test
+    void adoptableRecord_answersOnlyAnActiveRecord() throws Exception {
+        // given
+        KeyPair adoptable = rsa();
+        UUID recordUuid = certificatePublicKey(adoptable);
+        KeyPair adopted = rsa();
+        UUID adoptedUuid = certificatePublicKey(adopted);
+        adopt(adopted, "retry-adopted");
+        CryptographicKey ownKey = cryptographicKeyRepository.findById(adoptedUuid).orElseThrow();
+        KeyPair compromised = rsa();
+        CryptographicKeyItem compromisedKey = item(certificatePublicKey(compromised), KeyType.PUBLIC_KEY);
+        compromisedKey.setState(KeyState.COMPROMISED);
+        cryptographicKeyItemRepository.saveAndFlush(compromisedKey);
+        KeyPair tokenHeld = rsa();
+        CryptographicKey inAToken = cryptographicKeyRepository.findById(certificatePublicKey(tokenHeld)).orElseThrow();
+        inAToken.setTokenProfileUuid(ownKey.getTokenProfileUuid());
+        inAToken.setTokenInstanceReferenceUuid(ownKey.getTokenInstanceReferenceUuid());
+        cryptographicKeyRepository.saveAndFlush(inAToken);
+
+        // when
+        // then
+        assertThat(cryptographicKeyWriter.adoptableRecord(fingerprintOf(adoptable))).contains(recordUuid);
+        assertThat(cryptographicKeyWriter.adoptableRecord(fingerprintOf(adopted))).isEmpty();
+        assertThat(cryptographicKeyWriter.adoptableRecord(fingerprintOf(compromised))).isEmpty();
+        assertThat(cryptographicKeyWriter.adoptableRecord(fingerprintOf(tokenHeld))).isEmpty();
+        assertThat(cryptographicKeyWriter.adoptableRecord(fingerprintOf(rsa()))).isEmpty();
+    }
+
+    /** A certificate's public key is a record an import may adopt; once adopted, it is a key of its own. */
+    @Test
+    void publicKeyHolder_tellsARecordFromAKeyOfItsOwn() throws Exception {
+        // given
+        KeyPair pair = rsa();
+        UUID recordUuid = certificatePublicKey(pair);
+        String fingerprint = fingerprintOf(pair);
+        PublicKeyHolder adoptable = cryptographicKeyWriter.publicKeyHolder(fingerprint).orElseThrow();
+
+        // when
+        adopt(pair, "retry-holder");
+        PublicKeyHolder key = cryptographicKeyWriter.publicKeyHolder(fingerprint).orElseThrow();
+
+        // then
+        assertThat(adoptable.publicKeyOnly()).isTrue();
+        assertThat(adoptable.key().uuid()).isEqualTo(recordUuid);
+        assertThat(key.publicKeyOnly()).isFalse();
+        assertThat(key.key().uuid()).isEqualTo(recordUuid);
+        assertThat(key.key().items()).hasSize(2);
+        assertThat(cryptographicKeyWriter.publicKeyHolder(fingerprintOf(rsa()))).isEmpty();
+    }
+
+    /** A key whose private key is deactivated is held but not active, as a record no longer active is. */
+    @Test
+    void publicKeyHolder_refusesAKeyNoLongerActive() throws Exception {
+        // given
+        KeyPair pair = rsa();
+        UUID keyUuid = certificatePublicKey(pair);
+        adopt(pair, "retry-deactivated");
+        CryptographicKeyItem privateKey = item(keyUuid, KeyType.PRIVATE_KEY);
+        privateKey.setState(KeyState.DEACTIVATED);
+        cryptographicKeyItemRepository.saveAndFlush(privateKey);
+        String fingerprint = fingerprintOf(pair);
+
+        // when
+        // then
+        assertThatThrownBy(() -> cryptographicKeyWriter.publicKeyHolder(fingerprint))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining(CryptographicKeyWriter.KEY_NOT_ACTIVE);
+    }
+
+    /** A token holds the public key but the platform not its private key, so the key is neither a record nor held. */
+    @Test
+    void publicKeyHolder_refusesAPublicKeyATokenHoldsWithoutItsPrivateKey() throws Exception {
+        // given
+        TokenProfileFullModel profile = persistedProfile();
+        KeyPair pair = rsa();
+        CryptographicKey holder = cryptographicKeyRepository.findById(certificatePublicKey(pair)).orElseThrow();
+        holder.setTokenProfileUuid(profile.uuid());
+        holder.setTokenInstanceReferenceUuid(profile.tokenInstanceReferenceUuid());
+        cryptographicKeyRepository.saveAndFlush(holder);
+        String fingerprint = fingerprintOf(pair);
+
+        // when
+        // then
+        assertThatThrownBy(() -> cryptographicKeyWriter.publicKeyHolder(fingerprint))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining(CryptographicKeyWriter.KEY_ALREADY_HELD);
     }
 
     /**
@@ -1130,10 +1377,10 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         UUID recordUuid = certificatePublicKey(pair);
         UUID publicKeyUuid = item(recordUuid, KeyType.PUBLIC_KEY).getUuid();
         KeyImportAttempt attempt = keyImportWriter.open(terms(profile, pair), "retry-stale-item", "imported key", SENT);
-        ImportedKeyRegistration registration = registration(profile, pair, attempt, Set.of());
+        ImportedKeyRegistration registration = registration(profile, pair, attempt, Set.of()).adopting(recordUuid);
 
         // when
-        withARequestBoundEntityManager(recordUuid, () -> {
+        withARequestBoundEntityManager(CryptographicKey.class, recordUuid, () -> {
             entityManager.find(CryptographicKeyItem.class, publicKeyUuid);
             try (ExecutorService elsewhere = Executors.newSingleThreadExecutor()) {
                 elsewhere
@@ -1162,7 +1409,7 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         rename.setName("renamed key");
 
         // when
-        withARequestBoundEntityManager(recordUuid, () -> {
+        withARequestBoundEntityManager(CryptographicKey.class, recordUuid, () -> {
             behindTheCaller(
                     "UPDATE cryptographic_key SET token_profile_uuid = :profile, token_instance_uuid = :token"
                             + " WHERE uuid = :uuid",
@@ -1237,7 +1484,7 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         keyImportWriter.compensating(attempt);
 
         // when
-        keyImportWriter.quarantine(attempt.uuid(), quarantineRegistration(profile, pair, attempt));
+        keyImportWriter.quarantine(attempt.uuid(), quarantineRegistration(profile, pair, attempt).adopting(recordUuid));
 
         // then
         CryptographicKeyItem publicKey = item(recordUuid, KeyType.PUBLIC_KEY);
@@ -1246,6 +1493,34 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         assertThat(publicKey.isEnabled()).isTrue();
         assertThat(privateKey.getState()).isEqualTo(KeyState.DEACTIVATED);
         assertThat(privateKey.isEnabled()).isFalse();
+        assertThat(cryptographicKeyRepository.findById(recordUuid).orElseThrow().getName())
+                .isEqualTo("certKey_imported");
+        assertThat(objectAssociationService.getOwner(Resource.CRYPTOGRAPHIC_KEY, recordUuid)).isNull();
+    }
+
+    /** The record keeps its name, so the name the attempt keeps need not be free for the record to be adopted. */
+    @Test
+    void quarantine_adoptsARecordThoughAnotherKeyHasTheAttemptsName() throws Exception {
+        // given
+        TokenProfileFullModel profile = persistedProfile();
+        KeyPair pair = rsa();
+        UUID recordUuid = certificatePublicKey(pair);
+        KeyImportAttempt attempt = keyImportWriter
+                .open(terms(profile, pair), "retry-quarantine-named", "imported key", SENT);
+        keyImportWriter.compensating(attempt);
+        KeyPair other = rsa();
+        KeyImportAttempt named = keyImportWriter
+                .open(terms(profile, other), "retry-quarantine-name", "imported key", SENT);
+        keyImportWriter.complete(named.uuid(), registration(profile, other, named, Set.of()));
+
+        // when
+        Optional<UUID> keyUuid = keyImportWriter
+                .quarantine(attempt.uuid(), quarantineRegistration(profile, pair, attempt).adopting(recordUuid));
+
+        // then
+        assertThat(keyUuid).contains(recordUuid);
+        assertThat(keyImportRepository.findById(attempt.uuid()).orElseThrow().getState())
+                .isEqualTo(KeyImportState.QUARANTINED);
     }
 
     /** The adopted public key changed with the quarantine, so a copy cached before it is dropped. */
@@ -1254,7 +1529,8 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         // given
         TokenProfileFullModel profile = persistedProfile();
         KeyPair pair = rsa();
-        UUID publicKeyUuid = item(certificatePublicKey(pair), KeyType.PUBLIC_KEY).getUuid();
+        UUID recordUuid = certificatePublicKey(pair);
+        UUID publicKeyUuid = item(recordUuid, KeyType.PUBLIC_KEY).getUuid();
         Cache cache = cacheManager.getCache(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE);
         cache.put(publicKeyUuid, "cached before the quarantine");
         KeyImportAttempt attempt = keyImportWriter
@@ -1262,7 +1538,7 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         keyImportWriter.compensating(attempt);
 
         // when
-        keyImportWriter.quarantine(attempt.uuid(), quarantineRegistration(profile, pair, attempt));
+        keyImportWriter.quarantine(attempt.uuid(), quarantineRegistration(profile, pair, attempt).adopting(recordUuid));
 
         // then
         assertThat(cache.get(publicKeyUuid)).isNull();
@@ -1430,7 +1706,7 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         return new ImportedKeyRegistration(profile, List.of(publicKey, privateKey), attempt.keyReference(),
                 fingerprintOf(pair), true,
                 new KeyImportMetadata("imported key", "imported for the test", groups, customAttributes),
-                new NameAndUuidDto(UUID.randomUUID().toString(), "requester"), false);
+                new NameAndUuidDto(UUID.randomUUID().toString(), "requester"), false, null);
     }
 
     private static KeyImportTerms secretKeyTerms(TokenProfileFullModel profile) {
@@ -1445,7 +1721,7 @@ class KeyImportWriterITest extends BaseSpringBootTest {
                 256, new RemoteKeyReference.MetadataReference(List.of(handle("secret-handle", "s"))), null, List.of());
         return new ImportedKeyRegistration(profile, List.of(secretKey), attempt.keyReference(), null, true,
                 new KeyImportMetadata("imported secret key", "imported for the test", Set.of(), List.of()),
-                new NameAndUuidDto(UUID.randomUUID().toString(), "requester"), false);
+                new NameAndUuidDto(UUID.randomUUID().toString(), "requester"), false, null);
     }
 
     /** The key of an attempt the reconciliation could not undo, registered with what the attempt keeps. */
@@ -1453,14 +1729,27 @@ class KeyImportWriterITest extends BaseSpringBootTest {
             KeyImportAttempt attempt) {
         ImportedKeyRegistration imported = registration(profile, pair, attempt, Set.of());
         return new ImportedKeyRegistration(profile, imported.items(), attempt.keyReference(), fingerprintOf(pair), true,
-                new KeyImportMetadata("imported key", null, Set.of(), null), imported.owner(), true);
+                new KeyImportMetadata("imported key", null, Set.of(), null), imported.owner(), true, null);
     }
 
     /** An import that adopts the certificate's public key record, completed by another request. */
     private void adopt(KeyPair pair, String idempotencyKey) throws Exception {
         TokenProfileFullModel profile = persistedProfile();
+        UUID recordUuid = cryptographicKeyItemRepository
+                .findByFingerprint(fingerprintOf(pair))
+                .orElseThrow()
+                .getKeyUuid();
         KeyImportAttempt attempt = keyImportWriter.open(terms(profile, pair), idempotencyKey, "imported key", SENT);
-        keyImportWriter.complete(attempt.uuid(), registration(profile, pair, attempt, Set.of()));
+        keyImportWriter.complete(attempt.uuid(), registration(profile, pair, attempt, Set.of()).adopting(recordUuid));
+    }
+
+    private static RequestAttribute department(UUID definitionUuid, String name, String value) {
+        RequestAttributeV3 attribute = new RequestAttributeV3();
+        attribute.setUuid(definitionUuid);
+        attribute.setName(name);
+        attribute.setContentType(AttributeContentType.STRING);
+        attribute.setContent(List.of(new StringAttributeContentV3(value)));
+        return attribute;
     }
 
     private UUID certificatePublicKey(KeyPair pair) {
@@ -1521,14 +1810,15 @@ class KeyImportWriterITest extends BaseSpringBootTest {
     }
 
     /**
-     * Binds one EntityManager to the thread for the call, as a request does, with the key already loaded in it, so the
-     * call's reads answer from that persistence context.
+     * Binds one EntityManager to the thread for the call, as a request does, with the entity already loaded in it, so
+     * the call's reads answer from that persistence context.
      */
-    private void withARequestBoundEntityManager(UUID keyUuid, RequestCall call) throws Exception {
+    private void withARequestBoundEntityManager(Class<?> loadedType, UUID loadedUuid, RequestCall call)
+            throws Exception {
         EntityManager bound = entityManagerFactory.createEntityManager();
         TransactionSynchronizationManager.bindResource(entityManagerFactory, new EntityManagerHolder(bound));
         try {
-            bound.find(CryptographicKey.class, keyUuid);
+            bound.find(loadedType, loadedUuid);
             call.run();
         } finally {
             TransactionSynchronizationManager.unbindResource(entityManagerFactory);

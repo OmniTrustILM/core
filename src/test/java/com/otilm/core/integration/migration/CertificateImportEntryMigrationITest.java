@@ -4,75 +4,82 @@ import com.otilm.core.util.BaseSpringBootTest;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.UUID;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
 
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Runs the certificate import entry migration as Flyway will. The test bootstrap generates its schema from the
- * entities, which is where {@code CertificateImportEntry} pins the same constraint, so this is where the migration's
- * own SQL is proven.
+ * Runs the certificate import entry migrations as Flyway will. The test bootstrap generates its schema from the
+ * entities, and no entity maps the table any more, so this is where its removal is proven.
  */
 class CertificateImportEntryMigrationITest extends BaseSpringBootTest {
 
-    private static final String MIGRATION_RESOURCE = "db/migration/V202609271200__certificate_import_entry.sql";
+    private static final String CREATE_RESOURCE = "db/migration/V202609271200__certificate_import_entry.sql";
+
+    private static final String DROP_RESOURCE = "db/migration/V202609291000__drop_certificate_import_entry.sql";
 
     private static final String SCRATCH_SCHEMA = "certificate_import_entry_migration_check";
 
-    private static final String INSERT_ENTRY = """
-            INSERT INTO certificate_import_entry (uuid, requester_uuid, import_id, digest, state, created_at, updated_at)
-            VALUES (gen_random_uuid(), ?, 'import-id', 'digest', 'OPEN', now(), now())
+    private static final String TABLE_COUNT = """
+            SELECT count(*) FROM information_schema.tables
+            WHERE table_schema = ? AND table_name = 'certificate_import_entry'
             """;
 
     @Autowired
     private DataSource dataSource;
 
     @Test
-    void theTableExistsWithItsUniqueConstraint() throws Exception {
+    void theTableIsDropped() throws Exception {
         try (Connection connection = dataSource.getConnection()) {
             try {
                 // given
-                applyMigration(connection);
-                UUID requesterUuid = UUID.randomUUID();
-                insertEntry(connection, requesterUuid);
+                createScratchSchema(connection);
+                runMigration(connection, CREATE_RESOURCE);
+                assertThat(tableExists(connection)).isTrue();
 
                 // when
+                runMigration(connection, DROP_RESOURCE);
+
                 // then
-                assertThatThrownBy(() -> insertEntry(connection, requesterUuid))
-                        .isInstanceOf(SQLException.class)
-                        .hasMessageContaining("uq_certificate_import_entry");
+                assertThat(tableExists(connection)).isFalse();
             } finally {
                 dropScratchSchema(connection);
             }
         }
     }
 
-    private void applyMigration(Connection connection) throws Exception {
+    private static void createScratchSchema(Connection connection) throws SQLException {
         try (Statement statement = connection.createStatement()) {
             statement.execute("DROP SCHEMA IF EXISTS " + SCRATCH_SCHEMA + " CASCADE");
             statement.execute("CREATE SCHEMA " + SCRATCH_SCHEMA);
             statement.execute("SET search_path TO " + SCRATCH_SCHEMA);
         }
-        String migration = new ClassPathResource(MIGRATION_RESOURCE).getContentAsString(StandardCharsets.UTF_8);
+    }
+
+    private static void runMigration(Connection connection, String resource) throws Exception {
+        String migration = new ClassPathResource(resource).getContentAsString(StandardCharsets.UTF_8);
         try (Statement statement = connection.createStatement()) {
             statement.execute(migration);
         }
     }
 
-    private static void insertEntry(Connection connection, UUID requesterUuid) throws SQLException {
-        try (PreparedStatement insert = connection.prepareStatement(INSERT_ENTRY)) {
-            insert.setObject(1, requesterUuid);
-            insert.executeUpdate();
+    private static boolean tableExists(Connection connection) throws SQLException {
+        try (PreparedStatement query = connection.prepareStatement(TABLE_COUNT)) {
+            query.setString(1, SCRATCH_SCHEMA);
+            try (ResultSet count = query.executeQuery()) {
+                count.next();
+                return count.getLong(1) == 1;
+            }
         }
     }
 
-    private void dropScratchSchema(Connection connection) throws SQLException {
+    private static void dropScratchSchema(Connection connection) throws SQLException {
         try (Statement statement = connection.createStatement()) {
             statement.execute("DROP SCHEMA IF EXISTS " + SCRATCH_SCHEMA + " CASCADE");
         } finally {
