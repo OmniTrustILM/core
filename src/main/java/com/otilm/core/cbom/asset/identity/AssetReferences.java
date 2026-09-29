@@ -70,22 +70,34 @@ public final class AssetReferences {
         return textOf(suite.get("name")).orElse("#" + (index + 1));
     }
 
+    /**
+     * Every typed entry counts, whatever its ref looks like, as it does for the certificate tier's key slot: once the
+     * array states the kind, the 1.6 field is not consulted, and two entries are ambiguous. One entry with no usable
+     * ref leaves the kind unrecorded; among several, it is kept as {@link #UNUSABLE_REF} so the count still reads as
+     * ambiguous rather than letting a sibling stand in for the whole kind.
+     */
     private static List<String> certificateRefs(JsonNode certificate, String relatedType, String legacyField) {
         JsonNode related = certificate.get("relatedCryptographicAssets");
-        List<String> refs = new ArrayList<>();
+        List<Optional<String>> typed = new ArrayList<>();
         if (related != null && related.isArray()) {
             for (JsonNode entry : related) {
                 JsonNode type = entry.isObject() ? entry.get("type") : null;
                 if (type != null && type.isTextual() && relatedType.equals(AsciiText.lookupKey(type.textValue()))) {
-                    textOf(entry.get("ref")).ifPresent(refs::add);
+                    typed.add(textOf(entry.get("ref")));
                 }
             }
         }
-        if (refs.isEmpty()) {
-            textOf(certificate.get(legacyField)).ifPresent(refs::add);
+        if (typed.isEmpty()) {
+            return textOf(certificate.get(legacyField)).map(List::of).orElse(List.of());
         }
-        return refs;
+        if (typed.size() == 1) {
+            return typed.get(0).map(List::of).orElse(List.of());
+        }
+        return typed.stream().map(ref -> ref.orElse(UNUSABLE_REF)).toList();
     }
+
+    /** Stands in for a typed entry whose ref is missing, blank or unstorable, among several of its kind. */
+    static final String UNUSABLE_REF = "(an entry with no usable bom-ref)";
 
     /** One reference per distinct algorithm, attributed to the first suite that names it. */
     private static List<Reference> cipherSuiteRefs(JsonNode protocol) {

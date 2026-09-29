@@ -35,8 +35,8 @@ CREATE TABLE "crypto_asset_reference" (
         REFERENCES "crypto_asset" ("uuid") ON DELETE SET NULL
 );
 
--- uq_crypto_asset_reference leads with source_uuid, which serves the per-source read and the cascade. The target
--- index serves the SET NULL check and the sweep's test for a target that moved since its referrer was evaluated.
+-- uq_crypto_asset_reference leads with source_uuid, which serves the per-source read, the cascade and the sweep's
+-- staleness test, which is driven from the referrer. The target index serves the SET NULL check.
 CREATE INDEX "idx_crypto_asset_reference_target" ON "crypto_asset_reference" ("target_asset_uuid");
 
 -- Freshness is a revision, not a time. Every write that changes what the rules read advances input_revision under the
@@ -53,7 +53,9 @@ ALTER TABLE "crypto_asset" ADD COLUMN "pqc_evaluated_revision" BIGINT;
 -- naming nothing. Only a revision that still contributes one is re-offered: a superseded revision's links were
 -- withdrawn, so it has no source rows and stays SYNCED, and the backlog never re-ingests it ahead of its successor.
 -- Re-ingesting a contributing revision is an idempotent upsert.
-UPDATE "cbom" c SET "asset_sync_state" = 'PENDING'
+-- The content-refusal count restarts with it: a document at the limit would otherwise get this one attempt and, if it
+-- failed, never be offered again, leaving its certificates and protocols without references.
+UPDATE "cbom" c SET "asset_sync_state" = 'PENDING', "asset_sync_content_refusals" = 0
 WHERE c."asset_sync_state" = 'SYNCED'
   AND EXISTS (SELECT 1 FROM "crypto_asset_source" s JOIN "crypto_asset" a ON a."uuid" = s."asset_uuid"
               WHERE s."cbom_uuid" = c."uuid" AND a."asset_type" IN ('CERTIFICATE', 'PROTOCOL'));

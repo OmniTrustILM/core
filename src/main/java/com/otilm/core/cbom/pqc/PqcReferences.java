@@ -32,9 +32,15 @@ public record PqcReferences(List<Reference> subjectKeys, List<Reference> signatu
      * @param target null when the reference named nothing that became an asset
      * @param targetType null when the target is gone
      * @param targetVerdict null when the target was never evaluated
+     * @param targetPrimitive the target's CycloneDX primitive as stored, which tells a key exchange from a cipher
      */
     public record Reference(CryptoAssetReferenceKind kind, String ref, String suite, UUID target,
-            CryptographicAssetType targetType, PqcVerdict targetVerdict, String targetRuleId) {
+            CryptographicAssetType targetType, PqcVerdict targetVerdict, String targetRuleId, String targetPrimitive) {
+
+        public Reference(CryptoAssetReferenceKind kind, String ref, String suite, UUID target,
+                CryptographicAssetType targetType, PqcVerdict targetVerdict, String targetRuleId) {
+            this(kind, ref, suite, target, targetType, targetVerdict, targetRuleId, null);
+        }
 
         /** A target that was evaluated to something the question applies to, and is not itself a referrer. */
         public boolean resolved() {

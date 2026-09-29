@@ -38,6 +38,24 @@ class AssetReferencesTest {
                 .containsExactly(tuple(CryptoAssetReferenceKind.SIGNATURE_ALGORITHM, "sig"));
     }
 
+    /**
+     * Counted the way the certificate tier's key slot counts: a typed entry states the kind whatever its ref looks
+     * like, so the deprecated field is not consulted, and two entries stay ambiguous even when one ref is unusable.
+     */
+    @Test
+    void everyTypedEntryCountsWhateverItsRefLooksLike() {
+        assertThat(AssetReferences
+                .of(certificate(
+                        "\"relatedCryptographicAssets\":[{\"type\":\"publicKey\",\"ref\":\"k1\"},{\"type\":\"publicKey\",\"ref\":\"\"}]")))
+                .extracting(AssetReferences.Reference::ref)
+                .containsExactly("k1", AssetReferences.UNUSABLE_REF);
+        assertThat(AssetReferences
+                .of(certificate(
+                        "\"subjectPublicKeyRef\":\"legacy\",\"relatedCryptographicAssets\":[{\"type\":\"publicKey\"}]")))
+                .describedAs("the array stated the key, so the legacy field does not stand in for it")
+                .isEmpty();
+    }
+
     @Test
     void aProtocolNamesEachDistinctSuiteAlgorithmOnceUnderTheFirstSuiteThatNamesIt() {
         JsonNode protocol = component("{\"assetType\":\"protocol\",\"protocolProperties\":{\"cipherSuites\":["

@@ -58,7 +58,18 @@ class PqcReferenceRulesTest {
     void theKeyDecidesATie() {
         assertThat(certificate(key(PqcVerdict.READY), signature(PqcVerdict.READY)).ruleId())
                 .isEqualTo("CERT-SUBJECT-KEY");
-        assertThat(certificate(key(PqcVerdict.READY)).verdict()).isEqualTo(PqcVerdict.READY);
+    }
+
+    /** Every certificate is signed, so a ready key with no signature algorithm recorded cannot be affirmed. */
+    @Test
+    void aReadyKeyWithNoSignatureRecordedIsDeferredUnderItsOwnRuleId() {
+        PqcDecision decision = certificate(key(PqcVerdict.READY));
+
+        assertThat(decision.ruleId()).isEqualTo("CERT-NO-SIGNATURE-RECORDED");
+        assertThat(decision.verdict()).isEqualTo(PqcVerdict.UNKNOWN);
+        assertThat(certificate(key(PqcVerdict.NOT_READY)).ruleId())
+                .describedAs("a finding still reaches the row")
+                .isEqualTo("CERT-SUBJECT-KEY");
     }
 
     /** A ready key beside a signature algorithm that resolved to nothing cannot be affirmed. */
@@ -114,11 +125,53 @@ class PqcReferenceRulesTest {
 
     @Test
     void anUnresolvedAlgorithmDefersAnOtherwiseReadyProtocol() {
-        assertThat(protocol(suite(AES, PqcVerdict.READY, "aes")).verdict()).isEqualTo(PqcVerdict.READY);
-        PqcDecision decision = protocol(suite(AES, PqcVerdict.READY, "aes"),
+        assertThat(protocol(keyExchange(PqcVerdict.READY), suite(AES, PqcVerdict.READY, "aes")).verdict())
+                .isEqualTo(PqcVerdict.READY);
+        PqcDecision decision = protocol(keyExchange(PqcVerdict.READY), suite(AES, PqcVerdict.READY, "aes"),
                 dangling(CryptoAssetReferenceKind.CIPHER_SUITE_ALGORITHM, "gone"));
         assertThat(decision.ruleId()).isEqualTo("PROTOCOL-SUITE-UNRESOLVED");
         assertThat(decision.verdict()).isEqualTo(PqcVerdict.UNKNOWN);
+    }
+
+    /**
+     * A TLS 1.3 suite names only its AEAD cipher and hash; the key exchange is negotiated apart from it. Ready ciphers
+     * alone say nothing about the harvest-now-decrypt-later risk, so the protocol defers until a key exchange is named.
+     */
+    @Test
+    void aProtocolWhoseReadyAlgorithmsEstablishNoKeyIsDeferred() {
+        PqcDecision decision = protocol(suite(AES, PqcVerdict.READY, "aes"), suite(RSA, PqcVerdict.READY, "sha"));
+
+        assertThat(decision.ruleId()).isEqualTo("PROTOCOL-NO-KEY-EXCHANGE");
+        assertThat(decision.verdict()).isEqualTo(PqcVerdict.UNKNOWN);
+        assertThat(protocol(suite(AES, PqcVerdict.NOT_READY, "des")).ruleId())
+                .describedAs("a weak cipher still decides without a key exchange")
+                .isEqualTo("PROTOCOL-CIPHER-SUITE");
+    }
+
+    /** A step before the decider names what actually kept it from deciding. */
+    @Test
+    void aNotMatchedStepSaysWhyForTheReferencesTheAssetHas() {
+        assertThat(stepMessage(CryptographicAssetType.CERTIFICATE, "CERT-SUBJECT-KEY", key(PqcVerdict.READY),
+                dangling(CryptoAssetReferenceKind.SIGNATURE_ALGORITHM, "gone")))
+                .isEqualTo("The signature algorithm resolved to no evaluated inventory asset and may be weaker than "
+                        + "the certified key");
+        assertThat(stepMessage(CryptographicAssetType.CERTIFICATE, "CERT-SIGNATURE-ALGORITHM",
+                signature(PqcVerdict.READY)))
+                .isEqualTo("No certified key is recorded to weigh the signature algorithm " + "against");
+        assertThat(stepMessage(CryptographicAssetType.PROTOCOL, "PROTOCOL-CIPHER-SUITE",
+                suite(AES, PqcVerdict.READY, "aes")))
+                .isEqualTo("Every resolved algorithm is ready, but none of them establishes a key");
+    }
+
+    private String stepMessage(CryptographicAssetType type, String ruleId, PqcReferences.Reference... references) {
+        return evaluator
+                .explain(input(type), null, references(references))
+                .steps()
+                .stream()
+                .filter(step -> step.ruleId().equals(ruleId))
+                .findFirst()
+                .orElseThrow()
+                .message();
     }
 
     /** Two keys of one certificate name nothing, whatever each resolves to, rather than letting order decide. */
@@ -179,6 +232,7 @@ class PqcReferenceRulesTest {
                 .containsExactly(tuple("CERT-SUBJECT-KEY", PqcExplanationStepOutcome.NOT_MATCHED),
                         tuple("CERT-SIGNATURE-ALGORITHM", PqcExplanationStepOutcome.RESOLVED),
                         tuple("CERT-REFERENCE-UNRESOLVED", PqcExplanationStepOutcome.NOT_REACHED),
+                        tuple("CERT-NO-SIGNATURE-RECORDED", PqcExplanationStepOutcome.NOT_REACHED),
                         tuple("CERT-NO-KEY-RECORDED", PqcExplanationStepOutcome.NOT_REACHED));
         assertThat(explanation.steps().get(0).message())
                 .isEqualTo("The signature algorithm is weaker than the certified key");
@@ -232,6 +286,11 @@ class PqcReferenceRulesTest {
     private static PqcReferences.Reference suite(UUID target, PqcVerdict verdict, String ref) {
         return new PqcReferences.Reference(CryptoAssetReferenceKind.CIPHER_SUITE_ALGORITHM, ref, "0x1301", target,
                 CryptographicAssetType.ALGORITHM, verdict, "TARGET-RULE");
+    }
+
+    private static PqcReferences.Reference keyExchange(PqcVerdict verdict) {
+        return new PqcReferences.Reference(CryptoAssetReferenceKind.CIPHER_SUITE_ALGORITHM, "kex", "0x1301", KEY,
+                CryptographicAssetType.ALGORITHM, verdict, "TARGET-RULE", "key-agree");
     }
 
     private static PqcReferences.Reference dangling(CryptoAssetReferenceKind kind, String ref) {

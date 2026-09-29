@@ -174,9 +174,10 @@ class CryptoAssetReferenceIngestITest extends BaseSpringBootTest {
         sweeper.sweep();
 
         assertThat(assetRepository.findById(key).orElseThrow().getPqcVerdict()).isEqualTo(PqcVerdict.NOT_READY);
-        assertThat(assetRepository.findById(certificate).orElseThrow().getPqcVerdict())
-                .describedAs("decided from the key's verdict as it stood before the batch")
-                .isEqualTo(PqcVerdict.READY);
+        assertThat(assetRepository.findById(certificate).orElseThrow().getPqcRuleId())
+                .describedAs("decided from the key's verdict as it stood before the batch: ready, so deferred for "
+                        + "the missing signature algorithm")
+                .isEqualTo("CERT-NO-SIGNATURE-RECORDED");
         assertThat(workList())
                 .describedAs("the key moved under the certificate's verdict")
                 .containsExactly(certificate);
@@ -264,6 +265,23 @@ class CryptoAssetReferenceIngestITest extends BaseSpringBootTest {
                         (Object) uuids.stream().map(UUID::toString).toArray(String[]::new));
 
         assertThat(uuids.stream().sorted(CbomAssetIngestService.DATABASE_UUID_ORDER).toList()).isEqualTo(byDatabase);
+    }
+
+    /**
+     * A key in a later batch than its certificate has no row until that batch lands, which is why the references are
+     * written after every batch rather than inside one.
+     */
+    @Test
+    void aCertificateResolvesAKeyThatLandsInALaterBatch() {
+        JsonNode document = CbomIngestTestFixtures
+                .read("{\"components\":[" + certificate("\"subjectPublicKeyRef\":\"key-rsa\"") + "," + KEY + "]}");
+        assertThat(ingestService.ingest(cbom.getUuid(), document, NOW, CbomIngestTestFixtures.policy(1)))
+                .isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
+
+        assertThat(referencesOf(CryptographicAssetType.CERTIFICATE))
+                .extracting(CryptoAssetReference::getTargetAssetUuid)
+                .containsExactly(named("rsa-2048 public key"));
+        assertThat(only(CryptographicAssetType.CERTIFICATE).getPqcRuleId()).isEqualTo("CERT-SUBJECT-KEY");
     }
 
     /** A 1.7 entry wins over the 1.6 field, and two entries of one kind name nothing. */

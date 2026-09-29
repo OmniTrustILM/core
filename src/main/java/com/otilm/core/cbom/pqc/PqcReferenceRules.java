@@ -7,6 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Stream;
 
 /**
@@ -17,7 +18,9 @@ import java.util.stream.Stream;
  * Weaker is {@code notReady}, then {@code unknown}, then {@code ready}. A reference that resolved to nothing, to an
  * asset not yet evaluated, or to one the question does not apply to, counts as {@code unknown}: it may be the weak one.
  * So a resolved finding decides even beside an unresolved reference, while a resolved {@code ready} does not, and a
- * reference recorded and unresolved is a deferral under its own rule id, apart from "nothing recorded".
+ * reference recorded and unresolved is a deferral under its own rule id, apart from "nothing recorded". Every
+ * certificate is signed, so one with no signature algorithm recorded is not ready on its key alone, and a protocol is
+ * ready only once one of its algorithms establishes a key.
  */
 final class PqcReferenceRules {
 
@@ -27,13 +30,20 @@ final class PqcReferenceRules {
 
     static final String CERT_REFERENCE_UNRESOLVED = "CERT-REFERENCE-UNRESOLVED";
 
+    static final String CERT_NO_SIGNATURE_RECORDED = "CERT-NO-SIGNATURE-RECORDED";
+
     static final String CERT_NO_KEY_RECORDED = "CERT-NO-KEY-RECORDED";
 
     static final String PROTOCOL_CIPHER_SUITE = "PROTOCOL-CIPHER-SUITE";
 
     static final String PROTOCOL_SUITE_UNRESOLVED = "PROTOCOL-SUITE-UNRESOLVED";
 
+    static final String PROTOCOL_NO_KEY_EXCHANGE = "PROTOCOL-NO-KEY-EXCHANGE";
+
     static final String PROTOCOL_NO_SUITES = "PROTOCOL-NO-SUITES";
+
+    /** The CycloneDX primitives that establish a key, as the primitive column stores them. */
+    private static final Set<String> KEY_ESTABLISHMENT = Set.of("key-agree", "kem");
 
     private static final int UNRESOLVED_RANK = rank(PqcVerdict.UNKNOWN);
 
@@ -58,10 +68,13 @@ final class PqcReferenceRules {
     /** The fields each rule reads, which a not-matched step shows. */
     static final Map<String, List<String>> READS_FIELDS = Map
             .of(CERT_SUBJECT_KEY, CERTIFICATE_RESOLVED_FIELDS, CERT_SIGNATURE_ALGORITHM, CERTIFICATE_RESOLVED_FIELDS,
-                    CERT_REFERENCE_UNRESOLVED, CERTIFICATE_UNRESOLVED_FIELDS, CERT_NO_KEY_RECORDED,
+                    CERT_REFERENCE_UNRESOLVED, CERTIFICATE_UNRESOLVED_FIELDS, CERT_NO_SIGNATURE_RECORDED,
+                    List.of(PqcRules.ASSET_TYPE, PqcRules.SUBJECT_PUBLIC_KEY_REF), CERT_NO_KEY_RECORDED,
                     List.of(PqcRules.ASSET_TYPE, PqcRules.SIGNATURE_ALGORITHM_REF), PROTOCOL_CIPHER_SUITE,
-                    PROTOCOL_RESOLVED_FIELDS, PROTOCOL_SUITE_UNRESOLVED, PROTOCOL_UNRESOLVED_FIELDS, PROTOCOL_NO_SUITES,
-                    List.of(PqcRules.ASSET_TYPE));
+                    PROTOCOL_RESOLVED_FIELDS, PROTOCOL_SUITE_UNRESOLVED, PROTOCOL_UNRESOLVED_FIELDS,
+                    PROTOCOL_NO_KEY_EXCHANGE,
+                    List.of(PqcRules.ASSET_TYPE, PqcRules.CIPHER_SUITES, PqcRules.CIPHER_SUITE_ALGORITHM_REFS),
+                    PROTOCOL_NO_SUITES, List.of(PqcRules.ASSET_TYPE));
 
     private PqcReferenceRules() {
     }
@@ -97,6 +110,12 @@ final class PqcReferenceRules {
                             + "so its readiness cannot be affirmed",
                     CERTIFICATE_UNRESOLVED_FIELDS, input, level, references);
         }
+        if (key.recorded() && !signature.recorded()) {
+            return deferred(CERT_NO_SIGNATURE_RECORDED,
+                    "The certificate records no signature algorithm, which may be weaker than the key it certifies, "
+                            + "so its readiness cannot be affirmed",
+                    READS_FIELDS.get(CERT_NO_SIGNATURE_RECORDED), input, level, references);
+        }
         return deferred(CERT_NO_KEY_RECORDED,
                 "The certificate records no key it certifies, so its readiness cannot be affirmed",
                 READS_FIELDS.get(CERT_NO_KEY_RECORDED), input, level, references);
@@ -107,9 +126,10 @@ final class PqcReferenceRules {
         Optional<PqcReferences.Reference> weakest = weakestResolved(algorithms);
         boolean unresolved = algorithms.stream().anyMatch(reference -> !reference.resolved());
         int unresolvedRank = unresolved ? UNRESOLVED_RANK : ABSENT_RANK;
-        if (weakest.isPresent() && rank(weakest.get().targetVerdict()) <= unresolvedRank) {
+        boolean weakestDecides = weakest.isPresent() && rank(weakest.get().targetVerdict()) <= unresolvedRank;
+        if (weakestDecides && (rank(weakest.get().targetVerdict()) < ABSENT_RANK || establishesAKey(algorithms))) {
             return resolved(PROTOCOL_CIPHER_SUITE,
-                    "A protocol is as ready as the weakest algorithm its cipher suites " + "name", weakest.get(),
+                    "A protocol is as ready as the weakest algorithm its cipher suites name", weakest.get(),
                     PROTOCOL_RESOLVED_FIELDS, input, level, references);
         }
         if (unresolved) {
@@ -118,9 +138,28 @@ final class PqcReferenceRules {
                             + "protocol's readiness cannot be affirmed",
                     PROTOCOL_UNRESOLVED_FIELDS, input, level, references);
         }
+        if (weakestDecides) {
+            return deferred(PROTOCOL_NO_KEY_EXCHANGE,
+                    "Every algorithm the cipher suites name is ready, but none of them establishes a key, which the "
+                            + "protocol negotiates separately and may be vulnerable",
+                    READS_FIELDS.get(PROTOCOL_NO_KEY_EXCHANGE), input, level, references);
+        }
         return deferred(PROTOCOL_NO_SUITES,
                 "The protocol records no cipher suite that names an algorithm, so its readiness cannot be affirmed",
                 READS_FIELDS.get(PROTOCOL_NO_SUITES), input, level, references);
+    }
+
+    /**
+     * Whether a resolved algorithm is a key agreement or a KEM. A TLS 1.3 suite names only its AEAD cipher and hash --
+     * the key exchange is negotiated apart from it -- so a protocol whose suites are all ready says nothing yet about
+     * the harvest-now-decrypt-later risk the verdict exists for.
+     */
+    private static boolean establishesAKey(List<PqcReferences.Reference> algorithms) {
+        return algorithms
+                .stream()
+                .filter(PqcReferences.Reference::resolved)
+                .anyMatch(reference -> reference.targetPrimitive() != null
+                        && KEY_ESTABLISHMENT.contains(reference.targetPrimitive()));
     }
 
     /** The first reference, in suite order, that attains the weakest resolved verdict. */
@@ -136,23 +175,58 @@ final class PqcReferenceRules {
         Contribution key = Contribution.of(references.subjectKeys());
         Contribution signature = Contribution.of(references.signatureAlgorithms());
         return switch (ruleId) {
-            case CERT_SUBJECT_KEY -> key.recorded()
-                    ? key.resolved == null
-                            ? "The certified key resolved to no evaluated inventory asset"
-                            : "The signature algorithm is weaker than the certified key"
-                    : "No certified key is recorded";
-            case CERT_SIGNATURE_ALGORITHM -> signature.recorded()
-                    ? signature.resolved == null
-                            ? "The signature algorithm resolved to no evaluated inventory asset"
-                            : "The signature algorithm is not weaker than the certified key"
-                    : "No signature algorithm is recorded";
+            case CERT_SUBJECT_KEY -> keyNotMatched(key, signature);
+            case CERT_SIGNATURE_ALGORITHM -> signatureNotMatched(key, signature);
             case CERT_REFERENCE_UNRESOLVED -> "Every recorded reference resolved";
-            case PROTOCOL_CIPHER_SUITE -> weakestResolved(references.suiteAlgorithms()).isEmpty()
-                    ? "No cipher suite algorithm resolved to an evaluated inventory asset"
-                    : "An unresolved cipher suite algorithm may be weaker than every resolved one";
+            case CERT_NO_SIGNATURE_RECORDED ->
+                signature.recorded() ? "A signature algorithm is recorded" : "No certified key is recorded";
+            case PROTOCOL_CIPHER_SUITE -> suiteNotMatched(references.suiteAlgorithms());
             case PROTOCOL_SUITE_UNRESOLVED -> "Every cipher suite algorithm resolved";
+            case PROTOCOL_NO_KEY_EXCHANGE -> "No cipher suite names an algorithm that resolved";
             default -> throw new IllegalStateException("Rule " + ruleId + " is a catch-all and always matches");
         };
+    }
+
+    private static String keyNotMatched(Contribution key, Contribution signature) {
+        if (!key.recorded()) {
+            return "No certified key is recorded";
+        }
+        if (key.resolved == null) {
+            return "The certified key resolved to no evaluated inventory asset";
+        }
+        if (signature.resolved != null) {
+            return "The signature algorithm is weaker than the certified key";
+        }
+        return signature.recorded()
+                ? "The signature algorithm resolved to no evaluated inventory asset and may be weaker than the "
+                        + "certified key"
+                : "No signature algorithm is recorded, and it may be weaker than the certified key";
+    }
+
+    private static String signatureNotMatched(Contribution key, Contribution signature) {
+        if (!signature.recorded()) {
+            return "No signature algorithm is recorded";
+        }
+        if (signature.resolved == null) {
+            return "The signature algorithm resolved to no evaluated inventory asset";
+        }
+        if (!key.recorded()) {
+            return "No certified key is recorded to weigh the signature algorithm against";
+        }
+        return key.resolved == null
+                ? "The certified key resolved to nothing and may be weaker than the signature algorithm"
+                : "The signature algorithm is not weaker than the certified key";
+    }
+
+    private static String suiteNotMatched(List<PqcReferences.Reference> algorithms) {
+        Optional<PqcReferences.Reference> weakest = weakestResolved(algorithms);
+        if (weakest.isEmpty()) {
+            return "No cipher suite algorithm resolved to an evaluated inventory asset";
+        }
+        boolean unresolved = algorithms.stream().anyMatch(reference -> !reference.resolved());
+        return unresolved && rank(weakest.get().targetVerdict()) > UNRESOLVED_RANK
+                ? "An unresolved cipher suite algorithm may be weaker than every resolved one"
+                : "Every resolved algorithm is ready, but none of them establishes a key";
     }
 
     /** The reference-side inputs, in {@link PqcRules#INPUT_FIELDS} order; absent ones omitted. */
@@ -259,13 +333,11 @@ final class PqcReferenceRules {
         }
 
         /**
-         * What the key is weighed against: an absent signature algorithm adds nothing, an unresolved one may be weak.
+         * What the key is weighed against. Every certificate is signed, so a signature algorithm the producer did not
+         * record may be the weak one, like one that resolved to nothing.
          */
         int rankAgainstKey() {
-            if (resolved != null) {
-                return rank(resolved.targetVerdict());
-            }
-            return unresolved ? UNRESOLVED_RANK : ABSENT_RANK;
+            return resolved != null ? rank(resolved.targetVerdict()) : UNRESOLVED_RANK;
         }
 
         /** What the signature algorithm is weighed against: an absent or unresolved key may be weak. */

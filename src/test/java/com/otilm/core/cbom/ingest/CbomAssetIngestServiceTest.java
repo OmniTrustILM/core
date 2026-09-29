@@ -127,6 +127,38 @@ class CbomAssetIngestServiceTest {
         order.verify(assetWriter, atLeastOnce()).upsertIdentity(anyString(), any(), any());
     }
 
+    /**
+     * The reference pass is a batch of its own and takes the same lock: another node taking it in the gap after the
+     * last asset batch leaves the unit owed, exactly as a batch that found the lock taken does.
+     */
+    @Test
+    void theReferencePassFindingTheLockTakenLeavesTheUnitOwed() {
+        when(cbomRepository.findAssetSyncState(CBOM)).thenReturn(Optional.of(CbomAssetSyncState.PENDING));
+        when(synchronizer.tryLock(anyString())).thenReturn(true, false);
+        whenUpsertReturnsAFreshUuid();
+
+        CbomAssetIngestService.IngestOutcome outcome = ingest(oneCertificate(), 100);
+
+        assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.LOCKED_ELSEWHERE);
+        verify(synchronizer, times(2)).tryLock(LOCK_KEY);
+        verify(stateWriter).releaseClaim(CBOM, CbomAssetSyncState.PENDING);
+        verify(stateWriter, never()).markSynced(any(), any());
+    }
+
+    @Test
+    void theReferencePassFindingTheCbomDeletedStopsTheUnit() {
+        when(synchronizer.tryLock(anyString())).thenReturn(true);
+        whenUpsertReturnsAFreshUuid();
+        CbomAssetIngestService service = service(realExtractor());
+        when(cbomRepository.existsById(CBOM)).thenReturn(true, false);
+
+        CbomAssetIngestService.IngestOutcome outcome = service.ingest(CBOM, oneCertificate(), SEEN_AT, POLICY);
+
+        assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.DELETED);
+        verify(referenceWriter, never()).replaceReferences(any(), any(), any(), any());
+        verify(stateWriter, never()).markSynced(any(), any());
+    }
+
     @Test
     void assetsAreCommittedInBatchesOfTheConfiguredSize() {
         when(synchronizer.tryLock(anyString())).thenReturn(true);
@@ -723,6 +755,13 @@ class CbomAssetIngestServiceTest {
                 .read("{\"metadata\":{\"component\":{\"type\":\"application\",\"bom-ref\":\"app\",\"name\":\"app\"}},"
                         + "\"components\":[{\"type\":\"cryptographic-asset\",\"bom-ref\":\"app\",\"name\":\"AES-256\","
                         + "\"cryptoProperties\":{\"assetType\":\"algorithm\",\"algorithmProperties\":{}}}]}");
+    }
+
+    private static JsonNode oneCertificate() {
+        return CbomIngestTestFixtures
+                .read("{\"components\":[{\"type\":\"cryptographic-asset\",\"bom-ref\":\"cert\",\"name\":\"example.com\","
+                        + "\"cryptoProperties\":{\"assetType\":\"certificate\",\"certificateProperties\":{"
+                        + "\"subjectName\":\"CN=example.com,O=Example\",\"issuerName\":\"CN=Example CA,O=Example\"}}}]}");
     }
 
     private static JsonNode twoAlgorithms() {

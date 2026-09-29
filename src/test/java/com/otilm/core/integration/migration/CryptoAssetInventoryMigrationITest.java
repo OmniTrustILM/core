@@ -140,10 +140,11 @@ class CryptoAssetInventoryMigrationITest extends BaseSpringBootTest {
                 applyMigrationsUpTo(connection, false);
                 try (Statement statement = connection.createStatement()) {
                     statement.execute("""
-                            INSERT INTO cbom (uuid, serial_number, version, asset_sync_state) VALUES
-                              ('11111111-0000-4000-8000-00000000c001', 'urn:cert', 1, 'SYNCED'),
-                              ('11111111-0000-4000-8000-00000000c002', 'urn:alg', 1, 'SYNCED'),
-                              ('11111111-0000-4000-8000-00000000c003', 'urn:cert', 0, 'SYNCED');
+                            INSERT INTO cbom (uuid, serial_number, version, asset_sync_state,
+                                    asset_sync_content_refusals) VALUES
+                              ('11111111-0000-4000-8000-00000000c001', 'urn:cert', 1, 'SYNCED', 3),
+                              ('11111111-0000-4000-8000-00000000c002', 'urn:alg', 1, 'SYNCED', 0),
+                              ('11111111-0000-4000-8000-00000000c003', 'urn:cert', 0, 'SYNCED', 0);
                             INSERT INTO crypto_asset (uuid, identity_key, ruleset_version, asset_type, i_cre, i_upd,
                                     pqc_evaluated_at)
                             VALUES ('22222222-0000-4000-8000-00000000a001', 'k1', 1, 'CERTIFICATE', now(),
@@ -165,6 +166,11 @@ class CryptoAssetInventoryMigrationITest extends BaseSpringBootTest {
                         "SELECT serial_number || '#' || version || '=' || asset_sync_state FROM cbom ORDER BY "
                                 + "serial_number, version"))
                         .containsExactly("urn:alg#1=SYNCED", "urn:cert#0=SYNCED", "urn:cert#1=PENDING");
+                assertThat(queryColumn(connection,
+                        "SELECT asset_sync_content_refusals::text FROM cbom WHERE serial_number = 'urn:cert' AND "
+                                + "version = 1"))
+                        .describedAs("a re-queued document at the refusal limit gets a real attempt, not one")
+                        .containsExactly("0");
                 assertThat(queryColumn(connection,
                         "SELECT identity_key FROM crypto_asset WHERE pqc_evaluated_revision IS NULL ORDER BY 1"))
                         .describedAs("no verdict carries over as current: the old test cannot vouch for one")

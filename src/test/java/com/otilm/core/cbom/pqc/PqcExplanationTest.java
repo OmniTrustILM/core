@@ -79,8 +79,8 @@ class PqcExplanationTest {
 
     @Test
     void anAssetIsShownOnlyTheRulesItsTypeIsTestedAgainst() {
-        assertThat(PqcRuleCatalog.servedFor(CryptographicAssetType.CERTIFICATE)).hasSize(4);
-        assertThat(PqcRuleCatalog.servedFor(CryptographicAssetType.PROTOCOL)).hasSize(3);
+        assertThat(PqcRuleCatalog.servedFor(CryptographicAssetType.CERTIFICATE)).hasSize(5);
+        assertThat(PqcRuleCatalog.servedFor(CryptographicAssetType.PROTOCOL)).hasSize(4);
         assertThat(PqcRuleCatalog.servedFor(CryptographicAssetType.UNROUTABLE)).hasSize(1);
         assertThat(PqcRuleCatalog.servedFor(null))
                 .isEqualTo(PqcRuleCatalog.servedFor(CryptographicAssetType.UNROUTABLE));

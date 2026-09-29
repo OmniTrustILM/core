@@ -76,6 +76,6 @@ public class PqcReferenceReader {
                 row.get("ref", String.class), row.get("suite", String.class), row.get("target_asset_uuid", UUID.class),
                 targetType == null ? null : CryptographicAssetType.valueOf(targetType),
                 targetVerdict == null ? null : PqcVerdict.valueOf(targetVerdict),
-                row.get("target_rule_id", String.class));
+                row.get("target_rule_id", String.class), row.get("target_primitive", String.class));
     }
 }

@@ -54,7 +54,8 @@ public interface CryptoAssetReferenceRepository extends JpaRepository<CryptoAsse
      */
     @Query(value = """
             SELECT a.uuid AS asset_uuid, r.kind, r.ref, r.suite, r.target_asset_uuid,
-                   t.asset_type AS target_type, t.pqc_verdict AS target_verdict, t.pqc_rule_id AS target_rule_id
+                   t.asset_type AS target_type, t.pqc_verdict AS target_verdict, t.pqc_rule_id AS target_rule_id,
+                   t.primitive AS target_primitive
             FROM {h-schema}crypto_asset a
             JOIN {h-schema}crypto_asset_reference r ON r.source_uuid = a.properties_source_uuid
             LEFT JOIN {h-schema}crypto_asset t ON t.uuid = r.target_asset_uuid

@@ -17,8 +17,7 @@ import java.util.stream.Stream;
  * to read; certificates and protocols are decided before the table, by {@link PqcReferenceRules}. The hybrid rule runs
  * before every family rule, because a hybrid's stored family is whichever construction the grammar elected. That is not
  * always the post-quantum one: measured, {@code X25519-Kyber768} stores {@code ECDH}, so a family-first order reports a
- * migrated asset as un-migrated. (D17 moved {@code X25519-ML-KEM-768} itself onto the {@code X-Wing} pseudo-family, so
- * the worked example that used to appear here no longer shows the effect.)
+ * migrated asset as un-migrated.
  *
  * <p>
  * Deliberately non-configurable: which families are ready is a fact the platform ships an opinion about, and a

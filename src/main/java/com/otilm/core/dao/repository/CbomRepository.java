@@ -59,8 +59,8 @@ public interface CbomRepository extends SecurityFilterRepository<Cbom, UUID> {
      *
      * <p>
      * <b>Ingested, not merely stored.</b> The write-off this answers is irreversible -- nothing in this application
-     * moves a superseded row from {@code SYNCED} back to {@code PENDING}; the one migration that re-offered synced rows
-     * re-offered only revisions that still contribute sources -- so it has to be earned by the newer revision actually
+     * moves a superseded row from {@code SYNCED} back to {@code PENDING}, and a migration that re-offers synced rows
+     * re-offers only revisions that still contribute sources -- so it has to be earned by the newer revision actually
      * contributing, not by its header row existing. After the upgrade that introduced the column every pre-existing row
      * defaults to {@code PENDING}, which means a serial's revisions are commonly all unsynced at once: writing the
      * older ones off against a newer row whose document turns out to be unreadable would leave the serial number
