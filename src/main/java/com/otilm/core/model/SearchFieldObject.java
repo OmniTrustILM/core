@@ -85,6 +85,22 @@ public class SearchFieldObject {
         }
     }
 
+    /**
+     * A copy that can be merged without touching this one. {@code SearchHelper} merges rows sharing an identifier in
+     * place, so a row read from a cache is copied before it is merged. The content items list is shared: merging
+     * replaces it, never changes it.
+     */
+    public SearchFieldObject copy() {
+        SearchFieldObject copy = new SearchFieldObject(attributeName, attributeContentType, attributeType);
+        copy.setLabel(label);
+        copy.setList(list);
+        copy.setMultiSelect(multiSelect);
+        copy.setProtectionLevel(protectionLevel);
+        copy.setVisible(visible);
+        copy.setContentItems(contentItems);
+        return copy;
+    }
+
     public boolean isDateTimeFormat() {
         return this.attributeContentType.equals(AttributeContentType.DATE)
                 || this.attributeContentType.equals(AttributeContentType.TIME)
