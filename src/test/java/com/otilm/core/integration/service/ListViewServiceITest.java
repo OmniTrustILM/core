@@ -317,10 +317,11 @@ class ListViewServiceITest extends BaseSpringBootTest {
 
     /**
      * A field can leave the catalogue after a view has stored it - a custom attribute is deleted, a property is
-     * retired. Reading the view then has to drop that column rather than fail, so the rest of the view keeps working.
+     * retired. Reading the view still returns the column in place, so the client can name it as unavailable, and a
+     * full-row write the client sends back does not erase it before the user has seen it.
      */
     @Test
-    void aColumnWhoseFieldNoLongerExistsIsSkippedOnRead() {
+    void aColumnWhoseFieldNoLongerExistsIsKeptOnRead() {
         store("Stale",
                 List
                         .of(column("COMMON_NAME"), column("RETIRED_FIELD"),
@@ -329,7 +330,79 @@ class ListViewServiceITest extends BaseSpringBootTest {
 
         ListViewDto read = listViewService.listViews(Resource.CERTIFICATE).getFirst();
 
-        Assertions.assertEquals(List.of("COMMON_NAME"), identifiersOf(read));
+        Assertions.assertEquals(List.of("COMMON_NAME", "RETIRED_FIELD", "deleted|STRING"), identifiersOf(read));
+    }
+
+    /**
+     * A view holding a column for a deleted attribute has to stay editable: renaming or pinning it sends the whole row
+     * back, that column included, and refusing the request over it would freeze the view.
+     */
+    @Test
+    void aColumnWhoseFieldNoLongerExistsSurvivesARename() throws NotFoundException, AlreadyExistException {
+        ListViewColumnDto deleted = new ListViewColumnDto(FilterFieldSource.CUSTOM, "deleted|STRING", null);
+        store("Stale", List.of(column("COMMON_NAME"), deleted), null);
+        ListViewDto read = listViewService.listViews(Resource.CERTIFICATE).getFirst();
+
+        ListViewDto renamed = listViewService
+                .editView(read.getUuid(), update("Renamed", column("COMMON_NAME"), deleted));
+
+        Assertions.assertEquals("Renamed", renamed.getName());
+        Assertions.assertEquals(List.of("COMMON_NAME", "deleted|STRING"), identifiersOf(renamed));
+    }
+
+    @Test
+    void aFilterOnAFieldThatNoLongerExistsSurvivesARename() throws NotFoundException, AlreadyExistException {
+        SearchFilterRequestDto deleted = new SearchFilterRequestDto(FilterFieldSource.CUSTOM, "deleted|STRING",
+                FilterConditionOperator.EQUALS, "x");
+        ListView stored = new ListView();
+        stored.setUserUuid(user);
+        stored.setResource(Resource.CERTIFICATE);
+        stored.setName("Filtered");
+        stored.setColumns(List.of(column("COMMON_NAME")));
+        stored.setFilters(List.of(deleted));
+        listViewRepository.save(stored);
+
+        ListViewUpdateRequestDto rename = update("Renamed", column("COMMON_NAME"));
+        rename.setFilters(List.of(deleted));
+        ListViewDto renamed = listViewService.editView(stored.getUuid().toString(), rename);
+
+        Assertions.assertEquals("Renamed", renamed.getName());
+        Assertions.assertEquals(List.of(deleted), renamed.getFilters());
+    }
+
+    @Test
+    void aFilterOnAFieldThatNoLongerExistsCannotBeAddedToAnExistingView() throws AlreadyExistException {
+        ListViewDto created = listViewService.createView(request("Clean", column("COMMON_NAME")));
+        ListViewUpdateRequestDto edit = update("Clean", column("COMMON_NAME"));
+        edit
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.CUSTOM, "deleted|STRING",
+                                FilterConditionOperator.EQUALS, "x")));
+
+        ValidationException e = Assertions
+                .assertThrows(ValidationException.class, () -> listViewService.editView(created.getUuid(), edit));
+        Assertions.assertTrue(e.getMessage().contains("deleted|STRING"));
+    }
+
+    @Test
+    void aColumnWhoseFieldNoLongerExistsCannotBeAddedToAnExistingView() throws AlreadyExistException {
+        ListViewDto created = listViewService.createView(request("Clean", column("COMMON_NAME")));
+        ListViewColumnDto deleted = new ListViewColumnDto(FilterFieldSource.CUSTOM, "deleted|STRING", null);
+
+        ValidationException e = Assertions
+                .assertThrows(ValidationException.class, () -> listViewService
+                        .editView(created.getUuid(), update("Clean", column("COMMON_NAME"), deleted)));
+        Assertions.assertTrue(e.getMessage().contains("deleted|STRING"));
+    }
+
+    @Test
+    void aColumnWhoseFieldNoLongerExistsIsRejectedOnCreate() {
+        ListViewRequestDto request = request("Copy", column("COMMON_NAME"),
+                new ListViewColumnDto(FilterFieldSource.CUSTOM, "deleted|STRING", null));
+
+        ValidationException e = Assertions
+                .assertThrows(ValidationException.class, () -> listViewService.createView(request));
+        Assertions.assertTrue(e.getMessage().contains("deleted|STRING"));
     }
 
     /**
