@@ -18,13 +18,16 @@ public record ObservedSchedule(ScheduledJobScheduleState state, Instant nextFire
             null, null);
 
     /**
-     * A paused trigger serves no next fire time: pausing leaves Quartz's frozen at an instant the trigger will not fire
-     * at, which once passed would read as a scheduler that stopped firing. Its last fire still stands.
+     * A paused or errored trigger serves no next fire time: Quartz leaves the stored one in place, and the trigger will
+     * not fire at it -- a paused one until it is resumed, an errored one at all, since Quartz never acquires it again.
+     * Once passed, that instant would read as a scheduler that stopped firing. The last fire still stands.
      */
     public static ObservedSchedule of(SchedulerJobDto job) {
         final ScheduledJobScheduleState state = stateOf(job.getTriggerState());
-        final Instant nextFireTime = state == ScheduledJobScheduleState.PAUSED ? null : job.getNextFireTime();
-        return new ObservedSchedule(state, nextFireTime, job.getPreviousFireTime());
+        return switch (state) {
+            case PAUSED, ERROR -> new ObservedSchedule(state, null, job.getPreviousFireTime());
+            default -> new ObservedSchedule(state, job.getNextFireTime(), job.getPreviousFireTime());
+        };
     }
 
     /** Quartz's own state folded onto the operator's; a scheduler that reports none predates the field. */

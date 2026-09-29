@@ -107,6 +107,22 @@ class ObservedSchedulesTest {
         assertEquals(PREVIOUS, schedule.previousFireTime());
     }
 
+    /**
+     * Quartz keeps the stored next fire time when it moves a trigger to ERROR and never acquires an errored trigger
+     * again, so that instant will not happen either. None is served; the last fire still stands.
+     */
+    @Test
+    void anErroredTriggerServesNoNextFireTimeButKeepsItsLastFire() {
+        SchedulerJobDto job = live("job");
+        job.setTriggerState(SchedulerTriggerState.ERROR);
+
+        ObservedSchedule schedule = ObservedSchedule.of(job);
+
+        assertEquals(ScheduledJobScheduleState.ERROR, schedule.state());
+        assertNull(schedule.nextFireTime());
+        assertEquals(PREVIOUS, schedule.previousFireTime());
+    }
+
     /** A scheduler that predates the field answers no state: as good as unread for that job, not "no trigger". */
     @Test
     void aJobWithoutATriggerStateIsUnknown() {
