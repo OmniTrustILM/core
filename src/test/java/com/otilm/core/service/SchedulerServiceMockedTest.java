@@ -49,6 +49,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
@@ -76,6 +77,7 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -623,8 +625,10 @@ class SchedulerServiceMockedTest {
         schedulerService.runScheduledJob(JOB_NAME);
 
         verify(testTask).performJob(any(ScheduledJobInfo.class), any());
-        verify(scheduledJobWriter).recordSkipped(JOB_UUID, "nothing to do");
-        verify(historyWriter).removeSkipped(HISTORY_UUID);
+        // The skip first: should the run stop between the two writes, the signal that matters is the one kept.
+        InOrder bookkeeping = inOrder(scheduledJobWriter, historyWriter);
+        bookkeeping.verify(scheduledJobWriter).recordSkipped(JOB_UUID, "nothing to do");
+        bookkeeping.verify(historyWriter).removeSkipped(HISTORY_UUID);
         verify(historyWriter, never()).recordFinished(any(), any());
         verify(historyWriter, never()).recordFailed(any(), any());
         verify(eventProducer, never()).produceMessage(any());
