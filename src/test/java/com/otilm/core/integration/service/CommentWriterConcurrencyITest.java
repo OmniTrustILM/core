@@ -94,6 +94,38 @@ class CommentWriterConcurrencyITest extends BaseSpringBootTest {
     }
 
     @Test
+    void bulkPurgeRunningConcurrentlyWithCreateStillRemovesTheRacingComment() throws Exception {
+        Group settled = newGroup();
+        Group raced = newGroup();
+        commentRepository.saveAndFlush(newComment(settled.getUuid()));
+        CountDownLatch created = new CountDownLatch(1);
+        CountDownLatch mayCommitCreate = new CountDownLatch(1);
+
+        Future<Comment> creator = executor.submit(() -> transactionTemplate.execute(status -> {
+            Comment saved = create(newComment(raced.getUuid()));
+            created.countDown();
+            await(mayCommitCreate);
+            return saved;
+        }));
+
+        assertThat(created.await(10, TimeUnit.SECONDS)).isTrue();
+
+        Future<Integer> purger = executor.submit(() -> transactionTemplate.execute(status -> {
+            int purged = commentWriter.deleteAllForObjects(Resource.GROUP, List.of(raced.getUuid(), settled.getUuid()));
+            groupRepository.deleteAll(List.of(settled, raced));
+            return purged;
+        }));
+
+        awaitAdvisoryLockWaiter();
+        mayCommitCreate.countDown();
+
+        assertThat(creator.get(10, TimeUnit.SECONDS)).isNotNull();
+        assertThat(purger.get(10, TimeUnit.SECONDS)).isEqualTo(2);
+        assertThat(commentRepository.existsByResourceAndObjectUuid(Resource.GROUP, settled.getUuid())).isFalse();
+        assertThat(commentRepository.existsByResourceAndObjectUuid(Resource.GROUP, raced.getUuid())).isFalse();
+    }
+
+    @Test
     void createBlockedByAnInFlightHostPurgeRollsBackOnceTheHostIsGone() throws Exception {
         Group group = newGroup();
         CountDownLatch purged = new CountDownLatch(1);

@@ -97,4 +97,9 @@ public interface CommentRepository extends SecurityFilterRepository<Comment, UUI
     @Modifying
     @Query("DELETE FROM Comment c WHERE c.resource = :resource AND c.objectUuid = :objectUuid")
     int deleteAllByResourceAndObjectUuid(@Param("resource") Resource resource, @Param("objectUuid") UUID objectUuid);
+
+    @Modifying
+    @Query("DELETE FROM Comment c WHERE c.resource = :resource AND c.objectUuid IN :objectUuids")
+    int deleteAllByResourceAndObjectUuidIn(@Param("resource") Resource resource,
+            @Param("objectUuids") Collection<UUID> objectUuids);
 }

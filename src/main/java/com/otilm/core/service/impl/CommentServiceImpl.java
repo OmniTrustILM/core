@@ -324,6 +324,11 @@ public class CommentServiceImpl implements CommentExternalService, CommentIntern
         commentWriter.deleteAllForObject(resource, objectUuid);
     }
 
+    @Override
+    public void bulkRemoveObjectComments(Resource resource, List<UUID> objectUuids) {
+        commentWriter.deleteAllForObjects(resource, objectUuids);
+    }
+
     private void changeResolution(UUID uuid, boolean resolved) throws NotFoundException {
         Comment comment = getComment(uuid);
         ResourceObjectDto hostObject = readGate(comment);
