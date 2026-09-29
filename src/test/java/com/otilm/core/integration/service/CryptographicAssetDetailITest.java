@@ -377,6 +377,45 @@ class CryptographicAssetDetailITest extends BaseSpringBootTest {
         assertThat(referenced.isVisible()).isFalse();
     }
 
+    /**
+     * A stored verdict the sweep is about to restamp is not current, even when the recomputation happens to reach the
+     * same verdict and rule: the row moved to a later revision, or a reference verdict it was read from changed.
+     */
+    @Test
+    void anAgreeingVerdictTheSweepWouldRestampDoesNotMatchTheStoredOne() throws NotFoundException {
+        UUID rsa = upsert(new CryptoAssetIdentityFields(CryptographicAssetType.ALGORITHM, "rsa-3072", null, "RSA", null,
+                "3072", null, null, null, null), null);
+        CryptographicAssetPqcExplanationDto first = cryptographicAssetService
+                .getCryptographicAssetPqcExplanation(SecuredUUID.fromUUID(rsa));
+        assetWriter.applyPqcVerdict(rsa, first.getVerdict(), first.getRuleId(), first.getReason(), Map.of());
+        assertThat(cryptographicAssetService
+                .getCryptographicAssetPqcExplanation(SecuredUUID.fromUUID(rsa))
+                .isMatchesStored()).isTrue();
+
+        sourceWriter.upsertSource(rsa, newCbom("urn:uuid:moved").getUuid(), Map.of("name", "RSA-3072"), List.of(), NOW);
+
+        CryptographicAssetPqcExplanationDto moved = cryptographicAssetService
+                .getCryptographicAssetPqcExplanation(SecuredUUID.fromUUID(rsa));
+        assertThat(moved.getRuleId()).isEqualTo(first.getRuleId());
+        assertThat(moved.isMatchesStored())
+                .describedAs("the row moved past the revision the verdict was taken at")
+                .isFalse();
+
+        UUID certificate = upsert(new CryptoAssetIdentityFields(CryptographicAssetType.CERTIFICATE, "basis.example",
+                null, null, null, null, null, null, null, null), null);
+        assetWriter
+                .applyPqcVerdict(certificate,
+                        new PqcDecision(PqcVerdict.UNKNOWN, "CERT-NO-KEY-RECORDED", "reason", Map.of()),
+                        "a-target:READY:SOME-RULE");
+
+        CryptographicAssetPqcExplanationDto certified = cryptographicAssetService
+                .getCryptographicAssetPqcExplanation(SecuredUUID.fromUUID(certificate));
+        assertThat(certified.getRuleId()).isEqualTo("CERT-NO-KEY-RECORDED");
+        assertThat(certified.isMatchesStored())
+                .describedAs("read from reference verdicts that are no longer there")
+                .isFalse();
+    }
+
     @Test
     void theExplanationOfAnUnknownAssetIsNotFound() {
         SecuredUUID unknown = SecuredUUID.fromUUID(UUID.randomUUID());

@@ -128,10 +128,10 @@ class CryptoAssetInventoryMigrationITest extends BaseSpringBootTest {
     // ---- setup / teardown ----
 
     /**
-     * The PQC references migration moves data as well as schema: it carries a current verdict over as current and
-     * re-offers every certificate and protocol row and every stale one, and re-queues for ingest only a synced document
-     * that still contributes one, so a superseded revision -- which keeps no sources -- is never re-ingested ahead of
-     * its successor.
+     * The PQC references migration moves data as well as schema: it re-offers every evaluated row, since the timestamp
+     * test it replaces cannot vouch for any of them, and re-queues for ingest only a synced document that still
+     * contributes one, so a superseded revision -- which keeps no sources -- is never re-ingested ahead of its
+     * successor.
      */
     @Test
     void thePqcReferencesMigrationRequeuesOnlyTheDocumentsThatContributeACertificateOrProtocol() throws Exception {
@@ -167,8 +167,8 @@ class CryptoAssetInventoryMigrationITest extends BaseSpringBootTest {
                         .containsExactly("urn:alg#1=SYNCED", "urn:cert#0=SYNCED", "urn:cert#1=PENDING");
                 assertThat(queryColumn(connection,
                         "SELECT identity_key FROM crypto_asset WHERE pqc_evaluated_revision IS NULL ORDER BY 1"))
-                        .describedAs("the certificate the removed rule decided, and a verdict already stale")
-                        .containsExactly("k1", "k3");
+                        .describedAs("no verdict carries over as current: the old test cannot vouch for one")
+                        .containsExactly("k1", "k2", "k3");
             } finally {
                 dropScratchSchema(connection);
             }

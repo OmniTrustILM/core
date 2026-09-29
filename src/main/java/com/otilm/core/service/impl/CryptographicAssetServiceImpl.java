@@ -281,9 +281,20 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
         }
         dto
                 .setMatchesStored(evaluated && asset.getPqcVerdict() == explanation.decision().verdict()
-                        && Objects.equals(asset.getPqcRuleId(), explanation.decision().ruleId()));
+                        && Objects.equals(asset.getPqcRuleId(), explanation.decision().ruleId())
+                        && storedVerdictIsCurrent(asset, result.referenceBasis()));
         dto.setExplainedAt(OffsetDateTime.now());
         return dto;
+    }
+
+    /**
+     * The sweep's own definition of fresh, so {@code matchesStored} cannot say true for a row the sweep is about to
+     * restamp: the stored verdict was taken at the row's current revision, and from the reference verdicts the
+     * explanation just read. Agreeing on the verdict alone would hide both.
+     */
+    private static boolean storedVerdictIsCurrent(CryptoAsset asset, String referenceBasis) {
+        return Objects.equals(asset.getPqcEvaluatedRevision(), asset.getInputRevision())
+                && Objects.equals(asset.getPqcReferenceBasis(), referenceBasis);
     }
 
     private PqcExplanationStepDto toStepDto(PqcExplanation.Step step) {

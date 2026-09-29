@@ -38,8 +38,10 @@ public class PqcVerdictExplainer {
 
     /**
      * @param inputs what the rules read, empty when the evaluation failed before any was derived
+     * @param referenceBasis {@link PqcReferences#basis()} as this explanation read it, for comparison with the stored
+     * one
      */
-    public record Result(PqcExplanation explanation, Map<String, Object> inputs) {
+    public record Result(PqcExplanation explanation, Map<String, Object> inputs, String referenceBasis) {
     }
 
     /** @return empty when the row is gone */
@@ -58,7 +60,7 @@ public class PqcVerdictExplainer {
             PqcReferences references = PqcReferenceReader.forRow(row, merged, loaded);
             return Optional
                     .of(new Result(evaluator.explain(input, level, references),
-                            PqcEvaluator.inputsOf(input, level, references)));
+                            PqcEvaluator.inputsOf(input, level, references), references.basis()));
         } catch (RuntimeException e) {
             // The uuid, never the identity key: this line reaches an operator's log aggregator.
             log.warn("PQC verdict explanation failed for cryptographic asset {}", assetUuid, e);
@@ -72,7 +74,7 @@ public class PqcVerdictExplainer {
                 PqcRules.EVALUATION_FAILED_REASON, Map.of());
         PqcExplanation.Step step = new PqcExplanation.Step(PqcRules.EVALUATION_FAILED, "Evaluation",
                 PqcExplanationStepOutcome.FAILED, decision.verdict(), decision.reason(), Map.of(), null);
-        return new Result(new PqcExplanation(decision, List.of(step)), Map.of());
+        return new Result(new PqcExplanation(decision, List.of(step)), Map.of(), null);
     }
 
     private static JsonNode mergedPayload(PqcStaleVerdictRow row) {
