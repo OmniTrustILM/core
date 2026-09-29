@@ -192,12 +192,16 @@ public class AttributeEngine {
             }
             return groups;
         }
-        for (AttributeType type : List.of(AttributeType.CUSTOM, AttributeType.DATA, AttributeType.META)) {
-            List<SearchFieldObject> ofType = rows.stream().filter(row -> row.getAttributeType() == type).toList();
-            if (!ofType.isEmpty()) {
+        for (FilterFieldSource source : List
+                .of(FilterFieldSource.CUSTOM, FilterFieldSource.DATA, FilterFieldSource.META)) {
+            List<SearchFieldObject> ofSource = rows
+                    .stream()
+                    .filter(row -> row.getAttributeType() == source.getAttributeType())
+                    .toList();
+            if (!ofSource.isEmpty()) {
                 groups
-                        .add(new SearchFieldDataByGroupDto(SearchHelper.prepareSearchForJSON(ofType, resource),
-                                FilterFieldSource.valueOf(type.name())));
+                        .add(new SearchFieldDataByGroupDto(SearchHelper.prepareSearchForJSON(ofSource, resource),
+                                source));
             }
         }
         return groups;
