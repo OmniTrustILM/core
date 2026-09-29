@@ -439,7 +439,7 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
             throws ConnectorException {
         ValidatedScope validated = validatedScope(context,
                 schemaRequest -> operationsApiClient.listSignAttributes(connectorInfo, schemaRequest),
-                orEmpty(request.getSignatureAttributes()), SignatureAlgorithmFields::selection);
+                request.getSignatureAttributes(), SignatureAlgorithmFields::selection);
         IdentifiedBatch<SignatureDataV2Dto> batch = signatureBatch(request.getData());
         SignDataRequestV2Dto body = keyScoped(new SignDataRequestV2Dto(), context, validated.scope());
         body.setExecutionMode(OperationExecutionMode.SYNCHRONOUS);
@@ -473,7 +473,7 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         requireAlignedIdentifiers(request.getData(), request.getSignatures());
         ValidatedScope validated = validatedScope(context,
                 schemaRequest -> operationsApiClient.listVerifyAttributes(connectorInfo, schemaRequest),
-                orEmpty(request.getSignatureAttributes()), SignatureAlgorithmFields::selection);
+                request.getSignatureAttributes(), SignatureAlgorithmFields::selection);
         TokenProfileScopedRequestV2Dto scope = validated.scope();
         IdentifiedBatch<SignatureDataV2Dto> data = signatureBatch(request.getData());
         IdentifiedBatch<SignatureDataV2Dto> signatures = signatureBatch(request.getSignatures());
@@ -821,8 +821,7 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
                 tokenProfileScopedRequest(context.tokenProfile()));
         List<BaseAttribute> connectorDefinitions = fetchSchema(schemaCall, request);
         assertNoExpandedSecretEchoed(request, connectorDefinitions);
-        List<BaseAttribute> definitions = publishDefinitions(request,
-                SignatureAlgorithmFields.form(connectorDefinitions));
+        List<BaseAttribute> definitions = persistDefinitions(SignatureAlgorithmFields.form(connectorDefinitions));
         return new OperationAttributeSchema(context.keyItem().operationAttributeOwner(), definitions,
                 connectorDefinitions);
     }
@@ -859,10 +858,14 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         outboundSecretContainment.assertNoExpandedSecretOutbound(payload, expandedSecrets);
     }
 
-    /** Guards expanded secrets and persists the schema so attribute callbacks can resolve against it. */
     private List<BaseAttribute> publishDefinitions(TokenProfileScopedRequestV2Dto request,
             List<BaseAttribute> definitions) throws ConnectorException {
         assertNoExpandedSecretEchoed(request, definitions);
+        return persistDefinitions(definitions);
+    }
+
+    /** Persists the schema so attribute callbacks can resolve against it. */
+    private List<BaseAttribute> persistDefinitions(List<BaseAttribute> definitions) throws ConnectorException {
         try {
             attributeEngine.updateDataAttributeDefinitions(UUID.fromString(connectorInfo.getUuid()), null, definitions);
         } catch (AttributeException e) {

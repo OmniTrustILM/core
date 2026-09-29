@@ -1,5 +1,6 @@
 package com.otilm.core.model.crypto;
 
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.core.attribute.SignatureAlgorithmFields;
@@ -27,7 +28,7 @@ public record OperationAttributeSchema(UUID ownerConnectorUuid, List<BaseAttribu
      * Saving validates each field against its own definition, and a key can offer a scheme and a digest without
      * offering the two together.
      *
-     * @throws com.otilm.api.exception.ValidationException when the fields choose no algorithm the key offers
+     * @throws ValidationException when the fields choose no algorithm the key offers
      */
     public void requireOfferedSignatureAlgorithm(List<RequestAttribute> signatureAttributes) {
         SignatureAlgorithmFields.selection(connectorDefinitions, signatureAttributes);

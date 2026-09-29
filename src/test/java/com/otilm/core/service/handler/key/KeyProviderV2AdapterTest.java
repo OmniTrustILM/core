@@ -584,6 +584,26 @@ class KeyProviderV2AdapterTest {
     }
 
     @Test
+    void signData_sendsNoSignatureAttributes_whenTheRequestStatesNone() throws Exception {
+        // given
+        when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of());
+        SignDataResponseV2Dto body = new SignDataResponseV2Dto();
+        body.setSignatures(List.of(new SignatureDataV2Dto(new byte[]{7}, "0")));
+        when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
+        SignDataRequestDto request = new SignDataRequestDto();
+        request.setSignatureAttributes(null);
+        request.setData(List.of(signatureItem("AQ==", null)));
+
+        // when
+        adapter.signData(v2Context(metadata("handle")), request);
+
+        // then
+        ArgumentCaptor<SignDataRequestV2Dto> sent = ArgumentCaptor.forClass(SignDataRequestV2Dto.class);
+        verify(operationsClient).signData(any(), sent.capture());
+        assertEquals(List.of(), sent.getValue().getSignatureAttributes());
+    }
+
+    @Test
     void signData_rejectsEmptyMetadataHandle_beforeCallingConnector() {
         // given
         SignDataRequestDto request = new SignDataRequestDto();
@@ -648,6 +668,28 @@ class KeyProviderV2AdapterTest {
         verify(operationsClient).verifyData(any(), sent.capture());
         assertEquals(SignatureAlgorithm.SHA384_WITH_RSA,
                 SignatureAlgorithmAttribute.selectedAlgorithm(sent.getValue().getSignatureAttributes()));
+    }
+
+    @Test
+    void verifyData_refusesASchemeAndDigestTheKeyDoesNotOfferTogether_beforeCallingConnector() throws Exception {
+        // given
+        when(operationsClient.listVerifyAttributes(any(), any()))
+                .thenReturn(List
+                        .of(SignatureAlgorithmAttribute
+                                .definition(List
+                                        .of(SignatureAlgorithm.SHA256_WITH_RSA,
+                                                SignatureAlgorithm.SHA384_WITH_RSA_PSS))));
+        VerifyDataRequestDto request = new VerifyDataRequestDto();
+        request.setSignatureAttributes(rsaFields(RsaSignatureScheme.PSS, DigestAlgorithm.SHA_256));
+        request.setData(List.of(signatureItem("AQ==", null)));
+        request.setSignatures(List.of(signatureItem("Ag==", null)));
+
+        // when
+        Executable verification = () -> adapter.verifyData(v2Context(metadata("handle")), request);
+
+        // then
+        assertThrows(ValidationException.class, verification);
+        verify(operationsClient, never()).verifyData(any(), any());
     }
 
     @Test
@@ -962,6 +1004,41 @@ class KeyProviderV2AdapterTest {
                         (AdapterListing) KeyProviderV2Adapter::listSignAttributes),
                         arguments("verify", (ClientListing) client -> client.listVerifyAttributes(any(), any()),
                                 (AdapterListing) KeyProviderV2Adapter::listVerifyAttributes));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("signatureListings")
+    void listSignatureAttributes_serveTheConnectorsSelection_whenTheFieldsCannotExpressIt(String operation,
+            ClientListing clientListing, AdapterListing adapterListing) throws Exception {
+        // given
+        BaseAttribute selection = SignatureAlgorithmAttribute
+                .definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA, SignatureAlgorithm.SHA256_WITH_ECDSA));
+        when(clientListing.list(operationsClient)).thenReturn(List.of(selection));
+
+        // when
+        List<BaseAttribute> result = adapterListing.list(adapter, v2Context(metadata("handle")));
+
+        // then
+        assertEquals(List.of(selection), result);
+        assertSame(selection, result.get(0));
+        verify(attributes).updateDataAttributeDefinitions(profile.connectorUuid(), null, result);
+    }
+
+    @Test
+    void listSignAttributes_rejectsASecretEchoedInTheSelectionTheFieldsReplace() throws Exception {
+        // given
+        String expandedSecret = "resolved-provider-password";
+        stubExpandedSecret(Resource.TOKEN, expandedSecret);
+        var selection = SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA));
+        selection.setDescription(expandedSecret);
+        when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of(selection));
+
+        // when
+        Executable listDefinitions = () -> adapter.listSignAttributes(v2Context(metadata("handle")));
+
+        // then
+        assertThrows(OutboundSecretLeakException.class, listDefinitions);
+        verify(attributes, never()).updateDataAttributeDefinitions(any(), any(), any());
     }
 
     @Test

@@ -355,7 +355,8 @@ class SignatureAlgorithmFieldsTest {
         Executable choose = () -> SignatureAlgorithmFields.chosen(KeyAlgorithm.MLDSA, null, List.of());
 
         // then
-        assertThrows(ValidationException.class, choose);
+        ValidationException failure = assertThrows(ValidationException.class, choose);
+        assertTrue(failure.getMessage().contains("ML-DSA signing key records no parameter set"), failure.getMessage());
     }
 
     @ParameterizedTest(name = "{0} with {1}")

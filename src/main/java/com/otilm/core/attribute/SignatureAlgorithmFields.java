@@ -14,13 +14,13 @@ import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorit
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 /**
@@ -48,9 +48,9 @@ public final class SignatureAlgorithmFields {
                     SignatureAlgorithm.SHA512_WITH_RSA_PSS, rsa(RsaSignatureScheme.PSS, DigestAlgorithm.SHA_512)));
     private static final Offer ECDSA = new Offer(List.of(ECDSA_DIGEST),
             Map
-                    .of(SignatureAlgorithm.SHA256_WITH_ECDSA, List.of(DigestAlgorithm.SHA_256.getCode()),
-                            SignatureAlgorithm.SHA384_WITH_ECDSA, List.of(DigestAlgorithm.SHA_384.getCode()),
-                            SignatureAlgorithm.SHA512_WITH_ECDSA, List.of(DigestAlgorithm.SHA_512.getCode())));
+                    .of(SignatureAlgorithm.SHA256_WITH_ECDSA, ecdsa(DigestAlgorithm.SHA_256),
+                            SignatureAlgorithm.SHA384_WITH_ECDSA, ecdsa(DigestAlgorithm.SHA_384),
+                            SignatureAlgorithm.SHA512_WITH_ECDSA, ecdsa(DigestAlgorithm.SHA_512)));
 
     private SignatureAlgorithmFields() {
     }
@@ -105,7 +105,8 @@ public final class SignatureAlgorithmFields {
      * key the fields cannot express keeps it. A post-quantum key signs with its own parameter set, so its algorithm
      * needs no choice.
      *
-     * @throws ValidationException when the attributes choose no platform algorithm for the key
+     * @throws ValidationException when the attributes choose no platform algorithm for the key, or the key records no
+     * parameter set to sign with
      */
     public static SignatureAlgorithm chosen(KeyAlgorithm keyAlgorithm, String pqcParameterSpecName,
             List<RequestAttribute> attributes) {
@@ -116,14 +117,14 @@ public final class SignatureAlgorithmFields {
         return switch (keyAlgorithm) {
             case RSA -> RSA.chosen(submitted);
             case ECDSA -> ECDSA.chosen(submitted);
-            default -> keyNamed(pqcParameterSpecName);
+            default -> keyNamed(keyAlgorithm, pqcParameterSpecName);
         };
     }
 
-    private static SignatureAlgorithm keyNamed(String pqcParameterSpecName) {
+    private static SignatureAlgorithm keyNamed(KeyAlgorithm keyAlgorithm, String pqcParameterSpecName) {
         if (pqcParameterSpecName == null) {
             throw new ValidationException(ValidationError
-                    .create("Signature attributes must select one value of {}.", SignatureAlgorithmAttribute.NAME));
+                    .create("The {} signing key records no parameter set to sign with.", keyAlgorithm.getCode()));
         }
         return SignatureAlgorithm.findByCode(pqcParameterSpecName);
     }
@@ -176,7 +177,7 @@ public final class SignatureAlgorithmFields {
                 .flatMap(Optional::stream)
                 .findFirst()
                 .or(() -> offered.size() == 1
-                        ? Optional.of(new Offer(List.of(), Map.of(offered.get(0), List.of())))
+                        ? Optional.of(new Offer(List.of(), Map.of(offered.get(0), Map.of())))
                         : Optional.empty());
     }
 
@@ -196,8 +197,12 @@ public final class SignatureAlgorithmFields {
         return attributes == null ? List.of() : attributes;
     }
 
-    private static List<String> rsa(RsaSignatureScheme scheme, DigestAlgorithm digest) {
-        return List.of(scheme.getCode(), digest.getCode());
+    private static Map<Field, String> rsa(RsaSignatureScheme scheme, DigestAlgorithm digest) {
+        return Map.of(RSA_SCHEME, scheme.getCode(), RSA_DIGEST, digest.getCode());
+    }
+
+    private static Map<Field, String> ecdsa(DigestAlgorithm digest) {
+        return Map.of(ECDSA_DIGEST, digest.getCode());
     }
 
     /** A v1 field, built afresh because offering values narrows the definition. */
@@ -225,32 +230,28 @@ public final class SignatureAlgorithmFields {
         }
     }
 
-    private record Offer(List<Field> fields, Map<SignatureAlgorithm, List<String>> choices) {
+    private record Offer(List<Field> fields, Map<SignatureAlgorithm, Map<Field, String>> choices) {
 
         Optional<Offer> narrowedTo(Collection<SignatureAlgorithm> offered) {
             if (!choices.keySet().containsAll(offered)) {
                 return Optional.empty();
             }
-            Map<SignatureAlgorithm, List<String>> offeredChoices = new EnumMap<>(SignatureAlgorithm.class);
+            Map<SignatureAlgorithm, Map<Field, String>> offeredChoices = new EnumMap<>(SignatureAlgorithm.class);
             offered.forEach(algorithm -> offeredChoices.put(algorithm, choices.get(algorithm)));
             return Optional.of(new Offer(fields, offeredChoices));
         }
 
         List<BaseAttribute> definitions() {
-            return IntStream
-                    .range(0, fields.size())
-                    .mapToObj(position -> fields
-                            .get(position)
-                            .offering(choices
-                                    .values()
-                                    .stream()
-                                    .map(values -> values.get(position))
-                                    .collect(Collectors.toSet())))
-                    .toList();
+            return fields.stream().map(field -> field.offering(offeredValues(field))).toList();
+        }
+
+        private Set<String> offeredValues(Field field) {
+            return choices.values().stream().map(choice -> choice.get(field)).collect(Collectors.toSet());
         }
 
         SignatureAlgorithm chosen(List<RequestAttribute> attributes) {
-            List<String> selected = fields.stream().map(field -> field.selectedValue(attributes)).toList();
+            Map<Field, String> selected = new LinkedHashMap<>();
+            fields.forEach(field -> selected.put(field, field.selectedValue(attributes)));
             return choices
                     .entrySet()
                     .stream()
@@ -259,7 +260,7 @@ public final class SignatureAlgorithmFields {
                     .findFirst()
                     .orElseThrow(() -> new ValidationException(ValidationError
                             .create("The signing key offers no signature algorithm for {}.",
-                                    String.join(" with ", selected))));
+                                    String.join(" with ", selected.values()))));
         }
     }
 }
