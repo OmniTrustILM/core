@@ -89,6 +89,12 @@ class PropertyColumnDisplayabilityITest extends BaseSpringBootTest {
                         .of(FilterField.SIGNING_RECORD_NAME, FilterField.SIGNING_RECORD_SIGNING_PROFILE,
                                 FilterField.SIGNING_RECORD_PROTOCOL, FilterField.SIGNING_RECORD_SIGNING_PROFILE_VERSION,
                                 FilterField.SIGNING_RECORD_SIGNING_TIME, FilterField.SIGNING_RECORD_CREATED));
+
+        OFFERED_COLUMNS
+                .put(Resource.CRYPTO_ASSET,
+                        EnumSet
+                                .of(FilterField.CBOM_ASSET_NAME, FilterField.CBOM_ASSET_TYPE,
+                                        FilterField.CBOM_ASSET_PQC_VERDICT, FilterField.CBOM_ASSET_SOURCE_COUNT));
     }
 
     /**

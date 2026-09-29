@@ -92,6 +92,35 @@ class CertificateRequestAttributeProjectorTest {
     }
 
     @Test
+    void encodesAWrittenDerExtensionValueToBase64_soEveryWireCarriesBytes() {
+        // The register wire promises base64 DER and never passes through the renderer, so a value written out
+        // in JSON must already be bytes when it leaves the projection.
+        var uuid = UUID.randomUUID();
+        var def = dataAttribute(uuid, extensionMapping("2.5.29.19"));
+        var values = List.of(stringValue(uuid, "{\"cA\":true,\"pathLenConstraint\":0}"));
+
+        X509RequestContent content = CertificateRequestAttributeProjector.project(List.of(def), values);
+
+        assertThat(content.getExtensions()).singleElement().satisfies(ext -> {
+            assertThat(ext.getOid()).isEqualTo("2.5.29.19");
+            assertThat(ext.getValue()).isEqualTo("MAYBAf8CAQA=");
+        });
+    }
+
+    @Test
+    void refusesAWrittenValueForAnExtensionWithoutAModule() {
+        var uuid = UUID.randomUUID();
+        var def = dataAttribute(uuid, extensionMapping("1.3.6.1.4.1.99999.8"));
+        var definitions = List.of(def);
+        var values = List.of(stringValue(uuid, "{\"a\":1}"));
+
+        assertThatThrownBy(() -> CertificateRequestAttributeProjector.project(definitions, values))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("1.3.6.1.4.1.99999.8")
+                .hasMessageContaining("no registered ASN.1 module");
+    }
+
+    @Test
     void projectsExtensionAsNonCriticalWithoutEncoding_whenOidIsUnregistered() {
         // given — a mapped extension whose OID is not in the registry
         var unregisteredOid = "1.3.6.1.4.1.99999.7";
