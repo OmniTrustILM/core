@@ -54,6 +54,7 @@ import com.otilm.core.service.ResourceExtensionService;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import com.otilm.core.util.RequestValidatorHelper;
 import com.otilm.core.util.SearchHelper;
+import com.otilm.core.util.SortOrderBuilder;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
@@ -80,8 +81,6 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.function.TriFunction;
-import org.hibernate.query.NullPrecedence;
-import org.hibernate.query.criteria.JpaOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -515,11 +514,7 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
 
     /** Rows with nothing to serve stay last in either direction, as they do under every other column sort. */
     private static BiFunction<Root<CryptoAsset>, CriteriaBuilder, Order> ordered(SortKey key, SortDirection direction) {
-        return (root, cb) -> {
-            Expression<?> value = key.apply(root, cb);
-            Order order = direction == SortDirection.DESC ? cb.desc(value) : cb.asc(value);
-            return ((JpaOrder) order).nullPrecedence(NullPrecedence.LAST);
-        };
+        return (root, cb) -> SortOrderBuilder.primary(cb, key.apply(root, cb), direction);
     }
 
     /** The in-memory twin of {@link #displayLabel}; the list orders by that expression and serves this value. */
