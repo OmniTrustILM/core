@@ -5,6 +5,7 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.otilm.api.clients.SchedulerApiClient;
+import com.otilm.api.exception.ConnectionServiceException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.SchedulerException;
 import com.otilm.api.exception.ValidationException;
@@ -45,6 +46,8 @@ import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -53,6 +56,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationContext;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
+import reactor.core.Exceptions;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -201,6 +206,38 @@ class SchedulerServiceMockedTest {
         assertEquals(1, warnings.size());
         assertNull(warnings.get(0).getThrowableProxy());
         assertFalse(warnings.get(0).getFormattedMessage().contains("Timeout on blocking read"));
+    }
+
+    /**
+     * An error status names its status on the WARN, so that a scheduler that predates the list (500), a base URL that
+     * points elsewhere (404) and a proxy that refuses core (401, 403) read apart. The body stays out: it is the
+     * answering server's own text, and it is also the exception's message.
+     */
+    @ParameterizedTest
+    @EnumSource(value = HttpStatus.class, names = {"UNAUTHORIZED", "FORBIDDEN", "NOT_FOUND", "INTERNAL_SERVER_ERROR"})
+    void testListScheduledJobs_WhenTheSchedulerAnswersAnErrorStatus_WarnsOnceWithTheStatusOnly(HttpStatus status) {
+        PaginationRequestDto pagination = new PaginationRequestDto();
+        when(scheduledJobsRepository
+                .findUsingSecurityFilter(any(), eq(List.of()), isNull(), any(Pageable.class), isNull()))
+                .thenReturn(List.of(scheduledJob));
+        when(scheduledJobsRepository.countUsingSecurityFilter(any(), isNull())).thenReturn(1L);
+        // As the client throws it: the checked exception wrapped by reactor on the blocking read. Thrown from an
+        // answer, since thenThrow would throw the checked cause itself (the wrapper's fillInStackTrace returns it).
+        when(schedulerApiClient.listScheduledJobs()).thenAnswer(invocation -> {
+            throw Exceptions.propagate(new ConnectionServiceException("scheduler-node-7 stack", status));
+        });
+        List<ILoggingEvent> warnings = new ArrayList<>();
+
+        ScheduledJobsResponseDto response = capturingWarnings(warnings, () -> assertDoesNotThrow(
+                () -> schedulerService.listScheduledJobs(SecurityFilter.create(), pagination)));
+
+        assertEquals(ScheduledJobScheduleState.UNKNOWN, response.getScheduledJobs().get(0).getScheduleState());
+        assertEquals(1, warnings.size());
+        assertNull(warnings.get(0).getThrowableProxy());
+        String warning = warnings.get(0).getFormattedMessage();
+        assertTrue(warning.contains("ConnectionServiceException"), warning);
+        assertTrue(warning.contains("HTTP " + status.value()), warning);
+        assertFalse(warning.contains("scheduler-node-7"), warning);
     }
 
     /** An answer without a usable job list is as unread as an outage, and is reported the same way: by its status. */

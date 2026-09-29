@@ -1,6 +1,7 @@
 package com.otilm.core.service.impl;
 
 import com.otilm.api.clients.SchedulerApiClient;
+import com.otilm.api.exception.ConnectionServiceException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.PlatformException;
 import com.otilm.api.exception.SchedulerException;
@@ -552,9 +553,10 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
     /**
      * What the scheduler holds, or that it could not be asked. A scheduler that is down, answers an error, answers
      * without a usable job list, or predates the trigger fields leaves every job UNKNOWN rather than failing the
-     * response. Either way one line at WARN, naming only the exception's class or the answer's status: without the
-     * trace, which an outage would otherwise print per listing, and without the exception's message or the answer's
-     * body, which for an error status is the scheduler's own text. The trace goes to DEBUG.
+     * response. Either way one line at WARN, naming only the exception's class (with the HTTP status for an error
+     * status) or the answer's schedulerStatus: without the trace, which an outage would otherwise print per listing,
+     * and without the exception's message or the answer's body, which for an error status is the answering server's own
+     * text. The trace goes to DEBUG.
      */
     private ObservedSchedules observeSchedules() {
         final SchedulerResponseDto answer;
@@ -562,7 +564,7 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
             answer = schedulerApiClient.listScheduledJobs();
         } catch (RuntimeException e) {
             final Throwable cause = Exceptions.unwrap(e);
-            logger.warn(UNOBSERVED, cause.getClass().getSimpleName());
+            logger.warn(UNOBSERVED, whyUnread(cause));
             logger.debug("The scheduler job list read failed", cause);
             return ObservedSchedules.unavailable();
         }
@@ -571,6 +573,19 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
             logger.warn(UNOBSERVED, whyUnusable(answer));
         }
         return observed;
+    }
+
+    /**
+     * Why the read failed: the exception's class and, for an error status, the status -- which tells a scheduler that
+     * predates the list (500) from a base URL that points elsewhere (404) and a proxy that refuses core (401, 403).
+     * Never the exception's message, which for an error status is the body.
+     */
+    private static String whyUnread(Throwable cause) {
+        final String type = cause.getClass().getSimpleName();
+        if (cause instanceof ConnectionServiceException error && error.getHttpStatus() != null) {
+            return type + ", HTTP " + error.getHttpStatus().value();
+        }
+        return type;
     }
 
     /** Why an answer that did arrive carries no usable job list, naming nothing the scheduler sent but its status. */
