@@ -256,6 +256,28 @@ class CryptographicAssetServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void sortsBySourceCountInBothDirectionsWithTiesInUuidOrder() {
+        UUID unsourced = seedNamed(CryptographicAssetType.ALGORITHM, "alpha", null);
+        UUID onceA = seedNamed(CryptographicAssetType.ALGORITHM, "bravo", null);
+        UUID onceB = seedNamed(CryptographicAssetType.ALGORITHM, "charlie", null);
+        UUID twice = seedNamed(CryptographicAssetType.ALGORITHM, "delta", null);
+        Cbom cbomOne = newCbom("urn:uuid:count-one");
+        Cbom cbomTwo = newCbom("urn:uuid:count-two");
+        for (UUID asset : List.of(onceA, onceB, twice)) {
+            sourceWriter.upsertSource(asset, cbomOne.getUuid(), Map.of(), List.of(), OffsetDateTime.now());
+        }
+        sourceWriter.upsertSource(twice, cbomTwo.getUuid(), Map.of(), List.of(), OffsetDateTime.now());
+        List<UUID> onceByUuid = sortedByUuidString(onceA, onceB);
+
+        assertThat(list(sortedBy(FilterField.CBOM_ASSET_SOURCE_COUNT, SortDirection.ASC)).getItems())
+                .extracting(CryptographicAssetDto::getUuid)
+                .containsExactly(unsourced, onceByUuid.get(0), onceByUuid.get(1), twice);
+        assertThat(list(sortedBy(FilterField.CBOM_ASSET_SOURCE_COUNT, SortDirection.DESC)).getItems())
+                .extracting(CryptographicAssetDto::getUuid)
+                .containsExactly(twice, onceByUuid.get(0), onceByUuid.get(1), unsourced);
+    }
+
+    @Test
     void theNextPageContinuesTheRequestedOrder() {
         UUID alpha = seedNamed(CryptographicAssetType.ALGORITHM, "alpha", "2.0.1");
         UUID bravo = seedNamed(CryptographicAssetType.ALGORITHM, "bravo", "2.0.2");
