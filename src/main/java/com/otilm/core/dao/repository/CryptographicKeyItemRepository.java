@@ -1,6 +1,8 @@
 package com.otilm.core.dao.repository;
 
+import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
+import com.otilm.core.model.compliance.ComplianceResultDto;
 import com.otilm.core.model.crypto.CryptographicKeyItemBasicModel;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationRow;
 import com.otilm.core.model.signing.SigningCertificate;
@@ -19,7 +21,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 @Repository
-public interface CryptographicKeyItemRepository extends SecurityFilterRepository<CryptographicKeyItem, UUID> {
+public interface CryptographicKeyItemRepository extends ComplianceSubjectRepository<CryptographicKeyItem> {
 
     Optional<CryptographicKeyItem> findByUuid(UUID uuid);
 
@@ -81,6 +83,17 @@ public interface CryptographicKeyItemRepository extends SecurityFilterRepository
 
     Optional<CryptographicKeyItem> findByFingerprint(String fingerprint);
 
+    /** A key item keeps the time of its last change in its own column. */
+    @Override
+    @Modifying
+    @Query("UPDATE CryptographicKeyItem item SET item.complianceStatus = :status, item.complianceResult = :result,"
+            + " item.updatedAt = CURRENT_TIMESTAMP WHERE item.uuid = :uuid")
+    int updateComplianceResult(@Param("uuid") UUID uuid, @Param("status") ComplianceStatus status,
+            @Param("result") ComplianceResultDto result);
+
+    @Query("SELECT i.keyReferenceUuid FROM CryptographicKeyItem i WHERE i.uuid = :uuid")
+    Optional<UUID> findKeyReferenceUuidByUuid(@Param("uuid") UUID uuid);
+
     /**
      * The fingerprints from {@code fingerprints} that inventory already holds.
      */
@@ -94,6 +107,14 @@ public interface CryptographicKeyItemRepository extends SecurityFilterRepository
             WHERE item.uuid = :uuid AND item.keyUuid = :keyUuid
             """)
     boolean isItemOfKey(@Param("uuid") UUID uuid, @Param("keyUuid") UUID keyUuid);
+
+    /** Whether the key item may be exported, as the database holds it now: exportable, active and enabled. */
+    @Query("""
+            SELECT COUNT(item) > 0 FROM CryptographicKeyItem item
+            WHERE item.uuid = :uuid AND item.exportable = TRUE AND item.enabled = TRUE
+              AND item.state = com.otilm.api.model.core.cryptography.key.KeyState.ACTIVE
+            """)
+    boolean isExportable(@Param("uuid") UUID uuid);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT item FROM CryptographicKeyItem item WHERE item.uuid = :uuid AND item.keyUuid = :keyUuid")

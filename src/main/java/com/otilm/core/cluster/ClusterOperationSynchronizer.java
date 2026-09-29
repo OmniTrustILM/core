@@ -22,7 +22,8 @@ public class ClusterOperationSynchronizer {
         PROVIDER_STATUS_POLL_SWEEP(0x50_52_4F_56_50_4F_4C_4CL),
         DISCOVERY_WORK_SWEEP(0x44_49_53_43_57_4B_53_50L),
         CRYPTO_ASSET_PQC_SWEEP(0x43_41_50_51_43_53_57_50L),
-        CBOM_SYNC_SKIP_RETENTION(0x43_42_53_4B_52_45_54_4EL);
+        CBOM_SYNC_SKIP_RETENTION(0x43_42_53_4B_52_45_54_4EL),
+        KEY_IMPORT_SWEEP(0x4B_49_4D_50_53_57_45_50L);
 
         private final long lockKey;
 

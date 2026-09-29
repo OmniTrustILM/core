@@ -14,10 +14,12 @@ import com.otilm.api.model.core.logging.records.ResourceRecord;
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.logging.LoggingSettingsDto;
 import com.otilm.core.logging.AuditLogEnhancer;
+import com.otilm.core.logging.LogRedaction;
 import com.otilm.core.logging.LogResource;
 import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.messaging.jms.producers.AuditLogsProducer;
 import com.otilm.core.messaging.model.AuditLogMessage;
+import com.otilm.core.service.AuditLogInternalService;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.BeautificationUtil;
@@ -61,6 +63,8 @@ public class AuditLogAspect {
 
     private AuditAffiliationOverride auditAffiliationOverride;
 
+    private AuditLogInternalService auditLogInternalService;
+
     @Autowired
     public void setAuditLogEnhancer(AuditLogEnhancer auditLogEnhancer) {
         this.auditLogEnhancer = auditLogEnhancer;
@@ -84,6 +88,11 @@ public class AuditLogAspect {
     @Autowired
     public void setAuditLogsProducer(AuditLogsProducer auditLogsProducer) {
         this.auditLogsProducer = auditLogsProducer;
+    }
+
+    @Autowired
+    public void setAuditLogInternalService(AuditLogInternalService auditLogInternalService) {
+        this.auditLogInternalService = auditLogInternalService;
     }
 
     @Around("@annotation(com.otilm.core.aop.AuditLogged)")
@@ -131,12 +140,14 @@ public class AuditLogAspect {
             }
         }
 
+        Exception failure = null;
         try {
             result = joinPoint.proceed();
             OperationResult override = resolveResultOverride();
             logBuilder.operationResult(override != null ? override : OperationResult.SUCCESS);
             return result;
         } catch (Exception e) {
+            failure = e;
             String message = e.getMessage();
             if (e instanceof AccessDeniedException) {
                 message = appendDeniedPermission(message);
@@ -158,7 +169,27 @@ public class AuditLogAspect {
                                 List.of(affiliation.objectUuid()), null));
             }
             logBuilder.timestamp(OffsetDateTime.now());
-            auditLogsProducer.produceMessage(new AuditLogMessage(logBuilder.build(), output));
+            publish(annotation, logBuilder.build(), output, failure);
+        }
+    }
+
+    /**
+     * Queues the record, or writes it at once, with the object names the queue's listener would fill in, when the
+     * annotation asks for it. A record that cannot be written fails a call that succeeded; a call that failed keeps its
+     * own error, with the write's failure attached.
+     */
+    private void publish(AuditLogged annotation, LogRecord logRecord, AuditLogOutput output, Exception failure) {
+        if (!annotation.synchronous()) {
+            auditLogsProducer.produceMessage(new AuditLogMessage(logRecord, output));
+            return;
+        }
+        try {
+            auditLogInternalService.log(auditLogEnhancer.withObjectIdentities(logRecord), output);
+        } catch (RuntimeException writeFailure) {
+            if (failure == null) {
+                throw writeFailure;
+            }
+            failure.addSuppressed(writeFailure);
         }
     }
 
@@ -280,7 +311,7 @@ public class AuditLogAspect {
                     if (parameterValue instanceof Optional<?> optional) {
                         parameterValue = optional.orElse(null);
                     }
-                    data.put(parameterName, parameterValue);
+                    data.put(parameterName, LogRedaction.data(parameterValue));
                 }
             }
         }
@@ -398,7 +429,7 @@ public class AuditLogAspect {
                 ResourceObjectIdentity objectIdentity = storedResource.objects().getFirst();
                 // If UUID is missing and the name is same, add the stored UUID (or if both are missing)
                 if (loggedResourceUuid == null
-                        && (objectIdentity.name().equals(resourceName) || resourceName == null)) {
+                        && (Objects.equals(objectIdentity.name(), resourceName) || resourceName == null)) {
                     loggedResourceUuid = objectIdentity.uuid();
                 }
                 // If name is missing and the UUID is same, add the stored name (or if both are missing)

@@ -1,5 +1,6 @@
 package com.otilm.core.api;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.otilm.api.exception.AcmeProblemDocumentException;
 import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.AttributeException;
@@ -26,6 +27,7 @@ import com.otilm.api.model.common.ErrorMessageDto;
 import com.otilm.api.model.core.acme.ProblemDocument;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.dao.CryptoAssetConstraintTranslator;
+import com.otilm.core.exception.ImportIdReusedException;
 import com.otilm.core.exception.UnsupportedAuthorityVersionException;
 import com.otilm.core.exception.UnsupportedCryptographyProviderVersionException;
 import com.otilm.core.exception.UnsupportedDiscoveryVersionException;
@@ -128,6 +130,18 @@ public class ExceptionHandlingAdvice {
     @ExceptionHandler(AlreadyExistException.class)
     @ResponseStatus(HttpStatus.CONFLICT)
     public ErrorMessageDto handleAlreadyExistException(AlreadyExistException ex) {
+        LOG.info("HTTP 409: {}", ex.getMessage());
+        return ErrorMessageDto.getInstance(ex.getMessage());
+    }
+
+    /**
+     * Handler for {@link ImportIdReusedException}.
+     *
+     * @return {@link ErrorMessageDto}
+     */
+    @ExceptionHandler(ImportIdReusedException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ErrorMessageDto handleImportIdReusedException(ImportIdReusedException ex) {
         LOG.info("HTTP 409: {}", ex.getMessage());
         return ErrorMessageDto.getInstance(ex.getMessage());
     }
@@ -386,7 +400,13 @@ public class ExceptionHandlingAdvice {
     @ExceptionHandler(HttpMessageNotReadableException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ErrorMessageDto handleMessageNotReadable(HttpMessageNotReadableException ex) {
-        LOG.info("HTTP 400: {}", ex.getMessage());
+        // The parser's message quotes the token it stopped at, and a request body can carry a secret.
+        Throwable cause = ex.getMostSpecificCause();
+        String location = cause instanceof JsonProcessingException parserFailure && parserFailure.getLocation() != null
+                ? " at line %d, column %d"
+                        .formatted(parserFailure.getLocation().getLineNr(), parserFailure.getLocation().getColumnNr())
+                : "";
+        LOG.info("HTTP 400: unreadable request body ({}{})", cause.getClass().getName(), location);
         return ErrorMessageDto.getInstance("Unable to read HTTP message");
     }
 

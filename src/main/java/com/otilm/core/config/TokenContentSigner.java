@@ -1,64 +1,65 @@
 package com.otilm.core.config;
 
-import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
-import com.otilm.api.interfaces.client.v1.CryptographicOperationsSyncApiClient;
 import com.otilm.api.model.client.attribute.RequestAttribute;
-import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.otilm.api.model.connector.cryptography.operations.SignDataRequestDto;
-import com.otilm.api.model.connector.cryptography.operations.SignDataResponseDto;
-import com.otilm.api.model.connector.cryptography.operations.VerifyDataRequestDto;
-import com.otilm.api.model.connector.cryptography.operations.VerifyDataResponseDto;
-import com.otilm.api.model.connector.cryptography.operations.data.SignatureRequestData;
-import com.otilm.core.util.CryptographyUtil;
+import com.otilm.api.model.client.cryptography.operations.SignDataRequestDto;
+import com.otilm.api.model.client.cryptography.operations.SignDataResponseDto;
+import com.otilm.api.model.client.cryptography.operations.SignatureRequestData;
+import com.otilm.api.model.client.cryptography.operations.VerifyDataRequestDto;
+import com.otilm.api.model.client.cryptography.operations.VerifyDataResponseDto;
+import com.otilm.core.service.handler.key.KeyProviderAdapter;
+import com.otilm.core.service.handler.key.OperationKeyContext;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.OutputStream;
+import java.util.Base64;
 import java.util.List;
-import java.util.UUID;
 import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
+import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
 import org.bouncycastle.operator.ContentSigner;
+import org.bouncycastle.operator.ContentVerifier;
+import org.bouncycastle.operator.OperatorCreationException;
+import org.bouncycastle.operator.RuntimeOperatorException;
+import org.bouncycastle.operator.jcajce.JcaContentVerifierProviderBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Cryptographic Provider Signer. This class extends the content signer from bouncy castle and communicates with the
- * cryptography provider for the signing operation
+ * Cryptographic Provider Signer. This class extends the content signer from bouncy castle and signs through the key's
+ * provider, whichever version serves it.
  */
 public class TokenContentSigner implements ContentSigner {
 
     private static final Logger logger = LoggerFactory.getLogger(TokenContentSigner.class);
 
-    private final CryptographicOperationsSyncApiClient apiClient;
-    private final ApiClientConnectorInfo connector;
-    private final UUID privateKeyUuid;
-    private final UUID publicKeyUuid;
-    // Used to determine the signature algorithm for the PQC Items
-    private final String publicKey;
-    private final KeyAlgorithm keyAlgorithm;
-    private final UUID tokenInstanceUuid;
+    private final KeyProviderAdapter keyProvider;
+    private final OperationKeyContext signingKey;
     private final List<RequestAttribute> signatureAttributes;
+    private final AlgorithmIdentifier algorithmIdentifier;
+    private final SignatureCheck signatureCheck;
 
     private final ByteArrayOutputStream outputStream;
 
-    public TokenContentSigner(CryptographicOperationsSyncApiClient apiClient, ApiClientConnectorInfo connector,
-            UUID tokenInstanceUuid, UUID privateKeyUuid, UUID publicKeyUuid, String publicKey,
-            KeyAlgorithm keyAlgorithm, List<RequestAttribute> signatureAttributes) {
-        this.connector = connector;
-        this.privateKeyUuid = privateKeyUuid;
-        this.publicKeyUuid = publicKeyUuid;
-        this.tokenInstanceUuid = tokenInstanceUuid;
+    /**
+     * @param algorithmIdentifier the algorithm the signature attributes select, resolved before anything is signed
+     * @param signatureCheck decides whether the provider's signature is valid before it is used
+     */
+    public TokenContentSigner(KeyProviderAdapter keyProvider, OperationKeyContext signingKey,
+            List<RequestAttribute> signatureAttributes, AlgorithmIdentifier algorithmIdentifier,
+            SignatureCheck signatureCheck) {
+        this.keyProvider = keyProvider;
+        this.signingKey = signingKey;
         this.signatureAttributes = signatureAttributes;
-        this.apiClient = apiClient;
-        this.keyAlgorithm = keyAlgorithm;
-        this.publicKey = publicKey;
+        this.algorithmIdentifier = algorithmIdentifier;
+        this.signatureCheck = signatureCheck;
         this.outputStream = new ByteArrayOutputStream();
     }
 
     @Override
     public AlgorithmIdentifier getAlgorithmIdentifier() {
-        return CryptographyUtil.prepareSignatureAlgorithm(keyAlgorithm, publicKey, signatureAttributes);
+        return algorithmIdentifier;
     }
 
     @Override
@@ -69,47 +70,74 @@ public class TokenContentSigner implements ContentSigner {
     @Override
     public byte[] getSignature() {
         byte[] dataToSign = outputStream.toByteArray();
-        logger.debug("Obtained the data to sign using the provider: {}", connector);
-        SignatureRequestData data = new SignatureRequestData();
-        data.setData(dataToSign);
-
-        SignDataRequestDto dto = new SignDataRequestDto();
-        dto.setSignatureAttributes(signatureAttributes);
-        dto.setData(List.of(data));
-        logger.trace("Request for signature is : {}", dto);
+        SignDataRequestDto request = new SignDataRequestDto();
+        request.setSignatureAttributes(signatureAttributes);
+        request.setData(List.of(data(dataToSign)));
         try {
-
-            logger.debug("Signing using Key: {}, Token Profile: {}", privateKeyUuid, tokenInstanceUuid);
-            SignDataResponseDto response = apiClient
-                    .signData(connector, tokenInstanceUuid.toString(), privateKeyUuid.toString(), dto);
-            logger.debug("Data Signed by the connector. Response is: {}", response);
-            if (response == null || response.getSignatures() == null || response.getSignatures().isEmpty()) {
+            logger.debug("Signing using key item: {}", signingKey.keyItem().keyItemUuid());
+            SignDataResponseDto response = keyProvider.signData(signingKey, request);
+            if (response == null || response.getSignatures() == null || response.getSignatures().isEmpty()
+                    || response.getSignatures().getFirst().getData() == null) {
                 throw new ValidationException(ValidationError.create("Invalid Signature from the connector"));
             }
-            logger.debug("Proceeding to verify the signature using the public key: {}", publicKeyUuid);
-            SignatureRequestData verifyRequest = new SignatureRequestData();
-            verifyRequest.setData(response.getSignatures().get(0).getData());
-
-            VerifyDataRequestDto verifyDataRequestDto = new VerifyDataRequestDto();
-            verifyDataRequestDto.setSignatures(List.of(verifyRequest));
-            verifyDataRequestDto.setSignatureAttributes(dto.getSignatureAttributes());
-            verifyDataRequestDto.setData(dto.getData());
-
-            VerifyDataResponseDto verifyResponse = apiClient
-                    .verifyData(connector, tokenInstanceUuid.toString(), publicKeyUuid.toString(),
-                            verifyDataRequestDto);
-
-            if (verifyResponse == null || verifyResponse.getVerifications() == null
-                    || verifyResponse.getVerifications().isEmpty()
-                    || !verifyResponse.getVerifications().get(0).isResult()) {
+            byte[] signature = Base64.getDecoder().decode(response.getSignatures().getFirst().getData());
+            if (!signatureCheck.verify(dataToSign, signature)) {
                 throw new ValidationException(ValidationError
                         .create("Validation of the signature from connector failed. Cannot proceed with the request"));
             }
-            return response.getSignatures().get(0).getData();
-
+            return signature;
         } catch (ConnectorException e) {
-            throw new ValidationException(
-                    ValidationError.create("Error when communicating with the connector. Error: " + e.getMessage()));
+            logger.warn("Signing with key item {} through the connector failed", signingKey.keyItem().keyItemUuid(), e);
+            throw new ValidationException(ValidationError.create("Error when communicating with the connector."));
         }
+    }
+
+    /** Whether a signature the provider returned is a valid signature over the data it was given. */
+    @FunctionalInterface
+    public interface SignatureCheck {
+        boolean verify(byte[] data, byte[] signature) throws ConnectorException;
+    }
+
+    /** Asks the provider itself to verify the signature with the key pair's public key item. */
+    public static SignatureCheck verifiedByProvider(KeyProviderAdapter keyProvider, OperationKeyContext verificationKey,
+            List<RequestAttribute> signatureAttributes) {
+        return (data, signature) -> {
+            VerifyDataRequestDto request = new VerifyDataRequestDto();
+            request.setSignatureAttributes(signatureAttributes);
+            request.setData(List.of(data(data)));
+            request.setSignatures(List.of(data(signature)));
+            VerifyDataResponseDto response = keyProvider.verifyData(verificationKey, request);
+            return response != null && response.getVerifications() != null && !response.getVerifications().isEmpty()
+                    && response.getVerifications().getFirst().isResult();
+        };
+    }
+
+    /**
+     * Verifies the signature locally against the public key, under the algorithm the signature is labelled with, so it
+     * also catches a signature made under another algorithm than the selected one.
+     */
+    public static SignatureCheck verifiedAgainst(SubjectPublicKeyInfo publicKey, AlgorithmIdentifier algorithm) {
+        return (data, signature) -> {
+            try {
+                ContentVerifier verifier = new JcaContentVerifierProviderBuilder().build(publicKey).get(algorithm);
+                try (OutputStream out = verifier.getOutputStream()) {
+                    out.write(data);
+                }
+                return verifier.verify(signature);
+            } catch (RuntimeOperatorException e) {
+                logger.debug("The signature from the connector is malformed", e);
+                return false;
+            } catch (OperatorCreationException | IOException e) {
+                logger.warn("The signature from the connector could not be verified", e);
+                throw new ValidationException(
+                        ValidationError.create("Cannot verify the signature from the connector."));
+            }
+        };
+    }
+
+    private static SignatureRequestData data(byte[] bytes) {
+        SignatureRequestData data = new SignatureRequestData();
+        data.setData(Base64.getEncoder().encodeToString(bytes));
+        return data;
     }
 }

@@ -7,7 +7,7 @@ import java.util.UUID;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Query;
 
-public interface SecretRepository extends SecurityFilterRepository<Secret, UUID> {
+public interface SecretRepository extends ComplianceSubjectRepository<Secret> {
 
     boolean existsByName(String name);
 

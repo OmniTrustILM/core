@@ -137,6 +137,16 @@ class ListViewServiceITest extends BaseSpringBootTest {
         return view.getColumns().stream().map(ListViewColumnDto::getFieldIdentifier).toList();
     }
 
+    private static ListViewRequestDto keyRequest(String name) {
+        ListViewRequestDto request = request(name, column("CKI_NAME"));
+        request.setResource(Resource.CRYPTOGRAPHIC_KEY);
+        return request;
+    }
+
+    private List<String> namesOf(Resource resource) {
+        return listViewService.listViews(resource).stream().map(ListViewDto::getName).toList();
+    }
+
     @Test
     void aViewSurvivesTheSessionAndIsInvisibleToOtherUsers() throws AlreadyExistException {
         ListViewDto created = listViewService.createView(request("Expiry watch", column("COMMON_NAME")));
@@ -149,6 +159,19 @@ class ListViewServiceITest extends BaseSpringBootTest {
         authenticateAs(otherUser);
         Assertions.assertTrue(listViewService.listViews(Resource.CERTIFICATE).isEmpty());
         Assertions.assertTrue(listViewService.listViews(null).isEmpty());
+    }
+
+    @Test
+    void viewsAreListedInTheOrderTheyWereCreated() throws AlreadyExistException {
+        listViewService.createView(request("B", column("COMMON_NAME")));
+        listViewService.createView(keyRequest("Z"));
+        listViewService.createView(request("A", column("COMMON_NAME")));
+        listViewService.createView(keyRequest("Y"));
+        listViewService.createView(request("C", column("COMMON_NAME")));
+
+        Assertions.assertEquals(List.of("B", "Z", "A", "Y", "C"), namesOf(null));
+        Assertions.assertEquals(List.of("B", "A", "C"), namesOf(Resource.CERTIFICATE));
+        Assertions.assertEquals(List.of("Z", "Y"), namesOf(Resource.CRYPTOGRAPHIC_KEY));
     }
 
     @Test
@@ -308,7 +331,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
 
     private List<String> defaultViewUuids() {
         return listViewRepository
-                .findByUserUuidOrderByNameAsc(user)
+                .findByUserUuidOrderByCreatedAscUuidAsc(user)
                 .stream()
                 .filter(ListView::isDefaultView)
                 .map(view -> view.getUuid().toString())
@@ -596,7 +619,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
 
         Assertions.assertEquals(1, created.get());
         Assertions.assertEquals(1, rejected.get());
-        Assertions.assertEquals(1, listViewRepository.findByUserUuidOrderByNameAsc(user).size());
+        Assertions.assertEquals(1, listViewRepository.findByUserUuidOrderByCreatedAscUuidAsc(user).size());
     }
 
     private void createConcurrently(SecurityContext context, CountDownLatch start, AtomicInteger created,
@@ -682,7 +705,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
             throw new IllegalStateException("a later step of the deletion fails");
         }));
 
-        Assertions.assertTrue(listViewRepository.findByUserUuidOrderByNameAsc(user).isEmpty());
+        Assertions.assertTrue(listViewRepository.findByUserUuidOrderByCreatedAscUuidAsc(user).isEmpty());
     }
 
     @Test
@@ -694,7 +717,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
 
         Assertions.assertEquals(1, listViewInternalService.deleteViewsOfUser(user));
 
-        Assertions.assertTrue(listViewRepository.findByUserUuidOrderByNameAsc(user).isEmpty());
-        Assertions.assertEquals(1, listViewRepository.findByUserUuidOrderByNameAsc(otherUser).size());
+        Assertions.assertTrue(listViewRepository.findByUserUuidOrderByCreatedAscUuidAsc(user).isEmpty());
+        Assertions.assertEquals(1, listViewRepository.findByUserUuidOrderByCreatedAscUuidAsc(otherUser).size());
     }
 }

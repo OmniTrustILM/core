@@ -3,12 +3,15 @@ package com.otilm.core.api;
 import com.otilm.api.exception.AcmeProblemDocumentException;
 import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.core.logging.Sensitive;
+import com.otilm.core.logging.LogRedaction;
+import java.lang.reflect.Parameter;
 import java.util.Arrays;
-import org.apache.commons.lang3.builder.ReflectionToStringBuilder;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Pointcut;
+import org.aspectj.lang.reflect.MethodSignature;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -52,7 +55,7 @@ public class LoggingAdvice {
         if (!log.isTraceEnabled()) {
             return joinPoint.proceed();
         }
-        log.trace("Entering in method {} with arguments {}", path, Arrays.toString(joinPoint.getArgs()));
+        log.trace("Entering in method {} with arguments {}", path, formatArguments(joinPoint));
         long start = System.currentTimeMillis();
         try {
             Object result = joinPoint.proceed();
@@ -76,11 +79,29 @@ public class LoggingAdvice {
         String returnValue = null;
         if (null != result) {
             if (result.toString().endsWith("@" + Integer.toHexString(result.hashCode()))) {
-                returnValue = ReflectionToStringBuilder.toString(result);
+                returnValue = result.getClass().getSimpleName();
             } else {
                 returnValue = result.toString();
             }
         }
         return returnValue;
+    }
+
+    /**
+     * No argument or result is ever serialized: an argument whose parameter is {@link Sensitive} logs as {@code ***},
+     * every other argument logs by {@code String.valueOf}, and a result logs by its own {@code toString()}, or its
+     * simple class name when it has Object's default one.
+     */
+    private static String formatArguments(ProceedingJoinPoint joinPoint) {
+        MethodSignature signature = (MethodSignature) joinPoint.getSignature();
+        Parameter[] parameters = signature.getMethod().getParameters();
+        Object[] args = joinPoint.getArgs();
+        String[] formatted = new String[args.length];
+        for (int i = 0; i < args.length; i++) {
+            formatted[i] = i < parameters.length && parameters[i].isAnnotationPresent(Sensitive.class)
+                    ? LogRedaction.REDACTED
+                    : String.valueOf(args[i]);
+        }
+        return Arrays.toString(formatted);
     }
 }
