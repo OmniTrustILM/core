@@ -8,6 +8,7 @@ import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
 import com.otilm.core.dao.repository.SortSpecification;
+import java.util.List;
 import java.util.Objects;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
@@ -64,7 +65,7 @@ public class ListingSortResolver {
     private void requireSortableAttributeField(final Resource resource, final FilterFieldSource source,
             final String fieldIdentifier) {
         final SearchFieldDataDto field = attributeEngine
-                .getResourceSearchableFields(resource, false)
+                .getResourceSearchableFields(resource, false, List.of(NamedField.of(source, fieldIdentifier)))
                 .stream()
                 .filter(group -> group.getFilterFieldSource() == source)
                 .flatMap(group -> group.getSearchFieldData().stream())
