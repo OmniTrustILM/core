@@ -39,13 +39,16 @@ import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CertificateLocation;
+import com.otilm.core.dao.entity.CertificateRegistrationAuthorization;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.EntityInstanceReference;
 import com.otilm.core.dao.entity.Location;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.RegistrationState;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateLocationRepository;
+import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.EntityInstanceReferenceRepository;
@@ -56,6 +59,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.LocationExternalService;
 import com.otilm.core.service.LocationInternalService;
+import com.otilm.core.service.registration.RegistrationChallengeStore;
 import com.otilm.core.service.v2.impl.ClientOperationServiceImpl;
 import com.otilm.core.util.BaseSpringBootTest;
 import java.io.IOException;
@@ -72,6 +76,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class LocationServiceITest extends BaseSpringBootTest {
@@ -100,6 +106,10 @@ class LocationServiceITest extends BaseSpringBootTest {
     private AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;
     @Autowired
     private CertificateLocationRepository certificateLocationRepository;
+    @Autowired
+    private CertificateRegistrationAuthorizationRepository authorizationRepository;
+    @Autowired
+    private RegistrationChallengeStore registrationChallengeStore;
     @MockitoBean
     private ClientOperationServiceImpl clientOperationService;
 
@@ -867,6 +877,97 @@ class LocationServiceITest extends BaseSpringBootTest {
                         .filter(cl -> cl.getCertificateUuid().equals(renewedCertificate.getUuid().toString()))
                         .findFirst()
                         .orElse(null));
+    }
+
+    @Test
+    void renewCertificateInLocationRefusesARegistrationProtectedCertificateBeforeGeneratingACsr() throws Exception {
+        // Location renew can never present a registration challenge, so the challenge gate would refuse it
+        // anyway; refusing up front keeps the location from generating a key and CSR nobody will use.
+        CertificateLocation certificateLocation = location.getCertificates().stream().findFirst().get();
+        DataAttributeV2 pushAttribute = new DataAttributeV2();
+        pushAttribute.setUuid(UUID.randomUUID().toString());
+        pushAttribute.setContent(List.of(new StringAttributeContentV2("data", "ref")));
+        DataAttributeV3 csrAttribute = new DataAttributeV3();
+        csrAttribute.setUuid(UUID.randomUUID().toString());
+        csrAttribute.setContent(List.of(new StringAttributeContentV3("data", "ref")));
+        certificateLocation.setPushAttributes(List.of(pushAttribute));
+        certificateLocation.setCsrAttributes(List.of(csrAttribute));
+        locationRepository.save(location);
+        certificate.setRaProfile(getRaProfile());
+        certificateRepository.save(certificate);
+
+        CertificateRegistrationAuthorization authorization = new CertificateRegistrationAuthorization();
+        authorization.setCertificateUuid(certificate.getUuid());
+        authorization.setState(RegistrationState.ACTIVE);
+        authorization.setFailedAttempts(0);
+        registrationChallengeStore.store(authorization, "s3cret-value-1234");
+        authorizationRepository.save(authorization);
+
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/csr"))
+                        .willReturn(WireMock.okJson("{}")));
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/csr/attributes"))
+                        .willReturn(WireMock.okJson("[]")));
+
+        LocationException ex = Assertions
+                .assertThrows(LocationException.class,
+                        () -> locationService
+                                .renewCertificateInLocation(entityInstanceReference.getSecuredParentUuid(),
+                                        location.getSecuredUuid(), certificate.getUuid().toString()));
+        Assertions.assertTrue(ex.getMessage().contains("registration"), "the refusal must name the registration");
+        mockServer
+                .verify(0, WireMock
+                        .postRequestedFor(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/csr")));
+        verify(clientOperationService, never()).renewCertificate(any(), any(), any(), any());
+    }
+
+    @Test
+    void renewCertificateInLocationProceedsWhenTheRegistrationIsClosed() throws Exception {
+        CertificateLocation certificateLocation = location.getCertificates().stream().findFirst().get();
+        DataAttributeV2 pushAttribute = new DataAttributeV2();
+        pushAttribute.setUuid(UUID.randomUUID().toString());
+        pushAttribute.setContent(List.of(new StringAttributeContentV2("data", "ref")));
+        DataAttributeV3 csrAttribute = new DataAttributeV3();
+        csrAttribute.setUuid(UUID.randomUUID().toString());
+        csrAttribute.setContent(List.of(new StringAttributeContentV3("data", "ref")));
+        certificateLocation.setPushAttributes(List.of(pushAttribute));
+        certificateLocation.setCsrAttributes(List.of(csrAttribute));
+        locationRepository.save(location);
+        certificate.setRaProfile(getRaProfile());
+        certificateRepository.save(certificate);
+
+        CertificateRegistrationAuthorization authorization = new CertificateRegistrationAuthorization();
+        authorization.setCertificateUuid(certificate.getUuid());
+        authorization.setState(RegistrationState.CLOSED);
+        authorization.setFailedAttempts(0);
+        registrationChallengeStore.store(authorization, "s3cret-value-1234");
+        authorizationRepository.save(authorization);
+
+        Certificate renewedCertificate = certificateRepository.save(new Certificate());
+        ClientCertificateDataResponseDto responseDto = new ClientCertificateDataResponseDto();
+        responseDto.setUuid(renewedCertificate.getUuid().toString());
+        when(clientOperationService.renewCertificate(any(), any(), any(), any())).thenReturn(responseDto);
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/csr"))
+                        .willReturn(WireMock.okJson("{}")));
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/push/attributes"))
+                        .willReturn(WireMock.okJson("[]")));
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/csr/attributes"))
+                        .willReturn(WireMock.okJson("[]")));
+
+        locationService
+                .renewCertificateInLocation(entityInstanceReference.getSecuredParentUuid(), location.getSecuredUuid(),
+                        certificate.getUuid().toString());
+
+        verify(clientOperationService).renewCertificate(any(), any(), any(), any());
     }
 
     @Test

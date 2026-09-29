@@ -84,6 +84,18 @@ public class RegistrationChallengeGate {
     }
 
     /**
+     * Whether {@link #verify} would deny this certificate unless its challenge is presented: an authorization exists
+     * and is not CLOSED. Lets a caller that can never present one refuse before doing external work; {@code verify}
+     * stays the authority.
+     */
+    public boolean requiresChallenge(UUID certificateUuid) {
+        return registrationAuthorizationRepository
+                .findByCertificateUuid(certificateUuid)
+                .map(authorization -> authorization.getState() != RegistrationState.CLOSED)
+                .orElse(false);
+    }
+
+    /**
      * Whether a caller supplied a registration secret at all; a null or blank value is missing, not a guess.
      */
     public static boolean isPresented(@Sensitive String secret) {
