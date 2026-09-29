@@ -83,7 +83,7 @@ class CbomAssetIngestServiceTest {
 
         assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
         verify(assetWriter, times(2)).upsertIdentity(anyString(), any(), any());
-        verify(sourceWriter, times(2)).upsertSource(any(), eq(CBOM), any(), any(), anyInt(), eq(SEEN_AT));
+        verify(sourceWriter, times(2)).upsertSource(any(), eq(CBOM), any(), any(), anyInt(), any(), eq(SEEN_AT));
         verify(stateWriter).markInProgress(CBOM);
         verify(stateWriter).markSynced(CBOM, SEEN_AT);
         verify(stateWriter, never()).markFailed(any(), anyString());
@@ -272,7 +272,7 @@ class CbomAssetIngestServiceTest {
 
         assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
         InOrder order = inOrder(sourceWriter, detachService, stateWriter);
-        order.verify(sourceWriter, atLeastOnce()).upsertSource(any(), eq(CBOM), any(), any(), anyInt(), any());
+        order.verify(sourceWriter, atLeastOnce()).upsertSource(any(), eq(CBOM), any(), any(), anyInt(), any(), any());
         order.verify(detachService).withdraw(earlier, POLICY.assetBatchSize());
         order.verify(stateWriter).markSynced(CBOM, SEEN_AT);
     }
@@ -355,10 +355,30 @@ class CbomAssetIngestServiceTest {
         ArgumentCaptor<Integer> occurrences = ArgumentCaptor.forClass(Integer.class);
         ArgumentCaptor<List<Map<String, Object>>> evidence = ArgumentCaptor.forClass(List.class);
         verify(sourceWriter, times(1))
-                .upsertSource(any(), eq(CBOM), any(), evidence.capture(), occurrences.capture(), eq(SEEN_AT));
+                .upsertSource(any(), eq(CBOM), any(), evidence.capture(), occurrences.capture(), any(), eq(SEEN_AT));
         verify(assetWriter, times(1)).upsertIdentity(anyString(), any(), any());
         assertThat(occurrences.getValue()).isEqualTo(2);
         assertThat(evidence.getValue()).hasSize(2);
+    }
+
+    /** The refs travel with the asset to its source row, folded per asset: they are what the CBOM page links by. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void eachAssetsFoldedBomRefsReachItsSourceRow() {
+        when(synchronizer.tryLock(LOCK_KEY)).thenReturn(true);
+        whenUpsertReturnsAFreshUuid();
+
+        ingest(CbomIngestTestFixtures
+                .documentOf(CbomIngestTestFixtures.algorithmWithRef("AES-256", "crypto/aes"),
+                        CbomIngestTestFixtures.algorithmWithRef("RSA-2048", "crypto/rsa"),
+                        CbomIngestTestFixtures.algorithmWithRef("AES-256", "crypto/aes-again")),
+                100);
+
+        ArgumentCaptor<List<String>> refs = ArgumentCaptor.forClass(List.class);
+        verify(sourceWriter, times(2))
+                .upsertSource(any(), eq(CBOM), any(), any(), anyInt(), refs.capture(), eq(SEEN_AT));
+        assertThat(refs.getAllValues())
+                .containsExactlyInAnyOrder(List.of("crypto/aes", "crypto/aes-again"), List.of("crypto/rsa"));
     }
 
     /**

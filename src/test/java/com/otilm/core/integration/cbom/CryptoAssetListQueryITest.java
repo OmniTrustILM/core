@@ -11,9 +11,11 @@ import com.otilm.core.dao.entity.Cbom;
 import com.otilm.core.dao.entity.cbom.CryptoAsset;
 import com.otilm.core.dao.repository.CbomRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
+import com.otilm.core.dao.repository.cbom.CryptoAssetSourceRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.model.cbom.CryptoAssetIdentityGuard;
 import com.otilm.core.model.cbom.CryptoAssetListRow;
+import com.otilm.core.model.cbom.CryptoAssetSourceBomRefsRow;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.writer.cbom.CryptoAssetSourceWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetWriter;
@@ -29,6 +31,7 @@ import java.time.OffsetDateTime;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.BiFunction;
@@ -40,6 +43,7 @@ import org.springframework.data.domain.PageRequest;
 
 import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyFilter;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 /**
  * The repository support the inventory list operation (slice 3) will call: a deterministic name-ordered uuid page (uuid
@@ -58,6 +62,9 @@ class CryptoAssetListQueryITest extends BaseSpringBootTest {
 
     @Autowired
     private CryptoAssetRepository assetRepository;
+
+    @Autowired
+    private CryptoAssetSourceRepository sourceRepository;
 
     @Autowired
     private CryptoAssetWriter assetWriter;
@@ -224,6 +231,31 @@ class CryptoAssetListQueryITest extends BaseSpringBootTest {
                 .isEqualTo(1L);
     }
 
+    /**
+     * The page the CBOM-scoped listing has just resolved is joined to that document's refs by asset -- one document's
+     * rows only, and the array as stored.
+     */
+    @Test
+    void refsProjectionReturnsOneDocumentsRefsForTheGivenAssets() {
+        UUID aes = seedAsset("AES-256", "256");
+        UUID rsa = seedAsset("RSA-2048", "2048");
+        UUID unrelated = seedAsset("ECDSA", "P-256");
+        UUID cbomX = newCbom("urn:uuid:refs-x").getUuid();
+        UUID cbomY = newCbom("urn:uuid:refs-y").getUuid();
+        OffsetDateTime now = OffsetDateTime.parse("2026-09-29T10:00:00Z");
+        sourceWriter.upsertSource(aes, cbomX, Map.of("name", "AES"), List.of(), 0, List.of("a1", "a2"), now);
+        sourceWriter.upsertSource(rsa, cbomX, Map.of("name", "RSA"), List.of(), 0, List.of(), now);
+        sourceWriter.upsertSource(unrelated, cbomX, Map.of("name", "ECDSA"), List.of(), 0, List.of("e"), now);
+        sourceWriter.upsertSource(aes, cbomY, Map.of("name", "AES"), List.of(), 0, List.of("y"), now);
+
+        List<CryptoAssetSourceBomRefsRow> rows = sourceRepository
+                .findBomRefsByCbomUuidAndAssetUuids(cbomX, List.of(aes, rsa));
+
+        assertThat(rows)
+                .extracting(CryptoAssetSourceBomRefsRow::assetUuid, CryptoAssetSourceBomRefsRow::bomRefs)
+                .containsExactlyInAnyOrder(tuple(aes, List.of("a1", "a2")), tuple(rsa, List.of()));
+    }
+
     // ---- helpers ----
 
     /**
@@ -262,5 +294,11 @@ class CryptoAssetListQueryITest extends BaseSpringBootTest {
 
     private UUID upsert(CryptoAssetIdentityFields fields, CryptoAssetIdentityGuard guard) {
         return assetWriter.upsertIdentity(AssetRowKeys.forFields(fields), fields, guard);
+    }
+
+    private UUID seedAsset(String name, String parameterSet) {
+        CryptoAssetIdentityFields fields = new CryptoAssetIdentityFields(CryptographicAssetType.ALGORITHM, name, null,
+                name.toLowerCase(Locale.ROOT), "signature", parameterSet, null, null, null, null);
+        return upsert(fields, null);
     }
 }

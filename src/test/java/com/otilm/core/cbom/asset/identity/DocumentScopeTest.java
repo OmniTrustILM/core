@@ -407,6 +407,89 @@ class DocumentScopeTest {
         assertThat(scope.ambiguousRefs()).isEmpty();
     }
 
+    // ---------------------------------------------------------------- navigation refs
+
+    private static JsonNode named(String name, String ref) {
+        return read("{\"type\":\"cryptographic-asset\",\"bom-ref\":\"" + ref + "\",\"name\":\"" + name + "\","
+                + "\"cryptoProperties\":{\"assetType\":\"algorithm\",\"algorithmProperties\":{}}}");
+    }
+
+    /** The index {@link DocumentScope#resolve} reads is the one that answers, so a unique ref names its component. */
+    @Test
+    void aUniqueRefNamesItsOwnComponent() {
+        JsonNode document = document(named("aes", "k"));
+        JsonNode component = document.get("components").get(0);
+
+        assertThat(DocumentScope.of(document, NORMALIZER).uniqueRefOf(component)).contains("k");
+    }
+
+    /** Both readings of a repeat move keys, so neither component is named -- the same answer resolve gives. */
+    @Test
+    void aRefRepeatedAmongTheComponentsNamesNeither() {
+        JsonNode document = document(named("aes", "k"), named("rsa", "k"));
+        DocumentScope scope = DocumentScope.of(document, NORMALIZER);
+
+        assertThat(scope.uniqueRefOf(document.get("components").get(0))).isEmpty();
+        assertThat(scope.uniqueRefOf(document.get("components").get(1))).isEmpty();
+        assertThat(scope.resolve(MAPPER.getNodeFactory().textNode("k"))).isNull();
+    }
+
+    @Test
+    void aNestedComponentIsNamedByItsRef() {
+        JsonNode document = document(library(named("aes", "deep")));
+        JsonNode nested = document.get("components").get(0).get("components").get(0);
+
+        assertThat(DocumentScope.of(document, NORMALIZER).uniqueRefOf(nested)).contains("deep");
+    }
+
+    /**
+     * The ref names the node the index holds, not every node shaped like it. Fails if the identity comparison becomes
+     * {@code equals} or a mere lookup of the spelling, either of which would name a component the scope never indexed.
+     */
+    @Test
+    void aStructurallyIdenticalCopyOfAComponentNamesNothing() {
+        JsonNode document = document(named("aes", "k"));
+        JsonNode component = document.get("components").get(0);
+        DocumentScope scope = DocumentScope.of(document, NORMALIZER);
+
+        assertThat(scope.uniqueRefOf(component.deepCopy())).isEmpty();
+        assertThat(scope.uniqueRefOf(component)).contains("k");
+    }
+
+    @Test
+    void aComponentWithoutATextualRefNamesNothing() {
+        JsonNode document = read("{\"components\":[{\"type\":\"cryptographic-asset\",\"name\":\"none\"},"
+                + "{\"type\":\"cryptographic-asset\",\"bom-ref\":7,\"name\":\"numeric\"}]}");
+        DocumentScope scope = DocumentScope.of(document, NORMALIZER);
+
+        assertThat(scope.uniqueRefOf(document.get("components").get(0))).isEmpty();
+        assertThat(scope.uniqueRefOf(document.get("components").get(1))).isEmpty();
+    }
+
+    /** No document, no index: the empty scope links nothing, so a walk run without scope stores no refs. */
+    @Test
+    void theEmptyScopeNamesNothing() {
+        JsonNode document = document(named("aes", "k"));
+
+        assertThat(DocumentScope.none().uniqueRefOf(document.get("components").get(0))).isEmpty();
+    }
+
+    /**
+     * Consistent with {@link DocumentScope#resolve}, not with {@link DocumentScope#ambiguousRefs}: a ref shared with
+     * the metadata component still resolves to the component, and ingest refuses such a document whole anyway.
+     */
+    @Test
+    void aRefSharedWithTheMetadataComponentStillNamesTheComponent() {
+        JsonNode document = read("""
+                {"metadata": {"component": {"type": "application", "bom-ref": "k", "name": "app"}},
+                 "components": [{"type": "cryptographic-asset", "bom-ref": "k", "name": "first"}]}
+                """);
+        DocumentScope scope = DocumentScope.of(document, NORMALIZER);
+
+        assertThat(scope.ambiguousRefs()).containsExactly("k");
+        assertThat(scope.uniqueRefOf(document.get("components").get(0))).contains("k");
+    }
+
     // ---------------------------------------------------------------- helpers
 
     /** A certificate claiming {@link #DIGEST} through {@code component.hashes[]}, issued by one CA. */

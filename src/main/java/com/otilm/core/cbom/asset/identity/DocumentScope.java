@@ -9,6 +9,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -253,6 +254,24 @@ public final class DocumentScope {
     /** Resolves a document-internal bom-ref to its component, or {@code null} when it names none or more than one. */
     public JsonNode resolve(JsonNode ref) {
         return ref != null && ref.isTextual() ? componentsByRef.get(ref.textValue()) : null;
+    }
+
+    /**
+     * The component's own {@code bom-ref} as navigation data: its spelling when the document defines it exactly once
+     * among the components, else empty.
+     *
+     * <p>
+     * Answered from the same index {@link #resolve} reads, so a ref that resolves to nothing -- absent, non-textual, or
+     * repeated among the components -- names nothing here either; the empty scope names nothing at all. The value is
+     * only ever carried beside an asset so a client can find the row a component became. It is never hashed and never
+     * read by the derivations above, so how an asset is keyed does not change with it.
+     */
+    public Optional<String> uniqueRefOf(JsonNode component) {
+        JsonNode ref = component.get("bom-ref");
+        if (ref == null || !ref.isTextual() || componentsByRef.get(ref.textValue()) != component) {
+            return Optional.empty();
+        }
+        return Optional.of(ref.textValue());
     }
 
     /**
