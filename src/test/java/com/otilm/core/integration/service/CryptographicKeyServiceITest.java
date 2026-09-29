@@ -1935,6 +1935,30 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void deleteKeyItemsWithAssociations_purgesCommentsOfEveryEmptiedParent() throws Exception {
+        // given
+        prepareBatchDeletionAssociations();
+        commentOnKey(keyWithoutToken.getUuid());
+        List<UUID> selectedItemUuids = new ArrayList<>(List.of(privateKeyItem.getUuid(), publicKeyItem.getUuid()));
+        cryptographicKeyItemRepository
+                .findByKeyUuidIn(List.of(keyWithoutToken.getUuid()))
+                .forEach(item -> selectedItemUuids.add(item.getUuid()));
+        List<CryptographicKeyBasicModel> parents = List
+                .of(keyAsRead(),
+                        cryptographicKeyRepository.findBasicModelByUuid(keyWithoutToken.getUuid()).orElseThrow());
+
+        // when
+        cryptographicKeyWriter.deleteKeyItemsWithAssociations(selectedItemUuids, parents);
+
+        // then
+        for (UUID keyUuid : List.of(key.getUuid(), keyWithoutToken.getUuid())) {
+            Assertions.assertFalse(cryptographicKeyRepository.existsById(keyUuid));
+            Assertions
+                    .assertFalse(commentRepository.existsByResourceAndObjectUuid(Resource.CRYPTOGRAPHIC_KEY, keyUuid));
+        }
+    }
+
+    @Test
     void deleteKeyItemsWithAssociations_waitsForSiblingDeletionAndRemovesEmptyParent() throws Exception {
         // given
         UUID certificateUuid = prepareBatchDeletionAssociations();
@@ -2026,13 +2050,7 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         objectAssociationService.setGroups(Resource.CRYPTOGRAPHIC_KEY, keyUuid, Set.of(group.getUuid()));
         Certificate certificate = aCertificate().withKeyUuid(keyUuid).withAltKeyUuid(keyUuid).build();
         certificate = certificateRepository.saveAndFlush(certificate);
-        Comment comment = new Comment();
-        comment.setResource(Resource.CRYPTOGRAPHIC_KEY);
-        comment.setObjectUuid(keyUuid);
-        comment.setAuthorUuid(UUID.randomUUID());
-        comment.setAuthorUsername("key-operator");
-        comment.setBody("Keep the key association history");
-        commentWriter.create(comment);
+        commentOnKey(keyUuid);
         for (UUID itemUuid : List.of(privateKeyItem.getUuid(), publicKeyItem.getUuid())) {
             keyEventHistoryService
                     .addEventHistory(KeyEvent.ENABLE, KeyEventStatus.SUCCESS, "Key enabled", null, itemUuid);
@@ -2040,6 +2058,16 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         }
         addDeletionMetadata(keyUuid);
         return certificate.getUuid();
+    }
+
+    private void commentOnKey(UUID keyUuid) throws NotFoundException {
+        Comment comment = new Comment();
+        comment.setResource(Resource.CRYPTOGRAPHIC_KEY);
+        comment.setObjectUuid(keyUuid);
+        comment.setAuthorUuid(UUID.randomUUID());
+        comment.setAuthorUsername("key-operator");
+        comment.setBody("Keep the key association history");
+        commentWriter.create(comment);
     }
 
     private void addDeletionMetadata(UUID objectUuid) throws AttributeException {
