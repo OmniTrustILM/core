@@ -308,7 +308,6 @@ class AttributeColumnSortITest extends BaseSpringBootTest {
         }
     }
 
-    /** A restricted user's page is ordered by the same key, over only the objects the user may see. */
     @Test
     void aRestrictedUserSeesTheirObjectsInKeyOrder() throws Exception {
         Discovery visibleFirst = seedDiscovery("visible-zulu", "zulu");
@@ -322,9 +321,10 @@ class AttributeColumnSortITest extends BaseSpringBootTest {
 
     /**
      * Two connectors can register metadata under one name; the field collapses them, and so does its key: an object
-     * holding a value under each definition sorts by the smallest of them ascending and the largest descending. Each
-     * object keeps its larger value under the definition whose uuid sorts first, so a key that read only that
-     * definition, or the first value in definition order, would order these objects differently in both directions.
+     * holding a value under each definition sorts by the smallest of them ascending and the largest descending.
+     * {@code mixed} keeps its larger value under the definition whose uuid sorts first and {@code spread} its smaller
+     * one, so a key that read one definition only, or the first value in definition order, would misplace one of them
+     * in each direction.
      */
     @Test
     void metadataSharedByTwoDefinitionsSortsAcrossBoth() throws Exception {
