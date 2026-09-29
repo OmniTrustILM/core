@@ -5,6 +5,8 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.classic.spi.IThrowableProxy;
 import ch.qos.logback.core.read.ListAppender;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.exception.CbomRepositoryException;
 import com.otilm.api.exception.CertificateRequestException;
 import com.otilm.api.model.common.ErrorMessageDto;
@@ -18,6 +20,8 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.mock.http.MockHttpInputMessage;
 import org.springframework.validation.BeanPropertyBindingResult;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -25,6 +29,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ExceptionHandlingAdviceTest {
@@ -146,6 +151,26 @@ class ExceptionHandlingAdviceTest {
             ERROR: duplicate key value violates unique constraint "uq_crypto_asset_identity_key"
               Detail: Key (identity_key)=(""" + POISONED_ROW_VALUE + """
             ) already exists.""";
+
+    /** A body the parser could not read may carry a secret, and the parser's message quotes the token it stopped at. */
+    @Test
+    void anUnreadableBodyIsLoggedWithoutTheParsersWords() {
+        ListAppender<ILoggingEvent> logged = captureLogsOfAdvice();
+        JsonProcessingException parserFailure = assertThrows(JsonProcessingException.class,
+                () -> new ObjectMapper().readTree("{\"passphrase\": correct horse battery staple}"));
+        HttpMessageNotReadableException unreadable = new HttpMessageNotReadableException(
+                "JSON parse error: " + parserFailure.getMessage(), parserFailure,
+                new MockHttpInputMessage(new byte[0]));
+
+        ErrorMessageDto response = advice.handleMessageNotReadable(unreadable);
+
+        assertEquals("Unable to read HTTP message", response.getMessage());
+        assertTrue(logged.list.stream().anyMatch(event -> event.getFormattedMessage().contains("line 1, column")),
+                "the parse location keeps the failure diagnosable");
+        for (ILoggingEvent event : logged.list) {
+            assertFalse(renderedFully(event).contains("correct"), renderedFully(event));
+        }
+    }
 
     private static DataIntegrityViolationException poisonedFailure() {
         ConstraintViolationException hibernateFailure = new ConstraintViolationException(POISONED_DRIVER_MESSAGE,

@@ -41,6 +41,38 @@ class PqcStoredRowTest {
     }
 
     /**
+     * Ingest reads the raw name and the stored row its NFKC fold, so an alternation must refuse on both, or the row
+     * carries an L10 hybrid note that its own verdict contradicts.
+     */
+    @Test
+    void anAlternationRecordsNoComponentsOnEitherPath() {
+        for (String alternation : new String[]{
+                "RSA-2048 or ML-DSA-65",
+                "ECDSA-P256\\t/\\tML-DSA-44", // JSON-escaped: a tab inside the component name
+                "RSA-2048\uFF0CML-DSA-65"}) {
+            JsonNode component = PqcEvaluatorTest.algorithm(alternation);
+            NormalizedAsset asset = normalizer.normalize(component).asset();
+
+            PqcRuleInput stored = evaluator.fromStoredRow(storedRow(asset), component.get("cryptoProperties"));
+
+            assertThat(asset.hybridComponents()).describedAs("ingest of %s", alternation).isEmpty();
+            assertThat(stored.hybridComponents()).describedAs("stored row of %s", alternation).isEmpty();
+        }
+    }
+
+    /** NFKC turns a no-break space into a plain one, so a slash between them joins one hybrid on both paths. */
+    @Test
+    void aSlashBetweenNoBreakSpacesIsAHybridOnBothPaths() {
+        JsonNode component = PqcEvaluatorTest.algorithm("X25519\u00A0/\u00A0ML-KEM-768");
+        NormalizedAsset asset = normalizer.normalize(component).asset();
+
+        PqcRuleInput stored = evaluator.fromStoredRow(storedRow(asset), component.get("cryptoProperties"));
+
+        assertThat(asset.hybridComponents()).isNotEmpty();
+        assertThat(stored.hybridComponents()).isEqualTo(asset.hybridComponents());
+    }
+
+    /**
      * The type mismatch that would make a size comparison silently false: the derivation carries an {@code Integer} and
      * the column carries text.
      */

@@ -22,6 +22,7 @@ import com.otilm.api.model.client.cryptography.operations.VerificationResponseDa
 import com.otilm.api.model.client.cryptography.operations.VerifyDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.VerifyDataResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
@@ -30,14 +31,18 @@ import com.otilm.api.model.connector.cryptography.key.KeyData;
 import com.otilm.api.model.connector.cryptography.key.KeyDataResponseDto;
 import com.otilm.api.model.connector.cryptography.key.KeyPairDataResponseDto;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.secret.Passphrase;
 import com.otilm.core.attribute.EcdsaSignatureAttributes;
 import com.otilm.core.attribute.RsaEncryptionAttributes;
 import com.otilm.core.attribute.RsaSignatureAttributes;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
+import com.otilm.core.key.normalization.NormalizedKey;
 import com.otilm.core.model.crypto.CryptographicKeyFullModel;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
+import com.otilm.core.model.crypto.KeyImportAttempt;
+import com.otilm.core.model.crypto.KeyImportTerms;
 import com.otilm.core.model.crypto.KeyMaterial;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.RemoteKeyReference;
@@ -177,6 +182,61 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
         return List.of();
     }
 
+    /** The V1 contract has no import, so a V1 connector imports nothing. */
+    @Override
+    public List<TransferableKeyType> listImportableKeyTypes(TokenProfileFullModel tokenProfile) {
+        return List.of();
+    }
+
+    @Override
+    public List<BaseAttribute> listImportKeyAttributes(TokenProfileFullModel tokenProfile, KeyRequestType type) {
+        return List.of();
+    }
+
+    @Override
+    public List<BaseAttribute> listExportKeyAttributes(OperationKeyContext context) {
+        return List.of();
+    }
+
+    @Override
+    public byte[] exportKey(OperationKeyContext context, HeldKey heldKey, Passphrase passphrase,
+            List<RequestAttribute> attributes) {
+        throw new ValidationException(
+                ValidationError.create("Key export is not part of the v1 cryptography provider contract."));
+    }
+
+    @Override
+    public ImportAnswer importKey(KeyImportTerms terms, KeyImportAttempt attempt, NormalizedKey key, String keyName) {
+        throw importNotSupported();
+    }
+
+    @Override
+    public ImportAnswer importKeyStatus(TokenProfileFullModel tokenProfile, List<MetadataAttribute> operationMeta,
+            List<String> secretDigests, String keyName) {
+        throw importNotSupported();
+    }
+
+    @Override
+    public ImportAnswer importKeyResult(TokenProfileFullModel tokenProfile, UUID keyImportId,
+            List<String> secretDigests, String keyName) {
+        throw importNotSupported();
+    }
+
+    @Override
+    public void destroyImportedKeyItem(TokenProfileFullModel tokenProfile, List<MetadataAttribute> keyMeta) {
+        throw importNotSupported();
+    }
+
+    @Override
+    public boolean cancelImportKey(List<MetadataAttribute> operationMeta) {
+        throw importNotSupported();
+    }
+
+    private static ValidationException importNotSupported() {
+        return new ValidationException(
+                ValidationError.create("Key import is not part of the v1 cryptography provider contract."));
+    }
+
     @Override
     public List<BaseAttribute> listCreateKeyAttributes(TokenProfileFullModel tokenProfile, KeyRequestType type)
             throws ConnectorException {
@@ -243,6 +303,9 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
                 .signRequest(signatureItems(request.getData()), request.getSignatureAttributes());
         var response = operationsApiClient
                 .signData(connectorInfo, remoteTokenUuid(key), requireV1KeyReference(key), connectorRequest);
+        if (response == null) {
+            throw new ConnectorException("Connector returned no signing result.", connectorInfo);
+        }
         SignDataResponseDto result = new SignDataResponseDto();
         if (response.getSignatures() != null) {
             List<OperationResultItem> signatures = LegacyOperationCodec.signatureResults(response.getSignatures());
@@ -267,6 +330,9 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
                         signatureItems(request.getSignatures()), request.getSignatureAttributes());
         var response = operationsApiClient
                 .verifyData(connectorInfo, remoteTokenUuid(key), requireV1KeyReference(key), connectorRequest);
+        if (response == null) {
+            throw new ConnectorException("Connector returned no verification result.", connectorInfo);
+        }
         VerifyDataResponseDto result = new VerifyDataResponseDto();
         if (response.getVerifications() != null) {
             List<OperationResultItem> verifications = LegacyOperationCodec

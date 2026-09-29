@@ -1,6 +1,7 @@
 package com.otilm.core.events.handlers;
 
 import com.otilm.api.exception.EventException;
+import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.events.data.CommentEventData;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.notification.RecipientType;
@@ -17,7 +18,9 @@ import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.ResourceObjectAssociationService;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -71,20 +74,31 @@ public abstract class CommentEventsHandler extends EventHandler<Comment> {
     }
 
     /**
+     * Every comment event on a thread reaches the host object's owner and the thread's participants, never the acting
+     * user. The owner is who can act on a request raised in a comment, so they follow the whole conversation without
+     * having to join it.
+     * <p>
      * Participants are historical: somebody who commented while they could read the host object may have lost that
      * access since. Each one is therefore re-authorized against the host before being notified, so a revoked user stops
      * learning who acts on the object and what it is called.
      */
-    protected List<NotificationRecipient> threadParticipantsExcept(Comment comment, UUID rootUuid, UUID actingUser) {
+    protected List<NotificationRecipient> threadRecipientsExcept(Comment comment, UUID rootUuid, UUID actingUser) {
+        NameAndUuidDto owner = resourceObjectAssociationService
+                .getOwner(comment.getResource(), comment.getObjectUuid());
+        UUID ownerUuid = owner == null ? null : UUID.fromString(owner.getUuid());
+        Set<UUID> recipients = new LinkedHashSet<>();
+        if (ownerUuid != null && !ownerUuid.equals(actingUser)) {
+            recipients.add(ownerUuid);
+        }
         SecuredUUID hostUuid = SecuredUUID.fromUUID(comment.getObjectUuid());
-        return commentRepository
+        commentRepository
                 .findThreadParticipantUuids(rootUuid)
                 .stream()
-                .filter(participant -> !participant.equals(actingUser))
+                .filter(participant -> !participant.equals(actingUser) && !participant.equals(ownerUuid))
                 .filter(participant -> authorizationEnforcer
                         .isAuthorizedAs(participant, comment.getResource(), ResourceAction.DETAIL, hostUuid))
-                .map(participant -> new NotificationRecipient(RecipientType.USER, participant))
-                .toList();
+                .forEach(recipients::add);
+        return recipients.stream().map(recipient -> new NotificationRecipient(RecipientType.USER, recipient)).toList();
     }
 
     // The message carries the HOST object, not the comment: owner resolution and the notification's deep link

@@ -129,6 +129,7 @@ import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.WireMockPorts;
 import com.otilm.core.util.X509ObjectToString;
 import com.otilm.core.util.seeders.CertificateUploadTriggerSeeder;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -990,6 +991,23 @@ class CertificateServiceITest extends BaseSpringBootTest {
                     .isInstanceOf(CertificateException.class)
                     .hasMessage(
                             "Certificate was not uploaded. See Certificate Uploaded Event History for more details.");
+        }
+
+        @Test
+        void refusesUpload_whenContentIsAKeystore() throws Exception {
+            // given
+            KeyStore keyStore = KeyStore.getInstance("PKCS12");
+            keyStore.load(null, null);
+            ByteArrayOutputStream file = new ByteArrayOutputStream();
+            keyStore.store(file, "changeit".toCharArray());
+            var request = anUploadCertificateRequest()
+                    .withCertificate(Base64.getEncoder().encodeToString(file.toByteArray()))
+                    .build();
+
+            // when / then
+            assertThatThrownBy(() -> certificateService.uploadSync(request))
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessage("The file is a keystore. Import it with the certificate import operation.");
         }
 
         @Test

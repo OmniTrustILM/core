@@ -3,7 +3,9 @@ package com.otilm.core.logging;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.NotSupportedException;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.logging.records.LogRecord;
 import com.otilm.api.model.core.logging.records.ResourceObjectIdentity;
+import com.otilm.api.model.core.logging.records.ResourceRecord;
 import com.otilm.core.service.ResourceInternalService;
 import java.util.ArrayList;
 import java.util.List;
@@ -20,6 +22,31 @@ public class AuditLogEnhancer {
     @Autowired
     public void setResourceService(ResourceInternalService resourceService) {
         this.resourceService = resourceService;
+    }
+
+    /** The record with the names of its resource objects filled in, as the audit log keeps it. */
+    public LogRecord withObjectIdentities(LogRecord logRecord) {
+        return LogRecord
+                .builder()
+                .audited(true)
+                .timestamp(logRecord.timestamp())
+                .version(logRecord.version())
+                .message(logRecord.message())
+                .actor(logRecord.actor())
+                .additionalData(logRecord.additionalData())
+                .module(logRecord.module())
+                .source(logRecord.source())
+                .operationData(logRecord.operationData())
+                .operation(logRecord.operation())
+                .operationResult(logRecord.operationResult())
+                .resource(new ResourceRecord(logRecord.resource().type(),
+                        enrichObjectIdentities(logRecord.resource().objects(), logRecord.resource().type())))
+                .affiliatedResource(logRecord.affiliatedResource() == null
+                        ? null
+                        : new ResourceRecord(logRecord.affiliatedResource().type(),
+                                enrichObjectIdentities(logRecord.affiliatedResource().objects(),
+                                        logRecord.affiliatedResource().type())))
+                .build();
     }
 
     public List<ResourceObjectIdentity> enrichObjectIdentities(List<ResourceObjectIdentity> objects,

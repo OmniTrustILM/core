@@ -122,6 +122,14 @@ class CryptographicAssetDetailITest extends BaseSpringBootTest {
     }
 
     @Test
+    void anAssetOnTheUnroutableTierServesNoType() throws NotFoundException {
+        UUID assetUuid = upsert(new CryptoAssetIdentityFields(CryptographicAssetType.UNROUTABLE, "unclassified", null,
+                null, null, null, null, null, null, null), null);
+
+        assertThat(cryptographicAssetService.getCryptographicAsset(SecuredUUID.fromUUID(assetUuid)).getType()).isNull();
+    }
+
+    @Test
     void servesVerdictProvenanceWhenEvaluated() throws NotFoundException {
         UUID assetUuid = upsert(fields("RSA-2048"), null);
         assetWriter

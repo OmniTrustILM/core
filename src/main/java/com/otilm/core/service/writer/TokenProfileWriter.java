@@ -89,7 +89,7 @@ public class TokenProfileWriter {
         if (request.getUsage() != null) {
             profile.setUsage(request.getUsage());
         }
-        profile.forgetExportableKeyTypes();
+        profile.forgetKeyTypes();
         UUID connectorUuid = profile.getTokenInstanceReference().getConnectorUuid();
         updateAttributes(tokenProfileUuid, connectorUuid, request.getCustomAttributes(), request.getAttributes());
         return ImmutableTokenProfileFullModel.from(profile);
@@ -117,7 +117,7 @@ public class TokenProfileWriter {
 
     private static void changeUsages(TokenProfile profile, List<KeyUsage> usages) {
         profile.setUsage(usages);
-        profile.forgetExportableKeyTypes();
+        profile.forgetKeyTypes();
     }
 
     @Transactional(rollbackFor = Exception.class)

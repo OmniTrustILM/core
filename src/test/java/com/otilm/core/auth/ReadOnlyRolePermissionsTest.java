@@ -60,6 +60,17 @@ class ReadOnlyRolePermissionsTest {
         assertThat(actionsOf(derived, Resource.PROXY)).containsExactly(ResourceAction.DETAIL.getCode());
     }
 
+    /** Exporting a key hands out its private material, so the read-only role sees the key but never exports it. */
+    @Test
+    void theReadOnlyRoleNeverHoldsTheExportAction() {
+        List<ResourceSyncRequestDto> catalogue = List
+                .of(resource(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.DETAIL, ResourceAction.EXPORT_KEY));
+
+        RolePermissionsRequestDto derived = ReadOnlyRolePermissions.deriveFrom(catalogue);
+
+        assertThat(actionsOf(derived, Resource.CRYPTOGRAPHIC_KEY)).containsExactly(ResourceAction.DETAIL.getCode());
+    }
+
     /**
      * The startup scan records {@code ANY} verbatim from the annotations, but the auth service never syncs it into its
      * action catalogue, so emitting it makes it reject the whole permission save with "Unknown action" - the role would

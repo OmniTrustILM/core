@@ -37,6 +37,7 @@ import com.otilm.api.model.core.certificate.CertificateRelationsDto;
 import com.otilm.api.model.core.certificate.CertificateValidationResultDto;
 import com.otilm.api.model.core.certificate.FingerprintDto;
 import com.otilm.api.model.core.location.LocationDto;
+import com.otilm.api.model.core.logging.Sensitive;
 import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
@@ -44,11 +45,14 @@ import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.v2.ClientCertificateRequestDto;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.logging.LogResource;
+import com.otilm.core.model.certificate.DownloadedKeystore;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.ApprovalExternalService;
 import com.otilm.core.service.CertificateEventHistoryExternalService;
 import com.otilm.core.service.CertificateExternalService;
+import com.otilm.core.service.CertificateImportExternalService;
+import com.otilm.core.service.CertificateKeystoreExternalService;
 import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.util.converter.CertificateFormatConverter;
 import com.otilm.core.util.converter.CertificateFormatEncodingConverter;
@@ -78,6 +82,10 @@ public class CertificateControllerImpl implements CertificateController {
     private ClientOperationExternalService clientOperationService;
 
     private ApprovalExternalService approvalService;
+
+    private CertificateImportExternalService certificateImportService;
+
+    private CertificateKeystoreExternalService certificateKeystoreService;
 
     @InitBinder
     public void initBinder(final WebDataBinder webdataBinder) {
@@ -154,17 +162,33 @@ public class CertificateControllerImpl implements CertificateController {
     }
 
     @Override
-    public CertificateImportResponseDto importCertificates(@Valid CertificateImportRequestDto request)
-            throws ValidationException, NotFoundException, ConnectorException, AttributeException, CertificateException,
-            IOException {
-        return null;
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.IMPORT,
+            synchronous = true)
+    public CertificateImportResponseDto importCertificates(@Sensitive @Valid CertificateImportRequestDto request)
+            throws NotFoundException {
+        try {
+            return certificateImportService.importCertificates(request);
+        } finally {
+            request.getFile().clear();
+            if (request.getPassphrase() != null) {
+                request.getPassphrase().clear();
+            }
+        }
     }
 
     @Override
-    public ResponseEntity<org.springframework.core.io.Resource> downloadKeystore(UUID uuid,
-            @Valid CertificateKeystoreRequestDto request) throws NotFoundException, ValidationException,
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE,
+            affiliatedResource = Resource.CRYPTOGRAPHIC_KEY_ITEM, operation = Operation.EXPORT, synchronous = true)
+    public ResponseEntity<org.springframework.core.io.Resource> downloadKeystore(@LogResource(uuid = true) UUID uuid,
+            @Sensitive @Valid CertificateKeystoreRequestDto request) throws NotFoundException, ValidationException,
             ConnectorException, AttributeException, CertificateException, IOException {
-        return null;
+        try {
+            DownloadedKeystore keystore = certificateKeystoreService
+                    .downloadKeystore(SecuredUUID.fromUUID(uuid), request);
+            return KeyMaterialDownload.pkcs12(keystore.name(), keystore.content());
+        } finally {
+            request.getPassphrase().clear();
+        }
     }
 
     @Override
@@ -335,5 +359,15 @@ public class CertificateControllerImpl implements CertificateController {
     @Autowired
     public void setApprovalService(ApprovalExternalService approvalService) {
         this.approvalService = approvalService;
+    }
+
+    @Autowired
+    public void setCertificateImportService(CertificateImportExternalService certificateImportService) {
+        this.certificateImportService = certificateImportService;
+    }
+
+    @Autowired
+    public void setCertificateKeystoreService(CertificateKeystoreExternalService certificateKeystoreService) {
+        this.certificateKeystoreService = certificateKeystoreService;
     }
 }

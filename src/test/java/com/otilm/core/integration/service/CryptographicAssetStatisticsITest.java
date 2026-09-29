@@ -65,27 +65,31 @@ class CryptographicAssetStatisticsITest extends BaseSpringBootTest {
 
     @Test
     void countsDensifyAndFoldExactlyAsServed() {
-        // 2 algorithms (one NOT_READY verdict, one never evaluated), 1 certificate with a family, 1 protocol without
+        // 2 algorithms (one NOT_READY verdict, one never evaluated), 1 certificate with a family, 1 protocol without,
+        // 1 stored on the unroutable tier
         UUID a1 = seedTyped(CryptographicAssetType.ALGORITHM, "RSA-2048");
         seedTyped(CryptographicAssetType.ALGORITHM, "AES-128");
         seedTypedWithFamily(CryptographicAssetType.CERTIFICATE, "leaf", "RSA");
         seedTyped(CryptographicAssetType.PROTOCOL, "TLS-1.3");
+        seedTyped(CryptographicAssetType.UNROUTABLE, "unclassified");
         applyVerdict(a1, PqcVerdict.NOT_READY);
 
         CryptographicAssetStatisticsDto dto = cryptographicAssetService
                 .getCryptographicAssetStatistics(SecurityFilter.create());
 
-        assertEquals(4L, dto.getTotalAssets());
+        assertEquals(5L, dto.getTotalAssets());
         assertEquals(2L, dto.getStatByType().get("algorithm"));
         assertEquals(1L, dto.getStatByType().get("certificate"));
-        assertEquals(0L, dto.getStatByType().get("unroutable")); // densified
+        assertEquals(0L, dto.getStatByType().get("related-crypto-material")); // densified
+        assertThat(dto.getStatByType()).doesNotContainKey("unroutable");
+        assertEquals(1L, dto.getUntypedAssetCount());
         assertEquals(1L, dto.getStatByPqcVerdict().get("notReady"));
-        assertEquals(3L, dto.getStatByPqcVerdict().get("unknown")); // NULL verdicts fold into unknown
+        assertEquals(4L, dto.getStatByPqcVerdict().get("unknown")); // NULL verdicts fold into unknown
         // algorithmFamily is producer text and folds like every other identity field, so "RSA" is stored/served as
         // "rsa" -- see CryptoAssetIdentityFields#normalized.
         assertEquals(1L, dto.getStatByAlgorithmFamily().get("rsa"));
         assertEquals(1L, dto.getDistinctAlgorithmFamilyCount());
-        assertEquals(3L, dto.getUnassignedAssetCount());
+        assertEquals(4L, dto.getUnassignedAssetCount());
     }
 
     /**
@@ -178,8 +182,9 @@ class CryptographicAssetStatisticsITest extends BaseSpringBootTest {
                 .getCryptographicAssetStatistics(SecurityFilter.create());
 
         assertThat(dto.getTotalAssets()).isZero();
-        assertThat(dto.getStatByType()).hasSize(5);
+        assertThat(dto.getStatByType()).hasSize(4);
         assertThat(dto.getStatByType().values()).containsOnly(0L);
+        assertThat(dto.getUntypedAssetCount()).isZero();
         assertThat(dto.getStatByPqcVerdict()).hasSize(4);
         assertThat(dto.getStatByPqcVerdict().values()).containsOnly(0L);
         assertThat(dto.getUnassignedAssetCount()).isZero();

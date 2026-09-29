@@ -23,6 +23,6 @@ public class CommentResolvedEventHandler extends CommentEventsHandler {
     protected void sendFollowUpEventsNotifications(EventContext<Comment> eventContext) {
         Comment comment = eventContext.getResourceObjects().getFirst();
         publishFollowUpNotification(eventContext, comment,
-                threadParticipantsExcept(comment, comment.getUuid(), eventContext.getUserUuid()));
+                threadRecipientsExcept(comment, comment.getUuid(), eventContext.getUserUuid()));
     }
 }

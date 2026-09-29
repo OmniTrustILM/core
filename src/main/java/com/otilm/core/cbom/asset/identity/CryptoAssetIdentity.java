@@ -134,7 +134,13 @@ public record CryptoAssetIdentity(AssetNormalizer normalizer) {
             case CbomNames.ASSET_TYPE_PROTOCOL -> protocol(component, properties, scope, triples);
             case CbomNames.ASSET_TYPE_RELATED_CRYPTO_MATERIAL ->
                 material(component, properties, normalized.redaction(), triples);
-            default -> new Tier(backstop(asset, properties), ChainStep.UNKNOWN_TYPE);
+            default -> {
+                String finding = unroutedTypeFinding(component);
+                if (finding != null) {
+                    findings.add(finding);
+                }
+                yield new Tier(backstop(asset, properties), ChainStep.UNKNOWN_TYPE);
+            }
         };
         String preImage = tier.preImage();
 
@@ -151,6 +157,29 @@ public record CryptoAssetIdentity(AssetNormalizer normalizer) {
         recordCaseRisk(tier.caseRiskInputs(), asset);
         return new Identity(IdentityDigests.sha256Hex(preImage), preImage, tier.step().label(), asset,
                 normalized.redaction(), guardFor(tier.digestRefuted(), tier.step(), asset), List.copyOf(findings));
+    }
+
+    /**
+     * What a component that routed to no asset type owes its producer, or {@code null} when it owes nothing.
+     *
+     * <p>
+     * A component with no {@code cryptoProperties} is legal CycloneDX that declines to classify itself. One that
+     * carries them is not: the schema requires {@code assetType} and closes its vocabulary with no "unknown". Names the
+     * member and the failure, never the value.
+     */
+    static String unroutedTypeFinding(JsonNode component) {
+        JsonNode properties = component.get("cryptoProperties");
+        if (properties == null || properties.isNull()) {
+            return null;
+        }
+        if (!properties.isObject()) {
+            return "cryptoProperties is not an object, and CycloneDX requires one";
+        }
+        JsonNode assetType = properties.get("assetType");
+        if (assetType == null || assetType.isNull()) {
+            return "cryptoProperties.assetType is missing, and CycloneDX requires it";
+        }
+        return "cryptoProperties.assetType is not one of the asset types CycloneDX defines";
     }
 
     /**

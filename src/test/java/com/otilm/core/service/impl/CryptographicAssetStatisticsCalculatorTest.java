@@ -18,14 +18,23 @@ class CryptographicAssetStatisticsCalculatorTest {
     void densifiesEveryEnumCodeWithZero() {
         CryptographicAssetStatisticsDto dto = CryptographicAssetStatisticsCalculator
                 .assemble(3, Map.of("algorithm", 3L), Map.of(), Map.of(), 10, 0, Map.of(), null);
-        assertEquals(Map
-                .of("algorithm", 3L, "certificate", 0L, "protocol", 0L, "related-crypto-material", 0L, "unroutable",
-                        0L),
+        assertEquals(Map.of("algorithm", 3L, "certificate", 0L, "protocol", 0L, "related-crypto-material", 0L),
                 dto.getStatByType());
+        assertEquals(0L, dto.getUntypedAssetCount());
         assertEquals(Map.of("ready", 0L, "notReady", 0L, "notApplicable", 0L, "unknown", 0L),
                 dto.getStatByPqcVerdict());
         assertEquals(Map.of("pending", 0L, "inProgress", 0L, "synced", 0L, "failed", 0L),
                 dto.getSyncCompleteness().getCbomStatBySyncState());
+    }
+
+    /** CycloneDX defines no fifth asset type, so the stored unroutable tier is counted beside the map, not in it. */
+    @Test
+    void theUnroutableTierIsCountedAsUntypedAndNeverServedAsAType() {
+        CryptographicAssetStatisticsDto dto = CryptographicAssetStatisticsCalculator
+                .assemble(5, Map.of("algorithm", 3L, "unroutable", 2L), Map.of(), Map.of(), 10, 0, Map.of(), null);
+        assertFalse(dto.getStatByType().containsKey("unroutable"));
+        assertEquals(2L, dto.getUntypedAssetCount());
+        assertEquals(3L, dto.getStatByType().get("algorithm"));
     }
 
     @Test
