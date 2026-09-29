@@ -49,11 +49,13 @@ public class PqcVerdictExplainer {
             return Optional.empty();
         }
         PqcStaleVerdictRow row = rows.get(0);
+        // Outside the fallback: a database failure is an error to report, not an asset the rules cannot evaluate.
+        Map<UUID, List<PqcReferences.Reference>> loaded = referenceReader.load(rows);
         try {
             JsonNode merged = mergedPayload(row);
             Integer level = PqcEvaluator.nistQuantumSecurityLevel(merged);
             PqcRuleInput input = evaluator.fromStoredRow(row.fields(), merged);
-            PqcReferences references = PqcReferenceReader.forRow(row, merged, referenceReader.load(rows));
+            PqcReferences references = PqcReferenceReader.forRow(row, merged, loaded);
             return Optional
                     .of(new Result(evaluator.explain(input, level, references),
                             PqcEvaluator.inputsOf(input, level, references)));
@@ -69,7 +71,7 @@ public class PqcVerdictExplainer {
         PqcDecision decision = new PqcDecision(PqcVerdict.UNKNOWN, PqcRules.EVALUATION_FAILED,
                 PqcRules.EVALUATION_FAILED_REASON, Map.of());
         PqcExplanation.Step step = new PqcExplanation.Step(PqcRules.EVALUATION_FAILED, "Evaluation",
-                PqcExplanationStepOutcome.DECIDED, decision.verdict(), decision.reason(), Map.of(), null);
+                PqcExplanationStepOutcome.FAILED, decision.verdict(), decision.reason(), Map.of(), null);
         return new Result(new PqcExplanation(decision, List.of(step)), Map.of());
     }
 
