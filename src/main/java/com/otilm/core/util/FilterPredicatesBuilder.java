@@ -412,6 +412,9 @@ public class FilterPredicatesBuilder {
         final FilterField filterField = FilterField.valueOf(filterDto.getFieldIdentifier());
         requireAdvertisedCondition(filterField, filterDto.getCondition());
         if (filterField == FilterField.CBOM_HAS_CONTRIBUTED_ASSETS) {
+            if (!Cbom.class.equals(root.getJavaType())) {
+                throw new ValidationException("Field " + filterField.name() + " can only filter CBOM listings.");
+            }
             Object rawValue = filterDto.getValue();
             if (!(rawValue instanceof Boolean) && !(rawValue instanceof String value
                     && ("true".equalsIgnoreCase(value) || "false".equalsIgnoreCase(value)))) {

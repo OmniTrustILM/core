@@ -5,12 +5,14 @@ import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.SearchHelper;
+import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
 
 /**
  * The property columns each configurable-column listing offers, written out as a literal and asserted to match the
@@ -28,8 +30,8 @@ import org.junit.jupiter.api.Test;
  */
 class PropertyColumnDisplayabilityITest extends BaseSpringBootTest {
 
-    // A method, and no @EnumSource: either would load FilterField before Spring populates the JPA metamodel its
-    // constants read.
+    // Keep these values inside a test method. A static initializer or @EnumSource can load FilterField before Spring
+    // populates the JPA metamodel its constants read.
     private static Map<Resource, Set<FilterField>> offeredColumns() {
         Map<Resource, Set<FilterField>> offeredColumns = new EnumMap<>(Resource.class);
         offeredColumns
@@ -104,12 +106,12 @@ class PropertyColumnDisplayabilityITest extends BaseSpringBootTest {
     @Test
     void thePublishedColumnsAreExactlyTheDecidedOnes() {
         Map<Resource, Set<FilterField>> offeredColumns = offeredColumns();
-        for (FilterField filterField : FilterField.values()) {
+        Assertions.assertAll(Arrays.stream(FilterField.values()).map(filterField -> (Executable) () -> {
             Set<FilterField> offered = offeredColumns.getOrDefault(filterField.getRootResource(), Set.of());
             Assertions
                     .assertEquals(offered.contains(filterField), SearchHelper.isDisplayable(filterField),
                             filterField.name());
-        }
+        }));
     }
 
     /**
@@ -129,7 +131,6 @@ class PropertyColumnDisplayabilityITest extends BaseSpringBootTest {
 
     @Test
     void derivedCbomContributionFieldIsAbsentFromOfferedColumns() {
-        Assertions.assertFalse(offeredColumns().get(Resource.CBOM).contains(FilterField.CBOM_HAS_CONTRIBUTED_ASSETS));
         Assertions.assertFalse(SearchHelper.isDisplayable(FilterField.CBOM_HAS_CONTRIBUTED_ASSETS));
         Assertions.assertFalse(SearchHelper.isSortableField(FilterField.CBOM_HAS_CONTRIBUTED_ASSETS));
     }
