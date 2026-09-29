@@ -79,15 +79,21 @@ public class RegistrationChallengeGate {
      * in for the caller's operator permission on the completion write
      */
     public boolean verify(UUID certificateUuid, @Sensitive String presentedSecret, CertificateEvent operationEvent) {
-        boolean presented = presentedSecret != null && !presentedSecret.isBlank();
-        return verifyInternal(certificateUuid, operationEvent, presented,
+        return verifyInternal(certificateUuid, operationEvent, isPresented(presentedSecret),
                 authorization -> registrationChallengeStore.verify(authorization, presentedSecret));
     }
 
     /**
+     * Whether a caller supplied a registration secret at all; a null or blank value is missing, not a guess.
+     */
+    public static boolean isPresented(@Sensitive String secret) {
+        return secret != null && !secret.isBlank();
+    }
+
+    /**
      * Verifies the registration challenge via a caller-supplied predicate applied to the resolved plaintext (e.g. CMP:
-     * does the message MAC verify under this key). Semantics otherwise identical to the equality form — same state
-     * cascade, lockout, and event history.
+     * does the message MAC verify under this key). Same state cascade, lockout, and event history as the equality form,
+     * except that every call counts as presented, so a predicate that fails is always a counted attempt.
      */
     public boolean verify(UUID certificateUuid, CertificateEvent operationEvent, Predicate<String> secretMatches) {
         return verifyInternal(certificateUuid, operationEvent, true,

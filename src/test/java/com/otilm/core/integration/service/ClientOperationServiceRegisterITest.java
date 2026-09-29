@@ -1774,10 +1774,11 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
                         "a missing secret must read the same as a wrong one");
         assertNoAttemptSpent(UUID.fromString(certUuid));
         verify(actionProducer, never()).produceMessage(Mockito.any());
+        Certificate placeholder = certificateRepository.findByUuid(UUID.fromString(certUuid)).orElseThrow();
         Assertions
-                .assertEquals(CertificateState.REGISTERED,
-                        certificateRepository.findByUuid(UUID.fromString(certUuid)).orElseThrow().getState(),
+                .assertEquals(CertificateState.REGISTERED, placeholder.getState(),
                         "a denied issue must not consume the placeholder");
+        assertFailedEventRecorded(placeholder, CertificateEvent.ISSUE);
     }
 
     @Test
@@ -1806,15 +1807,99 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
         request.setAuthorizationSecret("   ");
         String certUuid = issued.getUuid().toString();
 
-        Assertions
+        ValidationException ex = Assertions
                 .assertThrows(ValidationException.class, () -> clientOperationService
                         .renewCertificate(authorityParent, securedRaProfile, certUuid, request));
+        Assertions
+                .assertTrue(ex.getMessage().contains("The certificate registration challenge is invalid."),
+                        "the challenge gate must reject a blank secret, not some downstream step");
         assertNoAttemptSpent(issued.getUuid());
+        assertFailedEventRecorded(issued, CertificateEvent.RENEW);
+    }
+
+    @Test
+    void renewWithoutSecretKeepsAPartlySpentCounter() {
+        // A secretless call must neither add to nor reset the counter, or it could be interleaved with
+        // wrong guesses to keep the authorization from ever locking.
+        Certificate issued = seedIssuedCert();
+        activeAuthorizationFor(issued.getUuid());
+        CertificateRegistrationAuthorization seeded = authorizationRepository
+                .findByCertificateUuid(issued.getUuid())
+                .orElseThrow();
+        seeded.setFailedAttempts(MAX_FAILED_ATTEMPTS - 1);
+        authorizationRepository.save(seeded);
+        String certUuid = issued.getUuid().toString();
+
+        Assertions
+                .assertThrows(ValidationException.class,
+                        () -> clientOperationService
+                                .renewCertificate(authorityParent, securedRaProfile, certUuid,
+                                        new ClientCertificateRenewRequestDto()));
+        CertificateRegistrationAuthorization afterSecretless = authorizationRepository
+                .findByCertificateUuid(issued.getUuid())
+                .orElseThrow();
+        Assertions.assertEquals(MAX_FAILED_ATTEMPTS - 1, afterSecretless.getFailedAttempts());
+        Assertions.assertEquals(RegistrationState.ACTIVE, afterSecretless.getState());
+
+        ClientCertificateRenewRequestDto wrong = new ClientCertificateRenewRequestDto();
+        wrong.setAuthorizationSecret("wrong-secret-9999");
+        Assertions
+                .assertThrows(ValidationException.class, () -> clientOperationService
+                        .renewCertificate(authorityParent, securedRaProfile, certUuid, wrong));
+        Assertions
+                .assertEquals(RegistrationState.LOCKED,
+                        authorizationRepository.findByCertificateUuid(issued.getUuid()).orElseThrow().getState(),
+                        "the next wrong secret must still reach the lockout");
+    }
+
+    @Test
+    void renewWithoutSecretOfLockedAuthorizationIsDeniedAsLocked() {
+        Certificate issued = seedIssuedCert();
+        activeAuthorizationFor(issued.getUuid());
+        CertificateRegistrationAuthorization seeded = authorizationRepository
+                .findByCertificateUuid(issued.getUuid())
+                .orElseThrow();
+        seeded.setState(RegistrationState.LOCKED);
+        authorizationRepository.save(seeded);
+        String certUuid = issued.getUuid().toString();
+
+        ValidationException ex = Assertions
+                .assertThrows(ValidationException.class,
+                        () -> clientOperationService
+                                .renewCertificate(authorityParent, securedRaProfile, certUuid,
+                                        new ClientCertificateRenewRequestDto()));
+        Assertions
+                .assertTrue(ex.getMessage().toLowerCase().contains("locked"),
+                        "the state checks run before the missing-secret check");
+    }
+
+    @Test
+    void renewWithoutSecretPastTheWindowExpiresTheAuthorization() {
+        Certificate issued = seedIssuedCert();
+        activeAuthorizationFor(issued.getUuid());
+        CertificateRegistrationAuthorization seeded = authorizationRepository
+                .findByCertificateUuid(issued.getUuid())
+                .orElseThrow();
+        seeded.setExpiresAt(OffsetDateTime.now().minusMinutes(1));
+        authorizationRepository.save(seeded);
+        String certUuid = issued.getUuid().toString();
+
+        ValidationException ex = Assertions
+                .assertThrows(ValidationException.class,
+                        () -> clientOperationService
+                                .renewCertificate(authorityParent, securedRaProfile, certUuid,
+                                        new ClientCertificateRenewRequestDto()));
+        Assertions
+                .assertTrue(ex.getMessage().toLowerCase().contains("expired"),
+                        "the window check runs before the missing-secret check");
+        Assertions
+                .assertEquals(RegistrationState.EXPIRED,
+                        authorizationRepository.findByCertificateUuid(issued.getUuid()).orElseThrow().getState());
     }
 
     @Test
     void repeatedRenewWithoutSecretNeverLocksAndTheCorrectSecretStillRenews() throws Exception {
-        // The UI renew and a location renew never send a secret; they must not be able to lock the holder out.
+        // The UI renew and a location renew never send a secret.
         KeyPair keyPair = generateKeyPair();
         Certificate issued = seedIssuedCertWithContent(keyPair);
         registeringAdapter();

@@ -1893,7 +1893,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         // authorization exists (never created, closed, or raced away between a protocol match and this
         // gate) would complete the registration without its challenge ever being checked — and would
         // silently ignore a credential the caller clearly expected to be validated.
-        if (!challengeAuthorized && presentedSecret != null && !presentedSecret.isBlank()) {
+        if (!challengeAuthorized && RegistrationChallengeGate.isPresented(presentedSecret)) {
             throw new ValidationException(ValidationError
                     .create("An authorization secret was presented but the certificate has no active registration authorization to verify it against. Certificate: %s"
                             .formatted(certificate.toStringShort())));
@@ -1984,9 +1984,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 ResourceAction.RENEW);
 
         // Self-service gate: a certificate with a live registration authorization renews only against its
-        // challenge; a wrong or missing secret is denied (only a wrong one is counted) before any successor
-        // exists. A verified challenge lets the authorization follow the successor (copied below). A
-        // certificate with no authorization row, or a CLOSED one, renews without challenge verification.
+        // challenge; a wrong or missing secret is denied before any successor exists. A verified challenge
+        // lets the authorization follow the successor (copied below). A certificate with no authorization
+        // row, or a CLOSED one, renews without challenge verification.
         boolean challengeAuthorized = registrationChallengeGate
                 .verify(oldCertificate.getUuid(), request != null ? request.getAuthorizationSecret() : null,
                         CertificateEvent.RENEW);
