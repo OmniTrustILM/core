@@ -5,7 +5,6 @@ import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredItemDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredKeyDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryResultsResponseDto;
-import com.otilm.api.model.connector.discovery.v2.event.DiscoveryResultBatchEvent;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
@@ -16,7 +15,6 @@ import com.otilm.core.model.discovery.DiscoveryMessageDraft;
 import com.otilm.core.service.handler.CertificateHandler;
 import com.otilm.core.service.writer.discovery.DiscoveryItemWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
-import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import jakarta.validation.Validation;
 import java.util.List;
 import java.util.Optional;
@@ -56,8 +54,6 @@ class DiscoveryEventIngestorTest {
     @Mock
     private DiscoveryItemWriter itemWriter;
     @Mock
-    private DiscoveryWorkWriter workWriter;
-    @Mock
     private CertificateHandler certificateHandler;
     @Mock
     private CryptographicKeyItemRepository keyItemRepository;
@@ -70,9 +66,8 @@ class DiscoveryEventIngestorTest {
 
     @BeforeEach
     void setUp() {
-        ingestor = new DiscoveryEventIngestor(discoveryRepository, itemWriter, workWriter, certificateHandler,
-                keyItemRepository, certificateRepository, messageWriter,
-                Validation.buildDefaultValidatorFactory().getValidator());
+        ingestor = new DiscoveryEventIngestor(discoveryRepository, itemWriter, certificateHandler, keyItemRepository,
+                certificateRepository, messageWriter, Validation.buildDefaultValidatorFactory().getValidator());
     }
 
     @Test
@@ -85,16 +80,6 @@ class DiscoveryEventIngestorTest {
         ingestor.applyDrainPage(gone, page(keyItem(1, "key-a", null)));
 
         verifyNoInteractions(itemWriter, certificateHandler);
-    }
-
-    @Test
-    void advisoryEventForADeletedRun_isDroppedRatherThanFailing() {
-        UUID gone = UUID.randomUUID();
-        when(discoveryRepository.findWithLockByUuid(gone)).thenReturn(Optional.empty());
-
-        ingestor.applyAdvisoryEvent(gone, new DiscoveryResultBatchEvent());
-
-        verifyNoInteractions(workWriter);
     }
 
     @Test

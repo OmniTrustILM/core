@@ -1,8 +1,7 @@
 package com.otilm.core.model.discovery;
 
 /**
- * The codes Core assigns to run messages it produces itself. A connector-reported problem carries the connector's own
- * code instead, straight from {@code DiscoveryErrorEvent}.
+ * The codes Core assigns to run messages it produces itself.
  *
  * <p>
  * The code names the <em>kind</em> of problem — what an operator or a support engineer matches on — and is what
@@ -46,9 +45,6 @@ public enum DiscoveryMessageCode {
 
     /** A processing batch that failed once its rows were already imported, so nothing is left to retry. */
     BATCH_PROCESSING_ABANDONED("batchProcessingAbandoned"),
-
-    /** Stands in for a connector's own code when it reported an error without naming one. */
-    CONNECTOR_ERROR("connectorError"),
 
     /** How the run ended; the message is the terminal reason and the severity follows the terminal status. */
     RUN_ENDED("runEnded"),
