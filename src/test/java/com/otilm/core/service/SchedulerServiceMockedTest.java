@@ -36,10 +36,12 @@ import com.otilm.core.tasks.ScheduledJobInfo;
 import com.otilm.core.tasks.ScheduledJobTask;
 import com.otilm.core.util.AuthHelper;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -188,26 +190,53 @@ class SchedulerServiceMockedTest {
         when(scheduledJobsRepository.countUsingSecurityFilter(any(), isNull())).thenReturn(1L);
         when(schedulerApiClient.listScheduledJobs())
                 .thenThrow(new IllegalStateException("Timeout on blocking read for 5000000000 NS"));
-        ListAppender<ILoggingEvent> logs = new ListAppender<>();
-        Logger serviceLogger = (Logger) LoggerFactory.getLogger(SchedulerServiceImpl.class);
-        logs.start();
-        serviceLogger.addAppender(logs);
+        List<ILoggingEvent> warnings = new ArrayList<>();
 
-        ScheduledJobsResponseDto response;
-        try {
-            response = assertDoesNotThrow(
-                    () -> schedulerService.listScheduledJobs(SecurityFilter.create(), pagination));
-        } finally {
-            serviceLogger.detachAppender(logs);
-        }
+        ScheduledJobsResponseDto response = capturingWarnings(warnings, () -> assertDoesNotThrow(
+                () -> schedulerService.listScheduledJobs(SecurityFilter.create(), pagination)));
 
         assertEquals(1, response.getScheduledJobs().size());
         assertEquals(ScheduledJobScheduleState.UNKNOWN, response.getScheduledJobs().get(0).getScheduleState());
         assertNull(response.getScheduledJobs().get(0).getNextFireTime());
-        List<ILoggingEvent> warnings = logs.list.stream().filter(event -> event.getLevel() == Level.WARN).toList();
         assertEquals(1, warnings.size());
         assertNull(warnings.get(0).getThrowableProxy());
         assertFalse(warnings.get(0).getFormattedMessage().contains("Timeout on blocking read"));
+    }
+
+    /** An answer without a usable job list is as unread as an outage, and is reported the same way: by its status. */
+    @Test
+    void testListScheduledJobs_WhenTheAnswerIsNotOk_ServesUnknownAndWarnsOnce() {
+        PaginationRequestDto pagination = new PaginationRequestDto();
+        when(scheduledJobsRepository
+                .findUsingSecurityFilter(any(), eq(List.of()), isNull(), any(Pageable.class), isNull()))
+                .thenReturn(List.of(scheduledJob));
+        when(scheduledJobsRepository.countUsingSecurityFilter(any(), isNull())).thenReturn(1L);
+        when(schedulerApiClient.listScheduledJobs())
+                .thenReturn(new SchedulerResponseDto(SchedulerStatus.ERROR, "scheduler-node-7"));
+        List<ILoggingEvent> warnings = new ArrayList<>();
+
+        ScheduledJobsResponseDto response = capturingWarnings(warnings,
+                () -> schedulerService.listScheduledJobs(SecurityFilter.create(), pagination));
+
+        assertEquals(ScheduledJobScheduleState.UNKNOWN, response.getScheduledJobs().get(0).getScheduleState());
+        assertEquals(1, warnings.size());
+        assertNull(warnings.get(0).getThrowableProxy());
+        assertTrue(warnings.get(0).getFormattedMessage().contains("schedulerStatus ERROR"));
+        assertFalse(warnings.get(0).getFormattedMessage().contains("scheduler-node-7"));
+    }
+
+    @Test
+    void testGetScheduledJobDetail_WhenTheSchedulerAnswersAnEmptyBody_ServesUnknownAndWarnsOnce() {
+        when(scheduledJobsRepository.findByUuid(any(SecuredUUID.class))).thenReturn(Optional.of(scheduledJob));
+        when(schedulerApiClient.listScheduledJobs()).thenReturn(null);
+        List<ILoggingEvent> warnings = new ArrayList<>();
+
+        ScheduledJobDetailDto response = capturingWarnings(warnings,
+                () -> assertDoesNotThrow(() -> schedulerService.getScheduledJobDetail(JOB_UUID.toString())));
+
+        assertEquals(ScheduledJobScheduleState.UNKNOWN, response.getScheduleState());
+        assertEquals(1, warnings.size());
+        assertTrue(warnings.get(0).getFormattedMessage().contains("empty body"));
     }
 
     @Test
@@ -833,6 +862,20 @@ class SchedulerServiceMockedTest {
         // The row must not stay STARTED: a second close marks it FAILED and names the real outcome.
         verify(historyWriter).recordFailed(eq(HISTORY_UUID), contains("SUCCESS"));
         verify(eventProducer, never()).produceMessage(any());
+    }
+
+    /** Runs {@code action} with the service's log captured, adding to {@code warnings} what it logged at WARN. */
+    private static <T> T capturingWarnings(List<ILoggingEvent> warnings, Supplier<T> action) {
+        ListAppender<ILoggingEvent> logs = new ListAppender<>();
+        Logger serviceLogger = (Logger) LoggerFactory.getLogger(SchedulerServiceImpl.class);
+        logs.start();
+        serviceLogger.addAppender(logs);
+        try {
+            return action.get();
+        } finally {
+            serviceLogger.detachAppender(logs);
+            logs.list.stream().filter(event -> event.getLevel() == Level.WARN).forEach(warnings::add);
+        }
     }
 
     private static SchedulerResponseDto schedulerHolding(String jobName) {

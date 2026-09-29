@@ -14,6 +14,8 @@ import com.otilm.api.model.core.scheduler.ScheduledJobsResponseDto;
 import com.otilm.api.model.scheduler.SchedulerJobDto;
 import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
 import com.otilm.api.model.scheduler.SchedulerRequestDto;
+import com.otilm.api.model.scheduler.SchedulerResponseDto;
+import com.otilm.api.model.scheduler.SchedulerStatus;
 import com.otilm.api.model.scheduler.UpdateScheduledJob;
 import com.otilm.core.api.ScheduledJobSkippedException;
 import com.otilm.core.dao.entity.ScheduledJob;
@@ -65,6 +67,8 @@ import reactor.core.Exceptions;
 public class SchedulerServiceImpl implements SchedulerExternalService, SchedulerInternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(SchedulerServiceImpl.class);
+
+    private static final String UNOBSERVED = "Scheduler job list could not be read ({}); serving schedule state 'unknown'";
 
     private AuthHelper authHelper;
 
@@ -546,22 +550,41 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
     }
 
     /**
-     * What the scheduler holds, or that it could not be asked. A scheduler that is down, answers an error, or predates
-     * the trigger fields leaves every job UNKNOWN rather than failing the response. One line at WARN naming only the
-     * exception's class: without the trace, which an outage would otherwise print per listing, and without its message,
-     * which for an error status is the scheduler's own response body. The trace goes to DEBUG.
+     * What the scheduler holds, or that it could not be asked. A scheduler that is down, answers an error, answers
+     * without a usable job list, or predates the trigger fields leaves every job UNKNOWN rather than failing the
+     * response. Either way one line at WARN, naming only the exception's class or the answer's status: without the
+     * trace, which an outage would otherwise print per listing, and without the exception's message or the answer's
+     * body, which for an error status is the scheduler's own text. The trace goes to DEBUG.
      */
     private ObservedSchedules observeSchedules() {
+        final SchedulerResponseDto answer;
         try {
-            return ObservedSchedules.of(schedulerApiClient.listScheduledJobs());
+            answer = schedulerApiClient.listScheduledJobs();
         } catch (RuntimeException e) {
             final Throwable cause = Exceptions.unwrap(e);
-            logger
-                    .warn("Scheduler job list could not be read ({}); serving schedule state 'unknown'",
-                            cause.getClass().getSimpleName());
+            logger.warn(UNOBSERVED, cause.getClass().getSimpleName());
             logger.debug("The scheduler job list read failed", cause);
             return ObservedSchedules.unavailable();
         }
+        final ObservedSchedules observed = ObservedSchedules.of(answer);
+        if (!observed.isAvailable()) {
+            logger.warn(UNOBSERVED, whyUnusable(answer));
+        }
+        return observed;
+    }
+
+    /** Why an answer that did arrive carries no usable job list, naming nothing the scheduler sent but its status. */
+    private static String whyUnusable(SchedulerResponseDto answer) {
+        if (answer == null) {
+            return "empty body";
+        }
+        if (answer.getSchedulerStatus() == null) {
+            return "no schedulerStatus";
+        }
+        if (answer.getSchedulerStatus() != SchedulerStatus.OK) {
+            return "schedulerStatus " + answer.getSchedulerStatus();
+        }
+        return "no job list";
     }
 
 }
