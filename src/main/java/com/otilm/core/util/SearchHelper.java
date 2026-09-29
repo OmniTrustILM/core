@@ -77,6 +77,9 @@ public class SearchHelper {
                         // the v1 detail DTO does.
                         FilterField.CONNECTOR_AUTH_TYPE,
 
+                        // CBOMs. Contribution is derived from asset source rows; CbomDto has no such property.
+                        FilterField.CBOM_HAS_CONTRIBUTED_ASSETS,
+
                         // Secrets. Secret.setCommonFields sets the source vault profile and not the sync ones.
                         FilterField.SECRET_SYNC_VAULT_PROFILE,
 

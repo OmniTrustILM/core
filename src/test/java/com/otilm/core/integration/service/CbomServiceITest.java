@@ -19,6 +19,8 @@ import com.otilm.api.model.core.cbom.CbomDetailDto;
 import com.otilm.api.model.core.cbom.CbomDto;
 import com.otilm.api.model.core.cbom.CbomUploadRequestDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetType;
+import com.otilm.api.model.core.search.FilterConditionOperator;
+import com.otilm.api.model.core.search.FilterFieldType;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.otilm.api.model.core.settings.PlatformSettingsDto;
@@ -1211,7 +1213,7 @@ class CbomServiceITest extends BaseSpringBootTest {
         SearchFieldDataByGroupDto propertyGroup = result.get(result.size() - 1);
 
         assertNotNull(propertyGroup);
-        assertEquals(12, propertyGroup.getSearchFieldData().size());
+        assertEquals(13, propertyGroup.getSearchFieldData().size());
 
         // Verify all expected fields are present
         List<String> fieldNames = propertyGroup
@@ -1233,6 +1235,18 @@ class CbomServiceITest extends BaseSpringBootTest {
         assertTrue(fieldNames.contains(FilterField.CBOM_ASSETS_SYNCED_AT.name()));
         // Filterable and, since CbomDto carries the reason, a column the picker may offer.
         assertTrue(fieldNames.contains(FilterField.CBOM_ASSET_SYNC_ERROR.name()));
+        SearchFieldDataDto contributed = propertyGroup
+                .getSearchFieldData()
+                .stream()
+                .filter(field -> field.getFieldIdentifier().equals(FilterField.CBOM_HAS_CONTRIBUTED_ASSETS.name()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("Has Contributed Assets", contributed.getFieldLabel());
+        assertEquals(FilterFieldType.BOOLEAN, contributed.getType());
+        assertEquals(List.of(FilterConditionOperator.EQUALS, FilterConditionOperator.NOT_EQUALS),
+                contributed.getConditions());
+        assertEquals(false, contributed.getDisplayable());
+        assertEquals(false, contributed.getSortable());
         assertTrue(SearchHelper.isDisplayable(FilterField.CBOM_ASSET_SYNC_ERROR),
                 "the listing returns the reason, so the field is a column candidate");
         assertTrue(SearchHelper.isOrderableOnListing(FilterField.CBOM_ASSET_SYNC_ERROR),
