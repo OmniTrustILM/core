@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -69,6 +70,25 @@ class ScheduledJobWriterITest extends BaseSpringBootTest {
         assertEquals("The CBOM repository answered 503 Service Unavailable", stored.getLastSkipReason());
         assertTrue(!stored.getLastSkippedAt().isBefore(first));
         assertEquals(1, scheduledJobsRepository.count());
+    }
+
+    /**
+     * Enable, disable and update save the job they read before the call to the scheduler. A skip recorded in between
+     * must survive that save: reverted on a job that is then paused, it would read as a job the scheduler fired and
+     * core never ran.
+     */
+    @Test
+    void recordSkipped_survivesASaveOfACopyReadBeforeIt() {
+        ScheduledJob readBeforeTheSkip = scheduledJobsRepository.findById(scheduledJob.getUuid()).orElseThrow();
+
+        writer.recordSkipped(scheduledJob.getUuid(), NOTHING_TO_DO);
+        readBeforeTheSkip.setEnabled(false);
+        scheduledJobsRepository.save(readBeforeTheSkip);
+
+        ScheduledJob stored = scheduledJobsRepository.findById(scheduledJob.getUuid()).orElseThrow();
+        assertFalse(stored.isEnabled());
+        assertNotNull(stored.getLastSkippedAt());
+        assertEquals(NOTHING_TO_DO, stored.getLastSkipReason());
     }
 
     @Test

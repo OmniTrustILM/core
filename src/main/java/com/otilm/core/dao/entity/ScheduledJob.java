@@ -57,12 +57,18 @@ public class ScheduledJob extends UniquelyIdentified {
     @Column(name = "job_class_name")
     private String jobClassName;
 
-    /** When the job last declined a run; the run's history row is removed, this is what remains of it. */
-    @Column(name = "last_skipped_at")
+    /**
+     * When the job last declined a run; the run's history row is removed, this is what remains of it.
+     *
+     * <p>
+     * Written only by {@code ScheduledJobWriter}'s statement, never by a save: enable, disable and update save a copy
+     * read before their call to the scheduler, which would put back whatever skip that copy held.
+     */
+    @Column(name = "last_skipped_at", insertable = false, updatable = false)
     private OffsetDateTime lastSkippedAt;
 
-    /** The task's own fixed text for that skip, served to the operator. */
-    @Column(name = "last_skip_reason")
+    /** The task's own fixed text for that skip, served to the operator; written like {@link #lastSkippedAt}. */
+    @Column(name = "last_skip_reason", insertable = false, updatable = false)
     private String lastSkipReason;
 
     public ScheduledJobDetailDto mapToDetailDto(ScheduledJobHistory latestHistory, ObservedSchedule observed) {
