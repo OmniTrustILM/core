@@ -532,9 +532,9 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
      * List-page rows for the given assets. A projection rather than the entity: the list serves none of the JSONB
      * payload columns, and a page can be 1000 rows. Both counts come from the same joined source rows rather than from
      * the stored {@code source_count}, so the pair cannot disagree: a source contributes its uncapped occurrence count
-     * as sightings, or one sighting when it recorded no location -- {@link CryptoAssetCounts#sightingsOf}, the rule the
-     * detail applies. Rows come back in no particular order -- IN provides none -- so the caller restores its page
-     * order.
+     * as occurrences, or one occurrence when it recorded no location -- {@link CryptoAssetCounts#occurrencesOf}, the
+     * rule the detail applies. Rows come back in no particular order -- IN provides none -- so the caller restores its
+     * page order.
      */
     @Query("""
             SELECT new com.otilm.core.model.cbom.CryptoAssetListRow(a.uuid, a.name, a.oid, a.assetType,

@@ -137,7 +137,7 @@ class CryptoAssetListQueryITest extends BaseSpringBootTest {
     }
 
     @Test
-    void listRowsCountSourcesAndSightingsOverTheSameJoin() {
+    void listRowsCountSourcesAndOccurrencesOverTheSameJoin() {
         UUID sourced = upsert(new CryptoAssetIdentityFields(CryptographicAssetType.ALGORITHM, "AES", "oid-sourced",
                 null, null, null, null, null, null, null), null);
         UUID sourceless = upsert(new CryptoAssetIdentityFields(CryptographicAssetType.ALGORITHM, "ECDSA",
@@ -162,8 +162,8 @@ class CryptoAssetListQueryITest extends BaseSpringBootTest {
         assertThat(rows).hasSize(3);
 
         CryptoAssetListRow sourcedRow = rowFor(rows, sourced);
-        assertThat(sourcedRow.sightingCount())
-                .describedAs("3 + 2 located sightings, plus 1 for the report that recorded no location")
+        assertThat(sourcedRow.occurrenceCount())
+                .describedAs("3 + 2 located occurrences, plus 1 for the report that recorded no location")
                 .isEqualTo(6);
         assertThat(sourcedRow.sourceCount()).describedAs("counted over the joined source rows").isEqualTo(3);
         assertThat(sourcedRow.pqcVerdict()).isEqualTo(PqcVerdict.NOT_READY);
@@ -175,7 +175,7 @@ class CryptoAssetListQueryITest extends BaseSpringBootTest {
         assertThat(sourcedRow.identityGuard()).isNull();
 
         CryptoAssetListRow sourcelessRow = rowFor(rows, sourceless);
-        assertThat(sourcelessRow.sightingCount())
+        assertThat(sourcelessRow.occurrenceCount())
                 .describedAs("no sources -- LEFT JOIN, not an inner join")
                 .isEqualTo(0);
         assertThat(sourcelessRow.sourceCount()).isEqualTo(0);
@@ -183,7 +183,7 @@ class CryptoAssetListQueryITest extends BaseSpringBootTest {
 
         CryptoAssetListRow guardedRow = rowFor(rows, guarded);
         assertThat(guardedRow.identityGuard()).isEqualTo(CryptoAssetIdentityGuard.BARE_CN_SUBJECT);
-        assertThat(guardedRow.sightingCount()).isEqualTo(0);
+        assertThat(guardedRow.occurrenceCount()).isEqualTo(0);
         assertThat(guardedRow.sourceCount()).isEqualTo(0);
     }
 

@@ -10,74 +10,74 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * The source count and the sighting count are served side by side, so they must never contradict each other: no
- * sightings without a source, no source without a sighting.
+ * The source count and the occurrence count are served side by side, so they must never contradict each other: no
+ * occurrences without a source, no source without an occurrence.
  */
 class CryptoAssetCountsTest {
 
-    private static final List<Integer> LOCATION_COUNTS = List.of(0, 1, 2, 55);
+    private static final List<Integer> OCCURRENCE_COUNTS = List.of(0, 1, 2, 55);
 
     @Test
-    void anAssetWithoutSourcesHasNoSightings() {
-        CryptoAssetCounts counts = CryptoAssetCounts.ofLocationCounts(List.of());
+    void anAssetWithoutSourcesHasNoOccurrences() {
+        CryptoAssetCounts counts = CryptoAssetCounts.ofSourceOccurrenceCounts(List.of());
 
         assertThat(counts.sourceCount()).isZero();
-        assertThat(counts.sightingCount()).isZero();
+        assertThat(counts.occurrenceCount()).isZero();
     }
 
     @Test
-    void twoSourcesThatRecordedNoLocationAreTwoSightings() {
-        CryptoAssetCounts counts = CryptoAssetCounts.ofLocationCounts(List.of(0, 0));
+    void twoSourcesThatRecordedNoLocationAreTwoOccurrences() {
+        CryptoAssetCounts counts = CryptoAssetCounts.ofSourceOccurrenceCounts(List.of(0, 0));
 
         assertThat(counts.sourceCount()).isEqualTo(2);
-        assertThat(counts.sightingCount())
-                .describedAs("each report is a sighting even without a location")
+        assertThat(counts.occurrenceCount())
+                .describedAs("each report is an occurrence even without a location")
                 .isEqualTo(2);
     }
 
     @Test
-    void aSourceWithLocationsContributesOneSightingPerLocation() {
-        CryptoAssetCounts counts = CryptoAssetCounts.ofLocationCounts(List.of(0, 0, 2));
+    void aSourceWithLocationsContributesOneOccurrencePerLocation() {
+        CryptoAssetCounts counts = CryptoAssetCounts.ofSourceOccurrenceCounts(List.of(0, 0, 2));
 
         assertThat(counts.sourceCount()).isEqualTo(3);
-        assertThat(counts.sightingCount()).isEqualTo(4);
+        assertThat(counts.occurrenceCount()).isEqualTo(4);
     }
 
     @Test
     void everyCombinationOfSourcesServesAConsistentPair() {
-        for (List<Integer> locationCountPerSource : combinationsUpTo(4)) {
-            CryptoAssetCounts counts = CryptoAssetCounts.ofLocationCounts(locationCountPerSource);
+        for (List<Integer> occurrenceCountPerSource : combinationsUpTo(4)) {
+            CryptoAssetCounts counts = CryptoAssetCounts.ofSourceOccurrenceCounts(occurrenceCountPerSource);
 
-            assertThat(counts.sourceCount()).isEqualTo(locationCountPerSource.size());
-            assertThat(counts.sightingCount())
-                    .describedAs("sightings never fall below sources for %s", locationCountPerSource)
+            assertThat(counts.sourceCount()).isEqualTo(occurrenceCountPerSource.size());
+            assertThat(counts.occurrenceCount())
+                    .describedAs("occurrences never fall below sources for %s", occurrenceCountPerSource)
                     .isGreaterThanOrEqualTo(counts.sourceCount());
-            assertThat(counts.sightingCount() == 0)
-                    .describedAs("sightings are zero exactly when sources are zero for %s", locationCountPerSource)
+            assertThat(counts.occurrenceCount() == 0)
+                    .describedAs("occurrences are zero exactly when sources are zero for %s", occurrenceCountPerSource)
                     .isEqualTo(counts.sourceCount() == 0);
         }
     }
 
-    @ParameterizedTest(name = "{0} source(s) with {1} sighting(s) is refused")
+    @ParameterizedTest(name = "{0} source(s) with {1} occurrence(s) is refused")
     @CsvSource({"0, 2", "0, 1", "2, 0", "2, 1", "-1, 0"})
-    void aContradictoryPairIsRefused(int sourceCount, long sightingCount) {
-        assertThatThrownBy(() -> new CryptoAssetCounts(sourceCount, sightingCount))
+    void aContradictoryPairIsRefused(int sourceCount, long occurrenceCount) {
+        assertThatThrownBy(() -> new CryptoAssetCounts(sourceCount, occurrenceCount))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Inconsistent cryptographic asset counts");
     }
 
-    @ParameterizedTest(name = "{0} source(s) with {1} sighting(s) is accepted")
+    @ParameterizedTest(name = "{0} source(s) with {1} occurrence(s) is accepted")
     @CsvSource({"0, 0", "1, 1", "2, 2", "2, 5"})
-    void aConsistentPairIsAccepted(int sourceCount, long sightingCount) {
-        CryptoAssetCounts counts = new CryptoAssetCounts(sourceCount, sightingCount);
+    void aConsistentPairIsAccepted(int sourceCount, long occurrenceCount) {
+        CryptoAssetCounts counts = new CryptoAssetCounts(sourceCount, occurrenceCount);
 
         assertThat(counts.sourceCount()).isEqualTo(sourceCount);
-        assertThat(counts.sightingCount()).isEqualTo(sightingCount);
+        assertThat(counts.occurrenceCount()).isEqualTo(occurrenceCount);
     }
 
     @Test
-    void aNegativeLocationCountIsRefused() {
-        assertThatThrownBy(() -> CryptoAssetCounts.sightingsOf(-1)).isInstanceOf(IllegalArgumentException.class);
+    void aNegativeRecordedCountIsRefused() {
+        assertThatThrownBy(() -> CryptoAssetCounts.occurrencesOf(-1)).isInstanceOf(IllegalArgumentException.class);
     }
 
     private static List<List<Integer>> combinationsUpTo(int maxSources) {
@@ -87,9 +87,9 @@ class CryptoAssetCountsTest {
         for (int length = 1; length <= maxSources; length++) {
             List<List<Integer>> currentLength = new ArrayList<>();
             for (List<Integer> prefix : previousLength) {
-                for (Integer locationCount : LOCATION_COUNTS) {
+                for (Integer recordedCount : OCCURRENCE_COUNTS) {
                     List<Integer> extended = new ArrayList<>(prefix);
-                    extended.add(locationCount);
+                    extended.add(recordedCount);
                     currentLength.add(List.copyOf(extended));
                 }
             }

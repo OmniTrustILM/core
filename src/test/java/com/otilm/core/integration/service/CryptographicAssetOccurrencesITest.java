@@ -31,11 +31,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The source count and the sighting count an asset serves must never contradict each other, on the list or on the
+ * The source count and the occurrence count an asset serves must never contradict each other, on the list or on the
  * detail. Real corpus documents go through the real extractor and writers: most of their components record no location,
  * which is exactly the shape that used to serve "2 source CBOMs, 0 occurrences".
  */
-class CryptographicAssetSightingsITest extends BaseSpringBootTest {
+class CryptographicAssetOccurrencesITest extends BaseSpringBootTest {
 
     private static final Path CORPUS = Path.of("src/test/resources/cbom/corpus");
 
@@ -70,16 +70,16 @@ class CryptographicAssetSightingsITest extends BaseSpringBootTest {
     }
 
     @Test
-    void sourcesWithoutLocationsStillServeOneSightingEach() throws NotFoundException {
+    void sourcesWithoutLocationsStillServeOneOccurrenceEach() throws NotFoundException {
         CryptographicAssetDto row = listedRow(UNLOCATED_ALGORITHM);
         CryptographicAssetDetailDto detail = detail(row);
 
         assertThat(row.getSourceCbomCount()).isEqualTo(3);
-        assertThat(row.getSightingCount())
+        assertThat(row.getOccurrenceCount())
                 .describedAs("1 + 1 for the unlocated reports, 2 for the located one")
                 .isEqualTo(4);
         assertThat(detail.getSources())
-                .extracting(CryptographicAssetSourceDto::getLocationCount)
+                .extracting(CryptographicAssetSourceDto::getOccurrenceCount)
                 .containsExactly(0L, 0L, 2L);
     }
 
@@ -87,7 +87,7 @@ class CryptographicAssetSightingsITest extends BaseSpringBootTest {
     void aLocationKeyedMaterialRowCountsReportsOfItsEntriesNotLocations() throws IOException, NotFoundException {
         CryptographicAssetDto oneSource = listedRow(LOCATED_MATERIAL);
         assertThat(oneSource.getSourceCbomCount()).isEqualTo(1);
-        assertThat(oneSource.getSightingCount()).isEqualTo(2);
+        assertThat(oneSource.getOccurrenceCount()).isEqualTo(2);
 
         ingest("urn:uuid:5b1c2d3e-0000-4000-8000-000000002367", corpusDocument("materials-and-occurrences.cdx.json"),
                 NOW.plusSeconds(3));
@@ -97,11 +97,11 @@ class CryptographicAssetSightingsITest extends BaseSpringBootTest {
                 .describedAs("the same entries key the same row")
                 .isEqualTo(oneSource.getUuid());
         assertThat(twoSources.getSourceCbomCount()).isEqualTo(2);
-        assertThat(twoSources.getSightingCount())
+        assertThat(twoSources.getOccurrenceCount())
                 .describedAs("2 sources x 2 entries, though the row stands for 2 locations")
                 .isEqualTo(4);
         assertThat(detail(twoSources).getSources())
-                .extracting(CryptographicAssetSourceDto::getLocationCount)
+                .extracting(CryptographicAssetSourceDto::getOccurrenceCount)
                 .containsExactly(2L, 2L);
     }
 
@@ -111,33 +111,33 @@ class CryptographicAssetSightingsITest extends BaseSpringBootTest {
         assertThat(rows).isNotEmpty();
 
         for (CryptographicAssetDto row : rows) {
-            assertConsistent(row.getName(), row.getSourceCbomCount(), row.getSightingCount());
+            assertConsistent(row.getName(), row.getSourceCbomCount(), row.getOccurrenceCount());
             CryptographicAssetDetailDto detail = detail(row);
-            assertConsistent(row.getName(), detail.getSourceCbomCount(), detail.getSightingCount());
+            assertConsistent(row.getName(), detail.getSourceCbomCount(), detail.getOccurrenceCount());
             assertThat(detail.getSourceCbomCount())
                     .describedAs("list and detail agree on %s", row.getName())
                     .isEqualTo(row.getSourceCbomCount());
-            assertThat(detail.getSightingCount())
+            assertThat(detail.getOccurrenceCount())
                     .describedAs("list and detail agree on %s", row.getName())
-                    .isEqualTo(row.getSightingCount());
-            long sightingsPerSource = detail
+                    .isEqualTo(row.getOccurrenceCount());
+            long occurrencesPerSource = detail
                     .getSources()
                     .stream()
-                    .mapToLong(source -> Math.max(1, source.getLocationCount()))
+                    .mapToLong(source -> Math.max(1, source.getOccurrenceCount()))
                     .sum();
-            assertThat(detail.getSightingCount())
+            assertThat(detail.getOccurrenceCount())
                     .describedAs("the served sources add up for %s while every CBOM is visible and uncapped",
                             row.getName())
-                    .isEqualTo(sightingsPerSource);
+                    .isEqualTo(occurrencesPerSource);
         }
     }
 
     /**
      * The stored {@code source_count} is maintained by the writers, but the served pair must not depend on it: even a
-     * stale column cannot put sightings beside zero sources.
+     * stale column cannot put occurrences beside zero sources.
      */
     @Test
-    void aStaleStoredSourceCountCannotServeSightingsWithoutSources() throws NotFoundException {
+    void aStaleStoredSourceCountCannotServeOccurrencesWithoutSources() throws NotFoundException {
         CryptographicAssetDto before = listedRow(UNLOCATED_ALGORITHM);
         jdbcTemplate.update("UPDATE crypto_asset SET source_count = 0 WHERE uuid = ?", before.getUuid());
 
@@ -145,17 +145,17 @@ class CryptographicAssetSightingsITest extends BaseSpringBootTest {
         CryptographicAssetDetailDto detail = detail(row);
 
         assertThat(row.getSourceCbomCount()).isEqualTo(3);
-        assertThat(row.getSightingCount()).isEqualTo(4);
+        assertThat(row.getOccurrenceCount()).isEqualTo(4);
         assertThat(detail.getSourceCbomCount()).isEqualTo(3);
-        assertThat(detail.getSightingCount()).isEqualTo(4);
+        assertThat(detail.getOccurrenceCount()).isEqualTo(4);
     }
 
-    private static void assertConsistent(String name, int sourceCount, long sightingCount) {
-        assertThat(sightingCount)
-                .describedAs("sightings never below sources for %s", name)
+    private static void assertConsistent(String name, int sourceCount, long occurrenceCount) {
+        assertThat(occurrenceCount)
+                .describedAs("occurrences never below sources for %s", name)
                 .isGreaterThanOrEqualTo(sourceCount);
-        assertThat(sightingCount == 0)
-                .describedAs("sightings are zero exactly when sources are zero for %s", name)
+        assertThat(occurrenceCount == 0)
+                .describedAs("occurrences are zero exactly when sources are zero for %s", name)
                 .isEqualTo(sourceCount == 0);
     }
 

@@ -93,7 +93,7 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
 
     // Per-source evidence is already bounded at 50 occurrences / 64KB by OccurrenceEvidenceCapper; the asset-level
     // fan-out -- one row per contributing CBOM -- is not. 100 x ~70KB bounds the response while sourceCbomCount
-    // keeps carrying the true total, the same served-vs-true pattern locationCount already uses.
+    // keeps carrying the true total, the same served-vs-true pattern occurrenceCount already uses.
     private static final int MAX_SERVED_SOURCES = 100;
 
     // The OpenAPI schema documents 1000 as the maximum items per page; this is where it is actually enforced.
@@ -492,9 +492,9 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
         // field; that residual is interfaces' contract friction, raised on the PR.
         dto.setName(servedName(row));
         dto.setType(ServedAssetType.of(row.assetType()));
-        CryptoAssetCounts counts = new CryptoAssetCounts(Math.toIntExact(row.sourceCount()), row.sightingCount());
+        CryptoAssetCounts counts = new CryptoAssetCounts(Math.toIntExact(row.sourceCount()), row.occurrenceCount());
         dto.setSourceCbomCount(counts.sourceCount());
-        dto.setSightingCount(counts.sightingCount());
+        dto.setOccurrenceCount(counts.occurrenceCount());
         dto.setPqcVerdict(servedVerdict(row.pqcVerdict()));
         dto.setQuarantined(quarantined(row.identityGuard()));
         return dto;
@@ -511,10 +511,10 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
         // reconciling with the list (scoped by CRYPTO_ASSET, not CBOM) exactly as the list endpoint serves them --
         // the visibility gate below is on per-document CONTENT, not on whether a document contributed. Both counts
         // come from this one read so a concurrent withdrawal cannot leave them disagreeing.
-        List<Integer> locationCountPerSource = sources.stream().map(CryptoAssetSource::getOccurrenceCount).toList();
-        CryptoAssetCounts counts = CryptoAssetCounts.ofLocationCounts(locationCountPerSource);
+        List<Integer> occurrenceCountPerSource = sources.stream().map(CryptoAssetSource::getOccurrenceCount).toList();
+        CryptoAssetCounts counts = CryptoAssetCounts.ofSourceOccurrenceCounts(occurrenceCountPerSource);
         dto.setSourceCbomCount(counts.sourceCount());
-        dto.setSightingCount(counts.sightingCount());
+        dto.setOccurrenceCount(counts.occurrenceCount());
         dto.setQuarantined(quarantined(asset.getIdentityGuard()));
         dto.setVerdict(toVerdictDto(asset));
         dto.setNormalizedFields(toNormalizedFieldsDto(asset));
@@ -612,7 +612,7 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
         dto.setCbomUuid(source.getCbomUuid());
         dto.setSerialNumber(cbom.getSerialNumber());
         dto.setVersion(cbom.getVersion());
-        dto.setLocationCount(source.getOccurrenceCount());
+        dto.setOccurrenceCount(source.getOccurrenceCount());
         dto.setSource(cbom.getSource());
         dto.setPayload(source.getOriginalCryptoProperties());
         dto.setEvidence(toEvidenceDtos(source.getEvidence()));
