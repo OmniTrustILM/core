@@ -4,12 +4,14 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.client.dashboard.CryptographicAssetStatisticsDto;
 import com.otilm.api.model.common.PaginationResponseDto;
+import com.otilm.api.model.core.cbom.CbomContributedAssetDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetDetailDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetDto;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Read side of the cryptographic asset inventory — the deduplicated cross-CBOM asset view served under
@@ -33,6 +35,19 @@ public interface CryptographicAssetExternalService {
      */
     PaginationResponseDto<CryptographicAssetDto> listCryptographicAssets(SecurityFilter filter,
             SearchRequestDto request);
+
+    /**
+     * One page of the assets one CBOM record contributed, each with the {@code bom-ref} values of that document's
+     * components that were folded into it -- the inventory listing scoped to one source document and one version of it,
+     * taking the same filters, sort and columns, each row still the inventory row with its inventory-wide counts and
+     * its projected attribute values. Gated as a {@code CRYPTO_ASSET/LIST} operation of its own, so the caller's asset
+     * scope applies exactly as on {@link #listCryptographicAssets}; whether the caller may see the CBOM is decided by
+     * the caller of this method, {@code CbomExternalService#listCbomAssets}.
+     *
+     * @param cbomUuid the CBOM record whose contributions are listed; a record with none yields an empty page
+     */
+    PaginationResponseDto<CbomContributedAssetDto> listCbomContributedAssets(UUID cbomUuid, SearchRequestDto request,
+            SecurityFilter filter);
 
     /**
      * Retrieve one asset with its verdict provenance, normalized properties, per-source payloads and recorded object

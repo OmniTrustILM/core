@@ -468,7 +468,7 @@ public class CbomAssetIngestService {
             final UUID assetUuid = assetWriter.upsertIdentity(asset.identityKey(), fieldsOf(asset), asset.guard());
             sourceWriter
                     .upsertSource(assetUuid, cbomUuid, propertiesOf(asset), asset.evidence(),
-                            asset.reportedOccurrences(), seenAt);
+                            asset.reportedOccurrences(), asset.bomRefs(), seenAt);
             written.add(assetUuid);
         }
         stampVerdicts(written);

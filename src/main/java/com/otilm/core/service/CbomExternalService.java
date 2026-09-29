@@ -7,6 +7,7 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.common.PaginationResponseDto;
+import com.otilm.api.model.core.cbom.CbomContributedAssetDto;
 import com.otilm.api.model.core.cbom.CbomDetailDto;
 import com.otilm.api.model.core.cbom.CbomDto;
 import com.otilm.api.model.core.cbom.CbomSyncSkipDto;
@@ -43,6 +44,16 @@ public interface CbomExternalService {
      * @throws NotFoundException if the CBOM with the specified UUID does not exist
      */
     List<CbomDto> getCbomVersions(SecuredUUID uuid) throws NotFoundException;
+
+    /**
+     * The cryptographic assets this CBOM record contributed to the inventory, one page of them in the inventory
+     * listing's shape plus the {@code bom-ref} values each asset was folded from. Detail access to the CBOM is checked
+     * here; the assets are then listed under the caller's cryptographic-asset scope.
+     *
+     * @throws NotFoundException if the CBOM with the specified UUID does not exist
+     */
+    PaginationResponseDto<CbomContributedAssetDto> listCbomAssets(SecuredUUID uuid, SearchRequestDto request,
+            SecurityFilter filter) throws NotFoundException;
 
     /**
      * Upload CBOM into cbom-repository and store cbom statistics in database.

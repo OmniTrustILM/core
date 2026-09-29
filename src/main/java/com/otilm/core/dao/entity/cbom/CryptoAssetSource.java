@@ -92,6 +92,17 @@ public class CryptoAssetSource extends UniquelyIdentified {
     @Column(name = "occurrence_count", nullable = false)
     private int occurrenceCount;
 
+    /**
+     * The {@code bom-ref} values of the components this CBOM folded into the asset, in document order and capped
+     * ({@code CbomAssetExtractor.ExtractedAsset#MAX_BOM_REFS}). Navigation data only -- never an input to how the asset
+     * is keyed, to the canonical projection or to {@code propertiesHash}. Empty when no component could be linked: a
+     * ref the document defines more than once, or that has no valid encoding, links nothing. Assigned whole under the
+     * same recency rule as the payload, never accumulated.
+     */
+    @Column(name = "bom_refs", columnDefinition = "TEXT[]", nullable = false)
+    @JdbcTypeCode(SqlTypes.ARRAY)
+    private List<String> bomRefs = List.of();
+
     @Column(name = "first_seen_at", nullable = false)
     private OffsetDateTime firstSeenAt;
 
