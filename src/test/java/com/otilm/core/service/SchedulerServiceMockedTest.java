@@ -443,7 +443,7 @@ class SchedulerServiceMockedTest {
 
     @Test
     void testRunScheduledJob_WhenJobThrowsScheduledJobSkippedException_DeletesHistory() throws Exception {
-        TestTask testTask = spy(new TestTask(new ScheduledJobSkippedException()));
+        TestTask testTask = spy(new TestTask(new ScheduledJobSkippedException("nothing to do")));
 
         when(scheduledJobsRepository.findByJobName(JOB_NAME)).thenReturn(Optional.of(scheduledJob));
         when(historyWriter.recordStarted(scheduledJob)).thenReturn(scheduledJobHistory);

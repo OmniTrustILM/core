@@ -87,8 +87,11 @@ public class CryptoAssetPqcSweepTask implements ScheduledJobTask {
                     "The sweep failed before it could report its outcome; see the application log",
                     Resource.CRYPTO_ASSET, null);
         }
-        if (!outcome.ran() || (outcome.read() == 0 && !outcome.aborted())) {
-            throw new ScheduledJobSkippedException();
+        if (!outcome.ran()) {
+            throw new ScheduledJobSkippedException("Another sweep is already running");
+        }
+        if (outcome.read() == 0 && !outcome.aborted()) {
+            throw new ScheduledJobSkippedException("No stale cryptographic asset to re-evaluate");
         }
         String message = ("Read %d stale cryptographic asset(s) in %d batch(es); %d verdict(s) written, of which %d "
                 + "recorded as UNKNOWN because the rule set could not be evaluated; %d refused and left for the next "

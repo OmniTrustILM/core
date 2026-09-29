@@ -31,14 +31,18 @@ class CryptoAssetPqcSweepTaskTest {
     void aSweepThatReadNothingIsSkippedRatherThanRecordedAsASuccess() {
         when(sweeper.sweep()).thenReturn(new PqcVerdictSweeper.SweepOutcome(true, false, 0, 0, 0, 0, 0));
 
-        assertThatExceptionOfType(ScheduledJobSkippedException.class).isThrownBy(this::performJob);
+        assertThatExceptionOfType(ScheduledJobSkippedException.class)
+                .isThrownBy(this::performJob)
+                .withMessage("No stale cryptographic asset to re-evaluate");
     }
 
     @Test
     void aContendedSweepIsSkipped() {
         when(sweeper.sweep()).thenReturn(new PqcVerdictSweeper.SweepOutcome(false, false, 0, 0, 0, 0, 0));
 
-        assertThatExceptionOfType(ScheduledJobSkippedException.class).isThrownBy(this::performJob);
+        assertThatExceptionOfType(ScheduledJobSkippedException.class)
+                .isThrownBy(this::performJob)
+                .withMessage("Another sweep is already running");
     }
 
     /** Rows the guard refused are ordinary and retried next sweep, so they are reported without failing the run. */

@@ -88,8 +88,9 @@ class CbomSyncTaskITest extends BaseSpringBootTest {
         when(cbomService.isCbomRepositoryClientConfigured()).thenReturn(false);
 
         Object triggerObject = new Object();
-        assertThrows(ScheduledJobSkippedException.class,
+        ScheduledJobSkippedException skipped = assertThrows(ScheduledJobSkippedException.class,
                 () -> cbomSyncTask.performJob(scheduledJobInfo, triggerObject));
+        assertEquals("No CBOM repository client is configured", skipped.getReason());
 
         verify(cbomService, times(1)).isCbomRepositoryClientConfigured();
         verify(cbomService, times(0)).sync();
@@ -159,7 +160,9 @@ class CbomSyncTaskITest extends BaseSpringBootTest {
         when(cbomService.sync()).thenThrow(cbomException);
 
         // Act & Assert
-        assertThrows(ScheduledJobSkippedException.class, () -> cbomSyncTask.performJob(null, null));
+        ScheduledJobSkippedException skipped = assertThrows(ScheduledJobSkippedException.class,
+                () -> cbomSyncTask.performJob(null, null));
+        assertEquals("The CBOM repository answered 503 Service Unavailable", skipped.getReason());
 
         verify(cbomService).sync();
     }
