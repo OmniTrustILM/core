@@ -11,6 +11,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.Objects;
 import java.util.UUID;
 import lombok.Getter;
@@ -57,6 +58,14 @@ public class ScheduledJob extends UniquelyIdentified {
 
     @Column(name = "job_class_name")
     private String jobClassName;
+
+    /** When the job last declined a run; the run's history row is removed, this is what remains of it. */
+    @Column(name = "last_skipped_at")
+    private OffsetDateTime lastSkippedAt;
+
+    /** The task's own fixed text for that skip, served to the operator. */
+    @Column(name = "last_skip_reason")
+    private String lastSkipReason;
 
     public ScheduledJobDetailDto mapToDetailDto(ScheduledJobHistory latestHistory) {
         String jobType = this.jobClassName.lastIndexOf(".") == -1
