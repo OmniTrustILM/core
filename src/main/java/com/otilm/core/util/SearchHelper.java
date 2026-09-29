@@ -88,8 +88,8 @@ public class SearchHelper {
                         // Crypto assets. The listing serves each CryptographicAssetDto from CryptoAssetListRow, which
                         // carries the name, type, verdict, source and occurrence counts and none of the normalized
                         // properties.
-                        // The OID rides along only as the name's fallback, and the refuted-OID guard only to derive
-                        // the quarantined flag, so neither is a value the row shows.
+                        // The OID rides along only as the name's fallback, and the refuted-OID guard only to withhold
+                        // that fallback, so neither is a value the row shows.
                         FilterField.CBOM_ASSET_OID, FilterField.CBOM_ASSET_ALGORITHM_FAMILY,
                         FilterField.CBOM_ASSET_PRIMITIVE, FilterField.CBOM_ASSET_PARAMETER_SET,
                         FilterField.CBOM_ASSET_CURVE, FilterField.CBOM_ASSET_MODE, FilterField.CBOM_ASSET_PADDING,
