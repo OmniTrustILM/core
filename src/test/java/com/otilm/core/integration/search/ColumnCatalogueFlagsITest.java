@@ -79,8 +79,7 @@ class ColumnCatalogueFlagsITest extends BaseSpringBootTest {
     /**
      * Discovery is one of the listings that applies a requested sort, so its orderable property fields advertise it.
      * The catalogue promising an ordering the listing then discards is the failure this guards, in both directions: a
-     * wired listing must say so, and {@code CryptographicAssetSearchableFieldsITest.noFieldReportsSortable} holds the
-     * other side, where an unwired listing reports nothing sortable.
+     * wired listing must say so, and {@link #aPropertyFieldOfAnUnwiredListingIsNotSortable} holds the other side.
      */
     @Test
     void aPropertyFieldOfAWiredListingIsSortable() {
@@ -88,6 +87,14 @@ class ColumnCatalogueFlagsITest extends BaseSpringBootTest {
                 FilterField.DISCOVERY_NAME.name()).orElseThrow();
 
         Assertions.assertEquals(true, name.getSortable());
+    }
+
+    @Test
+    void aPropertyFieldOfAnUnwiredListingIsNotSortable() {
+        SearchFieldDataDto name = SearchHelper.prepareSearch(FilterField.TIME_QUALITY_CONFIGURATION_NAME);
+
+        Assertions.assertTrue(SearchHelper.isOrderableField(FilterField.TIME_QUALITY_CONFIGURATION_NAME));
+        Assertions.assertEquals(false, name.getSortable());
     }
 
     /**
