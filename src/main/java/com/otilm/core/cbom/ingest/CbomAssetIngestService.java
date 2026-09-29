@@ -115,6 +115,15 @@ public class CbomAssetIngestService {
      */
     public static final int MAX_CONTENT_REFUSALS = 3;
 
+    /**
+     * PostgreSQL's {@code ORDER BY uuid}: the sixteen bytes compared unsigned. {@link UUID#compareTo} compares its two
+     * halves as signed longs, which puts every uuid from {@code 8000...} upward before the rest -- so row locks taken
+     * in that order meet the sweep's, taken in the database's, from opposite ends and can deadlock.
+     */
+    public static final Comparator<UUID> DATABASE_UUID_ORDER = Comparator
+            .comparing(UUID::getMostSignificantBits, Long::compareUnsigned)
+            .thenComparing(UUID::getLeastSignificantBits, Long::compareUnsigned);
+
     private final CbomAssetExtractor extractor;
     private final CryptoAssetWriter assetWriter;
     private final CryptoAssetSourceWriter sourceWriter;
@@ -479,7 +488,7 @@ public class CbomAssetIngestService {
         final Set<UUID> written = new LinkedHashSet<>();
         // In uuid order, which is the order CryptoAssetPqcVerdictWriter.applyStaleBatch takes crypto_asset row
         // locks in. Every asset an ingest creates is immediately on the sweep's work list -- upsertIdentity leaves
-        // pqc_evaluated_at null -- and the sweep holds a different cluster lock, so the two do run at once; two
+        // pqc_evaluated_revision null -- and the sweep holds a different cluster lock, so the two do run at once; two
         // transactions locking an overlapping row set in opposite orders deadlock, and on this side the loser fails
         // the whole document and waits out cbomSyncIngestRetryAfterSeconds. An asset with no row yet sorts last and
         // keeps
@@ -500,7 +509,7 @@ public class CbomAssetIngestService {
                                 ? 0
                                 : 1)
                         .thenComparing(asset -> rows.get(asset.identityKey()),
-                                Comparator.nullsLast(Comparator.naturalOrder())))
+                                Comparator.nullsLast(DATABASE_UUID_ORDER)))
                 .toList();
         for (CbomAssetExtractor.ExtractedAsset asset : ordered) {
             final UUID assetUuid = assetWriter.upsertIdentity(asset.identityKey(), fieldsOf(asset), asset.guard());
@@ -557,7 +566,7 @@ public class CbomAssetIngestService {
         if (refused != null) {
             return refused;
         }
-        final Map<UUID, CbomAssetExtractor.ExtractedAsset> byUuid = new TreeMap<>();
+        final Map<UUID, CbomAssetExtractor.ExtractedAsset> byUuid = new TreeMap<>(DATABASE_UUID_ORDER);
         for (CbomAssetExtractor.ExtractedAsset asset : batch) {
             assetRepository.findUuidByIdentityKey(asset.identityKey()).ifPresent(uuid -> byUuid.put(uuid, asset));
         }

@@ -158,6 +158,14 @@ public class CryptoAsset extends UniquelyIdentifiedAndAudited {
     @Column(name = "pqc_evaluated_at")
     private OffsetDateTime pqcEvaluatedAt;
 
+    /** Advanced by every write that changes what the PQC rules read; see the sweep's work list. */
+    @Column(name = "input_revision", nullable = false)
+    private long inputRevision;
+
+    /** The {@code inputRevision} the stored verdict was evaluated at; null before the first evaluation. */
+    @Column(name = "pqc_evaluated_revision")
+    private Long pqcEvaluatedRevision;
+
     /** The asset whose own verdict a reference rule carried over. No FK: the verdict outlives its target. */
     @Column(name = "pqc_referenced_asset_uuid")
     private UUID pqcReferencedAssetUuid;

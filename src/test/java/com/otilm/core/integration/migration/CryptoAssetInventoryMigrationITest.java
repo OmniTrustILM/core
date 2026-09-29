@@ -128,9 +128,10 @@ class CryptoAssetInventoryMigrationITest extends BaseSpringBootTest {
     // ---- setup / teardown ----
 
     /**
-     * The PQC references migration moves data as well as schema: it re-offers every certificate and protocol row, and
-     * re-queues for ingest only a synced document that still contributes one, so a superseded revision -- which keeps
-     * no sources -- is never re-ingested ahead of its successor.
+     * The PQC references migration moves data as well as schema: it carries a current verdict over as current and
+     * re-offers every certificate and protocol row and every stale one, and re-queues for ingest only a synced document
+     * that still contributes one, so a superseded revision -- which keeps no sources -- is never re-ingested ahead of
+     * its successor.
      */
     @Test
     void thePqcReferencesMigrationRequeuesOnlyTheDocumentsThatContributeACertificateOrProtocol() throws Exception {
@@ -143,11 +144,14 @@ class CryptoAssetInventoryMigrationITest extends BaseSpringBootTest {
                               ('11111111-0000-4000-8000-00000000c001', 'urn:cert', 1, 'SYNCED'),
                               ('11111111-0000-4000-8000-00000000c002', 'urn:alg', 1, 'SYNCED'),
                               ('11111111-0000-4000-8000-00000000c003', 'urn:cert', 0, 'SYNCED');
-                            INSERT INTO crypto_asset (uuid, identity_key, ruleset_version, asset_type, i_cre, i_upd)
+                            INSERT INTO crypto_asset (uuid, identity_key, ruleset_version, asset_type, i_cre, i_upd,
+                                    pqc_evaluated_at)
                             VALUES ('22222222-0000-4000-8000-00000000a001', 'k1', 1, 'CERTIFICATE', now(),
-                                    TIMESTAMPTZ '2026-01-01'),
+                                    TIMESTAMPTZ '2026-01-01', TIMESTAMPTZ '2026-01-01'),
                                    ('22222222-0000-4000-8000-00000000a002', 'k2', 1, 'ALGORITHM', now(),
-                                    TIMESTAMPTZ '2026-01-01');
+                                    TIMESTAMPTZ '2026-01-01', TIMESTAMPTZ '2026-01-01'),
+                                   ('22222222-0000-4000-8000-00000000a003', 'k3', 1, 'ALGORITHM', now(),
+                                    TIMESTAMPTZ '2026-01-02', TIMESTAMPTZ '2026-01-01');
                             INSERT INTO crypto_asset_source (uuid, asset_uuid, cbom_uuid, first_seen_at, last_seen_at)
                             VALUES ('33333333-0000-4000-8000-00000000b001', '22222222-0000-4000-8000-00000000a001',
                                     '11111111-0000-4000-8000-00000000c001', now(), now()),
@@ -162,8 +166,9 @@ class CryptoAssetInventoryMigrationITest extends BaseSpringBootTest {
                                 + "serial_number, version"))
                         .containsExactly("urn:alg#1=SYNCED", "urn:cert#0=SYNCED", "urn:cert#1=PENDING");
                 assertThat(queryColumn(connection,
-                        "SELECT asset_type FROM crypto_asset WHERE i_upd > TIMESTAMPTZ '2026-01-01' ORDER BY asset_type"))
-                        .containsExactly("CERTIFICATE");
+                        "SELECT identity_key FROM crypto_asset WHERE pqc_evaluated_revision IS NULL ORDER BY 1"))
+                        .describedAs("the certificate the removed rule decided, and a verdict already stale")
+                        .containsExactly("k1", "k3");
             } finally {
                 dropScratchSchema(connection);
             }

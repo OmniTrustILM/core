@@ -720,8 +720,8 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
      * Verdict provenance exists only once a rule set has evaluated the asset, and a row without it is reachable by
      * design, not only before the rule set shipped: a row waits between its upsert and its first evaluation (only the
      * sweep evaluates until ingest does), and a row whose first verdict write failed or was refused by the row-version
-     * guard stays on the work list -- the {@code pqc_evaluated_at IS NULL} arm of the sweep's query offers both again
-     * on the next run. A failed <em>evaluation</em> is not one of these: the sweep stamps it {@code UNKNOWN} /
+     * guard stays on the work list -- the {@code pqc_evaluated_revision} arm of the sweep's query offers both again on
+     * the next run. A failed <em>evaluation</em> is not one of these: the sweep stamps it {@code UNKNOWN} /
      * {@code EVALUATION-FAILED} with a current {@code pqc_evaluated_at}, so that row serves a block naming the failure
      * and leaves the work list. Until a row is stamped, a fabricated all-default block would present "never evaluated"
      * as a decision, so the block is omitted -- the contract marks it not required (interfaces#938, PR interfaces#940)

@@ -140,10 +140,10 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
     @Query(value = """
             INSERT INTO {h-schema}crypto_asset (uuid, identity_key, ruleset_version, asset_type, name, oid,
                     algorithm_family, primitive, parameter_set, curve, mode, padding, variant, identity_guard,
-                    properties_leaf_count, source_count, i_cre, i_upd)
+                    properties_leaf_count, source_count, input_revision, i_cre, i_upd)
             VALUES (:uuid, :key, :rulesetVersion, :assetType, :name, :oid, :algorithmFamily, :primitive,
                     :parameterSet, :curve, :mode, :padding, :variant, :identityGuard,
-                    0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    0, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ON CONFLICT (identity_key) DO UPDATE SET
                 ruleset_version = EXCLUDED.ruleset_version,
                 asset_type = COALESCE(crypto_asset.asset_type, EXCLUDED.asset_type),
@@ -157,6 +157,7 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
                 padding = COALESCE(crypto_asset.padding, EXCLUDED.padding),
                 variant = COALESCE(crypto_asset.variant, EXCLUDED.variant),
                 identity_guard = COALESCE(crypto_asset.identity_guard, EXCLUDED.identity_guard),
+                input_revision = crypto_asset.input_revision + 1,
                 i_upd = CURRENT_TIMESTAMP
             """, nativeQuery = true)
     void upsertIdentity(@Param("uuid") UUID uuid, @Param("key") String key, @Param("rulesetVersion") int rulesetVersion,
@@ -201,6 +202,7 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
                 properties_leaf_count = COALESCE(elected.properties_leaf_count, 0),
                 properties_hash = elected.properties_hash,
                 source_count = counted.n,
+                input_revision = a.input_revision + 1,
                 i_upd = CURRENT_TIMESTAMP
             FROM (SELECT count(*) AS n FROM {h-schema}crypto_asset_source s WHERE s.asset_uuid = :uuid) counted
             LEFT JOIN LATERAL (
@@ -215,11 +217,15 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
     void recomputeMergeFromSources(@Param("uuid") UUID uuid);
 
     /**
-     * Advances {@code i_upd} alone, for a change to what hangs off the row -- its references -- that the row's own
+     * Advances the input revision alone, for a change to what hangs off the row -- its references -- that the row's own
      * columns do not show. The row lock it takes is the one every inventory writer takes first.
      */
     @Modifying
-    @Query(value = "UPDATE {h-schema}crypto_asset SET i_upd = CURRENT_TIMESTAMP WHERE uuid = :uuid", nativeQuery = true)
+    @Query(value = """
+            UPDATE {h-schema}crypto_asset
+            SET input_revision = input_revision + 1, i_upd = CURRENT_TIMESTAMP
+            WHERE uuid = :uuid
+            """, nativeQuery = true)
     void touch(@Param("uuid") UUID uuid);
 
     /**
@@ -244,6 +250,7 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
                 pqc_referenced_asset_uuid = :referencedAssetUuid,
                 pqc_reference_basis = :referenceBasis,
                 pqc_evaluated_at = CURRENT_TIMESTAMP,
+                pqc_evaluated_revision = crypto_asset.input_revision,
                 pqc_decided_at = CASE
                     WHEN crypto_asset.pqc_verdict IS DISTINCT FROM CAST(:verdict AS TEXT) THEN CURRENT_TIMESTAMP
                     ELSE COALESCE(crypto_asset.pqc_decided_at, CURRENT_TIMESTAMP)
@@ -268,14 +275,17 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
      * the identity spelling, which the column stores split.
      *
      * <p>
-     * <b>Stale</b> is a verdict never taken, or one older than the row it describes. {@code pqc_evaluated_at < i_upd}
-     * catches a payload re-election, a richer source winning, an identity refresh, and a rule change, whose migration
-     * advances {@code i_upd} -- because the guarded write sets both to one {@code CURRENT_TIMESTAMP}, so a verdict
-     * never re-offers itself while any later writer does. A certificate or protocol is also stale once what its elected
-     * source references no longer holds the verdicts its own was decided from: {@code pqc_reference_basis} records them
-     * as read, and the arm rebuilds the same string from the rows as they stand. A version rather than a time, for the
-     * same reason as the guard below -- a referrer and its target stamped in one transaction share one
-     * {@code CURRENT_TIMESTAMP}, and one stamped from a read that preceded the target's restamp would compare later.
+     * <b>Stale</b> is a verdict never taken, or one taken from an earlier revision of the row: every statement that
+     * changes what the rules read -- an identity refresh, a payload re-election, a reference change -- advances
+     * {@code input_revision} under the row lock, and a stamp records the revision it evaluated. A rule change re-offers
+     * rows with a migration that advances it too. A counter rather than {@code i_upd}: a writer whose transaction began
+     * before a sweep's and committed after it would stamp an {@code i_upd} earlier than the sweep's
+     * {@code pqc_evaluated_at}, and the row would never be offered again. A certificate or protocol is also stale once
+     * what its elected source references no longer holds the verdicts its own was decided from:
+     * {@code pqc_reference_basis} records them as read, and the arm rebuilds the same string from the rows as they
+     * stand. A version rather than a time, for the same reason as the guard below -- a referrer and its target stamped
+     * in one transaction share one {@code CURRENT_TIMESTAMP}, and one stamped from a read that preceded the target's
+     * restamp would compare later.
      *
      * <p>
      * Keyset-cursored, and that is correctness rather than performance: a written row leaves this result set, so an
@@ -297,7 +307,7 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
                    merged_crypto_properties::text AS merged_crypto_properties,
                    xmin::text::bigint AS row_version
             FROM {h-schema}crypto_asset
-            WHERE (pqc_evaluated_at IS NULL OR pqc_evaluated_at < i_upd
+            WHERE (pqc_evaluated_revision IS DISTINCT FROM input_revision
                     OR (crypto_asset.asset_type IN ('CERTIFICATE', 'PROTOCOL')
                     AND crypto_asset.pqc_reference_basis IS DISTINCT FROM (
                         SELECT string_agg(COALESCE(CAST(r.target_asset_uuid AS TEXT), '') || ':'
@@ -331,8 +341,7 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
      * {@code spring.jpa.open-in-view} produces on the REST {@code sync} path, since {@code JpaTransactionManager}
      * reuses the request-bound {@code EntityManager} and a commit does not evict. An asset two batches of one document
      * both touch would then be evaluated on the payload the first batch saw, and the mis-stamp is permanent: the stamp
-     * sets {@code pqc_evaluated_at} and {@code i_upd} to one {@code CURRENT_TIMESTAMP}, so
-     * {@link #findStaleVerdictRows}' {@code pqc_evaluated_at < i_upd} never re-offers the row.
+     * records the row's current {@code input_revision}, so {@link #findStaleVerdictRows} never re-offers the row.
      *
      * <p>
      * Ordered by {@code uuid}, which the caller depends on: the verdict writes take {@code crypto_asset} row locks, and
@@ -396,13 +405,14 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
                 pqc_referenced_asset_uuid = :referencedAssetUuid,
                 pqc_reference_basis = :referenceBasis,
                 pqc_evaluated_at = CURRENT_TIMESTAMP,
+                pqc_evaluated_revision = crypto_asset.input_revision,
                 pqc_decided_at = CASE
                     WHEN crypto_asset.pqc_verdict IS DISTINCT FROM CAST(:verdict AS TEXT) THEN CURRENT_TIMESTAMP
                     ELSE COALESCE(crypto_asset.pqc_decided_at, CURRENT_TIMESTAMP)
                 END,
                 i_upd = CURRENT_TIMESTAMP
             WHERE uuid = :uuid
-              AND (pqc_evaluated_at IS NULL OR pqc_evaluated_at < i_upd
+              AND (pqc_evaluated_revision IS DISTINCT FROM input_revision
                     OR (crypto_asset.asset_type IN ('CERTIFICATE', 'PROTOCOL')
                     AND crypto_asset.pqc_reference_basis IS DISTINCT FROM (
                         SELECT string_agg(COALESCE(CAST(r.target_asset_uuid AS TEXT), '') || ':'

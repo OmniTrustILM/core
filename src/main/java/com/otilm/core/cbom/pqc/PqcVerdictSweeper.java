@@ -26,7 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>
  * The rule set carries no version: a change to the rules re-offers every row by a migration that advances
- * {@code crypto_asset.i_upd}, which is what the work list compares a verdict against.
+ * {@code crypto_asset.input_revision}, which is what the work list compares a verdict against.
  *
  * <p>
  * This transaction exists to hold the advisory lock, not to write: every write goes through

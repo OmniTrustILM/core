@@ -1,5 +1,5 @@
 -- The PQC rule set carries no version: there is one, unreleased, and a verdict is re-evaluated when the row it
--- describes changes. A later rule change re-offers every row by advancing i_upd in its own migration.
+-- describes changes. A later rule change re-offers every row by advancing input_revision in its own migration.
 DROP INDEX IF EXISTS "idx_crypto_asset_pqc_ruleset_version";
 ALTER TABLE "crypto_asset" DROP COLUMN "pqc_ruleset_version";
 
@@ -39,9 +39,17 @@ CREATE TABLE "crypto_asset_reference" (
 -- index serves the SET NULL check and the sweep's test for a target that moved since its referrer was evaluated.
 CREATE INDEX "idx_crypto_asset_reference_target" ON "crypto_asset_reference" ("target_asset_uuid");
 
--- The two rules that returned notApplicable for every certificate and protocol are gone. Re-offering the rows they
--- decided moves them to an honest deferral within the hour, whether or not their document is ever re-ingested.
-UPDATE "crypto_asset" SET "i_upd" = CURRENT_TIMESTAMP WHERE "asset_type" IN ('CERTIFICATE', 'PROTOCOL');
+-- Freshness is a revision, not a time. Every write that changes what the rules read advances input_revision under the
+-- row lock, and a stamp records the revision it evaluated; comparing transaction timestamps let a writer that began
+-- before a sweep and committed after it leave a verdict on inputs the row no longer has.
+ALTER TABLE "crypto_asset" ADD COLUMN "input_revision" BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE "crypto_asset" ADD COLUMN "pqc_evaluated_revision" BIGINT;
+-- A verdict that was current under the old test carries over as current. Certificates and protocols do not: the two
+-- rules that returned notApplicable for every one of them are gone, so they are re-offered within the hour whether or
+-- not their document is ever re-ingested.
+UPDATE "crypto_asset" SET "pqc_evaluated_revision" = 0
+WHERE "pqc_evaluated_at" IS NOT NULL AND "pqc_evaluated_at" >= "i_upd"
+  AND "asset_type" NOT IN ('CERTIFICATE', 'PROTOCOL');
 
 -- Documents ingested before this migration recorded no references, so their certificates and protocols would read as
 -- naming nothing. Only a revision that still contributes one is re-offered: a superseded revision's links were

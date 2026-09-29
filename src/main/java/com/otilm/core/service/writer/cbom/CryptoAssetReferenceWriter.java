@@ -14,8 +14,8 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>
  * The asset row is touched first, for two reasons. It is the lock order {@link CryptoAssetSourceWriter} documents --
- * asset row, then what hangs off it -- and it advances {@code i_upd}, so a verdict taken before the references changed
- * is stale to the sweep even if the ingest's own restamp never lands.
+ * asset row, then what hangs off it -- and it advances {@code input_revision}, so a verdict taken before the references
+ * changed is stale to the sweep even if the ingest's own restamp never lands.
  */
 @Service
 public class CryptoAssetReferenceWriter {

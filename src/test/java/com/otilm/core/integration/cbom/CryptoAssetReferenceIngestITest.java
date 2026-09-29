@@ -17,9 +17,11 @@ import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetSourceRepository;
 import com.otilm.core.model.cbom.CryptoAssetReferenceKind;
 import com.otilm.core.model.cbom.PqcStaleVerdictRow;
+import com.otilm.core.service.writer.cbom.CryptoAssetSourceWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -84,6 +86,9 @@ class CryptoAssetReferenceIngestITest extends BaseSpringBootTest {
 
     @Autowired
     private PqcVerdictSweeper sweeper;
+
+    @Autowired
+    private CryptoAssetSourceWriter sourceWriter;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -214,12 +219,51 @@ class CryptoAssetReferenceIngestITest extends BaseSpringBootTest {
                 .containsExactly(CryptoAssetReferenceKind.SUBJECT_PUBLIC_KEY);
     }
 
-    /** What a rule-change migration leaves: a verdict from the old rules, older than a row it re-offers. */
+    /** What a rule-change migration leaves: a verdict from the old rules, on a row whose revision it advanced. */
     private void stampAsIfByAnOlderRuleSet(UUID uuid, String verdict, String ruleId, String referenceBasis) {
         jdbcTemplate
                 .update("UPDATE " + dbSchema + ".crypto_asset SET pqc_verdict = ?, pqc_rule_id = ?, "
-                        + "pqc_reference_basis = ?, pqc_evaluated_at = CURRENT_TIMESTAMP - INTERVAL '1 day', "
-                        + "i_upd = CURRENT_TIMESTAMP WHERE uuid = ?", verdict, ruleId, referenceBasis, uuid);
+                        + "pqc_reference_basis = ?, pqc_evaluated_revision = input_revision, "
+                        + "input_revision = input_revision + 1 WHERE uuid = ?", verdict, ruleId, referenceBasis, uuid);
+    }
+
+    /**
+     * A payload write whose transaction began before a sweep's and committed after it: its {@code i_upd} is earlier
+     * than the stamp's {@code pqc_evaluated_at}. Staged by pushing the stamp's time forward, which is the state such a
+     * pair leaves. The row must come back, because the verdict describes a revision it no longer has.
+     */
+    @Test
+    void anInputWriteStampedEarlierThanTheVerdictStillPutsTheRowBackOnTheWorkList() {
+        ingest(KEY);
+        UUID key = named("rsa-2048 public key");
+        jdbcTemplate
+                .update("UPDATE " + dbSchema + ".crypto_asset SET pqc_evaluated_at = CURRENT_TIMESTAMP + INTERVAL "
+                        + "'1 day' WHERE uuid = ?", key);
+        assertThat(workList()).isEmpty();
+
+        sourceWriter
+                .upsertSource(key, cbom.getUuid(),
+                        Map.of("relatedCryptoMaterialProperties", Map.of("type", "public-key", "size", 4096)),
+                        List.of(), NOW.plusDays(1));
+
+        assertThat(workList()).describedAs("the payload moved after the verdict was taken").contains(key);
+    }
+
+    /** The ingest takes row locks in the order the database sorts uuids, which is the sweep's order. */
+    @Test
+    void theIngestOrdersUuidsTheWayTheDatabaseDoes() {
+        List<UUID> uuids = new ArrayList<>();
+        for (int i = 0; i < 64; i++) {
+            uuids.add(UUID.randomUUID());
+        }
+        uuids.add(UUID.fromString("7fffffff-ffff-4fff-bfff-ffffffffffff"));
+        uuids.add(UUID.fromString("80000000-0000-4000-8000-000000000000"));
+
+        List<UUID> byDatabase = jdbcTemplate
+                .queryForList("SELECT u FROM unnest(CAST(? AS uuid[])) AS u ORDER BY u", UUID.class,
+                        (Object) uuids.stream().map(UUID::toString).toArray(String[]::new));
+
+        assertThat(uuids.stream().sorted(CbomAssetIngestService.DATABASE_UUID_ORDER).toList()).isEqualTo(byDatabase);
     }
 
     /** A 1.7 entry wins over the 1.6 field, and two entries of one kind name nothing. */
