@@ -216,7 +216,10 @@ class PqcReferenceRulesTest {
     @Test
     void theReferenceBasisNamesEachTargetAndTheVerdictItHeld() {
         assertThat(references(key(PqcVerdict.READY), dangling(CryptoAssetReferenceKind.SIGNATURE_ALGORITHM, "gone"))
-                .basis()).isEqualTo(KEY + ":READY:TARGET-RULE,::");
+                .basis()).isEqualTo(KEY + ":READY:TARGET-RULE:,:::");
+        assertThat(references(keyExchange(PqcVerdict.READY)).basis())
+                .describedAs("the primitive is read by the key-exchange gate, so it is part of what a verdict rests on")
+                .isEqualTo(KEY + ":READY:TARGET-RULE:key-agree");
         assertThat(PqcReferences.of(List.of(), List.of()).basis()).isNull();
     }
 

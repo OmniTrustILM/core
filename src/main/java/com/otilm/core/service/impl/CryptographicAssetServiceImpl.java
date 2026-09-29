@@ -32,6 +32,7 @@ import com.otilm.core.attribute.engine.ListingSortResolver;
 import com.otilm.core.cbom.asset.CompositeCurve;
 import com.otilm.core.cbom.asset.ServedAssetType;
 import com.otilm.core.cbom.pqc.PqcExplanation;
+import com.otilm.core.cbom.pqc.PqcRules;
 import com.otilm.core.cbom.pqc.PqcVerdictExplainer;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.dao.entity.Cbom;
@@ -71,6 +72,7 @@ import jakarta.persistence.criteria.Subquery;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -215,9 +217,13 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
                 .findByUuid(uuid)
                 .orElseThrow(() -> new NotFoundException(CryptoAsset.class, uuid));
         List<CryptoAssetSource> sources = cryptoAssetSourceRepository.findWithCbomByAssetUuid(asset.getUuid());
-        CryptographicAssetDetailDto detail = toDetailDto(asset, sources, visibleCbomUuids(asset.getUuid()));
+        Set<UUID> visibleCbomUuids = visibleCbomUuids(asset.getUuid());
+        CryptographicAssetDetailDto detail = toDetailDto(asset, sources, visibleCbomUuids);
         if (detail.getVerdict() != null) {
             detail.getVerdict().setReferencedAsset(referencedAsset(asset.getPqcReferencedAssetUuid()));
+            if (!electingDocumentVisible(asset, sources, visibleCbomUuids)) {
+                detail.getVerdict().setEvaluatedFields(withoutDocumentFields(detail.getVerdict().getEvaluatedFields()));
+            }
         }
         return detail;
     }
@@ -261,18 +267,34 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
         PqcVerdictExplainer.Result result = verdictExplainer
                 .explain(asset.getUuid())
                 .orElseThrow(() -> new NotFoundException(CryptoAsset.class, uuid));
-        return toExplanationDto(asset, result);
+        List<CryptoAssetSource> sources = cryptoAssetSourceRepository.findWithCbomByAssetUuid(asset.getUuid());
+        return toExplanationDto(asset, result,
+                electingDocumentVisible(asset, sources, visibleCbomUuids(asset.getUuid())));
     }
 
-    private CryptographicAssetPqcExplanationDto toExplanationDto(CryptoAsset asset, PqcVerdictExplainer.Result result) {
+    /**
+     * Strips the values the electing document supplied verbatim, for a caller who may not read that document: the same
+     * rule that withholds the elected payload, applied to the evidence copied out of it.
+     */
+    private static Map<String, Object> withoutDocumentFields(Map<String, Object> fields) {
+        if (fields == null) {
+            return null;
+        }
+        Map<String, Object> kept = new LinkedHashMap<>(fields);
+        kept.keySet().removeAll(PqcRules.DOCUMENT_FIELDS);
+        return kept;
+    }
+
+    private CryptographicAssetPqcExplanationDto toExplanationDto(CryptoAsset asset, PqcVerdictExplainer.Result result,
+            boolean documentVisible) {
         PqcExplanation explanation = result.explanation();
         CryptographicAssetPqcExplanationDto dto = new CryptographicAssetPqcExplanationDto();
         dto.setUuid(asset.getUuid());
         dto.setVerdict(explanation.decision().verdict());
         dto.setRuleId(explanation.decision().ruleId());
         dto.setReason(explanation.decision().reason());
-        dto.setInputs(result.inputs());
-        dto.setSteps(explanation.steps().stream().map(this::toStepDto).toList());
+        dto.setInputs(documentVisible ? result.inputs() : withoutDocumentFields(result.inputs()));
+        dto.setSteps(explanation.steps().stream().map(step -> toStepDto(step, documentVisible)).toList());
         boolean evaluated = asset.getPqcEvaluatedAt() != null;
         if (evaluated) {
             dto.setStoredVerdict(asset.getPqcVerdict());
@@ -297,14 +319,16 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
                 && Objects.equals(asset.getPqcReferenceBasis(), referenceBasis);
     }
 
-    private PqcExplanationStepDto toStepDto(PqcExplanation.Step step) {
+    private PqcExplanationStepDto toStepDto(PqcExplanation.Step step, boolean documentVisible) {
         PqcExplanationStepDto dto = new PqcExplanationStepDto();
         dto.setRuleId(step.ruleId());
         dto.setTitle(step.title());
         dto.setOutcome(step.outcome());
         dto.setVerdict(step.verdict());
         dto.setMessage(step.message());
-        dto.setEvaluatedFields(step.evaluatedFields());
+        dto
+                .setEvaluatedFields(
+                        documentVisible ? step.evaluatedFields() : withoutDocumentFields(step.evaluatedFields()));
         dto.setReferencedAsset(referencedAsset(step.referencedAssetUuid()));
         return dto;
     }
@@ -712,19 +736,23 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
      */
     private static Map<String, Object> servedElectedPayload(CryptoAsset asset, List<CryptoAssetSource> sources,
             Set<UUID> visibleCbomUuids) {
+        return electingDocumentVisible(asset, sources, visibleCbomUuids) ? asset.getMergedCryptoProperties() : null;
+    }
+
+    /**
+     * Whether the caller may read the document whose payload the merge elected. A pointer naming a row absent from the
+     * loaded list (should not happen, but is not this method's invariant to enforce) is treated the same as an
+     * invisible one.
+     */
+    private static boolean electingDocumentVisible(CryptoAsset asset, List<CryptoAssetSource> sources,
+            Set<UUID> visibleCbomUuids) {
         UUID electingSourceUuid = asset.getPropertiesSourceUuid();
-        if (electingSourceUuid == null) {
-            return null;
-        }
-        // A pointer naming a row absent from the loaded list (should not happen, but is not this method's invariant
-        // to enforce) is treated the same as an invisible one: no visible row, no payload.
-        boolean electingDocumentVisible = sources
+        return electingSourceUuid != null && sources
                 .stream()
                 .filter(source -> electingSourceUuid.equals(source.getUuid()))
                 .findFirst()
                 .map(source -> visibleCbomUuids.contains(source.getCbomUuid()))
                 .orElse(false);
-        return electingDocumentVisible ? asset.getMergedCryptoProperties() : null;
     }
 
     /**

@@ -21,13 +21,17 @@ import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetSourceRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.cbom.CryptoAssetIdentityGuard;
+import com.otilm.core.model.cbom.CryptoAssetReferenceKind;
+import com.otilm.core.model.cbom.ResolvedAssetReference;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.opa.dto.OpaObjectAccessResult;
 import com.otilm.core.service.CryptographicAssetExternalService;
+import com.otilm.core.service.writer.cbom.CryptoAssetReferenceWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetSourceWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -60,6 +64,9 @@ class CryptographicAssetDetailITest extends BaseSpringBootTest {
 
     @Autowired
     private CryptoAssetSourceWriter sourceWriter;
+
+    @Autowired
+    private CryptoAssetReferenceWriter referenceWriter;
 
     @Autowired
     private CbomRepository cbomRepository;
@@ -414,6 +421,45 @@ class CryptographicAssetDetailITest extends BaseSpringBootTest {
         assertThat(certified.isMatchesStored())
                 .describedAs("read from reference verdicts that are no longer there")
                 .isFalse();
+    }
+
+    /**
+     * bom-refs and suite labels are copied verbatim out of the electing document, so a caller who may not read that
+     * document is served neither, in the stored verdict or the explanation, as it is not served the elected payload.
+     */
+    @Test
+    void theElectingDocumentsOwnValuesAreWithheldFromACallerWhoCannotReadIt() throws NotFoundException {
+        OffsetDateTime seen = NOW.truncatedTo(ChronoUnit.MICROS);
+        UUID certificate = upsert(new CryptoAssetIdentityFields(CryptographicAssetType.CERTIFICATE, "hidden.example",
+                null, null, null, null, null, null, null, null), null);
+        Cbom electing = newCbom("urn:uuid:electing");
+        sourceWriter.upsertSource(certificate, electing.getUuid(), Map.of("name", "hidden.example"), List.of(), seen);
+        referenceWriter
+                .replaceReferences(certificate, electing.getUuid(), seen,
+                        List
+                                .of(new ResolvedAssetReference(CryptoAssetReferenceKind.SUBJECT_PUBLIC_KEY, 0,
+                                        "key-ref-from-the-document", null, null)));
+        assetWriter
+                .applyPqcVerdict(certificate, PqcVerdict.UNKNOWN, "CERT-REFERENCE-UNRESOLVED", "reason",
+                        Map.of("assetType", "certificate", "subjectPublicKeyRef", "key-ref-from-the-document"));
+        SecuredUUID secured = SecuredUUID.fromUUID(certificate);
+        assertThat(cryptographicAssetService.getCryptographicAssetPqcExplanation(secured).getInputs())
+                .containsEntry("subjectPublicKeyRef", "key-ref-from-the-document");
+
+        forbidCbomObjects(List.of(electing.getUuid()));
+
+        assertThat(cryptographicAssetService.getCryptographicAsset(secured).getVerdict().getEvaluatedFields())
+                .containsEntry("assetType", "certificate")
+                .doesNotContainKey("subjectPublicKeyRef");
+        CryptographicAssetPqcExplanationDto explanation = cryptographicAssetService
+                .getCryptographicAssetPqcExplanation(secured);
+        assertThat(explanation.getInputs())
+                .containsEntry("assetType", "certificate")
+                .doesNotContainKey("subjectPublicKeyRef")
+                .doesNotContainKey("unresolvedRefs");
+        assertThat(explanation.getSteps())
+                .allSatisfy(step -> assertThat(step.getEvaluatedFields() == null ? Map.of() : step.getEvaluatedFields())
+                        .doesNotContainKeys("subjectPublicKeyRef", "unresolvedRefs"));
     }
 
     @Test

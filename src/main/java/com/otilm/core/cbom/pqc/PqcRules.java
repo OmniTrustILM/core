@@ -68,6 +68,14 @@ public final class PqcRules {
 
     public static final String REFERENCED_RULE_ID = "referencedRuleId";
 
+    /**
+     * The evidence values copied verbatim from the electing CBOM document -- its bom-refs and suite labels -- which a
+     * caller who may not read that document must not be served, as the elected payload itself is not.
+     */
+    public static final Set<String> DOCUMENT_FIELDS = Set
+            .of(SUBJECT_PUBLIC_KEY_REF, SIGNATURE_ALGORITHM_REF, CIPHER_SUITES, CIPHER_SUITE_ALGORITHM_REFS,
+                    UNRESOLVED_REFS, CIPHER_SUITE, CIPHER_SUITE_ALGORITHM_REF);
+
     /** What the rules read, in the order an explanation serves them as its inputs. */
     public static final List<String> INPUT_FIELDS = List
             .of(ASSET_TYPE, ALGORITHM_FAMILY, PARAMETER_SET, CURVE, "mode", "padding", VARIANT, NAME, HYBRID_COMPONENTS,

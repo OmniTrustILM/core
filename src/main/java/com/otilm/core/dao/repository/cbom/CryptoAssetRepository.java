@@ -311,7 +311,8 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
                     OR (crypto_asset.asset_type IN ('CERTIFICATE', 'PROTOCOL')
                     AND crypto_asset.pqc_reference_basis IS DISTINCT FROM (
                         SELECT string_agg(COALESCE(CAST(r.target_asset_uuid AS TEXT), '') || ':'
-                                || COALESCE(t.pqc_verdict, '') || ':' || COALESCE(t.pqc_rule_id, ''), ','
+                                || COALESCE(t.pqc_verdict, '') || ':' || COALESCE(t.pqc_rule_id, '') || ':'
+                                || COALESCE(t.primitive, ''), ','
                                 ORDER BY r.kind, r.ordinal)
                         FROM {h-schema}crypto_asset_reference r
                         LEFT JOIN {h-schema}crypto_asset t ON t.uuid = r.target_asset_uuid
@@ -416,7 +417,8 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
                     OR (crypto_asset.asset_type IN ('CERTIFICATE', 'PROTOCOL')
                     AND crypto_asset.pqc_reference_basis IS DISTINCT FROM (
                         SELECT string_agg(COALESCE(CAST(r.target_asset_uuid AS TEXT), '') || ':'
-                                || COALESCE(t.pqc_verdict, '') || ':' || COALESCE(t.pqc_rule_id, ''), ','
+                                || COALESCE(t.pqc_verdict, '') || ':' || COALESCE(t.pqc_rule_id, '') || ':'
+                                || COALESCE(t.primitive, ''), ','
                                 ORDER BY r.kind, r.ordinal)
                         FROM {h-schema}crypto_asset_reference r
                         LEFT JOIN {h-schema}crypto_asset t ON t.uuid = r.target_asset_uuid

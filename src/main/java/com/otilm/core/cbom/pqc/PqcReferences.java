@@ -13,8 +13,9 @@ import java.util.stream.Collectors;
  * chain of referrers can re-offer itself.
  *
  * @param cipherSuites every suite the protocol records, labelled as {@code AssetReferences#suiteLabel} labels them
- * @param basis every target and the verdict it held when read, in the order the sweep's staleness arm rebuilds it; null
- * when nothing is referenced. Stored with the verdict, so a target restamped since reads as a change
+ * @param basis every target, with the verdict and the primitive it held when read -- everything the rules read of it --
+ * in the order the sweep's staleness arm rebuilds it; null when nothing is referenced. Stored with the verdict, so a
+ * target restamped since reads as a change
  */
 public record PqcReferences(List<Reference> subjectKeys, List<Reference> signatureAlgorithms,
         List<Reference> suiteAlgorithms, List<String> cipherSuites, String basis) {
@@ -68,7 +69,7 @@ public record PqcReferences(List<Reference> subjectKeys, List<Reference> signatu
         return references
                 .stream()
                 .map(reference -> textOf(reference.target()) + ":" + textOf(reference.targetVerdict()) + ":"
-                        + textOf(reference.targetRuleId()))
+                        + textOf(reference.targetRuleId()) + ":" + textOf(reference.targetPrimitive()))
                 .collect(Collectors.joining(","));
     }
 

@@ -284,6 +284,24 @@ class CryptoAssetReferenceIngestITest extends BaseSpringBootTest {
         assertThat(only(CryptographicAssetType.CERTIFICATE).getPqcRuleId()).isEqualTo("CERT-SUBJECT-KEY");
     }
 
+    /**
+     * The key-exchange gate reads a target's primitive, which a later report can fill in without moving its verdict, so
+     * the primitive is part of what the protocol's verdict rests on.
+     */
+    @Test
+    void aTargetWhosePrimitiveChangesPutsTheProtocolBackOnTheWorkList() {
+        ingest(AES, PROTOCOL.replace(",\"not-in-this-document\"", ""));
+        UUID protocol = only(CryptographicAssetType.PROTOCOL).getUuid();
+        assertThat(only(CryptographicAssetType.PROTOCOL).getPqcRuleId()).isEqualTo("PROTOCOL-NO-KEY-EXCHANGE");
+        assertThat(workList()).isEmpty();
+
+        jdbcTemplate
+                .update("UPDATE " + dbSchema + ".crypto_asset SET primitive = 'kem' WHERE uuid = ?",
+                        named("aes-128-gcm"));
+
+        assertThat(workList()).contains(protocol);
+    }
+
     /** A 1.7 entry wins over the 1.6 field, and two entries of one kind name nothing. */
     @Test
     void twoRelatedKeysOfOneCertificateResolveToNothing() {
