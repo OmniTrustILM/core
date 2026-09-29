@@ -19,6 +19,7 @@ import com.otilm.core.model.crypto.CryptographicKeyFullModel;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.crypto.KeyImportAttempt;
 import com.otilm.core.model.crypto.KeyImportTerms;
+import com.otilm.core.model.crypto.OperationAttributeSchema;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
@@ -99,6 +100,11 @@ public interface KeyProviderAdapter {
     List<BaseAttribute> listDecryptAttributes(OperationKeyContext context) throws ConnectorException;
 
     List<BaseAttribute> listSignAttributes(OperationKeyContext context) throws ConnectorException;
+
+    /** Returns the signing schema, with the owner set. */
+    default OperationAttributeSchema signAttributeSchema(OperationKeyContext context) throws ConnectorException {
+        return new OperationAttributeSchema(context.keyItem().operationAttributeOwner(), listSignAttributes(context));
+    }
 
     List<BaseAttribute> listVerifyAttributes(OperationKeyContext context) throws ConnectorException;
 

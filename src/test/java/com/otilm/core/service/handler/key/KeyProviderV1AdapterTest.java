@@ -48,6 +48,7 @@ import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
 import com.otilm.core.model.crypto.ImmutableTokenInstanceFullModel;
 import com.otilm.core.model.crypto.ImmutableTokenProfileFullModel;
+import com.otilm.core.model.crypto.OperationAttributeSchema;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TransferableKeyType;
@@ -714,6 +715,22 @@ class KeyProviderV1AdapterTest {
         assertEquals(RsaSignatureAttributes.getRsaSignatureAttributes().toString(), rsaSchema.toString());
         assertTrue(mldsaSchema.isEmpty());
         verifyNoInteractions(operationsClient);
+    }
+
+    @Test
+    void signAttributeSchema_servesCoresRegistry_underNoConnector() throws Exception {
+        // given
+        OperationKeyContext rsa = OperationKeyContext
+                .legacy(keyItem(KeyAlgorithm.RSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
+                        UUID.randomUUID()));
+
+        // when
+        OperationAttributeSchema schema = adapter.signAttributeSchema(rsa);
+
+        // then
+        assertNull(schema.ownerConnectorUuid());
+        assertEquals(RsaSignatureAttributes.getRsaSignatureAttributes().toString(), schema.definitions().toString());
+        assertTrue(schema.connectorDefinitions().isEmpty());
     }
 
     @Test

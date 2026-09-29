@@ -3056,6 +3056,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         attributeEngine
                 .validateUpdateDataAttributes(schema.ownerConnectorUuid(), AttributeOperation.SIGN,
                         schema.definitions(), signatureAttributes);
+        schema.requireOfferedSignatureAlgorithm(signatureAttributes);
     }
 
     /**
