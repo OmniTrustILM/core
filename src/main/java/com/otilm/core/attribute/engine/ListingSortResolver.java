@@ -52,7 +52,7 @@ public class ListingSortResolver {
         if (source == null || source.getAttributeType() == null) {
             return new SortSpecification(source, sort.getFieldIdentifier(), sort.getDirection(), resource, null);
         }
-        requireSortableAttributeField(resource, source, sort.getFieldIdentifier());
+        requireSortableAttributeField(resource, source, sort.getFieldIdentifier(), contentFilterSource);
         return new SortSpecification(source, sort.getFieldIdentifier(), sort.getDirection(), resource,
                 contentFilterSource);
     }
@@ -60,12 +60,14 @@ public class ListingSortResolver {
     /**
      * Refuses an attribute field the resource's catalogue does not publish as sortable, with the message the property
      * path uses for the same refusal. Read from the catalogue rather than from a copy of its rules, so the flag the
-     * client was given and the answer it gets back cannot disagree.
+     * client was given and the answer it gets back cannot disagree - including for a custom attribute the caller may
+     * not read, which the catalogue omits and which is refused here as a field that does not exist.
      */
     private void requireSortableAttributeField(final Resource resource, final FilterFieldSource source,
-            final String fieldIdentifier) {
+            final String fieldIdentifier, final Supplier<CustomAttributeContentFilter> contentFilterSource) {
         final SearchFieldDataDto field = attributeEngine
-                .getResourceSearchableFields(resource, false, List.of(NamedField.of(source, fieldIdentifier)))
+                .getResourceSearchableFields(resource, false, List.of(NamedField.of(source, fieldIdentifier)),
+                        contentFilterSource)
                 .stream()
                 .filter(group -> group.getFilterFieldSource() == source)
                 .flatMap(group -> group.getSearchFieldData().stream())

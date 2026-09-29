@@ -7,6 +7,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -67,6 +68,9 @@ class SearchFieldObjectTest {
         }
         if (type == List.class) {
             return List.of(field.getName() + "-item");
+        }
+        if (type == UUID.class) {
+            return UUID.randomUUID();
         }
         throw new AssertionError(
                 "SearchFieldObject.%s has a type this test cannot fill: %s".formatted(field.getName(), type.getName()));

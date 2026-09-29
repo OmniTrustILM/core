@@ -167,18 +167,47 @@ public class AttributeEngine {
 
     // region Search (Filtering) related methods
 
+    /**
+     * The attribute fields of the resource's catalogue that the current caller may read. A custom attribute whose
+     * content the caller's permissions withhold is left out, definition and all: its column would be empty and every
+     * value condition on it would match nothing, and offering it discloses a definition the caller may not see.
+     */
     public List<SearchFieldDataByGroupDto> getResourceSearchableFields(Resource resource, boolean settable) {
-        return searchableFieldGroups(resource, settable, attributeSearchFieldCatalogue.fields(resource, settable));
+        return searchableFieldGroups(resource, settable,
+                readable(attributeSearchFieldCatalogue.fields(resource, settable), customAttributeContentFilterOnce()));
     }
 
     /**
      * As {@link #getResourceSearchableFields(Resource, boolean)}, but certain to include each attribute field in
-     * {@code named} that exists: a request that names a field is answered from a catalogue rebuilt if it lacked one.
+     * {@code named} that exists and the caller may read: a request that names a field is answered from a catalogue
+     * rebuilt if it lacked one.
      */
     public List<SearchFieldDataByGroupDto> getResourceSearchableFields(Resource resource, boolean settable,
             Collection<NamedField> named) {
+        return getResourceSearchableFields(resource, settable, named, customAttributeContentFilterOnce());
+    }
+
+    /**
+     * As {@link #getResourceSearchableFields(Resource, boolean, Collection)}, narrowed by permissions the caller has
+     * already resolved, so a listing that also filters and projects by them resolves them once.
+     */
+    public List<SearchFieldDataByGroupDto> getResourceSearchableFields(Resource resource, boolean settable,
+            Collection<NamedField> named, Supplier<CustomAttributeContentFilter> contentFilterSource) {
         return searchableFieldGroups(resource, settable,
-                attributeSearchFieldCatalogue.fieldsNaming(resource, settable, named));
+                readable(attributeSearchFieldCatalogue.fieldsNaming(resource, settable, named), contentFilterSource));
+    }
+
+    /**
+     * The rows the caller's permissions let them read. The cached rows are shared by every caller, so they are narrowed
+     * here on each read rather than when loaded; the permissions are resolved only when a custom row is present.
+     */
+    private static List<SearchFieldObject> readable(List<SearchFieldObject> rows,
+            Supplier<CustomAttributeContentFilter> contentFilterSource) {
+        return rows
+                .stream()
+                .filter(row -> row.getAttributeType() != AttributeType.CUSTOM
+                        || contentFilterSource.get().permits(row.getDefinitionUuid()))
+                .toList();
     }
 
     private static List<SearchFieldDataByGroupDto> searchableFieldGroups(Resource resource, boolean settable,
@@ -1430,6 +1459,12 @@ public class AttributeEngine {
      * @param forbiddenDefinitionUuids definitions explicitly withheld, or {@code null} when none are
      */
     public record CustomAttributeContentFilter(List<UUID> allowedDefinitionUuids, List<UUID> forbiddenDefinitionUuids) {
+
+        /** Whether the caller may read content of this definition, as the content queries decide it. */
+        public boolean permits(UUID definitionUuid) {
+            return (allowedDefinitionUuids == null || allowedDefinitionUuids.contains(definitionUuid))
+                    && (forbiddenDefinitionUuids == null || !forbiddenDefinitionUuids.contains(definitionUuid));
+        }
     }
 
     /**

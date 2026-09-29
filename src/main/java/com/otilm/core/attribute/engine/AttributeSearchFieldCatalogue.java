@@ -32,7 +32,8 @@ import org.springframework.stereotype.Component;
  * a field that just appeared is never refused.
  *
  * <p>
- * Callers get copies, because {@code SearchHelper} merges rows that share an identifier in place.
+ * Callers get copies, because {@code SearchHelper} merges rows that share an identifier in place. The rows are the same
+ * for every caller: {@code AttributeEngine} narrows them to the custom attributes the current caller may read.
  */
 @Component
 @RequiredArgsConstructor

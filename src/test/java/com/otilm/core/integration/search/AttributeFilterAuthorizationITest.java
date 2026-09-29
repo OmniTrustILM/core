@@ -34,6 +34,7 @@ import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.SecurityFilter;
+import com.otilm.core.security.authz.opa.dto.OpaObjectAccessResult;
 import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
 import com.otilm.core.service.DiscoveryExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -52,6 +53,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Filtering an attribute reads its content, so it is gated like the projection that renders one and the ordering that
@@ -231,6 +233,59 @@ class AttributeFilterAuthorizationITest extends BaseSpringBootTest {
                         AttributeContentType.TEXT, FilterConditionOperator.EQUALS, "alpha")));
     }
 
+    @Test
+    void theCatalogueOmitsACustomAttributeTheCallerMayNotRead() throws Exception {
+        registerCustomAttribute("region", AttributeContentType.TEXT, true);
+        forbidObjectAccess(Resource.ATTRIBUTE, ResourceAction.MEMBERS, List.of(definitionUuid));
+
+        Assertions.assertEquals(List.of("region|TEXT"), fieldIdentifiers(FilterFieldSource.CUSTOM, false));
+        Assertions.assertEquals(List.of("region|TEXT"), fieldIdentifiers(FilterFieldSource.CUSTOM, true));
+    }
+
+    @Test
+    void aCallerRestrictedToOtherAttributesIsOfferedNoCustomField() {
+        restrictObjectAccess(Resource.ATTRIBUTE, ResourceAction.MEMBERS);
+
+        Assertions.assertEquals(List.of(), fieldIdentifiers(FilterFieldSource.CUSTOM, false));
+        Assertions.assertEquals(List.of(), fieldIdentifiers(FilterFieldSource.CUSTOM, true));
+    }
+
+    @Test
+    void theCatalogueIsNarrowedForEachCallerRatherThanCachedNarrowed() {
+        // The rows are cached per resource and shared by every caller, so a restricted read must not narrow the entry.
+        restrictObjectAccess(Resource.ATTRIBUTE, ResourceAction.MEMBERS);
+        Assertions.assertEquals(List.of(), fieldIdentifiers(FilterFieldSource.CUSTOM, false));
+
+        mockSuccessfulCheckObjectAccess();
+
+        Assertions.assertEquals(List.of("environment|TEXT"), fieldIdentifiers(FilterFieldSource.CUSTOM, false));
+    }
+
+    @Test
+    void aRestrictedCallerIsStillOfferedMetadataFields() throws Exception {
+        // Only custom definitions carry a permission model, which is what the listing withholds content by as well.
+        seedHiddenMetadata("second-created", "alpha");
+        restrictObjectAccess(Resource.ATTRIBUTE, ResourceAction.MEMBERS);
+
+        Assertions.assertEquals(List.of(HIDDEN_METADATA + "|TEXT"), fieldIdentifiers(FilterFieldSource.META, false));
+    }
+
+    @Test
+    void anAttributeTheCallerMayNotReadCannotOrderTheListing() {
+        forbidObjectAccess(Resource.ATTRIBUTE, ResourceAction.MEMBERS, List.of(definitionUuid));
+
+        SearchRequestDto request = new SearchRequestDto();
+        request.setPageNumber(1);
+        request.setItemsPerPage(10);
+        request
+                .setSort(new SearchSortRequestDto(FilterFieldSource.CUSTOM,
+                        ENVIRONMENT + "|" + AttributeContentType.TEXT.name(), SortDirection.ASC));
+
+        // Refused as a field that does not exist would be, so the answer does not confirm the definition either.
+        ValidationException refusal = Assertions.assertThrows(ValidationException.class, () -> listNames(request));
+        Assertions.assertTrue(refusal.getMessage().contains("Unknown sort field identifier"), refusal.getMessage());
+    }
+
     /**
      * Resolving the caller's attribute permissions is a synchronous authorization call, and one listing reaches
      * attribute content four times over: the page predicate, the count predicate, the sort key and the projection.
@@ -249,6 +304,34 @@ class AttributeFilterAuthorizationITest extends BaseSpringBootTest {
         return request != null && request.getProperties() != null
                 && Resource.ATTRIBUTE.getCode().equals(request.getProperties().get("name"))
                 && ResourceAction.MEMBERS.getCode().equals(request.getProperties().get("action"));
+    }
+
+    /**
+     * Grants the action on the resource but withholds it on the given objects, which is what a role's object-level row
+     * with no action granted resolves to.
+     */
+    private void forbidObjectAccess(Resource resource, ResourceAction action, List<UUID> forbidden) {
+        OpaObjectAccessResult result = new OpaObjectAccessResult();
+        result.setActionAllowedForGroupOfObjects(true);
+        result.setAllowedObjects(List.of());
+        result.setForbiddenObjects(forbidden.stream().map(UUID::toString).toList());
+        when(opaClient
+                .checkObjectAccess(any(),
+                        argThat(request -> request != null && request.getProperties() != null
+                                && resource.getCode().equals(request.getProperties().get("name"))
+                                && action.getCode().equals(request.getProperties().get("action"))),
+                        any(), any()))
+                .thenReturn(result);
+    }
+
+    private List<String> fieldIdentifiers(FilterFieldSource source, boolean settable) {
+        return attributeEngine
+                .getResourceSearchableFields(Resource.DISCOVERY, settable)
+                .stream()
+                .filter(group -> group.getFilterFieldSource() == source)
+                .flatMap(group -> group.getSearchFieldData().stream())
+                .map(SearchFieldDataDto::getFieldIdentifier)
+                .toList();
     }
 
     /** Moves one stored value to the encrypted column, which is where content of an encrypted attribute lives. */

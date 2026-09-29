@@ -13,6 +13,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.UUID;
 import lombok.Data;
 
 @Data
@@ -37,6 +38,9 @@ public class SearchFieldObject {
 
     private List<String> contentItems;
 
+    /** The definition row the field was read from, which is what a caller's attribute permissions name. */
+    private UUID definitionUuid;
+
     public SearchFieldObject(AttributeContentType attributeContentType) {
         this.attributeContentType = attributeContentType;
     }
@@ -48,8 +52,9 @@ public class SearchFieldObject {
         this.attributeType = attributeType;
     }
 
-    public SearchFieldObject(String attributeName, AttributeContentType attributeContentType,
+    public SearchFieldObject(UUID definitionUuid, String attributeName, AttributeContentType attributeContentType,
             AttributeType attributeType, String label, boolean visible, BaseAttribute attributeDefinition) {
+        this.definitionUuid = definitionUuid;
         this.attributeName = attributeName;
         this.attributeContentType = attributeContentType;
         this.attributeType = attributeType;
@@ -98,6 +103,7 @@ public class SearchFieldObject {
         copy.setProtectionLevel(protectionLevel);
         copy.setVisible(visible);
         copy.setContentItems(contentItems);
+        copy.setDefinitionUuid(definitionUuid);
         return copy;
     }
 
