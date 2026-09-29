@@ -271,8 +271,8 @@ public record AssetNormalizer(IdentityTables tables) {
      * {@code parameterSetIdentifier}.
      *
      * <p>
-     * Not written to the material row's own size slot: the PQC rules read that slot as the size its algorithm spells,
-     * which a declared key size must not outvote, and read the declared size from the stored properties instead.
+     * Written to the size slot of a material row and of the certificate it backs. The PQC rules read the declared size
+     * from the stored properties, not from that slot.
      */
     Integer declaredMaterialSize(JsonNode materialProperties, List<String> notes) {
         return materialProperties == null

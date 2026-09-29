@@ -8,6 +8,8 @@ import com.otilm.core.cbom.pqc.PqcDecision;
 import com.otilm.core.cbom.pqc.PqcEvaluator;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -131,16 +133,20 @@ class ReferencedSlotProjectionTest {
                 .isNull();
     }
 
-    /**
-     * The PQC rules read a key's size slot as the size its algorithm spells and its declared size from the stored
-     * properties, so the declared size must not reach the slot.
-     */
     @Test
-    void aKeysDeclaredSizeStaysOffItsOwnSizeSlot() throws Exception {
+    void aKeyTakesItsOwnDeclaredSizeBeforeItsAlgorithms() throws Exception {
         NormalizedAsset key = keyed("crypto/key/api", PUBLIC_KEY);
 
-        assertThat(key.parameterSet()).isNull();
+        assertThat(key.parameterSet()).isEqualTo(256);
         assertThat(key.family()).describedAs("the algorithm is not in this document").isNull();
+    }
+
+    @Test
+    void aKeyDeclaringNoSizeTakesItsAlgorithms() throws Exception {
+        String unsized = PUBLIC_KEY.replace("\"size\": 256,", "");
+
+        assertThat(keyed("crypto/key/api", unsized, ALGORITHM).parameterSet()).isEqualTo(256);
+        assertThat(keyed("crypto/key/api", unsized).parameterSet()).isNull();
     }
 
     @Test
@@ -160,8 +166,8 @@ class ReferencedSlotProjectionTest {
                 .describedAs("the nearer source of a fact wins; the algorithm states 256")
                 .isEqualTo(4096);
         assertThat(keyed("crypto/key/api", keyDeclaring4096, ALGORITHM).parameterSet())
-                .describedAs("the key's own slot carries the algorithm's size")
-                .isEqualTo(256);
+                .describedAs("the key's own slot carries its own size, as its certificate's does")
+                .isEqualTo(4096);
     }
 
     @Test
@@ -175,13 +181,47 @@ class ReferencedSlotProjectionTest {
     }
 
     @Test
-    void aDanglingOrNonAlgorithmReferenceLeavesTheRowBlindRatherThanWrong() throws Exception {
+    void aDanglingReferenceLeavesTheRowBlindRatherThanWrong() throws Exception {
         String keyToNowhere = PUBLIC_KEY.replace("crypto/algorithm/ecdsa-p-256", "crypto/algorithm/absent");
 
         NormalizedAsset key = keyed("crypto/key/api", keyToNowhere, ALGORITHM);
 
         assertThat(key.family()).isNull();
-        assertThat(key.parameterSet()).isNull();
+        assertThat(key.curve()).isNull();
+    }
+
+    @Test
+    void aReferenceToAnotherKeyLeavesTheRowBlindEvenWhenThatKeyCarriesAlgorithmProperties() throws Exception {
+        String keyToKey = PUBLIC_KEY.replace("crypto/algorithm/ecdsa-p-256", "crypto/key/other");
+        String otherKey = """
+                {
+                  "bom-ref": "crypto/key/other",
+                  "type": "cryptographic-asset",
+                  "name": "ECDSA-P-256",
+                  "cryptoProperties": {
+                    "assetType": "related-crypto-material",
+                    "algorithmProperties": {"primitive": "signature", "curve": "P-256", "parameterSetIdentifier": "256"},
+                    "relatedCryptoMaterialProperties": {"type": "private-key", "size": 256}
+                  }
+                }
+                """;
+
+        NormalizedAsset key = keyed("crypto/key/api", keyToKey, otherKey, ALGORITHM);
+
+        assertThat(key.family()).isNull();
+        assertThat(key.curve()).isNull();
+        assertThat(key.primitive()).isNull();
+    }
+
+    @Test
+    void anAlgorithmTheNormalizerRefusesCostsTheKeyItsSlotsButNotItsRow() throws Exception {
+        String unstorable = ALGORITHM.replace("\"name\": \"ECDSA-P-256\"", "\"name\": \"" + "A".repeat(1025) + "\"");
+
+        CryptoAssetIdentity.Identity key = identify("crypto/key/api", PUBLIC_KEY, unstorable);
+
+        assertThat(key.key()).isEqualTo(key("crypto/key/api", PUBLIC_KEY));
+        assertThat(key.asset().family()).isNull();
+        assertThat(key.asset().curve()).isNull();
     }
 
     @Test
@@ -228,7 +268,12 @@ class ReferencedSlotProjectionTest {
                   "name": "tls",
                   "cryptoProperties": {
                     "assetType": "protocol",
-                    "protocolProperties": {"type": "tls", "version": "1.2"}
+                    "protocolProperties": {
+                      "type": "tls",
+                      "version": "1.2",
+                      "cipherSuites": [{"name": "TLS_ECDHE_ECDSA", "algorithms": ["crypto/algorithm/ecdsa-p-256"]}],
+                      "relatedCryptographicAssets": [{"type": "algorithm", "ref": "crypto/algorithm/ecdsa-p-256"}]
+                    }
                   }
                 }
                 """;
@@ -242,26 +287,63 @@ class ReferencedSlotProjectionTest {
         assertThat(keyed.variant()).isNull();
     }
 
-    /**
-     * {@code PqcEvaluator.fromStoredRow} prefers the stored family column over the name, and a key's name yields no
-     * family, so this projection deliberately moves a key's verdict from unclassifiable to its classification.
-     */
     @Test
-    void theProjectedFamilyChangesAKeysVerdictFromUnclassifiableToItsClassification() throws Exception {
+    void theProjectedFamilyIsAFilterSlotAndMovesNoVerdict() throws Exception {
         PqcEvaluator evaluator = new PqcEvaluator(normalizer);
+        NormalizedAsset key = keyed("crypto/key/api", PUBLIC_KEY, ALGORITHM);
 
-        PqcDecision withoutAlgorithm = evaluator
-                .evaluate(evaluator.fromStoredRow(fieldsOf(keyed("crypto/key/api", PUBLIC_KEY)), null), null);
-        PqcDecision withAlgorithm = evaluator
-                .evaluate(evaluator.fromStoredRow(fieldsOf(keyed("crypto/key/api", PUBLIC_KEY, ALGORITHM)), null),
-                        null);
+        PqcDecision decision = evaluator.evaluate(evaluator.fromStoredRow(fieldsOf(key), null), null);
 
-        assertThat(withoutAlgorithm.verdict()).isEqualTo(PqcVerdict.UNKNOWN);
-        assertThat(withoutAlgorithm.ruleId()).isEqualTo("FAMILY-UNRESOLVED");
-        assertThat(withAlgorithm.verdict())
-                .describedAs("an ECDSA public key is broken by Shor, and saying so is the point of the projection")
-                .isEqualTo(PqcVerdict.NOT_READY);
-        assertThat(withAlgorithm.ruleId()).isEqualTo("CLASSICAL-SHOR");
+        assertThat(key.family()).isEqualTo("ECDSA");
+        assertThat(decision.verdict()).isEqualTo(PqcVerdict.UNKNOWN);
+        assertThat(decision.ruleId()).isEqualTo("FAMILY-UNRESOLVED");
+        assertThat(decision.evaluatedFields()).doesNotContainKey("algorithmFamily");
+    }
+
+    /**
+     * Half an algorithm's identity must not decide a key: a hybrid's elected family, a construction without its hash.
+     */
+    @ParameterizedTest(name = "{0} {1} under {3}")
+    @CsvSource({
+            "session,     shared-secret, 256, X25519-Kyber768,   READY,     MATERIAL-SYMMETRIC-READY",
+            "session,     shared-secret, 256, X25519-ML-KEM-768, READY,     MATERIAL-SYMMETRIC-READY",
+            "k,           secret-key,    256, HMAC-SHA256,       READY,     MATERIAL-SYMMETRIC-READY",
+            "AES-64,      secret-key,    256, AES-256-GCM,       NOT_READY, SYMMETRIC-UNDERSIZED",
+            "HMAC-RIPEMD, secret-key,    256, AES-256-GCM,       UNKNOWN,   FAMILY-AMBIGUOUS-COMPONENT",
+            "HMAC-RIPEMD, secret-key,    256, HMAC-SHA256,       UNKNOWN,   FAMILY-AMBIGUOUS-COMPONENT",
+            "session,     secret-key,     64, AES-256-GCM,       NOT_READY, MATERIAL-SYMMETRIC-WEAK"})
+    void aKeyIsJudgedByItsOwnNameAndSizeWhateverAlgorithmItReferences(String keyName, String type, int size,
+            String algorithmName, PqcVerdict verdict, String ruleId) throws Exception {
+        String key = """
+                {
+                  "bom-ref": "crypto/key/k",
+                  "type": "cryptographic-asset",
+                  "name": "%s",
+                  "cryptoProperties": {
+                    "assetType": "related-crypto-material",
+                    "relatedCryptoMaterialProperties": {"type": "%s", "size": %d, "algorithmRef": "crypto/algorithm/a"}
+                  }
+                }
+                """.formatted(keyName, type, size);
+        String algorithm = """
+                {
+                  "bom-ref": "crypto/algorithm/a",
+                  "type": "cryptographic-asset",
+                  "name": "%s",
+                  "cryptoProperties": {"assetType": "algorithm", "algorithmProperties": {}}
+                }
+                """.formatted(algorithmName);
+        PqcEvaluator evaluator = new PqcEvaluator(normalizer);
+        JsonNode properties = MAPPER.readTree(key).get("cryptoProperties");
+
+        NormalizedAsset referencing = keyed("crypto/key/k", key, algorithm);
+        PqcDecision decision = evaluator.evaluate(evaluator.fromStoredRow(fieldsOf(referencing), properties), null);
+        PqcDecision unreferenced = evaluator
+                .evaluate(evaluator.fromStoredRow(fieldsOf(keyed("crypto/key/k", key)), properties), null);
+
+        assertThat(referencing.family()).describedAs("the reference resolved and filled the slot").isNotNull();
+        assertThat(decision.verdict()).isEqualTo(verdict).isEqualTo(unreferenced.verdict());
+        assertThat(decision.ruleId()).isEqualTo(ruleId).isEqualTo(unreferenced.ruleId());
     }
 
     /** A certificate's rule fires on the asset type before any family arm, so its verdict cannot move. */
@@ -291,13 +373,16 @@ class ReferencedSlotProjectionTest {
         String absurd = PUBLIC_KEY.replace("\"size\": 256", "\"size\": 99999999");
 
         NormalizedAsset certificate = keyed("crypto/certificate/api", CERTIFICATE, absurd);
+        NormalizedAsset key = keyed("crypto/key/api", absurd);
 
         assertThat(certificate.parameterSet()).isNull();
         assertThat(certificate.notes())
                 .anyMatch(note -> note.contains("99999999") && note.contains("outside whitelist"));
+        assertThat(key.parameterSet()).isNull();
+        assertThat(key.notes()).anyMatch(note -> note.contains("99999999") && note.contains("outside whitelist"));
     }
 
-    /** The algorithm's size reaches the key's slot, and the key's own undersized declaration still decides. */
+    /** The key's own undersized declaration decides, in its slot and in its verdict. */
     @Test
     void anUndersizedSecretKeyStaysWeakUnderAnAdequateAlgorithm() throws Exception {
         String secretKey = """
@@ -334,7 +419,7 @@ class ReferencedSlotProjectionTest {
                         null);
 
         assertThat(key.family()).isEqualTo("AES");
-        assertThat(key.parameterSet()).isEqualTo(256);
+        assertThat(key.parameterSet()).isEqualTo(64);
         assertThat(decision.verdict()).isEqualTo(PqcVerdict.NOT_READY);
         assertThat(decision.ruleId()).isEqualTo("MATERIAL-SYMMETRIC-WEAK");
     }

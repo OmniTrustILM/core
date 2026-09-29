@@ -76,7 +76,7 @@ class FilterSlotCoverageTest {
         assertThat(blind)
                 .containsExactlyInAnyOrderEntriesOf(Map
                         .of(UNROUTABLE, 4, CbomNames.ASSET_TYPE_CERTIFICATE, 24, CbomNames.ASSET_TYPE_PROTOCOL, 30,
-                                CbomNames.ASSET_TYPE_RELATED_CRYPTO_MATERIAL, 37));
+                                CbomNames.ASSET_TYPE_RELATED_CRYPTO_MATERIAL, 17));
     }
 
     @Test
@@ -102,7 +102,7 @@ class FilterSlotCoverageTest {
         assertThat(blind)
                 .containsExactlyInAnyOrderEntriesOf(Map
                         .of(UNROUTABLE, 3, CbomNames.ASSET_TYPE_CERTIFICATE, 27, CbomNames.ASSET_TYPE_PROTOCOL, 6,
-                                CbomNames.ASSET_TYPE_RELATED_CRYPTO_MATERIAL, 8));
+                                CbomNames.ASSET_TYPE_RELATED_CRYPTO_MATERIAL, 7));
     }
 
     private static void count(Map<String, Integer> blind, NormalizedAsset asset) {

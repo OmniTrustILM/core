@@ -259,6 +259,11 @@ public record CryptoAssetIdentity(AssetNormalizer normalizer) {
      * negotiates several algorithms rather than being one; version and cipher suite need columns of their own.
      *
      * <p>
+     * A material row takes its own declared {@code size} before its algorithm's, as its certificate does. Filter slots
+     * only: {@code PqcEvaluator#fromStoredRow} does not read them on a material row, so the projection moves no
+     * verdict.
+     *
+     * <p>
      * A reference this class already declines to resolve contributes no slot, so the row is blind rather than wrong.
      * The slots are written at ingest; a row already stored gains them only when the asset is next reported, through
      * the identity upsert's {@code COALESCE}.
@@ -270,27 +275,30 @@ public record CryptoAssetIdentity(AssetNormalizer normalizer) {
                     .resolve(subjectPublicKeyRef(objectOrNull(properties.get(CbomNames.CERTIFICATE_PROPERTIES))));
             // The key's declared size first: it is this certificate's key size, where the algorithm states the
             // family's at best. A producer may point the reference at the algorithm itself rather than at a key.
-            takeDeclaredKeySize(asset, key);
+            takeDeclaredSize(asset, materialPropertiesOf(key));
             fillEmptySlots(asset, normalizedTarget(key));
             fillEmptySlots(asset, normalizedTarget(scope.resolve(algorithmRef(key))));
         } else if (CbomNames.ASSET_TYPE_RELATED_CRYPTO_MATERIAL.equals(assetType)) {
             JsonNode material = objectOrNull(properties.get(CbomNames.RELATED_CRYPTO_MATERIAL_PROPERTIES));
+            takeDeclaredSize(asset, material);
             fillEmptySlots(asset, normalizedTarget(scope.resolve(materialAlgorithmRef(material))));
         }
     }
 
-    private void takeDeclaredKeySize(NormalizedAsset certificate, JsonNode key) {
-        JsonNode properties = key == null ? null : objectOrNull(key.get("cryptoProperties"));
+    /** The material properties block of a resolved component, or {@code null} when the target is not material. */
+    private JsonNode materialPropertiesOf(JsonNode component) {
+        JsonNode properties = component == null ? null : objectOrNull(component.get("cryptoProperties"));
         if (properties == null || !CbomNames.ASSET_TYPE_RELATED_CRYPTO_MATERIAL
                 .equals(normalizer.normalizeAssetType(text(properties, "assetType")))) {
-            return;
+            return null;
         }
+        return objectOrNull(properties.get(CbomNames.RELATED_CRYPTO_MATERIAL_PROPERTIES));
+    }
+
+    private void takeDeclaredSize(NormalizedAsset row, JsonNode materialProperties) {
         List<String> notes = new ArrayList<>();
-        certificate
-                .setParameterSet(normalizer
-                        .declaredMaterialSize(
-                                objectOrNull(properties.get(CbomNames.RELATED_CRYPTO_MATERIAL_PROPERTIES)), notes));
-        notes.forEach(certificate::note);
+        row.setParameterSet(normalizer.declaredMaterialSize(materialProperties, notes));
+        notes.forEach(row::note);
     }
 
     /**
@@ -298,12 +306,7 @@ public record CryptoAssetIdentity(AssetNormalizer normalizer) {
      * only: an algorithm names nothing further, and a second hop would have to define what a cycle means.
      */
     private JsonNode algorithmRef(JsonNode target) {
-        JsonNode properties = target == null ? null : objectOrNull(target.get("cryptoProperties"));
-        if (properties == null || !CbomNames.ASSET_TYPE_RELATED_CRYPTO_MATERIAL
-                .equals(normalizer.normalizeAssetType(text(properties, "assetType")))) {
-            return null;
-        }
-        return materialAlgorithmRef(objectOrNull(properties.get(CbomNames.RELATED_CRYPTO_MATERIAL_PROPERTIES)));
+        return materialAlgorithmRef(materialPropertiesOf(target));
     }
 
     /**
