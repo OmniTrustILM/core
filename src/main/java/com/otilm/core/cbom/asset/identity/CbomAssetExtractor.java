@@ -97,7 +97,13 @@ public final class CbomAssetExtractor {
      */
     public record ExtractedAsset(String identityKey, String chainStep, NormalizedAsset normalized, String componentName,
             JsonNode retainedProperties, List<Map<String, Object>> evidence, int reportedOccurrences,
-            CryptoAssetIdentityGuard guard, List<String> findings) {
+            CryptoAssetIdentityGuard guard, List<String> findings, List<String> bomRefs,
+            List<AssetReferences.Reference> references) {
+
+        public ExtractedAsset {
+            bomRefs = bomRefs == null ? List.of() : List.copyOf(bomRefs);
+            references = references == null ? List.of() : List.copyOf(references);
+        }
 
         /**
          * Folds the assets of one document that key as the same asset into one, in first-seen order.
@@ -134,10 +140,13 @@ public final class CbomAssetExtractor {
                 evidence.addAll(next.evidence);
             }
             ExtractedAsset richer = richness.applyAsInt(next) > richness.applyAsInt(first) ? next : first;
+            List<String> bomRefs = new ArrayList<>(first.bomRefs);
+            bomRefs.addAll(next.bomRefs);
+            // The richer component's, beside the richer payload they were read from.
             return new ExtractedAsset(first.identityKey, richer.chainStep, richer.normalized, first.componentName,
                     richer.retainedProperties, List.copyOf(evidence),
                     first.reportedOccurrences + next.reportedOccurrences,
-                    first.guard == null ? next.guard : first.guard, first.findings);
+                    first.guard == null ? next.guard : first.guard, first.findings, bomRefs, richer.references);
         }
 
         /**
@@ -237,7 +246,8 @@ public final class CbomAssetExtractor {
                 ExtractedAsset asset = new ExtractedAsset(extracted.key(), extracted.step(), extracted.asset(),
                         nameOf(component), extracted.redaction().storedPayload(),
                         OccurrenceEvidenceCapper.cap(occurrences == null ? null : retainedOccurrences(occurrences)),
-                        occurrences == null ? 0 : occurrences.size(), extracted.guard(), extracted.findings());
+                        occurrences == null ? 0 : occurrences.size(), extracted.guard(), extracted.findings(),
+                        bomRefOf(component), AssetReferences.of(component));
                 requireEncodable(asset);
                 assets.add(asset);
             } catch (RuntimeException e) {
@@ -412,6 +422,11 @@ public final class CbomAssetExtractor {
         boolean declaredType = type != null && type.isTextual() && "cryptographic-asset".equals(type.textValue());
         JsonNode properties = component.get("cryptoProperties");
         return declaredType || (properties != null && properties.isObject());
+    }
+
+    private static List<String> bomRefOf(JsonNode component) {
+        JsonNode ref = component.get("bom-ref");
+        return ref != null && ref.isTextual() && !ref.textValue().isEmpty() ? List.of(ref.textValue()) : List.of();
     }
 
     private static String nameOf(JsonNode component) {

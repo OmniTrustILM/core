@@ -19,6 +19,7 @@ import com.otilm.core.model.cbom.PqcStaleVerdictRow;
 import com.otilm.core.service.writer.cbom.CbomAssetSyncStateWriter;
 import com.otilm.core.service.writer.cbom.CbomIngestFindingWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetAliasWriter;
+import com.otilm.core.service.writer.cbom.CryptoAssetReferenceWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetSourceWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetWriter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -67,6 +68,7 @@ class CbomAssetIngestServiceTest {
 
     private final CryptoAssetWriter assetWriter = mock(CryptoAssetWriter.class);
     private final CryptoAssetSourceWriter sourceWriter = mock(CryptoAssetSourceWriter.class);
+    private final CryptoAssetReferenceWriter referenceWriter = mock(CryptoAssetReferenceWriter.class);
     private final CbomAssetSyncStateWriter stateWriter = mock(CbomAssetSyncStateWriter.class);
     private final CbomRepository cbomRepository = mock(CbomRepository.class);
     private final CryptoAssetRepository assetRepository = mock(CryptoAssetRepository.class);
@@ -369,9 +371,9 @@ class CbomAssetIngestServiceTest {
     @Test
     void ingestWritesNothingWhenTheKillSwitchIsOff() {
         CbomAssetIngestService.IngestOutcome outcome = new CbomAssetIngestService(realExtractor(), assetWriter,
-                sourceWriter, detachService, stateWriter, findingWriter, cbomRepository, assetRepository,
-                new PqcEvaluator(new AssetNormalizer(IdentityTables.load())), synchronizer, new TransactionHandler(),
-                new SimpleMeterRegistry())
+                sourceWriter, referenceWriter, detachService, stateWriter, findingWriter, cbomRepository,
+                assetRepository, new PqcEvaluator(new AssetNormalizer(IdentityTables.load())), synchronizer,
+                new TransactionHandler(), new SimpleMeterRegistry())
                 .ingest(CBOM, twoAlgorithms(), SEEN_AT, CbomIngestTestFixtures.policyWithIngestDisabled());
 
         assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.DISABLED);
@@ -658,8 +660,8 @@ class CbomAssetIngestServiceTest {
         // The header is there unless a test says otherwise: every batch re-reads it under the lock, because a deletion
         // can remove it in the gap between two batch commits.
         when(cbomRepository.existsById(CBOM)).thenReturn(true);
-        return new CbomAssetIngestService(extractor, assetWriter, sourceWriter, detachService, stateWriter,
-                findingWriter, cbomRepository, assetRepository,
+        return new CbomAssetIngestService(extractor, assetWriter, sourceWriter, referenceWriter, detachService,
+                stateWriter, findingWriter, cbomRepository, assetRepository,
                 new PqcEvaluator(new AssetNormalizer(IdentityTables.load())), synchronizer, new TransactionHandler(),
                 new SimpleMeterRegistry());
     }

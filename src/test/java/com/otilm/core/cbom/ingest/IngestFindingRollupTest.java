@@ -257,6 +257,6 @@ class IngestFindingRollupTest {
     /** Only the component name and the findings are read here, so the rest of the record is left out. */
     private static CbomAssetExtractor.ExtractedAsset asset(String componentName, String finding) {
         return new CbomAssetExtractor.ExtractedAsset(null, null, null, componentName, null, null, 0, null,
-                List.of(finding));
+                List.of(finding), List.of(), List.of());
     }
 }

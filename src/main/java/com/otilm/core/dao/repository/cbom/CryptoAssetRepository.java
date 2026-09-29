@@ -215,6 +215,14 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
     void recomputeMergeFromSources(@Param("uuid") UUID uuid);
 
     /**
+     * Advances {@code i_upd} alone, for a change to what hangs off the row -- its references -- that the row's own
+     * columns do not show. The row lock it takes is the one every inventory writer takes first.
+     */
+    @Modifying
+    @Query(value = "UPDATE {h-schema}crypto_asset SET i_upd = CURRENT_TIMESTAMP WHERE uuid = :uuid", nativeQuery = true)
+    void touch(@Param("uuid") UUID uuid);
+
+    /**
      * Stores a PQC verdict together with the rule that produced it and the fields that rule read. The identity columns
      * and {@code ruleset_version} are untouched: a verdict is not an identity.
      *
