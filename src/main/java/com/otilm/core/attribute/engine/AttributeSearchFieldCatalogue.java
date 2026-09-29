@@ -12,6 +12,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.Cache;
@@ -23,14 +24,14 @@ import org.springframework.stereotype.Component;
  *
  * <p>
  * The rows come from one query per resource that reads every attribute mapping of the resource, so it is run once per
- * TTL rather than for every {@code /search}, saved-view read and attribute sort. A custom definition or relation
- * written here evicts the entry after commit; another replica keeps its entry until the TTL. Data and metadata
- * definitions appear with content that connectors write all the time, so they do not evict: a request that names a
- * field the entry lacks rebuilds it once instead, so a field that just appeared is never refused.
+ * TTL rather than for every {@code /search}, saved-view read and attribute sort. An operator's write here - a custom
+ * definition or its resources, a global metadata edit, a connector deletion - evicts every entry after commit; another
+ * replica keeps its entries until the TTL. Data and metadata definitions that connectors write appear with content
+ * written all the time, so they do not evict: a request that names a field the entry lacks rebuilds it once instead, so
+ * a field that just appeared is never refused.
  *
  * <p>
- * Callers get copies. {@code SearchHelper} merges rows that share an identifier in place, and every {@code /search}
- * caller appends its property fields to the list it gets back.
+ * Callers get copies, because {@code SearchHelper} merges rows that share an identifier in place.
  */
 @Component
 @RequiredArgsConstructor
@@ -56,11 +57,18 @@ public class AttributeSearchFieldCatalogue {
         return copies(cache().get(key, () -> load(key)));
     }
 
-    /** As {@link #fields}, rebuilt once when any attribute field in {@code named} is missing from the cached rows. */
+    /**
+     * As {@link #fields}, rebuilt once when any attribute field in {@code named} is missing from the cached rows. Rows
+     * this call has just loaded are not rebuilt again, so a request naming a field that does not exist runs one query.
+     */
     public List<SearchFieldObject> fieldsNaming(Resource resource, boolean settable, Collection<NamedField> named) {
         Key key = new Key(resource, settable);
-        List<SearchFieldObject> rows = cache().get(key, () -> load(key));
-        if (!coversAll(rows, named)) {
+        AtomicBoolean loadedByThisCall = new AtomicBoolean();
+        List<SearchFieldObject> rows = cache().get(key, () -> {
+            loadedByThisCall.set(true);
+            return load(key);
+        });
+        if (!loadedByThisCall.get() && !coversAll(rows, named)) {
             rows = load(key);
             cache().put(key, rows);
         }

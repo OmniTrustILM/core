@@ -1,6 +1,7 @@
 package com.otilm.core.integration.attribute;
 
 import com.github.benmanes.caffeine.cache.Cache;
+import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
 import com.otilm.api.model.client.attribute.custom.CustomAttributeDefinitionDetailDto;
 import com.otilm.api.model.client.attribute.metadata.GlobalMetadataCreateRequestDto;
@@ -12,8 +13,11 @@ import com.otilm.api.model.client.certificate.SearchSortRequestDto;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeProperties;
+import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
+import com.otilm.api.model.common.attribute.v2.content.BaseAttributeContentV2;
 import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.ConnectorStatus;
@@ -111,7 +115,6 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
                 .anyMatch(row -> row.getAttributeName().equals("created-later"));
     }
 
-    /** A replica that did not make the change keeps its entry, until a request names the new field. */
     @Test
     void aFieldCreatedElsewhereIsReadOnceARequestNamesIt() throws Exception {
         catalogue.fields(Resource.CERTIFICATE, false);
@@ -138,6 +141,25 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
     }
 
     @Test
+    void aRequestNamingAMissingFieldRunsTheCatalogueQueryOnce() throws Exception {
+        List<NamedField> missing = List.of(NamedField.of(FilterFieldSource.CUSTOM, "missing|TEXT"));
+
+        assertThat(catalogueQueriesDuring(() -> catalogue.fieldsNaming(Resource.CERTIFICATE, false, missing)))
+                .hasSize(1);
+        assertThat(catalogueQueriesDuring(() -> catalogue.fieldsNaming(Resource.CERTIFICATE, false, missing)))
+                .hasSize(1);
+    }
+
+    @Test
+    void aNamedFieldAlreadyCachedRunsNoCatalogueQuery() throws Exception {
+        createCustomAttribute("cached-field");
+        catalogue.fields(Resource.CERTIFICATE, false);
+        List<NamedField> cached = List.of(NamedField.of(FilterFieldSource.CUSTOM, "cached-field|TEXT"));
+
+        assertThat(catalogueQueriesDuring(() -> catalogue.fieldsNaming(Resource.CERTIFICATE, false, cached))).isEmpty();
+    }
+
+    @Test
     void aCustomAttributeMovedOffTheResourceLeavesItsCatalogue() throws Exception {
         CustomAttributeDefinitionDetailDto created = createCustomAttribute("moved");
         catalogue.fields(Resource.CERTIFICATE, false);
@@ -159,7 +181,6 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
                 .noneMatch(row -> row.getAttributeName().equals("deleted"));
     }
 
-    /** The same write drops the cached entry once it commits, and leaves it when it rolls back. */
     @Test
     void onlyACommittedChangeDropsTheCachedEntry() throws Exception {
         catalogue.fields(Resource.CERTIFICATE, false);
@@ -178,7 +199,19 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
         assertThat(catalogueQueriesDuring(() -> catalogue.fields(Resource.CERTIFICATE, false))).isNotEmpty();
     }
 
-    /** An operator's rename of a global metadata attribute shows at once on the replica that made it. */
+    @Test
+    void aDeletedConnectorsDataFieldsLeaveTheCatalogue() throws Exception {
+        Connector connector = savedConnector();
+        writeDataAttributeToACertificate(connector, "connector-data");
+        assertThat(catalogue.fields(Resource.CERTIFICATE, false))
+                .anyMatch(row -> row.getAttributeName().equals("connector-data"));
+
+        attributeEngine.deleteConnectorAttributeDefinitionsContent(connector.getUuid());
+
+        assertThat(catalogue.fields(Resource.CERTIFICATE, false))
+                .noneMatch(row -> row.getAttributeName().equals("connector-data"));
+    }
+
     @Test
     void aGlobalMetadataRenamedHereShowsOnTheNextRead() throws Exception {
         GlobalMetadataDefinitionDetailDto owner = createGlobalMetadataOnACertificate("owner", "Owner");
@@ -193,32 +226,49 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
                 .isEqualTo("Owner team");
     }
 
-    /** Another replica registered the field after this one cached the catalogue: saving a view with it still works. */
     @Test
-    void aViewNamingAFieldCreatedElsewhereIsSaved() throws Exception {
+    void aViewWithAColumnOnAFieldCreatedElsewhereIsSaved() throws Exception {
         catalogue.fields(Resource.CERTIFICATE, false);
         onAnotherReplica(() -> createCustomAttribute("late-column"));
-        String identifier = "late-column|" + AttributeContentType.TEXT.name();
 
-        ListViewRequestDto request = certificateView("late view", identifier);
-        SearchFilterRequestDto filter = new SearchFilterRequestDto();
-        filter.setFieldSource(FilterFieldSource.CUSTOM);
-        filter.setFieldIdentifier(identifier);
-        filter.setCondition(FilterConditionOperator.EQUALS);
-        filter.setValue("production");
-        request.setFilters(List.of(filter));
+        ListViewRequestDto request = certificateView("late column", customColumn("late-column|TEXT"));
 
         assertThat(listViewService.createView(request).getColumns()).hasSize(1);
     }
 
-    /** A view saved through another replica keeps its column when this one reads it back. */
+    @Test
+    void aViewFilteringOnAFieldCreatedElsewhereIsSaved() throws Exception {
+        catalogue.fields(Resource.CERTIFICATE, false);
+        onAnotherReplica(() -> createCustomAttribute("late-filter"));
+
+        ListViewRequestDto request = certificateView("late filter", commonNameColumn());
+        SearchFilterRequestDto filter = new SearchFilterRequestDto();
+        filter.setFieldSource(FilterFieldSource.CUSTOM);
+        filter.setFieldIdentifier("late-filter|TEXT");
+        filter.setCondition(FilterConditionOperator.EQUALS);
+        filter.setValue("production");
+        request.setFilters(List.of(filter));
+
+        assertThat(listViewService.createView(request).getFilters()).hasSize(1);
+    }
+
+    @Test
+    void aViewSortedByAFieldCreatedElsewhereIsSaved() throws Exception {
+        catalogue.fields(Resource.CERTIFICATE, false);
+        onAnotherReplica(() -> createCustomAttribute("late-order"));
+
+        ListViewRequestDto request = certificateView("late order", commonNameColumn());
+        request.setSort(new SearchSortRequestDto(FilterFieldSource.CUSTOM, "late-order|TEXT", SortDirection.ASC));
+
+        assertThat(listViewService.createView(request).getSort()).isNotNull();
+    }
+
     @Test
     void aViewSavedElsewhereKeepsItsColumnHere() throws Exception {
         catalogue.fields(Resource.CERTIFICATE, false);
-        String identifier = "late-read|" + AttributeContentType.TEXT.name();
         onAnotherReplica(() -> {
             createCustomAttribute("late-read");
-            return listViewService.createView(certificateView("read view", identifier));
+            return listViewService.createView(certificateView("read view", customColumn("late-read|TEXT")));
         });
 
         assertThat(listViewService.listViews(Resource.CERTIFICATE))
@@ -226,7 +276,23 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
                 .satisfies(view -> assertThat(view.getColumns()).hasSize(1));
     }
 
-    /** The same holds for ordering a listing by the new field. */
+    @Test
+    void aViewSavedElsewhereKeepsItsSortHere() throws Exception {
+        catalogue.fields(Resource.CERTIFICATE, false);
+        onAnotherReplica(() -> {
+            createCustomAttribute("late-read-order");
+            ListViewRequestDto request = certificateView("read order", commonNameColumn());
+            request
+                    .setSort(new SearchSortRequestDto(FilterFieldSource.CUSTOM, "late-read-order|TEXT",
+                            SortDirection.ASC));
+            return listViewService.createView(request);
+        });
+
+        assertThat(listViewService.listViews(Resource.CERTIFICATE))
+                .singleElement()
+                .satisfies(view -> assertThat(view.getSort()).isNotNull());
+    }
+
     @Test
     void aSortOnAFieldCreatedElsewhereIsAccepted() throws Exception {
         catalogue.fields(Resource.DISCOVERY, false);
@@ -249,13 +315,7 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
         request.setContentType(AttributeContentType.STRING);
         request.setVisible(true);
         GlobalMetadataDefinitionDetailDto created = attributeService.createGlobalMetadata(request);
-
-        Connector connector = new Connector();
-        connector.setName("metadata-writer");
-        connector.setUrl("http://localhost:3665");
-        connector.setVersion(ConnectorVersion.V1);
-        connector.setStatus(ConnectorStatus.CONNECTED);
-        connector = connectorRepository.save(connector);
+        Connector connector = savedConnector();
 
         MetadataAttributeProperties properties = new MetadataAttributeProperties();
         properties.setLabel(label);
@@ -277,6 +337,41 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
         return created;
     }
 
+    private void writeDataAttributeToACertificate(Connector connector, String name) throws Exception {
+        DataAttributeProperties properties = new DataAttributeProperties();
+        properties.setLabel(name);
+        DataAttributeV2 attribute = new DataAttributeV2();
+        attribute.setUuid(UUID.randomUUID().toString());
+        attribute.setName(name);
+        attribute.setType(AttributeType.DATA);
+        attribute.setContentType(AttributeContentType.STRING);
+        attribute.setProperties(properties);
+        attributeEngine.updateDataAttributeDefinitions(connector.getUuid(), null, List.of(attribute));
+
+        // v2 content carries no type discriminator, so a request deserializes into the base content class
+        BaseAttributeContentV2<String> content = new BaseAttributeContentV2<>();
+        content.setReference("value");
+        content.setData("value");
+        RequestAttributeV2 written = new RequestAttributeV2();
+        written.setUuid(UUID.fromString(attribute.getUuid()));
+        written.setName(name);
+        written.setContent(List.of(content));
+        attributeEngine
+                .updateObjectDataAttributesContent(ObjectAttributeContentInfo
+                        .builder(Resource.CERTIFICATE, UUID.randomUUID())
+                        .connector(connector.getUuid())
+                        .build(), List.of(written));
+    }
+
+    private Connector savedConnector() {
+        Connector connector = new Connector();
+        connector.setName("attribute-writer");
+        connector.setUrl("http://localhost:3665");
+        connector.setVersion(ConnectorVersion.V1);
+        connector.setStatus(ConnectorStatus.CONNECTED);
+        return connectorRepository.save(connector);
+    }
+
     private static SearchFieldObject metadataRow(List<SearchFieldObject> rows, String name) {
         return rows
                 .stream()
@@ -285,12 +380,20 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
                 .orElseThrow(() -> new AssertionError("no metadata row " + name + " in " + rows));
     }
 
-    private static ListViewRequestDto certificateView(String name, String customFieldIdentifier) {
+    private static ListViewRequestDto certificateView(String name, ListViewColumnDto column) {
         ListViewRequestDto request = new ListViewRequestDto();
         request.setResource(Resource.CERTIFICATE);
         request.setName(name);
-        request.setColumns(List.of(new ListViewColumnDto(FilterFieldSource.CUSTOM, customFieldIdentifier, null)));
+        request.setColumns(List.of(column));
         return request;
+    }
+
+    private static ListViewColumnDto customColumn(String fieldIdentifier) {
+        return new ListViewColumnDto(FilterFieldSource.CUSTOM, fieldIdentifier, null);
+    }
+
+    private static ListViewColumnDto commonNameColumn() {
+        return new ListViewColumnDto(FilterFieldSource.PROPERTY, "COMMON_NAME", null);
     }
 
     private static List<String> catalogueQueriesDuring(Callable<?> read) throws Exception {

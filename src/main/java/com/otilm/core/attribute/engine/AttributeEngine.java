@@ -2380,6 +2380,7 @@ public class AttributeEngine {
         // is safe
         attributeDefinitionRepository.removeConnectorByTypeAndConnectorUuid(AttributeType.META, connectorUuid);
         attributeContent2ObjectRepository.removeConnectorByConnectorUuid(connectorUuid);
+        attributeSearchFieldCatalogue.evictAll();
     }
 
     public void deleteAttributeDefinition(AttributeType attributeType, UUID definitionUuid) throws NotFoundException {
