@@ -85,7 +85,6 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.time.DateTimeException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -126,6 +125,7 @@ public class AttributeEngine {
     private AttributeContentItemRepository attributeContentItemRepository;
     private AttributeContent2ObjectRepository attributeContent2ObjectRepository;
     private AttributeDefinitionWriter attributeDefinitionWriter;
+    private AttributeSearchFieldCatalogue attributeSearchFieldCatalogue;
 
     private AuthHelper authHelper;
 
@@ -160,65 +160,51 @@ public class AttributeEngine {
         this.attributeContent2ObjectRepository = attributeContent2ObjectRepository;
     }
 
+    @Autowired
+    public void setAttributeSearchFieldCatalogue(AttributeSearchFieldCatalogue attributeSearchFieldCatalogue) {
+        this.attributeSearchFieldCatalogue = attributeSearchFieldCatalogue;
+    }
+
     // region Search (Filtering) related methods
 
     public List<SearchFieldDataByGroupDto> getResourceSearchableFields(Resource resource, boolean settable) {
-        final List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = new ArrayList<>();
+        return searchableFieldGroups(resource, settable, attributeSearchFieldCatalogue.fields(resource, settable));
+    }
 
-        // The following logic is driven by minimizing database operations. So we retrieve everything at once and then
-        // do client-side filtering.
+    /**
+     * As {@link #getResourceSearchableFields(Resource, boolean)}, but certain to include each attribute field in
+     * {@code named} that exists: a request that names a field is answered from a catalogue rebuilt if it lacked one.
+     */
+    public List<SearchFieldDataByGroupDto> getResourceSearchableFields(Resource resource, boolean settable,
+            Collection<NamedField> named) {
+        return searchableFieldGroups(resource, settable,
+                attributeSearchFieldCatalogue.fieldsNaming(resource, settable, named));
+    }
+
+    private static List<SearchFieldDataByGroupDto> searchableFieldGroups(Resource resource, boolean settable,
+            List<SearchFieldObject> rows) {
+        final List<SearchFieldDataByGroupDto> groups = new ArrayList<>();
         if (settable) {
-            List<SearchFieldObject> settableAttributes = attributeDefinitionRepository
-                    .findDistinctAttributeSearchFieldsByResourceAndAttrTypeAndAttrContentType(resource,
-                            List.of(AttributeType.CUSTOM),
-                            Arrays
-                                    .stream(AttributeContentType.values())
-                                    .filter(AttributeContentType::isFilterByData)
-                                    .toList());
-            if (!settableAttributes.isEmpty()) {
-                searchFieldDataByGroupDtos
-                        .add(new SearchFieldDataByGroupDto(
-                                SearchHelper.prepareSearchForJSON(settableAttributes, resource),
+            if (!rows.isEmpty()) {
+                groups
+                        .add(new SearchFieldDataByGroupDto(SearchHelper.prepareSearchForJSON(rows, resource),
                                 FilterFieldSource.CUSTOM));
             }
-        } else {
-            List<SearchFieldObject> searchableAttributes = attributeDefinitionRepository
-                    .findDistinctAttributeSearchFieldsByResourceAndAttrType(resource,
-                            List.of(AttributeType.CUSTOM, AttributeType.DATA, AttributeType.META));
-            var customAttributes = searchableAttributes
+            return groups;
+        }
+        for (FilterFieldSource source : List
+                .of(FilterFieldSource.CUSTOM, FilterFieldSource.DATA, FilterFieldSource.META)) {
+            List<SearchFieldObject> ofSource = rows
                     .stream()
-                    .filter(attr -> attr.getAttributeType().equals(AttributeType.CUSTOM))
+                    .filter(row -> row.getAttributeType() == source.getAttributeType())
                     .toList();
-            if (!customAttributes.isEmpty()) {
-                searchFieldDataByGroupDtos
-                        .add(new SearchFieldDataByGroupDto(
-                                SearchHelper.prepareSearchForJSON(customAttributes, resource),
-                                FilterFieldSource.CUSTOM));
-            }
-
-            var dataAttributes = searchableAttributes
-                    .stream()
-                    .filter(attr -> attr.getAttributeType().equals(AttributeType.DATA))
-                    .toList();
-            if (!dataAttributes.isEmpty()) {
-                searchFieldDataByGroupDtos
-                        .add(new SearchFieldDataByGroupDto(SearchHelper.prepareSearchForJSON(dataAttributes, resource),
-                                FilterFieldSource.DATA));
-            }
-
-            var metadataAttributes = searchableAttributes
-                    .stream()
-                    .filter(attr -> attr.getAttributeType().equals(AttributeType.META))
-                    .toList();
-            if (!metadataAttributes.isEmpty()) {
-                searchFieldDataByGroupDtos
-                        .add(new SearchFieldDataByGroupDto(
-                                SearchHelper.prepareSearchForJSON(metadataAttributes, resource),
-                                FilterFieldSource.META));
+            if (!ofSource.isEmpty()) {
+                groups
+                        .add(new SearchFieldDataByGroupDto(SearchHelper.prepareSearchForJSON(ofSource, resource),
+                                source));
             }
         }
-
-        return searchFieldDataByGroupDtos;
+        return groups;
     }
 
     // endregion
@@ -531,6 +517,7 @@ public class AttributeEngine {
             attributeRelation.setResource(resource);
             attributeRelationRepository.save(attributeRelation);
         }
+        attributeSearchFieldCatalogue.evictAll();
     }
 
     /**
@@ -683,6 +670,7 @@ public class AttributeEngine {
             }
         }
 
+        attributeSearchFieldCatalogue.evictAll();
         return attributeDefinition;
     }
 
@@ -2411,6 +2399,7 @@ public class AttributeEngine {
         // is safe
         attributeDefinitionRepository.removeConnectorByTypeAndConnectorUuid(AttributeType.META, connectorUuid);
         attributeContent2ObjectRepository.removeConnectorByConnectorUuid(connectorUuid);
+        attributeSearchFieldCatalogue.evictAll();
     }
 
     public void deleteAttributeDefinition(AttributeType attributeType, UUID definitionUuid) throws NotFoundException {
@@ -2917,6 +2906,7 @@ public class AttributeEngine {
         attributeRelationRepository.deleteByAttributeDefinitionUuid(definitionUuid);
         attributeContentItemRepository.deleteByAttributeDefinitionUuid(definitionUuid);
         logger.debug("Deleted {} attribute content items for attribute with UUID {}", deletedCount, definitionUuid);
+        attributeSearchFieldCatalogue.evictAll();
     }
 
     private void deleteObjectAttributeDefinitionContent(UUID definitionUuid, Resource objectType, UUID objectUuid) {

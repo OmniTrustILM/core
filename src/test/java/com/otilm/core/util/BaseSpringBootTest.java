@@ -6,6 +6,7 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.auth.UserDto;
 import com.otilm.api.model.core.auth.UserProfileDto;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
+import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.messaging.jms.producers.AuditLogsProducer;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
@@ -18,6 +19,7 @@ import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
 import com.otilm.core.service.SettingInternalService;
 import java.sql.SQLException;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,6 +29,7 @@ import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.cache.CacheManager;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.TestExecutionListeners;
@@ -57,6 +60,9 @@ public class BaseSpringBootTest {
     @Autowired
     private SettingInternalService settingService;
 
+    @Autowired
+    private CacheManager cacheManager;
+
     @Value("${spring.jpa.properties.hibernate.default_schema:core}")
     protected String dbSchema;
 
@@ -67,6 +73,8 @@ public class BaseSpringBootTest {
         injectAuthentication();
 
         TestDatabaseCleaner.clear(dataSource, dbSchema);
+        // The catalogue cache outlives the rows it was read from, and every test starts from an empty database.
+        Objects.requireNonNull(cacheManager.getCache(CacheConfig.ATTRIBUTE_SEARCH_FIELDS_CACHE)).clear();
         // re-seed the settings cache from the now-empty DB so settings cannot leak into the next context
         settingService.refreshCache();
         MDC.clear();
