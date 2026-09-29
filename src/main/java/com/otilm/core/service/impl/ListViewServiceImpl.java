@@ -14,6 +14,7 @@ import com.otilm.api.model.core.listview.ListViewUpdateRequestDto;
 import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.NamedField;
 import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.dao.entity.ListView;
 import com.otilm.core.dao.repository.ListViewRepository;
@@ -24,6 +25,8 @@ import com.otilm.core.service.ListViewInternalService;
 import com.otilm.core.service.writer.ListViewWriter;
 import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.SearchHelper;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -80,8 +83,15 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
                 ? listViewRepository.findByUserUuidOrderByCreatedAscUuidAsc(userUuid)
                 : listViewRepository.findByUserUuidAndResourceOrderByCreatedAscUuidAsc(userUuid, resource);
 
+        // One catalogue per resource, certain to hold every field any of that resource's views names.
+        Map<Resource, List<NamedField>> named = views
+                .stream()
+                .collect(Collectors
+                        .groupingBy(ListView::getResource, () -> new EnumMap<>(Resource.class),
+                                Collectors.flatMapping(view -> namedFields(view).stream(), Collectors.toList())));
         Map<Resource, Catalogue> catalogues = new EnumMap<>(Resource.class);
-        return views.stream().map(view -> toDto(view, catalogues)).toList();
+        named.forEach((viewResource, fields) -> catalogues.put(viewResource, catalogueOf(viewResource, fields)));
+        return views.stream().map(view -> toDto(view, catalogues.get(view.getResource()))).toList();
     }
 
     @Override
@@ -90,7 +100,8 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
     public ListViewDto createView(ListViewRequestDto request) throws AlreadyExistException {
         UUID userUuid = loggedUserUuid();
         Resource resource = request.getResource();
-        validateRequest(resource, request, Set.of());
+        Catalogue catalogue = catalogueOf(resource, namedFields(request));
+        validateRequest(resource, request, Set.of(), catalogue);
 
         serializeWritesFor(userUuid, resource);
         if (listViewRepository.existsByUserUuidAndResourceAndName(userUuid, resource, request.getName())) {
@@ -102,7 +113,7 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         view.setResource(resource);
         applyRequest(view, request);
 
-        return toDto(save(view, request.getName()), new EnumMap<>(Resource.class));
+        return toDto(save(view, request.getName()), catalogue);
     }
 
     @Override
@@ -112,7 +123,8 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
             throws NotFoundException, AlreadyExistException {
         UUID userUuid = loggedUserUuid();
         ListView view = ownView(uuid, userUuid);
-        validateRequest(view.getResource(), request, columnsOf(view));
+        Catalogue catalogue = catalogueOf(view.getResource(), namedFields(request));
+        validateRequest(view.getResource(), request, columnsOf(view), catalogue);
 
         serializeWritesFor(userUuid, view.getResource());
         if (listViewRepository
@@ -123,7 +135,7 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
 
         applyRequest(view, request);
 
-        return toDto(save(view, request.getName()), new EnumMap<>(Resource.class));
+        return toDto(save(view, request.getName()), catalogue);
     }
 
     @Override
@@ -197,9 +209,7 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         return UUID.fromString(AuthHelper.getUserIdentification().getUuid());
     }
 
-    private ListViewDto toDto(ListView view, Map<Resource, Catalogue> catalogues) {
-        Catalogue catalogue = catalogues.computeIfAbsent(view.getResource(), this::catalogueOf);
-
+    private ListViewDto toDto(ListView view, Catalogue catalogue) {
         ListViewDto dto = new ListViewDto();
         dto.setUuid(view.getUuid().toString());
         dto.setName(view.getName());
@@ -241,9 +251,8 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
      * not sortable, so keeping one would answer an error on every application rather than show a blank column. Such an
      * ordering is dropped on read instead.
      */
-    private void validateRequest(Resource resource, ListViewUpdateRequestDto request,
-            Set<CatalogueField> carriedAlready) {
-        Catalogue catalogue = catalogueOf(resource);
+    private static void validateRequest(Resource resource, ListViewUpdateRequestDto request,
+            Set<CatalogueField> carriedAlready, Catalogue catalogue) {
         if (catalogue.isEmpty()) {
             throw new ValidationException(ValidationError
                     .create("Resource %s has no field catalogue and cannot carry views."
@@ -348,9 +357,10 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
      *
      * <p>
      * Read from the published catalogue rather than from a copy of its rules, so the flags the client picked a view out
-     * of and the answer it gets back when it saves one cannot disagree.
+     * of and the answer it gets back when it saves one cannot disagree. Each attribute field in {@code named} that
+     * exists is in it, even one registered on another replica since this one cached the catalogue.
      */
-    private Catalogue catalogueOf(Resource resource) {
+    private Catalogue catalogueOf(Resource resource, Collection<NamedField> named) {
         Map<CatalogueField, Capabilities> fields = new HashMap<>();
         FilterField
                 .getEnumsForResource(resource)
@@ -359,7 +369,7 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
                                 new Capabilities(SearchHelper.availableConditions(field),
                                         SearchHelper.isDisplayable(field), SearchHelper.isSortableField(field))));
         attributeEngine
-                .getResourceSearchableFields(resource, false)
+                .getResourceSearchableFields(resource, false, named)
                 .forEach(group -> group
                         .getSearchFieldData()
                         .forEach(field -> fields
@@ -368,6 +378,35 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
                                                 Boolean.TRUE.equals(field.getDisplayable()),
                                                 Boolean.TRUE.equals(field.getSortable())))));
         return new Catalogue(fields);
+    }
+
+    private static List<NamedField> namedFields(ListView view) {
+        List<NamedField> named = new ArrayList<>();
+        view
+                .getColumns()
+                .forEach(column -> named.add(NamedField.of(column.getFieldSource(), column.getFieldIdentifier())));
+        if (view.getSort() != null) {
+            named.add(NamedField.of(view.getSort().getFieldSource(), view.getSort().getFieldIdentifier()));
+        }
+        return named;
+    }
+
+    private static List<NamedField> namedFields(ListViewUpdateRequestDto request) {
+        List<NamedField> named = new ArrayList<>();
+        if (request.getColumns() != null) {
+            request
+                    .getColumns()
+                    .forEach(column -> named.add(NamedField.of(column.getFieldSource(), column.getFieldIdentifier())));
+        }
+        if (request.getFilters() != null) {
+            request
+                    .getFilters()
+                    .forEach(filter -> named.add(NamedField.of(filter.getFieldSource(), filter.getFieldIdentifier())));
+        }
+        if (request.getSort() != null) {
+            named.add(NamedField.of(request.getSort().getFieldSource(), request.getSort().getFieldIdentifier()));
+        }
+        return named;
     }
 
     /**

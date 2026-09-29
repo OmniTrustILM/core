@@ -3,14 +3,24 @@ package com.otilm.core.integration.attribute;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.otilm.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
 import com.otilm.api.model.client.attribute.custom.CustomAttributeDefinitionDetailDto;
+import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
+import com.otilm.api.model.client.certificate.SearchRequestDto;
+import com.otilm.api.model.client.certificate.SearchSortRequestDto;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.listview.ListViewColumnDto;
+import com.otilm.api.model.core.listview.ListViewRequestDto;
+import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.search.SortDirection;
 import com.otilm.core.attribute.engine.AttributeSearchFieldCatalogue;
 import com.otilm.core.attribute.engine.NamedField;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.model.SearchFieldObject;
+import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.AttributeExternalService;
+import com.otilm.core.service.DiscoveryExternalService;
+import com.otilm.core.service.ListViewExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.SqlCapture;
 import java.util.List;
@@ -38,6 +48,12 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
 
     @Autowired
     private TransactionTemplate transactionTemplate;
+
+    @Autowired
+    private ListViewExternalService listViewService;
+
+    @Autowired
+    private DiscoveryExternalService discoveryService;
 
     @Test
     void aSecondReadRunsNoCatalogueQuery() throws Exception {
@@ -143,6 +159,61 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
         assertThat(catalogueQueriesDuring(() -> catalogue.fields(Resource.CERTIFICATE, false))).isNotEmpty();
     }
 
+    /** Another replica registered the field after this one cached the catalogue: saving a view with it still works. */
+    @Test
+    void aViewNamingAFieldCreatedElsewhereIsSaved() throws Exception {
+        catalogue.fields(Resource.CERTIFICATE, false);
+        onAnotherReplica(() -> createCustomAttribute("late-column"));
+        String identifier = "late-column|" + AttributeContentType.TEXT.name();
+
+        ListViewRequestDto request = certificateView("late view", identifier);
+        SearchFilterRequestDto filter = new SearchFilterRequestDto();
+        filter.setFieldSource(FilterFieldSource.CUSTOM);
+        filter.setFieldIdentifier(identifier);
+        filter.setCondition(FilterConditionOperator.EQUALS);
+        filter.setValue("production");
+        request.setFilters(List.of(filter));
+
+        assertThat(listViewService.createView(request).getColumns()).hasSize(1);
+    }
+
+    /** A view saved through another replica keeps its column when this one reads it back. */
+    @Test
+    void aViewSavedElsewhereKeepsItsColumnHere() throws Exception {
+        catalogue.fields(Resource.CERTIFICATE, false);
+        String identifier = "late-read|" + AttributeContentType.TEXT.name();
+        onAnotherReplica(() -> {
+            createCustomAttribute("late-read");
+            return listViewService.createView(certificateView("read view", identifier));
+        });
+
+        assertThat(listViewService.listViews(Resource.CERTIFICATE))
+                .singleElement()
+                .satisfies(view -> assertThat(view.getColumns()).hasSize(1));
+    }
+
+    /** The same holds for ordering a listing by the new field. */
+    @Test
+    void aSortOnAFieldCreatedElsewhereIsAccepted() throws Exception {
+        catalogue.fields(Resource.DISCOVERY, false);
+        onAnotherReplica(() -> createCustomAttribute("late-sort", Resource.DISCOVERY));
+
+        SearchRequestDto request = new SearchRequestDto();
+        request.setPageNumber(1);
+        request.setItemsPerPage(10);
+        request.setSort(new SearchSortRequestDto(FilterFieldSource.CUSTOM, "late-sort|TEXT", SortDirection.ASC));
+
+        assertThat(discoveryService.listDiscoveries(SecurityFilter.create(), request).getDiscoveries()).isEmpty();
+    }
+
+    private static ListViewRequestDto certificateView(String name, String customFieldIdentifier) {
+        ListViewRequestDto request = new ListViewRequestDto();
+        request.setResource(Resource.CERTIFICATE);
+        request.setName(name);
+        request.setColumns(List.of(new ListViewColumnDto(FilterFieldSource.CUSTOM, customFieldIdentifier, null)));
+        return request;
+    }
+
     private static List<String> catalogueQueriesDuring(Callable<?> read) throws Exception {
         return SqlCapture
                 .during(read)
@@ -153,10 +224,14 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
     }
 
     private CustomAttributeDefinitionDetailDto createCustomAttribute(String name) throws Exception {
+        return createCustomAttribute(name, Resource.CERTIFICATE);
+    }
+
+    private CustomAttributeDefinitionDetailDto createCustomAttribute(String name, Resource resource) throws Exception {
         CustomAttributeCreateRequestDto request = new CustomAttributeCreateRequestDto();
         request.setName(name);
         request.setLabel(name);
-        request.setResources(List.of(Resource.CERTIFICATE));
+        request.setResources(List.of(resource));
         request.setContentType(AttributeContentType.TEXT);
         return attributeService.createCustomAttribute(request);
     }
