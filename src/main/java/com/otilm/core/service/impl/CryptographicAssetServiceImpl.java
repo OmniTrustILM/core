@@ -189,10 +189,6 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
     @ExternalAuthorization(resource = Resource.CRYPTO_ASSET, action = ResourceAction.LIST)
     public PaginationResponseDto<CbomContributedAssetDto> listCbomContributedAssets(UUID cbomUuid,
             SearchRequestDto request, SecurityFilter filter) {
-        if (request.getSort() != null) {
-            throw new ValidationException(
-                    "Sorting is not supported for the assets a CBOM contributed; results are ordered by name, then UUID.");
-        }
         return findInventoryPage(filter, request, (root, cb, query) -> contributedBy(cbomUuid, root, cb, query),
                 uuids -> loadContributedRows(cbomUuid, uuids));
     }
