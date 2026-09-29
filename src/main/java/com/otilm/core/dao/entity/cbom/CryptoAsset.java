@@ -158,6 +158,14 @@ public class CryptoAsset extends UniquelyIdentifiedAndAudited {
     @Column(name = "pqc_evaluated_at")
     private OffsetDateTime pqcEvaluatedAt;
 
+    /** The asset whose own verdict a reference rule carried over. No FK: the verdict outlives its target. */
+    @Column(name = "pqc_referenced_asset_uuid")
+    private UUID pqcReferencedAssetUuid;
+
+    /** What a certificate's or protocol's references read when its verdict was taken; see the sweep's work list. */
+    @Column(name = "pqc_reference_basis", columnDefinition = "TEXT")
+    private String pqcReferenceBasis;
+
     // Which fields the rule actually read, so a verdict can be re-justified without re-running the rule set.
     @SuppressWarnings("java:S1948")
     @Column(name = "pqc_evaluated_fields", columnDefinition = "jsonb")

@@ -5,6 +5,7 @@ import com.otilm.api.model.core.cryptoasset.PqcVerdict;
 import com.otilm.core.cbom.asset.identity.AssetNormalizer;
 import com.otilm.core.cbom.asset.identity.IdentityTables;
 import com.otilm.core.cluster.ClusterOperationSynchronizer;
+import com.otilm.core.dao.repository.cbom.CryptoAssetReferenceRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
 import com.otilm.core.model.cbom.PqcStaleVerdictRow;
 import com.otilm.core.service.writer.cbom.CryptoAssetPqcVerdictWriter;
@@ -247,6 +248,7 @@ class PqcVerdictSweeperTest {
 
     private PqcVerdictSweeper sweeper(int batchSize, int maxBatches) {
         return new PqcVerdictSweeper(repository, writer, new PqcEvaluator(new AssetNormalizer(IdentityTables.load())),
-                synchronizer, new SimpleMeterRegistry(), new PqcSweepProperties(batchSize, maxBatches));
+                new PqcReferenceReader(mock(CryptoAssetReferenceRepository.class)), synchronizer,
+                new SimpleMeterRegistry(), new PqcSweepProperties(batchSize, maxBatches));
     }
 }

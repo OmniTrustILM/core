@@ -68,11 +68,12 @@ class CryptoAssetInventoryMigrationITest extends BaseSpringBootTest {
                     "idx_crypto_asset_variant", "idx_crypto_asset_pqc_verdict", "idx_crypto_asset_ruleset_version",
                     "idx_crypto_asset_source_count", "idx_crypto_asset_properties_source",
                     "idx_crypto_asset_source_cbom", "idx_crypto_asset_alias_canonical", "idx_cbom_asset_sync_attempt",
-                    "idx_cbom_assets_synced_at");
+                    "idx_cbom_assets_synced_at", "idx_crypto_asset_reference_target");
 
     private static final Map<String, String> EXPECTED_FOREIGN_KEY_ACTIONS = Map
             .of("crypto_asset_source_to_crypto_asset_key", "c", "crypto_asset_source_to_cbom_key", "r",
-                    "crypto_asset_to_properties_source_key", "n", "crypto_asset_alias_to_canonical_key", "c");
+                    "crypto_asset_to_properties_source_key", "n", "crypto_asset_alias_to_canonical_key", "c",
+                    "crypto_asset_reference_to_source_key", "c", "crypto_asset_reference_to_target_key", "n");
 
     private static final List<String> EXPECTED_CHECK_CONSTRAINTS = List
             .of("ck_crypto_asset_properties_pair", "ck_crypto_asset_source_count",
@@ -80,7 +81,8 @@ class CryptoAssetInventoryMigrationITest extends BaseSpringBootTest {
                     "ck_crypto_asset_source_properties_leaf_count", "ck_crypto_asset_alias_not_self",
                     "ck_crypto_asset_asset_type", "ck_crypto_asset_identity_guard", "ck_crypto_asset_pqc_verdict",
                     "ck_crypto_asset_oid_length", "ck_crypto_asset_name_length", "ck_cbom_asset_sync_state",
-                    "ck_cbom_asset_sync_content_refusals");
+                    "ck_cbom_asset_sync_content_refusals", "ck_crypto_asset_reference_kind",
+                    "ck_crypto_asset_reference_ordinal");
 
     private static final String CBOM_UUID = "11111111-0000-4000-8000-000000000001";
     private static final String ASSET_UUID = "22222222-0000-4000-8000-000000000001";
@@ -125,7 +127,63 @@ class CryptoAssetInventoryMigrationITest extends BaseSpringBootTest {
 
     // ---- setup / teardown ----
 
+    /**
+     * The PQC references migration moves data as well as schema: it re-offers every certificate and protocol row, and
+     * re-queues for ingest only a synced document that still contributes one, so a superseded revision -- which keeps
+     * no sources -- is never re-ingested ahead of its successor.
+     */
+    @Test
+    void thePqcReferencesMigrationRequeuesOnlyTheDocumentsThatContributeACertificateOrProtocol() throws Exception {
+        try (Connection connection = dataSource.getConnection()) {
+            try {
+                applyMigrationsUpTo(connection, false);
+                try (Statement statement = connection.createStatement()) {
+                    statement.execute("""
+                            INSERT INTO cbom (uuid, serial_number, version, asset_sync_state) VALUES
+                              ('11111111-0000-4000-8000-00000000c001', 'urn:cert', 1, 'SYNCED'),
+                              ('11111111-0000-4000-8000-00000000c002', 'urn:alg', 1, 'SYNCED'),
+                              ('11111111-0000-4000-8000-00000000c003', 'urn:cert', 0, 'SYNCED');
+                            INSERT INTO crypto_asset (uuid, identity_key, ruleset_version, asset_type, i_cre, i_upd)
+                            VALUES ('22222222-0000-4000-8000-00000000a001', 'k1', 1, 'CERTIFICATE', now(),
+                                    TIMESTAMPTZ '2026-01-01'),
+                                   ('22222222-0000-4000-8000-00000000a002', 'k2', 1, 'ALGORITHM', now(),
+                                    TIMESTAMPTZ '2026-01-01');
+                            INSERT INTO crypto_asset_source (uuid, asset_uuid, cbom_uuid, first_seen_at, last_seen_at)
+                            VALUES ('33333333-0000-4000-8000-00000000b001', '22222222-0000-4000-8000-00000000a001',
+                                    '11111111-0000-4000-8000-00000000c001', now(), now()),
+                                   ('33333333-0000-4000-8000-00000000b002', '22222222-0000-4000-8000-00000000a002',
+                                    '11111111-0000-4000-8000-00000000c002', now(), now());
+                            """);
+                }
+                applyPqcReferencesMigration(connection);
+
+                assertThat(queryColumn(connection,
+                        "SELECT serial_number || '#' || version || '=' || asset_sync_state FROM cbom ORDER BY "
+                                + "serial_number, version"))
+                        .containsExactly("urn:alg#1=SYNCED", "urn:cert#0=SYNCED", "urn:cert#1=PENDING");
+                assertThat(queryColumn(connection,
+                        "SELECT asset_type FROM crypto_asset WHERE i_upd > TIMESTAMPTZ '2026-01-01' ORDER BY asset_type"))
+                        .containsExactly("CERTIFICATE");
+            } finally {
+                dropScratchSchema(connection);
+            }
+        }
+    }
+
     private void applyMigrationToScratchSchema(Connection connection) throws Exception {
+        applyMigrationsUpTo(connection, true);
+    }
+
+    private void applyPqcReferencesMigration(Connection connection) throws Exception {
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("SET search_path TO " + SCRATCH_SCHEMA);
+            statement
+                    .execute(new ClassPathResource(PQC_REFERENCES_MIGRATION_RESOURCE)
+                            .getContentAsString(StandardCharsets.UTF_8));
+        }
+    }
+
+    private void applyMigrationsUpTo(Connection connection, boolean includingPqcReferences) throws Exception {
         String migration = new ClassPathResource(MIGRATION_RESOURCE).getContentAsString(StandardCharsets.UTF_8);
         try (Statement statement = connection.createStatement()) {
             statement.execute("DROP SCHEMA IF EXISTS " + SCRATCH_SCHEMA + " CASCADE");
@@ -141,9 +199,9 @@ class CryptoAssetInventoryMigrationITest extends BaseSpringBootTest {
             statement
                     .execute(new ClassPathResource(CONTENT_REFUSALS_MIGRATION_RESOURCE)
                             .getContentAsString(StandardCharsets.UTF_8));
-            statement
-                    .execute(new ClassPathResource(PQC_REFERENCES_MIGRATION_RESOURCE)
-                            .getContentAsString(StandardCharsets.UTF_8));
+        }
+        if (includingPqcReferences) {
+            applyPqcReferencesMigration(connection);
         }
     }
 
@@ -167,7 +225,9 @@ class CryptoAssetInventoryMigrationITest extends BaseSpringBootTest {
         assertThat(indexes)
                 .describedAs("a btree per filter column, plus the indexes the referential actions need to stay off a "
                         + "sequential scan. No lower() expression index: nothing emits lower()")
-                .containsAll(EXPECTED_INDEXES);
+                .containsAll(EXPECTED_INDEXES)
+                .describedAs("the PQC rule-set version is gone, and its index with it")
+                .doesNotContain("idx_crypto_asset_pqc_ruleset_version");
     }
 
     private void assertForeignKeyDeleteActions(Connection connection) throws SQLException {

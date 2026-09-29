@@ -54,17 +54,20 @@ public class PqcVerdictSweeper {
     private final CryptoAssetRepository assetRepository;
     private final CryptoAssetPqcVerdictWriter verdictWriter;
     private final PqcEvaluator evaluator;
+    private final PqcReferenceReader referenceReader;
     private final ClusterOperationSynchronizer clusterSynchronizer;
     private final MeterRegistry meterRegistry;
     private final int batchSize;
     private final int maxBatchesPerSweep;
 
     public PqcVerdictSweeper(CryptoAssetRepository assetRepository, CryptoAssetPqcVerdictWriter verdictWriter,
-            PqcEvaluator evaluator, ClusterOperationSynchronizer clusterSynchronizer, MeterRegistry meterRegistry,
+            PqcEvaluator evaluator, PqcReferenceReader referenceReader,
+            ClusterOperationSynchronizer clusterSynchronizer, MeterRegistry meterRegistry,
             PqcSweepProperties properties) {
         this.assetRepository = assetRepository;
         this.verdictWriter = verdictWriter;
         this.evaluator = evaluator;
+        this.referenceReader = referenceReader;
         this.clusterSynchronizer = clusterSynchronizer;
         this.meterRegistry = meterRegistry;
         this.batchSize = properties.batchSize();
@@ -120,12 +123,14 @@ public class PqcVerdictSweeper {
     private void sweepBatch(List<PqcStaleVerdictRow> rows, Tally tally) {
         List<PqcVerdictWrite> writes = new ArrayList<>(rows.size());
         Set<UUID> unevaluable = new HashSet<>();
+        Map<UUID, List<PqcReferences.Reference>> references = referenceReader.load(rows);
         for (PqcStaleVerdictRow row : rows) {
-            PqcDecision decision = decideOrRecordFailure(row);
+            PqcReferences read = referencesOrNone(row, references);
+            PqcDecision decision = decideOrRecordFailure(row, read);
             if (decision == EVALUATION_FAILED) {
                 unevaluable.add(row.uuid());
             }
-            writes.add(new PqcVerdictWrite(row.uuid(), row.rowVersion(), decision));
+            writes.add(new PqcVerdictWrite(row.uuid(), row.rowVersion(), decision, read.basis()));
         }
         tally.read += rows.size();
         tally.batches++;
@@ -176,9 +181,22 @@ public class PqcVerdictSweeper {
      * The sentinel is returned by identity, so the caller can tell a stamped failure from a verdict without inspecting
      * it -- a row may legitimately evaluate to the same verdict and rule id that a failure records.
      */
-    private PqcDecision decideOrRecordFailure(PqcStaleVerdictRow row) {
+    /**
+     * The references as read, or none when the payload cannot be parsed -- the evaluation then fails on it too, and the
+     * row is stamped unevaluable with no basis.
+     */
+    private static PqcReferences referencesOrNone(PqcStaleVerdictRow row,
+            Map<UUID, List<PqcReferences.Reference>> references) {
         try {
-            return evaluate(row);
+            return PqcReferenceReader.forRow(row, mergedPayload(row), references);
+        } catch (RuntimeException e) {
+            return PqcReferences.NONE;
+        }
+    }
+
+    private PqcDecision decideOrRecordFailure(PqcStaleVerdictRow row, PqcReferences references) {
+        try {
+            return evaluate(row, references);
         } catch (RuntimeException e) {
             meterRegistry.counter("crypto_asset.pqc_sweep.evaluation_failed").increment();
             // The uuid, never the identity key: this line reaches an operator's log aggregator.
@@ -189,10 +207,11 @@ public class PqcVerdictSweeper {
         }
     }
 
-    private PqcDecision evaluate(PqcStaleVerdictRow row) {
+    private PqcDecision evaluate(PqcStaleVerdictRow row, PqcReferences references) {
         JsonNode merged = mergedPayload(row);
         return evaluator
-                .evaluate(evaluator.fromStoredRow(row.fields(), merged), PqcEvaluator.nistQuantumSecurityLevel(merged));
+                .evaluate(evaluator.fromStoredRow(row.fields(), merged), PqcEvaluator.nistQuantumSecurityLevel(merged),
+                        references);
     }
 
     private static JsonNode mergedPayload(PqcStaleVerdictRow row) {

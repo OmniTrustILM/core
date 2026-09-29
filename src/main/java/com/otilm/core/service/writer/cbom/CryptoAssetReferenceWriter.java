@@ -3,6 +3,7 @@ package com.otilm.core.service.writer.cbom;
 import com.otilm.core.dao.repository.cbom.CryptoAssetReferenceRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
 import com.otilm.core.model.cbom.ResolvedAssetReference;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -29,12 +30,14 @@ public class CryptoAssetReferenceWriter {
     }
 
     @Transactional
-    public void replaceReferences(UUID assetUuid, UUID cbomUuid, List<ResolvedAssetReference> references) {
+    /** @param seenAt the observation the source was upserted with; an older one leaves the references alone */
+    public void replaceReferences(UUID assetUuid, UUID cbomUuid, OffsetDateTime seenAt,
+            List<ResolvedAssetReference> references) {
         assetRepository.touch(assetUuid);
-        referenceRepository.deleteForSource(assetUuid, cbomUuid);
+        referenceRepository.deleteForSource(assetUuid, cbomUuid, seenAt);
         for (ResolvedAssetReference reference : references) {
             referenceRepository
-                    .insertForSource(UUID.randomUUID(), assetUuid, cbomUuid, reference.kind().name(),
+                    .insertForSource(UUID.randomUUID(), assetUuid, cbomUuid, seenAt, reference.kind().name(),
                             reference.ordinal(), reference.ref(), reference.suite(), reference.targetAssetUuid());
         }
     }

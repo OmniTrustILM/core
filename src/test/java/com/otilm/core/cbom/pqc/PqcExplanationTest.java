@@ -4,6 +4,7 @@ import com.otilm.api.model.core.cryptoasset.CryptographicAssetType;
 import com.otilm.api.model.core.cryptoasset.PqcExplanationStepOutcome;
 import com.otilm.core.cbom.asset.identity.AssetNormalizer;
 import com.otilm.core.cbom.asset.identity.IdentityTables;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Predicate;
@@ -13,8 +14,10 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The explanation's shape. Its agreement with {@link PqcEvaluator#evaluate} is asserted on every case of
- * {@link PqcEvaluatorTest}, through {@link #assertExplains}.
+ * The explanation's shape. {@code explain} calls {@code evaluate}, so the two agree by construction; what running
+ * {@link #assertExplains} over every case of {@link PqcEvaluatorTest} proves is that no input decides by a rule id the
+ * catalogue does not list for its type -- which would throw -- and that the steps around the decision keep their
+ * invariants.
  */
 class PqcExplanationTest {
 
@@ -76,13 +79,38 @@ class PqcExplanationTest {
 
     @Test
     void anAssetIsShownOnlyTheRulesItsTypeIsTestedAgainst() {
-        assertThat(PqcRuleCatalog.servedFor(CryptographicAssetType.CERTIFICATE)).hasSize(1);
-        assertThat(PqcRuleCatalog.servedFor(CryptographicAssetType.PROTOCOL)).hasSize(1);
+        assertThat(PqcRuleCatalog.servedFor(CryptographicAssetType.CERTIFICATE)).hasSize(4);
+        assertThat(PqcRuleCatalog.servedFor(CryptographicAssetType.PROTOCOL)).hasSize(3);
         assertThat(PqcRuleCatalog.servedFor(CryptographicAssetType.UNROUTABLE)).hasSize(1);
         assertThat(PqcRuleCatalog.servedFor(null))
                 .isEqualTo(PqcRuleCatalog.servedFor(CryptographicAssetType.UNROUTABLE));
         assertThat(PqcRuleCatalog.servedFor(CryptographicAssetType.ALGORITHM)).hasSize(19);
         assertThat(PqcRuleCatalog.servedFor(CryptographicAssetType.RELATED_CRYPTO_MATERIAL)).hasSize(21);
+    }
+
+    /**
+     * Every id the coded paths can emit, independent of whether the corpus happens to reach it: the family
+     * dispositions, their component variants, and the hybrid composed from any family, for both types the paths serve.
+     */
+    @Test
+    void everyIdTheCodedPathsEmitHasAnEntryForBothTypesTheyServe() {
+        List<String> emitted = new ArrayList<>();
+        for (FamilyClass family : FamilyClass.values()) {
+            emitted.add(family.ruleId());
+            emitted.add(PqcRules.HYBRID + "-" + family.ruleId());
+        }
+        emitted
+                .addAll(List
+                        .of("CLASSICAL-LEGACY-COMPONENT", "CLASSICAL-SHOR-COMPONENT", "FAMILY-AMBIGUOUS-COMPONENT",
+                                "PQC-HYBRID-UNRESOLVED", PqcRules.FAMILY_UNRESOLVED, "PQC-ONE-TIME-SIGNATURE",
+                                "CONSTRUCTION-UNINSTANTIATED", "SYMMETRIC-UNDERSIZED"));
+        for (CryptographicAssetType type : List
+                .of(CryptographicAssetType.ALGORITHM, CryptographicAssetType.RELATED_CRYPTO_MATERIAL)) {
+            List<String> served = PqcRuleCatalog.servedFor(type).stream().map(PqcRuleCatalog.Entry::id).toList();
+            assertThat(emitted.stream().map(PqcRuleCatalog::entryIdOf))
+                    .describedAs("served to %s", type)
+                    .allMatch(served::contains);
+        }
     }
 
     @Test
@@ -117,7 +145,7 @@ class PqcExplanationTest {
         PqcRuleInput rsa = new PqcRuleInput(CryptographicAssetType.ALGORITHM, "RSA", 2048, null, null, null, null,
                 "RSA-2048", List.of(), null, null);
 
-        assertThat(PqcEvaluator.inputsOf(rsa, null))
+        assertThat(PqcEvaluator.inputsOf(rsa, null, PqcReferences.NONE))
                 .containsExactly(Map.entry("assetType", "algorithm"), Map.entry("algorithmFamily", "RSA"),
                         Map.entry("parameterSet", 2048), Map.entry("name", "RSA-2048"));
         Predicate<String> allowlisted = PqcRules.EVIDENCE_FIELDS::contains;

@@ -11,6 +11,8 @@ import com.otilm.core.cbom.asset.identity.AssetReferences;
 import com.otilm.core.cbom.asset.identity.CbomAssetExtractor;
 import com.otilm.core.cbom.pqc.PqcDecision;
 import com.otilm.core.cbom.pqc.PqcEvaluator;
+import com.otilm.core.cbom.pqc.PqcReferenceReader;
+import com.otilm.core.cbom.pqc.PqcReferences;
 import com.otilm.core.cbom.sync.CbomSyncPolicy;
 import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.dao.CryptoAssetConstraintTranslator;
@@ -123,6 +125,7 @@ public class CbomAssetIngestService {
     private final CbomRepository cbomRepository;
     private final CryptoAssetRepository assetRepository;
     private final PqcEvaluator evaluator;
+    private final PqcReferenceReader referenceReader;
     private final ClusterOperationSynchronizer clusterSynchronizer;
     private final TransactionHandler transactionHandler;
     private final MeterRegistry meterRegistry;
@@ -131,8 +134,9 @@ public class CbomAssetIngestService {
             CryptoAssetSourceWriter sourceWriter, CryptoAssetReferenceWriter referenceWriter,
             CbomAssetDetachService detachService, CbomAssetSyncStateWriter stateWriter,
             CbomIngestFindingWriter findingWriter, CbomRepository cbomRepository, CryptoAssetRepository assetRepository,
-            PqcEvaluator evaluator, ClusterOperationSynchronizer clusterSynchronizer,
-            TransactionHandler transactionHandler, MeterRegistry meterRegistry) {
+            PqcEvaluator evaluator, PqcReferenceReader referenceReader,
+            ClusterOperationSynchronizer clusterSynchronizer, TransactionHandler transactionHandler,
+            MeterRegistry meterRegistry) {
         this.extractor = extractor;
         this.assetWriter = assetWriter;
         this.sourceWriter = sourceWriter;
@@ -143,6 +147,7 @@ public class CbomAssetIngestService {
         this.cbomRepository = cbomRepository;
         this.assetRepository = assetRepository;
         this.evaluator = evaluator;
+        this.referenceReader = referenceReader;
         this.clusterSynchronizer = clusterSynchronizer;
         this.transactionHandler = transactionHandler;
         this.meterRegistry = meterRegistry;
@@ -316,7 +321,7 @@ public class CbomAssetIngestService {
                     return IngestOutcome.DELETED;
                 }
             }
-            final BatchOutcome referenced = writeReferences(cbomUuid, assets, policy.assetBatchSize());
+            final BatchOutcome referenced = writeReferences(cbomUuid, assets, seenAt, policy.assetBatchSize());
             if (referenced == BatchOutcome.LOCKED_ELSEWHERE) {
                 return lockedElsewhere(cbomUuid, entryState);
             }
@@ -520,7 +525,8 @@ public class CbomAssetIngestService {
      * the reference has nothing to resolve to. Replaced on every ingest, including with nothing, so a reference the
      * document no longer makes does not outlive it.
      */
-    private BatchOutcome writeReferences(UUID cbomUuid, List<CbomAssetExtractor.ExtractedAsset> assets, int batchSize) {
+    private BatchOutcome writeReferences(UUID cbomUuid, List<CbomAssetExtractor.ExtractedAsset> assets,
+            OffsetDateTime seenAt, int batchSize) {
         final Map<String, String> assetByRef = new HashMap<>();
         for (CbomAssetExtractor.ExtractedAsset asset : assets) {
             asset.bomRefs().forEach(ref -> assetByRef.put(ref, asset.identityKey()));
@@ -531,7 +537,7 @@ public class CbomAssetIngestService {
                 .toList();
         for (List<CbomAssetExtractor.ExtractedAsset> batch : batches(referrers, batchSize)) {
             final BatchOutcome outcome = transactionHandler
-                    .runInNewTransaction(() -> writeReferencesUnderClusterLock(cbomUuid, batch, assetByRef));
+                    .runInNewTransaction(() -> writeReferencesUnderClusterLock(cbomUuid, batch, seenAt, assetByRef));
             if (outcome != BatchOutcome.WRITTEN) {
                 return outcome;
             }
@@ -546,7 +552,7 @@ public class CbomAssetIngestService {
 
     /** In uuid order, the order every other inventory writer takes {@code crypto_asset} row locks in. */
     private BatchOutcome writeReferencesUnderClusterLock(UUID cbomUuid, List<CbomAssetExtractor.ExtractedAsset> batch,
-            Map<String, String> assetByRef) {
+            OffsetDateTime seenAt, Map<String, String> assetByRef) {
         final BatchOutcome refused = claimBatch(cbomUuid);
         if (refused != null) {
             return refused;
@@ -557,7 +563,9 @@ public class CbomAssetIngestService {
         }
         byUuid
                 .forEach((assetUuid, asset) -> referenceWriter
-                        .replaceReferences(assetUuid, cbomUuid, resolve(asset.references(), assetByRef)));
+                        .replaceReferences(assetUuid, cbomUuid, seenAt, resolve(asset.references(), assetByRef)));
+        // Their verdicts were stamped with the batch that wrote them, before the references they are read from.
+        stampVerdicts(byUuid.keySet());
         return BatchOutcome.WRITTEN;
     }
 
@@ -631,15 +639,16 @@ public class CbomAssetIngestService {
      * would meet the same row.
      */
     private void stampVerdicts(Set<UUID> assetUuids) {
-        for (PqcStaleVerdictRow row : assetRepository.verdictRowsByUuids(assetUuids)) {
+        final List<PqcStaleVerdictRow> rows = assetRepository.verdictRowsByUuids(assetUuids);
+        final Map<UUID, List<PqcReferences.Reference>> references = referenceReader.load(rows);
+        for (PqcStaleVerdictRow row : rows) {
             try {
                 final JsonNode merged = mergedPayload(row);
+                final PqcReferences read = PqcReferenceReader.forRow(row, merged, references);
                 final PqcDecision decision = evaluator
                         .evaluate(evaluator.fromStoredRow(row.fields(), merged),
-                                PqcEvaluator.nistQuantumSecurityLevel(merged));
-                assetWriter
-                        .applyPqcVerdict(row.uuid(), decision.verdict(), decision.ruleId(), decision.reason(),
-                                decision.evaluatedFields());
+                                PqcEvaluator.nistQuantumSecurityLevel(merged), read);
+                assetWriter.applyPqcVerdict(row.uuid(), decision, read.basis());
             } catch (RuntimeException e) {
                 meterRegistry.counter("crypto_asset.ingest.verdict_failed").increment();
                 // The uuid, never the identity key: this line reaches an operator's log aggregator.

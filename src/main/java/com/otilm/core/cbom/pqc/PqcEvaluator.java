@@ -64,6 +64,9 @@ public class PqcEvaluator {
 
     private static final String NOT_REACHED = "Not evaluated: an earlier rule decided";
 
+    /** The leading {@link PqcRules#INPUT_FIELDS} the asset's own row answers; the rest are its references. */
+    private static final int OWN_INPUT_FIELDS = PqcRules.INPUT_FIELDS.indexOf(PqcRules.SUBJECT_PUBLIC_KEY_REF);
+
     /** The ratified "the producer said nothing" spelling for a material type, per core#2196's ruling C10. */
     private static final String MATERIAL_TYPE_UNKNOWN = "unknown";
 
@@ -81,10 +84,20 @@ public class PqcEvaluator {
         this.rules = PqcRules.rulesFor(normalizer, this::nameCarriesNoFinding, this::nameLeavesStrengthToSize);
     }
 
-    /**
-     * First match wins. @param nistQuantumSecurityLevel corroboration only; a parameter, so no predicate can reach it
-     */
+    /** {@link #evaluate(PqcRuleInput, Integer, PqcReferences)} for an asset that references nothing. */
     public PqcDecision evaluate(PqcRuleInput input, Integer nistQuantumSecurityLevel) {
+        return evaluate(input, nistQuantumSecurityLevel, PqcReferences.NONE);
+    }
+
+    /**
+     * First match wins. A certificate or a protocol is decided by what it references, before the table.
+     *
+     * @param nistQuantumSecurityLevel corroboration only; a parameter, so no predicate can reach it
+     */
+    public PqcDecision evaluate(PqcRuleInput input, Integer nistQuantumSecurityLevel, PqcReferences references) {
+        if (PqcReferenceRules.decides(input.assetType())) {
+            return PqcReferenceRules.decide(input, nistQuantumSecurityLevel, references);
+        }
         for (PqcRule rule : rules) {
             if (rule.matches().test(input)) {
                 return rule.id().equals(PqcRules.HYBRID)
@@ -103,7 +116,11 @@ public class PqcEvaluator {
      * @throws IllegalStateException when the decided rule id has no catalogue entry for the asset's type
      */
     public PqcExplanation explain(PqcRuleInput input, Integer nistQuantumSecurityLevel) {
-        PqcDecision decision = evaluate(input, nistQuantumSecurityLevel);
+        return explain(input, nistQuantumSecurityLevel, PqcReferences.NONE);
+    }
+
+    public PqcExplanation explain(PqcRuleInput input, Integer nistQuantumSecurityLevel, PqcReferences references) {
+        PqcDecision decision = evaluate(input, nistQuantumSecurityLevel, references);
         List<PqcRuleCatalog.Entry> served = PqcRuleCatalog.servedFor(input.assetType());
         String decidedEntry = PqcRuleCatalog.entryIdOf(decision.ruleId());
         int decidedAt = -1;
@@ -119,16 +136,14 @@ public class PqcEvaluator {
         for (int i = 0; i < served.size(); i++) {
             PqcRuleCatalog.Entry entry = served.get(i);
             if (i < decidedAt) {
-                steps
-                        .add(new PqcExplanation.Step(entry.id(), entry.title(), PqcExplanationStepOutcome.NOT_MATCHED,
-                                null, NOT_MATCHED,
-                                projectEvidence(readsFieldsOf(entry), input, nistQuantumSecurityLevel, entry.id()),
-                                null));
+                steps.add(notMatched(entry, input, nistQuantumSecurityLevel, references));
             } else if (i == decidedAt) {
+                PqcExplanationStepOutcome outcome = decision.referencedAssetUuid() == null
+                        ? PqcExplanationStepOutcome.DECIDED
+                        : PqcExplanationStepOutcome.RESOLVED;
                 steps
-                        .add(new PqcExplanation.Step(decision.ruleId(), entry.title(),
-                                PqcExplanationStepOutcome.DECIDED, decision.verdict(), decision.reason(),
-                                decision.evaluatedFields(), null));
+                        .add(new PqcExplanation.Step(decision.ruleId(), entry.title(), outcome, decision.verdict(),
+                                decision.reason(), decision.evaluatedFields(), decision.referencedAssetUuid()));
             } else {
                 steps
                         .add(new PqcExplanation.Step(entry.id(), entry.title(), PqcExplanationStepOutcome.NOT_REACHED,
@@ -138,9 +153,26 @@ public class PqcEvaluator {
         return new PqcExplanation(decision, steps);
     }
 
+    private PqcExplanation.Step notMatched(PqcRuleCatalog.Entry entry, PqcRuleInput input, Integer level,
+            PqcReferences references) {
+        if (PqcReferenceRules.decides(input.assetType())) {
+            return new PqcExplanation.Step(entry.id(), entry.title(), PqcExplanationStepOutcome.NOT_MATCHED, null,
+                    PqcReferenceRules.notMatched(entry.id(), references),
+                    PqcReferenceRules
+                            .evidence(PqcReferenceRules.READS_FIELDS.get(entry.id()), input, level, references, null),
+                    null);
+        }
+        return new PqcExplanation.Step(entry.id(), entry.title(), PqcExplanationStepOutcome.NOT_MATCHED, null,
+                NOT_MATCHED, projectEvidence(readsFieldsOf(entry), input, level, entry.id()), null);
+    }
+
     /** Every value the rules can read for this asset, in {@link PqcRules#INPUT_FIELDS} order; absent ones omitted. */
-    public static Map<String, Object> inputsOf(PqcRuleInput input, Integer nistQuantumSecurityLevel) {
-        return projectEvidence(PqcRules.INPUT_FIELDS, input, nistQuantumSecurityLevel, "inputs");
+    public static Map<String, Object> inputsOf(PqcRuleInput input, Integer nistQuantumSecurityLevel,
+            PqcReferences references) {
+        Map<String, Object> inputs = projectEvidence(PqcRules.INPUT_FIELDS.subList(0, OWN_INPUT_FIELDS), input,
+                nistQuantumSecurityLevel, "inputs");
+        inputs.putAll(PqcReferenceRules.inputs(references));
+        return inputs;
     }
 
     private List<String> readsFieldsOf(PqcRuleCatalog.Entry entry) {

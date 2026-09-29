@@ -3,6 +3,13 @@
 DROP INDEX IF EXISTS "idx_crypto_asset_pqc_ruleset_version";
 ALTER TABLE "crypto_asset" DROP COLUMN "pqc_ruleset_version";
 
+-- The asset whose own verdict a certificate's or a protocol's was carried over from, recorded with the stamp so the
+-- detail can name it. No FK: the verdict outlives its target, which the detail then serves as no longer visible.
+ALTER TABLE "crypto_asset" ADD COLUMN "pqc_referenced_asset_uuid" UUID;
+-- Every target a certificate's or a protocol's verdict was read from, with the verdict it held then. The sweep
+-- rebuilds the same string from the rows as they stand and re-offers the referrer when the two differ.
+ALTER TABLE "crypto_asset" ADD COLUMN "pqc_reference_basis" TEXT;
+
 -- A certificate's verdict is its key's and signature algorithm's, a protocol's the weakest algorithm its cipher suites
 -- name. A bom-ref names a component only within its document, so the ingest resolves each reference while the document
 -- is in hand and records the asset it resolved to. Per source: only the source whose payload the merge elected speaks
@@ -32,6 +39,15 @@ CREATE TABLE "crypto_asset_reference" (
 -- index serves the SET NULL check and the sweep's test for a target that moved since its referrer was evaluated.
 CREATE INDEX "idx_crypto_asset_reference_target" ON "crypto_asset_reference" ("target_asset_uuid");
 
+-- The two rules that returned notApplicable for every certificate and protocol are gone. Re-offering the rows they
+-- decided moves them to an honest deferral within the hour, whether or not their document is ever re-ingested.
+UPDATE "crypto_asset" SET "i_upd" = CURRENT_TIMESTAMP WHERE "asset_type" IN ('CERTIFICATE', 'PROTOCOL');
+
 -- Documents ingested before this migration recorded no references, so their certificates and protocols would read as
--- naming nothing. Re-ingesting them is an idempotent upsert; a superseded revision settles as superseded again.
-UPDATE "cbom" SET "asset_sync_state" = 'PENDING' WHERE "asset_sync_state" = 'SYNCED';
+-- naming nothing. Only a revision that still contributes one is re-offered: a superseded revision's links were
+-- withdrawn, so it has no source rows and stays SYNCED, and the backlog never re-ingests it ahead of its successor.
+-- Re-ingesting a contributing revision is an idempotent upsert.
+UPDATE "cbom" c SET "asset_sync_state" = 'PENDING'
+WHERE c."asset_sync_state" = 'SYNCED'
+  AND EXISTS (SELECT 1 FROM "crypto_asset_source" s JOIN "crypto_asset" a ON a."uuid" = s."asset_uuid"
+              WHERE s."cbom_uuid" = c."uuid" AND a."asset_type" IN ('CERTIFICATE', 'PROTOCOL'));

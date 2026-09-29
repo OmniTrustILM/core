@@ -17,6 +17,7 @@ import com.otilm.api.model.core.cryptoasset.CryptographicAssetPqcExplanationDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetSourceDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetVerdictDto;
 import com.otilm.api.model.core.cryptoasset.PqcExplanationStepDto;
+import com.otilm.api.model.core.cryptoasset.PqcReferencedAssetDto;
 import com.otilm.api.model.core.cryptoasset.PqcVerdict;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.api.model.core.search.FilterFieldSource;
@@ -65,6 +66,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
@@ -181,7 +183,40 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
                 .findByUuid(uuid)
                 .orElseThrow(() -> new NotFoundException(CryptoAsset.class, uuid));
         List<CryptoAssetSource> sources = cryptoAssetSourceRepository.findWithCbomByAssetUuid(asset.getUuid());
-        return toDetailDto(asset, sources, visibleCbomUuids(asset.getUuid()));
+        CryptographicAssetDetailDto detail = toDetailDto(asset, sources, visibleCbomUuids(asset.getUuid()));
+        if (detail.getVerdict() != null) {
+            detail.getVerdict().setReferencedAsset(referencedAsset(asset.getPqcReferencedAssetUuid()));
+        }
+        return detail;
+    }
+
+    /**
+     * The asset a verdict was carried over from, as the caller may see it: its name and type only when the row still
+     * exists and the caller's own crypto-asset detail access admits it. Resource-level access is already proven by the
+     * caller reaching this far, so only the object-level half can differ.
+     */
+    private PqcReferencedAssetDto referencedAsset(UUID referencedUuid) {
+        if (referencedUuid == null) {
+            return null;
+        }
+        PqcReferencedAssetDto dto = new PqcReferencedAssetDto();
+        dto.setUuid(referencedUuid);
+        Optional<CryptoAsset> target = cryptoAssetRepository.findById(referencedUuid);
+        if (target.isPresent() && detailVisible(referencedUuid)) {
+            dto.setVisible(true);
+            dto.setName(servedName(target.get().getName(), target.get().getOid(), target.get().getIdentityGuard()));
+            dto.setType(ServedAssetType.of(target.get().getAssetType()));
+        }
+        return dto;
+    }
+
+    private boolean detailVisible(UUID assetUuid) {
+        SecurityFilter filter = SecurityFilter.create();
+        objectFilterAspect.populateSecurityFilter(Resource.CRYPTO_ASSET, ResourceAction.DETAIL, null, null, filter);
+        return !cryptoAssetRepository
+                .findUuidsUsingSecurityFilter(filter, (root, cb, query) -> cb.equal(root.get("uuid"), assetUuid), null,
+                        null)
+                .isEmpty();
     }
 
     @Override
@@ -197,8 +232,7 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
         return toExplanationDto(asset, result);
     }
 
-    private static CryptographicAssetPqcExplanationDto toExplanationDto(CryptoAsset asset,
-            PqcVerdictExplainer.Result result) {
+    private CryptographicAssetPqcExplanationDto toExplanationDto(CryptoAsset asset, PqcVerdictExplainer.Result result) {
         PqcExplanation explanation = result.explanation();
         CryptographicAssetPqcExplanationDto dto = new CryptographicAssetPqcExplanationDto();
         dto.setUuid(asset.getUuid());
@@ -206,7 +240,7 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
         dto.setRuleId(explanation.decision().ruleId());
         dto.setReason(explanation.decision().reason());
         dto.setInputs(result.inputs());
-        dto.setSteps(explanation.steps().stream().map(CryptographicAssetServiceImpl::toStepDto).toList());
+        dto.setSteps(explanation.steps().stream().map(this::toStepDto).toList());
         boolean evaluated = asset.getPqcEvaluatedAt() != null;
         if (evaluated) {
             dto.setStoredVerdict(asset.getPqcVerdict());
@@ -220,7 +254,7 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
         return dto;
     }
 
-    private static PqcExplanationStepDto toStepDto(PqcExplanation.Step step) {
+    private PqcExplanationStepDto toStepDto(PqcExplanation.Step step) {
         PqcExplanationStepDto dto = new PqcExplanationStepDto();
         dto.setRuleId(step.ruleId());
         dto.setTitle(step.title());
@@ -228,6 +262,7 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
         dto.setVerdict(step.verdict());
         dto.setMessage(step.message());
         dto.setEvaluatedFields(step.evaluatedFields());
+        dto.setReferencedAsset(referencedAsset(step.referencedAssetUuid()));
         return dto;
     }
 

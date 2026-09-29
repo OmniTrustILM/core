@@ -27,10 +27,13 @@ public class PqcVerdictExplainer {
 
     private final CryptoAssetRepository assetRepository;
     private final PqcEvaluator evaluator;
+    private final PqcReferenceReader referenceReader;
 
-    public PqcVerdictExplainer(CryptoAssetRepository assetRepository, PqcEvaluator evaluator) {
+    public PqcVerdictExplainer(CryptoAssetRepository assetRepository, PqcEvaluator evaluator,
+            PqcReferenceReader referenceReader) {
         this.assetRepository = assetRepository;
         this.evaluator = evaluator;
+        this.referenceReader = referenceReader;
     }
 
     /**
@@ -50,7 +53,10 @@ public class PqcVerdictExplainer {
             JsonNode merged = mergedPayload(row);
             Integer level = PqcEvaluator.nistQuantumSecurityLevel(merged);
             PqcRuleInput input = evaluator.fromStoredRow(row.fields(), merged);
-            return Optional.of(new Result(evaluator.explain(input, level), PqcEvaluator.inputsOf(input, level)));
+            PqcReferences references = PqcReferenceReader.forRow(row, merged, referenceReader.load(rows));
+            return Optional
+                    .of(new Result(evaluator.explain(input, level, references),
+                            PqcEvaluator.inputsOf(input, level, references)));
         } catch (RuntimeException e) {
             // The uuid, never the identity key: this line reaches an operator's log aggregator.
             log.warn("PQC verdict explanation failed for cryptographic asset {}", assetUuid, e);

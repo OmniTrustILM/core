@@ -8,10 +8,12 @@ import com.otilm.api.model.core.cryptoasset.CryptographicAssetPqcExplanationDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetSourceDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetType;
 import com.otilm.api.model.core.cryptoasset.PqcExplanationStepOutcome;
+import com.otilm.api.model.core.cryptoasset.PqcReferencedAssetDto;
 import com.otilm.api.model.core.cryptoasset.PqcVerdict;
 import com.otilm.core.cbom.asset.AssetRowKeys;
 import com.otilm.core.cbom.asset.CryptoAssetIdentityFields;
 import com.otilm.core.cbom.asset.OccurrenceEvidenceCapper;
+import com.otilm.core.cbom.pqc.PqcDecision;
 import com.otilm.core.dao.entity.Cbom;
 import com.otilm.core.dao.entity.cbom.CryptoAssetSource;
 import com.otilm.core.dao.repository.CbomRepository;
@@ -320,6 +322,61 @@ class CryptographicAssetDetailITest extends BaseSpringBootTest {
         assertThat(stale.getVerdict()).isEqualTo(PqcVerdict.NOT_READY);
     }
 
+    /**
+     * A certificate's verdict names the key it was carried over from. Its name and type are served only while that
+     * asset is in the inventory and the caller's own object access admits it; the uuid, recorded with the stamp, is
+     * served either way.
+     */
+    @Test
+    void theStoredVerdictNamesTheAssetItWasCarriedOverFromAsTheCallerMaySeeIt() throws NotFoundException {
+        UUID keyUuid = upsert(new CryptoAssetIdentityFields(CryptographicAssetType.RELATED_CRYPTO_MATERIAL,
+                "rsa-2048 public key", null, null, null, null, null, null, null, null), null);
+        UUID certificateUuid = upsert(new CryptoAssetIdentityFields(CryptographicAssetType.CERTIFICATE, "example.com",
+                null, null, null, null, null, null, null, null), null);
+        assetWriter
+                .applyPqcVerdict(certificateUuid,
+                        new PqcDecision(PqcVerdict.NOT_READY, "CERT-SUBJECT-KEY", "carried over", Map.of(), keyUuid),
+                        null);
+
+        PqcReferencedAssetDto visible = cryptographicAssetService
+                .getCryptographicAsset(SecuredUUID.fromUUID(certificateUuid))
+                .getVerdict()
+                .getReferencedAsset();
+        assertThat(visible.getUuid()).isEqualTo(keyUuid);
+        assertThat(visible.isVisible()).isTrue();
+        assertThat(visible.getName()).isEqualTo("rsa-2048 public key");
+        assertThat(visible.getType()).isEqualTo(CryptographicAssetType.RELATED_CRYPTO_MATERIAL);
+
+        forbidCryptoAssetObjects(List.of(keyUuid));
+        PqcReferencedAssetDto forbidden = cryptographicAssetService
+                .getCryptographicAsset(SecuredUUID.fromUUID(certificateUuid))
+                .getVerdict()
+                .getReferencedAsset();
+        assertThat(forbidden.getUuid()).isEqualTo(keyUuid);
+        assertThat(forbidden.isVisible()).isFalse();
+        assertThat(forbidden.getName()).isNull();
+        assertThat(forbidden.getType()).isNull();
+    }
+
+    @Test
+    void aVerdictCarriedOverFromAnAssetThatLeftTheInventoryServesItsUuidAlone() throws NotFoundException {
+        UUID certificateUuid = upsert(new CryptoAssetIdentityFields(CryptographicAssetType.CERTIFICATE, "gone.example",
+                null, null, null, null, null, null, null, null), null);
+        UUID removed = UUID.randomUUID();
+        assetWriter
+                .applyPqcVerdict(certificateUuid,
+                        new PqcDecision(PqcVerdict.NOT_READY, "CERT-SUBJECT-KEY", "carried over", Map.of(), removed),
+                        null);
+
+        PqcReferencedAssetDto referenced = cryptographicAssetService
+                .getCryptographicAsset(SecuredUUID.fromUUID(certificateUuid))
+                .getVerdict()
+                .getReferencedAsset();
+
+        assertThat(referenced.getUuid()).isEqualTo(removed);
+        assertThat(referenced.isVisible()).isFalse();
+    }
+
     @Test
     void theExplanationOfAnUnknownAssetIsNotFound() {
         SecuredUUID unknown = SecuredUUID.fromUUID(UUID.randomUUID());
@@ -557,6 +614,21 @@ class CryptographicAssetDetailITest extends BaseSpringBootTest {
                                 .argThat(req -> req != null && req.getProperties() != null
                                         && Resource.CBOM.getCode().equals(req.getProperties().get("name"))
                                         && ResourceAction.LIST.getCode().equals(req.getProperties().get("action"))),
+                        Mockito.any(), Mockito.any()))
+                .thenReturn(partial);
+    }
+
+    private void forbidCryptoAssetObjects(List<UUID> forbidden) {
+        OpaObjectAccessResult partial = new OpaObjectAccessResult();
+        partial.setActionAllowedForGroupOfObjects(true);
+        partial.setAllowedObjects(List.of());
+        partial.setForbiddenObjects(forbidden.stream().map(UUID::toString).toList());
+        when(opaClient
+                .checkObjectAccess(Mockito.any(),
+                        Mockito
+                                .argThat(req -> req != null && req.getProperties() != null
+                                        && Resource.CRYPTO_ASSET.getCode().equals(req.getProperties().get("name"))
+                                        && ResourceAction.DETAIL.getCode().equals(req.getProperties().get("action"))),
                         Mockito.any(), Mockito.any()))
                 .thenReturn(partial);
     }

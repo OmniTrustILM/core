@@ -241,6 +241,8 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
                 pqc_rule_id = :ruleId,
                 pqc_reason = :reason,
                 pqc_evaluated_fields = CAST(:evaluatedFields AS jsonb),
+                pqc_referenced_asset_uuid = :referencedAssetUuid,
+                pqc_reference_basis = :referenceBasis,
                 pqc_evaluated_at = CURRENT_TIMESTAMP,
                 pqc_decided_at = CASE
                     WHEN crypto_asset.pqc_verdict IS DISTINCT FROM CAST(:verdict AS TEXT) THEN CURRENT_TIMESTAMP
@@ -250,7 +252,8 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
             WHERE uuid = :uuid
             """, nativeQuery = true)
     void applyPqcVerdict(@Param("uuid") UUID uuid, @Param("verdict") String verdict, @Param("ruleId") String ruleId,
-            @Param("reason") String reason, @Param("evaluatedFields") String evaluatedFields);
+            @Param("reason") String reason, @Param("evaluatedFields") String evaluatedFields,
+            @Param("referencedAssetUuid") UUID referencedAssetUuid, @Param("referenceBasis") String referenceBasis);
 
     /**
      * The sweep's work list, one keyset page of it. See {@link #staleVerdictRows} for what a caller uses.
@@ -268,7 +271,11 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
      * <b>Stale</b> is a verdict never taken, or one older than the row it describes. {@code pqc_evaluated_at < i_upd}
      * catches a payload re-election, a richer source winning, an identity refresh, and a rule change, whose migration
      * advances {@code i_upd} -- because the guarded write sets both to one {@code CURRENT_TIMESTAMP}, so a verdict
-     * never re-offers itself while any later writer does.
+     * never re-offers itself while any later writer does. A certificate or protocol is also stale once what its elected
+     * source references no longer holds the verdicts its own was decided from: {@code pqc_reference_basis} records them
+     * as read, and the arm rebuilds the same string from the rows as they stand. A version rather than a time, for the
+     * same reason as the guard below -- a referrer and its target stamped in one transaction share one
+     * {@code CURRENT_TIMESTAMP}, and one stamped from a read that preceded the target's restamp would compare later.
      *
      * <p>
      * Keyset-cursored, and that is correctness rather than performance: a written row leaves this result set, so an
@@ -290,7 +297,15 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
                    merged_crypto_properties::text AS merged_crypto_properties,
                    xmin::text::bigint AS row_version
             FROM {h-schema}crypto_asset
-            WHERE (pqc_evaluated_at IS NULL OR pqc_evaluated_at < i_upd)
+            WHERE (pqc_evaluated_at IS NULL OR pqc_evaluated_at < i_upd
+                    OR (crypto_asset.asset_type IN ('CERTIFICATE', 'PROTOCOL')
+                    AND crypto_asset.pqc_reference_basis IS DISTINCT FROM (
+                        SELECT string_agg(COALESCE(CAST(r.target_asset_uuid AS TEXT), '') || ':'
+                                || COALESCE(t.pqc_verdict, '') || ':' || COALESCE(t.pqc_rule_id, ''), ','
+                                ORDER BY r.kind, r.ordinal)
+                        FROM {h-schema}crypto_asset_reference r
+                        LEFT JOIN {h-schema}crypto_asset t ON t.uuid = r.target_asset_uuid
+                        WHERE r.source_uuid = crypto_asset.properties_source_uuid)))
               AND uuid > :after
             ORDER BY uuid
             LIMIT :limit
@@ -378,6 +393,8 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
                 pqc_rule_id = :ruleId,
                 pqc_reason = :reason,
                 pqc_evaluated_fields = CAST(:evaluatedFields AS jsonb),
+                pqc_referenced_asset_uuid = :referencedAssetUuid,
+                pqc_reference_basis = :referenceBasis,
                 pqc_evaluated_at = CURRENT_TIMESTAMP,
                 pqc_decided_at = CASE
                     WHEN crypto_asset.pqc_verdict IS DISTINCT FROM CAST(:verdict AS TEXT) THEN CURRENT_TIMESTAMP
@@ -385,12 +402,21 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
                 END,
                 i_upd = CURRENT_TIMESTAMP
             WHERE uuid = :uuid
-              AND (pqc_evaluated_at IS NULL OR pqc_evaluated_at < i_upd)
+              AND (pqc_evaluated_at IS NULL OR pqc_evaluated_at < i_upd
+                    OR (crypto_asset.asset_type IN ('CERTIFICATE', 'PROTOCOL')
+                    AND crypto_asset.pqc_reference_basis IS DISTINCT FROM (
+                        SELECT string_agg(COALESCE(CAST(r.target_asset_uuid AS TEXT), '') || ':'
+                                || COALESCE(t.pqc_verdict, '') || ':' || COALESCE(t.pqc_rule_id, ''), ','
+                                ORDER BY r.kind, r.ordinal)
+                        FROM {h-schema}crypto_asset_reference r
+                        LEFT JOIN {h-schema}crypto_asset t ON t.uuid = r.target_asset_uuid
+                        WHERE r.source_uuid = crypto_asset.properties_source_uuid)))
               AND xmin::text::bigint = :rowVersion
             """, nativeQuery = true)
     int applyPqcVerdictIfStale(@Param("uuid") UUID uuid, @Param("rowVersion") long rowVersion,
             @Param("verdict") String verdict, @Param("ruleId") String ruleId, @Param("reason") String reason,
-            @Param("evaluatedFields") String evaluatedFields);
+            @Param("evaluatedFields") String evaluatedFields, @Param("referencedAssetUuid") UUID referencedAssetUuid,
+            @Param("referenceBasis") String referenceBasis);
 
     /**
      * Collects an orphan, and only while it still is one.

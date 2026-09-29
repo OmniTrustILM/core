@@ -66,6 +66,7 @@ public class CryptoAssetPqcVerdictWriter {
         return assetRepository
                 .applyPqcVerdictIfStale(write.assetUuid(), write.rowVersion(), write.decision().verdict().name(),
                         write.decision().ruleId(), write.decision().reason(),
-                        JsonColumnText.render(write.decision().evaluatedFields()));
+                        JsonColumnText.render(write.decision().evaluatedFields()),
+                        write.decision().referencedAssetUuid(), write.referenceBasis());
     }
 }

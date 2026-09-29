@@ -7,6 +7,7 @@ import com.otilm.core.cbom.asset.CompositeCurve;
 import com.otilm.core.cbom.asset.CryptoAssetIdentityFields;
 import com.otilm.core.cbom.asset.JsonColumnText;
 import com.otilm.core.cbom.asset.identity.IdentityRuleset;
+import com.otilm.core.cbom.pqc.PqcDecision;
 import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.dao.CryptoAssetConstraintTranslator;
 import com.otilm.core.dao.repository.cbom.CryptoAssetAliasRepository;
@@ -118,7 +119,21 @@ public class CryptoAssetWriter {
             Map<String, Object> evaluatedFields) {
         assetRepository
                 .applyPqcVerdict(assetUuid, verdict == null ? null : verdict.name(), ruleId, reason,
-                        JsonColumnText.render(evaluatedFields));
+                        JsonColumnText.render(evaluatedFields), null, null);
+    }
+
+    /**
+     * Stores a decision together with what a certificate's or protocol's references read, so the sweep can tell when a
+     * target has moved since.
+     *
+     * @param referenceBasis {@code PqcReferences#basis()} as read, or null
+     */
+    @Transactional
+    public void applyPqcVerdict(UUID assetUuid, PqcDecision decision, String referenceBasis) {
+        assetRepository
+                .applyPqcVerdict(assetUuid, decision.verdict().name(), decision.ruleId(), decision.reason(),
+                        JsonColumnText.render(decision.evaluatedFields()), decision.referencedAssetUuid(),
+                        referenceBasis);
     }
 
     /**

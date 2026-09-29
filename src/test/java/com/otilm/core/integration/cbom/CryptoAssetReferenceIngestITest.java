@@ -2,9 +2,11 @@ package com.otilm.core.integration.cbom;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetType;
+import com.otilm.api.model.core.cryptoasset.PqcVerdict;
 import com.otilm.core.cbom.ingest.CbomAssetDetachService;
 import com.otilm.core.cbom.ingest.CbomAssetIngestService;
 import com.otilm.core.cbom.ingest.CbomIngestTestFixtures;
+import com.otilm.core.cbom.pqc.PqcVerdictSweeper;
 import com.otilm.core.cbom.sync.CbomSyncPolicy;
 import com.otilm.core.dao.entity.Cbom;
 import com.otilm.core.dao.entity.cbom.CryptoAsset;
@@ -14,14 +16,18 @@ import com.otilm.core.dao.repository.cbom.CryptoAssetReferenceRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetSourceRepository;
 import com.otilm.core.model.cbom.CryptoAssetReferenceKind;
+import com.otilm.core.model.cbom.PqcStaleVerdictRow;
+import com.otilm.core.service.writer.cbom.CryptoAssetWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import java.time.OffsetDateTime;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
@@ -73,6 +79,15 @@ class CryptoAssetReferenceIngestITest extends BaseSpringBootTest {
     @Autowired
     private CryptoAssetReferenceRepository referenceRepository;
 
+    @Autowired
+    private CryptoAssetWriter assetWriter;
+
+    @Autowired
+    private PqcVerdictSweeper sweeper;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     private Cbom cbom;
 
     @BeforeEach
@@ -100,6 +115,111 @@ class CryptoAssetReferenceIngestITest extends BaseSpringBootTest {
                         CryptoAssetReference::getSuite, CryptoAssetReference::getTargetAssetUuid)
                 .containsExactly(tuple(0, "alg-aes", "0x1301", named("aes-128-gcm")),
                         tuple(1, "not-in-this-document", "0x1301", null));
+    }
+
+    /**
+     * The ingest stamps the referrers after their references, so a certificate reads its key's verdict and a protocol
+     * with a suite algorithm outside the document defers rather than reading ready.
+     */
+    @Test
+    void theIngestStampsCertificatesAndProtocolsFromWhatTheyReference() {
+        ingest(certificate("\"subjectPublicKeyRef\":\"key-rsa\",\"signatureAlgorithmRef\":\"alg-sig\""), KEY, SIGNATURE,
+                AES, PROTOCOL);
+
+        CryptoAsset key = assetRepository.findById(named("rsa-2048 public key")).orElseThrow();
+        CryptoAsset certificate = only(CryptographicAssetType.CERTIFICATE);
+        assertThat(key.getPqcVerdict()).isEqualTo(PqcVerdict.NOT_READY);
+        assertThat(certificate.getPqcVerdict()).isEqualTo(PqcVerdict.NOT_READY);
+        assertThat(certificate.getPqcRuleId()).startsWith("CERT-");
+        assertThat(certificate.getPqcReferencedAssetUuid()).isNotNull();
+        assertThat(certificate.getPqcEvaluatedFields()).containsEntry("subjectPublicKeyRef", "key-rsa");
+
+        CryptoAsset protocol = only(CryptographicAssetType.PROTOCOL);
+        assertThat(protocol.getPqcRuleId()).isEqualTo("PROTOCOL-SUITE-UNRESOLVED");
+        assertThat(protocol.getPqcVerdict()).isEqualTo(PqcVerdict.UNKNOWN);
+        assertThat(protocol.getPqcEvaluatedFields()).containsEntry("unresolvedRefs", List.of("not-in-this-document"));
+    }
+
+    /** A referrer's verdict is its target's, so a target evaluated after it puts it back on the sweep's work list. */
+    @Test
+    void aTargetEvaluatedAfterItsReferrerPutsTheReferrerBackOnTheWorkList() {
+        ingest(certificate("\"subjectPublicKeyRef\":\"key-rsa\""), KEY);
+        UUID certificate = only(CryptographicAssetType.CERTIFICATE).getUuid();
+        UUID key = named("rsa-2048 public key");
+        assertThat(workList()).doesNotContain(certificate, key);
+
+        assetWriter.applyPqcVerdict(key, PqcVerdict.READY, "LATER-RULE", "re-evaluated", Map.of());
+
+        assertThat(workList()).contains(certificate);
+    }
+
+    /**
+     * A rule change re-offers every row, so one sweep batch restamps a certificate and its key in one transaction: the
+     * certificate is decided from the key's verdict as read before the batch, and both land at one
+     * {@code CURRENT_TIMESTAMP}. The certificate must come back once the key has moved, however the two stamps compare.
+     */
+    @Test
+    void aCertificateDecidedFromItsKeysSupersededVerdictComesBackAfterTheSameSweepRestampsTheKey() {
+        ingest(certificate("\"subjectPublicKeyRef\":\"key-rsa\""), KEY);
+        UUID certificate = only(CryptographicAssetType.CERTIFICATE).getUuid();
+        UUID key = named("rsa-2048 public key");
+        stampAsIfByAnOlderRuleSet(key, "READY", "AN-OLDER-RULE", null);
+        stampAsIfByAnOlderRuleSet(certificate, "READY", "CERT-SUBJECT-KEY", key + ":READY:AN-OLDER-RULE");
+
+        sweeper.sweep();
+
+        assertThat(assetRepository.findById(key).orElseThrow().getPqcVerdict()).isEqualTo(PqcVerdict.NOT_READY);
+        assertThat(assetRepository.findById(certificate).orElseThrow().getPqcVerdict())
+                .describedAs("decided from the key's verdict as it stood before the batch")
+                .isEqualTo(PqcVerdict.READY);
+        assertThat(workList())
+                .describedAs("the key moved under the certificate's verdict")
+                .containsExactly(certificate);
+
+        sweeper.sweep();
+
+        assertThat(assetRepository.findById(certificate).orElseThrow().getPqcVerdict()).isEqualTo(PqcVerdict.NOT_READY);
+        assertThat(workList()).isEmpty();
+    }
+
+    /** A target that leaves the inventory changes what the referrer's verdict rests on, so the referrer comes back. */
+    @Test
+    void aTargetThatLeavesTheInventoryPutsTheReferrerBackOnTheWorkList() {
+        ingest(certificate("\"subjectPublicKeyRef\":\"key-rsa\""), KEY);
+        UUID certificate = only(CryptographicAssetType.CERTIFICATE).getUuid();
+        UUID key = named("rsa-2048 public key");
+        assertThat(workList()).isEmpty();
+
+        jdbcTemplate.update("DELETE FROM " + dbSchema + ".crypto_asset WHERE uuid = ?", key);
+
+        assertThat(workList()).containsExactly(certificate);
+        sweeper.sweep();
+        assertThat(assetRepository.findById(certificate).orElseThrow().getPqcRuleId())
+                .isEqualTo("CERT-REFERENCE-UNRESOLVED");
+    }
+
+    /** An older observation of the same document keeps neither its payload nor its references. */
+    @Test
+    void anOlderReplayLeavesTheReferencesOfTheNewerObservation() {
+        ingest(certificate("\"subjectPublicKeyRef\":\"key-rsa\""), KEY);
+
+        JsonNode older = CbomIngestTestFixtures
+                .read("{\"components\":["
+                        + certificate("\"subjectPublicKeyRef\":\"key-rsa\",\"signatureAlgorithmRef\":\"alg-sig\"") + ","
+                        + KEY + "," + SIGNATURE + "]}");
+        ingestService.ingest(cbom.getUuid(), older, NOW.minusDays(1), POLICY);
+
+        assertThat(referencesOf(CryptographicAssetType.CERTIFICATE))
+                .extracting(CryptoAssetReference::getKind)
+                .containsExactly(CryptoAssetReferenceKind.SUBJECT_PUBLIC_KEY);
+    }
+
+    /** What a rule-change migration leaves: a verdict from the old rules, older than a row it re-offers. */
+    private void stampAsIfByAnOlderRuleSet(UUID uuid, String verdict, String ruleId, String referenceBasis) {
+        jdbcTemplate
+                .update("UPDATE " + dbSchema + ".crypto_asset SET pqc_verdict = ?, pqc_rule_id = ?, "
+                        + "pqc_reference_basis = ?, pqc_evaluated_at = CURRENT_TIMESTAMP - INTERVAL '1 day', "
+                        + "i_upd = CURRENT_TIMESTAMP WHERE uuid = ?", verdict, ruleId, referenceBasis, uuid);
     }
 
     /** A 1.7 entry wins over the 1.6 field, and two entries of one kind name nothing. */
@@ -168,6 +288,14 @@ class CryptoAssetReferenceIngestITest extends BaseSpringBootTest {
                         .comparing(CryptoAssetReference::getKind)
                         .thenComparing(CryptoAssetReference::getOrdinal))
                 .toList();
+    }
+
+    private CryptoAsset only(CryptographicAssetType type) {
+        return assetRepository.findAll().stream().filter(row -> row.getAssetType() == type).findFirst().orElseThrow();
+    }
+
+    private List<UUID> workList() {
+        return assetRepository.staleVerdictRows(new UUID(0L, 0L), 100).stream().map(PqcStaleVerdictRow::uuid).toList();
     }
 
     private UUID named(String name) {

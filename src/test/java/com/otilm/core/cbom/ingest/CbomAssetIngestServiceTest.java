@@ -9,10 +9,13 @@ import com.otilm.core.cbom.asset.identity.AssetNormalizer;
 import com.otilm.core.cbom.asset.identity.CbomAssetExtractor;
 import com.otilm.core.cbom.asset.identity.CryptoAssetIdentity;
 import com.otilm.core.cbom.asset.identity.IdentityTables;
+import com.otilm.core.cbom.pqc.PqcDecision;
 import com.otilm.core.cbom.pqc.PqcEvaluator;
+import com.otilm.core.cbom.pqc.PqcReferenceReader;
 import com.otilm.core.cbom.sync.CbomSyncPolicy;
 import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.dao.repository.CbomRepository;
+import com.otilm.core.dao.repository.cbom.CryptoAssetReferenceRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
 import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.model.cbom.PqcStaleVerdictRow;
@@ -233,7 +236,7 @@ class CbomAssetIngestServiceTest {
         ingest(oneAlgorithm(), 100);
 
         verify(assetRepository, never()).findById(any());
-        verify(assetWriter, times(1)).applyPqcVerdict(eq(assetUuid), any(), anyString(), anyString(), any());
+        verify(assetWriter, times(1)).applyPqcVerdict(eq(assetUuid), any(PqcDecision.class), any());
     }
 
     /**
@@ -372,7 +375,8 @@ class CbomAssetIngestServiceTest {
     void ingestWritesNothingWhenTheKillSwitchIsOff() {
         CbomAssetIngestService.IngestOutcome outcome = new CbomAssetIngestService(realExtractor(), assetWriter,
                 sourceWriter, referenceWriter, detachService, stateWriter, findingWriter, cbomRepository,
-                assetRepository, new PqcEvaluator(new AssetNormalizer(IdentityTables.load())), synchronizer,
+                assetRepository, new PqcEvaluator(new AssetNormalizer(IdentityTables.load())),
+                new PqcReferenceReader(mock(CryptoAssetReferenceRepository.class)), synchronizer,
                 new TransactionHandler(), new SimpleMeterRegistry())
                 .ingest(CBOM, twoAlgorithms(), SEEN_AT, CbomIngestTestFixtures.policyWithIngestDisabled());
 
@@ -662,15 +666,16 @@ class CbomAssetIngestServiceTest {
         when(cbomRepository.existsById(CBOM)).thenReturn(true);
         return new CbomAssetIngestService(extractor, assetWriter, sourceWriter, referenceWriter, detachService,
                 stateWriter, findingWriter, cbomRepository, assetRepository,
-                new PqcEvaluator(new AssetNormalizer(IdentityTables.load())), synchronizer, new TransactionHandler(),
-                new SimpleMeterRegistry());
+                new PqcEvaluator(new AssetNormalizer(IdentityTables.load())),
+                new PqcReferenceReader(mock(CryptoAssetReferenceRepository.class)), synchronizer,
+                new TransactionHandler(), new SimpleMeterRegistry());
     }
 
     private void doThrowFromVerdictStamp() {
         org.mockito.Mockito
                 .doThrow(new IllegalStateException("the rules could not evaluate this row"))
                 .when(assetWriter)
-                .applyPqcVerdict(any(), any(), anyString(), anyString(), any());
+                .applyPqcVerdict(any(), any(PqcDecision.class), any());
     }
 
     private static CbomAssetExtractor realExtractor() {

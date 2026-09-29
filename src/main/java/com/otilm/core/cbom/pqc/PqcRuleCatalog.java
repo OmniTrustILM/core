@@ -25,6 +25,10 @@ public final class PqcRuleCatalog {
 
     private static final Set<CryptographicAssetType> MATERIAL = Set.of(CryptographicAssetType.RELATED_CRYPTO_MATERIAL);
 
+    private static final Set<CryptographicAssetType> CERTIFICATE = Set.of(CryptographicAssetType.CERTIFICATE);
+
+    private static final Set<CryptographicAssetType> PROTOCOL = Set.of(CryptographicAssetType.PROTOCOL);
+
     private static final List<String> FAMILY_FIELDS = List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.VARIANT);
 
     private static final List<String> SIZE_FIELDS = List
@@ -33,15 +37,22 @@ public final class PqcRuleCatalog {
     private static final String HYBRID_PREFIX = PqcRules.HYBRID + "-";
 
     /**
-     * @param readsFields what a not-matched step shows; {@code null} for a table rule, whose declared fields the
-     * evaluator already holds
+     * @param readsFields what a not-matched step shows; {@code null} for a table or reference rule, whose declared
+     * fields the evaluator already holds
      */
     public record Entry(String id, String title, Set<CryptographicAssetType> appliesTo, List<String> readsFields) {
     }
 
     private static final List<Entry> ENTRIES = List
-            .of(new Entry("CERT-DEFERRED-V1", "Certificate", Set.of(CryptographicAssetType.CERTIFICATE), null),
-                    new Entry("PROTOCOL-NOT-ALGORITHM", "Protocol", Set.of(CryptographicAssetType.PROTOCOL), null),
+            .of(new Entry(PqcReferenceRules.CERT_SUBJECT_KEY, "Certified key", CERTIFICATE, null),
+                    new Entry(PqcReferenceRules.CERT_SIGNATURE_ALGORITHM, "Signature algorithm", CERTIFICATE, null),
+                    new Entry(PqcReferenceRules.CERT_REFERENCE_UNRESOLVED, "Unresolved certificate reference",
+                            CERTIFICATE, null),
+                    new Entry(PqcReferenceRules.CERT_NO_KEY_RECORDED, "No certified key recorded", CERTIFICATE, null),
+                    new Entry(PqcReferenceRules.PROTOCOL_CIPHER_SUITE, "Cipher suite algorithms", PROTOCOL, null),
+                    new Entry(PqcReferenceRules.PROTOCOL_SUITE_UNRESOLVED, "Unresolved cipher suite algorithm",
+                            PROTOCOL, null),
+                    new Entry(PqcReferenceRules.PROTOCOL_NO_SUITES, "No cipher suites recorded", PROTOCOL, null),
                     new Entry("ASSET-TYPE-UNROUTABLE", "Asset type", Set.of(CryptographicAssetType.UNROUTABLE), null),
                     new Entry("MATERIAL-NOT-KEY", "Material that is not a key", MATERIAL, null),
                     new Entry("NAME-CIPHER-SUITE", "Cipher suite name", ALGORITHM, null),
