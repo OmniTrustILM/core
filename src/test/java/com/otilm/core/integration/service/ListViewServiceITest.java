@@ -406,13 +406,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
     void aFilterOnAFieldThatNoLongerExistsSurvivesARename() throws NotFoundException, AlreadyExistException {
         SearchFilterRequestDto deleted = new SearchFilterRequestDto(FilterFieldSource.CUSTOM, "deleted|STRING",
                 FilterConditionOperator.EQUALS, "x");
-        ListView stored = new ListView();
-        stored.setUserUuid(user);
-        stored.setResource(Resource.CERTIFICATE);
-        stored.setName("Filtered");
-        stored.setColumns(List.of(column("COMMON_NAME")));
-        stored.setFilters(List.of(deleted));
-        listViewRepository.save(stored);
+        ListView stored = storeFiltered("Filtered", List.of(column("COMMON_NAME")), List.of(deleted));
 
         ListViewUpdateRequestDto rename = update("Renamed", column("COMMON_NAME"));
         rename.setFilters(List.of(deleted));
@@ -426,13 +420,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
     void aFilterOnAFieldThatNoLongerExistsCannotBeChangedOnAnExistingView() {
         SearchFilterRequestDto deleted = new SearchFilterRequestDto(FilterFieldSource.CUSTOM, "deleted|STRING",
                 FilterConditionOperator.EQUALS, "x");
-        ListView stored = new ListView();
-        stored.setUserUuid(user);
-        stored.setResource(Resource.CERTIFICATE);
-        stored.setName("Filtered");
-        stored.setColumns(List.of(column("COMMON_NAME")));
-        stored.setFilters(List.of(deleted));
-        listViewRepository.save(stored);
+        ListView stored = storeFiltered("Filtered", List.of(column("COMMON_NAME")), List.of(deleted));
 
         ListViewUpdateRequestDto edit = update("Filtered", column("COMMON_NAME"));
         edit
@@ -529,13 +517,23 @@ class ListViewServiceITest extends BaseSpringBootTest {
     }
 
     private void store(String name, List<ListViewColumnDto> columns, SearchSortRequestDto sort) {
+        save(name, columns, null, sort);
+    }
+
+    private ListView storeFiltered(String name, List<ListViewColumnDto> columns, List<SearchFilterRequestDto> filters) {
+        return save(name, columns, filters, null);
+    }
+
+    private ListView save(String name, List<ListViewColumnDto> columns, List<SearchFilterRequestDto> filters,
+            SearchSortRequestDto sort) {
         ListView stored = new ListView();
         stored.setUserUuid(user);
         stored.setResource(Resource.CERTIFICATE);
         stored.setName(name);
         stored.setColumns(columns);
+        stored.setFilters(filters);
         stored.setSort(sort);
-        listViewRepository.save(stored);
+        return listViewRepository.save(stored);
     }
 
     @Test
