@@ -6,6 +6,7 @@ import com.otilm.core.cbom.pqc.PqcVerdictSweeper;
 import com.otilm.core.model.ScheduledTaskResult;
 import org.junit.jupiter.api.Test;
 
+import static com.otilm.core.cbom.pqc.PqcVerdictSweeper.SweepOutcome.Status.SWEPT;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.mockito.Mockito.mock;
@@ -29,7 +30,7 @@ class CryptoAssetPqcSweepTaskTest {
 
     @Test
     void aSweepThatReadNothingIsSkippedRatherThanRecordedAsASuccess() {
-        when(sweeper.sweep()).thenReturn(new PqcVerdictSweeper.SweepOutcome(true, false, 0, 0, 0, 0, 0));
+        when(sweeper.sweep()).thenReturn(new PqcVerdictSweeper.SweepOutcome(SWEPT, false, 0, 0, 0, 0, 0));
 
         assertThatExceptionOfType(ScheduledJobSkippedException.class)
                 .isThrownBy(this::performJob)
@@ -38,17 +39,30 @@ class CryptoAssetPqcSweepTaskTest {
 
     @Test
     void aContendedSweepIsSkipped() {
-        when(sweeper.sweep()).thenReturn(new PqcVerdictSweeper.SweepOutcome(false, false, 0, 0, 0, 0, 0));
+        when(sweeper.sweep()).thenReturn(PqcVerdictSweeper.SweepOutcome.contended());
 
         assertThatExceptionOfType(ScheduledJobSkippedException.class)
                 .isThrownBy(this::performJob)
                 .withMessage("Another sweep is already running");
     }
 
+    /**
+     * Turned off, the sweep declines every run; saying another sweep is running would send an operator looking for a
+     * node that holds the lock.
+     */
+    @Test
+    void aSweepThatIsTurnedOffIsSkippedAsTurnedOff() {
+        when(sweeper.sweep()).thenReturn(PqcVerdictSweeper.SweepOutcome.disabled());
+
+        assertThatExceptionOfType(ScheduledJobSkippedException.class)
+                .isThrownBy(this::performJob)
+                .withMessage("The sweep is turned off");
+    }
+
     /** Rows the guard refused are ordinary and retried next sweep, so they are reported without failing the run. */
     @Test
     void refusedRowsAreReportedAndDoNotFailTheRun() {
-        when(sweeper.sweep()).thenReturn(new PqcVerdictSweeper.SweepOutcome(true, false, 5, 3, 0, 0, 1));
+        when(sweeper.sweep()).thenReturn(new PqcVerdictSweeper.SweepOutcome(SWEPT, false, 5, 3, 0, 0, 1));
 
         ScheduledTaskResult result = performJob();
 
@@ -62,7 +76,7 @@ class CryptoAssetPqcSweepTaskTest {
     /** Only stamps that landed are reported as recorded, so the count comes from the outcome and not from the reads. */
     @Test
     void aRowRecordedAsUnknownFailsTheRun() {
-        when(sweeper.sweep()).thenReturn(new PqcVerdictSweeper.SweepOutcome(true, false, 4, 4, 1, 0, 1));
+        when(sweeper.sweep()).thenReturn(new PqcVerdictSweeper.SweepOutcome(SWEPT, false, 4, 4, 1, 0, 1));
 
         ScheduledTaskResult result = performJob();
 
@@ -72,7 +86,7 @@ class CryptoAssetPqcSweepTaskTest {
 
     @Test
     void aRowThatCouldNotBeWrittenFailsTheRun() {
-        when(sweeper.sweep()).thenReturn(new PqcVerdictSweeper.SweepOutcome(true, false, 4, 3, 0, 1, 1));
+        when(sweeper.sweep()).thenReturn(new PqcVerdictSweeper.SweepOutcome(SWEPT, false, 4, 3, 0, 1, 1));
 
         ScheduledTaskResult result = performJob();
 
@@ -82,7 +96,7 @@ class CryptoAssetPqcSweepTaskTest {
 
     @Test
     void aSweepThatStoppedEarlyFailsTheRunWhateverItManagedToWrite() {
-        when(sweeper.sweep()).thenReturn(new PqcVerdictSweeper.SweepOutcome(true, true, 2, 2, 0, 0, 1));
+        when(sweeper.sweep()).thenReturn(new PqcVerdictSweeper.SweepOutcome(SWEPT, true, 2, 2, 0, 0, 1));
 
         ScheduledTaskResult result = performJob();
 

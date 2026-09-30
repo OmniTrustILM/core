@@ -61,7 +61,8 @@ public class CryptoAssetPqcSweepTask implements ScheduledJobTask {
 
     /**
      * A run that read nothing is a skip: until ingest gains a caller this fires hourly and finds nothing, and a SUCCESS
-     * row an hour would bury the runs that did something.
+     * row an hour would bury the runs that did something. So is a sweep that is turned off, or that another node is
+     * running; the reason says which, since only the first calls for a look at the setting.
      *
      * <p>
      * The history row is the only place an operator learns what happened, so it distinguishes the three ways a row can
@@ -86,6 +87,9 @@ public class CryptoAssetPqcSweepTask implements ScheduledJobTask {
             return new ScheduledTaskResult(SchedulerJobExecutionStatus.FAILED,
                     "The sweep failed before it could report its outcome; see the application log",
                     Resource.CRYPTO_ASSET, null);
+        }
+        if (outcome.status() == PqcVerdictSweeper.SweepOutcome.Status.DISABLED) {
+            throw new ScheduledJobSkippedException("The sweep is turned off");
         }
         if (!outcome.ran()) {
             throw new ScheduledJobSkippedException("Another sweep is already running");
