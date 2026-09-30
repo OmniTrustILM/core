@@ -162,8 +162,7 @@ class ExternalAuthorizationCoreTest {
         SecuredUUID objectUuid = SecuredUUID.fromUUID(UUID.randomUUID());
         AuthorizationRequest request = AuthorizationRequest
                 .forDirectCheck(Resource.CERTIFICATE, ResourceAction.DETAIL, List.of(objectUuid));
-        when(ownerAssociationRepository
-                .countByOwnerUuidAndResourceAndObjectUuidIn(eq(userUuid), eq(Resource.CERTIFICATE), any()))
+        when(ownerAssociationRepository.countOwnedObjects(eq(userUuid), eq(Resource.CERTIFICATE), any()))
                 .thenReturn(1L);
 
         // when
@@ -361,8 +360,7 @@ class ExternalAuthorizationCoreTest {
     /** A direct-check request for CERTIFICATE (has owner + groups) whose owner association never matches. */
     private AuthorizationRequest directCheckWithNonMatchingOwner() {
         SecuredUUID objectUuid = SecuredUUID.fromUUID(UUID.randomUUID());
-        when(ownerAssociationRepository
-                .countByOwnerUuidAndResourceAndObjectUuidIn(any(), eq(Resource.CERTIFICATE), any())).thenReturn(0L);
+        when(ownerAssociationRepository.countOwnedObjects(any(), eq(Resource.CERTIFICATE), any())).thenReturn(0L);
         return AuthorizationRequest.forDirectCheck(Resource.CERTIFICATE, ResourceAction.DETAIL, List.of(objectUuid));
     }
 

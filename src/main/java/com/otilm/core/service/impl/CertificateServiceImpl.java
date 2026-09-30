@@ -1379,7 +1379,7 @@ public class CertificateServiceImpl
     public CertificateChainDownloadResponseDto downloadCertificateChain(SecuredUUID uuid,
             CertificateFormat certificateFormat, boolean withEndCertificate, CertificateFormatEncoding encoding)
             throws NotFoundException, CertificateException {
-        List<CertificateContentDto> certificateContent = getCertificateContent(List.of(uuid.getValue()));
+        List<CertificateContentDto> certificateContent = getCertificateContent(List.of(uuid));
         if (certificateContent.isEmpty()) {
             throw new ValidationException("Cannot download certificate chain, the end certificate is not issued.");
         }
@@ -1396,9 +1396,9 @@ public class CertificateServiceImpl
 
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.DETAIL)
-    public CertificateDownloadResponseDto downloadCertificate(UUID uuid, CertificateFormat certificateFormat,
+    public CertificateDownloadResponseDto downloadCertificate(SecuredUUID uuid, CertificateFormat certificateFormat,
             CertificateFormatEncoding encoding) throws CertificateException, NotFoundException, IOException {
-        CertificateDetailDto certificate = getCertificate(SecuredUUID.fromUUID(uuid));
+        CertificateDetailDto certificate = getCertificate(uuid);
         if (certificate.getCertificateContent() == null) {
             throw new ValidationException("Cannot download the certificate, certificate is not issued.");
         }
@@ -2393,13 +2393,12 @@ public class CertificateServiceImpl
 
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.LIST)
-    public List<CertificateContentDto> getCertificateContent(List<UUID> uuids) {
+    public List<CertificateContentDto> getCertificateContent(List<SecuredUUID> uuids) {
         List<CertificateContentDto> response = new ArrayList<>();
-        for (UUID uuid : uuids) {
+        for (SecuredUUID uuid : uuids) {
             try {
-                SecuredUUID securedUUID = SecuredUUID.fromUUID(uuid);
-                authorizationEnforcer.enforce(Resource.CERTIFICATE, ResourceAction.DETAIL, securedUUID);
-                Certificate certificate = getCertificateEntity(securedUUID);
+                authorizationEnforcer.enforce(Resource.CERTIFICATE, ResourceAction.DETAIL, uuid);
+                Certificate certificate = getCertificateEntity(uuid);
                 CertificateContentDto dto = new CertificateContentDto();
                 dto.setUuid(uuid.toString());
                 dto.setCommonName(certificate.getCommonName());
@@ -2603,7 +2602,7 @@ public class CertificateServiceImpl
         certificate = certificateRepository.save(certificate);
 
         if (predecessorCertificateUuid != null) {
-            associateCertificates(certificate.getUuid(), predecessorCertificateUuid);
+            associateCertificates(certificate.getSecuredUuid(), SecuredUUID.fromUUID(predecessorCertificateUuid));
         }
 
         if (protocolInfo != null) {
@@ -2871,33 +2870,34 @@ public class CertificateServiceImpl
 
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.ARCHIVE)
-    public void archiveCertificate(UUID uuid) throws NotFoundException {
+    public void archiveCertificate(SecuredUUID uuid) throws NotFoundException {
         Certificate certificate = certificateRepository
-                .findByUuid(uuid)
+                .findByUuid(uuid.getValue())
                 .orElseThrow(() -> new NotFoundException("Certificate", uuid));
         certificate.setArchived(true);
         certificateRepository.save(certificate);
         certificateEventHistoryService
-                .addEventHistory(uuid, CertificateEvent.ARCHIVE, CertificateEventStatus.SUCCESS,
+                .addEventHistory(uuid.getValue(), CertificateEvent.ARCHIVE, CertificateEventStatus.SUCCESS,
                         "Certificate has been archived.", "");
     }
 
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.ARCHIVE)
-    public void unarchiveCertificate(UUID uuid) throws NotFoundException {
+    public void unarchiveCertificate(SecuredUUID uuid) throws NotFoundException {
         Certificate certificate = certificateRepository
-                .findByUuid(uuid)
+                .findByUuid(uuid.getValue())
                 .orElseThrow(() -> new NotFoundException("Certificate", uuid));
         certificate.setArchived(false);
         certificateRepository.save(certificate);
         certificateEventHistoryService
-                .addEventHistory(uuid, CertificateEvent.UNARCHIVE, CertificateEventStatus.SUCCESS,
+                .addEventHistory(uuid.getValue(), CertificateEvent.UNARCHIVE, CertificateEventStatus.SUCCESS,
                         "Certificate has been unarchived.", "");
     }
 
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.ARCHIVE)
-    public void bulkArchiveCertificates(List<UUID> uuids) {
+    public void bulkArchiveCertificates(List<SecuredUUID> securedUuids) {
+        List<UUID> uuids = securedUuids.stream().map(SecuredUUID::getValue).toList();
         certificateRepository.archiveCertificates(true, uuids);
         for (UUID uuid : uuids) {
             certificateEventHistoryService
@@ -2908,7 +2908,8 @@ public class CertificateServiceImpl
 
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.ARCHIVE)
-    public void bulkUnarchiveCertificates(List<UUID> uuids) {
+    public void bulkUnarchiveCertificates(List<SecuredUUID> securedUuids) {
+        List<UUID> uuids = securedUuids.stream().map(SecuredUUID::getValue).toList();
         certificateRepository.archiveCertificates(false, uuids);
         for (UUID uuid : uuids) {
             certificateEventHistoryService
@@ -2929,10 +2930,10 @@ public class CertificateServiceImpl
 
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.DETAIL)
-    public CertificateRelationsDto getCertificateRelations(UUID uuid) throws NotFoundException {
-        Certificate certificate = getCertificateEntity(SecuredUUID.fromUUID(uuid));
+    public CertificateRelationsDto getCertificateRelations(SecuredUUID uuid) throws NotFoundException {
+        Certificate certificate = getCertificateEntity(uuid);
         CertificateRelationsDto certificateRelationsDto = new CertificateRelationsDto();
-        certificateRelationsDto.setCertificateUuid(uuid);
+        certificateRelationsDto.setCertificateUuid(uuid.getValue());
         List<CertificateSimpleDto> successorCertificates = new ArrayList<>();
         for (CertificateRelation successorRelation : certificate.getSuccessorRelations()) {
             successorCertificates
@@ -2954,17 +2955,17 @@ public class CertificateServiceImpl
 
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.UPDATE)
-    public void associateCertificates(UUID uuid, UUID certificateUuid) throws NotFoundException {
-        Certificate certificate = getCertificateEntity(SecuredUUID.fromUUID(uuid));
-        Certificate associatedCertificate = getCertificateEntity(SecuredUUID.fromUUID(certificateUuid));
+    public void associateCertificates(SecuredUUID uuid, SecuredUUID certificateUuid) throws NotFoundException {
+        Certificate certificate = getCertificateEntity(uuid);
+        Certificate associatedCertificate = getCertificateEntity(certificateUuid);
 
         associateCertificateEntities(certificate, associatedCertificate);
     }
 
     /**
-     * Entity variant of {@link #associateCertificates(UUID, UUID)} for callers that already hold both certificates in
-     * the current transaction. Throws only runtime exceptions, so it can run after other writes without a checked
-     * exception committing them under default rollback rules.
+     * Entity variant of {@link #associateCertificates(SecuredUUID, SecuredUUID)} for callers that already hold both
+     * certificates in the current transaction. Throws only runtime exceptions, so it can run after other writes without
+     * a checked exception committing them under default rollback rules.
      */
     private void associateCertificateEntities(Certificate certificate, Certificate associatedCertificate) {
         if (certificate.getUuid().equals(associatedCertificate.getUuid())) {
@@ -3095,9 +3096,9 @@ public class CertificateServiceImpl
 
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.UPDATE)
-    public void removeCertificateAssociation(UUID uuid, UUID certificateUuid) throws NotFoundException {
-        Certificate certificate = getCertificateEntity(SecuredUUID.fromUUID(uuid));
-        Certificate associatedCertificate = getCertificateEntity(SecuredUUID.fromUUID(certificateUuid));
+    public void removeCertificateAssociation(SecuredUUID uuid, SecuredUUID certificateUuid) throws NotFoundException {
+        Certificate certificate = getCertificateEntity(uuid);
+        Certificate associatedCertificate = getCertificateEntity(certificateUuid);
         CertificateRelationId id = determineCertificateRelationId(certificate, associatedCertificate);
         if (!certificateRelationRepository.existsById(id)) {
             throw new NotFoundException(CertificateRelation.class, id);
