@@ -523,7 +523,7 @@ public class CryptographicKeyWriter {
             certificateRepository.clearAltKeyAssociationsIn(emptyKeyUuids);
             attributeEngine.bulkDeleteObjectAttributeContent(Resource.CRYPTOGRAPHIC_KEY, emptyKeyUuids);
             objectAssociationService.bulkRemoveObjectAssociations(Resource.CRYPTOGRAPHIC_KEY, emptyKeyUuids);
-            emptyKeyUuids.forEach(keyUuid -> commentWriter.deleteAllForObject(Resource.CRYPTOGRAPHIC_KEY, keyUuid));
+            commentWriter.deleteAllForObjects(Resource.CRYPTOGRAPHIC_KEY, emptyKeyUuids);
             cryptographicKeyRepository.deleteAllById(emptyKeyUuids);
         }
         return keyItems.size();

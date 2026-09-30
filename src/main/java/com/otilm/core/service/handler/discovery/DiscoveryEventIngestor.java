@@ -6,11 +6,7 @@ import com.otilm.api.model.connector.discovery.DiscoveryProviderCertificateDataD
 import com.otilm.api.model.connector.discovery.v2.DiscoveredCertificateDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredItemDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredKeyDto;
-import com.otilm.api.model.connector.discovery.v2.DiscoveryEvent;
-import com.otilm.api.model.connector.discovery.v2.DiscoveryProgressDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryResultsResponseDto;
-import com.otilm.api.model.connector.discovery.v2.event.DiscoveryErrorEvent;
-import com.otilm.api.model.connector.discovery.v2.event.DiscoveryProgressEvent;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.discovery.DiscoveryMessageSeverity;
 import com.otilm.core.dao.entity.Discovery;
@@ -19,17 +15,12 @@ import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.model.discovery.DiscoveryMessageCode;
 import com.otilm.core.model.discovery.DiscoveryMessageDraft;
-import com.otilm.core.model.discovery.DiscoveryProgressSnapshot;
 import com.otilm.core.model.discovery.DiscoveryRunLifecycle;
-import com.otilm.core.model.discovery.DiscoveryWorkType;
 import com.otilm.core.service.handler.CertificateHandler;
 import com.otilm.core.service.writer.discovery.DiscoveryItemWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
-import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -40,7 +31,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,19 +39,15 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * The single funnel through which connector-reported discovery data enters Core: only a drain page moves the ingestion
- * cursor, and pushed events are advisory.
+ * cursor.
  */
 @Service
 public class DiscoveryEventIngestor {
 
     private static final Logger logger = LoggerFactory.getLogger(DiscoveryEventIngestor.class);
 
-    /** Plausibly a connector's own identifier rather than prose or a fragment of payload. */
-    private static final Pattern REPORTABLE_CODE = Pattern.compile("[A-Za-z0-9._-]{1,64}");
-
     private final DiscoveryRepository discoveryRepository;
     private final DiscoveryItemWriter itemWriter;
-    private final DiscoveryWorkWriter workWriter;
     private final CertificateHandler certificateHandler;
     private final CryptographicKeyItemRepository keyItemRepository;
     private final DiscoveryCertificateRepository certificateRepository;
@@ -69,12 +55,11 @@ public class DiscoveryEventIngestor {
     private final Validator validator;
 
     public DiscoveryEventIngestor(DiscoveryRepository discoveryRepository, DiscoveryItemWriter itemWriter,
-            DiscoveryWorkWriter workWriter, CertificateHandler certificateHandler,
-            CryptographicKeyItemRepository keyItemRepository, DiscoveryCertificateRepository certificateRepository,
-            DiscoveryMessageWriter messageWriter, Validator validator) {
+            CertificateHandler certificateHandler, CryptographicKeyItemRepository keyItemRepository,
+            DiscoveryCertificateRepository certificateRepository, DiscoveryMessageWriter messageWriter,
+            Validator validator) {
         this.discoveryRepository = discoveryRepository;
         this.itemWriter = itemWriter;
-        this.workWriter = workWriter;
         this.certificateHandler = certificateHandler;
         this.keyItemRepository = keyItemRepository;
         this.certificateRepository = certificateRepository;
@@ -135,54 +120,6 @@ public class DiscoveryEventIngestor {
      */
     private void recordCertificatesStagedSoFar(Discovery run) {
         run.setTotalCertificatesDiscovered(certificateRepository.countByDiscovery(run).intValue());
-    }
-
-    /**
-     * Applies one pushed event: progress and errors update the run, {@code STATE_CHANGED} and {@code RESULT_BATCH} ask
-     * for a tick.
-     */
-    @Transactional
-    public void applyAdvisoryEvent(UUID discoveryUuid, DiscoveryEvent event) {
-        Optional<Discovery> located = lockRun(discoveryUuid, "advisory event");
-        if (located.isEmpty()) {
-            return;
-        }
-        Discovery run = located.get();
-        if (DiscoveryRunLifecycle.isTerminal(run.getStatus())) {
-            // Every branch writes to the run; a late event must not overwrite how it already ended.
-            logger
-                    .debug("Ignoring {} event for discovery {}: the run ended as {}", event.getType(), discoveryUuid,
-                            run.getStatus());
-            return;
-        }
-        switch (event.getType()) {
-            case PROGRESS -> applyProgress(run, (DiscoveryProgressEvent) event);
-            case ERROR -> {
-                DiscoveryErrorEvent error = (DiscoveryErrorEvent) event;
-                // The connector's code identifies the problem; its prose goes to the log rather than to the
-                // API-visible message, which carries curated text only.
-                logger.warn("Discovery {} connector error {}: {}", discoveryUuid, error.getCode(), error.getMessage());
-                messageWriter
-                        .append(discoveryUuid, new DiscoveryMessageDraft(DiscoveryMessageSeverity.ERROR,
-                                reportedCode(error), "The Discovery Provider reported a problem with this run.", 1));
-            }
-            case STATE_CHANGED -> scheduleNow(run, DiscoveryWorkType.STATUS);
-            case RESULT_BATCH -> scheduleNow(run, DiscoveryWorkType.DRAIN);
-            case HEARTBEAT -> logger.trace("Heartbeat for discovery {}", discoveryUuid);
-        }
-    }
-
-    /**
-     * The connector's own code, or Core's stand-in when what arrived is not one. The value becomes the identity of a
-     * kind of problem and reaches clients as it arrived, so it is accepted whole or replaced — never trimmed into an
-     * identity no connector sent, which is how two over-long codes sharing a prefix would aggregate onto one entry. The
-     * report itself is never refused, and the raw value is logged by the caller either way.
-     */
-    private static String reportedCode(DiscoveryErrorEvent error) {
-        String code = error.getCode();
-        return code != null && REPORTABLE_CODE.matcher(code).matches()
-                ? code
-                : DiscoveryMessageCode.CONNECTOR_ERROR.code();
     }
 
     /**
@@ -404,42 +341,6 @@ public class DiscoveryEventIngestor {
             return Set.of();
         }
         return Set.copyOf(keyItemRepository.findKnownFingerprints(fingerprints));
-    }
-
-    private void scheduleNow(Discovery run, DiscoveryWorkType workType) {
-        if (DiscoveryRunLifecycle.hasLeftTheConnector(run.getStatus())) {
-            // Covers PROCESSING too: the connector released its handle at the swap.
-            logger
-                    .debug("Ignoring advisory event asking for a {} tick on discovery {}, already {}", workType,
-                            run.getUuid(), run.getStatus());
-            return;
-        }
-        // Expedites only; a pushed event must not refresh a budget no successful call has earned.
-        workWriter.expedite(run.getUuid(), workType, OffsetDateTime.now(ZoneOffset.UTC));
-    }
-
-    /**
-     * A pushed report is held to the same bar as a polled one, and for the same reason — see
-     * {@link DiscoveryProgressSnapshot#reportsSomething}.
-     */
-    private static void applyProgress(Discovery run, DiscoveryProgressEvent event) {
-        DiscoveryProgressDto snapshot = snapshotOf(event);
-        if (DiscoveryProgressSnapshot.reportsSomething(snapshot)) {
-            run.setProgress(DiscoveryProgressSnapshot.recorded(snapshot));
-        }
-    }
-
-    /**
-     * Copies fields rather than storing the event as-is, since the column holds the plain snapshot shape.
-     */
-    private static DiscoveryProgressDto snapshotOf(DiscoveryProgressEvent event) {
-        DiscoveryProgressDto snapshot = new DiscoveryProgressDto();
-        snapshot.setTargetsProcessed(event.getTargetsProcessed());
-        snapshot.setTargetsTotal(event.getTargetsTotal());
-        snapshot.setPhase(event.getPhase());
-        snapshot.setTargetsFailed(event.getTargetsFailed());
-        snapshot.setByResource(event.getByResource());
-        return snapshot;
     }
 
     private Optional<Discovery> lockRun(UUID discoveryUuid, String what) {

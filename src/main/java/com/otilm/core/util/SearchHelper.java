@@ -409,7 +409,8 @@ public class SearchHelper {
                 .toList();
     }
 
-    private static String buildFieldIdentifier(final SearchFieldObject attributeSearchInfo) {
+    /** The identifier the catalogue publishes an attribute field under: name|CONTENT_TYPE. */
+    public static String buildFieldIdentifier(final SearchFieldObject attributeSearchInfo) {
         return attributeSearchInfo.getAttributeName() + "|" + attributeSearchInfo.getAttributeContentType().name();
     }
 
