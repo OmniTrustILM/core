@@ -8,10 +8,12 @@ import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryCertificate;
+import com.otilm.core.dao.entity.DiscoveryMessage;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
+import com.otilm.core.dao.repository.DiscoveryMessageRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.service.handler.discovery.DiscoveryRunTerminator;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -23,6 +25,12 @@ import jakarta.persistence.PersistenceContext;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.orm.jpa.EntityManagerHolder;
@@ -53,6 +61,8 @@ class DiscoveryRunTerminatorITest extends BaseSpringBootTest {
     private DiscoveryCertificateRepository certificateRepository;
     @Autowired
     private CertificateContentRepository certificateContentRepository;
+    @Autowired
+    private DiscoveryMessageRepository messageRepository;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -91,6 +101,41 @@ class DiscoveryRunTerminatorITest extends BaseSpringBootTest {
         assertThat(discoveryRepository.findByUuid(uuid).orElseThrow().getStatus())
                 .as("the first ending stands")
                 .isEqualTo(DiscoveryStatus.FAILED);
+    }
+
+    /**
+     * The status and drain ticks both hear a connector that forgot the run, and both try to end it. Only one ending may
+     * stand: a second finalizes the run, logs its ending and announces it again.
+     */
+    @Test
+    void twoWorkersEndingTheSameRunAtOnce_endItOnce() throws Exception {
+        for (int round = 0; round < 10; round++) {
+            UUID uuid = v2Run().getUuid();
+            CyclicBarrier together = new CyclicBarrier(2);
+            Callable<Boolean> ending = () -> {
+                together.await(10, TimeUnit.SECONDS);
+                return terminator
+                        .endConnectorOwned(uuid, DiscoveryStatus.FAILED, "The connector no longer tracks this run");
+            };
+            ExecutorService workers = Executors.newFixedThreadPool(2);
+            List<Future<Boolean>> outcomes;
+            try {
+                outcomes = workers.invokeAll(List.of(ending, ending));
+            } finally {
+                workers.shutdownNow();
+            }
+
+            int endedBy = 0;
+            for (Future<Boolean> outcome : outcomes) {
+                endedBy += Boolean.TRUE.equals(outcome.get()) ? 1 : 0;
+            }
+            assertThat(endedBy).as("round %d", round).isEqualTo(1);
+            assertThat(messageRepository.findByDiscoveryUuidOrderByIdAsc(uuid))
+                    .as("round %d", round)
+                    .singleElement()
+                    .extracting(DiscoveryMessage::getOccurrences)
+                    .isEqualTo(1L);
+        }
     }
 
     /**

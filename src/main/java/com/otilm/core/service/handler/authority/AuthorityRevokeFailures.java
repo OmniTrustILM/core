@@ -37,7 +37,7 @@ public final class AuthorityRevokeFailures {
             case ConnectorException ignored -> REJECTED;
             case CertificateOperationException known when known.getMessage() != null -> known.getMessage();
             case ValidationException known when known.getMessage() != null -> known.getMessage();
-            default -> "revocation failed";
+            default -> "internal error";
         };
     }
 

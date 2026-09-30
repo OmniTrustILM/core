@@ -108,7 +108,8 @@ class RevocationApprovalRejectedITest extends AbstractApprovalWorkflowITest {
                 .pollInSameThread()
                 .atMost(10, TimeUnit.SECONDS)
                 .untilAsserted(() -> {
-                    List<CertificateEventHistoryDto> history = certHistoryService.getCertificateEventHistory(certUuid);
+                    List<CertificateEventHistoryDto> history = certHistoryService
+                            .getCertificateEventHistory(SecuredUUID.fromUUID(certUuid));
                     assertThat(history)
                             .as("Certificate history should contain APPROVAL_CLOSE event after rejectApprovalRecipient()")
                             .anyMatch(h -> h.getEvent() == CertificateEvent.APPROVAL_CLOSE);

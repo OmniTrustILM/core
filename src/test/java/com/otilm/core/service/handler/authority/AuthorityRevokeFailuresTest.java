@@ -47,7 +47,7 @@ class AuthorityRevokeFailuresTest {
                         Arguments.of(new ConnectorException("Connector not found for authority instance"), REJECTED),
                         Arguments
                                 .of(new IllegalStateException("java.lang.NullPointerException at line 42"),
-                                        "revocation failed"));
+                                        "internal error"));
     }
 
     @ParameterizedTest

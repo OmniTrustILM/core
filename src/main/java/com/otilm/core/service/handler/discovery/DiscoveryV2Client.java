@@ -2,11 +2,14 @@ package com.otilm.core.service.handler.discovery;
 
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ConnectorProblemException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.DataAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.error.ErrorCode;
+import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryDrainRequestDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryInitiateRequestDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryInitiateResponseDto;
@@ -103,8 +106,29 @@ public class DiscoveryV2Client {
             throws ConnectorException, NotFoundException, AttributeException {
         ConnectorDto connector = connectorOf(run);
         DiscoveryInitiateRequestDto request = new DiscoveryInitiateRequestDto();
-        populate(request, run, connector);
-        return connectorApiFactory.getDiscoveryApiClientV2(connector).initiate(connector, request);
+        Set<String> sentSecrets = populate(request, run, connector);
+        try {
+            return connectorApiFactory.getDiscoveryApiClientV2(connector).initiate(connector, request);
+        } catch (ConnectorProblemException e) {
+            if (sentSecrets.isEmpty()) {
+                throw e;
+            }
+            // A refusal of the initiate reaches the API caller, and the request carried secrets that caller may not
+            // read, so the connector's words may carry one back. Its verdict is kept; its words are not.
+            throw new ConnectorProblemException(withoutItsWords(e.getProblemDetail()));
+        }
+    }
+
+    private static ProblemDetailExtended withoutItsWords(ProblemDetailExtended answered) {
+        ErrorCode code = answered.getErrorCode();
+        if (code != null) {
+            return ProblemDetailExtended
+                    .fromErrorCode(code, "The connector refused the run (%s).".formatted(code.name()), null, null);
+        }
+        ProblemDetailExtended refused = new ProblemDetailExtended();
+        refused.setStatus(answered.getStatus());
+        refused.setDetail("The connector refused the run.");
+        return refused;
     }
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)

@@ -169,6 +169,12 @@ public class DiscoveryRunTerminator {
      */
     public void applyTerminalState(Discovery run, DiscoveryStatus status, String reason) {
         run.setStatus(status);
+        // An ending Core decides while the connector last reported the run live is the connector's ending too: it
+        // refused the run, forgot it, or stopped answering for it, and a live connector status beside a terminal run
+        // reads as a scan still going. A terminal status the connector reported itself is kept as it is.
+        if (!DiscoveryRunLifecycle.isTerminal(run.getConnectorStatus())) {
+            run.setConnectorStatus(status);
+        }
         run.setMessage(reason);
         run.setEndTime(OffsetDateTime.now(ZoneOffset.UTC));
         recordCertificateCounts(run);

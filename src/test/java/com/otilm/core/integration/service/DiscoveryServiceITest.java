@@ -5,6 +5,7 @@ import com.github.tomakehurst.wiremock.client.WireMock;
 import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ConnectorProblemException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
@@ -25,6 +26,7 @@ import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.content.data.CredentialAttributeContentData;
 import com.otilm.api.model.common.attribute.v2.content.CredentialAttributeContentV2;
+import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSimpleContentData;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryProgressDto;
@@ -87,6 +89,7 @@ import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
 
 class DiscoveryServiceITest extends BaseSpringBootTest {
@@ -1028,6 +1031,71 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
 
         Assertions.assertNotNull(created.getUuid());
     }
+
+    /**
+     * A client that leaves out {@code "version": "v3"} gets an attribute Jackson reads as a v2 one, which a v3
+     * definition cannot take. That is the caller's to correct, so it is refused as such rather than failing inside.
+     */
+    @Test
+    void creatingAV2RunRefusesAnAttributeSentAsAnEarlierVersionThanItsDefinition() {
+        giveConnectorAV2DiscoveryInterface();
+        stubSupportedResources("""
+                [{"resource":"certificates"}]""");
+        stubRunAttributes(HOSTS_DEFINITION);
+        DiscoveryDto request = v2Request(List.of(Resource.CERTIFICATE));
+        request
+                .setAttributes(List
+                        .of(new RequestAttributeV2(HOSTS_UUID, "data_hosts", AttributeContentType.STRING,
+                                List.of(new StringAttributeContentV2("10.0.0.1")))));
+
+        ValidationException refused = Assertions
+                .assertThrows(ValidationException.class, () -> discoveryService.createDiscovery(request, true));
+
+        Assertions.assertTrue(refused.getMessage().contains("data_hosts"), refused.getMessage());
+        Assertions.assertTrue(refused.getMessage().contains("v3"), refused.getMessage());
+        Assertions.assertTrue(discoveryRepository.findByName(request.getName()).isEmpty());
+    }
+
+    /**
+     * The connector is the only party that can judge a target list, and it does so at initiate. Started on the creating
+     * caller's thread, its refusal reaches that caller, and the run it refused is not kept.
+     */
+    @Test
+    void aV2RunTheConnectorRefusesAtInitiate_isRefusedToTheCallerAndNotKept() throws Exception {
+        giveConnectorAV2DiscoveryInterface();
+        stubSupportedResources("""
+                [{"resource":"certificates"}]""");
+        stubRunAttributes("[]");
+        WireMock
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo("/v2/discoveryProvider/discoveries/initiate"))
+                        .willReturn(WireMock
+                                .aResponse()
+                                .withStatus(422)
+                                .withHeader("Content-Type", "application/problem+json")
+                                .withBody("""
+                                        {"type":"https://docs.otilm.com/problems/common/VALIDATION_FAILED",
+                                         "title":"Validation failed","status":422,
+                                         "detail":"data_hosts entry \\"10.0.0.999\\" is not valid",
+                                         "errorCode":"VALIDATION_FAILED","retryable":false}""")));
+        UUID created = UUID
+                .fromString(discoveryService.createDiscovery(v2Request(List.of(Resource.CERTIFICATE)), true).getUuid());
+
+        ConnectorProblemException refused = Assertions
+                .assertThrows(ConnectorProblemException.class, () -> discoveryService.startDiscovery(created));
+
+        Assertions.assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, refused.getHttpStatus());
+        Assertions.assertTrue(refused.getMessage().contains("10.0.0.999"), refused.getMessage());
+        Assertions.assertTrue(discoveryRepository.findByUuid(created).isEmpty(), "the refused run is not kept");
+    }
+
+    private static final UUID HOSTS_UUID = UUID.fromString("7f7f0000-0000-4000-8000-000000000004");
+
+    private static final String HOSTS_DEFINITION = """
+            [{"uuid":"7f7f0000-0000-4000-8000-000000000004","name":"data_hosts",
+              "type":"data","version":3,"contentType":"string",
+              "properties":{"label":"Hosts","visible":true,"required":true,
+                            "list":true,"multiSelect":true,"extensibleList":true}}]""";
 
     private static final String RESOURCE_DEFINITION = """
             [{"uuid":"7f7f0000-0000-4000-8000-000000000003","name":"vault",
