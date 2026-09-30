@@ -51,6 +51,7 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
+import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.SQLJoinTableRestriction;
 import org.hibernate.proxy.HibernateProxy;
@@ -91,6 +92,9 @@ import org.hibernate.type.SqlTypes;
                         attributeNodes = @NamedAttributeNode("authorityInstanceReference"))})
 @Entity
 @Table(name = "certificate")
+// A request may hold a copy read before a revocation or another state change committed; writing only what it changed
+// keeps the state the change gave the certificate.
+@DynamicUpdate
 public class Certificate extends UniquelyIdentifiedAndAudited
         implements
             ComplianceSubject,
