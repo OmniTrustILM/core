@@ -196,6 +196,65 @@ class ExternalAuthorizationCoreTest {
     }
 
     @Test
+    void ownerFallbackCountsARepeatedObjectOnce() {
+        // given: the principal owns the one object the request names twice
+        when(opaClient.checkResourceAccess(any(), any(), any(), any()))
+                .thenReturn(OpaResourceAccessResult.unauthorized());
+        UUID userUuid = UUID.randomUUID();
+        UUID objectUuid = UUID.randomUUID();
+        AuthorizationRequest request = AuthorizationRequest
+                .forDirectCheck(Resource.CERTIFICATE, ResourceAction.ARCHIVE,
+                        List.of(SecuredUUID.fromUUID(objectUuid), SecuredUUID.fromUUID(objectUuid)));
+        when(ownerAssociationRepository.countOwnedObjects(userUuid, Resource.CERTIFICATE, List.of(objectUuid)))
+                .thenReturn(1L);
+
+        // when
+        AuthorizationDecision decision = core.decide(platformAuthentication(userUuid.toString()), request);
+
+        // then
+        assertThat(decision.isGranted()).isTrue();
+    }
+
+    @Test
+    void ownerFallbackDoesNotApplyWhenAnObjectUuidIsNull() {
+        // given
+        when(opaClient.checkResourceAccess(any(), any(), any(), any()))
+                .thenReturn(OpaResourceAccessResult.unauthorized());
+        AuthorizationRequest request = AuthorizationRequest
+                .forDirectCheck(Resource.CERTIFICATE, ResourceAction.ARCHIVE,
+                        List.of(SecuredUUID.fromUUID(UUID.randomUUID()), SecuredUUID.fromUUID(null)));
+
+        // when
+        AuthorizationDecision decision = core.decide(platformAuthentication(UUID.randomUUID().toString()), request);
+
+        // then
+        assertThat(decision.isGranted()).isFalse();
+        verifyNoInteractions(ownerAssociationRepository);
+    }
+
+    @Test
+    void resourceWithoutOwnersSkipsTheOwnerLookup() {
+        // given: USER has group associations but no owner
+        UUID objectUuid = UUID.randomUUID();
+        AuthorizationRequest request = AuthorizationRequest
+                .forDirectCheck(Resource.USER, ResourceAction.DETAIL, List.of(SecuredUUID.fromUUID(objectUuid)));
+        GroupAssociation groupAssociation = new GroupAssociation();
+        groupAssociation.setGroupUuid(UUID.randomUUID());
+        when(groupAssociationRepository.findByResourceAndObjectUuid(Resource.USER, objectUuid))
+                .thenReturn(List.of(groupAssociation));
+        when(opaClient.checkResourceAccess(any(), any(), any(), any()))
+                .thenReturn(OpaResourceAccessResult.unauthorized()) // direct check
+                .thenReturn(accessGranted()); // group-member check
+
+        // when
+        AuthorizationDecision decision = core.decide(platformAuthentication(UUID.randomUUID().toString()), request);
+
+        // then
+        assertThat(decision.isGranted()).isTrue();
+        verifyNoInteractions(ownerAssociationRepository);
+    }
+
+    @Test
     void groupFallbackDeniesWhenObjectHasNoGroups() {
         // given
         when(opaClient.checkResourceAccess(any(), any(), any(), any()))

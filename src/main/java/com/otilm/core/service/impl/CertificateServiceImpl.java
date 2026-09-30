@@ -2897,7 +2897,7 @@ public class CertificateServiceImpl
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.ARCHIVE)
     public void bulkArchiveCertificates(List<SecuredUUID> securedUuids) {
-        List<UUID> uuids = securedUuids.stream().map(SecuredUUID::getValue).toList();
+        List<UUID> uuids = securedUuids.stream().map(SecuredUUID::getValue).distinct().toList();
         certificateRepository.archiveCertificates(true, uuids);
         for (UUID uuid : uuids) {
             certificateEventHistoryService
@@ -2909,7 +2909,7 @@ public class CertificateServiceImpl
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.ARCHIVE)
     public void bulkUnarchiveCertificates(List<SecuredUUID> securedUuids) {
-        List<UUID> uuids = securedUuids.stream().map(SecuredUUID::getValue).toList();
+        List<UUID> uuids = securedUuids.stream().map(SecuredUUID::getValue).distinct().toList();
         certificateRepository.archiveCertificates(false, uuids);
         for (UUID uuid : uuids) {
             certificateEventHistoryService

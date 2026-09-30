@@ -180,6 +180,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * wording must fit all of them.
      */
     private static final String CERTIFICATE_REQUESTED_EVENT_MESSAGE = "Certificate requested";
+    private static final String INTERNAL_ERROR = "internal error";
 
     /**
      * Structured event-log surface for system-level state-transition events that are not directly user-triggered, per
@@ -1179,7 +1180,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                     .addEventHistory(certificate.getUuid(), CertificateEvent.UPDATE_STATE,
                             CertificateEventStatus.FAILED,
                             "Failed to persist connector registration metadata; later status tracking may be limited. Cause: "
-                                    + safeMessage(metaEx, "internal error"),
+                                    + safeMessage(metaEx, INTERNAL_ERROR),
                             "");
         }
     }
@@ -1611,6 +1612,54 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     /**
+     * Moves the predecessor's locations to its successor: removes the predecessor from each location and pushes the
+     * successor there with the same push attributes. A failure stops the move and surfaces without its runtime detail.
+     */
+    private void replaceInLocations(Certificate oldCertificate, Certificate certificate, String operation)
+            throws CertificateOperationException {
+        Location location = null;
+        try {
+            logger.info("Replacing certificates in locations for certificate: {}", certificate);
+            for (CertificateLocation cl : oldCertificate.getLocations()) {
+                location = cl.getLocation();
+                PushToLocationRequestDto pushRequest = new PushToLocationRequestDto();
+                pushRequest.setAttributes(AttributeDefinitionUtils.getClientAttributes(cl.getPushAttributes()));
+
+                locationService
+                        .removeCertificateFromLocation(
+                                SecuredParentUUID.fromUUID(cl.getLocation().getEntityInstanceReferenceUuid()),
+                                cl.getLocation().getSecuredUuid(), oldCertificate.getUuid().toString());
+                certificateEventHistoryService
+                        .addEventHistory(oldCertificate.getUuid(), CertificateEvent.UPDATE_LOCATION,
+                                CertificateEventStatus.SUCCESS, "Removed from Location " + cl.getLocation().getName(),
+                                "");
+
+                locationService
+                        .pushCertificateToLocation(
+                                SecuredParentUUID.fromUUID(cl.getLocation().getEntityInstanceReferenceUuid()),
+                                cl.getLocation().getSecuredUuid(), certificate.getUuid().toString(), pushRequest);
+                certificateEventHistoryService
+                        .addEventHistory(certificate.getUuid(), CertificateEvent.UPDATE_LOCATION,
+                                CertificateEventStatus.SUCCESS, "Pushed to Location " + cl.getLocation().getName(), "");
+            }
+        } catch (Exception e) {
+            certificateEventHistoryService
+                    .addEventHistory(certificate.getUuid(), CertificateEvent.UPDATE_LOCATION,
+                            CertificateEventStatus.FAILED,
+                            "Failed to replace certificate in location %s: %s"
+                                    .formatted(location != null ? location.getName() : "",
+                                            safeMessage(e, INTERNAL_ERROR)),
+                            "");
+            logger
+                    .error("Failed to replace certificate in all locations during {} operation: {}", operation,
+                            e.getMessage(), e);
+            throw new CertificateOperationException(
+                    "Failed to replace certificate in all locations during %s operation: %s"
+                            .formatted(operation, safeMessage(e, INTERNAL_ERROR)));
+        }
+    }
+
+    /**
      * Includes the message only from our shaped domain exceptions (connector/operation/validation); other causes (e.g.
      * JPA) fall back to {@code fallback}.
      */
@@ -1655,7 +1704,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                                 "Failed to persist connector metadata returned with HTTP 202; "
                                         + "cancellation of this pending operation may be limited if "
                                         + "the connector requires the original metadata. Cause: "
-                                        + safeMessage(metaEx, "internal error"),
+                                        + safeMessage(metaEx, INTERNAL_ERROR),
                                 "");
             }
         }
@@ -2141,67 +2190,22 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 certificateEventHistoryService
                         .addEventHistory(oldCertificate.getUuid(), CertificateEvent.RENEW,
                                 CertificateEventStatus.FAILED,
-                                "Connector accepted renewal but local update failed: "
-                                        + safeMessage(e, "internal error"),
+                                "Connector accepted renewal but local update failed: " + safeMessage(e, INTERNAL_ERROR),
                                 MetaDefinitions.serialize(additionalInformation));
                 throw new CertificateOperationException(
                         "Connector accepted renewal but local update failed for certificate %s: "
-                                .formatted(certificateUuid) + safeMessage(e, "internal error"));
+                                .formatted(certificateUuid) + safeMessage(e, INTERNAL_ERROR));
             }
             handleFailedOrRejectedEvent(certificate, oldCertificate.getUuid(), CertificateState.FAILED,
                     CertificateEvent.RENEW, additionalInformation, safeMessage(e, "Renewal failed"));
             throw new CertificateOperationException(
                     "Failed to renew certificate with UUID %s: ".formatted(certificateUuid)
-                            + safeMessage(e, "internal error"));
+                            + safeMessage(e, INTERNAL_ERROR));
         }
 
-        Location location = null;
-        try {
-            // replace certificate in the locations if needed
-            if (request.isReplaceInLocations()) {
-                logger.info("Replacing certificates in locations for certificate: {}", certificate);
-                for (CertificateLocation cl : oldCertificate.getLocations()) {
-                    location = cl.getLocation();
-                    PushToLocationRequestDto pushRequest = new PushToLocationRequestDto();
-                    pushRequest.setAttributes(AttributeDefinitionUtils.getClientAttributes(cl.getPushAttributes()));
-
-                    locationService
-                            .removeCertificateFromLocation(
-                                    SecuredParentUUID.fromUUID(cl.getLocation().getEntityInstanceReferenceUuid()),
-                                    cl.getLocation().getSecuredUuid(), oldCertificate.getUuid().toString());
-                    certificateEventHistoryService
-                            .addEventHistory(oldCertificate.getUuid(), CertificateEvent.UPDATE_LOCATION,
-                                    CertificateEventStatus.SUCCESS,
-                                    "Removed from Location " + cl.getLocation().getName(), "");
-
-                    locationService
-                            .pushCertificateToLocation(
-                                    SecuredParentUUID.fromUUID(cl.getLocation().getEntityInstanceReferenceUuid()),
-                                    cl.getLocation().getSecuredUuid(), certificate.getUuid().toString(), pushRequest);
-                    certificateEventHistoryService
-                            .addEventHistory(certificate.getUuid(), CertificateEvent.UPDATE_LOCATION,
-                                    CertificateEventStatus.SUCCESS, "Pushed to Location " + cl.getLocation().getName(),
-                                    "");
-                }
-            }
-
-        } catch (Exception e) {
-            certificateEventHistoryService
-                    .addEventHistory(certificate.getUuid(), CertificateEvent.UPDATE_LOCATION,
-                            CertificateEventStatus.FAILED,
-                            String
-                                    .format("Failed to replace certificate in location %s: %s",
-                                            location != null ? location.getName() : "",
-                                            safeMessage(e, "internal error")),
-                            "");
-            logger
-                    .error("Failed to replace certificate in all locations during renew operation: {}", e.getMessage(),
-                            e);
-            throw new CertificateOperationException("Failed to replace certificate in all locations during renew "
-                    + "operation: " + safeMessage(e, "internal error"));
-        }
-
-        if (!request.isReplaceInLocations()) {
+        if (request.isReplaceInLocations()) {
+            replaceInLocations(oldCertificate, certificate, "renew");
+        } else {
             // push certificate to locations
             for (CertificateLocation cl : certificate.getLocations()) {
                 try {
@@ -2449,63 +2453,21 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 certificateEventHistoryService
                         .addEventHistory(oldCertificate.getUuid(), CertificateEvent.REKEY,
                                 CertificateEventStatus.FAILED,
-                                "Connector accepted rekey but local update failed: " + safeMessage(e, "internal error"),
+                                "Connector accepted rekey but local update failed: " + safeMessage(e, INTERNAL_ERROR),
                                 MetaDefinitions.serialize(additionalInformation));
                 throw new CertificateOperationException(
                         "Connector accepted rekey but local update failed for certificate %s: "
-                                .formatted(certificateUuid) + safeMessage(e, "internal error"));
+                                .formatted(certificateUuid) + safeMessage(e, INTERNAL_ERROR));
             }
             handleFailedOrRejectedEvent(certificate, oldCertificate.getUuid(), CertificateState.FAILED,
                     CertificateEvent.REKEY, additionalInformation, safeMessage(e, "Rekey failed"));
             throw new CertificateOperationException(
                     "Failed to rekey certificate with UUID %s: ".formatted(certificateUuid)
-                            + safeMessage(e, "internal error"));
+                            + safeMessage(e, INTERNAL_ERROR));
         }
 
-        Location location = null;
-        try {
-            /* replace certificate in the locations if needed */
-            if (request.isReplaceInLocations()) {
-                logger.info("Replacing certificates in locations for certificate: {}", certificate);
-                for (CertificateLocation cl : oldCertificate.getLocations()) {
-                    location = cl.getLocation();
-                    PushToLocationRequestDto pushRequest = new PushToLocationRequestDto();
-                    pushRequest.setAttributes(AttributeDefinitionUtils.getClientAttributes(cl.getPushAttributes()));
-
-                    locationService
-                            .removeCertificateFromLocation(
-                                    SecuredParentUUID.fromUUID(cl.getLocation().getEntityInstanceReferenceUuid()),
-                                    cl.getLocation().getSecuredUuid(), oldCertificate.getUuid().toString());
-                    certificateEventHistoryService
-                            .addEventHistory(oldCertificate.getUuid(), CertificateEvent.UPDATE_LOCATION,
-                                    CertificateEventStatus.SUCCESS,
-                                    "Removed from Location " + cl.getLocation().getName(), "");
-
-                    locationService
-                            .pushCertificateToLocation(
-                                    SecuredParentUUID.fromUUID(cl.getLocation().getEntityInstanceReferenceUuid()),
-                                    cl.getLocation().getSecuredUuid(), certificate.getUuid().toString(), pushRequest);
-                    certificateEventHistoryService
-                            .addEventHistory(certificate.getUuid(), CertificateEvent.UPDATE_LOCATION,
-                                    CertificateEventStatus.SUCCESS, "Pushed to Location " + cl.getLocation().getName(),
-                                    "");
-                }
-            }
-
-        } catch (Exception e) {
-            certificateEventHistoryService
-                    .addEventHistory(certificate.getUuid(), CertificateEvent.UPDATE_LOCATION,
-                            CertificateEventStatus.FAILED,
-                            String
-                                    .format("Failed to replace certificate in location %s: %s",
-                                            location != null ? location.getName() : "",
-                                            safeMessage(e, "internal error")),
-                            "");
-            logger
-                    .error("Failed to replace certificate in all locations during rekey operation: {}", e.getMessage(),
-                            e);
-            throw new CertificateOperationException("Failed to replace certificate in all locations during rekey "
-                    + "operation: " + safeMessage(e, "internal error"));
+        if (request.isReplaceInLocations()) {
+            replaceInLocations(oldCertificate, certificate, "rekey");
         }
 
         // raise event
@@ -2617,7 +2579,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 // would create state divergence between the platform and the authority. Surface
                 // the local failure but do not mask the upstream success.
                 String msg = "Connector accepted revoke but local state update failed: "
-                        + safeMessage(e, "internal error");
+                        + safeMessage(e, INTERNAL_ERROR);
                 certificateEventHistoryService
                         .addEventHistory(certificate.getUuid(), CertificateEvent.REVOKE, CertificateEventStatus.FAILED,
                                 msg, "");
@@ -2637,8 +2599,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                     .addEventHistory(certificate.getUuid(), CertificateEvent.REVOKE, CertificateEventStatus.FAILED,
                             safeMessage(e, "Revocation failed"), "");
             logger.error("Failed to revoke Certificate: {}", e.getMessage(), e);
-            throw new CertificateOperationException(
-                    "Failed to revoke certificate: " + safeMessage(e, "internal error"));
+            throw new CertificateOperationException("Failed to revoke certificate: " + safeMessage(e, INTERNAL_ERROR));
         }
 
         if (certificate.getKey() != null && request.isDestroyKey()) {

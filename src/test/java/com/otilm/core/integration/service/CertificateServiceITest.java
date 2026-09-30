@@ -2740,8 +2740,12 @@ class CertificateServiceITest extends BaseSpringBootTest {
             certificateService
                     .bulkArchiveCertificates(List.of(certificate.getSecuredUuid(), certificate.getSecuredUuid()));
 
-            // then
-            assertThat(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().isArchived()).isTrue();
+            // then - one transition, one history entry
+            Certificate archived = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+            assertThat(archived.isArchived()).isTrue();
+            assertThat(certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(archived))
+                    .filteredOn(h -> h.getEvent() == CertificateEvent.ARCHIVE)
+                    .hasSize(1);
         }
 
         @Test
