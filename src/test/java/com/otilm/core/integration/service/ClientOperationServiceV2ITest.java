@@ -2396,8 +2396,8 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
         request.setAttributes(List.of());
 
-        ExecutorService revoker = new DelegatingSecurityContextExecutorService(Executors.newSingleThreadExecutor());
-        try {
+        try (ExecutorService revoker = new DelegatingSecurityContextExecutorService(
+                Executors.newSingleThreadExecutor())) {
             new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
                 Certificate readBeforeRevoke = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
                 try {
@@ -2410,8 +2410,6 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 }
                 readBeforeRevoke.setValidationStatus(CertificateValidationStatus.INVALID);
             });
-        } finally {
-            revoker.shutdownNow();
         }
 
         Certificate fetched = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
@@ -2486,14 +2484,36 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
+    void revokeCertificateAction_failedApprovedRevokeKeepsItsOwnErrorWhenTheRestoreFails() {
+        certificate.setState(CertificateState.PENDING_APPROVAL);
+        certificateRepository.save(certificate);
+        stubRevokeResponse(WireMock.jsonResponse("{\"message\": \"refused\"}", 400));
+        UUID certificateUuid = certificate.getUuid();
+        doThrow(new IllegalStateException("lock wait timeout"))
+                .when(certificateRepository)
+                .findAndLockWithAssociationsByUuid(certificateUuid);
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+
+        CertificateOperationException ex = Assertions
+                .assertThrows(CertificateOperationException.class,
+                        () -> clientOperationInternalService.revokeCertificateAction(certificateUuid, request, true));
+
+        Assertions.assertEquals("Failed to revoke certificate: the authority rejected the revocation", ex.getMessage());
+        Assertions
+                .assertEquals(CertificateState.PENDING_APPROVAL,
+                        certificateRepository.findByUuid(certificateUuid).orElseThrow().getState());
+    }
+
+    @Test
     void revokeCertificateAction_keepsAComplianceResultStoredWhileTheConnectorWasCalled() throws Exception {
         String revokePath = "/v2/authorityProvider/authorities/[^/]+/certificates/revoke";
         stubRevokeResponse(WireMock.aResponse().withStatus(204).withFixedDelay(1_000));
         ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
         request.setAttributes(List.of());
 
-        ExecutorService revoker = new DelegatingSecurityContextExecutorService(Executors.newSingleThreadExecutor());
-        try {
+        try (ExecutorService revoker = new DelegatingSecurityContextExecutorService(
+                Executors.newSingleThreadExecutor())) {
             Future<?> revoke = revoker.submit(() -> {
                 clientOperationInternalService.revokeCertificateAction(certificate.getUuid(), request, true);
                 return null;
@@ -2506,8 +2526,6 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                             .getCount() == 1);
             storeComplianceResult(ComplianceStatus.OK);
             revoke.get(10, TimeUnit.SECONDS);
-        } finally {
-            revoker.shutdownNow();
         }
 
         Certificate fetched = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
@@ -2586,8 +2604,8 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
         request.setAttributes(List.of());
 
-        ExecutorService revoker = new DelegatingSecurityContextExecutorService(Executors.newSingleThreadExecutor());
-        try {
+        try (ExecutorService revoker = new DelegatingSecurityContextExecutorService(
+                Executors.newSingleThreadExecutor())) {
             Future<?> failing = revoker.submit(() -> {
                 clientOperationInternalService.revokeCertificateAction(certificate.getUuid(), request, true);
                 return null;
@@ -2610,8 +2628,6 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
             ExecutionException failure = Assertions
                     .assertThrows(ExecutionException.class, () -> failing.get(10, TimeUnit.SECONDS));
             Assertions.assertInstanceOf(CertificateOperationException.class, failure.getCause());
-        } finally {
-            revoker.shutdownNow();
         }
 
         Certificate fetched = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
