@@ -2623,11 +2623,18 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // Connector itself failed. This action changed no state before the connector call, so it writes none
             // back: the entry state would undo a revocation a concurrent action has committed since this one read
             // the certificate.
-            String msg = "Failed to revoke certificate: " + AuthorityRevokeFailures.describe(e);
+            String reason = AuthorityRevokeFailures.describe(e);
+            String msg = "Failed to revoke certificate: " + reason;
             certificateEventHistoryService
                     .addEventHistory(certificate.getUuid(), CertificateEvent.REVOKE, CertificateEventStatus.FAILED, msg,
                             "");
-            logger.error("Failed to revoke certificate {}: {}", certificate.getUuid(), e.getMessage(), e);
+            if (e instanceof ConnectorException connectorFailure) {
+                logger
+                        .error("Failed to revoke certificate {}: {} ({})", certificate.getUuid(), reason,
+                                AuthorityRevokeFailures.logDetail(connectorFailure));
+            } else {
+                logger.error("Failed to revoke certificate {}: {}", certificate.getUuid(), reason, e);
+            }
             if (certificate.getState() == CertificateState.PENDING_APPROVAL) {
                 returnFailedApprovedRevokeToIssued(certificate.getUuid());
             }

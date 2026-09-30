@@ -41,6 +41,22 @@ public final class AuthorityRevokeFailures {
         };
     }
 
+    /**
+     * Names a connector failure for the log by its class and HTTP status. Its message and cause stay out: they can
+     * quote the connector's answer, which may carry credentials the request sent.
+     */
+    public static String logDetail(ConnectorException e) {
+        HttpStatus status = switch (e) {
+            case ConnectorProblemException problem when problem.getProblemDetail() != null ->
+                HttpStatus.resolve(problem.getProblemDetail().getStatus());
+            case ConnectorClientException client -> client.getHttpStatus();
+            case ConnectorServerException server -> server.getHttpStatus();
+            default -> null;
+        };
+        String type = e.getClass().getSimpleName();
+        return status == null ? type : "%s, HTTP %d".formatted(type, status.value());
+    }
+
     /** The error code decides where it has a meaning of its own; otherwise the problem's status does. */
     private static String describe(ErrorCode code, HttpStatus status) {
         return switch (code) {

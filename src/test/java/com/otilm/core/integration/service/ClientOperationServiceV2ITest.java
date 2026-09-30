@@ -1,5 +1,8 @@
 package com.otilm.core.integration.service;
 
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.spi.ThrowableProxyUtil;
+import ch.qos.logback.core.read.ListAppender;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder;
 import com.github.tomakehurst.wiremock.client.WireMock;
@@ -107,6 +110,7 @@ import com.otilm.core.service.CryptographicOperationInternalService;
 import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
+import com.otilm.core.service.v2.impl.ClientOperationServiceImpl;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateRequestUtils;
 import com.otilm.core.util.CertificateTestUtil;
@@ -163,6 +167,7 @@ import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -2652,6 +2657,40 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         stubRevokeResponse(WireMock.aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER));
 
         assertRevokeFailsWith("Failed to revoke certificate: the authority could not be reached");
+    }
+
+    @Test
+    void revokeCertificateAction_keepsTheConnectorsAnswerOutOfTheLog() {
+        String sentinel = "SENTINEL-SECRET-2410";
+        stubRevokeResponse(WireMock.jsonResponse("{\"message\": \"credential " + sentinel + " was refused\"}", 500));
+        UUID certificateUuid = certificate.getUuid();
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+        ListAppender<ILoggingEvent> logged = new ListAppender<>();
+        logged.start();
+        ch.qos.logback.classic.Logger serviceLogger = (ch.qos.logback.classic.Logger) LoggerFactory
+                .getLogger(ClientOperationServiceImpl.class);
+        serviceLogger.addAppender(logged);
+        try {
+            Assertions
+                    .assertThrows(CertificateOperationException.class, () -> clientOperationInternalService
+                            .revokeCertificateAction(certificateUuid, request, true));
+        } finally {
+            serviceLogger.detachAppender(logged);
+        }
+
+        List<String> events = logged.list
+                .stream()
+                .map(event -> event.getFormattedMessage() + (event.getThrowableProxy() == null
+                        ? ""
+                        : ThrowableProxyUtil.asString(event.getThrowableProxy())))
+                .toList();
+        Assertions
+                .assertTrue(events.stream().anyMatch(event -> event.contains("the authority reported an error")),
+                        "the failure is still logged: " + events);
+        Assertions
+                .assertTrue(events.stream().noneMatch(event -> event.contains(sentinel)),
+                        "the connector's answer must not reach the log: " + events);
     }
 
     private void stubRevokeResponse(ResponseDefinitionBuilder response) {

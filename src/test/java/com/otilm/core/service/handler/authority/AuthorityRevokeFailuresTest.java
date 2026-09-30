@@ -68,6 +68,24 @@ class AuthorityRevokeFailuresTest {
                         new CertificateOperationException("Certificate has no content"));
     }
 
+    static Stream<Arguments> logDetails() {
+        return Stream
+                .of(Arguments.of(server(HttpStatus.INTERNAL_SERVER_ERROR), "ConnectorServerException, HTTP 500"),
+                        Arguments.of(client(HttpStatus.UNAUTHORIZED), "ConnectorClientException, HTTP 401"),
+                        Arguments.of(client(null), "ConnectorClientException"),
+                        Arguments.of(problem(ErrorCode.UPSTREAM_ERROR, 502), "ConnectorProblemException, HTTP 502"),
+                        Arguments.of(problem(null, 0), "ConnectorProblemException"),
+                        Arguments
+                                .of(new ConnectorCommunicationException("Connection reset", null),
+                                        "ConnectorCommunicationException"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("logDetails")
+    void namesTheFailureForTheLogWithoutItsMessage(ConnectorException failure, String expected) {
+        Assertions.assertEquals(expected, AuthorityRevokeFailures.logDetail(failure));
+    }
+
     private static ConnectorClientException client(HttpStatus status) {
         return new ConnectorClientException("java.lang.IllegalStateException: refused", status);
     }
