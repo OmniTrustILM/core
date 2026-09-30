@@ -6,7 +6,11 @@ import ch.qos.logback.core.read.ListAppender;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder;
 import com.github.tomakehurst.wiremock.client.WireMock;
+import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
+import com.github.tomakehurst.wiremock.extension.Parameters;
+import com.github.tomakehurst.wiremock.extension.ServeEventListener;
 import com.github.tomakehurst.wiremock.http.Fault;
+import com.github.tomakehurst.wiremock.stubbing.ServeEvent;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.CertificateOperationException;
 import com.otilm.api.exception.ConnectorException;
@@ -139,6 +143,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -286,6 +291,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     private CertificateContent certificateContent;
 
     private WireMockServer mockServer;
+    private final ResponseGate responseGate = new ResponseGate();
 
     private X509Certificate x509Cert;
     private AttributeEngine attributeEngine;
@@ -297,7 +303,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
     @BeforeEach
     void setUp() throws GeneralSecurityException, IOException, NotFoundException, AttributeException {
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(WireMockConfiguration.wireMockConfig().dynamicPort().extensions(responseGate));
         mockServer.start();
 
         WireMock.configureFor("localhost", mockServer.port());
@@ -2524,7 +2530,8 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     @Test
     void revokeCertificateAction_keepsAComplianceResultStoredWhileTheConnectorWasCalled() throws Exception {
         String revokePath = "/v2/authorityProvider/authorities/[^/]+/certificates/revoke";
-        stubRevokeResponse(WireMock.aResponse().withStatus(204).withFixedDelay(1_000));
+        stubRevokeResponse(WireMock.aResponse().withStatus(204));
+        CountDownLatch release = responseGate.hold();
         ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
         request.setAttributes(List.of());
 
@@ -2541,6 +2548,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                                     WireMock.postRequestedFor(WireMock.urlPathMatching(revokePath)).build())
                             .getCount() == 1);
             storeComplianceResult(ComplianceStatus.OK);
+            release.countDown();
             revoke.get(10, TimeUnit.SECONDS);
         }
 
@@ -2616,7 +2624,8 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     @Test
     void revokeCertificateAction_failedRevokeKeepsWhatWasCommittedWhileItWaited() throws Exception {
         String revokePath = "/v2/authorityProvider/authorities/[^/]+/certificates/revoke";
-        stubRevokeResponse(WireMock.jsonResponse("{\"message\": \"already revoked\"}", 500).withFixedDelay(1_000));
+        stubRevokeResponse(WireMock.jsonResponse("{\"message\": \"already revoked\"}", 500));
+        CountDownLatch release = responseGate.hold();
         ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
         request.setAttributes(List.of());
 
@@ -2641,6 +2650,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 concurrent.setComplianceStatus(ComplianceStatus.OK);
             });
 
+            release.countDown();
             ExecutionException failure = Assertions
                     .assertThrows(ExecutionException.class, () -> failing.get(10, TimeUnit.SECONDS));
             Assertions.assertInstanceOf(CertificateOperationException.class, failure.getCause());
@@ -2691,6 +2701,38 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         Assertions
                 .assertTrue(events.stream().noneMatch(event -> event.contains(sentinel)),
                         "the connector's answer must not reach the log: " + events);
+    }
+
+    /**
+     * Holds the connector's answer until the test releases it, so a competing write provably commits while the
+     * operation waits on the authority.
+     */
+    private static final class ResponseGate implements ServeEventListener {
+
+        private volatile CountDownLatch release;
+
+        CountDownLatch hold() {
+            release = new CountDownLatch(1);
+            return release;
+        }
+
+        @Override
+        public void beforeResponseSent(ServeEvent serveEvent, Parameters parameters) {
+            CountDownLatch gate = release;
+            if (gate == null) {
+                return;
+            }
+            try {
+                gate.await(10, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        @Override
+        public String getName() {
+            return "responseGate";
+        }
     }
 
     private void stubRevokeResponse(ResponseDefinitionBuilder response) {
