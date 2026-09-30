@@ -171,6 +171,25 @@ public class BaseSpringBootTest {
                 .thenReturn(restricted);
     }
 
+    /**
+     * Grants the action on the resource but withholds it on the given objects, which is what a role's object-level row
+     * with no action granted resolves to.
+     */
+    protected void forbidObjectAccess(Resource resource, ResourceAction action, List<UUID> forbidden) {
+        OpaObjectAccessResult result = new OpaObjectAccessResult();
+        result.setActionAllowedForGroupOfObjects(true);
+        result.setAllowedObjects(List.of());
+        result.setForbiddenObjects(forbidden.stream().map(UUID::toString).toList());
+        when(opaClient
+                .checkObjectAccess(Mockito.any(),
+                        Mockito
+                                .argThat(req -> req != null && req.getProperties() != null
+                                        && resource.getCode().equals(req.getProperties().get("name"))
+                                        && action.getCode().equals(req.getProperties().get("action"))),
+                        Mockito.any(), Mockito.any()))
+                .thenReturn(result);
+    }
+
     protected void allowResourceAccess(Resource resource, ResourceAction action) {
         OpaResourceAccessResult allowed = new OpaResourceAccessResult();
         allowed.setAuthorized(true);

@@ -14,6 +14,7 @@ import com.otilm.api.model.core.listview.ListViewUpdateRequestDto;
 import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
 import com.otilm.core.attribute.engine.NamedField;
 import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.dao.entity.ListView;
@@ -35,6 +36,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -86,13 +88,17 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
 
         // One catalogue per resource, certain to hold every field any of its views orders by. Reading consults it for
         // the ordering alone, and naming a column whose field has left the catalogue would reload it on every read.
+        // Every catalogue is narrowed by one resolution of the caller's attribute permissions.
+        Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
         Map<Resource, List<NamedField>> named = views
                 .stream()
                 .collect(Collectors
                         .groupingBy(ListView::getResource, () -> new EnumMap<>(Resource.class),
                                 Collectors.flatMapping(view -> sortField(view).stream(), Collectors.toList())));
         Map<Resource, Catalogue> catalogues = new EnumMap<>(Resource.class);
-        named.forEach((viewResource, fields) -> catalogues.put(viewResource, catalogueOf(viewResource, fields)));
+        named
+                .forEach((viewResource, fields) -> catalogues
+                        .put(viewResource, catalogueOf(viewResource, fields, contentFilter)));
         return views.stream().map(view -> toDto(view, catalogues.get(view.getResource()))).toList();
     }
 
@@ -102,7 +108,8 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
     public ListViewDto createView(ListViewRequestDto request) throws AlreadyExistException {
         UUID userUuid = loggedUserUuid();
         Resource resource = request.getResource();
-        Catalogue catalogue = catalogueOf(resource, namedFields(request));
+        Catalogue catalogue = catalogueOf(resource, namedFields(request),
+                attributeEngine.customAttributeContentFilterOnce());
         validateRequest(resource, request, Set.of(), List.of(), catalogue);
 
         serializeWritesFor(userUuid, resource);
@@ -125,7 +132,8 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
             throws NotFoundException, AlreadyExistException {
         UUID userUuid = loggedUserUuid();
         ListView view = ownView(uuid, userUuid);
-        Catalogue catalogue = catalogueOf(view.getResource(), namedFields(request));
+        Catalogue catalogue = catalogueOf(view.getResource(), namedFields(request),
+                attributeEngine.customAttributeContentFilterOnce());
         validateRequest(view.getResource(), request, columnsOf(view), filtersOf(view), catalogue);
 
         serializeWritesFor(userUuid, view.getResource());
@@ -376,9 +384,11 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
      * <p>
      * Read from the published catalogue rather than from a copy of its rules, so the flags the client picked a view out
      * of and the answer it gets back when it saves one cannot disagree. Each attribute field in {@code named} that
-     * exists is in it, even one registered on another replica since this one cached the catalogue.
+     * exists and the caller may read is in it, even one registered on another replica since this one cached the
+     * catalogue.
      */
-    private Catalogue catalogueOf(Resource resource, Collection<NamedField> named) {
+    private Catalogue catalogueOf(Resource resource, Collection<NamedField> named,
+            Supplier<CustomAttributeContentFilter> contentFilter) {
         Map<CatalogueField, Capabilities> fields = new HashMap<>();
         FilterField
                 .getEnumsForResource(resource)
@@ -387,7 +397,7 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
                                 new Capabilities(SearchHelper.availableConditions(field),
                                         SearchHelper.isDisplayable(field), SearchHelper.isSortableField(field))));
         attributeEngine
-                .getResourceSearchableFields(resource, false, named)
+                .getResourceSearchableFields(resource, false, named, contentFilter)
                 .forEach(group -> group
                         .getSearchFieldData()
                         .forEach(field -> fields

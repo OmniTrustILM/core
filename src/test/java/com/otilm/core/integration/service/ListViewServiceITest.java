@@ -24,6 +24,7 @@ import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SortDirection;
 import com.otilm.core.dao.entity.ListView;
 import com.otilm.core.dao.repository.ListViewRepository;
+import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
 import com.otilm.core.security.authn.PlatformUserDetails;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
@@ -51,6 +52,8 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.transaction.support.TransactionTemplate;
 
 class ListViewServiceITest extends BaseSpringBootTest {
+
+    private static final String TEAM = "team|STRING";
 
     @Autowired
     private ListViewExternalService listViewService;
@@ -621,6 +624,63 @@ class ListViewServiceITest extends BaseSpringBootTest {
         stored.setFilters(filters);
         stored.setSort(sort);
         return listViewRepository.save(stored);
+    }
+
+    /** A view that names the team attribute everywhere a view can: a column, a filter and the ordering. */
+    private ListView saveTeamView(String name) {
+        return save(name, List.of(column("COMMON_NAME"), new ListViewColumnDto(FilterFieldSource.CUSTOM, TEAM, null)),
+                List.of(teamFilter(FilterConditionOperator.EQUALS, "blue")),
+                new SearchSortRequestDto(FilterFieldSource.CUSTOM, TEAM, SortDirection.ASC));
+    }
+
+    /**
+     * A view saved while its owner could read an attribute, read once they may not. The attribute has left their
+     * catalogue, so the view reads back as it does once a field is deleted: the column and the filter are kept for the
+     * client to mark unavailable, and the ordering the listing would now refuse is dropped.
+     */
+    @Test
+    void aViewOnAnAttributeTheOwnerMayNoLongerReadKeepsItButNotItsOrdering()
+            throws AlreadyExistException, AttributeException {
+        UUID team = createTeamAttribute();
+        saveTeamView("Team");
+        forbidObjectAccess(Resource.ATTRIBUTE, ResourceAction.MEMBERS, List.of(team));
+
+        ListViewDto read = listViewService.listViews(Resource.CERTIFICATE).getFirst();
+
+        Assertions.assertEquals(List.of("COMMON_NAME", TEAM), identifiersOf(read));
+        Assertions.assertEquals(List.of(teamFilter(FilterConditionOperator.EQUALS, "blue")), read.getFilters());
+        Assertions.assertNull(read.getSort());
+    }
+
+    /** What the client does with a view it read: sends it back with a new name, and the save has to succeed. */
+    @Test
+    void aViewOnAnAttributeTheOwnerMayNoLongerReadCanStillBeRenamed()
+            throws AlreadyExistException, AttributeException, NotFoundException {
+        UUID team = createTeamAttribute();
+        saveTeamView("Team");
+        forbidObjectAccess(Resource.ATTRIBUTE, ResourceAction.MEMBERS, List.of(team));
+        ListViewDto read = listViewService.listViews(Resource.CERTIFICATE).getFirst();
+
+        ListViewUpdateRequestDto rename = update("Team renamed", read.getColumns().toArray(ListViewColumnDto[]::new));
+        rename.setFilters(read.getFilters());
+        rename.setSort(read.getSort());
+        ListViewDto renamed = listViewService.editView(read.getUuid(), rename);
+
+        Assertions.assertEquals("Team renamed", renamed.getName());
+        Assertions.assertEquals(List.of("COMMON_NAME", TEAM), identifiersOf(renamed));
+    }
+
+    /** Refused as a field that does not exist would be, so the answer does not confirm the definition either. */
+    @Test
+    void aViewCannotNameAnAttributeTheCallerMayNotRead() throws AlreadyExistException, AttributeException {
+        UUID team = createTeamAttribute();
+        forbidObjectAccess(Resource.ATTRIBUTE, ResourceAction.MEMBERS, List.of(team));
+        ListViewRequestDto request = request("Team", column("COMMON_NAME"),
+                new ListViewColumnDto(FilterFieldSource.CUSTOM, TEAM, null));
+
+        ValidationException e = Assertions
+                .assertThrows(ValidationException.class, () -> listViewService.createView(request));
+        Assertions.assertTrue(e.getMessage().contains("has no field " + TEAM), e.getMessage());
     }
 
     @Test

@@ -34,7 +34,6 @@ import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.security.authz.opa.dto.OpaObjectAccessResult;
 import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
 import com.otilm.core.service.DiscoveryExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -53,7 +52,6 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 /**
  * Filtering an attribute reads its content, so it is gated like the projection that renders one and the ordering that
@@ -251,6 +249,15 @@ class AttributeFilterAuthorizationITest extends BaseSpringBootTest {
     }
 
     @Test
+    void aCallerGrantedNoAttributeAtAllIsOfferedNoCustomField() {
+        // The most common restricted role: no Members on any attribute, which resolves to an empty allow-list.
+        denyObjectAccess(Resource.ATTRIBUTE, ResourceAction.MEMBERS);
+
+        Assertions.assertEquals(List.of(), fieldIdentifiers(FilterFieldSource.CUSTOM, false));
+        Assertions.assertEquals(List.of(), fieldIdentifiers(FilterFieldSource.CUSTOM, true));
+    }
+
+    @Test
     void theCatalogueIsNarrowedForEachCallerRatherThanCachedNarrowed() {
         // The rows are cached per resource and shared by every caller, so a restricted read must not narrow the entry.
         restrictObjectAccess(Resource.ATTRIBUTE, ResourceAction.MEMBERS);
@@ -304,24 +311,6 @@ class AttributeFilterAuthorizationITest extends BaseSpringBootTest {
         return request != null && request.getProperties() != null
                 && Resource.ATTRIBUTE.getCode().equals(request.getProperties().get("name"))
                 && ResourceAction.MEMBERS.getCode().equals(request.getProperties().get("action"));
-    }
-
-    /**
-     * Grants the action on the resource but withholds it on the given objects, which is what a role's object-level row
-     * with no action granted resolves to.
-     */
-    private void forbidObjectAccess(Resource resource, ResourceAction action, List<UUID> forbidden) {
-        OpaObjectAccessResult result = new OpaObjectAccessResult();
-        result.setActionAllowedForGroupOfObjects(true);
-        result.setAllowedObjects(List.of());
-        result.setForbiddenObjects(forbidden.stream().map(UUID::toString).toList());
-        when(opaClient
-                .checkObjectAccess(any(),
-                        argThat(request -> request != null && request.getProperties() != null
-                                && resource.getCode().equals(request.getProperties().get("name"))
-                                && action.getCode().equals(request.getProperties().get("action"))),
-                        any(), any()))
-                .thenReturn(result);
     }
 
     private List<String> fieldIdentifiers(FilterFieldSource source, boolean settable) {

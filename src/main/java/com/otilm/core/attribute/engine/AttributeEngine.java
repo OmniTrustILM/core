@@ -169,8 +169,9 @@ public class AttributeEngine {
 
     /**
      * The attribute fields of the resource's catalogue that the current caller may read. A custom attribute whose
-     * content the caller's permissions withhold is left out, definition and all: its column would be empty and every
-     * value condition on it would match nothing, and offering it discloses a definition the caller may not see.
+     * content the caller's permissions withhold is left out, definition and all: its column would be empty, every
+     * condition on it would answer as though no object held a value, and offering it discloses a definition the caller
+     * may not see.
      */
     public List<SearchFieldDataByGroupDto> getResourceSearchableFields(Resource resource, boolean settable) {
         return searchableFieldGroups(resource, settable,
@@ -1460,9 +1461,13 @@ public class AttributeEngine {
      */
     public record CustomAttributeContentFilter(List<UUID> allowedDefinitionUuids, List<UUID> forbiddenDefinitionUuids) {
 
-        /** Whether the caller may read content of this definition, as the content queries decide it. */
+        /**
+         * Whether the caller may read content of this definition, as the content queries decide it: they match no
+         * {@code null} uuid, which is also the value an empty allow-list holds.
+         */
         public boolean permits(UUID definitionUuid) {
-            return (allowedDefinitionUuids == null || allowedDefinitionUuids.contains(definitionUuid))
+            return definitionUuid != null
+                    && (allowedDefinitionUuids == null || allowedDefinitionUuids.contains(definitionUuid))
                     && (forbiddenDefinitionUuids == null || !forbiddenDefinitionUuids.contains(definitionUuid));
         }
     }
