@@ -2513,6 +2513,26 @@ class AttributeEngineITest extends BaseSpringBootTest {
                                     List.of(attr)));
         }
 
+        @Test
+        void testFieldMapping_legacyOpaqueMappingOnStructuredExtension_reRegistersButIsNotAuthorable() {
+            for (String structuredOid : List.of("2.5.29.15", "2.5.29.37")) {
+                DataAttributeV3 attr = fieldMappingAttribute("fm_legacy_" + structuredOid);
+                attr.setFieldMapping(fieldMappingWith(extensionField(structuredOid)));
+
+                Assertions
+                        .assertDoesNotThrow(() -> attributeEngine
+                                .updateDataAttributeDefinitions(null, AttributeOperation.CERTIFICATE_ISSUE,
+                                        List.of(attr)),
+                                structuredOid);
+
+                List<BaseAttribute> authored = List.of(attr);
+                ValidationException ex = Assertions
+                        .assertThrows(ValidationException.class,
+                                () -> AttributeEngine.validateRequestAttributeDefinitions(authored), structuredOid);
+                Assertions.assertTrue(ex.getMessage().contains("structured mapping target"), ex::getMessage);
+            }
+        }
+
         // ── contentType must be STRING for fieldMapping attributes ────────────────
 
         @Test

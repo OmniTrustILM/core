@@ -583,7 +583,7 @@ public class AttributeEngine {
             }
             try {
                 validateAttributeDefinition(v3, null);
-                validateFieldMapping(v3, null, codeToOidMap);
+                validateFieldMapping(v3, null, codeToOidMap, true);
                 validateJsonSchemaDeclarations(v3, null);
             } catch (AttributeException e) {
                 // AttributeException messages are authored inside this class — safe to surface.
@@ -1031,8 +1031,10 @@ public class AttributeEngine {
         if (dataAttribute instanceof DataAttributeV3 v3 && v3.getFieldMapping() != null) {
             // A fieldMapping declares projection intent; a malformed one is an authoring error whatever
             // operation the definition registers under (issuance definitions register with operation=null),
-            // so validity is intrinsic to the definition and not gated on the operation.
-            validateFieldMapping(v3, connectorUuid != null ? connectorUuid.toString() : null, codeToOidMap);
+            // so validity is intrinsic to the definition and not gated on the operation. An opaque mapping on a
+            // structured extension is refused only when authored; a stored or connector-declared one is tolerated
+            // here so definitions saved before the typed targets existed keep registering.
+            validateFieldMapping(v3, connectorUuid != null ? connectorUuid.toString() : null, codeToOidMap, false);
         }
 
         // find by connector uuid and name only because attribute uuid could be generated when data attribute was
@@ -2023,7 +2025,7 @@ public class AttributeEngine {
     }
 
     private static void validateFieldMapping(DataAttributeV3 attribute, String connectorUuidStr,
-            Supplier<Map<String, String>> codeToOidMap) throws AttributeException {
+            Supplier<Map<String, String>> codeToOidMap, boolean rejectStructuredOpaque) throws AttributeException {
         if (attribute.getContentType() != AttributeContentType.STRING
                 && attribute.getContentType() != AttributeContentType.TEXT) {
             throw new AttributeException("fieldMapping is only valid for attributes with STRING or TEXT content type",
@@ -2039,7 +2041,7 @@ public class AttributeEngine {
                     attribute.getName(), attribute.getType(), connectorUuidStr);
         }
         for (MappedField field : fieldMapping.getFields()) {
-            validateMappedField(attribute, field, connectorUuidStr, codeToOidMap);
+            validateMappedField(attribute, field, connectorUuidStr, codeToOidMap, rejectStructuredOpaque);
         }
         rejectDuplicateExtensionOids(attribute, fieldMapping, connectorUuidStr);
     }
@@ -2071,7 +2073,7 @@ public class AttributeEngine {
     }
 
     private static void validateMappedField(DataAttributeV3 attribute, MappedField field, String connectorUuidStr,
-            Supplier<Map<String, String>> codeToOidMap) throws AttributeException {
+            Supplier<Map<String, String>> codeToOidMap, boolean rejectStructuredOpaque) throws AttributeException {
         if (field.getFieldType() == null) {
             throw new AttributeException("fieldMapping field is missing fieldType", attribute.getUuid(),
                     attribute.getName(), attribute.getType(), connectorUuidStr);
@@ -2095,7 +2097,8 @@ public class AttributeEngine {
                             attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
                 }
             }
-            case ExtensionMappedField ext -> validateExtensionMappedField(attribute, connectorUuidStr, ext);
+            case ExtensionMappedField ext ->
+                validateExtensionMappedField(attribute, connectorUuidStr, ext, rejectStructuredOpaque);
             default ->
                 throw new AttributeException("Unexpected MappedField subtype: " + field.getClass().getSimpleName(),
                         attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
@@ -2103,7 +2106,7 @@ public class AttributeEngine {
     }
 
     private static void validateExtensionMappedField(DataAttributeV3 attribute, String connectorUuidStr,
-            ExtensionMappedField ext) throws AttributeException {
+            ExtensionMappedField ext, boolean rejectStructuredOpaque) throws AttributeException {
         String extOid = ext.getExtensionOid();
         if (extOid == null || extOid.isBlank()) {
             throw new AttributeException("fieldMapping EXTENSION field is missing extensionOid", attribute.getUuid(),
@@ -2122,7 +2125,7 @@ public class AttributeEngine {
         // Once a structured target exists for an extension, the base64-DER route to it is closed for
         // authoring - the same treatment subjectAltName gets above.
         String structuredTarget = StructuredExtensionCodec.structuredTargetName(extOid);
-        if (structuredTarget != null) {
+        if (rejectStructuredOpaque && structuredTarget != null) {
             throw new AttributeException(
                     "fieldMapping EXTENSION OID '%s' has a structured mapping target; use the %s mapping target instead"
                             .formatted(extOid, structuredTarget),
