@@ -28,6 +28,7 @@ import com.otilm.core.events.transaction.ScheduledJobFinishedEvent;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.model.ScheduledTaskResult;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.model.scheduler.ObservedSchedule;
 import com.otilm.core.model.scheduler.ObservedSchedules;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -512,7 +513,7 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
         Optional<ScheduledJob> scheduledJob = scheduledJobsRepository.findByJobName(jobName);
         if (scheduledJob.isPresent()) {
             logger.info("Scheduled job '{}' was already registered.", jobName);
-            return detailOf(scheduledJob.get());
+            return registrationOf(scheduledJob.get());
         }
 
         ScheduledJob scheduledJobEntity = new ScheduledJob();
@@ -542,7 +543,7 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
         }
 
         logger.info("Scheduled job '{}' was registered.", jobName);
-        return detailOf(scheduledJobEntity);
+        return registrationOf(scheduledJobEntity);
     }
 
     /** The registration another node won, re-read after this node's insert lost to it. */
@@ -556,10 +557,19 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
             throw new SchedulerException("Scheduled job could not be registered: " + jobName);
         }
         logger.info("Scheduled job '{}' was registered by another node while this one was registering it.", jobName);
-        return detailOf(winner.get());
+        return registrationOf(winner.get());
     }
 
-    /** The detail every endpoint answers with, built the same way: latest run, and what the scheduler observes. */
+    /**
+     * What a registration answers with: the job, without its latest run and without asking the scheduler, so its
+     * schedule state is UNKNOWN. No caller reads more than the uuid, and every system job registers during context
+     * refresh at boot, where a read of the scheduler's list per job would hold the boot up behind a slow scheduler.
+     */
+    private static ScheduledJobDetailDto registrationOf(ScheduledJob job) {
+        return job.mapToDetailDto(null, ObservedSchedule.UNKNOWN);
+    }
+
+    /** The detail and update endpoints answer with this: the latest run, and what the scheduler observes. */
     private ScheduledJobDetailDto detailOf(ScheduledJob job) {
         final ScheduledJobHistory latestHistory = scheduledJobHistoryRepository
                 .findTopByScheduledJobUuidOrderByJobExecutionDesc(job.getUuid());

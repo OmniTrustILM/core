@@ -41,6 +41,8 @@ class SchedulerJobRegistrationRaceTest {
 
     private final ApplicationContext applicationContext = mock(ApplicationContext.class);
 
+    private final SchedulerApiClient schedulerApiClient = mock(SchedulerApiClient.class);
+
     private SchedulerServiceImpl service;
 
     @BeforeEach
@@ -56,7 +58,7 @@ class SchedulerJobRegistrationRaceTest {
         service.setApplicationContext(applicationContext);
         service.setScheduledJobsRepository(repository);
         service.setScheduledJobHistoryRepository(mock(ScheduledJobHistoryRepository.class));
-        service.setSchedulerApiClient(mock(SchedulerApiClient.class));
+        service.setSchedulerApiClient(schedulerApiClient);
         service.setEventProducer(mock(EventProducer.class));
     }
 
@@ -76,8 +78,9 @@ class SchedulerJobRegistrationRaceTest {
 
         assertThat(registered.getUuid()).isEqualTo(winner.getUuid());
         assertThat(registered.getJobName()).isEqualTo(JOB_NAME);
-        // The mocked client answers no body: the winner's detail still carries a state, UNKNOWN.
+        // Built without reading the scheduler's list: the winner's detail still carries a state, UNKNOWN.
         assertThat(registered.getScheduleState()).isEqualTo(ScheduledJobScheduleState.UNKNOWN);
+        verify(schedulerApiClient, Mockito.never()).listScheduledJobs();
     }
 
     /**
@@ -101,9 +104,11 @@ class SchedulerJobRegistrationRaceTest {
     void aJobAlreadyRegisteredIsNotInsertedAgain() throws SchedulerException {
         when(repository.findByJobName(JOB_NAME)).thenReturn(Optional.of(existingJob()));
 
-        service.registerScheduledJob(CbomReconcileTask.class);
+        ScheduledJobDetailDto registered = service.registerScheduledJob(CbomReconcileTask.class);
 
         verify(repository, Mockito.never()).save(any(ScheduledJob.class));
+        assertThat(registered.getScheduleState()).isEqualTo(ScheduledJobScheduleState.UNKNOWN);
+        verify(schedulerApiClient, Mockito.never()).listScheduledJobs();
     }
 
     private static ScheduledJob existingJob() {

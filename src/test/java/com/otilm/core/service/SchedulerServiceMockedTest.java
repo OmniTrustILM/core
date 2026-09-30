@@ -529,18 +529,23 @@ class SchedulerServiceMockedTest {
         assertFalse(scheduledJob.isEnabled());
     }
 
+    /**
+     * No caller of a registration reads more than the job's uuid, and at boot every system job registers during context
+     * refresh: the answer is built without reading the scheduler's list, and says so with UNKNOWN.
+     */
     @Test
     void testRegisterScheduledJob_WithDefaults_WhenAlreadyRegistered_ReturnsExistingDetail() throws Exception {
         TestTask task = new TestTask(new ScheduledTaskResult(SchedulerJobExecutionStatus.SUCCESS, "ok"));
         when(applicationContext.getBean(TestTask.class)).thenReturn(task);
         when(scheduledJobsRepository.findByJobName(task.getDefaultJobName())).thenReturn(Optional.of(scheduledJob));
-        when(schedulerApiClient.listScheduledJobs()).thenReturn(schedulerHolding(JOB_NAME));
 
         ScheduledJobDetailDto response = schedulerService.registerScheduledJob(TestTask.class);
 
         assertNotNull(response);
-        assertEquals(ScheduledJobScheduleState.SCHEDULED, response.getScheduleState());
+        assertEquals(JOB_UUID, response.getUuid());
+        assertEquals(ScheduledJobScheduleState.UNKNOWN, response.getScheduleState());
         verify(schedulerApiClient).schedulerCreate(any());
+        verify(schedulerApiClient, never()).listScheduledJobs();
         verify(scheduledJobsRepository, never()).save(any());
     }
 
@@ -557,8 +562,9 @@ class SchedulerServiceMockedTest {
                     .registerScheduledJob(TestTask.class, "CustomJob", "0 10 * * * ?", true, "payload");
 
             assertNotNull(response);
-            // The mocked client answers no body: the scheduler could not be read.
+            // A registration does not read the scheduler's list, so its answer carries UNKNOWN.
             assertEquals(ScheduledJobScheduleState.UNKNOWN, response.getScheduleState());
+            verify(schedulerApiClient, never()).listScheduledJobs();
 
             ArgumentCaptor<ScheduledJob> jobCaptor = ArgumentCaptor.forClass(ScheduledJob.class);
             verify(scheduledJobsRepository).save(jobCaptor.capture());

@@ -490,6 +490,8 @@ class SchedulerServiceITest extends BaseSpringBootTest {
 
         systemScheduledJobs.registerJobs();
 
+        // Registration runs during context refresh at boot; it does not read the scheduler's list.
+        schedulerMock.verify(0, WireMock.getRequestedFor(WireMock.urlPathEqualTo("/v1/scheduler/list")));
         ScheduledJobsResponseDto jobs = schedulerService
                 .listScheduledJobs(SecurityFilter.create(), new PaginationRequestDto());
 
