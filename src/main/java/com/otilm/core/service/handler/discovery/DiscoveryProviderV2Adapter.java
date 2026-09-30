@@ -458,8 +458,7 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
         }
         // Through the decide hook so connector_status and the terminal transition commit under one lock: split, the
         // run is non-terminal between the two commits and a status tick in that window overwrites this. Set here
-        // rather than in the terminator, which also ends runs whose connector said nothing and must leave its last
-        // known view standing; this cancel was acknowledged.
+        // because the terminator keeps a terminal status the connector reported, and this cancel was acknowledged.
         terminator.endWith(discoveryUuid, run -> {
             run.setConnectorStatus(DiscoveryStatus.CANCELLED);
             return new DiscoveryRunTerminator.Ending(DiscoveryStatus.CANCELLED, "Discovery cancelled");

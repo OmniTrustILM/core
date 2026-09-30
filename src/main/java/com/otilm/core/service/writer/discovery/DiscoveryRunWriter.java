@@ -7,6 +7,7 @@ import com.otilm.api.model.client.discovery.DiscoveryDetailDto;
 import com.otilm.api.model.client.discovery.DiscoveryDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
@@ -15,6 +16,8 @@ import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.mapper.discovery.DiscoveryDtoMapper;
 import com.otilm.core.service.TriggerExternalService;
 import com.otilm.core.service.TriggerInternalService;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -39,6 +42,9 @@ public class DiscoveryRunWriter {
     private final AttributeEngine attributeEngine;
     private final TriggerExternalService triggerService;
     private final TriggerInternalService triggerInternalService;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     // Constructed rather than set, unlike the services that hold this same collaborator: a writer bean may expose no
     // public method that is not a REQUIRED transaction, which a setter would be.
@@ -113,13 +119,24 @@ public class DiscoveryRunWriter {
      * Removes a run its connector refused at initiate, for a caller still waiting on the create: the refusal is their
      * answer, and a failed run left behind would be one nobody asked to keep. Nothing past initiate has been written
      * for such a run, so what {@link #createRun} wrote is all there is to remove.
+     *
+     * <p>
+     * The run is listed from the moment it is created, so someone may have ended it while the initiate was in flight.
+     * That ending stands, announced as it was, and the run is left as they left it.
      */
     @Transactional
     public void discardUnstartedRun(UUID discoveryUuid) {
-        discoveryRepository.findByUuid(discoveryUuid).ifPresent(run -> {
-            attributeEngine.deleteObjectAttributeContent(Resource.DISCOVERY, discoveryUuid);
-            triggerInternalService.deleteTriggerAssociations(Resource.DISCOVERY, discoveryUuid);
-            discoveryRepository.delete(run);
-        });
+        Discovery run = discoveryRepository.findWithLockByUuid(discoveryUuid).orElse(null);
+        if (run == null) {
+            return;
+        }
+        // The caller's persistence context may still hold the run as it was loaded before the connector call.
+        entityManager.refresh(run);
+        if (run.getStatus() != DiscoveryStatus.IN_PROGRESS) {
+            return;
+        }
+        attributeEngine.deleteObjectAttributeContent(Resource.DISCOVERY, discoveryUuid);
+        triggerInternalService.deleteTriggerAssociations(Resource.DISCOVERY, discoveryUuid);
+        discoveryRepository.delete(run);
     }
 }

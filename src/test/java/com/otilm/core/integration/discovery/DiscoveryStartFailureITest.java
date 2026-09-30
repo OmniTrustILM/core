@@ -127,6 +127,27 @@ class DiscoveryStartFailureITest extends BaseSpringBootTest {
         assertThat(discoveryRepository.findByUuid(run.getUuid())).isEmpty();
     }
 
+    /**
+     * The run is listed from the moment it is created, so someone can end it while the initiate is in flight. Its
+     * ending stands, announced as it was, and the caller still hears the refusal.
+     */
+    @Test
+    void aRefusedRunSomeoneEndedMeanwhileIsNotDiscarded() throws Exception {
+        Discovery run = v2Run();
+        when(client.supportedResources(any())).thenReturn(List.of(Resource.CERTIFICATE));
+        when(client.initiate(any())).thenAnswer(invocation -> {
+            endBehindTheCaller(run.getUuid());
+            throw configurationRefusal();
+        });
+
+        assertThatThrownBy(() -> adapter.startForCaller(run.getUuid())).isInstanceOf(ConnectorProblemException.class);
+
+        assertThat(discoveryRepository.findByUuid(run.getUuid()))
+                .get()
+                .extracting(Discovery::getStatus)
+                .isEqualTo(DiscoveryStatus.FAILED);
+    }
+
     /** Only a verdict on the request is the caller's to hear; a connector that could not answer fails the run. */
     @Test
     void aCallersRunThatFailsForAnotherReasonIsKeptFailed() throws Exception {
