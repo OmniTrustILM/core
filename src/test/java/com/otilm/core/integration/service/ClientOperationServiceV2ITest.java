@@ -26,6 +26,7 @@ import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.content.ObjectAttributeContentV2;
+import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
@@ -2463,6 +2464,66 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                         """));
 
         assertRevokeFailsWith("Failed to revoke certificate: the authority reported an error");
+    }
+
+    @Test
+    void revokeCertificateAction_keepsAComplianceResultStoredWhileTheConnectorWasCalled() throws Exception {
+        String revokePath = "/v2/authorityProvider/authorities/[^/]+/certificates/revoke";
+        stubRevokeResponse(WireMock.aResponse().withStatus(204).withFixedDelay(1_000));
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+
+        ExecutorService revoker = new DelegatingSecurityContextExecutorService(Executors.newSingleThreadExecutor());
+        try {
+            Future<?> revoke = revoker.submit(() -> {
+                clientOperationInternalService.revokeCertificateAction(certificate.getUuid(), request, true);
+                return null;
+            });
+            await()
+                    .atMost(5, TimeUnit.SECONDS)
+                    .until(() -> mockServer
+                            .countRequestsMatching(
+                                    WireMock.postRequestedFor(WireMock.urlPathMatching(revokePath)).build())
+                            .getCount() == 1);
+            storeComplianceResult(ComplianceStatus.OK);
+            revoke.get(10, TimeUnit.SECONDS);
+        } finally {
+            revoker.shutdownNow();
+        }
+
+        Certificate fetched = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        Assertions.assertEquals(CertificateState.REVOKED, fetched.getState());
+        Assertions.assertNotNull(fetched.getComplianceResult(), "the revoke must not write its stale copy back");
+        Assertions.assertEquals(ComplianceStatus.OK, fetched.getComplianceResult().getStatus());
+    }
+
+    @Test
+    void pendingRevokeAttributesSurviveADetachedCopySavedAfterThem() {
+        Certificate readBefore = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        RequestAttributeV2 revokeAttribute = new RequestAttributeV2(UUID.randomUUID(), "reasonDetail",
+                AttributeContentType.STRING, List.of(new StringAttributeContentV2("key compromise")));
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            Certificate pending = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+            pending.setPendingRevokeAttributes(List.of(revokeAttribute));
+        });
+
+        readBefore.setValidationStatus(CertificateValidationStatus.INVALID);
+        certificateRepository.save(readBefore);
+
+        Certificate fetched = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        Assertions.assertNotNull(fetched.getPendingRevokeAttributes(), "a stale copy must not clear them");
+        Assertions.assertEquals(1, fetched.getPendingRevokeAttributes().size());
+        Assertions.assertEquals(CertificateValidationStatus.INVALID, fetched.getValidationStatus());
+    }
+
+    private void storeComplianceResult(ComplianceStatus status) {
+        ComplianceResultDto complianceResult = new ComplianceResultDto();
+        complianceResult.setStatus(status);
+        new TransactionTemplate(transactionManager).executeWithoutResult(tx -> {
+            Certificate checked = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+            checked.setComplianceResult(complianceResult);
+            checked.setComplianceStatus(status);
+        });
     }
 
     @Test
