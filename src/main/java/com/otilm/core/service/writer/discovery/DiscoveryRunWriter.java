@@ -14,6 +14,7 @@ import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.mapper.discovery.DiscoveryDtoMapper;
+import com.otilm.core.service.CommentInternalService;
 import com.otilm.core.service.TriggerExternalService;
 import com.otilm.core.service.TriggerInternalService;
 import jakarta.persistence.EntityManager;
@@ -42,6 +43,7 @@ public class DiscoveryRunWriter {
     private final AttributeEngine attributeEngine;
     private final TriggerExternalService triggerService;
     private final TriggerInternalService triggerInternalService;
+    private final CommentInternalService commentService;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -49,11 +51,13 @@ public class DiscoveryRunWriter {
     // Constructed rather than set, unlike the services that hold this same collaborator: a writer bean may expose no
     // public method that is not a REQUIRED transaction, which a setter would be.
     public DiscoveryRunWriter(DiscoveryRepository discoveryRepository, AttributeEngine attributeEngine,
-            TriggerExternalService triggerService, TriggerInternalService triggerInternalService) {
+            TriggerExternalService triggerService, TriggerInternalService triggerInternalService,
+            CommentInternalService commentService) {
         this.discoveryRepository = discoveryRepository;
         this.attributeEngine = attributeEngine;
         this.triggerService = triggerService;
         this.triggerInternalService = triggerInternalService;
+        this.commentService = commentService;
     }
 
     /**
@@ -118,7 +122,8 @@ public class DiscoveryRunWriter {
     /**
      * Removes a run its connector refused at initiate, for a caller still waiting on the create: the refusal is their
      * answer, and a failed run left behind would be one nobody asked to keep. Nothing past initiate has been written
-     * for such a run, so what {@link #createRun} wrote is all there is to remove.
+     * for such a run, so what {@link #createRun} wrote is all there is to remove, with any comment left on the run in
+     * the meantime.
      *
      * <p>
      * The run is listed from the moment it is created, so someone may have ended it while the initiate was in flight.
@@ -136,6 +141,7 @@ public class DiscoveryRunWriter {
             return;
         }
         attributeEngine.deleteObjectAttributeContent(Resource.DISCOVERY, discoveryUuid);
+        commentService.removeObjectComments(Resource.DISCOVERY, discoveryUuid);
         triggerInternalService.deleteTriggerAssociations(Resource.DISCOVERY, discoveryUuid);
         discoveryRepository.delete(run);
     }

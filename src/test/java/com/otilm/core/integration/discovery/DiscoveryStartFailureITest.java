@@ -11,8 +11,10 @@ import com.otilm.api.model.connector.discovery.v2.DiscoveryInitiateResponseDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryStopResponseDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
+import com.otilm.core.dao.entity.Comment;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.Discovery;
+import com.otilm.core.dao.repository.CommentRepository;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
@@ -72,6 +74,8 @@ class DiscoveryStartFailureITest extends BaseSpringBootTest {
     private ConnectorRepository connectorRepository;
     @Autowired
     private ConnectorInterfaceRepository connectorInterfaceRepository;
+    @Autowired
+    private CommentRepository commentRepository;
 
     @Test
     void aScheduledRunFailingAfterItWasRecordedDropsItsJobExecution() throws Exception {
@@ -146,6 +150,22 @@ class DiscoveryStartFailureITest extends BaseSpringBootTest {
                 .get()
                 .extracting(Discovery::getStatus)
                 .isEqualTo(DiscoveryStatus.FAILED);
+    }
+
+    /** A comment left while the initiate was in flight goes with the refused run, as it does with any deleted run. */
+    @Test
+    void aRefusedRunIsDiscardedWithTheCommentsLeftOnIt() throws Exception {
+        Discovery run = v2Run();
+        when(client.supportedResources(any())).thenReturn(List.of(Resource.CERTIFICATE));
+        when(client.initiate(any())).thenAnswer(invocation -> {
+            commentOn(run.getUuid());
+            throw configurationRefusal();
+        });
+
+        assertThatThrownBy(() -> adapter.startForCaller(run.getUuid())).isInstanceOf(ConnectorProblemException.class);
+
+        assertThat(discoveryRepository.findByUuid(run.getUuid())).isEmpty();
+        assertThat(commentRepository.findAll()).noneMatch(comment -> run.getUuid().equals(comment.getObjectUuid()));
     }
 
     /** Only a verdict on the request is the caller's to hear; a connector that could not answer fails the run. */
@@ -268,6 +288,17 @@ class DiscoveryStartFailureITest extends BaseSpringBootTest {
             run.setStoppedAt(OffsetDateTime.now(ZoneOffset.UTC));
         }
         return discoveryRepository.saveAndFlush(run);
+    }
+
+    private void commentOn(UUID uuid) {
+        Comment comment = new Comment();
+        comment.setResource(Resource.DISCOVERY);
+        comment.setObjectUuid(uuid);
+        comment.setAuthorUuid(UUID.randomUUID());
+        comment.setAuthorUsername("tst-user");
+        comment.setBody("looking at this one");
+        comment.setCreatedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        commentRepository.saveAndFlush(comment);
     }
 
     private static ConnectorProblemException configurationRefusal() {
