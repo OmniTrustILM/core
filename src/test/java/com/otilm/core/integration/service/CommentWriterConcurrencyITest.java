@@ -56,7 +56,7 @@ class CommentWriterConcurrencyITest extends BaseSpringBootTest {
     @BeforeEach
     void setUpConcurrency() {
         transactionTemplate = new TransactionTemplate(transactionManager);
-        executor = Executors.newFixedThreadPool(2);
+        executor = Executors.newFixedThreadPool(3);
     }
 
     @AfterEach
@@ -91,6 +91,76 @@ class CommentWriterConcurrencyITest extends BaseSpringBootTest {
         assertThat(creator.get(10, TimeUnit.SECONDS)).isNotNull();
         assertThat(purger.get(10, TimeUnit.SECONDS)).isEqualTo(1);
         assertThat(commentRepository.existsByResourceAndObjectUuid(Resource.GROUP, group.getUuid())).isFalse();
+    }
+
+    @Test
+    void bulkPurgeRunningConcurrentlyWithCreateStillRemovesTheRacingComment() throws Exception {
+        Group settled = newGroup();
+        Group raced = newGroup();
+        commentRepository.saveAndFlush(newComment(settled.getUuid()));
+        CountDownLatch created = new CountDownLatch(1);
+        CountDownLatch mayCommitCreate = new CountDownLatch(1);
+
+        Future<Comment> creator = executor.submit(() -> transactionTemplate.execute(status -> {
+            Comment saved = create(newComment(raced.getUuid()));
+            created.countDown();
+            await(mayCommitCreate);
+            return saved;
+        }));
+
+        assertThat(created.await(10, TimeUnit.SECONDS)).isTrue();
+
+        Future<Integer> purger = executor.submit(() -> transactionTemplate.execute(status -> {
+            int purged = commentWriter.deleteAllForObjects(Resource.GROUP, List.of(raced.getUuid(), settled.getUuid()));
+            groupRepository.deleteAll(List.of(settled, raced));
+            return purged;
+        }));
+
+        awaitAdvisoryLockWaiter();
+        mayCommitCreate.countDown();
+
+        assertThat(creator.get(10, TimeUnit.SECONDS)).isNotNull();
+        assertThat(purger.get(10, TimeUnit.SECONDS)).isEqualTo(2);
+        assertThat(commentRepository.existsByResourceAndObjectUuid(Resource.GROUP, settled.getUuid())).isFalse();
+        assertThat(commentRepository.existsByResourceAndObjectUuid(Resource.GROUP, raced.getUuid())).isFalse();
+    }
+
+    /**
+     * Both purges queue behind a create holding the first host's lock, which PostgreSQL then grants in queue order. A
+     * purge locking its hosts in the order given would wait for a host the other purge holds, while holding the one the
+     * other waits for.
+     */
+    @Test
+    void overlappingBulkPurgesInOppositeOrderDoNotDeadlock() throws Exception {
+        Group first = newGroup();
+        Group second = newGroup();
+        CountDownLatch created = new CountDownLatch(1);
+        CountDownLatch mayCommitCreate = new CountDownLatch(1);
+
+        Future<Comment> creator = executor.submit(() -> transactionTemplate.execute(status -> {
+            Comment saved = create(newComment(first.getUuid()));
+            created.countDown();
+            await(mayCommitCreate);
+            return saved;
+        }));
+
+        assertThat(created.await(10, TimeUnit.SECONDS)).isTrue();
+
+        Future<Integer> forward = executor
+                .submit(() -> transactionTemplate
+                        .execute(status -> commentWriter
+                                .deleteAllForObjects(Resource.GROUP, List.of(first.getUuid(), second.getUuid()))));
+        awaitLockWaiters("advisory", 1);
+        Future<Integer> backward = executor
+                .submit(() -> transactionTemplate
+                        .execute(status -> commentWriter
+                                .deleteAllForObjects(Resource.GROUP, List.of(second.getUuid(), first.getUuid()))));
+        awaitLockWaiters("advisory", 2);
+        mayCommitCreate.countDown();
+
+        assertThat(creator.get(10, TimeUnit.SECONDS)).isNotNull();
+        assertThat(forward.get(10, TimeUnit.SECONDS) + backward.get(10, TimeUnit.SECONDS)).isEqualTo(1);
+        assertThat(commentRepository.existsByResourceAndObjectUuid(Resource.GROUP, first.getUuid())).isFalse();
     }
 
     @Test
@@ -234,12 +304,16 @@ class CommentWriterConcurrencyITest extends BaseSpringBootTest {
      * transaction's id.
      */
     private void awaitLockWaiter(String lockType) {
+        awaitLockWaiters(lockType, 1);
+    }
+
+    private void awaitLockWaiters(String lockType, long waiters) {
         Awaitility
                 .await()
                 .atMost(Duration.ofSeconds(10))
                 .until(() -> jdbcTemplate
                         .queryForObject("SELECT count(*) FROM pg_locks WHERE locktype = ? AND NOT granted", Long.class,
-                                lockType) > 0);
+                                lockType) >= waiters);
     }
 
     private static void await(CountDownLatch latch) {

@@ -410,8 +410,19 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
 
     public CryptographyProviderV2ConnectorMock stubImportKeyProblem(ErrorCode errorCode, String detail)
             throws JsonProcessingException {
+        return stubImportKeyProblemAfter(errorCode, detail, 0);
+    }
+
+    /**
+     * The connector's refusal of an import, given only after the delay, so a test can act while the call is in flight.
+     */
+    public CryptographyProviderV2ConnectorMock stubImportKeyProblemAfter(ErrorCode errorCode, String detail,
+            int delayMillis) throws JsonProcessingException {
         ProblemDetailExtended problem = ProblemDetailExtended.fromErrorCode(errorCode, detail, null, null);
-        server.stubFor(WireMock.post(WireMock.urlPathEqualTo(IMPORT_KEY)).willReturn(importAnswer(problem)));
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo(IMPORT_KEY))
+                        .willReturn(importAnswer(problem).withFixedDelay(delayMillis)));
         return this;
     }
 
@@ -465,6 +476,18 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
                     .willReturn(WireMock.okJson(ObjectMapperFactory.wire().writeValueAsString(answers[index])));
             server.stubFor(index < answers.length - 1 ? stub.willSetStateTo("answer " + (index + 1)) : stub);
         }
+        return this;
+    }
+
+    /** How the import stands, answered only after the delay, so a test can act while the call is in flight. */
+    public CryptographyProviderV2ConnectorMock stubImportKeyStatusAfter(Object answer, int delayMillis)
+            throws JsonProcessingException {
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo(IMPORT_KEY_STATUS))
+                        .willReturn(WireMock
+                                .okJson(ObjectMapperFactory.wire().writeValueAsString(answer))
+                                .withFixedDelay(delayMillis)));
         return this;
     }
 
@@ -533,6 +556,19 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
         return this;
     }
 
+    /**
+     * A destroy of the item under the named handle answers only after the delay, so a test can act while the call is in
+     * flight; this stub wins over those added before it.
+     */
+    public CryptographyProviderV2ConnectorMock stubDestroyKeyAfter(String handleName, int delayMillis) {
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo(DESTROY_KEY))
+                        .withRequestBody(WireMock.matchingJsonPath("$.keyMeta[0].name", WireMock.equalTo(handleName)))
+                        .willReturn(WireMock.okJson("{}").withFixedDelay(delayMillis)));
+        return this;
+    }
+
     public List<JsonNode> destroyKeyRequestBodies() throws JsonProcessingException {
         List<JsonNode> bodies = new ArrayList<>();
         for (Request request : server.findAll(postRequestedFor(WireMock.urlPathEqualTo(DESTROY_KEY)))) {
@@ -562,8 +598,16 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
         server.verify(count, postRequestedFor(WireMock.urlPathEqualTo(IMPORT_KEY)));
     }
 
+    public int importKeyStatusRequestsReceived() {
+        return server.findAll(postRequestedFor(WireMock.urlPathEqualTo(IMPORT_KEY_STATUS))).size();
+    }
+
     public void verifyImportKeyResultRequests(int count) {
         server.verify(count, postRequestedFor(WireMock.urlPathEqualTo(IMPORT_KEY_RESULT)));
+    }
+
+    public int importKeyResultRequestsReceived() {
+        return server.findAll(postRequestedFor(WireMock.urlPathEqualTo(IMPORT_KEY_RESULT))).size();
     }
 
     public void verifyCancelImportKeyRequests(int count) {

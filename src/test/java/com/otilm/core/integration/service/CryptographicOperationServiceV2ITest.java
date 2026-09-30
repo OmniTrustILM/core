@@ -25,9 +25,11 @@ import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeProperties;
 import com.otilm.api.model.common.attribute.v3.MetadataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
+import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.common.enums.cryptography.RsaSignatureScheme;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorithmAttribute;
@@ -37,6 +39,7 @@ import com.otilm.api.model.core.cryptography.key.KeyEvent;
 import com.otilm.api.model.core.cryptography.key.KeyEventStatus;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
+import com.otilm.core.attribute.RsaSignatureAttributes;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.Connector;
@@ -315,7 +318,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
-    void listSignAttributes_returnsConnectorSchema_andSendsKeyMeta() throws Exception {
+    void listSignAttributes_asksCoresFieldsForTheSignatureAlgorithm_andSendsKeyMeta() throws Exception {
         // given
         UUID attributeUuid = UUID.randomUUID();
         connectorMock.stubOperationAttributes("sign", signSchema(dataAttributeJson(attributeUuid, "digest", false)));
@@ -326,7 +329,10 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
                         privateKey.getUuid());
 
         // then
-        assertEquals(List.of(SignatureAlgorithmAttribute.NAME, "digest"),
+        assertEquals(
+                List
+                        .of(RsaSignatureAttributes.ATTRIBUTE_DATA_RSA_SIG_SCHEME,
+                                RsaSignatureAttributes.ATTRIBUTE_DATA_SIG_DIGEST, "digest"),
                 schema.stream().map(BaseAttribute::getName).toList());
         connectorMock
                 .verifyOperationRequestContaining("sign/attributes", "{\"keyMeta\":[{\"name\":\"provider-handle\"}]}");
@@ -596,7 +602,9 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     private static List<RequestAttribute> sha256WithRsa() {
-        return List.of(SignatureAlgorithmAttribute.request(SignatureAlgorithm.SHA256_WITH_RSA));
+        return List
+                .of(RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PKCS1_v1_5),
+                        RsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_256));
     }
 
     private static String signatureResponse(byte[] signature) {
@@ -619,9 +627,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
 
     private static SignDataRequestDto signRequest() {
         SignDataRequestDto request = new SignDataRequestDto();
-        request
-                .setSignatureAttributes(
-                        List.of(SignatureAlgorithmAttribute.request(SignatureAlgorithm.SHA256_WITH_RSA)));
+        request.setSignatureAttributes(sha256WithRsa());
         request.setData(List.of(signatureData(DATA)));
         return request;
     }
