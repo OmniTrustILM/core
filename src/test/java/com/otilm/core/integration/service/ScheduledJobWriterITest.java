@@ -8,10 +8,14 @@ import com.otilm.core.service.writer.scheduler.ScheduledJobWriter;
 import com.otilm.core.tasks.CryptoAssetPqcSweepTask;
 import com.otilm.core.util.BaseSpringBootTest;
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
+import java.util.Objects;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -20,8 +24,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The skip writer against a real database: in place, one row however often the job skips, and a vanished job reported;
- * and a declined run from the scheduler's trigger to the skip on the job.
+ * The skip writer against a real database: in place, one row however often the job skips, an older skip never replacing
+ * a newer one, and a vanished job reported; and a declined run from the scheduler's trigger to the skip on the job.
  */
 class ScheduledJobWriterITest extends BaseSpringBootTest {
 
@@ -38,6 +42,9 @@ class ScheduledJobWriterITest extends BaseSpringBootTest {
 
     @Autowired
     private SchedulerInternalService schedulerService;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     private ScheduledJob scheduledJob;
 
@@ -99,6 +106,45 @@ class ScheduledJobWriterITest extends BaseSpringBootTest {
         assertEquals(NOTHING_TO_DO, stored.getLastSkipReason());
     }
 
+    /**
+     * The scheduler's listener handles several firings at once, so two skips of one job can reach the statement out of
+     * order: the older one, its time taken first, can run last. It still finds the job, so the writer does not report
+     * it vanished, but it does not replace the newer skip.
+     */
+    @Test
+    void recordSkip_keepsTheNewerSkipWhenAnOlderOneIsRecordedAfterIt() {
+        OffsetDateTime newer = OffsetDateTime.now().truncatedTo(ChronoUnit.MICROS);
+        OffsetDateTime older = newer.minusSeconds(5);
+
+        int newerMatched = recordSkip(newer, "newer reason");
+        int olderMatched = recordSkip(older, "older reason");
+
+        ScheduledJob stored = scheduledJobsRepository.findById(scheduledJob.getUuid()).orElseThrow();
+        assertEquals(1, newerMatched);
+        assertEquals(1, olderMatched, "an older skip still finds the job");
+        assertEquals(newer.toInstant(), stored.getLastSkippedAt().toInstant());
+        assertEquals("newer reason", stored.getLastSkipReason());
+    }
+
+    @Test
+    void recordSkip_replacesASkipOfTheSameTimeOrEarlier() {
+        OffsetDateTime first = OffsetDateTime.now().truncatedTo(ChronoUnit.MICROS);
+        OffsetDateTime later = first.plusSeconds(5);
+        recordSkip(first, "first reason");
+
+        int sameTimeMatched = recordSkip(first, "same time reason");
+        ScheduledJob afterSameTime = scheduledJobsRepository.findById(scheduledJob.getUuid()).orElseThrow();
+        int laterMatched = recordSkip(later, "later reason");
+        ScheduledJob afterLater = scheduledJobsRepository.findById(scheduledJob.getUuid()).orElseThrow();
+
+        assertEquals(1, sameTimeMatched);
+        assertEquals(first.toInstant(), afterSameTime.getLastSkippedAt().toInstant());
+        assertEquals("same time reason", afterSameTime.getLastSkipReason());
+        assertEquals(1, laterMatched);
+        assertEquals(later.toInstant(), afterLater.getLastSkippedAt().toInstant());
+        assertEquals("later reason", afterLater.getLastSkipReason());
+    }
+
     @Test
     void recordSkipped_reportsAVanishedJob() {
         UUID gone = UUID.randomUUID();
@@ -118,5 +164,11 @@ class ScheduledJobWriterITest extends BaseSpringBootTest {
         ScheduledJob stored = scheduledJobsRepository.findById(scheduledJob.getUuid()).orElseThrow();
         assertNotNull(stored.getLastSkippedAt());
         assertEquals(NOTHING_TO_DO, stored.getLastSkipReason());
+    }
+
+    private int recordSkip(OffsetDateTime at, String reason) {
+        Integer matched = new TransactionTemplate(transactionManager)
+                .execute(status -> scheduledJobsRepository.recordSkip(scheduledJob.getUuid(), at, reason));
+        return Objects.requireNonNull(matched);
     }
 }

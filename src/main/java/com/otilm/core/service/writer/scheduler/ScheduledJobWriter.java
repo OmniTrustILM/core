@@ -24,7 +24,8 @@ public class ScheduledJobWriter {
 
     /**
      * The task declined the run ({@code ScheduledJobSkippedException}): when, and the task's own reason. A job that no
-     * longer exists is reported, not ignored.
+     * longer exists is reported, not ignored. Runs of one job can be declined concurrently, so a skip whose time was
+     * taken first may reach the row last; it finds the job but leaves the newer skip in place.
      */
     @Transactional
     public void recordSkipped(UUID jobUuid, String reason) {
