@@ -1056,11 +1056,8 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
                 if (entry.hasWarnings()) {
                     logger
                             .getLogger()
-                            .warn("CBOM Sync: repository flagged CBOM serialNumber {} version {} with {}; header counts {}",
-                                    identity.serialNumber(), identity.version(), entry.getWarnings(),
-                                    entry.getCryptoStats() == null
-                                            ? "are left at zero until the asset ingest recounts them"
-                                            : "were taken from the feed as reported");
+                            .warn("CBOM Sync: repository flagged CBOM serialNumber {} version {} with {}; header counts are the feed's (or zero) until the asset ingest recounts them from the document",
+                                    identity.serialNumber(), identity.version(), entry.getWarnings());
                 }
                 resolveSkipIfRecorded(identity, skips, run, "is stored");
             }

@@ -1,6 +1,7 @@
 package com.otilm.core.cbom.ingest;
 
 import com.otilm.core.cbom.asset.identity.CbomAssetExtractor;
+import com.otilm.core.model.cbom.CbomHeaderCounts;
 import com.otilm.core.model.cbom.CbomIngestFindingKind;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -251,7 +252,7 @@ class IngestFindingRollupTest {
 
     private static CbomAssetExtractor.Extraction extraction(List<CbomAssetExtractor.ExtractedAsset> assets,
             List<CbomAssetExtractor.Skip> skips, List<String> ambiguousRefs) {
-        return new CbomAssetExtractor.Extraction(assets, skips, false, false, ambiguousRefs);
+        return new CbomAssetExtractor.Extraction(assets, skips, false, false, ambiguousRefs, CbomHeaderCounts.ZERO);
     }
 
     /** Only the component name and the findings are read here, so the rest of the record is left out. */
