@@ -31,31 +31,41 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
+import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.common.v2.OperationExecutionMode;
+import com.otilm.api.model.connector.common.v2.OperationStatus;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.cryptography.v2.KeyScopedRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.OperationResponseValidator;
+import com.otilm.api.model.connector.cryptography.v2.OperationTrackingRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.TokenProfileScopedRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.CreateKeyAttributesRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.CreateKeyRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.DestroyKeyRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ExportKeyRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ExportKeyResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.ImportKeyAttributesRequestV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.ImportKeyRequestV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.ImportKeyResultRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyCreationResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.KeyCreationStatusResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyDataV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyExportableAttribute;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyOperationResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyPairDataResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.KeyPairOperationStatusResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.PrivateKeyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.PublicKeyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.PublicKeyDataV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyDataV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyOperationStatusResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.TransferableKeyTypeV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.material.EncryptedKeyMaterialV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.CipherDataRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignDataRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignDataResponseV2Dto;
-import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorithmAttribute;
 import com.otilm.api.model.connector.cryptography.v2.operations.VerifyDataRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.VerifyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.data.CipherDataV2Dto;
@@ -63,13 +73,18 @@ import com.otilm.api.model.connector.cryptography.v2.operations.data.SignatureDa
 import com.otilm.api.model.connector.cryptography.v2.operations.data.VerificationResponseItemV2Dto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.secret.Passphrase;
+import com.otilm.core.attribute.SignatureAlgorithmFields;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.OutboundSecretContainment;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.CryptographyV2ApiClients;
+import com.otilm.core.key.normalization.NormalizedKey;
 import com.otilm.core.model.crypto.CryptographicKeyFullModel;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
+import com.otilm.core.model.crypto.KeyImportAttempt;
+import com.otilm.core.model.crypto.KeyImportTerms;
 import com.otilm.core.model.crypto.KeyMaterial;
+import com.otilm.core.model.crypto.OperationAttributeSchema;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
@@ -80,6 +95,7 @@ import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.OperationAttributeResolver;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.HashSet;
@@ -95,6 +111,13 @@ import org.springframework.http.ResponseEntity;
 /** Synchronous stateless cryptography-provider v2 key management. */
 @Slf4j
 public class KeyProviderV2Adapter implements KeyProviderAdapter {
+
+    private static final String IMPORT_REFUSED = "The connector refused to import the key (%s).";
+    private static final String DESTROY_REFUSED = "The connector refused to destroy the imported key (%s).";
+    private static final String DESTROY_FAILED = "The connector failed to destroy the imported key.";
+    private static final String NO_DESTROY_HANDLE = "V2 key destruction requires a non-empty metadata handle.";
+    private static final String IMPORT_FAILED = "The connector failed to import the key.";
+    private static final String IMPORT_UNREPORTED = "The connector failed to report on the key import.";
 
     private final ApiClientConnectorInfo connectorInfo;
     private final KeySyncApiClient keyManagementSyncApiClient;
@@ -129,14 +152,10 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
             throws ConnectorException {
         if (!(reference instanceof RemoteKeyReference.MetadataReference(List<MetadataAttribute> keyMeta))
                 || keyMeta == null || keyMeta.isEmpty()) {
-            throw new IllegalArgumentException("V2 key destruction requires a non-empty metadata handle.");
+            throw new IllegalArgumentException(NO_DESTROY_HANDLE);
         }
-        TokenProfileScopedRequestV2Dto scope = tokenProfileScopedRequest(cryptographicKey.tokenProfile());
-        DestroyKeyRequestV2Dto request = new DestroyKeyRequestV2Dto();
-        request.setTokenAttributes(scope.getTokenAttributes());
-        request.setTokenProfileAttributes(scope.getTokenProfileAttributes());
-        request.setKeyMeta(keyMeta);
-        request.setExecutionMode(OperationExecutionMode.SYNCHRONOUS);
+        DestroyKeyRequestV2Dto request = destroyRequest(tokenProfileScopedRequest(cryptographicKey.tokenProfile()),
+                keyMeta);
 
         try {
             ResponseEntity<KeyOperationResponseV2Dto> response = keyManagementSyncApiClient
@@ -258,10 +277,21 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
     @Override
     public List<TransferableKeyType> listExportableKeyTypes(TokenProfileFullModel tokenProfile)
             throws ConnectorException {
-        return keyManagementSyncApiClient
-                .listExportableKeyTypes(connectorInfo, tokenProfileScopedRequest(tokenProfile))
+        return transferable(keyManagementSyncApiClient
+                .listExportableKeyTypes(connectorInfo, tokenProfileScopedRequest(tokenProfile)));
+    }
+
+    @Override
+    public List<TransferableKeyType> listImportableKeyTypes(TokenProfileFullModel tokenProfile)
+            throws ConnectorException {
+        return transferable(keyManagementSyncApiClient
+                .listImportableKeyTypes(connectorInfo, tokenProfileScopedRequest(tokenProfile)));
+    }
+
+    private static List<TransferableKeyType> transferable(List<? extends TransferableKeyTypeV2Dto> declared) {
+        return declared
                 .stream()
-                .map(declared -> new TransferableKeyType(declared.getKeyRequestType(), declared.getAlgorithms()))
+                .map(type -> new TransferableKeyType(type.getKeyRequestType(), type.getAlgorithms()))
                 .toList();
     }
 
@@ -277,8 +307,27 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
                 .recordExpandedSecretsFromRequest(attributes.getTokenProfileAttributes(), expandedSecrets);
         List<BaseAttribute> definitions = keyManagementSyncApiClient.listCreateKeyAttributes(connectorInfo, attributes);
         outboundSecretContainment.assertNoExpandedSecretOutbound(definitions, expandedSecrets);
-        // Core takes the intent from the request's own field and states it on the wire itself, so offering the reserved
-        // attribute as well would give a caller a second control that the stated intent then overrides.
+        return withoutReservedExportable(definitions);
+    }
+
+    @Override
+    public List<BaseAttribute> listImportKeyAttributes(TokenProfileFullModel tokenProfile, KeyRequestType type)
+            throws ConnectorException {
+        TokenProfileScopedRequestV2Dto scope = tokenProfileScopedRequest(tokenProfile);
+        ImportKeyAttributesRequestV2Dto request = new ImportKeyAttributesRequestV2Dto();
+        request.setTokenAttributes(scope.getTokenAttributes());
+        request.setTokenProfileAttributes(scope.getTokenProfileAttributes());
+        request.setKeyRequestType(type);
+        return publishDefinitions(request,
+                withoutReservedExportable(keyManagementSyncApiClient.listImportKeyAttributes(connectorInfo, request)));
+    }
+
+    /**
+     * The schema without the contract-reserved exportable attribute. Core takes the intent from the request's own field
+     * and states it to the connector itself, so offering the attribute as well would give a caller a second control
+     * that the stated intent then overrides.
+     */
+    private static List<BaseAttribute> withoutReservedExportable(List<BaseAttribute> definitions) {
         return definitions
                 .stream()
                 .filter(definition -> !KeyExportableAttribute.NAME.equals(definition.getName()))
@@ -351,13 +400,14 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
     }
 
     /**
-     * The contract fixes the name and values of the attribute that selects the algorithm, so Core reads the selection
-     * itself. The connector refuses, at signing, a selection its key does not support.
+     * Core translates the selection into the attribute the contract fixes, so it reads the algorithm without asking the
+     * connector. Signing checks the selection against what the key offers.
      */
     @Override
     public ResolvedSignatureAlgorithm resolveSignatureAlgorithm(CryptographicKeyItemOperationModel privateKeyItem,
             CryptographicKeyItemOperationModel publicKeyItem, List<RequestAttribute> signatureAttributes) {
-        SignatureAlgorithm algorithm = SignatureAlgorithmAttribute.selectedAlgorithm(signatureAttributes);
+        SignatureAlgorithm algorithm = SignatureAlgorithmFields
+                .chosen(privateKeyItem.keyAlgorithm(), publicKeyItem.pqcParameterSpecName(), signatureAttributes);
         if (!signsWith(algorithm, privateKeyItem.keyAlgorithm(), publicKeyItem.pqcParameterSpecName())) {
             String signingKey = publicKeyItem.pqcParameterSpecName() == null
                     ? privateKeyItem.keyAlgorithm().getCode()
@@ -387,13 +437,13 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
     @Override
     public SignDataResponseDto signData(OperationKeyContext context, SignDataRequestDto request)
             throws ConnectorException {
-        List<RequestAttribute> attributes = orEmpty(request.getSignatureAttributes());
-        TokenProfileScopedRequestV2Dto scope = validatedScope(context,
-                schemaRequest -> operationsApiClient.listSignAttributes(connectorInfo, schemaRequest), attributes);
+        ValidatedScope validated = validatedScope(context,
+                schemaRequest -> operationsApiClient.listSignAttributes(connectorInfo, schemaRequest),
+                request.getSignatureAttributes(), SignatureAlgorithmFields::selection);
         IdentifiedBatch<SignatureDataV2Dto> batch = signatureBatch(request.getData());
-        SignDataRequestV2Dto body = keyScoped(new SignDataRequestV2Dto(), context, scope);
+        SignDataRequestV2Dto body = keyScoped(new SignDataRequestV2Dto(), context, validated.scope());
         body.setExecutionMode(OperationExecutionMode.SYNCHRONOUS);
-        body.setSignatureAttributes(attributes);
+        body.setSignatureAttributes(validated.attributes());
         body.setData(batch.items());
         ResponseEntity<SignDataResponseV2Dto> response = operationsApiClient.signData(connectorInfo, body);
         SignDataResponseV2Dto responseBody = response.getBody();
@@ -421,13 +471,14 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
             throw new ValidationException(ValidationError.create("Verification requires one signature per data item."));
         }
         requireAlignedIdentifiers(request.getData(), request.getSignatures());
-        List<RequestAttribute> attributes = orEmpty(request.getSignatureAttributes());
-        TokenProfileScopedRequestV2Dto scope = validatedScope(context,
-                schemaRequest -> operationsApiClient.listVerifyAttributes(connectorInfo, schemaRequest), attributes);
+        ValidatedScope validated = validatedScope(context,
+                schemaRequest -> operationsApiClient.listVerifyAttributes(connectorInfo, schemaRequest),
+                request.getSignatureAttributes(), SignatureAlgorithmFields::selection);
+        TokenProfileScopedRequestV2Dto scope = validated.scope();
         IdentifiedBatch<SignatureDataV2Dto> data = signatureBatch(request.getData());
         IdentifiedBatch<SignatureDataV2Dto> signatures = signatureBatch(request.getSignatures());
         VerifyDataRequestV2Dto body = keyScoped(new VerifyDataRequestV2Dto(), context, scope);
-        body.setSignatureAttributes(attributes);
+        body.setSignatureAttributes(validated.attributes());
         body.setData(data.items());
         body.setSignatures(signatures.items());
         VerifyDataResponseV2Dto response = operationsApiClient.verifyData(connectorInfo, body);
@@ -463,14 +514,18 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
 
     @Override
     public List<BaseAttribute> listSignAttributes(OperationKeyContext context) throws ConnectorException {
-        return listOperationAttributes(context,
-                request -> operationsApiClient.listSignAttributes(connectorInfo, request));
+        return signAttributeSchema(context).definitions();
+    }
+
+    @Override
+    public OperationAttributeSchema signAttributeSchema(OperationKeyContext context) throws ConnectorException {
+        return signatureSchema(context, request -> operationsApiClient.listSignAttributes(connectorInfo, request));
     }
 
     @Override
     public List<BaseAttribute> listVerifyAttributes(OperationKeyContext context) throws ConnectorException {
-        return listOperationAttributes(context,
-                request -> operationsApiClient.listVerifyAttributes(connectorInfo, request));
+        return signatureSchema(context, request -> operationsApiClient.listVerifyAttributes(connectorInfo, request))
+                .definitions();
     }
 
     @Override
@@ -528,6 +583,203 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
     }
 
     /**
+     * The request carries the envelope and the passphrase that opens it, so the connector's answer is checked to echo
+     * neither, and its words are dropped when the import does not succeed.
+     */
+    @Override
+    public ImportAnswer importKey(KeyImportTerms terms, KeyImportAttempt attempt, NormalizedKey key, String keyName)
+            throws ConnectorException {
+        TokenProfileScopedRequestV2Dto scope = tokenProfileScopedRequest(terms.profile());
+        ImportKeyRequestV2Dto request = importRequest(terms, attempt, key, scope);
+        ResponseEntity<KeyCreationResponseV2Dto> response = sendImport(request);
+        Set<String> sentSecrets = scopeSecrets(scope);
+        sentSecrets.addAll(key.transportSecrets());
+        KeyCreationResponseV2Dto body = response.getBody();
+        if (body == null) {
+            throw connectorFault(IMPORT_FAILED);
+        }
+        outboundSecretContainment.assertNoExpandedSecretOutbound(body, sentSecrets, attempt.secretDigests());
+        if (response.getStatusCode().value() == HttpStatus.ACCEPTED.value()) {
+            return new ImportAnswer.Running(body.getOperationMeta());
+        }
+        return imported(body, keyName);
+    }
+
+    private ImportKeyRequestV2Dto importRequest(KeyImportTerms terms, KeyImportAttempt attempt, NormalizedKey key,
+            TokenProfileScopedRequestV2Dto scope) {
+        ImportKeyRequestV2Dto request = new ImportKeyRequestV2Dto();
+        request.setTokenAttributes(scope.getTokenAttributes());
+        request.setTokenProfileAttributes(scope.getTokenProfileAttributes());
+        request.setKeyImportId(attempt.uuid().toString());
+        request.setKeyReference(attempt.keyReference().toString());
+        request
+                .setExecutionMode(connectorCapabilityService
+                        .supports(terms.profile().tokenInstance().connectorInterface(), FeatureFlag.ASYNCHRONOUS)
+                                ? OperationExecutionMode.ASYNCHRONOUS
+                                : OperationExecutionMode.SYNCHRONOUS);
+        request.setKeyRequestType(terms.type());
+        request.setImportKeyAttributes(orEmpty(terms.importAttributes()));
+        EncryptedKeyMaterialV2Dto material = new EncryptedKeyMaterialV2Dto();
+        material.setEncryptedPrivateKeyInfo(key.encryptedPrivateKeyInfo());
+        request.setMaterial(material);
+        char[] passphrase = key.transportPassphrase().characters();
+        request.setPassphrase(new String(passphrase));
+        Arrays.fill(passphrase, '\0');
+        request.setExportable(terms.exportable());
+        return request;
+    }
+
+    /**
+     * A refusal is named by its error code, anything else is a failure. A connector that reports the import identifier
+     * taken holds an import under it, so what it holds is still to be learned rather than refused.
+     */
+    private ResponseEntity<KeyCreationResponseV2Dto> sendImport(ImportKeyRequestV2Dto request)
+            throws ConnectorServerException {
+        try {
+            return keyManagementSyncApiClient.importKey(connectorInfo, request);
+        } catch (ConnectorException | RuntimeException e) {
+            if (e instanceof ConnectorProblemException problem && isRefusal(problem.getProblemDetail())
+                    && problem.getProblemDetail().getErrorCode() != ErrorCode.RESOURCE_ALREADY_EXISTS) {
+                throw new ValidationException(ValidationError
+                        .create(IMPORT_REFUSED.formatted(problem.getProblemDetail().getErrorCode().name())));
+            }
+            throw connectorFault(IMPORT_FAILED);
+        }
+    }
+
+    @Override
+    public ImportAnswer importKeyStatus(TokenProfileFullModel tokenProfile, List<MetadataAttribute> operationMeta,
+            List<String> secretDigests, String keyName) throws ConnectorException {
+        OperationTrackingRequestV2Dto request = new OperationTrackingRequestV2Dto();
+        request.setOperationMeta(operationMeta);
+        KeyCreationStatusResponseV2Dto status;
+        try {
+            status = keyManagementSyncApiClient.getImportKeyStatus(connectorInfo, request);
+        } catch (ConnectorException | RuntimeException e) {
+            throw connectorFault(IMPORT_UNREPORTED);
+        }
+        // Only a completed answer is stored, as the key it describes, so only then are the credentials looked up.
+        Set<String> withheld = status.getStatus() == OperationStatus.COMPLETED
+                ? scopeSecrets(tokenProfileScopedRequest(tokenProfile))
+                : Set.of();
+        outboundSecretContainment.assertNoExpandedSecretOutbound(status, withheld, secretDigests);
+        return answerOf(status, operationMeta, keyName);
+    }
+
+    @Override
+    public ImportAnswer importKeyResult(TokenProfileFullModel tokenProfile, UUID keyImportId,
+            List<String> secretDigests, String keyName) throws ConnectorException {
+        TokenProfileScopedRequestV2Dto scope = tokenProfileScopedRequest(tokenProfile);
+        ImportKeyResultRequestV2Dto request = new ImportKeyResultRequestV2Dto();
+        request.setTokenAttributes(scope.getTokenAttributes());
+        request.setKeyImportId(keyImportId.toString());
+        KeyCreationStatusResponseV2Dto status;
+        try {
+            status = keyManagementSyncApiClient.getImportKeyResult(connectorInfo, request);
+        } catch (ConnectorException | RuntimeException e) {
+            if (isNotTracked(e)) {
+                return new ImportAnswer.NotAccepted();
+            }
+            throw connectorFault(IMPORT_UNREPORTED);
+        }
+        outboundSecretContainment.assertNoExpandedSecretOutbound(status, scopeSecrets(scope), secretDigests);
+        return answerOf(status, null, keyName);
+    }
+
+    /** The credentials of the token and the token profile, which no answer about an import may carry back. */
+    private Set<String> scopeSecrets(TokenProfileScopedRequestV2Dto scope) {
+        Set<String> secrets = new HashSet<>();
+        outboundSecretContainment.recordExpandedSecretsFromRequest(scope.getTokenAttributes(), secrets);
+        outboundSecretContainment.recordExpandedSecretsFromRequest(scope.getTokenProfileAttributes(), secrets);
+        return secrets;
+    }
+
+    @Override
+    public void destroyImportedKeyItem(TokenProfileFullModel tokenProfile, List<MetadataAttribute> keyMeta)
+            throws ConnectorException {
+        if (keyMeta == null || keyMeta.isEmpty()) {
+            throw new IllegalArgumentException(NO_DESTROY_HANDLE);
+        }
+        ResponseEntity<KeyOperationResponseV2Dto> response;
+        try {
+            DestroyKeyRequestV2Dto request = destroyRequest(tokenProfileScopedRequest(tokenProfile), keyMeta);
+            response = keyManagementSyncApiClient.destroyKey(connectorInfo, request);
+        } catch (ConnectorException | RuntimeException e) {
+            // A connector that knows no such key may have destroyed it, or may no longer reach its token: no refusal.
+            if (e instanceof ConnectorProblemException problem && isRefusal(problem.getProblemDetail())
+                    && problem.getProblemDetail().getStatus() != HttpStatus.NOT_FOUND.value()) {
+                throw new ValidationException(ValidationError
+                        .create(DESTROY_REFUSED.formatted(problem.getProblemDetail().getErrorCode().name())));
+            }
+            throw connectorFault(DESTROY_FAILED);
+        }
+        KeyOperationResponseV2Dto body = response.getBody();
+        if (response.getStatusCode().value() != HttpStatus.OK.value() || body == null
+                || body.getOperationMeta() != null) {
+            throw connectorFault(DESTROY_FAILED);
+        }
+    }
+
+    private static DestroyKeyRequestV2Dto destroyRequest(TokenProfileScopedRequestV2Dto scope,
+            List<MetadataAttribute> keyMeta) {
+        DestroyKeyRequestV2Dto request = new DestroyKeyRequestV2Dto();
+        request.setTokenAttributes(scope.getTokenAttributes());
+        request.setTokenProfileAttributes(scope.getTokenProfileAttributes());
+        request.setKeyMeta(keyMeta);
+        request.setExecutionMode(OperationExecutionMode.SYNCHRONOUS);
+        return request;
+    }
+
+    @Override
+    public boolean cancelImportKey(List<MetadataAttribute> operationMeta) {
+        OperationTrackingRequestV2Dto request = new OperationTrackingRequestV2Dto();
+        request.setOperationMeta(operationMeta);
+        try {
+            ResponseEntity<Void> response = keyManagementSyncApiClient.cancelImportKey(connectorInfo, request);
+            return response != null && response.getStatusCode().value() == HttpStatus.NO_CONTENT.value();
+        } catch (ConnectorException | RuntimeException e) {
+            log
+                    .info("Connector {} did not abort a key import: {}", connectorInfo.getUuid(),
+                            e.getClass().getSimpleName());
+            return false;
+        }
+    }
+
+    /**
+     * A connector with no record of the import says so with {@code OPERATION_NOT_TRACKED}, or answers 404 without a
+     * problem document, as it arrives when the transport drops the document.
+     */
+    private static boolean isNotTracked(Exception e) {
+        return e instanceof ConnectorEntityNotFoundException || e instanceof ConnectorProblemException problem
+                && problem.getProblemDetail().getErrorCode() == ErrorCode.OPERATION_NOT_TRACKED;
+    }
+
+    private ImportAnswer answerOf(KeyCreationStatusResponseV2Dto status, List<MetadataAttribute> operationMeta,
+            String keyName) {
+        return switch (status.getStatus()) {
+            case IN_PROGRESS -> new ImportAnswer.Running(operationMeta);
+            case COMPLETED -> imported(resultOf(status), keyName);
+            case FAILED, CANCELLED -> new ImportAnswer.NotImported();
+        };
+    }
+
+    private static KeyCreationResponseV2Dto resultOf(KeyCreationStatusResponseV2Dto status) {
+        return switch (status) {
+            case KeyPairOperationStatusResponseV2Dto keyPair -> keyPair.getResult();
+            case SecretKeyOperationStatusResponseV2Dto secretKey -> secretKey.getResult();
+        };
+    }
+
+    private ImportAnswer imported(KeyCreationResponseV2Dto body, String keyName) {
+        List<ProviderKeyItem> items = switch (body) {
+            case KeyPairDataResponseV2Dto keyPair -> toCreatedKeyPair(keyPair, keyName);
+            case SecretKeyDataResponseV2Dto secretKey ->
+                List.of(toCreatedKeyItem(keyName, secretKey.getKeyData(), secretKey.getKeyMeta(), null));
+        };
+        return new ImportAnswer.Imported(body.getKeyRequestType(), items);
+    }
+
+    /**
      * A client error the connector named with a code; 401 and 403 turn away the platform's credentials, not the key.
      */
     private static boolean isRefusal(ProblemDetailExtended problem) {
@@ -563,6 +815,17 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         return publishDefinitions(request, fetchSchema(schemaCall, request));
     }
 
+    private OperationAttributeSchema signatureSchema(OperationKeyContext context,
+            ConnectorCall<KeyScopedRequestV2Dto, List<BaseAttribute>> schemaCall) throws ConnectorException {
+        KeyScopedRequestV2Dto request = keyScoped(new KeyScopedRequestV2Dto(), context,
+                tokenProfileScopedRequest(context.tokenProfile()));
+        List<BaseAttribute> connectorDefinitions = fetchSchema(schemaCall, request);
+        assertNoExpandedSecretEchoed(request, connectorDefinitions);
+        List<BaseAttribute> definitions = persistDefinitions(SignatureAlgorithmFields.form(connectorDefinitions));
+        return new OperationAttributeSchema(context.keyItem().operationAttributeOwner(), definitions,
+                connectorDefinitions);
+    }
+
     private <T extends KeyScopedRequestV2Dto> T keyScoped(T request, OperationKeyContext context,
             TokenProfileScopedRequestV2Dto scope) {
         if (!(context
@@ -595,10 +858,14 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         outboundSecretContainment.assertNoExpandedSecretOutbound(payload, expandedSecrets);
     }
 
-    /** Guards expanded secrets and persists the schema so attribute callbacks can resolve against it. */
-    private List<BaseAttribute> publishDefinitions(KeyScopedRequestV2Dto request, List<BaseAttribute> definitions)
-            throws ConnectorException {
+    private List<BaseAttribute> publishDefinitions(TokenProfileScopedRequestV2Dto request,
+            List<BaseAttribute> definitions) throws ConnectorException {
         assertNoExpandedSecretEchoed(request, definitions);
+        return persistDefinitions(definitions);
+    }
+
+    /** Persists the schema so attribute callbacks can resolve against it. */
+    private List<BaseAttribute> persistDefinitions(List<BaseAttribute> definitions) throws ConnectorException {
         try {
             attributeEngine.updateDataAttributeDefinitions(UUID.fromString(connectorInfo.getUuid()), null, definitions);
         } catch (AttributeException e) {
@@ -616,12 +883,21 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
     private TokenProfileScopedRequestV2Dto validatedScope(OperationKeyContext context,
             ConnectorCall<KeyScopedRequestV2Dto, List<BaseAttribute>> schemaCall, List<RequestAttribute> attributes)
             throws ConnectorException {
+        return validatedScope(context, schemaCall, attributes, (definitions, submitted) -> submitted).scope();
+    }
+
+    /** Validates the attributes as they will reach the connector, once translated against its schema. */
+    private ValidatedScope validatedScope(OperationKeyContext context,
+            ConnectorCall<KeyScopedRequestV2Dto, List<BaseAttribute>> schemaCall, List<RequestAttribute> attributes,
+            BiFunction<List<BaseAttribute>, List<RequestAttribute>, List<RequestAttribute>> toConnector)
+            throws ConnectorException {
         TokenProfileScopedRequestV2Dto scope = tokenProfileScopedRequest(context.tokenProfile());
         KeyScopedRequestV2Dto request = keyScoped(new KeyScopedRequestV2Dto(), context, scope);
         List<BaseAttribute> definitions = fetchSchema(schemaCall, request);
         assertNoExpandedSecretEchoed(request, definitions);
-        AttributeDefinitionUtils.validateAttributes(definitions, attributes);
-        return scope;
+        List<RequestAttribute> connectorAttributes = toConnector.apply(definitions, attributes);
+        AttributeDefinitionUtils.validateAttributes(definitions, connectorAttributes);
+        return new ValidatedScope(scope, connectorAttributes);
     }
 
     /**
@@ -694,6 +970,10 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
             throw new ConnectorException("Connector returned a batch item without data.", connectorInfo);
         }
         return Base64.getEncoder().encodeToString(data);
+    }
+
+    /** The scope the schema was fetched with, and the attributes to send to the connector. */
+    private record ValidatedScope(TokenProfileScopedRequestV2Dto scope, List<RequestAttribute> attributes) {
     }
 
     /** Sends every item under its position; the caller's identifiers (possibly null) come back by position. */

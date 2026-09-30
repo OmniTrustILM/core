@@ -181,7 +181,8 @@ public class ConnectorV2Adapter implements ConnectorAdapter {
             logger.debug("Removed {} interfaces", toRemove.size());
         }
 
-        // A re-registered connector may export something else now, whether or not its declared features changed.
+        // A re-registered connector may import or export something else now, whether or not its declared features
+        // changed.
         keyTransferCapabilityWriter.forgetForConnector(connector.getUuid());
     }
 }

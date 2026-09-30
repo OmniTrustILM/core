@@ -156,7 +156,7 @@ class CryptoAssetListQueryITest extends BaseSpringBootTest {
                         List.of(Map.of("location", "d"), Map.of("location", "e")), OffsetDateTime.now());
         Cbom unlocated = newCbom("urn:uuid:proj-unlocated");
         sourceWriter.upsertSource(sourced, unlocated.getUuid(), Map.of("k", "v"), List.of(), OffsetDateTime.now());
-        assetWriter.applyPqcVerdict(sourced, PqcVerdict.NOT_READY, "rule", "reason", 3, Map.of());
+        assetWriter.applyPqcVerdict(sourced, PqcVerdict.NOT_READY, "rule", "reason", Map.of());
 
         List<CryptoAssetListRow> rows = assetRepository.findListRowsByUuids(List.of(sourced, sourceless, guarded));
         assertThat(rows).hasSize(3);

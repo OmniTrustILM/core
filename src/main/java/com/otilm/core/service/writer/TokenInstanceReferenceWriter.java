@@ -82,7 +82,7 @@ public class TokenInstanceReferenceWriter {
                 .updateObjectDataAttributesContent(
                         ObjectAttributeContentInfo.builder(Resource.TOKEN, tokenUuid).connector(connectorUuid).build(),
                         dataAttributes);
-        // Every profile's export answer was given for the old token attributes.
+        // Every profile's import and export answers were given for the old token attributes.
         keyTransferCapabilityWriter.forgetForToken(tokenUuid);
     }
 

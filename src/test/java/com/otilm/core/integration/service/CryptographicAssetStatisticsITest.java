@@ -340,7 +340,7 @@ class CryptographicAssetStatisticsITest extends BaseSpringBootTest {
     }
 
     private void applyVerdict(UUID assetUuid, PqcVerdict verdict) {
-        assetWriter.applyPqcVerdict(assetUuid, verdict, "rule", "reason", 1, Map.of());
+        assetWriter.applyPqcVerdict(assetUuid, verdict, "rule", "reason", Map.of());
     }
 
     private UUID upsert(CryptoAssetIdentityFields fields, CryptoAssetIdentityGuard guard) {

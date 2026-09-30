@@ -880,7 +880,7 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
             DataIntegrityViolationException failure = Assertions
                     .assertThrows(DataIntegrityViolationException.class, create);
             Assertions.assertTrue(failure.getMostSpecificCause().getMessage().contains(constraintName));
-            Assertions.assertTrue(cryptographicKeyRepository.findByName(keyName).isEmpty());
+            Assertions.assertFalse(cryptographicKeyRepository.existsByName(keyName));
             Assertions.assertEquals(initialItemCount, cryptographicKeyItemRepository.count());
             Assertions.assertEquals(initialHistoryCount, cryptographicKeyEventHistoryRepository.count());
         } finally {
@@ -950,6 +950,24 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
                         () -> cryptographicKeyService
                                 .createKey(tokenInstanceReference.getUuid(), tokenProfile.getSecuredParentUuid(),
                                         KeyRequestType.KEY_PAIR, request));
+    }
+
+    /** A token sync names keys after the token, so two keys can share a name; it is refused as any taken name is. */
+    @Test
+    void testAddKey_refusesANameTwoKeysShare() {
+        // given
+        createKey(KEY_NAME, tokenProfile2, tokenInstanceReference);
+        KeyRequestDto request = new KeyRequestDto();
+        request.setName(KEY_NAME);
+        UUID tokenInstanceUuid = tokenInstanceReference.getUuid();
+        SecuredParentUUID tokenProfileUuid = tokenProfile.getSecuredParentUuid();
+
+        // when
+        // then
+        Assertions
+                .assertThrows(AlreadyExistException.class, () -> cryptographicKeyService
+                        .createKey(tokenInstanceUuid, tokenProfileUuid, KeyRequestType.KEY_PAIR, request));
+        mockServer.verify(0, WireMock.anyRequestedFor(WireMock.anyUrl()));
     }
 
     @Test
@@ -1798,7 +1816,7 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
                 .addEventHistory(KeyEvent.ENABLE, KeyEventStatus.SUCCESS, "Key enabled", null, siblingUuid);
 
         // when
-        boolean deleted = cryptographicKeyWriter.deleteKeyItem(deletedItemUuid);
+        boolean deleted = cryptographicKeyWriter.deleteKeyItem(keyAsRead(), deletedItemUuid);
 
         // then
         Assertions.assertTrue(deleted);
@@ -1820,7 +1838,7 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         long existingItemCount = cryptographicKeyItemRepository.count();
 
         // when
-        boolean deleted = cryptographicKeyWriter.deleteKeyItem(missingItemUuid);
+        boolean deleted = cryptographicKeyWriter.deleteKeyItem(keyAsRead(), missingItemUuid);
 
         // then
         Assertions.assertFalse(deleted);
@@ -1881,7 +1899,7 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
 
         // when
         int deletedCount = cryptographicKeyWriter
-                .deleteKeyItemsWithAssociations(List.of(selectedItemUuid), List.of(key.getUuid()));
+                .deleteKeyItemsWithAssociations(List.of(selectedItemUuid), List.of(keyAsRead()));
 
         // then
         Assertions.assertEquals(1, deletedCount);
@@ -1904,7 +1922,7 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
 
         // when
         int deletedCount = cryptographicKeyWriter
-                .deleteKeyItemsWithAssociations(selectedItemUuids, List.of(deletedKeyUuid));
+                .deleteKeyItemsWithAssociations(selectedItemUuids, List.of(keyAsRead()));
 
         // then
         Assertions.assertEquals(selectedItemUuids.size(), deletedCount);
@@ -1935,10 +1953,35 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void deleteKeyItemsWithAssociations_purgesCommentsOfEveryEmptiedParent() throws Exception {
+        // given
+        prepareBatchDeletionAssociations();
+        commentOnKey(keyWithoutToken.getUuid());
+        List<UUID> selectedItemUuids = new ArrayList<>(List.of(privateKeyItem.getUuid(), publicKeyItem.getUuid()));
+        cryptographicKeyItemRepository
+                .findByKeyUuidIn(List.of(keyWithoutToken.getUuid()))
+                .forEach(item -> selectedItemUuids.add(item.getUuid()));
+        List<CryptographicKeyBasicModel> parents = List
+                .of(keyAsRead(),
+                        cryptographicKeyRepository.findBasicModelByUuid(keyWithoutToken.getUuid()).orElseThrow());
+
+        // when
+        cryptographicKeyWriter.deleteKeyItemsWithAssociations(selectedItemUuids, parents);
+
+        // then
+        for (UUID keyUuid : List.of(key.getUuid(), keyWithoutToken.getUuid())) {
+            Assertions.assertFalse(cryptographicKeyRepository.existsById(keyUuid));
+            Assertions
+                    .assertFalse(commentRepository.existsByResourceAndObjectUuid(Resource.CRYPTOGRAPHIC_KEY, keyUuid));
+        }
+    }
+
+    @Test
     void deleteKeyItemsWithAssociations_waitsForSiblingDeletionAndRemovesEmptyParent() throws Exception {
         // given
         UUID certificateUuid = prepareBatchDeletionAssociations();
         UUID parentUuid = key.getUuid();
+        CryptographicKeyBasicModel parent = keyAsRead();
         UUID firstItemUuid = privateKeyItem.getUuid();
         UUID finalItemUuid = publicKeyItem.getUuid();
         TransactionTemplate transaction = new TransactionTemplate(transactionManager);
@@ -1947,11 +1990,11 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
             Future<Integer> outcome = transaction.execute(status -> {
                 Assertions
                         .assertEquals(1, cryptographicKeyWriter
-                                .deleteKeyItemsWithAssociations(List.of(firstItemUuid), List.of(parentUuid)));
+                                .deleteKeyItemsWithAssociations(List.of(firstItemUuid), List.of(parent)));
                 int lockHolderPid = jdbcTemplate.queryForObject("SELECT pg_backend_pid()", Integer.class);
                 Future<Integer> waitingWriter = contender
                         .submit(() -> cryptographicKeyWriter
-                                .deleteKeyItemsWithAssociations(List.of(finalItemUuid), List.of(parentUuid)));
+                                .deleteKeyItemsWithAssociations(List.of(finalItemUuid), List.of(parent)));
                 Awaitility
                         .await()
                         .atMost(Duration.ofSeconds(10))
@@ -1998,10 +2041,10 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
                         .formatted(guardTable, constraintName, dbSchema));
         try {
             jdbcTemplate.update("INSERT INTO " + guardTable + " (key_uuid) VALUES (?)", key.getUuid());
+            List<CryptographicKeyBasicModel> parents = List.of(keyAsRead());
 
             // when
-            Executable delete = () -> cryptographicKeyWriter
-                    .deleteKeyItemsWithAssociations(selectedItemUuids, List.of(key.getUuid()));
+            Executable delete = () -> cryptographicKeyWriter.deleteKeyItemsWithAssociations(selectedItemUuids, parents);
 
             // then
             DataIntegrityViolationException failure = Assertions
@@ -2025,13 +2068,7 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         objectAssociationService.setGroups(Resource.CRYPTOGRAPHIC_KEY, keyUuid, Set.of(group.getUuid()));
         Certificate certificate = aCertificate().withKeyUuid(keyUuid).withAltKeyUuid(keyUuid).build();
         certificate = certificateRepository.saveAndFlush(certificate);
-        Comment comment = new Comment();
-        comment.setResource(Resource.CRYPTOGRAPHIC_KEY);
-        comment.setObjectUuid(keyUuid);
-        comment.setAuthorUuid(UUID.randomUUID());
-        comment.setAuthorUsername("key-operator");
-        comment.setBody("Keep the key association history");
-        commentWriter.create(comment);
+        commentOnKey(keyUuid);
         for (UUID itemUuid : List.of(privateKeyItem.getUuid(), publicKeyItem.getUuid())) {
             keyEventHistoryService
                     .addEventHistory(KeyEvent.ENABLE, KeyEventStatus.SUCCESS, "Key enabled", null, itemUuid);
@@ -2039,6 +2076,16 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         }
         addDeletionMetadata(keyUuid);
         return certificate.getUuid();
+    }
+
+    private void commentOnKey(UUID keyUuid) throws NotFoundException {
+        Comment comment = new Comment();
+        comment.setResource(Resource.CRYPTOGRAPHIC_KEY);
+        comment.setObjectUuid(keyUuid);
+        comment.setAuthorUuid(UUID.randomUUID());
+        comment.setAuthorUsername("key-operator");
+        comment.setBody("Keep the key association history");
+        commentWriter.create(comment);
     }
 
     private void addDeletionMetadata(UUID objectUuid) throws AttributeException {
@@ -2147,7 +2194,7 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
                         entryState.name(), previousUpdate, itemUuid);
 
         // when
-        cryptographicKeyWriter.finalizeKeyItemDestruction(itemUuid);
+        cryptographicKeyWriter.finalizeKeyItemDestruction(keyAsRead(), itemUuid);
 
         // then
         CryptographicKeyItem storedItem = cryptographicKeyItemRepository.findByUuid(itemUuid).orElseThrow();
@@ -2166,9 +2213,11 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
     void finalizeKeyItemDestruction_throwsNotFoundException_whenItemDoesNotExist() {
         // given
         UUID missingItemUuid = UUID.randomUUID();
+        CryptographicKeyBasicModel parent = keyAsRead();
 
         // when
-        Executable finalizeDestruction = () -> cryptographicKeyWriter.finalizeKeyItemDestruction(missingItemUuid);
+        Executable finalizeDestruction = () -> cryptographicKeyWriter
+                .finalizeKeyItemDestruction(parent, missingItemUuid);
 
         // then
         Assertions.assertThrows(NotFoundException.class, finalizeDestruction);
@@ -2699,4 +2748,8 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
                                 .collect(Collectors.toSet()));
     }
 
+    /** The fixture's key as a request reads it. */
+    private CryptographicKeyBasicModel keyAsRead() {
+        return cryptographicKeyRepository.findBasicModelByUuid(key.getUuid()).orElseThrow();
+    }
 }

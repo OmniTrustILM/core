@@ -16,9 +16,15 @@ import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectConten
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSecretContentData;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSimpleContentData;
 import com.otilm.api.model.connector.secrets.content.SecretContent;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.Collection;
+import java.util.HexFormat;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Predicate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -131,6 +137,17 @@ public class OutboundSecretContainment {
      * @param expandedSecrets the secret values this call materialized server-side
      */
     public void assertNoExpandedSecretOutbound(Object response, Set<String> expandedSecrets) {
+        assertNoExpandedSecretOutbound(response, expandedSecrets, List.of());
+    }
+
+    /**
+     * As {@link #assertNoExpandedSecretOutbound(Object, Set)}, and also refuses a response with a leaf whose digest is
+     * among the digests given: a secret an earlier call sent, known now by its digest only.
+     *
+     * @param sentSecretDigests the digests of the secrets, as {@link #digestsOf} computes them
+     */
+    public void assertNoExpandedSecretOutbound(Object response, Set<String> expandedSecrets,
+            Collection<String> sentSecretDigests) {
         if (response == null) {
             return;
         }
@@ -139,7 +156,9 @@ public class OutboundSecretContainment {
         // failClosedOnDepth=true: a response too deeply nested to fully inspect is refused, not waved through.
         walkSecretGraph(response, 0, this::rejectIfSecretShape, true);
 
-        if (expandedSecrets == null || expandedSecrets.isEmpty()) {
+        Set<String> secrets = expandedSecrets == null ? Set.of() : expandedSecrets;
+        Set<String> digests = sentSecretDigests == null ? Set.of() : Set.copyOf(sentSecretDigests);
+        if (secrets.isEmpty() && digests.isEmpty()) {
             return;
         }
         JsonNode tree;
@@ -150,7 +169,8 @@ public class OutboundSecretContainment {
             logger.warn("Callback response could not be serialized for secret-echo verification; refusing", e);
             throw new OutboundSecretLeakException("Callback response could not be verified for secret containment");
         }
-        if (containsAnyScalar(tree, expandedSecrets)) {
+        if (containsAnyScalar(tree,
+                text -> secrets.contains(text) || (!digests.isEmpty() && digests.contains(digestOf(text))))) {
             logger.warn("Callback response echoes a server-expanded secret value; refusing to forward to FE");
             throw new OutboundSecretLeakException("Callback response echoes a secret value expanded by Core this call");
         }
@@ -240,15 +260,33 @@ public class OutboundSecretContainment {
         }
     }
 
-    private static boolean containsAnyScalar(JsonNode node, Set<String> needles) {
+    /**
+     * The digests by which {@link #assertNoExpandedSecretOutbound(Object, Set, Collection)} recognizes the secrets, so
+     * that they can be kept where the secrets must not be.
+     */
+    public static List<String> digestsOf(Collection<String> secrets) {
+        return secrets.stream().map(OutboundSecretContainment::digestOf).sorted().toList();
+    }
+
+    private static String digestOf(String secret) {
+        try {
+            return HexFormat
+                    .of()
+                    .formatHex(MessageDigest.getInstance("SHA-256").digest(secret.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is not available", e);
+        }
+    }
+
+    private static boolean containsAnyScalar(JsonNode node, Predicate<String> isSecret) {
         if (node == null || node.isNull()) {
             return false;
         }
         if (node.isValueNode()) {
-            return needles.contains(node.asText());
+            return isSecret.test(node.asText());
         }
         for (Iterator<JsonNode> it = node.elements(); it.hasNext();) {
-            if (containsAnyScalar(it.next(), needles)) {
+            if (containsAnyScalar(it.next(), isSecret)) {
                 return true;
             }
         }

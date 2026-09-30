@@ -48,6 +48,7 @@ import com.otilm.api.model.core.certificate.CertificateRegistrationDetailDto;
 import com.otilm.api.model.core.certificate.CertificateRegistrationState;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateRelationsDto;
+import com.otilm.api.model.core.certificate.CertificateRequestDto;
 import com.otilm.api.model.core.certificate.CertificateSimpleDto;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateSubjectType;
@@ -132,6 +133,7 @@ import com.otilm.core.messaging.model.ValidationMessage;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.request.CertificateRequest;
+import com.otilm.core.model.request.CertificateRequestKeys;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
 import com.otilm.core.model.signing.SigningCertificate;
 import com.otilm.core.oid.OidHandler;
@@ -159,6 +161,7 @@ import com.otilm.core.service.LocationInternalService;
 import com.otilm.core.service.RaProfileCertificateRequestAttributeService;
 import com.otilm.core.service.RaProfileInternalService;
 import com.otilm.core.service.ResourceObjectAssociationService;
+import com.otilm.core.service.handler.KeystoreAvailability;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
@@ -589,6 +592,13 @@ public class CertificateServiceImpl
         this.stateMachine = stateMachine;
     }
 
+    private KeystoreAvailability keystoreAvailability;
+
+    @Autowired
+    public void setKeystoreAvailability(KeystoreAvailability keystoreAvailability) {
+        this.keystoreAvailability = keystoreAvailability;
+    }
+
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.LIST,
             parentResource = Resource.RA_PROFILE, parentAction = ResourceAction.MEMBERS)
@@ -659,6 +669,7 @@ public class CertificateServiceImpl
             throws NotFoundException, CertificateException, IOException {
         Certificate certificate = getCertificateEntityWithAssociations(uuid);
         CertificateDetailDto dto = certificate.mapToDto();
+        dto.setKeystoreAvailable(keystoreAvailability.of(certificate));
         if (dto.getExtendedKeyUsage() != null) {
             Map<String, OidRecord> oidToName = OidHandler.getOidCache(OidCategory.EXTENDED_KEY_USAGE);
             List<String> extendedKeyUsageNames = dto
@@ -690,30 +701,7 @@ public class CertificateServiceImpl
                             .toList());
         }
         if (dto.getCertificateRequest() != null) {
-            dto
-                    .getCertificateRequest()
-                    .setAttributes(attributeEngine
-                            .getObjectDataAttributesContent(ObjectAttributeContentInfo
-                                    .builder(Resource.CERTIFICATE_REQUEST,
-                                            certificate.getCertificateRequest().getUuid())
-                                    .build()));
-            dto
-                    .getCertificateRequest()
-                    .setSignatureAttributes(attributeEngine
-                            .getObjectDataAttributesContent(ObjectAttributeContentInfo
-                                    .builder(Resource.CERTIFICATE_REQUEST,
-                                            certificate.getCertificateRequest().getUuid())
-                                    .operation(AttributeOperation.SIGN)
-                                    .build()));
-            dto
-                    .getCertificateRequest()
-                    .setAltSignatureAttributes(attributeEngine
-                            .getObjectDataAttributesContent(ObjectAttributeContentInfo
-                                    .builder(Resource.CERTIFICATE_REQUEST,
-                                            certificate.getCertificateRequest().getUuid())
-                                    .operation(AttributeOperation.SIGN)
-                                    .purpose(AttributeContentPurpose.CERTIFICATE_REQUEST_ALT_KEY)
-                                    .build()));
+            setCertificateRequestAttributes(dto.getCertificateRequest(), certificate.getCertificateRequest());
         }
         // if has RA profile with authority and connector
         if (certificate.getRaProfile() != null && certificate.getRaProfile().getAuthorityInstanceReference() != null
@@ -1169,9 +1157,6 @@ public class CertificateServiceImpl
         // 3. Do the work.
         locationInternalService.removeCertificatesFromLocationsOnDelete(permittedSecuredUuids);
 
-        scepProfileRepository.clearCaCertificateReferenceIn(permittedUuids);
-        cmpProfileRepository.clearSigningCertificateReferenceIn(permittedUuids);
-
         crlService.clearCrlsForCaCertificate(permittedUuids);
 
         certificates.forEach(c -> {
@@ -1179,7 +1164,12 @@ public class CertificateServiceImpl
             c.getGroups().clear();
         });
         objectAssociationService.bulkRemoveObjectAssociations(Resource.CERTIFICATE, permittedUuids);
+        commentService.bulkRemoveObjectComments(Resource.CERTIFICATE, permittedUuids);
         attributeEngine.bulkDeleteObjectAttributeContent(Resource.CERTIFICATE, permittedUuids);
+
+        // After the comment locks, as in deleteCertificate: the opposite order could deadlock the two paths
+        scepProfileRepository.clearCaCertificateReferenceIn(permittedUuids);
+        cmpProfileRepository.clearSigningCertificateReferenceIn(permittedUuids);
 
         certificateRepository.deleteAllInBatch(certificates);
         certificateContentRepository.deleteUnusedCertificateContents();
@@ -2423,6 +2413,71 @@ public class CertificateServiceImpl
         return response;
     }
 
+    /**
+     * Reads a request's attributes. Its signature attributes are read under whichever connector stored them, so they
+     * stay readable after the key that signed the request is deleted.
+     */
+    private void setCertificateRequestAttributes(CertificateRequestDto dto, CertificateRequestEntity request) {
+        dto
+                .setAttributes(attributeEngine
+                        .getObjectDataAttributesContent(ObjectAttributeContentInfo
+                                .builder(Resource.CERTIFICATE_REQUEST, request.getUuid())
+                                .build()));
+        dto
+                .setSignatureAttributes(attributeEngine
+                        .getOperationDataAttributesContent(ObjectAttributeContentInfo
+                                .builder(Resource.CERTIFICATE_REQUEST, request.getUuid())
+                                .operation(AttributeOperation.SIGN)
+                                .build()));
+        dto
+                .setAltSignatureAttributes(attributeEngine
+                        .getOperationDataAttributesContent(ObjectAttributeContentInfo
+                                .builder(Resource.CERTIFICATE_REQUEST, request.getUuid())
+                                .operation(AttributeOperation.SIGN)
+                                .purpose(AttributeContentPurpose.CERTIFICATE_REQUEST_ALT_KEY)
+                                .build()));
+    }
+
+    @Override
+    public CertificateRequestKeys findRequestKeys(String csr, CertificateRequestFormat csrFormat, UUID keyUuid,
+            UUID altKeyUuid) throws NoSuchAlgorithmException, CertificateRequestException {
+        byte[] decodedCsr = Base64.getDecoder().decode(csr);
+        return requestKeys(findCertificateRequestByContent(decodedCsr),
+                CertificateRequestUtils.createCertificateRequest(decodedCsr, csrFormat), keyUuid, altKeyUuid);
+    }
+
+    private Optional<CertificateRequestEntity> findCertificateRequestByContent(byte[] decodedCsr)
+            throws NoSuchAlgorithmException {
+        return certificateRequestRepository.findByFingerprint(CertificateUtil.getThumbprint(decodedCsr));
+    }
+
+    /**
+     * The keys a stored request with this content was first submitted with, else the given ones, else the inventory
+     * keys the request's public keys match, the ones {@link #getCertificateRequestKey} would link it to.
+     */
+    private CertificateRequestKeys requestKeys(Optional<CertificateRequestEntity> stored, CertificateRequest request,
+            UUID keyUuid, UUID altKeyUuid) throws NoSuchAlgorithmException, CertificateRequestException {
+        UUID key = stored.map(CertificateRequestEntity::getKeyUuid).orElse(keyUuid);
+        if (key == null && request.getPublicKey() != null) {
+            key = cryptographicKeyService.findKeyByFingerprint(publicKeyFingerprint(request.getPublicKey()));
+        }
+        UUID altKey = stored.map(CertificateRequestEntity::getAltKeyUuid).orElse(altKeyUuid);
+        if (altKey == null && request.getAltPublicKey() != null) {
+            altKey = cryptographicKeyService.findKeyByFingerprint(publicKeyFingerprint(request.getAltPublicKey()));
+        }
+        return new CertificateRequestKeys(key, altKey);
+    }
+
+    private static boolean isEmpty(List<RequestAttribute> attributes) {
+        return attributes == null || attributes.isEmpty();
+    }
+
+    private static String publicKeyFingerprint(PublicKey publicKey) throws NoSuchAlgorithmException {
+        return CertificateUtil
+                .getThumbprint(
+                        Base64.getEncoder().encodeToString(publicKey.getEncoded()).getBytes(StandardCharsets.UTF_8));
+    }
+
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.CREATE)
     public CertificateDetailDto submitCertificateRequest(String certificateRequest,
@@ -2454,13 +2509,17 @@ public class CertificateServiceImpl
         CertificateRequestEntity certificateRequestEntity;
 
         final String certificateRequestFingerprint = CertificateUtil.getThumbprint(decodedCsr);
-        // get the certificate request by fingerprint, if exists
-        Optional<CertificateRequestEntity> certificateRequestOptional = certificateRequestRepository
-                .findByFingerprint(certificateRequestFingerprint);
+        Optional<CertificateRequestEntity> certificateRequestOptional = findCertificateRequestByContent(decodedCsr);
 
         List<ResponseAttribute> requestAttributes;
         List<ResponseAttribute> requestSignatureAttributes;
         List<ResponseAttribute> requestAltSignatureAttributes;
+        // Signature attributes are written under the connector of the key they belong to.
+        CertificateRequestKeys signingKeys = isEmpty(signatureAttributes) && isEmpty(altSignatureAttributes)
+                ? new CertificateRequestKeys(null, null)
+                : requestKeys(certificateRequestOptional, request, keyUuid, altKeyUuid);
+        UUID signatureAttributeOwner = cryptographicKeyService.getSignAttributeOwner(signingKeys.keyUuid());
+        UUID altSignatureAttributeOwner = cryptographicKeyService.getSignAttributeOwner(signingKeys.altKeyUuid());
         if (certificateRequestOptional.isPresent()) {
             certificateRequestEntity = certificateRequestOptional.get();
             // if no CSR attributes are assigned to CSR, update them with ones provided
@@ -2469,12 +2528,12 @@ public class CertificateServiceImpl
                             .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
                             .build());
             requestSignatureAttributes = attributeEngine
-                    .getObjectDataAttributesContent(ObjectAttributeContentInfo
+                    .getOperationDataAttributesContent(ObjectAttributeContentInfo
                             .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
                             .operation(AttributeOperation.SIGN)
                             .build());
             requestAltSignatureAttributes = attributeEngine
-                    .getObjectDataAttributesContent(ObjectAttributeContentInfo
+                    .getOperationDataAttributesContent(ObjectAttributeContentInfo
                             .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
                             .operation(AttributeOperation.SIGN)
                             .purpose(AttributeContentPurpose.CERTIFICATE_REQUEST_ALT_KEY)
@@ -2489,6 +2548,7 @@ public class CertificateServiceImpl
                 requestSignatureAttributes = attributeEngine
                         .updateObjectDataAttributesContent(ObjectAttributeContentInfo
                                 .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
+                                .connector(signatureAttributeOwner)
                                 .operation(AttributeOperation.SIGN)
                                 .build(), signatureAttributes);
             }
@@ -2498,6 +2558,7 @@ public class CertificateServiceImpl
                 requestAltSignatureAttributes = attributeEngine
                         .updateObjectDataAttributesContent(ObjectAttributeContentInfo
                                 .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
+                                .connector(altSignatureAttributeOwner)
                                 .operation(AttributeOperation.SIGN)
                                 .purpose(AttributeContentPurpose.CERTIFICATE_REQUEST_ALT_KEY)
                                 .build(), altSignatureAttributes);
@@ -2516,11 +2577,13 @@ public class CertificateServiceImpl
             requestSignatureAttributes = attributeEngine
                     .updateObjectDataAttributesContent(ObjectAttributeContentInfo
                             .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
+                            .connector(signatureAttributeOwner)
                             .operation(AttributeOperation.SIGN)
                             .build(), signatureAttributes);
             requestAltSignatureAttributes = attributeEngine
                     .updateObjectDataAttributesContent(ObjectAttributeContentInfo
                             .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
+                            .connector(altSignatureAttributeOwner)
                             .operation(AttributeOperation.SIGN)
                             .purpose(AttributeContentPurpose.CERTIFICATE_REQUEST_ALT_KEY)
                             .build(), altSignatureAttributes);
@@ -2648,9 +2711,7 @@ public class CertificateServiceImpl
             return certificateRequest.getKeyUuid();
         }
 
-        String fingerprint = CertificateUtil
-                .getThumbprint(
-                        Base64.getEncoder().encodeToString(csrPublicKey.getEncoded()).getBytes(StandardCharsets.UTF_8));
+        String fingerprint = publicKeyFingerprint(csrPublicKey);
         UUID keyUuid = cryptographicKeyService.findKeyByFingerprint(fingerprint);
         if (keyUuid == null) {
             keyUuid = cryptographicKeyService
@@ -2670,9 +2731,7 @@ public class CertificateServiceImpl
             return;
         }
 
-        String fingerprint = CertificateUtil
-                .getThumbprint(
-                        Base64.getEncoder().encodeToString(csrPublicKey.getEncoded()).getBytes(StandardCharsets.UTF_8));
+        String fingerprint = publicKeyFingerprint(csrPublicKey);
         UUID altKeyUuid = cryptographicKeyService.findKeyByFingerprint(fingerprint);
         if (altKeyUuid == null) {
             altKeyUuid = cryptographicKeyService
@@ -2744,30 +2803,7 @@ public class CertificateServiceImpl
 
         CertificateDetailDto dto = certificate.mapToDto();
         if (dto.getCertificateRequest() != null) {
-            dto
-                    .getCertificateRequest()
-                    .setAttributes(attributeEngine
-                            .getObjectDataAttributesContent(ObjectAttributeContentInfo
-                                    .builder(Resource.CERTIFICATE_REQUEST,
-                                            certificate.getCertificateRequest().getUuid())
-                                    .build()));
-            dto
-                    .getCertificateRequest()
-                    .setSignatureAttributes(attributeEngine
-                            .getObjectDataAttributesContent(ObjectAttributeContentInfo
-                                    .builder(Resource.CERTIFICATE_REQUEST,
-                                            certificate.getCertificateRequest().getUuid())
-                                    .operation(AttributeOperation.SIGN)
-                                    .build()));
-            dto
-                    .getCertificateRequest()
-                    .setAltSignatureAttributes(attributeEngine
-                            .getObjectDataAttributesContent(ObjectAttributeContentInfo
-                                    .builder(Resource.CERTIFICATE_REQUEST,
-                                            certificate.getCertificateRequest().getUuid())
-                                    .operation(AttributeOperation.SIGN)
-                                    .purpose(AttributeContentPurpose.CERTIFICATE_REQUEST_ALT_KEY)
-                                    .build()));
+            setCertificateRequestAttributes(dto.getCertificateRequest(), certificate.getCertificateRequest());
         }
         dto
                 .setMetadata(attributeEngine

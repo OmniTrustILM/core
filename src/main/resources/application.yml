@@ -41,6 +41,10 @@ caching:
   time-quality-configs:
     ttl-minutes: ${TQC_CACHE_TTL_MINUTES:5}   # How long a cached TQC model is considered valid
     max-size: ${TQC_CACHE_MAX_SIZE:50}        # Maximum number of cached TQC models
+  # Attribute search-field cache holds the attribute rows of each resource's field catalogue for /search, saved views and sort checks
+  attribute-search-fields:
+    ttl-minutes: ${ATTRIBUTE_SEARCH_FIELDS_CACHE_TTL_MINUTES:5}   # How long a catalogue may miss a change made on another replica or written by a connector
+    max-size: ${ATTRIBUTE_SEARCH_FIELDS_CACHE_MAX_SIZE:200}       # One entry per resource and settable flag
 
 certificate:
   chain:
@@ -393,7 +397,7 @@ proxy:
   response-queue: ${BROKER_PROXY_RESPONSE_QUEUE:core}
   # Unique identifier for this Core instance (defaults to hostname/pod name)
   instance-id: ${PROXY_INSTANCE_ID:}
-  # Maximum time to wait for a response from the proxy
+  # Maximum time to wait for a response from the proxy; a request expires on the broker when Core stops waiting
   request-timeout: ${PROXY_REQUEST_TIMEOUT:30s}
   # Maximum number of concurrent pending requests (prevents memory exhaustion)
   max-pending-requests: ${PROXY_MAX_PENDING_REQUESTS:1000}
@@ -431,6 +435,28 @@ connector:
     # Shed load quickly under pool saturation rather than queueing behind the response timeout
     pending-acquire-timeout: ${CONNECTOR_API_CLIENT_PENDING_ACQUIRE_TIMEOUT:10s}
     max-in-memory-size: ${CONNECTOR_API_CLIENT_MAX_IN_MEMORY_SIZE:16MB}
+
+key-import:
+  # How long an import request waits for a connector that imports asynchronously, before it cancels the import.
+  request-timeout: 60s
+  # How long it waits between two questions about such an import.
+  poll-interval: 2s
+  # How long the outcome of an import can still be learned from its connector, which keeps a record of it for at
+  # least 24 hours, so it has to be shorter. An older import the connector does not know is not sent again, and the
+  # reconciliation gives an import its last look this long after it was last sent. With retry-window and
+  # sweep-interval it stays shorter than 24 hours, so that last look comes while the connector keeps the record.
+  unresolved-after: 20h
+  # How long an import is left to its requester's retries after each send before the reconciliation looks at it, and
+  # how long the reconciliation waits between two looks at one import. It outlasts request-timeout and three connector
+  # calls at the connector timeouts configured (checked at startup), and with sweep-interval stays shorter than
+  # unresolved-after.
+  retry-window: 15m
+  # How often the reconciliation runs.
+  sweep-interval: 60s
+  # How long an import that completed, failed or was compensated is kept after it finished, before the reconciliation
+  # deletes it. It is longer than an import can stay open, unresolved-after, retry-window and sweep-interval together
+  # (checked at startup).
+  retention: 7d
 
 cbom:
   client:

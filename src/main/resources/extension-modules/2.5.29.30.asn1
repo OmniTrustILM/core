@@ -1,0 +1,46 @@
+-- RFC 5280 4.2.1.10 Name Constraints, profiled as the RFC requires rather than as its module
+-- reads: minimum MUST be zero and maximum MUST be absent, so GeneralSubtree declares neither.
+-- An iPAddress here carries an address and a mask, hence twice the usual size.
+-- Conforming CAs MUST NOT issue an empty Name Constraints, so at least one subtree list is required.
+-- Name is written out as RFC 5280 A.1 has it. ORAddress and EDIPartyName are not reproduced; each
+-- is a SEQUENCE, which is the one shape their implicit tags let a value be held to.
+NameConstraintsModule DEFINITIONS IMPLICIT TAGS ::= BEGIN
+
+NameConstraints ::= SEQUENCE {
+     permittedSubtrees       [0]     GeneralSubtrees OPTIONAL,
+     excludedSubtrees        [1]     GeneralSubtrees OPTIONAL }
+  (WITH COMPONENTS { ..., permittedSubtrees PRESENT } |
+   WITH COMPONENTS { ..., excludedSubtrees PRESENT })
+
+GeneralSubtrees ::= SEQUENCE SIZE (1..MAX) OF GeneralSubtree
+
+GeneralSubtree ::= SEQUENCE {
+     base                            GeneralName }
+
+GeneralName ::= CHOICE {
+     otherName                       [0]     OtherName,
+     rfc822Name                      [1]     IA5String,
+     dNSName                         [2]     IA5String,
+     x400Address                     [3] IMPLICIT ORAddress,
+     directoryName                   [4] EXPLICIT Name,
+     ediPartyName                    [5] IMPLICIT EDIPartyName,
+     uniformResourceIdentifier       [6]     IA5String,
+     iPAddress                       [7]     OCTET STRING (SIZE (8 | 32)),
+     registeredID                    [8]     OBJECT IDENTIFIER }
+
+OtherName ::= SEQUENCE {
+     type-id                         OBJECT IDENTIFIER,
+     value                   [0] EXPLICIT ANY DEFINED BY type-id }
+
+Name ::= CHOICE {
+     rdnSequence                     RDNSequence }
+
+RDNSequence ::= SEQUENCE OF RelativeDistinguishedName
+
+RelativeDistinguishedName ::= SET SIZE (1..MAX) OF AttributeTypeAndValue
+
+AttributeTypeAndValue ::= SEQUENCE {
+     type                            OBJECT IDENTIFIER,
+     value                           ANY DEFINED BY type }
+
+END

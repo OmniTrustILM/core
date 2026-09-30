@@ -12,15 +12,21 @@ import com.otilm.api.model.client.cryptography.operations.SignDataResponseDto;
 import com.otilm.api.model.client.cryptography.operations.VerifyDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.VerifyDataResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.core.secret.Passphrase;
+import com.otilm.core.key.normalization.NormalizedKey;
 import com.otilm.core.model.crypto.CryptographicKeyFullModel;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
+import com.otilm.core.model.crypto.KeyImportAttempt;
+import com.otilm.core.model.crypto.KeyImportTerms;
+import com.otilm.core.model.crypto.OperationAttributeSchema;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.model.crypto.TransferableKeyType;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Version boundary for synchronous key management. Persistence and authorization belong to Core services.
@@ -55,8 +61,15 @@ public interface KeyProviderAdapter {
     /** The key types the connector exports from the token profile, with the algorithms it accepts for each. */
     List<TransferableKeyType> listExportableKeyTypes(TokenProfileFullModel tokenProfile) throws ConnectorException;
 
+    /** The key types the connector imports into the token profile, with the algorithms it accepts for each. */
+    List<TransferableKeyType> listImportableKeyTypes(TokenProfileFullModel tokenProfile) throws ConnectorException;
+
     /** Lists the attribute schema for creating a secret key or key pair. */
     List<BaseAttribute> listCreateKeyAttributes(TokenProfileFullModel tokenProfile, KeyRequestType type)
+            throws ConnectorException;
+
+    /** Lists the attribute schema for importing a key of the type into the token profile. */
+    List<BaseAttribute> listImportKeyAttributes(TokenProfileFullModel tokenProfile, KeyRequestType type)
             throws ConnectorException;
 
     EncryptDataResponseDto encryptData(OperationKeyContext context, CipherDataRequestDto request)
@@ -88,6 +101,11 @@ public interface KeyProviderAdapter {
 
     List<BaseAttribute> listSignAttributes(OperationKeyContext context) throws ConnectorException;
 
+    /** Returns the signing schema, with the owner set. */
+    default OperationAttributeSchema signAttributeSchema(OperationKeyContext context) throws ConnectorException {
+        return new OperationAttributeSchema(context.keyItem().operationAttributeOwner(), listSignAttributes(context));
+    }
+
     List<BaseAttribute> listVerifyAttributes(OperationKeyContext context) throws ConnectorException;
 
     /** Lists the attribute schema for exporting the key item. */
@@ -106,4 +124,53 @@ public interface KeyProviderAdapter {
     byte[] exportKey(OperationKeyContext context, HeldKey heldKey, Passphrase passphrase,
             List<RequestAttribute> attributes) throws ConnectorException;
 
+    /**
+     * Asks the connector to import the normalized key under the attempt's import identifier and key reference,
+     * asynchronously where the connector declares it. The answer is checked to echo no secret the request carried.
+     *
+     * @param keyName the name the key's items are registered under
+     * @return the imported key, or the handle of an import the connector runs asynchronously
+     * @throws ValidationException naming the connector's error code when it refuses the import; nothing was imported
+     * @throws ConnectorException in the platform's words for any other failure; whether a key was imported is unknown
+     */
+    ImportAnswer importKey(KeyImportTerms terms, KeyImportAttempt attempt, NormalizedKey key, String keyName)
+            throws ConnectorException;
+
+    /**
+     * How the import the handle tracks stands. The answer is checked to echo no secret the import carried.
+     *
+     * @param secretDigests the digests of the secrets the import was sent with, which the answer must not carry
+     * @throws ConnectorException in the platform's words when the connector cannot say
+     */
+    ImportAnswer importKeyStatus(TokenProfileFullModel tokenProfile, List<MetadataAttribute> operationMeta,
+            List<String> secretDigests, String keyName) throws ConnectorException;
+
+    /**
+     * How the connector recorded the import with the identifier; {@link ImportAnswer.NotAccepted} when it has no record
+     * of it. The answer is checked to echo no secret the import or this request carried.
+     *
+     * @param secretDigests the digests of the secrets the import was sent with, which the answer must not carry
+     * @throws ConnectorException in the platform's words when the connector cannot say
+     */
+    ImportAnswer importKeyResult(TokenProfileFullModel tokenProfile, UUID keyImportId, List<String> secretDigests,
+            String keyName) throws ConnectorException;
+
+    /**
+     * Asks the connector to abandon the import the handle tracks.
+     *
+     * @return whether the connector aborted it, which only a 204 says; {@code false} whatever else it answers,
+     * including no answer
+     */
+    boolean cancelImportKey(List<MetadataAttribute> operationMeta);
+
+    /**
+     * Destroys an item of an imported key the platform never registered, by the connector's handle for it.
+     *
+     * @throws ValidationException naming the connector's error code when it refuses; the item is still there
+     * @throws ConnectorException in the platform's words for any other outcome, an answer that the connector knows no
+     * such item included; whether the item is gone is unknown
+     * @throws IllegalArgumentException when there is no handle to destroy the item by; the connector is not asked
+     */
+    void destroyImportedKeyItem(TokenProfileFullModel tokenProfile, List<MetadataAttribute> keyMeta)
+            throws ConnectorException;
 }

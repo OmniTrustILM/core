@@ -31,6 +31,9 @@ caching:
   time-quality-configs:
     ttl-minutes: 5
     max-size: 100
+  attribute-search-fields:
+    ttl-minutes: 5
+    max-size: 200
 
 connector:
   api-client:
@@ -39,6 +42,10 @@ connector:
     max-connections: 20
     pending-acquire-timeout: 10s
     max-in-memory-size: 16MB
+
+key-import:
+  request-timeout: 1s
+  poll-interval: 50ms
 
 discovery:
   mq-timeouts:
@@ -150,6 +157,8 @@ spring:
         type:
           preferred_duration_jdbc_type: INTERVAL_SECOND
         default_schema: core
+        session_factory:
+          statement_inspector: com.otilm.core.util.SqlCapture
   profiles:
     active: test
   session:

@@ -7,6 +7,7 @@ import com.otilm.api.model.core.logging.enums.OperationResult;
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
+import com.otilm.core.logging.LogRedaction;
 import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.service.AuditLogInternalService;
@@ -66,7 +67,7 @@ public class PlatformAuthenticationSuccessHandler implements AuthenticationSucce
                     .formatted(authenticationToken.getAuthorizedClientRegistrationId());
             auditLogService
                     .logAuthentication(Operation.LOGIN, OperationResult.FAILURE, message,
-                            authorizedClient.getAccessToken().getTokenValue());
+                            LogRedaction.token(authorizedClient.getAccessToken().getTokenValue()));
             throw new PlatformAuthenticationException(message);
         }
 
@@ -79,7 +80,7 @@ public class PlatformAuthenticationSuccessHandler implements AuthenticationSucce
         } catch (PlatformAuthenticationException e) {
             auditLogService
                     .logAuthentication(Operation.LOGIN, OperationResult.FAILURE, e.getMessage(),
-                            authorizedClient.getAccessToken().getTokenValue());
+                            LogRedaction.token(authorizedClient.getAccessToken().getTokenValue()));
             throw e;
         }
 
@@ -90,7 +91,7 @@ public class PlatformAuthenticationSuccessHandler implements AuthenticationSucce
         } catch (PlatformAuthenticationException e) {
             auditLogService
                     .logAuthentication(Operation.LOGIN, OperationResult.FAILURE, e.getMessage(),
-                            authorizedClient.getAccessToken().getTokenValue());
+                            LogRedaction.token(authorizedClient.getAccessToken().getTokenValue()));
             throw new PlatformAuthenticationException(e.getMessage());
         }
 
@@ -123,6 +124,6 @@ public class PlatformAuthenticationSuccessHandler implements AuthenticationSucce
         logger.debug("Authentication of user {} via OAuth2 successful, redirecting to {}", username, redirectUrl);
         auditLogService
                 .logAuthentication(Operation.LOGIN, OperationResult.SUCCESS, null,
-                        authorizedClient.getAccessToken().getTokenValue());
+                        LogRedaction.token(authorizedClient.getAccessToken().getTokenValue()));
     }
 }

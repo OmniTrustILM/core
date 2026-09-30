@@ -122,7 +122,7 @@ class TokenProfileServiceITest extends BaseSpringBootTest {
     @Test
     void testListTokenProfiles() {
         List<TokenProfileDto> tokenProfiles = tokenProfileService
-                .listTokenProfiles(Optional.of(true), SecurityFilter.create());
+                .listTokenProfiles(Optional.of(true), List.of(), SecurityFilter.create());
         Assertions.assertNotNull(tokenProfiles);
         Assertions.assertFalse(tokenProfiles.isEmpty());
         Assertions.assertEquals(1, tokenProfiles.size());
@@ -146,7 +146,7 @@ class TokenProfileServiceITest extends BaseSpringBootTest {
 
             // when
             List<TokenProfileDto> profiles = tokenProfileService
-                    .listTokenProfiles(enabledFilter, SecurityFilter.create());
+                    .listTokenProfiles(enabledFilter, List.of(), SecurityFilter.create());
 
             // then
             Assertions.assertEquals(enabled == null ? 2 : 1, profiles.size());
@@ -196,7 +196,7 @@ class TokenProfileServiceITest extends BaseSpringBootTest {
 
         // when
         List<TokenProfileDto> tokenProfiles = tokenProfileService
-                .listTokenProfiles(Optional.of(true), SecurityFilter.create());
+                .listTokenProfiles(Optional.of(true), List.of(), SecurityFilter.create());
 
         // then
         Assertions

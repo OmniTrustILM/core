@@ -5,6 +5,7 @@ import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.core.dao.AggregateResultDto;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.CryptographicKeyItem_;
@@ -168,24 +169,28 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
      *
      * <p>
      * A sort through a join gives a root as many rows as the join has matches, so a window cut over those rows would
-     * underfill the page and let the same root reappear on the next one. A sort by an attribute resolves to a
-     * correlated scalar subquery, and the entity query selects DISTINCT, which the database will not order by an
-     * expression that is absent from the select list.
+     * underfill the page and let the same root reappear on the next one. A sort by an attribute joins a table of one
+     * key per object, and the entity query selects DISTINCT, which the database will not order by a column that is
+     * absent from the select list.
      *
      * <p>
-     * This query answers both: it selects the sort key alongside the uuid, groups by the uuid and orders by the
-     * aggregate the ordering resolves - one row per root, carrying its key, which is what the window is allowed to cut.
+     * This query answers the join case: it selects the sort key alongside the uuid, groups by the uuid and orders by
+     * the aggregate the ordering resolves - one row per root, carrying its key, which is what the window is allowed to
+     * cut. An attribute sort is answered by {@link #findUuidsOrderedByKeyTable} instead.
      */
     private List<UUID> findUuidsOrderedBySortKey(final SecurityFilter filter,
             final TriFunction<Root<T>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause,
             final Pageable p, final SortSpecification sort) {
+        if (sort.fieldSource() != FilterFieldSource.PROPERTY) {
+            return findUuidsOrderedByKeyTable(filter, additionalWhereClause, p, sort);
+        }
         final Class<T> entity = this.entityInformation.getJavaType();
         final CriteriaBuilder cb = entityManager.getCriteriaBuilder();
         final CriteriaQuery<Tuple> cr = cb.createTupleQuery();
         final Root<T> root = cr.from(entity);
         final Path<?> uuid = root.get(UniquelyIdentified_.UUID);
 
-        final SortOrderBuilder.GroupedOrdering ordering = SortOrderBuilder.resolveGrouped(root, cb, cr, sort);
+        final SortOrderBuilder.GroupedOrdering ordering = SortOrderBuilder.resolveGrouped(root, cb, sort);
         cr.multiselect(uuid, ordering.sortKey());
         cr.groupBy(uuid);
         cr.orderBy(ordering.orders());
@@ -196,6 +201,36 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
                 .stream()
                 .map(tuple -> tuple.get(0, UUID.class))
                 .toList();
+    }
+
+    /**
+     * The uuids of a page ordered by an attribute's key table. The table holds one row per root, so the page query
+     * selects no key and, on its own, needs no grouping: it is an ordinary uuid query with one more join.
+     *
+     * <p>
+     * An access rule or a filter can still join rows of its own - the groups a restricted user reaches objects through,
+     * a filtered collection - and those repeat a root once per matching row. While the query carries such a join it
+     * groups by the uuid and its key, which folds the repeats back into one row per root before the window is cut.
+     */
+    private List<UUID> findUuidsOrderedByKeyTable(final SecurityFilter filter,
+            final TriFunction<Root<T>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause,
+            final Pageable p, final SortSpecification sort) {
+        final Class<T> entity = this.entityInformation.getJavaType();
+        final CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+        final CriteriaQuery<UUID> cr = cb.createQuery(UUID.class);
+        final Root<T> root = cr.from(entity);
+        final Path<UUID> uuid = root.get(UniquelyIdentified_.UUID);
+
+        final Expression<?> key = FilterPredicatesBuilder.joinAttributeSortKey(cb, cr, root, sort);
+        cr.select(uuid);
+        cr.orderBy(SortOrderBuilder.resolveKeyed(root, cb, key, sort));
+        applyPredicates(cr, filter, additionalWhereClause, root, cb);
+        // getJoins() lists attribute joins only, so the derived key table never triggers the grouping by itself.
+        if (!root.getJoins().isEmpty()) {
+            cr.groupBy(uuid, key);
+        }
+
+        return window(entityManager.createQuery(cr), p).getResultList();
     }
 
     /**

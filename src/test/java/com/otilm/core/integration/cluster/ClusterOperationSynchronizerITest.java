@@ -148,28 +148,39 @@ class ClusterOperationSynchronizerITest extends BaseSpringBootTest {
         }
 
         /**
-         * Starts {@code nodeCount} nodes that all attempt the same lock at the same instant — released together from a
-         * shared barrier so every node has attempted before any commits — and returns how many won it.
+         * Starts {@code nodeCount} nodes that all attempt the same lock at the same instant and returns how many won
+         * it. The nodes open their transactions, and so borrow their pooled connections, one at a time: a burst of
+         * borrowers can get fewer connections from the pool than it asks for, and a node left without one would stall
+         * the others holding theirs. Once every transaction is open, the nodes are released together from a shared
+         * barrier.
          */
         long acquireConcurrently(Operation operation, int nodeCount) {
+            var allTransactionsOpen = new CyclicBarrier(nodeCount);
             var allNodesAttempted = new CyclicBarrier(nodeCount);
             List<Future<Boolean>> attempts = new ArrayList<>();
             for (int node = 0; node < nodeCount; node++) {
-                attempts.add(attemptLockOnceAllCompete(operation, allNodesAttempted));
+                attempts.add(attemptLockOnceAllCompete(operation, allTransactionsOpen, allNodesAttempted));
             }
             return countWinners(attempts);
         }
 
         /**
-         * Submits one node that grabs the lock and then waits at {@code allNodesAttempted} — so it keeps the lock held
-         * until every node has attempted, then commits. Returns whether this node won.
+         * Submits one node and returns once its transaction is open. The node then waits at
+         * {@code allTransactionsOpen}, grabs the lock and waits at {@code allNodesAttempted} — so it keeps the lock
+         * held until every node has attempted, then commits. The returned future tells whether this node won.
          */
-        private Future<Boolean> attemptLockOnceAllCompete(Operation operation, CyclicBarrier allNodesAttempted) {
-            return nodeThreads.submit(() -> new TransactionTemplate(transactionManager).execute(status -> {
+        private Future<Boolean> attemptLockOnceAllCompete(Operation operation, CyclicBarrier allTransactionsOpen,
+                CyclicBarrier allNodesAttempted) {
+            var transactionOpen = new CountDownLatch(1);
+            var attempt = nodeThreads.submit(() -> new TransactionTemplate(transactionManager).execute(status -> {
+                transactionOpen.countDown();
+                awaitBarrier(allTransactionsOpen);
                 boolean acquired = synchronizer.tryLock(operation);
                 awaitBarrier(allNodesAttempted);
                 return acquired;
             }));
+            awaitTransactionOpen(transactionOpen);
+            return attempt;
         }
 
         private static long countWinners(List<Future<Boolean>> attempts) {
@@ -264,6 +275,17 @@ class ClusterOperationSynchronizerITest extends BaseSpringBootTest {
             throw new IllegalStateException("Interrupted while competing for cluster lock", e);
         } catch (BrokenBarrierException | TimeoutException e) {
             throw new IllegalStateException("Not all competing nodes reached the lock attempt", e);
+        }
+    }
+
+    private static void awaitTransactionOpen(CountDownLatch transactionOpen) {
+        try {
+            if (!transactionOpen.await(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("Node did not open its transaction");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while awaiting node transaction", e);
         }
     }
 

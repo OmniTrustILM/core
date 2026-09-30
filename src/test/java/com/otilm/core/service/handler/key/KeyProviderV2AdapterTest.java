@@ -36,9 +36,11 @@ import com.otilm.api.model.common.attribute.v2.content.SecretAttributeContentV2;
 import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.attribute.v3.MetadataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
+import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.common.enums.cryptography.RsaSignatureScheme;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
@@ -50,6 +52,8 @@ import com.otilm.api.model.connector.cryptography.v2.key.CreateKeyRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.DestroyKeyRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ExportKeyRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ExportKeyResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.ImportKeyAttributesRequestV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.ImportableKeyTypeV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyCreationResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyExportableAttribute;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyOperationResponseV2Dto;
@@ -76,6 +80,7 @@ import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.secret.Passphrase;
+import com.otilm.core.attribute.RsaSignatureAttributes;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.OutboundSecretContainment;
 import com.otilm.core.attribute.engine.OutboundSecretLeakException;
@@ -88,9 +93,11 @@ import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
 import com.otilm.core.model.crypto.ImmutableTokenInstanceFullModel;
 import com.otilm.core.model.crypto.ImmutableTokenProfileFullModel;
+import com.otilm.core.model.crypto.OperationAttributeSchema;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
+import com.otilm.core.model.crypto.TransferableKeyType;
 import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.OperationAttributeResolver;
 import com.otilm.core.util.ExportEnvelopeFixtures;
@@ -158,7 +165,7 @@ class KeyProviderV2AdapterTest {
         var token = new ImmutableTokenInstanceFullModel(UUID.randomUUID(), null, "token", TokenInstanceStatus.ACTIVATED,
                 null, connectorUuid, connector.name(), null, null, Set.of());
         profile = new ImmutableTokenProfileFullModel(UUID.randomUUID(), "profile", null, token.name(), token.uuid(),
-                true, List.of(KeyUsage.SIGN), token, connectorUuid, Map.of(), 0);
+                true, List.of(KeyUsage.SIGN), token, connectorUuid, Map.of(), null, 0);
         cryptographicKey = new ImmutableCryptographicKeyFullModel(UUID.randomUUID(), "key", null, profile.uuid(),
                 profile.tokenInstanceReferenceUuid(), profile, profile.tokenInstance(), Set.of(), null, null, null,
                 List.of(), List.of());
@@ -371,6 +378,31 @@ class KeyProviderV2AdapterTest {
         assertThrows(ValidationException.class, resolve);
     }
 
+    @Test
+    void resolveSignatureAlgorithm_readsTheSchemeAndDigestFields() {
+        // when
+        ResolvedSignatureAlgorithm resolved = adapter
+                .resolveSignatureAlgorithm(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA),
+                        CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA),
+                        rsaFields(RsaSignatureScheme.PSS, DigestAlgorithm.SHA_512));
+
+        // then
+        assertEquals(SignatureAlgorithm.SHA512_WITH_RSA_PSS, resolved.platformAlgorithm());
+        verifyNoInteractions(operationsClient);
+    }
+
+    @Test
+    void resolveSignatureAlgorithm_namesThePostQuantumKeysOwnParameterSet_whenNothingIsSelected() {
+        // when
+        ResolvedSignatureAlgorithm resolved = adapter
+                .resolveSignatureAlgorithm(
+                        CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.MLDSA),
+                        CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.MLDSA, "ML-DSA-87"), List.of());
+
+        // then
+        assertEquals(SignatureAlgorithm.ML_DSA_87, resolved.platformAlgorithm());
+    }
+
     @ParameterizedTest(name = "{0}")
     @MethodSource("selectionsTheKeyCannotSignWith")
     void resolveSignatureAlgorithm_refusesAnAlgorithmTheKeyCannotSignWith(UnfitSelection selection) {
@@ -502,6 +534,76 @@ class KeyProviderV2AdapterTest {
     }
 
     @Test
+    void signData_sendsTheAlgorithmTheFieldsChoose_inPlaceOfTheFields() throws Exception {
+        // given
+        when(operationsClient.listSignAttributes(any(), any()))
+                .thenReturn(List
+                        .of(SignatureAlgorithmAttribute
+                                .definition(List
+                                        .of(SignatureAlgorithm.SHA256_WITH_RSA,
+                                                SignatureAlgorithm.SHA256_WITH_RSA_PSS))));
+        SignDataResponseV2Dto body = new SignDataResponseV2Dto();
+        body.setSignatures(List.of(new SignatureDataV2Dto(new byte[]{7}, "0")));
+        when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
+        SignDataRequestDto request = new SignDataRequestDto();
+        request.setSignatureAttributes(rsaFields(RsaSignatureScheme.PSS, DigestAlgorithm.SHA_256));
+        request.setData(List.of(signatureItem("AQ==", null)));
+
+        // when
+        adapter.signData(v2Context(metadata("handle")), request);
+
+        // then
+        ArgumentCaptor<SignDataRequestV2Dto> sent = ArgumentCaptor.forClass(SignDataRequestV2Dto.class);
+        verify(operationsClient).signData(any(), sent.capture());
+        List<RequestAttribute> signatureAttributes = sent.getValue().getSignatureAttributes();
+        assertEquals(List.of(SignatureAlgorithmAttribute.NAME),
+                signatureAttributes.stream().map(RequestAttribute::getName).toList());
+        assertEquals(SignatureAlgorithm.SHA256_WITH_RSA_PSS,
+                SignatureAlgorithmAttribute.selectedAlgorithm(signatureAttributes));
+    }
+
+    @Test
+    void signData_refusesASchemeAndDigestTheKeyDoesNotOfferTogether_beforeCallingConnector() throws Exception {
+        // given
+        when(operationsClient.listSignAttributes(any(), any()))
+                .thenReturn(List
+                        .of(SignatureAlgorithmAttribute
+                                .definition(List
+                                        .of(SignatureAlgorithm.SHA256_WITH_RSA,
+                                                SignatureAlgorithm.SHA384_WITH_RSA_PSS))));
+        SignDataRequestDto request = new SignDataRequestDto();
+        request.setSignatureAttributes(rsaFields(RsaSignatureScheme.PSS, DigestAlgorithm.SHA_256));
+        request.setData(List.of(signatureItem("AQ==", null)));
+
+        // when
+        Executable sign = () -> adapter.signData(v2Context(metadata("handle")), request);
+
+        // then
+        assertThrows(ValidationException.class, sign);
+        verify(operationsClient, never()).signData(any(), any());
+    }
+
+    @Test
+    void signData_sendsNoSignatureAttributes_whenTheRequestStatesNone() throws Exception {
+        // given
+        when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of());
+        SignDataResponseV2Dto body = new SignDataResponseV2Dto();
+        body.setSignatures(List.of(new SignatureDataV2Dto(new byte[]{7}, "0")));
+        when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
+        SignDataRequestDto request = new SignDataRequestDto();
+        request.setSignatureAttributes(null);
+        request.setData(List.of(signatureItem("AQ==", null)));
+
+        // when
+        adapter.signData(v2Context(metadata("handle")), request);
+
+        // then
+        ArgumentCaptor<SignDataRequestV2Dto> sent = ArgumentCaptor.forClass(SignDataRequestV2Dto.class);
+        verify(operationsClient).signData(any(), sent.capture());
+        assertEquals(List.of(), sent.getValue().getSignatureAttributes());
+    }
+
+    @Test
     void signData_rejectsEmptyMetadataHandle_beforeCallingConnector() {
         // given
         SignDataRequestDto request = new SignDataRequestDto();
@@ -542,6 +644,52 @@ class KeyProviderV2AdapterTest {
         assertEquals("0", sent.getValue().getSignatures().get(0).getIdentifier());
         assertTrue(response.getVerifications().get(0).isResult());
         assertNull(response.getVerifications().get(0).getIdentifier());
+    }
+
+    @Test
+    void verifyData_sendsTheAlgorithmTheFieldsChoose_inPlaceOfTheFields() throws Exception {
+        // given
+        when(operationsClient.listVerifyAttributes(any(), any()))
+                .thenReturn(
+                        List.of(SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.SHA384_WITH_RSA))));
+        VerifyDataResponseV2Dto body = new VerifyDataResponseV2Dto();
+        body.setVerifications(List.of(new VerificationResponseItemV2Dto(true, "0", null)));
+        when(operationsClient.verifyData(any(), any())).thenReturn(body);
+        VerifyDataRequestDto request = new VerifyDataRequestDto();
+        request.setSignatureAttributes(rsaFields(RsaSignatureScheme.PKCS1_v1_5, DigestAlgorithm.SHA_384));
+        request.setData(List.of(signatureItem("AQ==", null)));
+        request.setSignatures(List.of(signatureItem("Ag==", null)));
+
+        // when
+        adapter.verifyData(v2Context(metadata("handle")), request);
+
+        // then
+        ArgumentCaptor<VerifyDataRequestV2Dto> sent = ArgumentCaptor.forClass(VerifyDataRequestV2Dto.class);
+        verify(operationsClient).verifyData(any(), sent.capture());
+        assertEquals(SignatureAlgorithm.SHA384_WITH_RSA,
+                SignatureAlgorithmAttribute.selectedAlgorithm(sent.getValue().getSignatureAttributes()));
+    }
+
+    @Test
+    void verifyData_refusesASchemeAndDigestTheKeyDoesNotOfferTogether_beforeCallingConnector() throws Exception {
+        // given
+        when(operationsClient.listVerifyAttributes(any(), any()))
+                .thenReturn(List
+                        .of(SignatureAlgorithmAttribute
+                                .definition(List
+                                        .of(SignatureAlgorithm.SHA256_WITH_RSA,
+                                                SignatureAlgorithm.SHA384_WITH_RSA_PSS))));
+        VerifyDataRequestDto request = new VerifyDataRequestDto();
+        request.setSignatureAttributes(rsaFields(RsaSignatureScheme.PSS, DigestAlgorithm.SHA_256));
+        request.setData(List.of(signatureItem("AQ==", null)));
+        request.setSignatures(List.of(signatureItem("Ag==", null)));
+
+        // when
+        Executable verification = () -> adapter.verifyData(v2Context(metadata("handle")), request);
+
+        // then
+        assertThrows(ValidationException.class, verification);
+        verify(operationsClient, never()).verifyData(any(), any());
     }
 
     @Test
@@ -823,6 +971,93 @@ class KeyProviderV2AdapterTest {
         verify(attributes).updateDataAttributeDefinitions(profile.connectorUuid(), null, schema);
     }
 
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("signatureListings")
+    void listSignatureAttributes_presentTheSchemeAndDigestFields_andPersistThem(String operation,
+            ClientListing clientListing, AdapterListing adapterListing) throws Exception {
+        // given
+        BaseAttribute context = dataAttributeDefinition("signatureContext", false);
+        when(clientListing.list(operationsClient))
+                .thenReturn(List
+                        .of(SignatureAlgorithmAttribute
+                                .definition(List
+                                        .of(SignatureAlgorithm.SHA256_WITH_RSA,
+                                                SignatureAlgorithm.SHA256_WITH_RSA_PSS)),
+                                context));
+
+        // when
+        List<BaseAttribute> result = adapterListing.list(adapter, v2Context(metadata("handle")));
+
+        // then
+        assertEquals(
+                List
+                        .of(RsaSignatureAttributes.ATTRIBUTE_DATA_RSA_SIG_SCHEME,
+                                RsaSignatureAttributes.ATTRIBUTE_DATA_SIG_DIGEST, "signatureContext"),
+                result.stream().map(BaseAttribute::getName).toList());
+        assertSame(context, result.get(2));
+        verify(attributes).updateDataAttributeDefinitions(profile.connectorUuid(), null, result);
+    }
+
+    private static Stream<Arguments> signatureListings() {
+        return Stream
+                .of(arguments("sign", (ClientListing) client -> client.listSignAttributes(any(), any()),
+                        (AdapterListing) KeyProviderV2Adapter::listSignAttributes),
+                        arguments("verify", (ClientListing) client -> client.listVerifyAttributes(any(), any()),
+                                (AdapterListing) KeyProviderV2Adapter::listVerifyAttributes));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("signatureListings")
+    void listSignatureAttributes_serveTheConnectorsSelection_whenTheFieldsCannotExpressIt(String operation,
+            ClientListing clientListing, AdapterListing adapterListing) throws Exception {
+        // given
+        BaseAttribute selection = SignatureAlgorithmAttribute
+                .definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA, SignatureAlgorithm.SHA256_WITH_ECDSA));
+        when(clientListing.list(operationsClient)).thenReturn(List.of(selection));
+
+        // when
+        List<BaseAttribute> result = adapterListing.list(adapter, v2Context(metadata("handle")));
+
+        // then
+        assertEquals(List.of(selection), result);
+        assertSame(selection, result.get(0));
+        verify(attributes).updateDataAttributeDefinitions(profile.connectorUuid(), null, result);
+    }
+
+    @Test
+    void listSignAttributes_rejectsASecretEchoedInTheSelectionTheFieldsReplace() throws Exception {
+        // given
+        String expandedSecret = "resolved-provider-password";
+        stubExpandedSecret(Resource.TOKEN, expandedSecret);
+        var selection = SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA));
+        selection.setDescription(expandedSecret);
+        when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of(selection));
+
+        // when
+        Executable listDefinitions = () -> adapter.listSignAttributes(v2Context(metadata("handle")));
+
+        // then
+        assertThrows(OutboundSecretLeakException.class, listDefinitions);
+        verify(attributes, never()).updateDataAttributeDefinitions(any(), any(), any());
+    }
+
+    @Test
+    void signAttributeSchema_namesTheConnectorTheOwner_andKeepsWhatItPublished() throws Exception {
+        // given
+        List<BaseAttribute> published = List
+                .of(SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.SHA256_WITH_ECDSA)));
+        when(operationsClient.listSignAttributes(any(), any())).thenReturn(published);
+
+        // when
+        OperationAttributeSchema schema = adapter.signAttributeSchema(v2Context(metadata("handle")));
+
+        // then
+        assertEquals(profile.connectorUuid(), schema.ownerConnectorUuid());
+        assertEquals(List.of(RsaSignatureAttributes.ATTRIBUTE_DATA_SIG_DIGEST),
+                schema.definitions().stream().map(BaseAttribute::getName).toList());
+        assertSame(published, schema.connectorDefinitions());
+    }
+
     @ParameterizedTest
     @EnumSource(value = Resource.class, names = {"TOKEN", "TOKEN_PROFILE"})
     void listSignAttributes_rejectsSchemaEchoingAnExpandedSecret(Resource secretScope) throws Exception {
@@ -889,6 +1124,73 @@ class KeyProviderV2AdapterTest {
 
         // then
         assertThrows(ConnectorException.class, sign);
+    }
+
+    @Test
+    void listImportableKeyTypes_returnsWhatTheConnectorImports() throws Exception {
+        // given
+        ImportableKeyTypeV2Dto declared = new ImportableKeyTypeV2Dto();
+        declared.setKeyRequestType(KeyRequestType.KEY_PAIR);
+        declared.setAlgorithms(Set.of(KeyAlgorithm.RSA, KeyAlgorithm.ECDSA));
+        when(client.listImportableKeyTypes(any(), any())).thenReturn(List.of(declared));
+
+        // when
+        List<TransferableKeyType> importable = adapter.listImportableKeyTypes(profile);
+
+        // then
+        assertEquals(
+                List.of(new TransferableKeyType(KeyRequestType.KEY_PAIR, Set.of(KeyAlgorithm.RSA, KeyAlgorithm.ECDSA))),
+                importable);
+    }
+
+    @Test
+    void listImportKeyAttributes_asksForTheTypesSchemaInTheProfileScopeAndPublishesIt() throws Exception {
+        // given
+        List<BaseAttribute> schema = List.of(dataAttributeDefinition("importLabel", false));
+        ArgumentCaptor<ImportKeyAttributesRequestV2Dto> sent = ArgumentCaptor
+                .forClass(ImportKeyAttributesRequestV2Dto.class);
+        when(client.listImportKeyAttributes(any(), sent.capture())).thenReturn(schema);
+
+        // when
+        List<BaseAttribute> listed = adapter.listImportKeyAttributes(profile, KeyRequestType.SECRET);
+
+        // then
+        assertEquals(schema, listed);
+        assertEquals(KeyRequestType.SECRET, sent.getValue().getKeyRequestType());
+        assertEquals(List.of(), sent.getValue().getTokenAttributes());
+        assertEquals(List.of(), sent.getValue().getTokenProfileAttributes());
+        verify(attributes).updateDataAttributeDefinitions(profile.connectorUuid(), null, schema);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Resource.class, names = {"TOKEN", "TOKEN_PROFILE"})
+    void listImportKeyAttributes_rejectsASchemaEchoingAnExpandedSecret(Resource secretScope) throws Exception {
+        // given
+        String expandedSecret = "resolved-provider-password";
+        stubExpandedSecret(secretScope, expandedSecret);
+        when(client.listImportKeyAttributes(any(), any())).thenReturn(definitionsWithDefault(expandedSecret));
+
+        // when
+        Executable listDefinitions = () -> adapter.listImportKeyAttributes(profile, KeyRequestType.KEY_PAIR);
+
+        // then
+        assertThrows(OutboundSecretLeakException.class, listDefinitions);
+        verify(attributes, never()).updateDataAttributeDefinitions(any(), any(), any());
+    }
+
+    @Test
+    void listImportKeyAttributes_leavesTheReservedExportableAttributeOut() throws Exception {
+        // given
+        BaseAttribute label = dataAttributeDefinition("importLabel", false);
+        when(client.listImportKeyAttributes(any(), any()))
+                .thenReturn(List.of(label, KeyExportableAttribute.definition()));
+
+        // when
+        List<BaseAttribute> listed = adapter.listImportKeyAttributes(profile, KeyRequestType.KEY_PAIR);
+
+        // then
+        assertEquals(List.of(label), listed);
+        verify(attributes).updateDataAttributeDefinitions(profile.connectorUuid(), null, List.of(label));
     }
 
     @Test
@@ -1099,18 +1401,15 @@ class KeyProviderV2AdapterTest {
 
     private static Stream<Arguments> operationAttributeListings() {
         return Stream
-                .of(Arguments
-                        .of("encrypt", (ClientListing) client -> client.listEncryptAttributes(any(), any()),
-                                (AdapterListing) KeyProviderV2Adapter::listEncryptAttributes),
-                        Arguments
-                                .of("decrypt", (ClientListing) client -> client.listDecryptAttributes(any(), any()),
-                                        (AdapterListing) KeyProviderV2Adapter::listDecryptAttributes),
-                        Arguments
-                                .of("sign", (ClientListing) client -> client.listSignAttributes(any(), any()),
-                                        (AdapterListing) KeyProviderV2Adapter::listSignAttributes),
-                        Arguments
-                                .of("verify", (ClientListing) client -> client.listVerifyAttributes(any(), any()),
-                                        (AdapterListing) KeyProviderV2Adapter::listVerifyAttributes));
+                .concat(Stream
+                        .of(Arguments
+                                .of("encrypt", (ClientListing) client -> client.listEncryptAttributes(any(), any()),
+                                        (AdapterListing) KeyProviderV2Adapter::listEncryptAttributes),
+                                Arguments
+                                        .of("decrypt",
+                                                (ClientListing) client -> client.listDecryptAttributes(any(), any()),
+                                                (AdapterListing) KeyProviderV2Adapter::listDecryptAttributes)),
+                        signatureListings());
     }
 
     @FunctionalInterface
@@ -1142,7 +1441,7 @@ class KeyProviderV2AdapterTest {
         var token = new ImmutableTokenInstanceFullModel(UUID.randomUUID(), null, "token", TokenInstanceStatus.ACTIVATED,
                 null, profile.connectorUuid(), "connector", cryptography.uuid(), cryptography, Set.of());
         return new ImmutableTokenProfileFullModel(UUID.randomUUID(), "profile", null, token.name(), token.uuid(), true,
-                List.of(KeyUsage.SIGN), token, profile.connectorUuid(), Map.of(), 0);
+                List.of(KeyUsage.SIGN), token, profile.connectorUuid(), Map.of(), null, 0);
     }
 
     private static RequestAttribute stringAttribute(String name, String value) {
@@ -1615,6 +1914,12 @@ class KeyProviderV2AdapterTest {
         attribute.setName("note");
         attribute.setContent(List.of(new StringAttributeContentV3(value)));
         return attribute;
+    }
+
+    private static List<RequestAttribute> rsaFields(RsaSignatureScheme scheme, DigestAlgorithm digest) {
+        return List
+                .of(RsaSignatureAttributes.buildRequestRsaSigScheme(scheme),
+                        RsaSignatureAttributes.buildRequestDigest(digest));
     }
 
     private static List<MetadataAttribute> metadata(String name) {

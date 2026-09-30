@@ -29,6 +29,7 @@ import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
+import com.otilm.core.model.crypto.KeyTransfer;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.model.crypto.TransferableKeyType;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -231,13 +232,13 @@ class TokenInstanceServiceV2ITest extends BaseSpringBootTest {
         // given
         TokenInstanceReference token = persistToken("changed-while-asked-token");
         TokenProfile profile = persistProfile(token, "changed-while-asked-profile");
-        int askedAtRevision = profile.getExportableKeyTypesRevision();
+        int askedAtRevision = profile.getKeyTypesRevision();
         keyTransferCapabilityWriter.forgetForToken(token.getUuid());
         flushAndClear();
 
         // when
         Optional<TokenProfileFullModel> recorded = keyTransferCapabilityWriter
-                .recordAnswer(profile.getUuid(), askedAtRevision,
+                .recordAnswer(profile.getUuid(), askedAtRevision, KeyTransfer.EXPORT,
                         List.of(new TransferableKeyType(KeyRequestType.KEY_PAIR, Set.of(KeyAlgorithm.RSA))));
 
         // then
@@ -261,6 +262,32 @@ class TokenInstanceServiceV2ITest extends BaseSpringBootTest {
 
         // then
         assertTrue(detail.getKeyTransfer().isExportAvailable());
+        connectorMock.verifyExportableKeyTypesRequests(0);
+    }
+
+    @Test
+    void getTokenInstance_reportsImportAndExportFromDifferentProfiles() throws Exception {
+        // given
+        connectorInterface.setFeatures(List.of(FeatureFlag.STATELESS, FeatureFlag.KEY_IMPORT, FeatureFlag.KEY_EXPORT));
+        connectorInterfaceRepository.save(connectorInterface);
+        TokenInstanceReference token = persistToken("import-and-export-token");
+        TokenProfile importing = persistProfile(token, "importing-profile");
+        importing
+                .setImportableKeyTypes(
+                        List.of(new TransferableKeyType(KeyRequestType.KEY_PAIR, Set.of(KeyAlgorithm.RSA))));
+        importing.setExportableKeyTypes(List.of());
+        tokenProfileRepository.saveAndFlush(importing);
+        TokenProfile exporting = persistProfile(token, "exporting-profile");
+        exporting.setImportableKeyTypes(List.of());
+        recordAnswer(exporting, KeyAlgorithm.ECDSA);
+
+        // when
+        TokenInstanceDetailDto detail = tokenInstanceService.getTokenInstance(SecuredUUID.fromUUID(token.getUuid()));
+
+        // then
+        assertTrue(detail.getKeyTransfer().isImportAvailable());
+        assertTrue(detail.getKeyTransfer().isExportAvailable());
+        connectorMock.verifyImportableKeyTypesRequests(0);
         connectorMock.verifyExportableKeyTypesRequests(0);
     }
 

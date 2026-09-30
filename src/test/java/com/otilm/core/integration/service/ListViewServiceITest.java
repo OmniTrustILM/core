@@ -3,10 +3,14 @@ package com.otilm.core.integration.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
+import com.otilm.api.model.client.attribute.custom.CustomAttributeUpdateRequestDto;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.client.certificate.SearchSortRequestDto;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.auth.UserDto;
 import com.otilm.api.model.core.auth.UserProfileDto;
@@ -23,6 +27,7 @@ import com.otilm.core.dao.repository.ListViewRepository;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
 import com.otilm.core.security.authn.PlatformUserDetails;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
+import com.otilm.core.service.AttributeExternalService;
 import com.otilm.core.service.ListViewExternalService;
 import com.otilm.core.service.ListViewInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -55,6 +60,9 @@ class ListViewServiceITest extends BaseSpringBootTest {
 
     @Autowired
     private ListViewRepository listViewRepository;
+
+    @Autowired
+    private AttributeExternalService attributeService;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -137,6 +145,16 @@ class ListViewServiceITest extends BaseSpringBootTest {
         return view.getColumns().stream().map(ListViewColumnDto::getFieldIdentifier).toList();
     }
 
+    private static ListViewRequestDto keyRequest(String name) {
+        ListViewRequestDto request = request(name, column("CKI_NAME"));
+        request.setResource(Resource.CRYPTOGRAPHIC_KEY);
+        return request;
+    }
+
+    private List<String> namesOf(Resource resource) {
+        return listViewService.listViews(resource).stream().map(ListViewDto::getName).toList();
+    }
+
     @Test
     void aViewSurvivesTheSessionAndIsInvisibleToOtherUsers() throws AlreadyExistException {
         ListViewDto created = listViewService.createView(request("Expiry watch", column("COMMON_NAME")));
@@ -149,6 +167,19 @@ class ListViewServiceITest extends BaseSpringBootTest {
         authenticateAs(otherUser);
         Assertions.assertTrue(listViewService.listViews(Resource.CERTIFICATE).isEmpty());
         Assertions.assertTrue(listViewService.listViews(null).isEmpty());
+    }
+
+    @Test
+    void viewsAreListedInTheOrderTheyWereCreated() throws AlreadyExistException {
+        listViewService.createView(request("B", column("COMMON_NAME")));
+        listViewService.createView(keyRequest("Z"));
+        listViewService.createView(request("A", column("COMMON_NAME")));
+        listViewService.createView(keyRequest("Y"));
+        listViewService.createView(request("C", column("COMMON_NAME")));
+
+        Assertions.assertEquals(List.of("B", "Z", "A", "Y", "C"), namesOf(null));
+        Assertions.assertEquals(List.of("B", "A", "C"), namesOf(Resource.CERTIFICATE));
+        Assertions.assertEquals(List.of("Z", "Y"), namesOf(Resource.CRYPTOGRAPHIC_KEY));
     }
 
     @Test
@@ -264,6 +295,35 @@ class ListViewServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void aCryptoAssetViewKeepsItsColumnsAndOrdering() throws AlreadyExistException {
+        SearchSortRequestDto sort = new SearchSortRequestDto(FilterFieldSource.PROPERTY, "CBOM_ASSET_NAME",
+                SortDirection.DESC);
+        ListViewRequestDto request = request("Inventory", column("CBOM_ASSET_NAME"),
+                column("CBOM_ASSET_PQC_VERDICT", "Readiness"), column("CBOM_ASSET_SOURCE_COUNT"));
+        request.setResource(Resource.CRYPTO_ASSET);
+        request.setSort(sort);
+
+        listViewService.createView(request);
+
+        ListViewDto stored = listViewService.listViews(Resource.CRYPTO_ASSET).getFirst();
+        Assertions
+                .assertEquals(List.of("CBOM_ASSET_NAME", "CBOM_ASSET_PQC_VERDICT", "CBOM_ASSET_SOURCE_COUNT"),
+                        identifiersOf(stored));
+        Assertions.assertEquals("Readiness", stored.getColumns().get(1).getLabel());
+        Assertions.assertEquals(sort, stored.getSort());
+    }
+
+    @Test
+    void aCryptoAssetColumnTheListingCannotShowIsRejectedOnWrite() {
+        ListViewRequestDto request = request("Blank", column("CBOM_ASSET_NAME"), column("CBOM_ASSET_OID"));
+        request.setResource(Resource.CRYPTO_ASSET);
+
+        ValidationException e = Assertions
+                .assertThrows(ValidationException.class, () -> listViewService.createView(request));
+        Assertions.assertTrue(e.getMessage().contains("CBOM_ASSET_OID"));
+    }
+
+    @Test
     void aViewWithoutFiltersOrOrderingReportsNeither() throws AlreadyExistException {
         ListViewDto created = listViewService.createView(request("Plain", column("COMMON_NAME")));
 
@@ -308,7 +368,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
 
     private List<String> defaultViewUuids() {
         return listViewRepository
-                .findByUserUuidOrderByNameAsc(user)
+                .findByUserUuidOrderByCreatedAscUuidAsc(user)
                 .stream()
                 .filter(ListView::isDefaultView)
                 .map(view -> view.getUuid().toString())
@@ -317,10 +377,11 @@ class ListViewServiceITest extends BaseSpringBootTest {
 
     /**
      * A field can leave the catalogue after a view has stored it - a custom attribute is deleted, a property is
-     * retired. Reading the view then has to drop that column rather than fail, so the rest of the view keeps working.
+     * retired. Reading the view still returns the column in place, so the client can name it as unavailable, and a
+     * full-row write the client sends back does not erase it before the user has seen it.
      */
     @Test
-    void aColumnWhoseFieldNoLongerExistsIsSkippedOnRead() {
+    void aColumnWhoseFieldNoLongerExistsIsKeptOnRead() {
         store("Stale",
                 List
                         .of(column("COMMON_NAME"), column("RETIRED_FIELD"),
@@ -329,7 +390,170 @@ class ListViewServiceITest extends BaseSpringBootTest {
 
         ListViewDto read = listViewService.listViews(Resource.CERTIFICATE).getFirst();
 
-        Assertions.assertEquals(List.of("COMMON_NAME"), identifiersOf(read));
+        Assertions.assertEquals(List.of("COMMON_NAME", "RETIRED_FIELD", "deleted|STRING"), identifiersOf(read));
+    }
+
+    /**
+     * A view holding a column for a deleted attribute has to stay editable: renaming or pinning it sends the whole row
+     * back, that column included, and refusing the request over it would freeze the view.
+     */
+    @Test
+    void aColumnWhoseFieldNoLongerExistsSurvivesARename() throws NotFoundException, AlreadyExistException {
+        ListViewColumnDto deleted = new ListViewColumnDto(FilterFieldSource.CUSTOM, "deleted|STRING", null);
+        store("Stale", List.of(column("COMMON_NAME"), deleted), null);
+        ListViewDto read = listViewService.listViews(Resource.CERTIFICATE).getFirst();
+
+        ListViewDto renamed = listViewService
+                .editView(read.getUuid(), update("Renamed", column("COMMON_NAME"), deleted));
+
+        Assertions.assertEquals("Renamed", renamed.getName());
+        Assertions.assertEquals(List.of("COMMON_NAME", "deleted|STRING"), identifiersOf(renamed));
+    }
+
+    @Test
+    void aFilterOnAFieldThatNoLongerExistsSurvivesARename() throws NotFoundException, AlreadyExistException {
+        SearchFilterRequestDto deleted = new SearchFilterRequestDto(FilterFieldSource.CUSTOM, "deleted|STRING",
+                FilterConditionOperator.EQUALS, "x");
+        ListView stored = storeFiltered("Filtered", List.of(column("COMMON_NAME")), List.of(deleted));
+
+        ListViewUpdateRequestDto rename = update("Renamed", column("COMMON_NAME"));
+        rename.setFilters(List.of(deleted));
+        ListViewDto renamed = listViewService.editView(stored.getUuid().toString(), rename);
+
+        Assertions.assertEquals("Renamed", renamed.getName());
+        Assertions.assertEquals(List.of(deleted), renamed.getFilters());
+    }
+
+    @Test
+    void aFilterOnAFieldThatNoLongerExistsCannotBeChangedOnAnExistingView() {
+        SearchFilterRequestDto deleted = new SearchFilterRequestDto(FilterFieldSource.CUSTOM, "deleted|STRING",
+                FilterConditionOperator.EQUALS, "x");
+        ListView stored = storeFiltered("Filtered", List.of(column("COMMON_NAME")), List.of(deleted));
+
+        ListViewUpdateRequestDto edit = update("Filtered", column("COMMON_NAME"));
+        edit
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.CUSTOM, "deleted|STRING",
+                                FilterConditionOperator.CONTAINS, "x")));
+        String uuid = stored.getUuid().toString();
+
+        ValidationException e = Assertions
+                .assertThrows(ValidationException.class, () -> listViewService.editView(uuid, edit));
+        Assertions.assertTrue(e.getMessage().contains("has no field deleted|STRING"));
+    }
+
+    @Test
+    void aStoredFilterOnAFieldThatNoLongerExistsCannotBeRepeated() {
+        SearchFilterRequestDto deleted = new SearchFilterRequestDto(FilterFieldSource.CUSTOM, "deleted|STRING",
+                FilterConditionOperator.EQUALS, "x");
+        ListView stored = storeFiltered("Filtered", List.of(column("COMMON_NAME")), List.of(deleted));
+
+        ListViewUpdateRequestDto edit = update("Filtered", column("COMMON_NAME"));
+        edit.setFilters(List.of(deleted, deleted));
+        String uuid = stored.getUuid().toString();
+
+        ValidationException e = Assertions
+                .assertThrows(ValidationException.class, () -> listViewService.editView(uuid, edit));
+        Assertions.assertTrue(e.getMessage().contains("has no field deleted|STRING"));
+    }
+
+    @Test
+    void aFilterOnAFieldThatNoLongerExistsCannotBeAddedToAnExistingView() throws AlreadyExistException {
+        ListViewDto created = listViewService.createView(request("Clean", column("COMMON_NAME")));
+        ListViewUpdateRequestDto edit = update("Clean", column("COMMON_NAME"));
+        edit
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.CUSTOM, "deleted|STRING",
+                                FilterConditionOperator.EQUALS, "x")));
+        String uuid = created.getUuid();
+
+        ValidationException e = Assertions
+                .assertThrows(ValidationException.class, () -> listViewService.editView(uuid, edit));
+        Assertions.assertTrue(e.getMessage().contains("has no field deleted|STRING"));
+    }
+
+    @Test
+    void aColumnWhoseFieldNoLongerExistsCannotBeAddedToAnExistingView() throws AlreadyExistException {
+        ListViewDto created = listViewService.createView(request("Clean", column("COMMON_NAME")));
+        ListViewColumnDto deleted = new ListViewColumnDto(FilterFieldSource.CUSTOM, "deleted|STRING", null);
+        String uuid = created.getUuid();
+        ListViewUpdateRequestDto edit = update("Clean", column("COMMON_NAME"), deleted);
+
+        ValidationException e = Assertions
+                .assertThrows(ValidationException.class, () -> listViewService.editView(uuid, edit));
+        Assertions.assertTrue(e.getMessage().contains("has no field deleted|STRING"));
+    }
+
+    @Test
+    void aColumnWhoseFieldNoLongerExistsIsRejectedOnCreate() {
+        ListViewRequestDto request = request("Copy", column("COMMON_NAME"),
+                new ListViewColumnDto(FilterFieldSource.CUSTOM, "deleted|STRING", null));
+
+        ValidationException e = Assertions
+                .assertThrows(ValidationException.class, () -> listViewService.createView(request));
+        Assertions.assertTrue(e.getMessage().contains("has no field deleted|STRING"));
+    }
+
+    /**
+     * Hiding a custom attribute keeps it in the catalogue but narrows it to presence conditions, so a view already
+     * filtering on one of its values would otherwise be refused on every rename.
+     */
+    @Test
+    void aFilterWhoseConditionTheFieldNoLongerOffersSurvivesARename()
+            throws AlreadyExistException, AttributeException, NotFoundException {
+        UUID team = createTeamAttribute();
+        SearchFilterRequestDto pki = teamFilter(FilterConditionOperator.EQUALS, "pki");
+        ListViewRequestDto request = request("Team", column("COMMON_NAME"));
+        request.setFilters(List.of(pki));
+        ListViewDto created = listViewService.createView(request);
+        hide(team);
+
+        ListViewUpdateRequestDto rename = update("Renamed", column("COMMON_NAME"));
+        rename.setFilters(List.of(pki));
+        ListViewDto renamed = listViewService.editView(created.getUuid(), rename);
+
+        Assertions.assertEquals("Renamed", renamed.getName());
+        Assertions.assertEquals(List.of(pki), renamed.getFilters());
+    }
+
+    @Test
+    void aChangedFilterOnAFieldThatNoLongerOffersItsConditionIsRejected()
+            throws AlreadyExistException, AttributeException, NotFoundException {
+        UUID team = createTeamAttribute();
+        ListViewRequestDto request = request("Team", column("COMMON_NAME"));
+        request.setFilters(List.of(teamFilter(FilterConditionOperator.EQUALS, "pki")));
+        ListViewDto created = listViewService.createView(request);
+        hide(team);
+
+        ListViewUpdateRequestDto edit = update("Team", column("COMMON_NAME"));
+        edit.setFilters(List.of(teamFilter(FilterConditionOperator.EQUALS, "ops")));
+        String uuid = created.getUuid();
+
+        ValidationException e = Assertions
+                .assertThrows(ValidationException.class, () -> listViewService.editView(uuid, edit));
+        Assertions.assertTrue(e.getMessage().contains("does not offer these filter conditions: team|STRING EQUALS"));
+    }
+
+    private UUID createTeamAttribute() throws AlreadyExistException, AttributeException {
+        CustomAttributeCreateRequestDto request = new CustomAttributeCreateRequestDto();
+        request.setName("team");
+        request.setLabel("Team");
+        request.setResources(List.of(Resource.CERTIFICATE));
+        request.setContentType(AttributeContentType.STRING);
+        request.setVisible(true);
+        return UUID.fromString(attributeService.createCustomAttribute(request).getUuid());
+    }
+
+    private void hide(UUID attribute) throws NotFoundException, AttributeException {
+        CustomAttributeUpdateRequestDto request = new CustomAttributeUpdateRequestDto();
+        request.setLabel("Team");
+        request.setResources(List.of(Resource.CERTIFICATE));
+        request.setVisible(false);
+        attributeService.editCustomAttribute(attribute, request);
+    }
+
+    private static SearchFilterRequestDto teamFilter(FilterConditionOperator condition, String value) {
+        return new SearchFilterRequestDto(FilterFieldSource.CUSTOM, "team|STRING", condition, value);
     }
 
     /**
@@ -380,13 +604,23 @@ class ListViewServiceITest extends BaseSpringBootTest {
     }
 
     private void store(String name, List<ListViewColumnDto> columns, SearchSortRequestDto sort) {
+        save(name, columns, null, sort);
+    }
+
+    private ListView storeFiltered(String name, List<ListViewColumnDto> columns, List<SearchFilterRequestDto> filters) {
+        return save(name, columns, filters, null);
+    }
+
+    private ListView save(String name, List<ListViewColumnDto> columns, List<SearchFilterRequestDto> filters,
+            SearchSortRequestDto sort) {
         ListView stored = new ListView();
         stored.setUserUuid(user);
         stored.setResource(Resource.CERTIFICATE);
         stored.setName(name);
         stored.setColumns(columns);
+        stored.setFilters(filters);
         stored.setSort(sort);
-        listViewRepository.save(stored);
+        return listViewRepository.save(stored);
     }
 
     @Test
@@ -596,7 +830,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
 
         Assertions.assertEquals(1, created.get());
         Assertions.assertEquals(1, rejected.get());
-        Assertions.assertEquals(1, listViewRepository.findByUserUuidOrderByNameAsc(user).size());
+        Assertions.assertEquals(1, listViewRepository.findByUserUuidOrderByCreatedAscUuidAsc(user).size());
     }
 
     private void createConcurrently(SecurityContext context, CountDownLatch start, AtomicInteger created,
@@ -682,7 +916,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
             throw new IllegalStateException("a later step of the deletion fails");
         }));
 
-        Assertions.assertTrue(listViewRepository.findByUserUuidOrderByNameAsc(user).isEmpty());
+        Assertions.assertTrue(listViewRepository.findByUserUuidOrderByCreatedAscUuidAsc(user).isEmpty());
     }
 
     @Test
@@ -694,7 +928,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
 
         Assertions.assertEquals(1, listViewInternalService.deleteViewsOfUser(user));
 
-        Assertions.assertTrue(listViewRepository.findByUserUuidOrderByNameAsc(user).isEmpty());
-        Assertions.assertEquals(1, listViewRepository.findByUserUuidOrderByNameAsc(otherUser).size());
+        Assertions.assertTrue(listViewRepository.findByUserUuidOrderByCreatedAscUuidAsc(user).isEmpty());
+        Assertions.assertEquals(1, listViewRepository.findByUserUuidOrderByCreatedAscUuidAsc(otherUser).size());
     }
 }

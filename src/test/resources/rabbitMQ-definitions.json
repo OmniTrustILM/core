@@ -107,6 +107,26 @@
       "arguments": {
         "x-queue-type": "classic"
       }
+    },
+    {
+      "name": "proxy-expiry-test",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic",
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "proxy-expiry-test.expired"
+      }
+    },
+    {
+      "name": "proxy-expiry-test.expired",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic"
+      }
     }
   ],
   "exchanges": [
@@ -121,6 +141,15 @@
     },
     {
       "name": "ilm-proxy",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "ilm-proxy-expiry-test",
       "vhost": "/",
       "type": "topic",
       "durable": true,
@@ -224,6 +253,14 @@
       "destination": "provider.discovery-work",
       "destination_type": "queue",
       "routing_key": "provider.discovery-work",
+      "arguments": {}
+    },
+    {
+      "source": "ilm-proxy-expiry-test",
+      "vhost": "/",
+      "destination": "proxy-expiry-test",
+      "destination_type": "queue",
+      "routing_key": "coremessage.expiry-test",
       "arguments": {}
     }
   ]

@@ -87,7 +87,9 @@ import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.model.ActionMessage;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.model.crypto.OperationAttributeSchema;
 import com.otilm.core.model.request.CertificateRequest;
+import com.otilm.core.model.request.CertificateRequestKeys;
 import com.otilm.core.model.request.CrmfCertificateRequest;
 import com.otilm.core.model.request.Pkcs10CertificateRequest;
 import com.otilm.core.security.authz.ExternalAuthorization;
@@ -166,8 +168,8 @@ import org.springframework.transaction.support.DefaultTransactionDefinition;
 @Service("clientOperationServiceImplV2")
 // Roll back on any exception, checked included, so a connector or attribute failure never commits partial state.
 // The issue/renew/rekey entry points override this with their own NOT_SUPPORTED boundary and manage the persistence
-// transaction internally. submitCertificateRequest does not: reached through the proxy (REST v1 submit, SCEP manual
-// approval) it still runs under this class-level transaction; self-invoked it runs with no ambient transaction.
+// transaction internally. submitCertificateRequest uses SUPPORTS: the REST submit runs without an ambient transaction,
+// as they do, while a caller that brings one (SCEP manual approval) keeps the submission inside it.
 @Transactional(rollbackFor = Exception.class)
 public class ClientOperationServiceImpl implements ClientOperationExternalService, ClientOperationInternalService {
     private static final Logger logger = LoggerFactory.getLogger(ClientOperationServiceImpl.class);
@@ -444,6 +446,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.CREATE)
+    @Transactional(propagation = Propagation.SUPPORTS, rollbackFor = Exception.class)
     public CertificateDetailDto submitCertificateRequest(ClientCertificateRequestDto request,
             CertificateProtocolInfo protocolInfo) throws ConnectorException, CertificateException,
             NoSuchAlgorithmException, AttributeException, CertificateRequestException, NotFoundException {
@@ -481,16 +484,16 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                             raProfile.getName()));
         }
 
-        // Build the CSR and merge/validate the issue-attributes before opening the persistence transaction. On the
-        // self-invoked issue/renew/rekey paths (NOT_SUPPORTED) this holds no DB connection across the connector
-        // round-trips; proxied callers (REST v1 submit, SCEP manual-approval) still run under the class-level
-        // transaction. Ordering constraint: the uploaded-CSR attribute validation inside generateBase64EncodedCsr
+        // Build the CSR and merge/validate the issue-attributes before opening the persistence transaction, so no
+        // database transaction stays open across the connector round-trips unless the caller brought its own (SCEP
+        // manual approval). Ordering constraint: the uploaded-CSR attribute validation inside generateBase64EncodedCsr
         // must run before the issue-attribute merge.
         PreparedRequest prepared = generateBase64EncodedCsr(request.getRequest(), request.getFormat(),
                 request.getCsrAttributes(), request.getKeyUuid(), request.getTokenProfileUuid(),
                 request.getSignatureAttributes(), request.getAltKeyUuid(), request.getAltTokenProfileUuid(),
                 request.getAltSignatureAttributes(), raProfile);
         String certificateRequest = prepared.csr();
+        claimSignAttributeSchemas(certificateRequest, request);
         if (raProfile != null) {
             extendedAttributeService.mergeAndValidateIssueAttributes(raProfile, request.getIssueAttributes());
         }
@@ -995,7 +998,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private static void rejectPastRegistrationWindow(ClientCertificateRegistrationDto request) {
         String secret = request.getAuthorizationSecret();
         OffsetDateTime expiresAt = request.getExpiresAt();
-        if (secret != null && !secret.isBlank() && expiresAt != null
+        if (RegistrationChallengeGate.isPresented(secret) && expiresAt != null
                 && !expiresAt.isAfter(OffsetDateTime.now(ZoneOffset.UTC))) {
             throw new ValidationException("The registration issuance window (expiresAt) must be in the future.");
         }
@@ -1009,7 +1012,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      */
     private static void rejectWindowWithoutChallenge(ClientCertificateRegistrationDto request) {
         String secret = request.getAuthorizationSecret();
-        if ((secret == null || secret.isBlank()) && request.getExpiresAt() != null) {
+        if (!RegistrationChallengeGate.isPresented(secret) && request.getExpiresAt() != null) {
             throw new ValidationException(
                     "A registration issuance window (expiresAt) requires an authorization secret; a registration without a challenge has no completion deadline.");
         }
@@ -1041,7 +1044,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private void maybeCreateRegistrationAuthorization(Certificate certificate,
             ClientCertificateRegistrationDto request) {
         String secret = request.getAuthorizationSecret();
-        if (secret == null || secret.isBlank()) {
+        if (!RegistrationChallengeGate.isPresented(secret)) {
             return;
         }
         OffsetDateTime expiresAt = request.getExpiresAt();
@@ -1890,7 +1893,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         // authorization exists (never created, closed, or raced away between a protocol match and this
         // gate) would complete the registration without its challenge ever being checked — and would
         // silently ignore a credential the caller clearly expected to be validated.
-        if (!challengeAuthorized && presentedSecret != null && !presentedSecret.isBlank()) {
+        if (!challengeAuthorized && RegistrationChallengeGate.isPresented(presentedSecret)) {
             throw new ValidationException(ValidationError
                     .create("An authorization secret was presented but the certificate has no active registration authorization to verify it against. Certificate: %s"
                             .formatted(certificate.toStringShort())));
@@ -1981,9 +1984,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 ResourceAction.RENEW);
 
         // Self-service gate: a certificate with a live registration authorization renews only against its
-        // challenge; a wrong or missing secret is denied (and counted) before any successor exists. A verified
-        // challenge lets the authorization follow the successor (copied below). A certificate with no
-        // authorization row, or a CLOSED one, renews without challenge verification.
+        // challenge; a wrong or missing secret is denied before any successor exists. A verified challenge
+        // lets the authorization follow the successor (copied below). A certificate with no authorization
+        // row, or a CLOSED one, renews without challenge verification.
         boolean challengeAuthorized = registrationChallengeGate
                 .verify(oldCertificate.getUuid(), request != null ? request.getAuthorizationSecret() : null,
                         CertificateEvent.RENEW);
@@ -2313,7 +2316,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         } else {
             if (oldCertificate.getCertificateRequest() != null) {
                 signatureAttributes = attributeEngine
-                        .getRequestObjectDataAttributesContent(ObjectAttributeContentInfo
+                        .getRequestOperationDataAttributesContent(ObjectAttributeContentInfo
                                 .builder(Resource.CERTIFICATE_REQUEST, oldCertificate.getCertificateRequest().getUuid())
                                 .operation(AttributeOperation.SIGN)
                                 .build());
@@ -2334,7 +2337,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             } else {
                 if (oldCertificate.getCertificateRequest() != null) {
                     altSignatureAttributes = attributeEngine
-                            .getRequestObjectDataAttributesContent(ObjectAttributeContentInfo
+                            .getRequestOperationDataAttributesContent(ObjectAttributeContentInfo
                                     .builder(Resource.CERTIFICATE_REQUEST,
                                             oldCertificate.getCertificateRequest().getUuid())
                                     .operation(AttributeOperation.SIGN)
@@ -3015,6 +3018,45 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             throw new ValidationException(
                     ValidationError.create("Failed to generate the CSR. Error: " + e.getMessage()));
         }
+    }
+
+    /**
+     * Claims the signing schemas for the keys the request's signature attributes are stored under, the ones the
+     * certificate service resolves for storage.
+     */
+    private void claimSignAttributeSchemas(String certificateRequest, ClientCertificateRequestDto request)
+            throws NotFoundException, ConnectorException, AttributeException, NoSuchAlgorithmException,
+            CertificateRequestException {
+        if (isEmpty(request.getSignatureAttributes()) && isEmpty(request.getAltSignatureAttributes())) {
+            return;
+        }
+        CertificateRequestKeys keys = certificateService
+                .findRequestKeys(certificateRequest, request.getFormat(), request.getKeyUuid(),
+                        request.getAltKeyUuid());
+        claimSignAttributeSchema(keys.keyUuid(), request.getSignatureAttributes());
+        claimSignAttributeSchema(keys.altKeyUuid(), request.getAltSignatureAttributes());
+    }
+
+    private static boolean isEmpty(List<RequestAttribute> attributes) {
+        return attributes == null || attributes.isEmpty();
+    }
+
+    /**
+     * Validates a v2 key's signing attributes against its connector's schema and claims that schema for signing, so the
+     * certificate request can store them under the connector and read them back, whether Core signed the request or it
+     * was uploaded. A v1 key signs with Core's registry, which is stored for signing already.
+     */
+    private void claimSignAttributeSchema(UUID keyUuid, List<RequestAttribute> signatureAttributes)
+            throws NotFoundException, ConnectorException, AttributeException {
+        if (signatureAttributes == null || signatureAttributes.isEmpty()
+                || keyInternalService.getSignAttributeOwner(keyUuid) == null) {
+            return;
+        }
+        OperationAttributeSchema schema = cryptographicOperationService.listSignAttributeSchema(keyUuid);
+        attributeEngine
+                .validateUpdateDataAttributes(schema.ownerConnectorUuid(), AttributeOperation.SIGN,
+                        schema.definitions(), signatureAttributes);
+        schema.requireOfferedSignatureAlgorithm(signatureAttributes);
     }
 
     /**

@@ -118,8 +118,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import org.hibernate.SessionFactory;
 import org.hibernate.stat.Statistics;
 import org.jetbrains.annotations.NotNull;
@@ -2665,9 +2667,9 @@ class AttributeEngineITest extends BaseSpringBootTest {
 
     @Test
     void jsonExtensionValueIsShapeCheckedThroughTheRealValidationPath() throws Exception {
-        // The unit-level layering tests drive the per-definition worker directly. This one goes through
+        // The unit-level tests drive the per-definition worker directly. This one goes through
         // validateUpdateDataAttributes, because validateAttributesContent drains the definition mapping as it
-        // matches attributes - running the JSON layers after it silently sees no definitions at all.
+        // matches attributes - running the type check after it silently sees no definitions at all.
         Map<String, OidRecord> savedCache = OidHandler.getOidCache(OidCategory.CERTIFICATE_EXTENSION);
         try {
             OidHandler.cacheOidCategory(OidCategory.CERTIFICATE_EXTENSION, new HashMap<>());
@@ -2677,8 +2679,10 @@ class AttributeEngineITest extends BaseSpringBootTest {
                                     .builder()
                                     .displayName("Shape Checked Extension")
                                     .valueEncoding(ExtensionValueEncoding.DER)
-                                    .valueSchema("{\"type\":\"object\",\"properties\":{\"sequence\":"
-                                            + "{\"type\":\"array\",\"minItems\":2}},\"required\":[\"sequence\"]}")
+                                    .valueSchema("""
+                                            M DEFINITIONS IMPLICIT TAGS ::= BEGIN
+                                            Ext ::= SEQUENCE { a INTEGER, b INTEGER }
+                                            END""")
                                     .build());
 
             ExtensionMappedField field = new ExtensionMappedField();
@@ -2699,7 +2703,7 @@ class AttributeEngineITest extends BaseSpringBootTest {
 
             RequestAttributeV3 tooShort = new RequestAttributeV3(UUID.fromString(definition.getUuid()),
                     definition.getName(), AttributeContentType.STRING,
-                    List.of(new StringAttributeContentV3("{\"sequence\":[{\"integer\":1}]}")));
+                    List.of(new StringAttributeContentV3("{\"a\":1}")));
 
             List<BaseAttribute> definitions = List.of(definition);
             List<RequestAttribute> values = List.of(tooShort);
@@ -2711,14 +2715,13 @@ class AttributeEngineITest extends BaseSpringBootTest {
                             thrown
                                     .getErrors()
                                     .stream()
-                                    .anyMatch(e -> e
-                                            .getErrorDescription()
-                                            .contains("registered schema for extension 1.3.6.1.4.1.99999.5.5")),
-                            "expected the registry-shape layer to reject, got: " + thrown.getErrors());
+                                    .anyMatch(e -> e.getErrorDescription().contains("$.b")
+                                            && e.getErrorDescription().contains("required")),
+                            "expected the extension's type to reject the missing member, got: " + thrown.getErrors());
 
             RequestAttributeV3 valid = new RequestAttributeV3(UUID.fromString(definition.getUuid()),
                     definition.getName(), AttributeContentType.STRING,
-                    List.of(new StringAttributeContentV3("{\"sequence\":[{\"integer\":1},{\"integer\":2}]}")));
+                    List.of(new StringAttributeContentV3("{\"a\":1,\"b\":2}")));
             Assertions
                     .assertDoesNotThrow(() -> attributeEngine
                             .validateUpdateDataAttributes(null, null, List.of(definition), List.of(valid)));
@@ -2727,6 +2730,46 @@ class AttributeEngineITest extends BaseSpringBootTest {
                     .cacheOidCategory(OidCategory.CERTIFICATE_EXTENSION,
                             savedCache != null ? new HashMap<>(savedCache) : new HashMap<>());
         }
+    }
+
+    @Test
+    void getOperationDataAttributesContent_readsAnOperationsContent_whicheverConnectorStoredIt() throws Exception {
+        // given
+        UUID objectUuid = UUID.randomUUID();
+        UUID connectorUuid = connectorDiscovery.getUuid();
+        DataAttributeV3 connectorOwned = DataAttributeV3Builder.aDataAttribute().withName("signatureAlgorithm").build();
+        DataAttributeV3 coreOwned = DataAttributeV3Builder.aDataAttribute().withName("data_sigDigest").build();
+        DataAttributeV3 otherOperation = DataAttributeV3Builder.aDataAttribute().withName("formatting").build();
+        storeOperationContent(objectUuid, connectorUuid, AttributeOperation.SIGN, connectorOwned);
+        storeOperationContent(objectUuid, null, AttributeOperation.SIGN, coreOwned);
+        storeOperationContent(objectUuid, connectorUuid, AttributeOperation.WORKFLOW_FORMATTING, otherOperation);
+
+        // when
+        List<ResponseAttribute> read = attributeEngine
+                .getOperationDataAttributesContent(ObjectAttributeContentInfo
+                        .builder(Resource.CERTIFICATE_REQUEST, objectUuid)
+                        .operation(AttributeOperation.SIGN)
+                        .build());
+
+        // then
+        Assertions
+                .assertEquals(Set.of("signatureAlgorithm", "data_sigDigest"),
+                        read.stream().map(ResponseAttribute::getName).collect(Collectors.toSet()));
+    }
+
+    private void storeOperationContent(UUID objectUuid, UUID connectorUuid, String operation,
+            DataAttributeV3 definition) throws Exception {
+        attributeEngine.updateDataAttributeDefinitions(connectorUuid, operation, List.of(definition));
+        attributeEngine
+                .updateObjectDataAttributesContent(
+                        ObjectAttributeContentInfo
+                                .builder(Resource.CERTIFICATE_REQUEST, objectUuid)
+                                .connector(connectorUuid)
+                                .operation(operation)
+                                .build(),
+                        List
+                                .of(new RequestAttributeV3(UUID.fromString(definition.getUuid()), definition.getName(),
+                                        AttributeContentType.STRING, List.of(new StringAttributeContentV3("value")))));
     }
 
     @Test

@@ -1,6 +1,7 @@
 package com.otilm.core.serialization;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.databind.AnnotationIntrospector;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -34,6 +35,19 @@ public final class ObjectMapperFactory {
     }
 
     /**
+     * {@link #wire()} for what the platform logs or records about a request. The given introspector comes before the
+     * mapper's own, so it can replace how a property is written, and a value with no visible property is written as an
+     * empty object rather than failing: the write-only {@code Passphrase} and {@code UploadedFile} are such values.
+     */
+    public static ObjectMapper redacting(AnnotationIntrospector introspector) {
+        ObjectMapper mapper = wire();
+        mapper
+                .setAnnotationIntrospector(AnnotationIntrospector
+                        .pair(introspector, mapper.getSerializationConfig().getAnnotationIntrospector()));
+        return mapper.configure(SerializationFeature.FAIL_ON_EMPTY_BEANS, false);
+    }
+
+    /**
      * The audit-log recipe, pinned as the audit subsystem has always built it rather than derived from {@link #wire()}.
      * Null members survive, because an audit line records that a member was absent.
      */
@@ -43,6 +57,19 @@ public final class ObjectMapperFactory {
         mapper.configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false);
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         return mapper;
+    }
+
+    /**
+     * {@link #auditLog()} for what the platform logs or records about a request, keeping its null-preserving shape. The
+     * given introspector comes before the mapper's own, and a value with no visible property is written as an empty
+     * object rather than failing.
+     */
+    public static ObjectMapper redactingAuditLog(AnnotationIntrospector introspector) {
+        ObjectMapper mapper = auditLog();
+        mapper
+                .setAnnotationIntrospector(AnnotationIntrospector
+                        .pair(introspector, mapper.getSerializationConfig().getAnnotationIntrospector()));
+        return mapper.configure(SerializationFeature.FAIL_ON_EMPTY_BEANS, false);
     }
 
     /**
@@ -119,16 +146,24 @@ public final class ObjectMapperFactory {
     }
 
     /**
-     * The secret-thumbprint recipe. The ordering settings are load-bearing: the serialized bytes are hashed, so a
-     * different key order would rewrite every stored thumbprint.
+     * The canonical recipe, for JSON whose bytes are hashed: properties and map entries always in the same order, so
+     * equal values serialize alike.
      */
-    public static ObjectMapper secretThumbprint() {
+    public static ObjectMapper canonical() {
         return JsonMapper
                 .builder()
                 .findAndAddModules()
                 .configure(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY, true)
                 .configure(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS, true)
                 .build();
+    }
+
+    /**
+     * The secret-thumbprint recipe. The ordering settings are load-bearing: the serialized bytes are hashed, so a
+     * different key order would rewrite every stored thumbprint.
+     */
+    public static ObjectMapper secretThumbprint() {
+        return canonical();
     }
 
     /**

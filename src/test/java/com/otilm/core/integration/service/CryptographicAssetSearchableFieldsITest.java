@@ -35,9 +35,9 @@ class CryptographicAssetSearchableFieldsITest extends BaseSpringBootTest {
                     FilterField.CBOM_ASSET_ALGORITHM_FAMILY, FilterField.CBOM_ASSET_PRIMITIVE,
                     FilterField.CBOM_ASSET_PARAMETER_SET, FilterField.CBOM_ASSET_CURVE, FilterField.CBOM_ASSET_MODE,
                     FilterField.CBOM_ASSET_PADDING, FilterField.CBOM_ASSET_VARIANT, FilterField.CBOM_ASSET_PQC_VERDICT,
-                    FilterField.CBOM_ASSET_PQC_RULESET_VERSION, FilterField.CBOM_ASSET_RULESET_VERSION,
-                    FilterField.CBOM_ASSET_SOURCE_COUNT, FilterField.CBOM_ASSET_FREE_TEXT,
-                    FilterField.CBOM_ASSET_OID_REFUTED, FilterField.CBOM_ASSET_SOURCE_CBOM);
+                    FilterField.CBOM_ASSET_RULESET_VERSION, FilterField.CBOM_ASSET_SOURCE_COUNT,
+                    FilterField.CBOM_ASSET_FREE_TEXT, FilterField.CBOM_ASSET_OID_REFUTED,
+                    FilterField.CBOM_ASSET_SOURCE_CBOM);
 
     private static final String SEEDED_SERIAL = "urn:uuid:searchable-fields";
 
@@ -155,11 +155,19 @@ class CryptographicAssetSearchableFieldsITest extends BaseSpringBootTest {
     }
 
     @Test
-    void noFieldReportsSortable() {
+    void onlyTheFieldsTheListingShowsAreColumnsAndSortable() {
+        List<String> shown = List
+                .of(FilterField.CBOM_ASSET_NAME.name(), FilterField.CBOM_ASSET_TYPE.name(),
+                        FilterField.CBOM_ASSET_PQC_VERDICT.name(), FilterField.CBOM_ASSET_SOURCE_COUNT.name());
+
         assertThat(fields)
-                .describedAs(
-                        "the list's order is fixed and the contract allows sorting only on fields marked " + "sortable")
-                .allSatisfy(field -> assertThat(Boolean.TRUE.equals(field.getSortable())).isFalse());
+                .filteredOn(field -> Boolean.TRUE.equals(field.getDisplayable()))
+                .extracting(SearchFieldDataDto::getFieldIdentifier)
+                .containsExactlyInAnyOrderElementsOf(shown);
+        assertThat(fields)
+                .filteredOn(field -> Boolean.TRUE.equals(field.getSortable()))
+                .extracting(SearchFieldDataDto::getFieldIdentifier)
+                .containsExactlyInAnyOrderElementsOf(shown);
     }
 
     private SearchFieldDataDto fieldFor(FilterField field) {

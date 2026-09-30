@@ -6,6 +6,7 @@ import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.core.web.CryptographicKeyController;
+import com.otilm.api.model.client.certificate.ImportOutcome;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.client.cryptography.CryptographicKeyResponseDto;
 import com.otilm.api.model.client.cryptography.key.BulkCompromiseKeyItemRequestDto;
@@ -26,23 +27,27 @@ import com.otilm.api.model.core.cryptography.key.KeyDetailDto;
 import com.otilm.api.model.core.cryptography.key.KeyDto;
 import com.otilm.api.model.core.cryptography.key.KeyEventHistoryDto;
 import com.otilm.api.model.core.cryptography.key.KeyItemDetailDto;
+import com.otilm.api.model.core.logging.Sensitive;
 import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.logging.LogResource;
 import com.otilm.core.model.crypto.ExportedKeyMaterial;
+import com.otilm.core.model.crypto.ImportedKeyDetail;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CryptographicKeyExportExternalService;
 import com.otilm.core.service.CryptographicKeyExternalService;
+import com.otilm.core.service.CryptographicKeyImportExternalService;
 import com.otilm.core.util.converter.KeyRequestTypeConverter;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.WebDataBinder;
 import org.springframework.web.bind.annotation.InitBinder;
@@ -53,6 +58,7 @@ public class CryptographicKeyControllerImpl implements CryptographicKeyControlle
 
     private CryptographicKeyExternalService cryptographicKeyService;
     private CryptographicKeyExportExternalService cryptographicKeyExportService;
+    private CryptographicKeyImportExternalService cryptographicKeyImportService;
 
     @Autowired
     public void setCryptographicKeyExternalService(CryptographicKeyExternalService cryptographicKeyService) {
@@ -63,6 +69,12 @@ public class CryptographicKeyControllerImpl implements CryptographicKeyControlle
     public void setCryptographicKeyExportExternalService(
             CryptographicKeyExportExternalService cryptographicKeyExportService) {
         this.cryptographicKeyExportService = cryptographicKeyExportService;
+    }
+
+    @Autowired
+    public void setCryptographicKeyImportExternalService(
+            CryptographicKeyImportExternalService cryptographicKeyImportService) {
+        this.cryptographicKeyImportService = cryptographicKeyImportService;
     }
 
     @InitBinder
@@ -139,9 +151,13 @@ public class CryptographicKeyControllerImpl implements CryptographicKeyControlle
     }
 
     @Override
-    public List<BaseAttribute> listImportKeyAttributes(String tokenInstanceUuid, String tokenProfileUuid,
-            KeyRequestType type) throws ConnectorException, NotFoundException {
-        return List.of();
+    @AuditLogged(module = Module.CRYPTOGRAPHIC_KEYS, resource = Resource.ATTRIBUTE, name = "import",
+            affiliatedResource = Resource.TOKEN_PROFILE, operation = Operation.LIST_ATTRIBUTES)
+    public List<BaseAttribute> listImportKeyAttributes(String tokenInstanceUuid,
+            @LogResource(uuid = true, affiliated = true) String tokenProfileUuid, KeyRequestType type)
+            throws ConnectorException, NotFoundException {
+        return cryptographicKeyImportService
+                .listImportKeyAttributes(UUID.fromString(tokenInstanceUuid), UUID.fromString(tokenProfileUuid), type);
     }
 
     @Override
@@ -155,10 +171,24 @@ public class CryptographicKeyControllerImpl implements CryptographicKeyControlle
     }
 
     @Override
-    public KeyDetailDto importKey(String tokenInstanceUuid, String tokenProfileUuid, KeyRequestType type,
-            @Valid KeyImportRequestDto request) throws AlreadyExistException, ValidationException, ConnectorException,
-            AttributeException, NotFoundException {
-        return null;
+    @AuditLogged(module = Module.CRYPTOGRAPHIC_KEYS, resource = Resource.CRYPTOGRAPHIC_KEY,
+            affiliatedResource = Resource.TOKEN_PROFILE, operation = Operation.IMPORT, synchronous = true)
+    public ResponseEntity<KeyDetailDto> importKey(String tokenInstanceUuid,
+            @LogResource(uuid = true, affiliated = true) String tokenProfileUuid, KeyRequestType type,
+            @Sensitive @Valid KeyImportRequestDto request) throws AlreadyExistException, ValidationException,
+            ConnectorException, AttributeException, NotFoundException {
+        try {
+            ImportedKeyDetail imported = cryptographicKeyImportService
+                    .importKey(UUID.fromString(tokenInstanceUuid), UUID.fromString(tokenProfileUuid), type, request);
+            // A key the platform already holds is answered as it is, with nothing created.
+            HttpStatus status = imported.outcome() == ImportOutcome.EXISTING ? HttpStatus.OK : HttpStatus.CREATED;
+            return ResponseEntity.status(status).body(imported.detail());
+        } finally {
+            request.getFile().clear();
+            if (request.getInputPassphrase() != null) {
+                request.getInputPassphrase().clear();
+            }
+        }
     }
 
     @Override

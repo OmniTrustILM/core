@@ -32,6 +32,8 @@ import org.hibernate.query.criteria.JpaOrder;
  */
 public final class SortOrderBuilder {
 
+    private static final String NOT_SORTABLE_ON_RESOURCE = "Field %s cannot be sorted on this resource.";
+
     private SortOrderBuilder() {
     }
 
@@ -45,15 +47,15 @@ public final class SortOrderBuilder {
     }
 
     /**
-     * Whether the sort has to be applied by the query that selects a page of uuids and carries the sort key in its
-     * select list, rather than by the entity query directly. Answerable from the specification alone, so a caller can
-     * pick the shape of the query before it has a root to resolve against.
+     * Whether the sort has to be applied by the query that selects a page of uuids in the requested order, rather than
+     * by the entity query directly. Answerable from the specification alone, so a caller can pick the shape of the
+     * query before it has a root to resolve against.
      *
      * <p>
      * Two sorts need it, for different reasons. A sort through a join gives a root as many rows as the join has
-     * matches, so a window over those rows would underfill the page. An attribute sort resolves to a scalar subquery,
-     * and the entity query selects DISTINCT, which the database will not order by an expression absent from the select
-     * list.
+     * matches, so a window over those rows would underfill the page. An attribute sort joins a table of one key per
+     * object, and the entity query selects DISTINCT, which the database will not order by a column absent from the
+     * select list.
      */
     public static boolean needsRankedUuidQuery(SortSpecification sort) {
         if (sort == null) {
@@ -78,8 +80,8 @@ public final class SortOrderBuilder {
             SortSpecification sort, Order defaultOrder, boolean paged) {
         List<Order> orders = new ArrayList<>();
         if (sort != null) {
-            // Property-only by construction: needsRankedUuidQuery sends every attribute sort to resolveGrouped, and
-            // resolveField refuses a non-property source rather than letting one build an unorderable query here.
+            // Property-only by construction: needsRankedUuidQuery sends every attribute sort to the ranked uuid query,
+            // and resolveField refuses a non-property source rather than letting one build an unorderable query here.
             FilterField field = resolveField(root, sort);
             orders.add(primary(criteriaBuilder, resolveExpression(root, field), sort.direction()));
         } else if (defaultOrder != null) {
@@ -99,22 +101,13 @@ public final class SortOrderBuilder {
      * request the ordering has to degrade for.
      */
     public static GroupedOrdering resolveGrouped(Root<?> root, CriteriaBuilder criteriaBuilder,
-            CommonAbstractCriteria query, SortSpecification sort) {
-        String fieldName;
-        Expression<?> sortKey;
-        if (sort.fieldSource() == FilterFieldSource.PROPERTY) {
-            FilterField field = resolveField(root, sort);
-            fieldName = field.name();
-            sortKey = aggregate(criteriaBuilder, resolveExpression(root, field), sort.direction());
-        } else {
-            fieldName = sort.fieldIdentifier();
-            sortKey = aggregate(criteriaBuilder,
-                    FilterPredicatesBuilder.getAttributeSortKey(criteriaBuilder, query, root, sort), sort.direction());
-        }
+            SortSpecification sort) {
+        FilterField field = resolveField(root, sort);
+        Expression<?> sortKey = keyAggregate(criteriaBuilder, resolveExpression(root, field), sort.direction());
 
         Order tieBreak = tieBreak(root, criteriaBuilder)
                 .orElseThrow(() -> new ValidationException(
-                        ValidationError.create("Field %s cannot be sorted on this resource.".formatted(fieldName))));
+                        ValidationError.create(NOT_SORTABLE_ON_RESOURCE.formatted(field.name()))));
 
         return new GroupedOrdering(sortKey, List.of(primary(criteriaBuilder, sortKey, sort.direction()), tieBreak));
     }
@@ -152,10 +145,10 @@ public final class SortOrderBuilder {
      * <p>
      * A column the row has nothing to show for must never lead the page, and reversing the sort must not put those rows
      * first either - which is what PostgreSQL's own default would do, since it orders nulls last ascending and first
-     * descending. Shared by both sort paths so a nullable column cannot place its blanks differently depending on
-     * whether the ordering happened to be reached through a join or a subquery.
+     * descending. Shared by every sort path so a nullable column cannot place its blanks differently depending on
+     * whether the ordering happened to be reached directly, through a join or through a key table.
      */
-    private static Order primary(CriteriaBuilder criteriaBuilder, Expression<?> expression, SortDirection direction) {
+    public static Order primary(CriteriaBuilder criteriaBuilder, Expression<?> expression, SortDirection direction) {
         Order order = direction == SortDirection.DESC
                 ? criteriaBuilder.desc(expression)
                 : criteriaBuilder.asc(expression);
@@ -163,15 +156,28 @@ public final class SortOrderBuilder {
     }
 
     /**
-     * The value of the sort expression that decides where a root belongs among the rows the join multiplied it into:
-     * the least of them when ascending, the greatest when descending.
+     * The value of a multi-valued sort that decides where a row belongs: the least of its values when ascending, the
+     * greatest when descending. Used both over the rows a join multiplies a root into and inside a per-object key
+     * table.
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
-    private static Expression<?> aggregate(CriteriaBuilder criteriaBuilder, Expression<?> expression,
+    public static Expression<?> keyAggregate(CriteriaBuilder criteriaBuilder, Expression<?> expression,
             SortDirection direction) {
         return direction == SortDirection.DESC
                 ? criteriaBuilder.greatest((Expression) expression)
                 : criteriaBuilder.least((Expression) expression);
+    }
+
+    /**
+     * The ordering of a query that joins one sort key per root: the key with nulls last in both directions, then the
+     * uuid tie-break. A key table is keyed by the root's uuid, so a root without one is a caller error.
+     */
+    public static List<Order> resolveKeyed(Root<?> root, CriteriaBuilder criteriaBuilder, Expression<?> key,
+            SortSpecification sort) {
+        Order tieBreak = tieBreak(root, criteriaBuilder)
+                .orElseThrow(() -> new ValidationException(
+                        ValidationError.create(NOT_SORTABLE_ON_RESOURCE.formatted(sort.fieldIdentifier()))));
+        return List.of(primary(criteriaBuilder, key, sort.direction()), tieBreak);
     }
 
     /**
@@ -184,8 +190,7 @@ public final class SortOrderBuilder {
             From<?, ?> from = joinPath.isEmpty() ? root : FilterPredicatesBuilder.prepareJoin(root, joinPath);
             return FilterPredicatesBuilder.resolveFieldPath(from, field.getFieldAttribute());
         } catch (IllegalArgumentException e) {
-            throw new ValidationException(
-                    ValidationError.create("Field %s cannot be sorted on this resource.".formatted(field.name())));
+            throw new ValidationException(ValidationError.create(NOT_SORTABLE_ON_RESOURCE.formatted(field.name())));
         }
     }
 

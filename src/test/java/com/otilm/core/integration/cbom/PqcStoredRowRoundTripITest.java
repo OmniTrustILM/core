@@ -12,7 +12,6 @@ import com.otilm.core.cbom.asset.identity.NormalizedAsset;
 import com.otilm.core.cbom.pqc.PqcDecision;
 import com.otilm.core.cbom.pqc.PqcEvaluator;
 import com.otilm.core.cbom.pqc.PqcRules;
-import com.otilm.core.cbom.pqc.PqcRuleset;
 import com.otilm.core.dao.entity.Cbom;
 import com.otilm.core.dao.entity.cbom.CryptoAsset;
 import com.otilm.core.dao.repository.CbomRepository;
@@ -171,7 +170,7 @@ class PqcStoredRowRoundTripITest extends BaseSpringBootTest {
         PqcDecision decision = decide(asset(assetUuid));
         assetWriter
                 .applyPqcVerdict(assetUuid, decision.verdict(), decision.ruleId(), decision.reason(),
-                        PqcRuleset.VERSION, decision.evaluatedFields());
+                        decision.evaluatedFields());
         return assetUuid;
     }
 

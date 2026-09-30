@@ -16,11 +16,13 @@ import java.util.stream.Collectors;
 public record ImmutableTokenProfileFullModel(UUID uuid, String name, String description, String tokenInstanceName,
         UUID tokenInstanceReferenceUuid, Boolean enabled, List<KeyUsage> usages, TokenInstanceFullModel tokenInstance,
         UUID connectorUuid, Map<KeyRequestType, Set<KeyAlgorithm>> exportableKeyTypes,
-        int exportableKeyTypesRevision) implements TokenProfileFullModel {
+        Map<KeyRequestType, Set<KeyAlgorithm>> importableKeyTypes,
+        int keyTypesRevision) implements TokenProfileFullModel {
 
     public ImmutableTokenProfileFullModel {
         usages = usages == null ? List.of() : List.copyOf(usages);
         exportableKeyTypes = exportableKeyTypes == null ? null : Map.copyOf(exportableKeyTypes);
+        importableKeyTypes = importableKeyTypes == null ? null : Map.copyOf(importableKeyTypes);
     }
 
     public static ImmutableTokenProfileFullModel from(TokenProfile tokenProfile) {
@@ -41,7 +43,8 @@ public record ImmutableTokenProfileFullModel(UUID uuid, String name, String desc
                                 "Token profile full model requires a token instance UUID."),
                 tokenProfile.getEnabled(), tokenProfile.getUsage(), tokenInstance, tokenInstance.connectorUuid(),
                 tokenProfile.getExportableKeyTypes() == null ? null : byKeyType(tokenProfile.getExportableKeyTypes()),
-                tokenProfile.getExportableKeyTypesRevision());
+                tokenProfile.getImportableKeyTypes() == null ? null : byKeyType(tokenProfile.getImportableKeyTypes()),
+                tokenProfile.getKeyTypesRevision());
     }
 
     private static Map<KeyRequestType, Set<KeyAlgorithm>> byKeyType(List<TransferableKeyType> keyTypes) {

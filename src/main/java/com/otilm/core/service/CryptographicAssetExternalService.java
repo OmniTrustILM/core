@@ -6,6 +6,7 @@ import com.otilm.api.model.client.dashboard.CryptographicAssetStatisticsDto;
 import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetDetailDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetDto;
+import com.otilm.api.model.core.cryptoasset.CryptographicAssetPqcExplanationDto;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -43,6 +44,15 @@ public interface CryptographicAssetExternalService {
      * @throws NotFoundException if no asset with the given UUID is in the inventory
      */
     CryptographicAssetDetailDto getCryptographicAsset(SecuredUUID uuid) throws NotFoundException;
+
+    /**
+     * Recompute one asset's PQC verdict rule by rule from the row as stored. Nothing is written back.
+     *
+     * @param uuid secured unique identifier of the asset
+     * @return the explanation, with whether it agrees with the stored verdict
+     * @throws NotFoundException if no asset with the given UUID is in the inventory
+     */
+    CryptographicAssetPqcExplanationDto getCryptographicAssetPqcExplanation(SecuredUUID uuid) throws NotFoundException;
 
     /**
      * Fields the list operation accepts in its filters, grouped by field source.

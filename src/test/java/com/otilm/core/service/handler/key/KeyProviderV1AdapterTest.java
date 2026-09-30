@@ -48,6 +48,7 @@ import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
 import com.otilm.core.model.crypto.ImmutableTokenInstanceFullModel;
 import com.otilm.core.model.crypto.ImmutableTokenProfileFullModel;
+import com.otilm.core.model.crypto.OperationAttributeSchema;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TransferableKeyType;
@@ -111,7 +112,7 @@ class KeyProviderV1AdapterTest {
                 UUID.randomUUID().toString(), "token", TokenInstanceStatus.ACTIVATED, null, connectorUuid, "connector",
                 null, null, Set.of());
         profile = new ImmutableTokenProfileFullModel(UUID.randomUUID(), "profile", null, token.name(), token.uuid(),
-                true, List.of(), token, connectorUuid, Map.of(), 0);
+                true, List.of(), token, connectorUuid, Map.of(), null, 0);
         cryptographicKey = new ImmutableCryptographicKeyFullModel(UUID.randomUUID(), "key", null, profile.uuid(),
                 token.uuid(), profile, token, Set.of(), null, null, null, List.of(), List.of());
     }
@@ -180,12 +181,49 @@ class KeyProviderV1AdapterTest {
     }
 
     @Test
+    void importCalls_areRefusedForAV1Connector() {
+        // given
+        List<MetadataAttribute> handle = List.of();
+        UUID keyImportId = UUID.randomUUID();
+
+        // when
+        ValidationException refused = assertThrows(ValidationException.class,
+                () -> adapter.importKey(null, null, null, "key"));
+
+        // then
+        assertTrue(refused.getMessage().contains("Key import is not part of the v1 cryptography provider contract."));
+        assertThrows(ValidationException.class, () -> adapter.importKeyStatus(null, handle, null, "key"));
+        assertThrows(ValidationException.class, () -> adapter.importKeyResult(null, keyImportId, null, "key"));
+        assertThrows(ValidationException.class, () -> adapter.cancelImportKey(handle));
+        assertThrows(ValidationException.class, () -> adapter.destroyImportedKeyItem(null, handle));
+    }
+
+    @Test
     void listExportableKeyTypes_isEmptyForAV1Connector() {
         // when
         List<TransferableKeyType> exportable = adapter.listExportableKeyTypes(profile);
 
         // then
         assertTrue(exportable.isEmpty());
+    }
+
+    @Test
+    void listImportableKeyTypes_isEmptyForAV1Connector() {
+        // when
+        List<TransferableKeyType> importable = adapter.listImportableKeyTypes(profile);
+
+        // then
+        assertTrue(importable.isEmpty());
+    }
+
+    @Test
+    void listImportKeyAttributes_isEmptyForAV1Connector() {
+        // when
+        List<BaseAttribute> attributes = adapter.listImportKeyAttributes(profile, KeyRequestType.KEY_PAIR);
+
+        // then
+        assertTrue(attributes.isEmpty());
+        verifyNoInteractions(client);
     }
 
     @Test
@@ -621,6 +659,42 @@ class KeyProviderV1AdapterTest {
     }
 
     @Test
+    void signData_reportsAnEmptyConnectorAnswer_asAConnectorFailure() throws Exception {
+        // given
+        OperationKeyContext context = OperationKeyContext
+                .legacy(keyItem(KeyAlgorithm.MLDSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
+                        UUID.randomUUID()));
+        SignDataRequestDto request = new SignDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        request.setData(List.of());
+        when(operationsClient.signData(any(), any(), any(), any())).thenReturn(null);
+
+        // when
+        Executable sign = () -> adapter.signData(context, request);
+
+        // then
+        assertThrows(ConnectorException.class, sign);
+    }
+
+    @Test
+    void verifyData_reportsAnEmptyConnectorAnswer_asAConnectorFailure() throws Exception {
+        // given
+        OperationKeyContext context = OperationKeyContext
+                .legacy(keyItem(KeyAlgorithm.MLDSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
+                        UUID.randomUUID()));
+        VerifyDataRequestDto request = new VerifyDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        request.setSignatures(List.of());
+        when(operationsClient.verifyData(any(), any(), any(), any())).thenReturn(null);
+
+        // when
+        Executable verify = () -> adapter.verifyData(context, request);
+
+        // then
+        assertThrows(ConnectorException.class, verify);
+    }
+
+    @Test
     void listSignAttributes_returnsCoreSchema_byAlgorithm() {
         // given
         OperationKeyContext rsa = OperationKeyContext
@@ -641,6 +715,22 @@ class KeyProviderV1AdapterTest {
         assertEquals(RsaSignatureAttributes.getRsaSignatureAttributes().toString(), rsaSchema.toString());
         assertTrue(mldsaSchema.isEmpty());
         verifyNoInteractions(operationsClient);
+    }
+
+    @Test
+    void signAttributeSchema_servesCoresRegistry_underNoConnector() throws Exception {
+        // given
+        OperationKeyContext rsa = OperationKeyContext
+                .legacy(keyItem(KeyAlgorithm.RSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
+                        UUID.randomUUID()));
+
+        // when
+        OperationAttributeSchema schema = adapter.signAttributeSchema(rsa);
+
+        // then
+        assertNull(schema.ownerConnectorUuid());
+        assertEquals(RsaSignatureAttributes.getRsaSignatureAttributes().toString(), schema.definitions().toString());
+        assertTrue(schema.connectorDefinitions().isEmpty());
     }
 
     @Test

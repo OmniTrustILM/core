@@ -309,6 +309,31 @@ class TokenProfileServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
+    void getTokenProfile_showsWhatTheProfileImportsBesideWhatItExports() throws Exception {
+        // given
+        connectorInterface.setFeatures(List.of(FeatureFlag.STATELESS, FeatureFlag.KEY_IMPORT, FeatureFlag.KEY_EXPORT));
+        connectorInterfaceRepository.save(connectorInterface);
+        connectorMock.stubImportableKeyTypes(KeyRequestType.KEY_PAIR, KeyAlgorithm.ECDSA);
+        connectorMock.stubExportableKeyTypes(KeyRequestType.KEY_PAIR, KeyAlgorithm.RSA);
+        TokenProfile profile = persistProfile("import-and-export-profile");
+
+        // when
+        TokenProfileDetailDto read = tokenProfileService
+                .getTokenProfile(token.getSecuredParentUuid(), profile.getSecuredUuid());
+
+        // then
+        KeyTransferCapabilityDto keyTransfer = read.getKeyTransfer();
+        assertTrue(keyTransfer.isImportAvailable());
+        assertEquals(Map.of(KeyRequestType.KEY_PAIR, Set.of(KeyAlgorithm.ECDSA)), keyTransfer.getImportableKeyTypes());
+        assertEquals(Map.of(KeyRequestType.KEY_PAIR, Set.of(KeyAlgorithm.RSA)), keyTransfer.getExportableKeyTypes());
+        TokenProfile stored = tokenProfileRepository.findByUuid(profile.getUuid()).orElseThrow();
+        assertEquals(List.of(new TransferableKeyType(KeyRequestType.KEY_PAIR, Set.of(KeyAlgorithm.ECDSA))),
+                stored.getImportableKeyTypes());
+        assertEquals(List.of(new TransferableKeyType(KeyRequestType.KEY_PAIR, Set.of(KeyAlgorithm.RSA))),
+                stored.getExportableKeyTypes());
+    }
+
+    @Test
     void updateKeyUsages_refreshesCachedExportableKeyTypes() throws Exception {
         // given
         declareKeyExport();
