@@ -52,22 +52,24 @@ import com.otilm.core.service.writer.cbom.CbomSyncSkipWriter;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.tasks.CbomSyncTask;
 import com.otilm.core.util.BaseSpringBootTest;
-import java.nio.charset.StandardCharsets;
+import com.otilm.core.util.SchemaHistory;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.Date;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.ProblemDetail;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.test.util.AopTestUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -113,7 +115,7 @@ class CbomSyncITest extends BaseSpringBootTest {
     private CbomExternalService cbomService;
 
     @Autowired
-    private JdbcTemplate jdbcTemplate;
+    private SchemaHistory schemaHistory;
 
     @Autowired
     private ScheduledJobsRepository scheduledJobsRepository;
@@ -148,6 +150,7 @@ class CbomSyncITest extends BaseSpringBootTest {
             settingsCache.cacheSettings(SettingsSection.PLATFORM, originalSettings);
             syncLogger().detachAppender(logged);
             logged.stop();
+            syncService().setSchemaHistory(schemaHistory);
         }
     }
 
@@ -992,34 +995,19 @@ class CbomSyncITest extends BaseSpringBootTest {
     }
 
     /**
-     * A database no earlier Core has run against gets no stamp: nothing there was deleted without a tombstone, and a
-     * fresh Core pointed at a repository older than itself has to bring that repository in.
+     * On a database no earlier Core has run against nothing was deleted without a tombstone, and a fresh Core pointed
+     * at a repository older than itself has to bring that repository in.
      */
     @Test
-    void theMigrationStampsNothingWhereNoCoreHasRunBefore() throws Exception {
-        runTheUpgradeMigration();
+    void aFreshInstallHoldsNothingBack() throws Exception {
+        tombstonesKeptSince(Instant.now().minus(Duration.ofMinutes(1)));
         stubPage("after", "0", "[" + entry("urn:uuid:older-than-core", "1", STATS, null) + "]", null);
         stubDocument("urn:uuid:older-than-core", 1);
 
         String result = cbomInternalService.reconcile();
 
-        assertThat(upgradeStamps()).isZero();
         assertThat(result).contains("stored 1 new entries").doesNotContain("held back");
         assertThat(cbomRepository.count()).isOne();
-    }
-
-    /** {@code setting} has no unique key, and a second stamp would fail every pass that reads it as a single row. */
-    @Test
-    void aReplayedMigrationLeavesOneStamp() throws Exception {
-        stampTheUpgrade();
-        runTheUpgradeMigration();
-        stubPage("after", "0", "[" + entry("urn:uuid:deleted-in-2.19", "1", STATS, null) + "]", null);
-
-        String result = cbomInternalService.reconcile();
-
-        assertThat(upgradeStamps()).isOne();
-        assertThat(result)
-                .endsWith("1 entries listed before the upgrade to 2.20.0 and absent from Core were held back");
     }
 
     @Test
@@ -1078,27 +1066,36 @@ class CbomSyncITest extends BaseSpringBootTest {
 
     // ---- helpers ----
 
-    /** Registers the sync job as every earlier Core did at boot, then runs the migration that stamps the upgrade. */
-    private void stampTheUpgrade() throws Exception {
+    /**
+     * An earlier Core ran the sync job and failed, which leaves no watermark, then this database started keeping
+     * tombstones a minute ago.
+     */
+    private void stampTheUpgrade() {
+        Instant tombstonesSince = Instant.now().minus(Duration.ofMinutes(1));
         ScheduledJob syncJob = new ScheduledJob();
         syncJob.setJobName(CbomSyncTask.NAME);
         syncJob.setJobClassName(CbomSyncTask.class.getName());
         syncJob.setEnabled(true);
         scheduledJobsRepository.save(syncJob);
-        runTheUpgradeMigration();
+        ScheduledJobHistory earlierRun = new ScheduledJobHistory();
+        earlierRun.setScheduledJobUuid(syncJob.getUuid());
+        earlierRun.setJobExecution(Date.from(tombstonesSince.minus(Duration.ofDays(1))));
+        earlierRun.setSchedulerExecutionStatus(SchedulerJobExecutionStatus.FAILED);
+        scheduledJobHistoryRepository.save(earlierRun);
+        tombstonesKeptSince(tombstonesSince);
     }
 
-    /** Tests build the schema from the entities, without Flyway, so the migration is executed here. */
-    private void runTheUpgradeMigration() throws Exception {
-        jdbcTemplate
-                .execute(new ClassPathResource("db/migration/V202609301200__cbom_sync_upgrade_instant.sql")
-                        .getContentAsString(StandardCharsets.UTF_8));
+    /**
+     * Tests build the schema from the entities, without Flyway, so its record of the tombstone migration is stubbed.
+     */
+    private void tombstonesKeptSince(Instant installedOn) {
+        SchemaHistory stubbed = Mockito.mock(SchemaHistory.class);
+        Mockito.when(stubbed.installedOn("202608271000")).thenReturn(Optional.of(installedOn));
+        syncService().setSchemaHistory(stubbed);
     }
 
-    private int upgradeStamps() {
-        Integer stamps = jdbcTemplate
-                .queryForObject("SELECT count(*) FROM setting WHERE name = 'cbomSyncUpgradedAt'", Integer.class);
-        return stamps == null ? 0 : stamps;
+    private CbomServiceImpl syncService() {
+        return AopTestUtils.getTargetObject(cbomInternalService);
     }
 
     private void recordASuccessfulHourlyRun(Date startedAt) {

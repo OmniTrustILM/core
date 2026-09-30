@@ -25,8 +25,6 @@ import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
-import com.otilm.api.model.core.settings.SettingsSection;
-import com.otilm.api.model.core.settings.SettingsSectionCategory;
 import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
 import com.otilm.core.attribute.engine.AttributeColumnProjector;
 import com.otilm.core.attribute.engine.AttributeEngine;
@@ -45,11 +43,9 @@ import com.otilm.core.dao.CryptoAssetConstraintTranslator;
 import com.otilm.core.dao.entity.Cbom;
 import com.otilm.core.dao.entity.Cbom_;
 import com.otilm.core.dao.entity.ScheduledJobHistory;
-import com.otilm.core.dao.entity.Setting;
 import com.otilm.core.dao.entity.cbom.CbomSyncSkip;
 import com.otilm.core.dao.repository.CbomRepository;
 import com.otilm.core.dao.repository.ScheduledJobHistoryRepository;
-import com.otilm.core.dao.repository.SettingRepository;
 import com.otilm.core.dao.repository.cbom.CbomSyncSkipRepository;
 import com.otilm.core.dao.repository.cbom.CbomTombstoneRepository;
 import com.otilm.core.enums.FilterField;
@@ -75,6 +71,7 @@ import com.otilm.core.tasks.CbomSyncTask;
 import com.otilm.core.util.CbomUtil;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import com.otilm.core.util.RequestValidatorHelper;
+import com.otilm.core.util.SchemaHistory;
 import com.otilm.core.util.SearchHelper;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
@@ -165,11 +162,8 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      */
     private static final String INVENTORY_SOURCE_CONSTRAINT = "crypto_asset_source_to_cbom_key";
 
-    /**
-     * The {@code platform}/{@code utils} setting row the 2.20.0 upgrade migration stamps on a database an earlier Core
-     * has run against; see {@link #isHeldBack}.
-     */
-    private static final String UPGRADE_INSTANT_SETTING = "cbomSyncUpgradedAt";
+    /** The migration that created {@code cbom_tombstone}: from its install on, a delete leaves a tombstone. */
+    private static final String TOMBSTONE_MIGRATION_VERSION = "202608271000";
 
     private CbomRepository cbomRepository;
 
@@ -203,7 +197,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
 
     private ClusterOperationSynchronizer clusterSynchronizer;
 
-    private SettingRepository settingRepository;
+    private SchemaHistory schemaHistory;
 
     private AuditorAware<String> auditorAware;
 
@@ -283,8 +277,8 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
     }
 
     @Autowired
-    public void setSettingRepository(SettingRepository settingRepository) {
-        this.settingRepository = settingRepository;
+    public void setSchemaHistory(SchemaHistory schemaHistory) {
+        this.schemaHistory = schemaHistory;
     }
 
     @Autowired
@@ -1125,9 +1119,8 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      * since the stored row is indistinguishable from a synced one, while holding it back loses nothing: the document
      * stays in the repository. An entry with a skip row is not held back, because only 2.20 writes those, so Core met
      * it after the upgrade. An entry without a creation time counts as listed before. An hourly pass with a watermark
-     * is not held back: what it lists is new to it. Without the migration's stamp nothing is, and the migration writes
-     * none on a database no earlier Core has run against, where a whole listing is how a repository older than the
-     * install comes in.
+     * is not held back: what it lists is new to it. Nor is anything on a database no earlier Core has run against,
+     * where a whole listing is how a repository older than the install comes in ({@link #readUpgradeInstant}).
      */
     private boolean isHeldBack(BomEntryDto entry, SyncIdentity identity, SyncRun run,
             Map<SyncIdentity, CbomSyncSkip> skips) {
@@ -1139,11 +1132,16 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         return listedBeforeUpgrade && previousSkip(identity, skips) == null;
     }
 
+    /**
+     * When this database started keeping tombstones, provided an earlier Core ran scheduled jobs against it before
+     * then; null on a fresh install, whose job history all postdates its migrations.
+     */
     private Instant readUpgradeInstant() {
-        final Setting stamp = settingRepository
-                .findBySectionAndCategoryAndName(SettingsSection.PLATFORM,
-                        SettingsSectionCategory.PLATFORM_UTILS.getCode(), UPGRADE_INSTANT_SETTING);
-        return stamp == null || stamp.getValue() == null ? null : Instant.parse(stamp.getValue());
+        return schemaHistory
+                .installedOn(TOMBSTONE_MIGRATION_VERSION)
+                .filter(tombstonesSince -> scheduledJobHistoryRepository
+                        .existsByJobExecutionBefore(Date.from(tombstonesSince)))
+                .orElse(null);
     }
 
     private void retrySkipped(SyncRun run, Map<SyncIdentity, CbomSyncSkip> skips) {
