@@ -33,6 +33,7 @@ import com.otilm.core.service.handler.key.KeyProviderAdapter;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import com.otilm.core.service.writer.CryptographicKeyWriter;
 import com.otilm.core.service.writer.KeyImportWriter;
+import com.otilm.core.util.UniqueViolations;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
@@ -400,6 +401,7 @@ public class KeyImportSaga {
         try {
             key = completed(attempt, registration);
         } catch (DataIntegrityViolationException | CryptographicKeyWriter.UncheckedRecordException heldMeanwhile) {
+            requireHeldMeanwhile(attempt, heldMeanwhile);
             key = completedOnceMore(attempt, registration);
         }
         logger.info("Key {} imported into token profile {}", key.key().uuid(), terms.profile().uuid());
@@ -434,8 +436,22 @@ public class KeyImportSaga {
         try {
             return completed(attempt, registration);
         } catch (DataIntegrityViolationException | CryptographicKeyWriter.UncheckedRecordException heldMeanwhile) {
+            requireHeldMeanwhile(attempt, heldMeanwhile);
             keyImportWriter.dueNow(attempt.uuid());
             throw new ValidationException(ValidationError.create(CryptographicKeyWriter.KEY_ALREADY_HELD));
+        }
+    }
+
+    /**
+     * A key registered meanwhile shows as a record the registration was not told of, or as a violated unique
+     * constraint, the public key's. Any other violation is a fault, not a key held otherwise: it hands the attempt to
+     * the reconciliation and fails the import as it is.
+     */
+    private void requireHeldMeanwhile(KeyImportAttempt attempt, RuntimeException failure) {
+        if (failure instanceof DataIntegrityViolationException violation
+                && !UniqueViolations.isUniqueViolation(violation)) {
+            keyImportWriter.dueNow(attempt.uuid());
+            throw violation;
         }
     }
 

@@ -573,6 +573,33 @@ class CertificateImportITest extends BaseSpringBootTest {
         connectorMock.verifyImportKeyRequests(1);
     }
 
+    @Test
+    void importCertificates_adoptsAPublicKeyTheInventoryHoldsWithoutItsCertificate() throws Exception {
+        // given
+        UUID recordUuid = certificateKeyWriter
+                .uploadCertificatePublicKey("certKey_public", chain.leafKey().getPublic(), 2048,
+                        KeyImportWriterITest.fingerprintOf(chain.leafKey()));
+        connectorMock.stubImportKeys(imported(chain.leafKey().getPublic()));
+
+        // when
+        List<CertificateImportResultDto> results = importCertificates(
+                request(keyPairPem(), null, entry(keyPairReference(), destination("adopted key"))));
+
+        // then
+        assertThat(results).singleElement().satisfies(keyPair -> {
+            assertThat(keyPair.isImported()).isTrue();
+            assertThat(keyPair.getKeyOutcome()).isEqualTo(ImportOutcome.ADOPTED);
+            assertThat(keyPair.getKeyUuid()).isEqualTo(recordUuid.toString());
+            assertThat(keyPair.getCertificateOutcome()).isEqualTo(ImportOutcome.CREATED);
+        });
+        Certificate leaf = inventoried(chain.leaf());
+        assertThat(results.getFirst().getCertificateUuid()).isEqualTo(leaf.getUuid().toString());
+        assertThat(leaf.getKeyUuid()).isEqualTo(recordUuid);
+        assertThat(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(recordUuid)))
+                .extracting(CryptographicKeyItem::getType)
+                .containsExactlyInAnyOrder(KeyType.PUBLIC_KEY, KeyType.PRIVATE_KEY);
+    }
+
     /**
      * A certificate brings the key's public key in while the key is registered, once the registration found nothing and
      * before it writes. The registration fails on the unique fingerprint, and the second one takes the record, whose
