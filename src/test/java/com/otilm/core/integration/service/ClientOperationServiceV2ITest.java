@@ -59,6 +59,7 @@ import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
+import com.otilm.core.dao.entity.CertificateEventHistory;
 import com.otilm.core.dao.entity.CertificateLocation;
 import com.otilm.core.dao.entity.CertificateRelation;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
@@ -199,7 +200,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     @Autowired
     private ClientOperationInternalService clientOperationInternalService;
 
-    @Autowired
+    @MockitoSpyBean
     private CertificateInternalService certificateService;
 
     @Autowired
@@ -263,12 +264,8 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     private WireMockServer mockServer;
 
     private X509Certificate x509Cert;
+    @MockitoSpyBean
     private AttributeEngine attributeEngine;
-
-    @Autowired
-    void setAttributeEngine(AttributeEngine attributeEngine) {
-        this.attributeEngine = attributeEngine;
-    }
 
     @BeforeEach
     void setUp() throws GeneralSecurityException, IOException, NotFoundException, AttributeException {
@@ -2371,6 +2368,62 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
+    void revokeCertificateAction_keepsRuntimeCauseOutOfHistoryAndError_whenLocalStepFailsAfterAcceptance()
+            throws Exception {
+        // given - the connector revokes synchronously, then the local attribute write fails
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/revoke"))
+                        .willReturn(WireMock.aResponse().withStatus(204)));
+        doThrow(new RuntimeException("internal db detail"))
+                .when(attributeEngine)
+                .updateObjectDataAttributesContent(any(), anyList());
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+
+        // when
+        CertificateOperationException ex = Assertions
+                .assertThrows(CertificateOperationException.class, () -> clientOperationInternalService
+                        .revokeCertificateAction(certificate.getUuid(), request, true));
+
+        // then
+        Assertions
+                .assertEquals("Connector accepted revoke but local state update failed: internal error",
+                        ex.getMessage());
+        assertFailedHistory(CertificateEvent.REVOKE,
+                "Connector accepted revoke but local state update failed: internal error");
+    }
+
+    @Test
+    void revokeCertificateAction_keepsRuntimeCauseOutOfHistoryAndError_whenFailingBeforeTheConnector() {
+        // given - assembling the connector request fails before anything is sent
+        doThrow(new RuntimeException("internal db detail"))
+                .when(attributeEngine)
+                .getRequestObjectDataAttributesContent(any());
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+
+        // when
+        CertificateOperationException ex = Assertions
+                .assertThrows(CertificateOperationException.class, () -> clientOperationInternalService
+                        .revokeCertificateAction(certificate.getUuid(), request, true));
+
+        // then
+        Assertions.assertEquals("Failed to revoke certificate: internal error", ex.getMessage());
+        assertFailedHistory(CertificateEvent.REVOKE, "Revocation failed");
+    }
+
+    private void assertFailedHistory(CertificateEvent event, String expectedMessage) {
+        List<String> failures = certificateEventHistoryRepository
+                .findAll()
+                .stream()
+                .filter(h -> h.getEvent() == event && h.getStatus() == CertificateEventStatus.FAILED)
+                .map(CertificateEventHistory::getMessage)
+                .toList();
+        Assertions.assertEquals(List.of(expectedMessage), failures);
+    }
+
+    @Test
     void revokeCertificateAction_recordsEventHistoryEntry_on202() throws Exception {
         mockServer
                 .stubFor(WireMock
@@ -2578,6 +2631,35 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                                         && "Certificate requested".equals(h.getMessage())),
                         "expected the PENDING_ISSUE audit row (ISSUE/SUCCESS, \"Certificate requested\") "
                                 + "to precede ISSUED on the sync renew path");
+    }
+
+    @Test
+    void renewCertificateAction_keepsRuntimeCauseOutOfHistoryAndError_whenLocalUpdateFailsAfterAcceptance()
+            throws Exception {
+        // given - the connector renews synchronously, then recording the issued successor fails
+        prepareCertificateForRenewal();
+        String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/renew"))
+                        .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
+        doThrow(new RuntimeException("internal db detail"))
+                .when(certificateService)
+                .issueRequestedCertificate(any(), any(), any());
+        ClientCertificateRenewRequestDto request = ClientCertificateRenewRequestDto.builder().build();
+        UUID successorUuid = certificate.getUuid();
+
+        // when
+        CertificateOperationException ex = Assertions
+                .assertThrows(CertificateOperationException.class,
+                        () -> clientOperationInternalService.renewCertificateAction(successorUuid, request, true));
+
+        // then
+        Assertions
+                .assertEquals("Connector accepted renewal but local update failed for certificate %s: internal error"
+                        .formatted(successorUuid), ex.getMessage());
+        assertFailedHistory(CertificateEvent.RENEW,
+                "Connector accepted renewal but local update failed: internal error");
     }
 
     /**
