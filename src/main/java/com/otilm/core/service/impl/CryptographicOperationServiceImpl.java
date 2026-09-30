@@ -364,8 +364,7 @@ public class CryptographicOperationServiceImpl
     public OperationAttributeSchema listSignAttributeSchema(UUID keyUuid) throws NotFoundException, ConnectorException {
         CryptographicKeyItemOperationModel keyItem = cryptographicKeyService.getPrivateKeyItemModel(keyUuid);
         OperationKeyContext context = operationContext(keyItem);
-        List<BaseAttribute> definitions = adapterFor(context).listSignAttributes(context);
-        return new OperationAttributeSchema(keyItem.operationAttributeOwner(), definitions);
+        return adapterFor(context).signAttributeSchema(context);
     }
 
     private OperationKeyContext operationContext(CryptographicKeyItemOperationModel model) throws NotFoundException {

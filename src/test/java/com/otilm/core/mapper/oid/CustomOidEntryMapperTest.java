@@ -41,12 +41,12 @@ class CustomOidEntryMapperTest {
 
     @Test
     void systemExtensionSurfacesTheCoreShippedValueSchema() {
-        // Core enforces this schema, but a registry row cannot carry it — an entry for a system OID cannot be
-        // created — so without surfacing it the operator has no way to learn the shape their value must take.
+        // Core holds values to this module, but a registry row cannot carry it — an entry for a system OID
+        // cannot be created — so without surfacing it the operator cannot learn what their value must be.
         CustomOidEntryDetailResponseDto dto = CustomOidEntryMapper.toDetailDto(SystemOid.BASIC_CONSTRAINTS);
 
         CertificateExtensionOidPropertiesDto ext = (CertificateExtensionOidPropertiesDto) dto.getAdditionalProperties();
-        assertThat(ext.getValueSchema()).isNotNull().contains("prefixItems");
+        assertThat(ext.getValueSchema()).isNotNull().contains("BasicConstraints ::= SEQUENCE");
     }
 
     @Test

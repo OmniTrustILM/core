@@ -8,7 +8,7 @@ import lombok.Builder;
 @Builder
 public record OidRecord(@NotNull String displayName, String code, List<String> altCodes, Boolean defaultCritical,
         ExtensionValueEncoding valueEncoding,
-        /** Inline JSON Schema for a DER extension's JSON value; {@code null} when the entry declares none. */
+        /** The ASN.1 module describing a DER extension's value; {@code null} when the entry declares none. */
         String valueSchema,
         /** True only for a built-in {@code SystemOid} entry; a DB-backed custom row leaves it false. */
         boolean system) {

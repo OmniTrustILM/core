@@ -601,19 +601,18 @@ class CryptographicOperationServiceImplTest {
     void listSignAttributeSchema_servesCoresRegistry_forALegacyKey_withoutLoadingScope() throws Exception {
         // given
         CryptographicKeyItemOperationModel key = legacyKey();
-        List<BaseAttribute> registry = List.of(new DataAttributeV3());
+        OperationAttributeSchema registry = new OperationAttributeSchema(null, List.of(new DataAttributeV3()));
         when(keyService.getPrivateKeyItemModel(key.keyUuid())).thenReturn(key);
         when(keyProviderAdapterFactory.forKeyItem(key)).thenReturn(adapter);
-        when(adapter.listSignAttributes(any())).thenReturn(registry);
+        when(adapter.signAttributeSchema(any())).thenReturn(registry);
 
         // when
         OperationAttributeSchema schema = service.listSignAttributeSchema(key.keyUuid());
 
         // then
-        assertNull(schema.ownerConnectorUuid());
-        assertSame(registry, schema.definitions());
+        assertSame(registry, schema);
         ArgumentCaptor<OperationKeyContext> context = ArgumentCaptor.forClass(OperationKeyContext.class);
-        verify(adapter).listSignAttributes(context.capture());
+        verify(adapter).signAttributeSchema(context.capture());
         assertNull(context.getValue().tokenProfile());
         verifyNoInteractions(cryptographicKeyRepository);
     }
@@ -635,24 +634,24 @@ class CryptographicOperationServiceImplTest {
     }
 
     @Test
-    void listSignAttributeSchema_asksTheConnector_andNamesItTheOwner_forAV2Key() throws Exception {
+    void listSignAttributeSchema_asksTheConnector_inTheKeysTokenProfile_forAV2Key() throws Exception {
         // given
         CryptographicKeyItemOperationModel key = v2Key();
         KeyOperationScope scope = scope();
-        List<BaseAttribute> connectorSchema = List.of(new DataAttributeV3());
+        OperationAttributeSchema connectorSchema = new OperationAttributeSchema(key.connectorUuid(),
+                List.of(new DataAttributeV3()));
         when(keyService.getPrivateKeyItemModel(key.keyUuid())).thenReturn(key);
         when(cryptographicKeyRepository.findOperationScopeByUuid(key.keyUuid())).thenReturn(Optional.of(scope));
         when(keyProviderAdapterFactory.forKeyItem(key)).thenReturn(adapter);
-        when(adapter.listSignAttributes(any())).thenReturn(connectorSchema);
+        when(adapter.signAttributeSchema(any())).thenReturn(connectorSchema);
 
         // when
         OperationAttributeSchema schema = service.listSignAttributeSchema(key.keyUuid());
 
         // then
-        assertEquals(key.connectorUuid(), schema.ownerConnectorUuid());
-        assertSame(connectorSchema, schema.definitions());
+        assertSame(connectorSchema, schema);
         ArgumentCaptor<OperationKeyContext> context = ArgumentCaptor.forClass(OperationKeyContext.class);
-        verify(adapter).listSignAttributes(context.capture());
+        verify(adapter).signAttributeSchema(context.capture());
         assertEquals(scope.tokenProfileUuid(), context.getValue().tokenProfile().uuid());
     }
 

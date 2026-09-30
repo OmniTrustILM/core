@@ -28,6 +28,7 @@ import com.otilm.core.dao.entity.oid.GenericCustomOidEntry;
 import com.otilm.core.dao.entity.oid.RdnAttributeTypeCustomOidEntry;
 import com.otilm.core.dao.repository.CustomOidEntryRepository;
 import com.otilm.core.enums.FilterField;
+import com.otilm.core.extension.Asn1ModuleReader;
 import com.otilm.core.mapper.oid.CustomOidEntryMapper;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.oid.OidHandler;
@@ -37,7 +38,6 @@ import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.CustomOidEntryExternalService;
-import com.otilm.core.util.ExtensionSchemas;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import com.otilm.core.util.RequestValidatorHelper;
 import com.otilm.core.util.SearchHelper;
@@ -226,7 +226,9 @@ public class CustomOidEntryServiceImpl implements CustomOidEntryExternalService 
                 valueEncoding = additionalProperties.getValueEncoding();
                 valueSchema = additionalProperties.getValueSchema();
                 if (valueSchema != null) {
-                    ExtensionSchemas.requireValidSchema(valueSchema);
+                    // Reading it is the validation: a module this cannot read is one whose values could not be
+                    // encoded later, and refusing now is the only point a person is present to fix it.
+                    Asn1ModuleReader.read(valueSchema);
                 }
                 ((CertificateExtensionCustomOidEntry) customOidEntry).setDefaultCritical(defaultCritical);
                 ((CertificateExtensionCustomOidEntry) customOidEntry).setValueEncoding(valueEncoding);
@@ -319,7 +321,7 @@ public class CustomOidEntryServiceImpl implements CustomOidEntryExternalService 
             valueEncoding = additionalProperties.getValueEncoding();
             valueSchema = additionalProperties.getValueSchema();
             if (valueSchema != null) {
-                ExtensionSchemas.requireValidSchema(valueSchema);
+                Asn1ModuleReader.read(valueSchema);
             }
             extensionEntry.setDefaultCritical(defaultCritical);
             extensionEntry.setValueEncoding(valueEncoding);

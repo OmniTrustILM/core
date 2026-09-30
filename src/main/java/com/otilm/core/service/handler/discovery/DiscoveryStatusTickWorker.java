@@ -40,8 +40,8 @@ import org.springframework.stereotype.Component;
  * The {@code STATUS} tick: one authoritative {@code status} call, and the run state it justifies.
  *
  * <p>
- * <b>This is the only place a connector-reported state becomes Core state.</b> Pushed events merely ask for this tick;
- * what the connector answers here is what commits.
+ * <b>This is the only place a connector-reported state becomes Core state:</b> what the connector answers here is what
+ * commits.
  *
  */
 @Component

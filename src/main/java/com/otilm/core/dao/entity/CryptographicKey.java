@@ -42,7 +42,7 @@ import org.hibernate.proxy.HibernateProxy;
 @DynamicUpdate
 public class CryptographicKey extends UniquelyIdentifiedAndAudited implements Serializable, NamedModel {
 
-    private static final Set<KeyState> ADOPTABLE_STATES = EnumSet.of(KeyState.PRE_ACTIVE, KeyState.ACTIVE);
+    private static final Set<KeyState> ACTIVE_STATES = EnumSet.of(KeyState.PRE_ACTIVE, KeyState.ACTIVE);
 
     @Override
     public UUID uuid() {
@@ -110,9 +110,14 @@ public class CryptographicKey extends UniquelyIdentifiedAndAudited implements Se
                 && items.iterator().next().getType() == KeyType.PUBLIC_KEY;
     }
 
-    /** Whether an imported private key may join the key: a public key only, still active or yet to become so. */
-    public boolean isAdoptable() {
-        return isPublicKeyOnly() && ADOPTABLE_STATES.contains(items.iterator().next().getState());
+    /** Whether every item of the key is active, or yet to become so. */
+    public boolean isActive() {
+        return items.stream().allMatch(item -> ACTIVE_STATES.contains(item.getState()));
+    }
+
+    /** Whether the key holds its private key: an item of it is one. */
+    public boolean holdsPrivateKey() {
+        return items.stream().anyMatch(item -> item.getType() == KeyType.PRIVATE_KEY);
     }
 
     public void setTokenProfile(TokenProfile tokenProfile) {

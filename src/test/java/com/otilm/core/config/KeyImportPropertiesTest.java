@@ -11,7 +11,7 @@ class KeyImportPropertiesTest {
     @Test
     void theDefaultsApplyWhenNothingIsConfigured() {
         // when
-        KeyImportProperties properties = new KeyImportProperties(null, null, null, null, null);
+        KeyImportProperties properties = new KeyImportProperties(null, null, null, null, null, null);
 
         // then
         assertThat(properties.requestTimeout()).isEqualTo(Duration.ofSeconds(60));
@@ -19,6 +19,7 @@ class KeyImportPropertiesTest {
         assertThat(properties.unresolvedAfter()).isEqualTo(Duration.ofHours(20));
         assertThat(properties.retryWindow()).isEqualTo(Duration.ofMinutes(15));
         assertThat(properties.sweepInterval()).isEqualTo(Duration.ofSeconds(60));
+        assertThat(properties.retention()).isEqualTo(Duration.ofDays(7));
     }
 
     @Test
@@ -29,19 +30,19 @@ class KeyImportPropertiesTest {
 
         // when
         // then
-        assertThatThrownBy(() -> new KeyImportProperties(zero, null, null, null, null))
+        assertThatThrownBy(() -> new KeyImportProperties(zero, null, null, null, null, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("key-import.request-timeout");
-        assertThatThrownBy(() -> new KeyImportProperties(null, negative, null, null, null))
+        assertThatThrownBy(() -> new KeyImportProperties(null, negative, null, null, null, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("key-import.poll-interval");
-        assertThatThrownBy(() -> new KeyImportProperties(null, null, zero, null, null))
+        assertThatThrownBy(() -> new KeyImportProperties(null, null, zero, null, null, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("key-import.unresolved-after");
-        assertThatThrownBy(() -> new KeyImportProperties(null, null, null, negative, null))
+        assertThatThrownBy(() -> new KeyImportProperties(null, null, null, negative, null, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("key-import.retry-window");
-        assertThatThrownBy(() -> new KeyImportProperties(null, null, null, null, zero))
+        assertThatThrownBy(() -> new KeyImportProperties(null, null, null, null, zero, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("key-import.sweep-interval");
     }
@@ -54,7 +55,7 @@ class KeyImportPropertiesTest {
 
         // when
         // then
-        assertThatThrownBy(() -> new KeyImportProperties(null, microsecond, null, null, null))
+        assertThatThrownBy(() -> new KeyImportProperties(null, microsecond, null, null, null, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("key-import.poll-interval must be at least a millisecond, was PT0.000001S");
     }
@@ -67,7 +68,7 @@ class KeyImportPropertiesTest {
 
         // when
         // then
-        assertThatThrownBy(() -> new KeyImportProperties(null, null, day, null, null))
+        assertThatThrownBy(() -> new KeyImportProperties(null, null, day, null, null, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("key-import.unresolved-after must be shorter than 24 hours, was PT24H");
     }
@@ -83,7 +84,7 @@ class KeyImportPropertiesTest {
 
         // when
         // then
-        assertThatThrownBy(() -> new KeyImportProperties(null, null, twentyThreeHours, twoHours, null))
+        assertThatThrownBy(() -> new KeyImportProperties(null, null, twentyThreeHours, twoHours, null, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("key-import.unresolved-after, key-import.retry-window and key-import.sweep-interval "
                         + "together must be shorter than 24 hours, were PT23H, PT2H and PT1M");
@@ -98,13 +99,29 @@ class KeyImportPropertiesTest {
 
         // when
         // then
-        assertThatThrownBy(() -> new KeyImportProperties(null, null, hour, hour, null))
+        assertThatThrownBy(() -> new KeyImportProperties(null, null, hour, hour, null, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("key-import.retry-window and key-import.sweep-interval together must be shorter than "
                         + "key-import.unresolved-after, were PT1H and PT1M");
-        assertThatThrownBy(() -> new KeyImportProperties(null, null, null, null, day))
+        assertThatThrownBy(() -> new KeyImportProperties(null, null, null, null, day, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("key-import.retry-window and key-import.sweep-interval together must be shorter than "
                         + "key-import.unresolved-after, were PT15M and PT24H");
+    }
+
+    /** A finished import is kept longer than an import can stay open, which is until its last look. */
+    @Test
+    void aRetentionNoLongerThanAnImportCanStayOpenIsRefused() {
+        // given
+        Duration longestOpen = Duration.ofHours(20).plusMinutes(16);
+        Duration longer = longestOpen.plusSeconds(1);
+
+        // when
+        // then
+        assertThatThrownBy(() -> new KeyImportProperties(null, null, null, null, null, longestOpen))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("key-import.retention must be longer than key-import.unresolved-after, "
+                        + "key-import.retry-window and key-import.sweep-interval together (PT20H16M), was PT20H16M");
+        assertThat(new KeyImportProperties(null, null, null, null, null, longer).retention()).isEqualTo(longer);
     }
 }
