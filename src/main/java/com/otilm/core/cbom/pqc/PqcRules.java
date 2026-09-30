@@ -7,16 +7,17 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.function.Predicate;
+import java.util.stream.Stream;
 
 /**
  * The rule table: first match wins, and the last rule matches everything.
  *
  * <p>
  * Two orderings are load-bearing. Asset-type rules run first, because an asset that is not an algorithm has no family
- * to read. The hybrid rule runs before every family rule, because a hybrid's stored family is whichever construction
- * the grammar elected. That is not always the post-quantum one: measured, {@code X25519-Kyber768} stores {@code ECDH},
- * so a family-first order reports a migrated asset as un-migrated. (D17 moved {@code X25519-ML-KEM-768} itself onto the
- * {@code X-Wing} pseudo-family, so the worked example that used to appear here no longer shows the effect.)
+ * to read; certificates and protocols are decided before the table, by {@link PqcReferenceRules}. The hybrid rule runs
+ * before every family rule, because a hybrid's stored family is whichever construction the grammar elected. That is not
+ * always the post-quantum one: measured, {@code X25519-Kyber768} stores {@code ECDH}, so a family-first order reports a
+ * migrated asset as un-migrated.
  *
  * <p>
  * Deliberately non-configurable: which families are ready is a fact the platform ships an opinion about, and a
@@ -49,9 +50,43 @@ public final class PqcRules {
 
     public static final String NIST_QUANTUM_SECURITY_LEVEL = "nistQuantumSecurityLevel";
 
-    public static final Set<String> EVIDENCE_FIELDS = Set
+    /** A certificate's and a protocol's references, as the bom-refs the document recorded. */
+    public static final String SUBJECT_PUBLIC_KEY_REF = "subjectPublicKeyRef";
+
+    public static final String SIGNATURE_ALGORITHM_REF = "signatureAlgorithmRef";
+
+    public static final String CIPHER_SUITES = "cipherSuites";
+
+    public static final String CIPHER_SUITE_ALGORITHM_REFS = "cipherSuiteAlgorithmRefs";
+
+    public static final String UNRESOLVED_REFS = "unresolvedRefs";
+
+    /** What a resolved reference rule decided by. Evidence of a decision, never an input. */
+    public static final String CIPHER_SUITE = "cipherSuite";
+
+    public static final String CIPHER_SUITE_ALGORITHM_REF = "cipherSuiteAlgorithmRef";
+
+    public static final String REFERENCED_RULE_ID = "referencedRuleId";
+
+    /**
+     * The evidence values copied verbatim from the electing CBOM document -- its bom-refs and suite labels -- which a
+     * caller who may not read that document must not be served, as the elected payload itself is not.
+     */
+    public static final Set<String> DOCUMENT_FIELDS = Set
+            .of(SUBJECT_PUBLIC_KEY_REF, SIGNATURE_ALGORITHM_REF, CIPHER_SUITES, CIPHER_SUITE_ALGORITHM_REFS,
+                    UNRESOLVED_REFS, CIPHER_SUITE, CIPHER_SUITE_ALGORITHM_REF);
+
+    /** What the rules read, in the order an explanation serves them as its inputs. */
+    public static final List<String> INPUT_FIELDS = List
             .of(ASSET_TYPE, ALGORITHM_FAMILY, PARAMETER_SET, CURVE, "mode", "padding", VARIANT, NAME, HYBRID_COMPONENTS,
-                    MATERIAL_TYPE, MATERIAL_SIZE, NIST_QUANTUM_SECURITY_LEVEL);
+                    MATERIAL_TYPE, MATERIAL_SIZE, NIST_QUANTUM_SECURITY_LEVEL, SUBJECT_PUBLIC_KEY_REF,
+                    SIGNATURE_ALGORITHM_REF, CIPHER_SUITES, CIPHER_SUITE_ALGORITHM_REFS, UNRESOLVED_REFS);
+
+    public static final Set<String> EVIDENCE_FIELDS = Set
+            .copyOf(Stream
+                    .concat(INPUT_FIELDS.stream(),
+                            Stream.of(CIPHER_SUITE, CIPHER_SUITE_ALGORITHM_REF, REFERENCED_RULE_ID))
+                    .toList());
 
     /** Symmetric key or shared secret: quantum-resistant if long enough. */
     public static final Set<String> SYMMETRIC_MATERIAL = Set.of("secret-key", "symmetric-key", "shared-secret");
@@ -75,6 +110,12 @@ public final class PqcRules {
 
     public static final String HYBRID = "PQC-HYBRID";
 
+    /** Stamped on a row the rules threw on. Not a rule, so it has no catalogue entry. */
+    public static final String EVALUATION_FAILED = "EVALUATION-FAILED";
+
+    public static final String EVALUATION_FAILED_REASON = "The rule set could not be evaluated against this asset's "
+            + "recorded properties";
+
     /** The size arms' own fields, and every field the name decision they consult can read. */
     private static final List<String> SYMMETRIC_MATERIAL_FIELDS = List
             .of(ASSET_TYPE, MATERIAL_TYPE, MATERIAL_SIZE, ALGORITHM_FAMILY, NAME, VARIANT, HYBRID_COMPONENTS, CURVE,
@@ -96,17 +137,8 @@ public final class PqcRules {
         return List
                 .of(
                         // ---- Asset types that carry no algorithm of their own -------------------------------------
-                        new PqcRule("CERT-DEFERRED-V1",
-                                input -> input.assetType() == CryptographicAssetType.CERTIFICATE,
-                                PqcVerdict.NOT_APPLICABLE,
-                                "A certificate's readiness is the readiness of the key it certifies, which this rule-set "
-                                        + "generation does not resolve",
-                                List.of(ASSET_TYPE)),
-                        new PqcRule("PROTOCOL-NOT-ALGORITHM",
-                                input -> input.assetType() == CryptographicAssetType.PROTOCOL,
-                                PqcVerdict.NOT_APPLICABLE,
-                                "A protocol is not an algorithm; readiness belongs to the algorithms it negotiates",
-                                List.of(ASSET_TYPE)),
+                        // Certificates and protocols never reach this table: PqcReferenceRules decides them from
+                        // the assets they refer to.
                         new PqcRule("ASSET-TYPE-UNROUTABLE",
                                 input -> input.assetType() == null
                                         || input.assetType() == CryptographicAssetType.UNROUTABLE,

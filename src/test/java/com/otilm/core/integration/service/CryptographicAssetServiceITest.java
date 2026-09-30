@@ -143,7 +143,7 @@ class CryptographicAssetServiceITest extends BaseSpringBootTest {
         sourceWriter
                 .upsertSource(sourced, cbomTwo.getUuid(), Map.of("k", "v"),
                         List.of(Map.of("location", "d"), Map.of("location", "e")), OffsetDateTime.now());
-        assetWriter.applyPqcVerdict(sourced, PqcVerdict.NOT_READY, "rule", "reason", 3, Map.of());
+        assetWriter.applyPqcVerdict(sourced, PqcVerdict.NOT_READY, "rule", "reason", Map.of());
 
         UUID guarded = upsert(new CryptoAssetIdentityFields(CryptographicAssetType.CERTIFICATE, "some-cn", null, null,
                 null, null, null, null, null, null), CryptoAssetIdentityGuard.BARE_CN_SUBJECT);
@@ -220,11 +220,11 @@ class CryptographicAssetServiceITest extends BaseSpringBootTest {
         UUID protocol = seedNamed(CryptographicAssetType.PROTOCOL, "alpha", "1.0.1");
         UUID algorithm = seedNamed(CryptographicAssetType.ALGORITHM, "bravo", "1.0.2");
         UUID certificate = seedNamed(CryptographicAssetType.CERTIFICATE, "charlie", "1.0.3");
-        assetWriter.applyPqcVerdict(protocol, PqcVerdict.NOT_READY, "rule", "reason", 3, Map.of());
-        assetWriter.applyPqcVerdict(algorithm, PqcVerdict.READY, "rule", "reason", 3, Map.of());
-        assetWriter.applyPqcVerdict(certificate, PqcVerdict.NOT_APPLICABLE, "rule", "reason", 3, Map.of());
+        assetWriter.applyPqcVerdict(protocol, PqcVerdict.NOT_READY, "rule", "reason", Map.of());
+        assetWriter.applyPqcVerdict(algorithm, PqcVerdict.READY, "rule", "reason", Map.of());
+        assetWriter.applyPqcVerdict(certificate, PqcVerdict.NOT_APPLICABLE, "rule", "reason", Map.of());
         UUID storedUnknown = seedNamed(CryptographicAssetType.ALGORITHM, "delta", "1.0.4");
-        assetWriter.applyPqcVerdict(storedUnknown, PqcVerdict.UNKNOWN, "rule", "reason", 3, Map.of());
+        assetWriter.applyPqcVerdict(storedUnknown, PqcVerdict.UNKNOWN, "rule", "reason", Map.of());
         UUID neverEvaluated = seedNamed(CryptographicAssetType.RELATED_CRYPTO_MATERIAL, "echo", "1.0.5");
         List<UUID> unknowns = sortedByUuidString(storedUnknown, neverEvaluated);
 
