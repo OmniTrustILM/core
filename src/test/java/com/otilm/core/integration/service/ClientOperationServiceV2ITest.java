@@ -59,6 +59,7 @@ import com.otilm.core.attribute.SignatureAlgorithmFields;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
+import com.otilm.core.config.CustomAuditAware;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
@@ -139,6 +140,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.sql.DataSource;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.asn1.x509.Extensions;
@@ -162,6 +164,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.concurrent.DelegatingSecurityContextExecutorService;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
@@ -257,6 +260,8 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     private CryptographicKeyInternalService keyInternalService;
     @Autowired
     private PlatformTransactionManager transactionManager;
+    @Autowired
+    private DataSource dataSource;
     @Autowired
     private CryptographicKeyItemRepository cryptographicKeyItemRepository;
     @Autowired
@@ -2458,6 +2463,22 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                         """));
 
         assertRevokeFailsWith("Failed to revoke certificate: the authority reported an error");
+    }
+
+    @Test
+    void revokeCertificateAction_recordsWhoLastModifiedTheCertificate() throws Exception {
+        stubRevokeResponse(WireMock.aResponse().withStatus(204));
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        jdbc.update("UPDATE core.certificate SET i_author = 'someone-else' WHERE uuid = ?", certificate.getUuid());
+
+        clientOperationInternalService.revokeCertificateAction(certificate.getUuid(), request, true);
+
+        String author = jdbc
+                .queryForObject("SELECT i_author FROM core.certificate WHERE uuid = ?", String.class,
+                        certificate.getUuid());
+        Assertions.assertEquals(new CustomAuditAware().getCurrentAuditor().orElseThrow(), author);
     }
 
     @Test
