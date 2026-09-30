@@ -205,6 +205,14 @@ class CertificateRequestIntegrationITest extends BaseSpringBootTest {
         if (OidHandler.getOidCache(OidCategory.CERTIFICATE_EXTENSION) == null) {
             OidHandler.cacheOidCategory(OidCategory.CERTIFICATE_EXTENSION, new HashMap<>());
         }
+        // The commonName attribute maps to the CN RDN code, which the same validation resolves through the
+        // RDN cache; another test class in the JVM can leave that cache without it.
+        if (OidHandler.getOidCache(OidCategory.RDN_ATTRIBUTE_TYPE) == null) {
+            OidHandler.cacheOidCategory(OidCategory.RDN_ATTRIBUTE_TYPE, new HashMap<>());
+        }
+        OidHandler
+                .cacheOid(OidCategory.RDN_ATTRIBUTE_TYPE, "2.5.4.3",
+                        OidRecord.builder().displayName("Common Name").code("CN").altCodes(List.of()).build());
         OidHandler
                 .cacheOid(OidCategory.CERTIFICATE_EXTENSION, CUSTOM_EXT_OID,
                         OidRecord
