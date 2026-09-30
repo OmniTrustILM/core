@@ -210,12 +210,6 @@ public final class SignatureAlgorithmFields {
                         .toList();
     }
 
-    private static Optional<String> stringData(Object item) {
-        return item instanceof AttributeContent content && content.getData() instanceof String data
-                ? Optional.of(data)
-                : Optional.empty();
-    }
-
     private static boolean isSignatureAlgorithmAttribute(BaseAttribute definition) {
         return SignatureAlgorithmAttribute.NAME.equals(definition.getName());
     }
@@ -267,6 +261,12 @@ public final class SignatureAlgorithmFields {
             return value
                     .orElseThrow(() -> new ValidationException(
                             ValidationError.create("Signature attributes must choose one value of {}.", name)));
+        }
+
+        private static Optional<String> stringData(Object item) {
+            return item instanceof AttributeContent content && content.getData() instanceof String data
+                    ? Optional.of(data)
+                    : Optional.empty();
         }
     }
 
