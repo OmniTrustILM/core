@@ -29,6 +29,11 @@ public final class ObservedSchedules {
     /**
      * An answer that carries no job list -- an empty body, a status other than OK -- is a scheduler that could not be
      * read, not one that holds no job.
+     *
+     * <p>
+     * So is an answer that lists a job without its trigger state. A scheduler that predates the field sends none for
+     * any job, and says as little about the jobs it does not list: read as not scheduled, those would contradict the
+     * listed ones, read as unknown.
      */
     public static ObservedSchedules of(SchedulerResponseDto response) {
         if (response == null || response.getSchedulerStatus() != SchedulerStatus.OK
@@ -37,9 +42,13 @@ public final class ObservedSchedules {
         }
         final Map<String, ObservedSchedule> byJobName = new HashMap<>();
         for (SchedulerJobDto job : response.getSchedulerJobList()) {
-            if (job != null && job.getJobName() != null) {
-                byJobName.putIfAbsent(job.getJobName(), ObservedSchedule.of(job));
+            if (job == null || job.getJobName() == null) {
+                continue;
             }
+            if (job.getTriggerState() == null) {
+                return UNAVAILABLE;
+            }
+            byJobName.putIfAbsent(job.getJobName(), ObservedSchedule.of(job));
         }
         return new ObservedSchedules(byJobName);
     }

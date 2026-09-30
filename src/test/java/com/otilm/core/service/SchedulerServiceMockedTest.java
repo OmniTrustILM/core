@@ -264,6 +264,38 @@ class SchedulerServiceMockedTest {
         assertFalse(warnings.get(0).getFormattedMessage().contains("scheduler-node-7"));
     }
 
+    /**
+     * A scheduler that predates the trigger fields answers OK with a job list and no states. Every job is unknown, and
+     * the one WARN says why: the list is there, the states are not.
+     */
+    @Test
+    void testListScheduledJobs_WhenTheAnswerCarriesNoTriggerState_ServesUnknownAndWarnsOnce() {
+        PaginationRequestDto pagination = new PaginationRequestDto();
+        ScheduledJob omitted = new ScheduledJob();
+        omitted.setUuid(UUID.randomUUID());
+        omitted.setJobName("OmittedJob");
+        omitted.setJobClassName(TestTask.class.getName());
+        omitted.setCronExpression("0 0 * * * ?");
+        when(scheduledJobsRepository
+                .findUsingSecurityFilter(any(), eq(List.of()), isNull(), any(Pageable.class), isNull()))
+                .thenReturn(List.of(scheduledJob, omitted));
+        when(scheduledJobsRepository.countUsingSecurityFilter(any(), isNull())).thenReturn(2L);
+        SchedulerResponseDto answer = schedulerHolding(JOB_NAME);
+        answer.getSchedulerJobList().getFirst().setTriggerState(null);
+        when(schedulerApiClient.listScheduledJobs()).thenReturn(answer);
+        List<ILoggingEvent> warnings = new ArrayList<>();
+
+        ScheduledJobsResponseDto response = capturingWarnings(warnings,
+                () -> schedulerService.listScheduledJobs(SecurityFilter.create(), pagination));
+
+        assertEquals(ScheduledJobScheduleState.UNKNOWN, response.getScheduledJobs().get(0).getScheduleState());
+        assertEquals(ScheduledJobScheduleState.UNKNOWN, response.getScheduledJobs().get(1).getScheduleState());
+        assertEquals(1, warnings.size());
+        assertNull(warnings.get(0).getThrowableProxy());
+        assertTrue(warnings.get(0).getFormattedMessage().contains("no trigger state"),
+                warnings.get(0).getFormattedMessage());
+    }
+
     @Test
     void testGetScheduledJobDetail_WhenTheSchedulerAnswersAnEmptyBody_ServesUnknownAndWarnsOnce() {
         when(scheduledJobsRepository.findByUuid(any(SecuredUUID.class))).thenReturn(Optional.of(scheduledJob));

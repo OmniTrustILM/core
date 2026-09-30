@@ -163,6 +163,26 @@ class ObservedSchedulesTest {
         assertNull(schedule.previousFireTime());
     }
 
+    /**
+     * A scheduler that predates the trigger fields lists its jobs without a state, and says nothing about the jobs it
+     * does not list either: read as not scheduled, those would contradict the listed ones read as unknown. One listed
+     * job without a state makes the whole answer unread.
+     */
+    @Test
+    void anAnswerListingAJobWithoutATriggerStateIsAnUnreadScheduler() {
+        SchedulerJobDto withoutState = live("CryptoAssetPqcSweepTask");
+        withoutState.setTriggerState(null);
+        SchedulerResponseDto response = new SchedulerResponseDto(SchedulerStatus.OK);
+        response.setSchedulerJobList(List.of(live("CbomSyncTask"), withoutState));
+
+        ObservedSchedules observed = ObservedSchedules.of(response);
+
+        assertFalse(observed.isAvailable());
+        assertSame(ObservedSchedule.UNKNOWN, observed.forJob("CryptoAssetPqcSweepTask"));
+        assertSame(ObservedSchedule.UNKNOWN, observed.forJob("CbomSyncTask"));
+        assertSame(ObservedSchedule.UNKNOWN, observed.forJob("CbomReconcileTask"));
+    }
+
     /** An entry that names no job cannot be any job's: it is passed over, and the rest of the answer still counts. */
     @Test
     void anEntryWithoutAJobIsIgnored() {

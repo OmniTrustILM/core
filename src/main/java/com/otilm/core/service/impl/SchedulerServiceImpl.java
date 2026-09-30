@@ -554,9 +554,9 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
      * What the scheduler holds, or that it could not be asked. A scheduler that is down, answers an error, answers
      * without a usable job list, or predates the trigger fields leaves every job UNKNOWN rather than failing the
      * response. Either way one line at WARN, naming only the exception's class (with the HTTP status for an error
-     * status) or the answer's schedulerStatus: without the trace, which an outage would otherwise print per listing,
-     * and without the exception's message or the answer's body, which for an error status is the answering server's own
-     * text. The trace goes to DEBUG.
+     * status), or the answer's schedulerStatus or what it lacks: without the trace, which an outage would otherwise
+     * print per listing, and without the exception's message or the answer's body, which for an error status is the
+     * answering server's own text. The trace goes to DEBUG.
      */
     private ObservedSchedules observeSchedules() {
         final SchedulerResponseDto answer;
@@ -588,7 +588,10 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
         return type;
     }
 
-    /** Why an answer that did arrive carries no usable job list, naming nothing the scheduler sent but its status. */
+    /**
+     * Why an answer that did arrive cannot be used, naming nothing the scheduler sent but its status. The last case is
+     * a scheduler that predates the trigger fields: a job list, and a job in it without its state.
+     */
     private static String whyUnusable(SchedulerResponseDto answer) {
         if (answer == null) {
             return "empty body";
@@ -599,7 +602,10 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
         if (answer.getSchedulerStatus() != SchedulerStatus.OK) {
             return "schedulerStatus " + answer.getSchedulerStatus();
         }
-        return "no job list";
+        if (answer.getSchedulerJobList() == null) {
+            return "no job list";
+        }
+        return "no trigger state";
     }
 
 }
