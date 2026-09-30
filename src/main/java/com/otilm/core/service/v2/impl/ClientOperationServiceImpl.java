@@ -2664,16 +2664,22 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * action has moved it on since. The failed revoke is already in the history, so the restore records nothing more.
      */
     private void returnFailedApprovedRevokeToIssued(UUID certificateUuid) {
-        TransactionStatus tx = transactionManager.getTransaction(new DefaultTransactionDefinition());
+        // Nothing here may escape: the caller's sanitized failure is what reaches the requester's notification.
+        TransactionStatus tx = null;
         try {
+            tx = transactionManager.getTransaction(new DefaultTransactionDefinition());
             certificateRepository
                     .findAndLockWithAssociationsByUuid(certificateUuid)
                     .filter(locked -> locked.getState() == CertificateState.PENDING_APPROVAL)
                     .ifPresent(locked -> stateMachine.transitionAuditedExternally(locked, CertificateState.ISSUED));
             transactionManager.commit(tx);
         } catch (RuntimeException e) {
-            if (!tx.isCompleted()) {
-                transactionManager.rollback(tx);
+            if (tx != null && !tx.isCompleted()) {
+                try {
+                    transactionManager.rollback(tx);
+                } catch (RuntimeException rollbackFailure) {
+                    e.addSuppressed(rollbackFailure);
+                }
             }
             logger
                     .error("Failed to restore certificate {} to {} after a failed approved revocation: {}",
