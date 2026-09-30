@@ -346,7 +346,7 @@ class ReferencedSlotProjectionTest {
         assertThat(decision.ruleId()).isEqualTo(ruleId).isEqualTo(unreferenced.ruleId());
     }
 
-    /** A certificate's rule fires on the asset type before any family arm, so its verdict cannot move. */
+    /** A certificate is decided by what it references, before any family arm, so its verdict cannot move. */
     @Test
     void aCertificatesVerdictDoesNotMoveWhenItsKeyResolves() throws Exception {
         PqcEvaluator evaluator = new PqcEvaluator(normalizer);
@@ -360,7 +360,7 @@ class ReferencedSlotProjectionTest {
                         null);
 
         assertThat(projected.verdict()).isEqualTo(bare.verdict());
-        assertThat(projected.ruleId()).isEqualTo(bare.ruleId()).isEqualTo("CERT-DEFERRED-V1");
+        assertThat(projected.ruleId()).isEqualTo(bare.ruleId()).isEqualTo("CERT-NO-KEY-RECORDED");
     }
 
     private static CryptoAssetIdentityFields fieldsOf(NormalizedAsset asset) {
