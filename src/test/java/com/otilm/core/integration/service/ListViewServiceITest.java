@@ -439,7 +439,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
 
         ValidationException e = Assertions
                 .assertThrows(ValidationException.class, () -> listViewService.editView(uuid, edit));
-        Assertions.assertTrue(e.getMessage().contains("deleted|STRING"));
+        Assertions.assertTrue(e.getMessage().contains("has no field deleted|STRING"));
     }
 
     @Test
@@ -454,7 +454,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
 
         ValidationException e = Assertions
                 .assertThrows(ValidationException.class, () -> listViewService.editView(uuid, edit));
-        Assertions.assertTrue(e.getMessage().contains("deleted|STRING"));
+        Assertions.assertTrue(e.getMessage().contains("has no field deleted|STRING"));
     }
 
     @Test
@@ -466,7 +466,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
 
         ValidationException e = Assertions
                 .assertThrows(ValidationException.class, () -> listViewService.editView(uuid, edit));
-        Assertions.assertTrue(e.getMessage().contains("deleted|STRING"));
+        Assertions.assertTrue(e.getMessage().contains("has no field deleted|STRING"));
     }
 
     @Test
@@ -476,7 +476,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
 
         ValidationException e = Assertions
                 .assertThrows(ValidationException.class, () -> listViewService.createView(request));
-        Assertions.assertTrue(e.getMessage().contains("deleted|STRING"));
+        Assertions.assertTrue(e.getMessage().contains("has no field deleted|STRING"));
     }
 
     /**
