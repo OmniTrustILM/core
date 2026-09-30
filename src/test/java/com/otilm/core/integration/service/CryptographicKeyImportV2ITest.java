@@ -76,6 +76,7 @@ import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.CryptographicKeyImportExternalService;
 import com.otilm.core.service.ResourceObjectAssociationService;
 import com.otilm.core.service.SettingExternalService;
+import com.otilm.core.service.handler.KeyImportGates;
 import com.otilm.core.service.handler.KeyImportSaga;
 import com.otilm.core.service.impl.CryptographicKeyImportServiceImpl;
 import com.otilm.core.service.writer.CertificateKeyWriter;
@@ -669,8 +670,8 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
     }
 
     /**
-     * A caller who may not update a record another user owns is refused before anything is recorded or asked, in the
-     * words a key held otherwise is refused with, and the record is left as it was.
+     * A caller who may see but not update a record another user owns is refused with that reason, before anything is
+     * recorded or asked, and the record is left as it was.
      */
     @Test
     void importKey_refusesARecordAnotherUserOwnsToACallerWithoutUpdate() throws Exception {
@@ -688,7 +689,7 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
         ValidationException refused = assertThrows(ValidationException.class, () -> importKey(request));
 
         // then
-        assertThat(refused.getMessage()).isEqualTo(CryptographicKeyWriter.KEY_ALREADY_HELD);
+        assertThat(refused.getMessage()).isEqualTo(KeyImportGates.NOT_UPDATABLE.formatted("certKey_imported"));
         connectorMock.verifyImportKeyRequests(0);
         assertThat(keyImportRepository.count()).isZero();
         CryptographicKey unchanged = cryptographicKeyRepository.findWithGroupsByUuid(recordUuid).orElseThrow();
