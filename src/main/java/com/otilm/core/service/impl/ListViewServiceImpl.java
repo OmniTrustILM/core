@@ -242,8 +242,9 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
      * already - is held to the current catalogue in full.
      *
      * <p>
-     * {@code filtersCarried} are the fields the stored view filters on. A filter on a field that has left the catalogue
-     * is exempt on the same terms, or a view filtering on a deleted attribute could not be renamed either.
+     * {@code filtersCarried} are the filters the stored view holds. One whose field has left the catalogue is exempt on
+     * the same terms, or a view filtering on a deleted attribute could not be renamed either. The exemption covers the
+     * stored filter exactly, so a changed condition or value on that field is held to the catalogue.
      *
      * <p>
      * An ordering has no such exemption. It is applied by re-issuing the listing request, which refuses a field that is
@@ -251,7 +252,7 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
      * ordering is dropped on read instead.
      */
     private static void validateRequest(Resource resource, ListViewUpdateRequestDto request,
-            Set<CatalogueField> carriedAlready, Set<CatalogueField> filtersCarried, Catalogue catalogue) {
+            Set<CatalogueField> carriedAlready, Set<SearchFilterRequestDto> filtersCarried, Catalogue catalogue) {
         if (catalogue.isEmpty()) {
             throw new ValidationException(ValidationError
                     .create("Resource %s has no field catalogue and cannot carry views."
@@ -267,10 +268,8 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         return view.getColumns().stream().map(CatalogueField::of).collect(Collectors.toUnmodifiableSet());
     }
 
-    private static Set<CatalogueField> filtersOf(ListView view) {
-        return view.getFilters() == null
-                ? Set.of()
-                : view.getFilters().stream().map(CatalogueField::of).collect(Collectors.toUnmodifiableSet());
+    private static Set<SearchFilterRequestDto> filtersOf(ListView view) {
+        return view.getFilters() == null ? Set.of() : Set.copyOf(view.getFilters());
     }
 
     private static void validateColumns(Resource resource, List<ListViewColumnDto> columns, Catalogue catalogue,
@@ -313,15 +312,14 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
      * operator the field has no expression for, would fail there rather than here.
      */
     private static void validateFilters(Resource resource, List<SearchFilterRequestDto> requested, Catalogue catalogue,
-            Set<CatalogueField> filtersCarried) {
+            Set<SearchFilterRequestDto> filtersCarried) {
         if (requested == null) {
             return;
         }
 
         List<SearchFilterRequestDto> filters = requested
                 .stream()
-                .filter(filter -> catalogue.offers(CatalogueField.of(filter))
-                        || !filtersCarried.contains(CatalogueField.of(filter)))
+                .filter(filter -> catalogue.offers(CatalogueField.of(filter)) || !filtersCarried.contains(filter))
                 .toList();
 
         rejectUnknown(resource,

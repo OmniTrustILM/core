@@ -423,6 +423,30 @@ class ListViewServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void aFilterOnAFieldThatNoLongerExistsCannotBeChangedOnAnExistingView() {
+        SearchFilterRequestDto deleted = new SearchFilterRequestDto(FilterFieldSource.CUSTOM, "deleted|STRING",
+                FilterConditionOperator.EQUALS, "x");
+        ListView stored = new ListView();
+        stored.setUserUuid(user);
+        stored.setResource(Resource.CERTIFICATE);
+        stored.setName("Filtered");
+        stored.setColumns(List.of(column("COMMON_NAME")));
+        stored.setFilters(List.of(deleted));
+        listViewRepository.save(stored);
+
+        ListViewUpdateRequestDto edit = update("Filtered", column("COMMON_NAME"));
+        edit
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.CUSTOM, "deleted|STRING",
+                                FilterConditionOperator.CONTAINS, "x")));
+
+        ValidationException e = Assertions
+                .assertThrows(ValidationException.class,
+                        () -> listViewService.editView(stored.getUuid().toString(), edit));
+        Assertions.assertTrue(e.getMessage().contains("deleted|STRING"));
+    }
+
+    @Test
     void aFilterOnAFieldThatNoLongerExistsCannotBeAddedToAnExistingView() throws AlreadyExistException {
         ListViewDto created = listViewService.createView(request("Clean", column("COMMON_NAME")));
         ListViewUpdateRequestDto edit = update("Clean", column("COMMON_NAME"));
