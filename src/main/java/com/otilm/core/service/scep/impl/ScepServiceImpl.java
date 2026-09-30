@@ -1139,8 +1139,9 @@ public class ScepServiceImpl implements ScepExternalService {
      */
     private void applyProtocolAssociationBestEffort(Certificate matchedRegistration) {
         try {
-            scepRegistrationTrackingWriter
-                    .recordProtocolAttribution(matchedRegistration.getUuid(), scepProfile.getUuid());
+            certificateService
+                    .applyProtocolAssociations(matchedRegistration.getUuid(),
+                            CertificateProtocolInfo.Scep(scepProfile.getUuid()));
         } catch (Exception e) {
             logger
                     .warn("Failed to apply SCEP protocol associations to completed registration {}: {}",

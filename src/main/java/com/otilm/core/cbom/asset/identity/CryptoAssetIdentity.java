@@ -66,6 +66,13 @@ public record CryptoAssetIdentity(AssetNormalizer normalizer) {
     /** The related-asset type that names a certificate's public key, once separators and case are dropped. */
     private static final String PUBLIC_KEY_REFERENCE = "publickey";
 
+    private static final String ALGORITHM_REFERENCE = "algorithm";
+
+    /**
+     * Provenance for a family or curve taken from a referenced component. Not persisted: only tests read it.
+     */
+    private static final String REFERENCED_ALGORITHM_SOURCE = "referenced algorithm";
+
     private static final Pattern TWO_DIGITS = Pattern.compile("\\d{2}");
 
     private static final Pattern ALL_DIGITS = Pattern.compile("\\d+");
@@ -142,6 +149,7 @@ public record CryptoAssetIdentity(AssetNormalizer normalizer) {
                 yield new Tier(backstop(asset, properties), ChainStep.UNKNOWN_TYPE);
             }
         };
+        projectReferencedSlots(asset, properties, scope);
         String preImage = tier.preImage();
 
         // Applied uniformly to every tier rather than added to each tuple: whether an asset is a claim or an
@@ -235,6 +243,109 @@ public record CryptoAssetIdentity(AssetNormalizer normalizer) {
             return CryptoAssetIdentityGuard.BARE_CN_SUBJECT;
         }
         return asset != null && asset.oidConflict() ? CryptoAssetIdentityGuard.REFUTED_OID : null;
+    }
+
+    /**
+     * Fills the filter slots a certificate or a material row can only learn from the component it points at, since a
+     * certificate is named after its subject and a key after what it protects.
+     *
+     * <p>
+     * Runs after the tier switch so it cannot move a key: only the algorithm tier and the unroutable backstop build a
+     * pre-image from a {@link NormalizedAsset}, and neither type is reached here.
+     *
+     * <p>
+     * A certificate takes its subject public key, not its signature algorithm: one family column cannot mean both, and
+     * an operator filtering on a family is asking which assets stand on it. A protocol takes nothing, because it
+     * negotiates several algorithms rather than being one; version and cipher suite need columns of their own.
+     *
+     * <p>
+     * A material row takes its own declared {@code size} before its algorithm's, as its certificate does. Filter slots
+     * only: {@code PqcEvaluator#fromStoredRow} does not read them on a material row, so the projection moves no
+     * verdict.
+     *
+     * <p>
+     * A reference this class already declines to resolve contributes no slot, so the row is blind rather than wrong.
+     * The slots are written at ingest; a row already stored gains them only when the asset is next reported, through
+     * the identity upsert's {@code COALESCE}.
+     */
+    private void projectReferencedSlots(NormalizedAsset asset, JsonNode properties, DocumentScope scope) {
+        String assetType = asset.assetType() == null ? "" : asset.assetType();
+        if (CbomNames.ASSET_TYPE_CERTIFICATE.equals(assetType)) {
+            JsonNode key = scope
+                    .resolve(subjectPublicKeyRef(objectOrNull(properties.get(CbomNames.CERTIFICATE_PROPERTIES))));
+            // The key's declared size first: it is this certificate's key size, where the algorithm states the
+            // family's at best. A producer may point the reference at the algorithm itself rather than at a key.
+            takeDeclaredSize(asset, materialPropertiesOf(key));
+            fillEmptySlots(asset, normalizedTarget(key));
+            fillEmptySlots(asset, normalizedTarget(scope.resolve(algorithmRef(key))));
+        } else if (CbomNames.ASSET_TYPE_RELATED_CRYPTO_MATERIAL.equals(assetType)) {
+            JsonNode material = objectOrNull(properties.get(CbomNames.RELATED_CRYPTO_MATERIAL_PROPERTIES));
+            takeDeclaredSize(asset, material);
+            fillEmptySlots(asset, normalizedTarget(scope.resolve(materialAlgorithmRef(material))));
+        }
+    }
+
+    /** The material properties block of a resolved component, or {@code null} when the target is not material. */
+    private JsonNode materialPropertiesOf(JsonNode component) {
+        JsonNode properties = component == null ? null : objectOrNull(component.get("cryptoProperties"));
+        if (properties == null || !CbomNames.ASSET_TYPE_RELATED_CRYPTO_MATERIAL
+                .equals(normalizer.normalizeAssetType(text(properties, "assetType")))) {
+            return null;
+        }
+        return objectOrNull(properties.get(CbomNames.RELATED_CRYPTO_MATERIAL_PROPERTIES));
+    }
+
+    private void takeDeclaredSize(NormalizedAsset row, JsonNode materialProperties) {
+        List<String> notes = new ArrayList<>();
+        row.setParameterSet(normalizer.declaredMaterialSize(materialProperties, notes));
+        notes.forEach(row::note);
+    }
+
+    /**
+     * The algorithm reference of a resolved material component, or {@code null} when the target is not one. One hop
+     * only: an algorithm names nothing further, and a second hop would have to define what a cycle means.
+     */
+    private JsonNode algorithmRef(JsonNode target) {
+        return materialAlgorithmRef(materialPropertiesOf(target));
+    }
+
+    /**
+     * The slots a resolved algorithm target normalizes to, or {@code null} for any other target. A malformed target is
+     * skipped by the extractor on its own account and must not cost the pointing row its columns, so its refusal is
+     * contained here as in {@link #publicKeyDigest}.
+     */
+    private NormalizedAsset normalizedTarget(JsonNode target) {
+        JsonNode properties = target == null ? null : objectOrNull(target.get("cryptoProperties"));
+        if (properties == null || !CbomNames.ASSET_TYPE_ALGORITHM
+                .equals(normalizer.normalizeAssetType(text(properties, "assetType")))) {
+            return null;
+        }
+        try {
+            return normalizer.normalize(target).asset();
+        } catch (IllegalArgumentException refused) {
+            return null;
+        }
+    }
+
+    /** Takes each slot the row has not already stated, so the nearer source of a fact wins over the farther one. */
+    private static void fillEmptySlots(NormalizedAsset asset, NormalizedAsset target) {
+        if (target == null) {
+            return;
+        }
+        if (asset.family() == null && target.family() != null) {
+            asset.setFamily(target.family());
+            asset.setFamilySource(REFERENCED_ALGORITHM_SOURCE);
+        }
+        if (asset.curve() == null && target.curve() != null) {
+            asset.setCurve(target.curve());
+            asset.setCurveSource(REFERENCED_ALGORITHM_SOURCE);
+        }
+        if (asset.primitive() == null) {
+            asset.setPrimitive(target.primitive());
+        }
+        if (asset.parameterSet() == null) {
+            asset.setParameterSet(target.parameterSet());
+        }
     }
 
     /**
@@ -463,29 +574,42 @@ public record CryptoAssetIdentity(AssetNormalizer normalizer) {
      * absence of {@code certificateProperties} is answered in one place instead of at every call.
      */
     private static JsonNode subjectPublicKeyRef(JsonNode certificate) {
-        if (certificate == null) {
+        return relatedReference(certificate, PUBLIC_KEY_REFERENCE, "subjectPublicKeyRef");
+    }
+
+    /**
+     * The reference a material component states to its algorithm, under the same rules as {@link #subjectPublicKeyRef}:
+     * a 1.7 {@code relatedCryptographicAssets} entry of type {@code algorithm} first, the 1.6 {@code algorithmRef} only
+     * when the array names none, and nothing when it names more than one.
+     */
+    private static JsonNode materialAlgorithmRef(JsonNode material) {
+        return relatedReference(material, ALGORITHM_REFERENCE, "algorithmRef");
+    }
+
+    private static JsonNode relatedReference(JsonNode properties, String relatedType, String legacyField) {
+        if (properties == null) {
             return null;
         }
-        JsonNode related = certificate.get("relatedCryptographicAssets");
+        JsonNode related = properties.get("relatedCryptographicAssets");
         if (related != null && related.isArray()) {
-            JsonNode publicKey = null;
-            int publicKeys = 0;
+            JsonNode match = null;
+            int matches = 0;
             for (JsonNode entry : related) {
                 JsonNode type = entry.isObject() ? entry.get("type") : null;
                 String entryType = type != null && type.isTextual() ? AsciiText.lookupKey(type.textValue()) : null;
-                if (PUBLIC_KEY_REFERENCE.equals(entryType)) {
-                    publicKey = entry.get("ref");
-                    publicKeys++;
+                if (relatedType.equals(entryType)) {
+                    match = entry.get("ref");
+                    matches++;
                 }
             }
-            if (publicKeys > 1) {
+            if (matches > 1) {
                 return null;
             }
-            if (publicKeys == 1) {
-                return publicKey;
+            if (matches == 1) {
+                return match;
             }
         }
-        return certificate.get("subjectPublicKeyRef");
+        return properties.get(legacyField);
     }
 
     /**
