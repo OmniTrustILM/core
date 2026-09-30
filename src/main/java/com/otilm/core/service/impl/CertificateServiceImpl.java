@@ -2634,7 +2634,7 @@ public class CertificateServiceImpl
     }
 
     @Override
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void applyProtocolAssociations(UUID certificateUuid, CertificateProtocolInfo protocolInfo)
             throws NotFoundException, AttributeException {
         Certificate certificate = certificateRepository

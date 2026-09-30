@@ -24,13 +24,21 @@ public class PollFeature {
     private static final int DEFAULT_POLL_TIMEOUT_SECONDS = 10;
     private static final long POLL_INTERVAL_MS = 1_000L;
 
-    @PersistenceContext
     private EntityManager entityManager;
 
-    @Value("${cmp.protocol.poll.feature.timeout}")
     private Integer pollFeatureTimeout;
 
     private CertificateInternalService certificateService;
+
+    @PersistenceContext
+    public void setEntityManager(EntityManager entityManager) {
+        this.entityManager = entityManager;
+    }
+
+    @Value("${cmp.protocol.poll.feature.timeout}")
+    public void setPollFeatureTimeout(Integer pollFeatureTimeout) {
+        this.pollFeatureTimeout = pollFeatureTimeout;
+    }
 
     @Autowired
     public void setCertificateService(CertificateInternalService certificateService) {

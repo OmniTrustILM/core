@@ -1,11 +1,7 @@
 package com.otilm.core.service.scep.impl;
 
-import com.otilm.api.exception.AttributeException;
-import com.otilm.api.exception.NotFoundException;
 import com.otilm.core.dao.entity.scep.ScepTransaction;
 import com.otilm.core.dao.repository.scep.ScepTransactionRepository;
-import com.otilm.core.model.auth.CertificateProtocolInfo;
-import com.otilm.core.service.CertificateInternalService;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -27,16 +23,10 @@ import org.springframework.transaction.annotation.Transactional;
 public class ScepRegistrationTrackingWriter {
 
     private ScepTransactionRepository scepTransactionRepository;
-    private CertificateInternalService certificateService;
 
     @Autowired
     public void setScepTransactionRepository(ScepTransactionRepository scepTransactionRepository) {
         this.scepTransactionRepository = scepTransactionRepository;
-    }
-
-    @Autowired
-    public void setCertificateService(CertificateInternalService certificateService) {
-        this.certificateService = certificateService;
     }
 
     /**
@@ -55,12 +45,5 @@ public class ScepRegistrationTrackingWriter {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void discardPollMapping(String transactionId, UUID scepProfileUuid) {
         scepTransactionRepository.deleteByTransactionIdAndScepProfileUuid(transactionId, scepProfileUuid);
-    }
-
-    /** Attributes the completed certificate to SCEP in its own transaction, so the tag survives an outer rollback. */
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void recordProtocolAttribution(UUID certificateUuid, UUID scepProfileUuid)
-            throws NotFoundException, AttributeException {
-        certificateService.applyProtocolAssociations(certificateUuid, CertificateProtocolInfo.Scep(scepProfileUuid));
     }
 }
