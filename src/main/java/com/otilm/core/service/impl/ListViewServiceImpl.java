@@ -103,7 +103,7 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         UUID userUuid = loggedUserUuid();
         Resource resource = request.getResource();
         Catalogue catalogue = catalogueOf(resource, namedFields(request));
-        validateRequest(resource, request, Set.of(), Set.of(), catalogue);
+        validateRequest(resource, request, Set.of(), List.of(), catalogue);
 
         serializeWritesFor(userUuid, resource);
         if (listViewRepository.existsByUserUuidAndResourceAndName(userUuid, resource, request.getName())) {
@@ -247,7 +247,8 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
      * {@code filtersCarried} are the filters the stored view holds, and one sent back unchanged is exempt on the same
      * terms. Its field may have left the catalogue, or stayed in it but stopped offering the stored condition - a
      * hidden or encrypted custom attribute accepts only presence conditions - and either way a view could not be
-     * renamed. The exemption covers the stored filter exactly, so a new or changed filter is held to the catalogue.
+     * renamed. The exemption covers the stored filter exactly, so a new or changed filter, or a second copy of a stored
+     * one, is held to the catalogue.
      *
      * <p>
      * An ordering has no such exemption. It is applied by re-issuing the listing request, which refuses a field that is
@@ -255,7 +256,7 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
      * ordering is dropped on read instead.
      */
     private static void validateRequest(Resource resource, ListViewUpdateRequestDto request,
-            Set<CatalogueField> carriedAlready, Set<SearchFilterRequestDto> filtersCarried, Catalogue catalogue) {
+            Set<CatalogueField> carriedAlready, List<SearchFilterRequestDto> filtersCarried, Catalogue catalogue) {
         if (catalogue.isEmpty()) {
             throw new ValidationException(ValidationError
                     .create("Resource %s has no field catalogue and cannot carry views."
@@ -271,8 +272,8 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         return view.getColumns().stream().map(CatalogueField::of).collect(Collectors.toUnmodifiableSet());
     }
 
-    private static Set<SearchFilterRequestDto> filtersOf(ListView view) {
-        return view.getFilters() == null ? Set.of() : Set.copyOf(view.getFilters());
+    private static List<SearchFilterRequestDto> filtersOf(ListView view) {
+        return view.getFilters() == null ? List.of() : List.copyOf(view.getFilters());
     }
 
     private static void validateColumns(Resource resource, List<ListViewColumnDto> columns, Catalogue catalogue,
@@ -315,15 +316,18 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
      * operator the field has no expression for, would fail there rather than here.
      */
     private static void validateFilters(Resource resource, List<SearchFilterRequestDto> requested, Catalogue catalogue,
-            Set<SearchFilterRequestDto> filtersCarried) {
+            List<SearchFilterRequestDto> filtersCarried) {
         if (requested == null) {
             return;
         }
 
-        List<SearchFilterRequestDto> filters = requested
-                .stream()
-                .filter(filter -> !filtersCarried.contains(filter))
-                .toList();
+        List<SearchFilterRequestDto> uncarried = new ArrayList<>(filtersCarried);
+        List<SearchFilterRequestDto> filters = new ArrayList<>();
+        for (SearchFilterRequestDto filter : requested) {
+            if (!uncarried.remove(filter)) {
+                filters.add(filter);
+            }
+        }
 
         rejectUnknown(resource,
                 filters
