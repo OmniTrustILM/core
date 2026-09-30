@@ -31,11 +31,11 @@ import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.model.crypto.AttributesWithOwner;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.crypto.ImmutableTokenInstanceBasicModel;
 import com.otilm.core.model.crypto.ImmutableTokenProfileBasicModel;
 import com.otilm.core.model.crypto.KeyOperationScope;
-import com.otilm.core.model.crypto.OperationAttributeSchema;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
@@ -61,6 +61,7 @@ import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -605,7 +606,7 @@ class CryptographicOperationServiceImplTest {
         when(adapter.listSignAttributes(any())).thenReturn(registry);
 
         // when
-        OperationAttributeSchema schema = service.listSignAttributeSchema(key.keyUuid());
+        AttributesWithOwner schema = service.listSignAttributeSchema(key.keyUuid());
 
         // then
         assertNull(schema.ownerConnectorUuid());
@@ -642,7 +643,7 @@ class CryptographicOperationServiceImplTest {
         when(adapter.listSignAttributes(any())).thenReturn(connectorSchema);
 
         // when
-        OperationAttributeSchema schema = service.listSignAttributeSchema(key.keyUuid());
+        AttributesWithOwner schema = service.listSignAttributeSchema(key.keyUuid());
 
         // then
         assertEquals(key.connectorUuid(), schema.ownerConnectorUuid());
@@ -666,6 +667,61 @@ class CryptographicOperationServiceImplTest {
 
         // then
         assertThrows(NotFoundException.class, list);
+    }
+
+    @Test
+    void listValidatedSignAttributeSchema_returnsDefinitionsWithTheirOwner_withoutSeparateProviderCalls()
+            throws Exception {
+        // given
+        CryptographicKeyItemOperationModel key = v2Key();
+        List<RequestAttribute> selection = List.of();
+        List<BaseAttribute> definitions = List.of(new DataAttributeV3());
+        when(keyService.getPrivateKeyItemModel(key.keyUuid())).thenReturn(key);
+        when(keyProviderAdapterFactory.forKeyItem(key)).thenReturn(adapter);
+        when(adapter.listValidatedSignAttributes(key, selection)).thenReturn(definitions);
+
+        // when
+        AttributesWithOwner schema = service.validateAttributesAndGetSchema(key.keyUuid(), selection);
+
+        // then
+        assertEquals(key.connectorUuid(), schema.ownerConnectorUuid());
+        assertSame(definitions, schema.definitions());
+        verify(adapter, never()).listSignAttributes(any());
+        verify(adapter, never()).areSignatureAttributesSupportedByKey(any(), any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void areSignatureAttributesSupportedByKey_returnsTheProviderResult(boolean expectedSupport) throws Exception {
+        // given
+        CryptographicKeyItemOperationModel key = v2Key();
+        List<RequestAttribute> attributes = List.of();
+        when(keyService.getPrivateKeyItemModel(key.keyUuid())).thenReturn(key);
+        when(keyProviderAdapterFactory.forKeyItem(key)).thenReturn(adapter);
+        when(adapter.areSignatureAttributesSupportedByKey(key, attributes)).thenReturn(expectedSupport);
+
+        // when
+        boolean supported = service.areSignatureAttributesSupportedByKey(attributes, key.keyUuid());
+
+        // then
+        assertEquals(expectedSupport, supported);
+    }
+
+    @Test
+    void areSignatureAttributesSupportedByKey_propagatesConnectorFailure() throws Exception {
+        // given
+        CryptographicKeyItemOperationModel key = v2Key();
+        List<RequestAttribute> attributes = List.of();
+        ConnectorException expectedFailure = new ConnectorException("Provider unavailable");
+        when(keyService.getPrivateKeyItemModel(key.keyUuid())).thenReturn(key);
+        when(keyProviderAdapterFactory.forKeyItem(key)).thenReturn(adapter);
+        when(adapter.areSignatureAttributesSupportedByKey(key, attributes)).thenThrow(expectedFailure);
+
+        // when
+        Executable check = () -> service.areSignatureAttributesSupportedByKey(attributes, key.keyUuid());
+
+        // then
+        assertSame(expectedFailure, assertThrows(ConnectorException.class, check));
     }
 
     private void useResolvedScope(CryptographicKeyItemOperationModel key, KeyOperationScope scope)

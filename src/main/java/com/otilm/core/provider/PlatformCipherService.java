@@ -1,73 +1,61 @@
 package com.otilm.core.provider;
 
 import com.otilm.api.exception.ConnectorException;
-import com.otilm.api.interfaces.client.v1.CryptographicOperationsSyncApiClient;
-import com.otilm.api.model.client.attribute.RequestAttribute;
-import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
-import com.otilm.api.model.common.enums.cryptography.RsaEncryptionScheme;
-import com.otilm.api.model.connector.cryptography.operations.CipherDataRequestDto;
-import com.otilm.api.model.connector.cryptography.operations.DecryptDataResponseDto;
-import com.otilm.api.model.connector.cryptography.operations.data.CipherRequestData;
-import com.otilm.core.attribute.RsaEncryptionAttributes;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.NotSupportedException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.cryptography.operations.CipherDataRequestDto;
+import com.otilm.api.model.client.cryptography.operations.CipherRequestData;
+import com.otilm.api.model.client.cryptography.operations.DecryptDataResponseDto;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.provider.key.PlatformPrivateKey;
+import com.otilm.core.service.handler.key.KeyProviderAdapter;
+import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
+import java.security.ProviderException;
+import java.util.Base64;
 import java.util.List;
-import javax.crypto.BadPaddingException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import java.util.Objects;
+import lombok.Getter;
 
 public class PlatformCipherService {
-
-    private static final Logger log = LoggerFactory.getLogger(PlatformCipherService.class);
-    private final CryptographicOperationsSyncApiClient apiClient;
-    private final List<RequestAttribute> cipherAttributes;
+    private final KeyProviderAdapterFactory adapterFactory;
+    @Getter
     private final String algorithm;
 
-    public PlatformCipherService(CryptographicOperationsSyncApiClient apiClient, String algorithm) {
-        this.apiClient = apiClient;
-        this.cipherAttributes = mapCipherAttributesFromCipherAlgorithm(algorithm);
-        this.algorithm = algorithm;
+    public PlatformCipherService(KeyProviderAdapterFactory adapterFactory, String algorithm) {
+        this.adapterFactory = Objects.requireNonNull(adapterFactory, "adapterFactory must not be null");
+        this.algorithm = Objects.requireNonNull(algorithm, "algorithm must not be null");
     }
 
-    public List<RequestAttribute> mapCipherAttributesFromCipherAlgorithm(String algorithm) {
-        switch (algorithm) {
-            case "RSA", "RSA/NONE/PKCS1Padding", "RSA/ECB/PKCS1Padding" -> {
-                return List.of(RsaEncryptionAttributes.buildRequestEncryptionScheme(RsaEncryptionScheme.PKCS1_v1_5));
-            }
-            case "RSA/NONE/OAEPWithSHA1AndMGF1Padding", "RSA/ECB/OAEPWithSHA-1AndMGF1Padding" -> {
-                return List
-                        .of(RsaEncryptionAttributes.buildRequestEncryptionScheme(RsaEncryptionScheme.OAEP),
-                                RsaEncryptionAttributes.buildRequestOaepHash(DigestAlgorithm.SHA_1),
-                                RsaEncryptionAttributes.buildRequestOaepMgf(true));
-            }
-            default -> throw new IllegalArgumentException("No cipher attributes mapped for algorithm: " + algorithm);
-        }
-    }
-
-    public byte[] decrypt(byte[] encryptedData, PlatformPrivateKey privateKey) throws BadPaddingException {
-        // Prepare request to be made to the connector
-        CipherDataRequestDto cipherDataRequestDto = new CipherDataRequestDto();
-        CipherRequestData cipherRequestData = new CipherRequestData();
-        cipherRequestData.setData(encryptedData);
-        cipherDataRequestDto.setCipherAttributes(cipherAttributes);
-        cipherDataRequestDto.setCipherData(List.of(cipherRequestData));
-
-        log
-                .debug("Decrypting data on connector: {} with token instance: {} and key: {}",
-                        privateKey.getConnectorDto().getName(), privateKey.getTokenInstanceUuid(),
-                        privateKey.getKeyUuid());
-
+    public byte[] decrypt(byte[] encryptedData, PlatformPrivateKey privateKey) {
+        Objects.requireNonNull(encryptedData, "encryptedData must not be null");
+        Objects.requireNonNull(privateKey, "privateKey must not be null");
         try {
-            DecryptDataResponseDto responseDto = apiClient
-                    .decryptData(privateKey.getConnectorDto(), privateKey.getTokenInstanceUuid(),
-                            privateKey.getKeyUuid(), cipherDataRequestDto);
-            return responseDto.getDecryptedData().get(0).getData();
-        } catch (ConnectorException e) {
-            throw new BadPaddingException("Failed to decrypt on connector: " + e.getMessage());
-        }
-    }
+            CryptographicKeyItemOperationModel keyItem = privateKey.keyItem();
+            KeyProviderAdapter adapter = adapterFactory.forKeyItem(keyItem);
 
-    public String getAlgorithm() {
-        return algorithm;
+            CipherRequestData data = new CipherRequestData();
+            data.setData(Base64.getEncoder().encodeToString(encryptedData));
+
+            // The legacy cryptography provider treats "RSA" as PKCS1 v1.5. The v2 of the provider does not have this
+            // mapping as it may be ambiguous. So we resolve it here where we know that "RSA" should mean "PKCS1 v1.5"
+            String cipherAlgorithm = "RSA".equalsIgnoreCase(algorithm) ? "RSA/ECB/PKCS1Padding" : algorithm;
+
+            CipherDataRequestDto request = new CipherDataRequestDto();
+            request.setCipherData(List.of(data));
+            request.setCipherAttributes(adapter.cipherAttributesFor(cipherAlgorithm));
+
+            DecryptDataResponseDto response = adapter.decryptData(keyItem, request);
+            return Base64.getDecoder().decode(response.getDecryptedData().getFirst().getData());
+        } catch (NotFoundException e) {
+            throw new ProviderException("The decryption key, token profile or connector was not found.", e);
+        } catch (NotSupportedException e) {
+            throw new ProviderException("The key provider does not support the requested cipher algorithm.", e);
+        } catch (ConnectorException e) {
+            throw new ProviderException("The connector failed to decrypt the data.", e);
+        } catch (ValidationException | IllegalArgumentException e) {
+            throw new ProviderException("The decryption request or connector result is invalid.", e);
+        }
     }
 
 }

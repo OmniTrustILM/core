@@ -7,6 +7,7 @@ import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ConnectorProblemException;
 import com.otilm.api.exception.ConnectorServerException;
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.NotSupportedException;
 import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.client.v2.CryptographicOperationsSyncApiClient;
@@ -28,6 +29,7 @@ import com.otilm.api.model.client.cryptography.operations.VerifyDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.VerifyDataResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.common.enums.cryptography.EncryptionAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
@@ -67,7 +69,6 @@ import com.otilm.api.model.connector.cryptography.v2.material.EncryptedKeyMateri
 import com.otilm.api.model.connector.cryptography.v2.operations.CipherDataRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignDataRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignDataResponseV2Dto;
-import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorithmAttribute;
 import com.otilm.api.model.connector.cryptography.v2.operations.VerifyDataRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.VerifyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.data.CipherDataV2Dto;
@@ -75,6 +76,12 @@ import com.otilm.api.model.connector.cryptography.v2.operations.data.SignatureDa
 import com.otilm.api.model.connector.cryptography.v2.operations.data.VerificationResponseItemV2Dto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.secret.Passphrase;
+import com.otilm.core.attribute.EncryptionAlgorithmMapping;
+import com.otilm.core.attribute.EncryptionAlgorithmUtils;
+import com.otilm.core.attribute.EncryptionOperationAttributes;
+import com.otilm.core.attribute.SignatureAlgorithmMapping;
+import com.otilm.core.attribute.SignatureAlgorithmUtils;
+import com.otilm.core.attribute.SignatureOperationAttributes;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.OutboundSecretContainment;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
@@ -103,6 +110,7 @@ import java.util.Base64;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.BiFunction;
@@ -370,6 +378,51 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
     }
 
     @Override
+    public List<RequestAttribute> signatureAttributesFor(String algorithm) {
+        Objects.requireNonNull(algorithm, "algorithm must not be null");
+        String canonicalName = algorithm.replace("/PSS", "andMGF1");
+        SignatureAlgorithm selection = SignatureAlgorithm
+                .lookupByCode(canonicalName)
+                .orElseThrow(() -> new NotSupportedException(
+                        "Signature algorithm is not supported by the cryptography v2 contract: " + algorithm));
+        return SignatureAlgorithmMapping.toAttributes(selection);
+    }
+
+    @Override
+    public List<RequestAttribute> cipherAttributesFor(String cipherAlgorithm) {
+        Objects.requireNonNull(cipherAlgorithm, "cipherAlgorithm must not be null");
+        EncryptionAlgorithm selection = EncryptionAlgorithm
+                .lookupByJcaName(cipherAlgorithm)
+                .orElseThrow(() -> new NotSupportedException(
+                        "Cipher algorithm is not supported by the cryptography v2 contract: " + cipherAlgorithm));
+        return EncryptionAlgorithmMapping.toAttributes(selection);
+    }
+
+    @Override
+    public boolean areSignatureAttributesSupportedByKey(CryptographicKeyItemOperationModel keyItem,
+            List<RequestAttribute> signatureAttributes) throws ConnectorException, NotFoundException {
+        List<RequestAttribute> submittedAttributes = orEmpty(signatureAttributes);
+        SignatureAlgorithm selectedAlgorithm = SignatureOperationAttributes.resolveAlgorithm(submittedAttributes);
+        TokenProfileScopedRequestV2Dto scope = keyOperationScoped(keyItem);
+        KeyScopedRequestV2Dto request = keyScoped(new KeyScopedRequestV2Dto(), keyItem, scope);
+        List<BaseAttribute> connectorDefinitions = fetchSchema(
+                schemaRequest -> operationsApiClient.listSignAttributes(connectorInfo, schemaRequest), request);
+        assertNoExpandedSecretEchoed(request, connectorDefinitions);
+        return isSignatureAlgorithmSupported(connectorDefinitions, selectedAlgorithm);
+    }
+
+    private boolean isSignatureAlgorithmSupported(List<BaseAttribute> connectorDefinitions,
+            SignatureAlgorithm selectedAlgorithm) throws ConnectorException {
+        try {
+            List<SignatureAlgorithm> supportedAlgorithms = SignatureAlgorithmUtils
+                    .extractSupportedSignatureAlgorithms(connectorDefinitions);
+            return supportedAlgorithms.contains(selectedAlgorithm);
+        } catch (ValidationException e) {
+            throw new ConnectorException(e.getMessage(), e, connectorInfo);
+        }
+    }
+
+    @Override
     public EncryptDataResponseDto encryptData(CryptographicKeyItemOperationModel keyItem, CipherDataRequestDto request)
             throws ConnectorException, NotFoundException {
         EncryptDataResponseDto result = new EncryptDataResponseDto();
@@ -391,15 +444,21 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         return result;
     }
 
+    /**
+     * Converts split cipher fields with {@link EncryptionOperationAttributes#toConnector} before
+     * {@link #validatedScope} checks connector schema. Sends joint {@code encryptionAlgorithm}; restores batch order
+     * with {@link #inRequestOrder}.
+     */
     private List<CipherResponseData> cipherData(CryptographicKeyItemOperationModel keyItem,
             CipherDataRequestDto request, ConnectorCall<KeyScopedRequestV2Dto, List<BaseAttribute>> schemaCall,
             ConnectorCall<CipherDataRequestV2Dto, List<CipherDataV2Dto>> operationCall)
             throws ConnectorException, NotFoundException {
-        List<RequestAttribute> attributes = orEmpty(request.getCipherAttributes());
-        TokenProfileScopedRequestV2Dto scope = validatedScope(keyItem, schemaCall, attributes);
+        List<RequestAttribute> submittedAttributes = orEmpty(request.getCipherAttributes());
+        List<RequestAttribute> connectorAttributes = EncryptionOperationAttributes.toConnector(submittedAttributes);
+        TokenProfileScopedRequestV2Dto scope = validatedScope(keyItem, schemaCall, connectorAttributes);
         IdentifiedBatch<CipherDataV2Dto> batch = cipherBatch(request.getCipherData());
         CipherDataRequestV2Dto body = keyScoped(new CipherDataRequestV2Dto(), keyItem, scope);
-        body.setCipherAttributes(attributes);
+        body.setCipherAttributes(connectorAttributes);
         body.setCipherData(batch.items());
         return inRequestOrder(operationCall.call(body), batch, CipherDataV2Dto::getIdentifier, (item, identifier) -> {
             CipherResponseData data = new CipherResponseData();
@@ -410,13 +469,14 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
     }
 
     /**
-     * The contract fixes the name and values of the attribute that selects the algorithm, so Core reads the selection
-     * itself. The connector refuses, at signing, a selection its key does not support.
+     * Reads the algorithm from split fields or the original selector, without asking the connector. Execution checks
+     * the converted selection against the connector's key-specific schema.
      */
     @Override
     public ResolvedSignatureAlgorithm resolveSignatureAlgorithm(CryptographicKeyItemOperationModel privateKeyItem,
             CryptographicKeyItemOperationModel publicKeyItem, List<RequestAttribute> signatureAttributes) {
-        SignatureAlgorithm algorithm = SignatureAlgorithmAttribute.selectedAlgorithm(signatureAttributes);
+        List<RequestAttribute> submittedAttributes = orEmpty(signatureAttributes);
+        SignatureAlgorithm algorithm = SignatureOperationAttributes.resolveAlgorithm(submittedAttributes);
         if (!signsWith(algorithm, privateKeyItem.keyAlgorithm(), publicKeyItem.pqcParameterSpecName())) {
             String signingKey = publicKeyItem.pqcParameterSpecName() == null
                     ? privateKeyItem.keyAlgorithm().getCode()
@@ -446,13 +506,15 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
     @Override
     public SignDataResponseDto signData(CryptographicKeyItemOperationModel keyItem, SignDataRequestDto request)
             throws ConnectorException, NotFoundException {
-        List<RequestAttribute> attributes = orEmpty(request.getSignatureAttributes());
+        List<RequestAttribute> submittedAttributes = orEmpty(request.getSignatureAttributes());
+        List<RequestAttribute> connectorAttributes = SignatureOperationAttributes.toConnector(submittedAttributes);
         TokenProfileScopedRequestV2Dto scope = validatedScope(keyItem,
-                schemaRequest -> operationsApiClient.listSignAttributes(connectorInfo, schemaRequest), attributes);
+                schemaRequest -> operationsApiClient.listSignAttributes(connectorInfo, schemaRequest),
+                connectorAttributes);
         IdentifiedBatch<SignatureDataV2Dto> batch = signatureBatch(request.getData());
         SignDataRequestV2Dto body = keyScoped(new SignDataRequestV2Dto(), keyItem, scope);
         body.setExecutionMode(OperationExecutionMode.SYNCHRONOUS);
-        body.setSignatureAttributes(attributes);
+        body.setSignatureAttributes(connectorAttributes);
         body.setData(batch.items());
         ResponseEntity<SignDataResponseV2Dto> response = operationsApiClient.signData(connectorInfo, body);
         SignDataResponseV2Dto responseBody = response.getBody();
@@ -480,13 +542,15 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
             throw new ValidationException(ValidationError.create("Verification requires one signature per data item."));
         }
         requireAlignedIdentifiers(request.getData(), request.getSignatures());
-        List<RequestAttribute> attributes = orEmpty(request.getSignatureAttributes());
+        List<RequestAttribute> submittedAttributes = orEmpty(request.getSignatureAttributes());
+        List<RequestAttribute> connectorAttributes = SignatureOperationAttributes.toConnector(submittedAttributes);
         TokenProfileScopedRequestV2Dto scope = validatedScope(keyItem,
-                schemaRequest -> operationsApiClient.listVerifyAttributes(connectorInfo, schemaRequest), attributes);
+                schemaRequest -> operationsApiClient.listVerifyAttributes(connectorInfo, schemaRequest),
+                connectorAttributes);
         IdentifiedBatch<SignatureDataV2Dto> data = signatureBatch(request.getData());
         IdentifiedBatch<SignatureDataV2Dto> signatures = signatureBatch(request.getSignatures());
         VerifyDataRequestV2Dto body = keyScoped(new VerifyDataRequestV2Dto(), keyItem, scope);
-        body.setSignatureAttributes(attributes);
+        body.setSignatureAttributes(connectorAttributes);
         body.setData(data.items());
         body.setSignatures(signatures.items());
         VerifyDataResponseV2Dto response = operationsApiClient.verifyData(connectorInfo, body);
@@ -508,32 +572,60 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         return result;
     }
 
+    /**
+     * Publishes encrypt definitions through {@link EncryptionAlgorithmUtils#expandEncryptionAlgorithmDefinition}.
+     * Checks raw connector definitions for secret echoes before replacing {@code encryptionAlgorithm} with RSA fields.
+     */
     @Override
     public List<BaseAttribute> listEncryptAttributes(CryptographicKeyItemOperationModel keyItem)
             throws ConnectorException, NotFoundException {
         return listOperationAttributes(keyItem,
-                request -> operationsApiClient.listEncryptAttributes(connectorInfo, request));
+                request -> operationsApiClient.listEncryptAttributes(connectorInfo, request),
+                EncryptionAlgorithmUtils::expandEncryptionAlgorithmDefinition);
     }
 
+    /** Publishes decrypt definitions with same RSA expansion and secret checks as {@link #listEncryptAttributes}. */
     @Override
     public List<BaseAttribute> listDecryptAttributes(CryptographicKeyItemOperationModel keyItem)
             throws ConnectorException, NotFoundException {
         return listOperationAttributes(keyItem,
-                request -> operationsApiClient.listDecryptAttributes(connectorInfo, request));
+                request -> operationsApiClient.listDecryptAttributes(connectorInfo, request),
+                EncryptionAlgorithmUtils::expandEncryptionAlgorithmDefinition);
     }
 
     @Override
     public List<BaseAttribute> listSignAttributes(CryptographicKeyItemOperationModel keyItem)
             throws ConnectorException, NotFoundException {
         return listOperationAttributes(keyItem,
-                request -> operationsApiClient.listSignAttributes(connectorInfo, request));
+                request -> operationsApiClient.listSignAttributes(connectorInfo, request),
+                SignatureAlgorithmUtils::expandSignatureAlgorithmDefinition);
+    }
+
+    @Override
+    public List<BaseAttribute> listValidatedSignAttributes(CryptographicKeyItemOperationModel keyItem,
+            List<RequestAttribute> signatureAttributes) throws ConnectorException, NotFoundException {
+        Objects.requireNonNull(keyItem, "keyItem must not be null");
+        Objects.requireNonNull(signatureAttributes, "signatureAttributes must not be null");
+        SignatureAlgorithm selectedAlgorithm = SignatureOperationAttributes.resolveAlgorithm(signatureAttributes);
+        KeyScopedRequestV2Dto request = keyScoped(new KeyScopedRequestV2Dto(), keyItem, keyOperationScoped(keyItem));
+        List<BaseAttribute> connectorDefinitions = fetchSchema(
+                schemaRequest -> operationsApiClient.listSignAttributes(connectorInfo, schemaRequest), request);
+        assertNoExpandedSecretEchoed(request, connectorDefinitions);
+        if (!isSignatureAlgorithmSupported(connectorDefinitions, selectedAlgorithm)) {
+            throw new ValidationException(
+                    "The signature attribute values or their combination are not supported by the key.");
+        }
+        List<BaseAttribute> presentedDefinitions = SignatureAlgorithmUtils
+                .expandSignatureAlgorithmDefinition(connectorDefinitions);
+        return publishDefinitions(request, presentedDefinitions);
     }
 
     @Override
     public List<BaseAttribute> listVerifyAttributes(CryptographicKeyItemOperationModel keyItem)
             throws ConnectorException, NotFoundException {
         return listOperationAttributes(keyItem,
-                request -> operationsApiClient.listVerifyAttributes(connectorInfo, request));
+                request -> operationsApiClient.listVerifyAttributes(connectorInfo, request),
+                SignatureAlgorithmUtils::expandSignatureAlgorithmDefinition);
     }
 
     @Override
@@ -822,6 +914,21 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
             throws ConnectorException, NotFoundException {
         KeyScopedRequestV2Dto request = keyScoped(new KeyScopedRequestV2Dto(), keyItem, keyOperationScoped(keyItem));
         return publishDefinitions(request, fetchSchema(schemaCall, request));
+    }
+
+    /**
+     * Checks {@link #fetchSchema} result for secret echoes before applying RSA field expansion.
+     * {@link #publishDefinitions} stores expanded definitions for attribute callbacks.
+     */
+    private List<BaseAttribute> listOperationAttributes(CryptographicKeyItemOperationModel keyItem,
+            ConnectorCall<KeyScopedRequestV2Dto, List<BaseAttribute>> schemaCall,
+            Function<List<BaseAttribute>, List<BaseAttribute>> presentation)
+            throws ConnectorException, NotFoundException {
+        KeyScopedRequestV2Dto request = keyScoped(new KeyScopedRequestV2Dto(), keyItem, keyOperationScoped(keyItem));
+        List<BaseAttribute> connectorDefinitions = fetchSchema(schemaCall, request);
+        assertNoExpandedSecretEchoed(request, connectorDefinitions);
+        List<BaseAttribute> presentedDefinitions = presentation.apply(connectorDefinitions);
+        return publishDefinitions(request, presentedDefinitions);
     }
 
     private <T extends KeyScopedRequestV2Dto> T keyScoped(T request, CryptographicKeyItemOperationModel keyItem,

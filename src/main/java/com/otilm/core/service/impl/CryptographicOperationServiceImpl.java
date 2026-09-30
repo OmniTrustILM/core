@@ -33,8 +33,8 @@ import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.model.crypto.AttributesWithOwner;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
-import com.otilm.core.model.crypto.OperationAttributeSchema;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
 import com.otilm.core.model.crypto.TokenProfileBasicModel;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
@@ -57,6 +57,7 @@ import java.security.spec.InvalidKeySpecException;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import javax.security.auth.x500.X500Principal;
 import org.bouncycastle.asn1.DERBitString;
@@ -169,7 +170,7 @@ public class CryptographicOperationServiceImpl
         authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfileUuid);
         logger.info("Requesting to list encryption attributes for Key: {}", keyItemUuid);
         CryptographicKeyItemOperationModel keyItem = cryptographicKeyService.getKeyItemModel(keyItemUuid);
-        KeyProviderAdapter adapter = authorizedAdapter(keyItem, tokenInstanceUuid.getValue(),
+        KeyProviderAdapter adapter = createValidatingKeyProviderAdapter(keyItem, tokenInstanceUuid.getValue(),
                 tokenProfileUuid.getValue(), uuid);
         return adapter.listEncryptAttributes(keyItem);
     }
@@ -183,7 +184,7 @@ public class CryptographicOperationServiceImpl
         authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfileUuid);
         logger.info("Requesting to list decryption attributes for Key: {}", keyItemUuid);
         CryptographicKeyItemOperationModel keyItem = cryptographicKeyService.getKeyItemModel(keyItemUuid);
-        KeyProviderAdapter adapter = authorizedAdapter(keyItem, tokenInstanceUuid.getValue(),
+        KeyProviderAdapter adapter = createValidatingKeyProviderAdapter(keyItem, tokenInstanceUuid.getValue(),
                 tokenProfileUuid.getValue(), uuid);
         return adapter.listDecryptAttributes(keyItem);
     }
@@ -202,7 +203,7 @@ public class CryptographicOperationServiceImpl
             throw new ValidationException(ValidationError.create("Cannot encrypt null data"));
         }
         requireUsage(keyItem, KeyUsage.ENCRYPT, "encryption");
-        KeyProviderAdapter adapter = authorizedAdapter(keyItem, tokenInstanceUuid.getValue(),
+        KeyProviderAdapter adapter = createValidatingKeyProviderAdapter(keyItem, tokenInstanceUuid.getValue(),
                 tokenProfileUuid.getValue(), uuid);
         return recordEvent(keyItem, KeyEvent.ENCRYPT, "Encryption of data success ", "Encryption of data failed ",
                 () -> adapter.encryptData(keyItem, request));
@@ -222,7 +223,7 @@ public class CryptographicOperationServiceImpl
             throw new ValidationException(ValidationError.create("Cannot decrypt null data"));
         }
         requireUsage(keyItem, KeyUsage.DECRYPT, "decryption");
-        KeyProviderAdapter adapter = authorizedAdapter(keyItem, tokenInstanceUuid.getValue(),
+        KeyProviderAdapter adapter = createValidatingKeyProviderAdapter(keyItem, tokenInstanceUuid.getValue(),
                 tokenProfileUuid.getValue(), uuid);
         return recordEvent(keyItem, KeyEvent.DECRYPT, "Decryption of data success ", "Decryption of data failed ",
                 () -> adapter.decryptData(keyItem, request));
@@ -260,7 +261,7 @@ public class CryptographicOperationServiceImpl
         authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfileUuid);
         logger.info("Requesting to list signing attributes for Key: {}", keyItemUuid);
         CryptographicKeyItemOperationModel keyItem = cryptographicKeyService.getKeyItemModel(keyItemUuid);
-        KeyProviderAdapter adapter = authorizedAdapter(keyItem, tokenInstanceUuid.getValue(),
+        KeyProviderAdapter adapter = createValidatingKeyProviderAdapter(keyItem, tokenInstanceUuid.getValue(),
                 tokenProfileUuid.getValue(), uuid);
         return adapter.listSignAttributes(keyItem);
     }
@@ -274,7 +275,7 @@ public class CryptographicOperationServiceImpl
         authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfileUuid);
         logger.info("Requesting to list verification attributes for Key: {}", keyItemUuid);
         CryptographicKeyItemOperationModel keyItem = cryptographicKeyService.getKeyItemModel(keyItemUuid);
-        KeyProviderAdapter adapter = authorizedAdapter(keyItem, tokenInstanceUuid.getValue(),
+        KeyProviderAdapter adapter = createValidatingKeyProviderAdapter(keyItem, tokenInstanceUuid.getValue(),
                 tokenProfileUuid.getValue(), uuid);
         return adapter.listVerifyAttributes(keyItem);
     }
@@ -288,7 +289,7 @@ public class CryptographicOperationServiceImpl
         authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfileUuid);
         logger.info("Signing data using key: {}", keyItemUuid);
         CryptographicKeyItemOperationModel keyItem = cryptographicKeyService.getKeyItemModel(keyItemUuid);
-        KeyProviderAdapter adapter = authorizedAdapter(keyItem, tokenInstanceUuid.getValue(),
+        KeyProviderAdapter adapter = createValidatingKeyProviderAdapter(keyItem, tokenInstanceUuid.getValue(),
                 tokenProfileUuid.getValue(), uuid);
         return recordEvent(keyItem, KeyEvent.SIGN, "Signing data success ", "Signing of data failed ",
                 () -> executeSignData(adapter, keyItem, request));
@@ -304,7 +305,7 @@ public class CryptographicOperationServiceImpl
         authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfileUuid);
         logger.info("Signing data (no event history) using key: {}", keyItemUuid);
         CryptographicKeyItemOperationModel keyItem = cryptographicKeyService.getKeyItemModel(keyItemUuid);
-        KeyProviderAdapter adapter = authorizedAdapter(keyItem, tokenInstanceUuid.getValue(),
+        KeyProviderAdapter adapter = createValidatingKeyProviderAdapter(keyItem, tokenInstanceUuid.getValue(),
                 tokenProfileUuid.getValue(), uuid);
         return executeSignData(adapter, keyItem, request);
     }
@@ -333,7 +334,7 @@ public class CryptographicOperationServiceImpl
             throw new ValidationException(ValidationError.create("Cannot verify empty data"));
         }
         requireUsage(keyItem, KeyUsage.VERIFY, "verification");
-        KeyProviderAdapter adapter = authorizedAdapter(keyItem, tokenInstanceUuid.getValue(),
+        KeyProviderAdapter adapter = createValidatingKeyProviderAdapter(keyItem, tokenInstanceUuid.getValue(),
                 tokenProfileUuid.getValue(), uuid);
         return recordEvent(keyItem, KeyEvent.VERIFY, "Verification of data completed ", "Verification of data failed ",
                 () -> adapter.verifyData(keyItem, request));
@@ -343,8 +344,8 @@ public class CryptographicOperationServiceImpl
      * The service owns the path-association check; the adapter invokes it on the same scope it uses for the request.
      * This prevents a concurrent profile reassignment from changing the operation's scope after authorization.
      */
-    private KeyProviderAdapter authorizedAdapter(CryptographicKeyItemOperationModel keyItem, UUID tokenInstanceUuid,
-            UUID tokenProfileUuid, UUID keyUuid) throws NotFoundException {
+    private KeyProviderAdapter createValidatingKeyProviderAdapter(CryptographicKeyItemOperationModel keyItem,
+            UUID tokenInstanceUuid, UUID tokenProfileUuid, UUID keyUuid) throws NotFoundException {
         return keyProviderAdapterFactory.forKeyItem(keyItem, scope -> {
             if (!keyItem.keyUuid().equals(keyUuid) || !scope.tokenProfileUuid().equals(tokenProfileUuid)
                     || !scope.tokenInstanceReferenceUuid().equals(tokenInstanceUuid)) {
@@ -360,10 +361,29 @@ public class CryptographicOperationServiceImpl
 
     @Override
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public OperationAttributeSchema listSignAttributeSchema(UUID keyUuid) throws NotFoundException, ConnectorException {
+    public AttributesWithOwner listSignAttributeSchema(UUID keyUuid) throws NotFoundException, ConnectorException {
         CryptographicKeyItemOperationModel keyItem = cryptographicKeyService.getPrivateKeyItemModel(keyUuid);
         List<BaseAttribute> definitions = adapterFor(keyItem).listSignAttributes(keyItem);
-        return new OperationAttributeSchema(keyItem.operationAttributeOwner(), definitions);
+        return new AttributesWithOwner(keyItem.operationAttributeOwner(), definitions);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public AttributesWithOwner validateAttributesAndGetSchema(UUID keyUuid, List<RequestAttribute> signatureAttributes)
+            throws NotFoundException, ConnectorException {
+        Objects.requireNonNull(keyUuid, "keyUuid must not be null");
+        Objects.requireNonNull(signatureAttributes, "signatureAttributes must not be null");
+        CryptographicKeyItemOperationModel keyItem = cryptographicKeyService.getPrivateKeyItemModel(keyUuid);
+        List<BaseAttribute> definitions = adapterFor(keyItem).listValidatedSignAttributes(keyItem, signatureAttributes);
+        return new AttributesWithOwner(keyItem.operationAttributeOwner(), definitions);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public boolean areSignatureAttributesSupportedByKey(List<RequestAttribute> signatureAttributes, UUID keyUuid)
+            throws NotFoundException, ConnectorException {
+        CryptographicKeyItemOperationModel keyItem = cryptographicKeyService.getPrivateKeyItemModel(keyUuid);
+        return adapterFor(keyItem).areSignatureAttributesSupportedByKey(keyItem, signatureAttributes);
     }
 
     @Override
@@ -617,7 +637,7 @@ public class CryptographicOperationServiceImpl
             requireUsage(keyPair.privateKeyItem(), KeyUsage.SIGN, "signing");
         }
         CryptographicKeyItemOperationModel signingKey = keyPair.privateKeyItem();
-        KeyProviderAdapter keyProvider = authorizedAdapter(signingKey, keyPair.tokenInstanceUuid(),
+        KeyProviderAdapter keyProvider = createValidatingKeyProviderAdapter(signingKey, keyPair.tokenInstanceUuid(),
                 keyPair.tokenProfileUuid(), signingKey.keyUuid());
         AlgorithmIdentifier algorithm = keyProvider
                 .resolveSignatureAlgorithm(keyPair.privateKeyItem(), keyPair.publicKeyItem(), signatureAttributes)

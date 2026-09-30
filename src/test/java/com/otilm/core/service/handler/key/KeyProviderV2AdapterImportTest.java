@@ -128,11 +128,7 @@ class KeyProviderV2AdapterImportTest {
         resolver = mock(OperationAttributeResolver.class);
         client = mock(KeySyncApiClient.class);
         when(resolver.resolveForConnectorRequestAsSystem(connectorUuid, List.of())).thenReturn(List.of());
-        adapter = new KeyProviderV2Adapter(apiClients, connector, attributes, resolver,
-                new OutboundSecretContainment(new ObjectMapper()), new ConnectorCapabilityService(),
-                new OperationResponseValidator(Validation.buildDefaultValidatorFactory().getValidator()),
-                mock(CryptographicKeyRepository.class), scope -> {
-                });
+        adapter = adapterFor(connector, client);
         KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
         generator.initialize(2048);
         publicKeySpki = generator.generateKeyPair().getPublic().getEncoded();
@@ -748,8 +744,9 @@ class KeyProviderV2AdapterImportTest {
         AttributeEngine attributes = mock(AttributeEngine.class);
         when(attributes.getRequestObjectDataAttributesContent(any())).thenReturn(List.of());
         return new KeyProviderV2Adapter(apiClients, target, attributes, resolver,
-                new OutboundSecretContainment(new ObjectMapper()), new ConnectorCapabilityService(),
-                RESPONSE_VALIDATOR);
+                new OutboundSecretContainment(new ObjectMapper()), new ConnectorCapabilityService(), RESPONSE_VALIDATOR,
+                mock(CryptographicKeyRepository.class), scope -> {
+                });
     }
 
     /**

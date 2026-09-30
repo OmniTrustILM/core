@@ -26,6 +26,7 @@ import com.otilm.core.model.crypto.TokenInstanceBasicModel;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.model.crypto.TransferableKeyType;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -71,6 +72,30 @@ public interface KeyProviderAdapter {
     /** Lists the attribute schema for importing a key of the type into the token profile. */
     List<BaseAttribute> listImportKeyAttributes(TokenProfileFullModel tokenProfile, KeyRequestType type)
             throws ConnectorException;
+
+    /** Translates a JCA signature algorithm into this provider version's operation attributes. */
+    List<RequestAttribute> signatureAttributesFor(String algorithm);
+
+    /** Constructs this provider version's cipher selection locally; execution validates it against the key's schema. */
+    List<RequestAttribute> cipherAttributesFor(String cipherAlgorithm);
+
+    boolean areSignatureAttributesSupportedByKey(CryptographicKeyItemOperationModel keyItem,
+            List<RequestAttribute> signatureAttributes) throws ConnectorException, NotFoundException;
+
+    /**
+     * Checks algorithm support and returns the signing definitions. Providers with a connector-owned schema override
+     * this method to reuse one response for both operations. Other attribute validation remains the caller's task.
+     */
+    default List<BaseAttribute> listValidatedSignAttributes(CryptographicKeyItemOperationModel keyItem,
+            List<RequestAttribute> signatureAttributes) throws ConnectorException, NotFoundException {
+        Objects.requireNonNull(keyItem, "keyItem must not be null");
+        Objects.requireNonNull(signatureAttributes, "signatureAttributes must not be null");
+        if (!areSignatureAttributesSupportedByKey(keyItem, signatureAttributes)) {
+            throw new ValidationException(
+                    "The signature attribute values or their combination are not supported by the key.");
+        }
+        return listSignAttributes(keyItem);
+    }
 
     EncryptDataResponseDto encryptData(CryptographicKeyItemOperationModel keyItem, CipherDataRequestDto request)
             throws ConnectorException, NotFoundException;

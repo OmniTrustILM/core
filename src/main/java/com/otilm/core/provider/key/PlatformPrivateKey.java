@@ -1,29 +1,18 @@
 package com.otilm.core.provider.key;
 
-import com.otilm.api.model.core.connector.ConnectorDto;
-
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import java.security.PrivateKey;
+import java.util.Objects;
 
-public class PlatformPrivateKey implements PrivateKey {
-
-    private final String keyUuid;
-
-    private final String tokenInstanceUuid;
-
-    private final ConnectorDto connectorDto;
-
-    private final String algorithm;
-
-    public PlatformPrivateKey(String tokenInstanceUuid, String keyUuid, ConnectorDto connectorDto, String algorithm) {
-        this.keyUuid = keyUuid;
-        this.connectorDto = connectorDto;
-        this.tokenInstanceUuid = tokenInstanceUuid;
-        this.algorithm = algorithm;
+/** Request-scoped handle to a platform key; the adapter owns its connector-specific representation. */
+public record PlatformPrivateKey(CryptographicKeyItemOperationModel keyItem) implements PrivateKey {
+    public PlatformPrivateKey(CryptographicKeyItemOperationModel keyItem) {
+        this.keyItem = Objects.requireNonNull(keyItem, "keyItem must not be null");
     }
 
     @Override
     public String getAlgorithm() {
-        return algorithm;
+        return keyItem.keyAlgorithm().getLabel();
     }
 
     @Override
@@ -37,15 +26,6 @@ public class PlatformPrivateKey implements PrivateKey {
     }
 
     public String getKeyUuid() {
-        return keyUuid;
+        return keyItem.keyItemUuid().toString();
     }
-
-    public ConnectorDto getConnectorDto() {
-        return connectorDto;
-    }
-
-    public String getTokenInstanceUuid() {
-        return tokenInstanceUuid;
-    }
-
 }

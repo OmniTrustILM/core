@@ -97,7 +97,7 @@ public class CryptographicKeyExportServiceImpl implements CryptographicKeyExport
         CryptographicKeyBasicModel key = requireAccess(keyUuid);
         CryptographicKeyItemBasicModel item = requireItemOf(key, keyItemUuid);
         CryptographicKeyItemOperationModel operationKeyItem = requireExportable(key, item);
-        return exportAdapter(key, operationKeyItem).listExportKeyAttributes(operationKeyItem);
+        return createScopeValidatingKeyProviderAdapter(key, operationKeyItem).listExportKeyAttributes(operationKeyItem);
     }
 
     /**
@@ -114,7 +114,7 @@ public class CryptographicKeyExportServiceImpl implements CryptographicKeyExport
         CryptographicKeyItemBasicModel item = requireItemOf(key, keyItemUuid);
         try {
             CryptographicKeyItemOperationModel operationKeyItem = requireExportable(key, item);
-            byte[] envelope = exportAdapter(key, operationKeyItem)
+            byte[] envelope = createScopeValidatingKeyProviderAdapter(key, operationKeyItem)
                     .exportKey(operationKeyItem, heldKey(item), request.getPassphrase(), request.getExportAttributes());
             if (!cryptographicKeyItemRepository.isExportable(item.uuid())) {
                 throw refusal(CHANGED, item.uuid());
@@ -129,8 +129,8 @@ public class CryptographicKeyExportServiceImpl implements CryptographicKeyExport
     }
 
     /** Refuses a reassignment before resolving the operation's attributes or sending the export passphrase. */
-    private KeyProviderAdapter exportAdapter(CryptographicKeyBasicModel key, CryptographicKeyItemOperationModel item)
-            throws NotFoundException {
+    private KeyProviderAdapter createScopeValidatingKeyProviderAdapter(CryptographicKeyBasicModel key,
+            CryptographicKeyItemOperationModel item) throws NotFoundException {
         return keyProviderAdapterFactory.forKeyItem(item, scope -> {
             if (!scope.tokenProfileUuid().equals(key.tokenProfileUuid())
                     || !scope.tokenInstanceReferenceUuid().equals(key.tokenInstanceReferenceUuid())) {

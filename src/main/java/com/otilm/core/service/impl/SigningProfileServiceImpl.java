@@ -74,7 +74,7 @@ import com.otilm.core.dao.repository.signing.TimeQualityConfigurationRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.mapper.signing.SigningProfileMapper;
 import com.otilm.core.model.auth.ResourceAction;
-import com.otilm.core.model.crypto.OperationAttributeSchema;
+import com.otilm.core.model.crypto.AttributesWithOwner;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.TspProfileModel;
@@ -434,15 +434,18 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         attributeEngine.validateCustomAttributesContent(Resource.SIGNING_PROFILE, request.getCustomAttributes());
         validateContentSigningWorkflow(request, null);
         List<BaseAttribute> formattingDefinitions = fetchFormattingAttributeDefinitions(request.getWorkflow());
-        OperationAttributeSchema signingSchema = fetchSigningOperationSchema(request.getSigningScheme());
+        AttributesWithOwner signingSchema = fetchValidatedSigningOperationSchema(request.getSigningScheme());
         SigningProfileDto created = self.persistCreate(request, formattingDefinitions, signingSchema);
         evictSigningProfileCache(created.getName());
         return created;
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     SigningProfileDto persistCreate(SigningProfileRequestDto request, List<BaseAttribute> formattingDefinitions,
-            OperationAttributeSchema signingSchema) throws AttributeException, NotFoundException {
+            AttributesWithOwner signingSchema) throws AttributeException, NotFoundException {
+        Objects.requireNonNull(request, "request must not be null");
+        Objects.requireNonNull(formattingDefinitions, "formattingDefinitions must not be null");
+        Objects.requireNonNull(signingSchema, "signingSchema must not be null");
         SigningProfile profile = new SigningProfile();
         profile.setName(request.getName());
         profile.setDescription(request.getDescription());
@@ -482,14 +485,18 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         attributeEngine.validateCustomAttributesContent(Resource.SIGNING_PROFILE, request.getCustomAttributes());
         validateContentSigningWorkflow(request, uuid.getValue());
         List<BaseAttribute> formattingDefinitions = fetchFormattingAttributeDefinitions(request.getWorkflow());
-        OperationAttributeSchema signingSchema = fetchSigningOperationSchema(request.getSigningScheme());
+        AttributesWithOwner signingSchema = fetchValidatedSigningOperationSchema(request.getSigningScheme());
         return self.persistUpdate(uuid, request, formattingDefinitions, signingSchema);
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     SigningProfileDto persistUpdate(SecuredUUID uuid, SigningProfileRequestDto request,
-            List<BaseAttribute> formattingDefinitions, OperationAttributeSchema signingSchema)
+            List<BaseAttribute> formattingDefinitions, AttributesWithOwner signingSchema)
             throws AlreadyExistException, AttributeException, NotFoundException {
+        Objects.requireNonNull(uuid, "uuid must not be null");
+        Objects.requireNonNull(request, "request must not be null");
+        Objects.requireNonNull(formattingDefinitions, "formattingDefinitions must not be null");
+        Objects.requireNonNull(signingSchema, "signingSchema must not be null");
         // Serialize the bump decision per profile to prevent concurrent updates from racing.
         clusterSynchronizer.lock("signing-profile:" + uuid.getValue());
 
@@ -1139,26 +1146,55 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         return buildDtoFromVersion(profile, current);
     }
 
+    private AttributesWithOwner fetchValidatedSigningOperationSchema(SigningSchemeRequestDto signingScheme)
+            throws NotFoundException, ConnectorException {
+        Objects.requireNonNull(signingScheme, "signingScheme must not be null");
+        if (!(signingScheme instanceof StaticKeyManagedSigningRequestDto staticKeyScheme)) {
+            return new AttributesWithOwner(null, List.of());
+        }
+        UUID keyUuid = signingKeyUuid(SecuredUUID.fromUUID(staticKeyScheme.getCertificateUuid()));
+        if (keyUuid == null) {
+            // applyScheme rejects ineligible certificates before persistence writes any profile state.
+            return new AttributesWithOwner(null, List.of());
+        }
+        return cryptographicOperationService
+                .validateAttributesAndGetSchema(keyUuid, staticKeyScheme.getSigningOperationAttributes());
+    }
+
     private List<ResponseAttribute> persistSigningOperationAttributes(SigningProfile signingProfile,
-            SigningProfileVersion version, SigningSchemeRequestDto signingScheme,
-            OperationAttributeSchema signingSchema) throws AttributeException, NotFoundException {
-        ObjectAttributeContentInfo content = ObjectAttributeContentInfo
-                .builder(Resource.SIGNING_PROFILE, signingProfile.getUuid())
-                .connector(signingSchema.ownerConnectorUuid())
-                .operation(AttributeOperation.SIGN)
-                .version(version.getVersion())
-                .build();
+            SigningProfileVersion version, SigningSchemeRequestDto signingScheme, AttributesWithOwner signingSchema)
+            throws AttributeException, NotFoundException {
+        Objects.requireNonNull(signingProfile, "signingProfile must not be null");
+        Objects.requireNonNull(version, "version must not be null");
+        Objects.requireNonNull(signingScheme, "signingScheme must not be null");
+        Objects.requireNonNull(signingSchema, "signingSchema must not be null");
+
         if (signingScheme instanceof StaticKeyManagedSigningRequestDto staticKeyScheme) {
+            ObjectAttributeContentInfo content = ObjectAttributeContentInfo
+                    .builder(Resource.SIGNING_PROFILE, signingProfile.getUuid())
+                    .connector(signingSchema.ownerConnectorUuid())
+                    .operation(AttributeOperation.SIGN)
+                    .version(version.getVersion())
+                    .build();
+
             List<RequestAttribute> signingOperationAttributes = staticKeyScheme.getSigningOperationAttributes();
             attributeEngine
                     .validateUpdateDataAttributes(signingSchema.ownerConnectorUuid(), AttributeOperation.SIGN,
                             signingSchema.definitions(), signingOperationAttributes);
-            signingSchema.requireOfferedSignatureAlgorithm(signingOperationAttributes);
             return attributeEngine.replaceObjectDataAttributesContent(content, signingOperationAttributes);
+        } else {
+            // Clears what an earlier write left for this version, whichever connector owned it.
+            ObjectAttributeContentInfo content = ObjectAttributeContentInfo
+                    .builder(Resource.SIGNING_PROFILE, signingProfile.getUuid())
+                    .connector(null)
+                    .operation(AttributeOperation.SIGN)
+                    .version(version.getVersion())
+                    .build();
+
+            attributeEngine.replaceObjectDataAttributesContent(content, List.of());
+            return List.of();
         }
-        // Clears what an earlier write left for this version, whichever connector owned it.
-        attributeEngine.replaceObjectDataAttributesContent(content, List.of());
-        return List.of();
+
     }
 
     private List<ResponseAttribute> persistSignatureFormattingConnectorAttributes(SigningProfile p,
@@ -1204,21 +1240,6 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
             }
             default -> throw new IllegalStateException("Unexpected type for Signing Workflow: " + workflow);
         };
-    }
-
-    /**
-     * Returns the operation attribute schema for the given signing scheme or {@link OperationAttributeSchema#NONE} if
-     * not applicable.
-     */
-    private OperationAttributeSchema fetchSigningOperationSchema(SigningSchemeRequestDto signingScheme)
-            throws NotFoundException, ConnectorException {
-        if (!(signingScheme instanceof StaticKeyManagedSigningRequestDto staticKeyScheme)) {
-            return OperationAttributeSchema.NONE;
-        }
-        UUID keyUuid = signingKeyUuid(SecuredUUID.fromUUID(staticKeyScheme.getCertificateUuid()));
-        return keyUuid == null
-                ? OperationAttributeSchema.NONE
-                : cryptographicOperationService.listSignAttributeSchema(keyUuid);
     }
 
     /** Returns the UUID of the certificate's key, or null when that key has no private item. */
