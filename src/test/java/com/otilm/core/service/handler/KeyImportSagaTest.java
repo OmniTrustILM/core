@@ -41,6 +41,7 @@ import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import com.otilm.core.service.writer.CryptographicKeyWriter;
 import com.otilm.core.service.writer.KeyImportWriter;
 import java.security.KeyPairGenerator;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.Base64;
@@ -50,6 +51,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
+import org.hibernate.exception.ConstraintViolationException;
+import org.hibernate.exception.ConstraintViolationException.ConstraintKind;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Test;
@@ -83,6 +86,13 @@ class KeyImportSagaTest {
 
     private static final List<String> SENT = List.of("sent-secret-digest");
     private static final List<MetadataAttribute> HANDLE = List.of(meta("operation"));
+
+    /** The message of a violation, which no refusal may repeat. */
+    private static final String VIOLATION_MESSAGE = "constraint violated";
+
+    private static final String UNIQUE_VIOLATION = "23505";
+
+    private static final String FOREIGN_KEY_VIOLATION = "23503";
 
     private final KeyImportRepository keyImportRepository = mock(KeyImportRepository.class);
     private final CryptographicKeyRepository cryptographicKeyRepository = mock(CryptographicKeyRepository.class);
@@ -920,16 +930,46 @@ class KeyImportSagaTest {
     void importKey_handsALostRaceToTheReconciliation() throws Exception {
         // given
         when(adapter.importKey(terms, attempt, key, "imported key")).thenReturn(imported(key.subjectPublicKeyInfo()));
-        when(keyImportWriter.complete(eq(attempt.uuid()), any()))
-                .thenThrow(new DataIntegrityViolationException("duplicate fingerprint"));
+        when(keyImportWriter.complete(eq(attempt.uuid()), any())).thenThrow(violationOf(UNIQUE_VIOLATION));
 
         // when
         // then
         assertThatThrownBy(() -> saga.importKey(terms, RETRY, key, metadata))
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining(CryptographicKeyWriter.KEY_ALREADY_HELD)
-                .hasMessageNotContaining("duplicate fingerprint");
+                .hasMessageNotContaining(VIOLATION_MESSAGE);
         verify(keyImportWriter, never()).failUntaken(any(), any());
+        verify(keyImportWriter, times(2)).complete(eq(attempt.uuid()), any());
+        verify(keyImportWriter).dueNow(attempt.uuid());
+    }
+
+    /** Only the unique public key shows a key registered meanwhile; any other violation fails the import as it is. */
+    @Test
+    void importKey_failsOnAnIntegrityViolationOtherThanTheUniquePublicKey() throws Exception {
+        // given
+        DataIntegrityViolationException another = violationOf(FOREIGN_KEY_VIOLATION);
+        when(adapter.importKey(terms, attempt, key, "imported key")).thenReturn(imported(key.subjectPublicKeyInfo()));
+        when(keyImportWriter.complete(eq(attempt.uuid()), any())).thenThrow(another);
+
+        // when
+        // then
+        assertThatThrownBy(() -> saga.importKey(terms, RETRY, key, metadata)).isSameAs(another);
+        verify(keyImportWriter).complete(eq(attempt.uuid()), any());
+        verify(keyImportWriter).dueNow(attempt.uuid());
+    }
+
+    @Test
+    void importKey_failsWhenTheSecondRegistrationMeetsAnotherViolation() throws Exception {
+        // given
+        DataIntegrityViolationException another = violationOf(FOREIGN_KEY_VIOLATION);
+        when(adapter.importKey(terms, attempt, key, "imported key")).thenReturn(imported(key.subjectPublicKeyInfo()));
+        when(keyImportWriter.complete(eq(attempt.uuid()), any()))
+                .thenThrow(violationOf(UNIQUE_VIOLATION))
+                .thenThrow(another);
+
+        // when
+        // then
+        assertThatThrownBy(() -> saga.importKey(terms, RETRY, key, metadata)).isSameAs(another);
         verify(keyImportWriter, times(2)).complete(eq(attempt.uuid()), any());
         verify(keyImportWriter).dueNow(attempt.uuid());
     }
@@ -968,7 +1008,7 @@ class KeyImportSagaTest {
         return Stream
                 .of(named("found once the public key was looked for",
                         new CryptographicKeyWriter.UncheckedRecordException()),
-                        named("found by the unique fingerprint", new DataIntegrityViolationException("duplicate")));
+                        named("found by the unique fingerprint", violationOf(UNIQUE_VIOLATION)));
     }
 
     /** A record that appeared meanwhile, which the requester may not update, is not taken: the import is refused. */
@@ -979,8 +1019,7 @@ class KeyImportSagaTest {
         when(keyImportGates.adoptableBy(terms.requester(), "fingerprint"))
                 .thenReturn(Optional.empty())
                 .thenThrow(new ValidationException(ValidationError.create(CryptographicKeyWriter.KEY_ALREADY_HELD)));
-        when(keyImportWriter.complete(eq(attempt.uuid()), any()))
-                .thenThrow(new DataIntegrityViolationException("duplicate"));
+        when(keyImportWriter.complete(eq(attempt.uuid()), any())).thenThrow(violationOf(UNIQUE_VIOLATION));
 
         // when
         // then
@@ -1218,5 +1257,14 @@ class KeyImportSagaTest {
         MetadataAttributeV2 attribute = new MetadataAttributeV2();
         attribute.setName(name);
         return attribute;
+    }
+
+    /**
+     * A violation shaped the way PostgreSQL delivers one through Hibernate: of kind OTHER whatever the constraint, with
+     * the SQL state in the JDBC cause.
+     */
+    private static DataIntegrityViolationException violationOf(String sqlState) {
+        return new DataIntegrityViolationException(VIOLATION_MESSAGE, new ConstraintViolationException(
+                VIOLATION_MESSAGE, new SQLException(VIOLATION_MESSAGE, sqlState), ConstraintKind.OTHER, "constraint"));
     }
 }

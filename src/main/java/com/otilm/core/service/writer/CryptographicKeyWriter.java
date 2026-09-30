@@ -379,10 +379,11 @@ public class CryptographicKeyWriter {
             keyItem.setUsage(usagesFor(tokenProfile, item.type(), item.algorithm()));
         }
 
-        cryptographicKeyItemRepository.save(keyItem);
-        keyEventHistoryService
-                .addEventHistory(origin.event(), origin.status(), origin.historyMessage(), null, keyItem.getUuid());
-        storeItemMetadata(item, keyItem.getUuid(), tokenInstance, cryptographicKey);
+        // The history names the item as an entity, so the ordered batch inserts put the item's row before its history's
+        // even when an earlier history row of the same flush, such as an adopted public key's, came first.
+        CryptographicKeyItem saved = cryptographicKeyItemRepository.save(keyItem);
+        keyEventHistoryService.addEventHistory(origin.event(), origin.status(), origin.historyMessage(), null, saved);
+        storeItemMetadata(item, saved.getUuid(), tokenInstance, cryptographicKey);
         if (item.type().equals(KeyType.PUBLIC_KEY)) {
             certificateService.updateCertificateKeys(cryptographicKey.uuid(), keyItem.getFingerprint());
         }
