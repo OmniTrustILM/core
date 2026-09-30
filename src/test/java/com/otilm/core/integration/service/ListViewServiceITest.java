@@ -427,10 +427,10 @@ class ListViewServiceITest extends BaseSpringBootTest {
                 .setFilters(List
                         .of(new SearchFilterRequestDto(FilterFieldSource.CUSTOM, "deleted|STRING",
                                 FilterConditionOperator.CONTAINS, "x")));
+        String uuid = stored.getUuid().toString();
 
         ValidationException e = Assertions
-                .assertThrows(ValidationException.class,
-                        () -> listViewService.editView(stored.getUuid().toString(), edit));
+                .assertThrows(ValidationException.class, () -> listViewService.editView(uuid, edit));
         Assertions.assertTrue(e.getMessage().contains("deleted|STRING"));
     }
 
@@ -442,9 +442,10 @@ class ListViewServiceITest extends BaseSpringBootTest {
                 .setFilters(List
                         .of(new SearchFilterRequestDto(FilterFieldSource.CUSTOM, "deleted|STRING",
                                 FilterConditionOperator.EQUALS, "x")));
+        String uuid = created.getUuid();
 
         ValidationException e = Assertions
-                .assertThrows(ValidationException.class, () -> listViewService.editView(created.getUuid(), edit));
+                .assertThrows(ValidationException.class, () -> listViewService.editView(uuid, edit));
         Assertions.assertTrue(e.getMessage().contains("deleted|STRING"));
     }
 
@@ -452,10 +453,11 @@ class ListViewServiceITest extends BaseSpringBootTest {
     void aColumnWhoseFieldNoLongerExistsCannotBeAddedToAnExistingView() throws AlreadyExistException {
         ListViewDto created = listViewService.createView(request("Clean", column("COMMON_NAME")));
         ListViewColumnDto deleted = new ListViewColumnDto(FilterFieldSource.CUSTOM, "deleted|STRING", null);
+        String uuid = created.getUuid();
+        ListViewUpdateRequestDto edit = update("Clean", column("COMMON_NAME"), deleted);
 
         ValidationException e = Assertions
-                .assertThrows(ValidationException.class, () -> listViewService
-                        .editView(created.getUuid(), update("Clean", column("COMMON_NAME"), deleted)));
+                .assertThrows(ValidationException.class, () -> listViewService.editView(uuid, edit));
         Assertions.assertTrue(e.getMessage().contains("deleted|STRING"));
     }
 
