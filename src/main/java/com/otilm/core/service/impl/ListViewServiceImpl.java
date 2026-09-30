@@ -32,6 +32,7 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -83,12 +84,13 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
                 ? listViewRepository.findByUserUuidOrderByCreatedAscUuidAsc(userUuid)
                 : listViewRepository.findByUserUuidAndResourceOrderByCreatedAscUuidAsc(userUuid, resource);
 
-        // One catalogue per resource, certain to hold every field any of that resource's views names.
+        // One catalogue per resource, certain to hold every field any of its views orders by. Reading consults it for
+        // the ordering alone, and naming a column whose field has left the catalogue would reload it on every read.
         Map<Resource, List<NamedField>> named = views
                 .stream()
                 .collect(Collectors
                         .groupingBy(ListView::getResource, () -> new EnumMap<>(Resource.class),
-                                Collectors.flatMapping(view -> namedFields(view).stream(), Collectors.toList())));
+                                Collectors.flatMapping(view -> sortField(view).stream(), Collectors.toList())));
         Map<Resource, Catalogue> catalogues = new EnumMap<>(Resource.class);
         named.forEach((viewResource, fields) -> catalogues.put(viewResource, catalogueOf(viewResource, fields)));
         return views.stream().map(view -> toDto(view, catalogues.get(view.getResource()))).toList();
@@ -391,15 +393,10 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         return new Catalogue(fields);
     }
 
-    private static List<NamedField> namedFields(ListView view) {
-        List<NamedField> named = new ArrayList<>();
-        view
-                .getColumns()
-                .forEach(column -> named.add(NamedField.of(column.getFieldSource(), column.getFieldIdentifier())));
-        if (view.getSort() != null) {
-            named.add(NamedField.of(view.getSort().getFieldSource(), view.getSort().getFieldIdentifier()));
-        }
-        return named;
+    private static Optional<NamedField> sortField(ListView view) {
+        return Optional
+                .ofNullable(view.getSort())
+                .map(sort -> NamedField.of(sort.getFieldSource(), sort.getFieldIdentifier()));
     }
 
     private static List<NamedField> namedFields(ListViewUpdateRequestDto request) {
