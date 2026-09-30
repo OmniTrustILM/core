@@ -400,50 +400,29 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
     }
 
     /**
-     * Core translates the selection into the attribute the contract fixes, so it reads the algorithm without asking the
-     * connector. Signing checks the selection against what the key offers.
+     * Core translates the client's choice into the attribute the contract fixes, so it reads the algorithm without
+     * asking the connector. Signing checks the choice against what the key offers.
      */
     @Override
     public ResolvedSignatureAlgorithm resolveSignatureAlgorithm(CryptographicKeyItemOperationModel privateKeyItem,
             CryptographicKeyItemOperationModel publicKeyItem, List<RequestAttribute> signatureAttributes) {
         SignatureAlgorithm algorithm = SignatureAlgorithmFields
-                .chosen(privateKeyItem.keyAlgorithm(), publicKeyItem.pqcParameterSpecName(), signatureAttributes);
-        if (!signsWith(algorithm, privateKeyItem.keyAlgorithm(), publicKeyItem.pqcParameterSpecName())) {
-            String signingKey = publicKeyItem.pqcParameterSpecName() == null
-                    ? privateKeyItem.keyAlgorithm().getCode()
-                    : publicKeyItem.pqcParameterSpecName();
-            throw new ValidationException(ValidationError
-                    .create("Signature algorithm {} does not fit the signing key ({}).", algorithm.getCode(),
-                            signingKey));
-        }
+                .resolve(privateKeyItem.keyAlgorithm(), publicKeyItem.pqcParameterSpecName(), signatureAttributes);
         return ResolvedSignatureAlgorithm.of(algorithm);
-    }
-
-    /** A post-quantum algorithm is its key's parameter set, so it must name the one the key was generated with. */
-    private static boolean signsWith(SignatureAlgorithm algorithm, KeyAlgorithm keyAlgorithm,
-            String pqcParameterSpecName) {
-        return switch (algorithm) {
-            case SHA256_WITH_RSA, SHA384_WITH_RSA, SHA512_WITH_RSA, SHA256_WITH_RSA_PSS, SHA384_WITH_RSA_PSS,
-                    SHA512_WITH_RSA_PSS ->
-                keyAlgorithm == KeyAlgorithm.RSA;
-            case SHA256_WITH_ECDSA, SHA384_WITH_ECDSA, SHA512_WITH_ECDSA -> keyAlgorithm == KeyAlgorithm.ECDSA;
-            case ED25519, ED448 -> false;
-            case FALCON_1024, ML_DSA_44, ML_DSA_65, ML_DSA_87, SLH_DSA_SHA2_128S, SLH_DSA_SHA2_128F, SLH_DSA_SHA2_192S,
-                    SLH_DSA_SHA2_192F, SLH_DSA_SHA2_256S, SLH_DSA_SHA2_256F ->
-                algorithm.getCode().equalsIgnoreCase(pqcParameterSpecName);
-        };
     }
 
     @Override
     public SignDataResponseDto signData(OperationKeyContext context, SignDataRequestDto request)
             throws ConnectorException {
-        ValidatedScope validated = validatedScope(context,
+        ScopedAttributes scoped = scopedAttributes(context,
                 schemaRequest -> operationsApiClient.listSignAttributes(connectorInfo, schemaRequest),
-                request.getSignatureAttributes(), SignatureAlgorithmFields::selection);
+                request.getSignatureAttributes(),
+                (definitions, submitted) -> signatureAttributes(context, definitions, submitted));
+        TokenProfileScopedRequestV2Dto scope = scoped.scope();
         IdentifiedBatch<SignatureDataV2Dto> batch = signatureBatch(request.getData());
-        SignDataRequestV2Dto body = keyScoped(new SignDataRequestV2Dto(), context, validated.scope());
+        SignDataRequestV2Dto body = keyScoped(new SignDataRequestV2Dto(), context, scope);
         body.setExecutionMode(OperationExecutionMode.SYNCHRONOUS);
-        body.setSignatureAttributes(validated.attributes());
+        body.setSignatureAttributes(scoped.attributes());
         body.setData(batch.items());
         ResponseEntity<SignDataResponseV2Dto> response = operationsApiClient.signData(connectorInfo, body);
         SignDataResponseV2Dto responseBody = response.getBody();
@@ -471,14 +450,15 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
             throw new ValidationException(ValidationError.create("Verification requires one signature per data item."));
         }
         requireAlignedIdentifiers(request.getData(), request.getSignatures());
-        ValidatedScope validated = validatedScope(context,
+        ScopedAttributes scoped = scopedAttributes(context,
                 schemaRequest -> operationsApiClient.listVerifyAttributes(connectorInfo, schemaRequest),
-                request.getSignatureAttributes(), SignatureAlgorithmFields::selection);
-        TokenProfileScopedRequestV2Dto scope = validated.scope();
+                request.getSignatureAttributes(),
+                (definitions, submitted) -> signatureAttributes(context, definitions, submitted));
+        TokenProfileScopedRequestV2Dto scope = scoped.scope();
         IdentifiedBatch<SignatureDataV2Dto> data = signatureBatch(request.getData());
         IdentifiedBatch<SignatureDataV2Dto> signatures = signatureBatch(request.getSignatures());
         VerifyDataRequestV2Dto body = keyScoped(new VerifyDataRequestV2Dto(), context, scope);
-        body.setSignatureAttributes(validated.attributes());
+        body.setSignatureAttributes(scoped.attributes());
         body.setData(data.items());
         body.setSignatures(signatures.items());
         VerifyDataResponseV2Dto response = operationsApiClient.verifyData(connectorInfo, body);
@@ -514,7 +494,7 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
 
     @Override
     public List<BaseAttribute> listSignAttributes(OperationKeyContext context) throws ConnectorException {
-        return signAttributeSchema(context).definitions();
+        return signAttributeSchema(context).presentedDefinitions();
     }
 
     @Override
@@ -524,8 +504,11 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
 
     @Override
     public List<BaseAttribute> listVerifyAttributes(OperationKeyContext context) throws ConnectorException {
-        return signatureSchema(context, request -> operationsApiClient.listVerifyAttributes(connectorInfo, request))
-                .definitions();
+        return verifyAttributeSchema(context).presentedDefinitions();
+    }
+
+    private OperationAttributeSchema verifyAttributeSchema(OperationKeyContext context) throws ConnectorException {
+        return signatureSchema(context, request -> operationsApiClient.listVerifyAttributes(connectorInfo, request));
     }
 
     @Override
@@ -812,18 +795,20 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
             ConnectorCall<KeyScopedRequestV2Dto, List<BaseAttribute>> schemaCall) throws ConnectorException {
         KeyScopedRequestV2Dto request = keyScoped(new KeyScopedRequestV2Dto(), context,
                 tokenProfileScopedRequest(context.tokenProfile()));
-        return publishDefinitions(request, fetchSchema(schemaCall, request));
+        return persistDefinitions(fetchGuardedSchema(schemaCall, request));
     }
 
     private OperationAttributeSchema signatureSchema(OperationKeyContext context,
             ConnectorCall<KeyScopedRequestV2Dto, List<BaseAttribute>> schemaCall) throws ConnectorException {
         KeyScopedRequestV2Dto request = keyScoped(new KeyScopedRequestV2Dto(), context,
                 tokenProfileScopedRequest(context.tokenProfile()));
-        List<BaseAttribute> connectorDefinitions = fetchSchema(schemaCall, request);
-        assertNoExpandedSecretEchoed(request, connectorDefinitions);
-        List<BaseAttribute> definitions = persistDefinitions(SignatureAlgorithmFields.form(connectorDefinitions));
-        return new OperationAttributeSchema(context.keyItem().operationAttributeOwner(), definitions,
-                connectorDefinitions);
+        KeyAlgorithm keyAlgorithm = context.keyItem().keyAlgorithm();
+        List<BaseAttribute> connectorDefinitions = fetchGuardedSchema(schemaCall, request);
+        assertNoCoreFieldPublished(connectorDefinitions);
+        List<BaseAttribute> presentedDefinitions = persistDefinitions(
+                SignatureAlgorithmFields.toClient(keyAlgorithm, connectorDefinitions));
+        return new OperationAttributeSchema(context.keyItem().operationAttributeOwner(), presentedDefinitions,
+                connectorDefinitions, keyAlgorithm);
     }
 
     private <T extends KeyScopedRequestV2Dto> T keyScoped(T request, OperationKeyContext context,
@@ -841,13 +826,28 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         return request;
     }
 
-    private List<BaseAttribute> fetchSchema(ConnectorCall<KeyScopedRequestV2Dto, List<BaseAttribute>> schemaCall,
+    /**
+     * Fetches the connector's schema and refuses an answer echoing a request secret. The check runs on the answer as
+     * sent, before Core presents it.
+     */
+    private List<BaseAttribute> fetchGuardedSchema(ConnectorCall<KeyScopedRequestV2Dto, List<BaseAttribute>> schemaCall,
             KeyScopedRequestV2Dto request) throws ConnectorException {
         List<BaseAttribute> definitions = schemaCall.call(request);
         if (definitions == null) {
             throw new ConnectorException("Connector returned no attribute schema", connectorInfo);
         }
+        assertNoExpandedSecretEchoed(request, definitions);
         return definitions;
+    }
+
+    /** Core strips its fields before it calls the connector. A connector publishing one would never receive it. */
+    private void assertNoCoreFieldPublished(List<BaseAttribute> definitions) throws ConnectorException {
+        List<String> coreFields = SignatureAlgorithmFields.fieldNamesIn(definitions);
+        if (!coreFields.isEmpty()) {
+            throw new ConnectorException(
+                    "Connector publishes attributes Core presents itself: " + String.join(", ", coreFields),
+                    connectorInfo);
+        }
     }
 
     private void assertNoExpandedSecretEchoed(TokenProfileScopedRequestV2Dto sentScope, Object payload) {
@@ -883,21 +883,31 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
     private TokenProfileScopedRequestV2Dto validatedScope(OperationKeyContext context,
             ConnectorCall<KeyScopedRequestV2Dto, List<BaseAttribute>> schemaCall, List<RequestAttribute> attributes)
             throws ConnectorException {
-        return validatedScope(context, schemaCall, attributes, (definitions, submitted) -> submitted).scope();
+        return scopedAttributes(context, schemaCall, attributes, KeyProviderV2Adapter::asSubmitted).scope();
+    }
+
+    private static List<RequestAttribute> asSubmitted(List<BaseAttribute> definitions,
+            List<RequestAttribute> submitted) {
+        return submitted;
+    }
+
+    /** The caller's choice of signature algorithm for the key, as the connector reads it. */
+    private List<RequestAttribute> signatureAttributes(OperationKeyContext context, List<BaseAttribute> definitions,
+            List<RequestAttribute> submitted) throws ConnectorException {
+        assertNoCoreFieldPublished(definitions);
+        return SignatureAlgorithmFields.toConnector(context.keyItem().keyAlgorithm(), definitions, submitted);
     }
 
     /** Validates the attributes as they will reach the connector, once translated against its schema. */
-    private ValidatedScope validatedScope(OperationKeyContext context,
+    private ScopedAttributes scopedAttributes(OperationKeyContext context,
             ConnectorCall<KeyScopedRequestV2Dto, List<BaseAttribute>> schemaCall, List<RequestAttribute> attributes,
-            BiFunction<List<BaseAttribute>, List<RequestAttribute>, List<RequestAttribute>> toConnector)
-            throws ConnectorException {
+            AttributeTranslation toConnector) throws ConnectorException {
         TokenProfileScopedRequestV2Dto scope = tokenProfileScopedRequest(context.tokenProfile());
         KeyScopedRequestV2Dto request = keyScoped(new KeyScopedRequestV2Dto(), context, scope);
-        List<BaseAttribute> definitions = fetchSchema(schemaCall, request);
-        assertNoExpandedSecretEchoed(request, definitions);
-        List<RequestAttribute> connectorAttributes = toConnector.apply(definitions, attributes);
+        List<BaseAttribute> definitions = fetchGuardedSchema(schemaCall, request);
+        List<RequestAttribute> connectorAttributes = toConnector.translate(definitions, attributes);
         AttributeDefinitionUtils.validateAttributes(definitions, connectorAttributes);
-        return new ValidatedScope(scope, connectorAttributes);
+        return new ScopedAttributes(scope, connectorAttributes);
     }
 
     /**
@@ -973,7 +983,7 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
     }
 
     /** The scope the schema was fetched with, and the attributes to send to the connector. */
-    private record ValidatedScope(TokenProfileScopedRequestV2Dto scope, List<RequestAttribute> attributes) {
+    private record ScopedAttributes(TokenProfileScopedRequestV2Dto scope, List<RequestAttribute> attributes) {
     }
 
     /** Sends every item under its position; the caller's identifiers (possibly null) come back by position. */
@@ -1011,6 +1021,12 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
     @FunctionalInterface
     private interface ConnectorCall<S, T> {
         T call(S request) throws ConnectorException;
+    }
+
+    @FunctionalInterface
+    private interface AttributeTranslation {
+        List<RequestAttribute> translate(List<BaseAttribute> definitions, List<RequestAttribute> submitted)
+                throws ConnectorException;
     }
 
     @FunctionalInterface

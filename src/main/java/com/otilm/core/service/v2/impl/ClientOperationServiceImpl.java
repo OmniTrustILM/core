@@ -3055,7 +3055,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         OperationAttributeSchema schema = cryptographicOperationService.listSignAttributeSchema(keyUuid);
         attributeEngine
                 .validateUpdateDataAttributes(schema.ownerConnectorUuid(), AttributeOperation.SIGN,
-                        schema.definitions(), signatureAttributes);
+                        schema.presentedDefinitions(), signatureAttributes);
         schema.requireOfferedSignatureAlgorithm(signatureAttributes);
     }
 

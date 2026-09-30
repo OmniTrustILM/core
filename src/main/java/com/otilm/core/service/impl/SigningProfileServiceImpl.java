@@ -273,7 +273,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         if (keyUuid == null) {
             return List.of();
         }
-        return cryptographicOperationService.listSignAttributeSchema(keyUuid).definitions();
+        return cryptographicOperationService.listSignAttributeSchema(keyUuid).presentedDefinitions();
     }
 
     @Override
@@ -1152,7 +1152,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
             List<RequestAttribute> signingOperationAttributes = staticKeyScheme.getSigningOperationAttributes();
             attributeEngine
                     .validateUpdateDataAttributes(signingSchema.ownerConnectorUuid(), AttributeOperation.SIGN,
-                            signingSchema.definitions(), signingOperationAttributes);
+                            signingSchema.presentedDefinitions(), signingOperationAttributes);
             signingSchema.requireOfferedSignatureAlgorithm(signingOperationAttributes);
             return attributeEngine.replaceObjectDataAttributesContent(content, signingOperationAttributes);
         }

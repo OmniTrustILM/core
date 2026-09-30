@@ -105,6 +105,7 @@ import jakarta.validation.Validation;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.PublicKey;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -112,7 +113,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -184,8 +184,12 @@ class KeyProviderV2AdapterTest {
     }
 
     private OperationKeyContext v2Context(List<MetadataAttribute> keyMeta) {
+        return v2Context(keyMeta, KeyAlgorithm.RSA);
+    }
+
+    private OperationKeyContext v2Context(List<MetadataAttribute> keyMeta, KeyAlgorithm keyAlgorithm) {
         CryptographicKeyItemOperationModel item = new CryptographicKeyItemOperationModel(UUID.randomUUID(), true,
-                KeyAlgorithm.RSA, KeyState.ACTIVE, KeyType.PRIVATE_KEY, List.of(KeyUsage.SIGN, KeyUsage.ENCRYPT), null,
+                keyAlgorithm, KeyState.ACTIVE, KeyType.PRIVATE_KEY, List.of(KeyUsage.SIGN, KeyUsage.ENCRYPT), null,
                 new RemoteKeyReference.MetadataReference(keyMeta), profile.connectorUuid(), null, UUID.randomUUID(),
                 ConnectorInterface.CRYPTOGRAPHY, "v2");
         return new OperationKeyContext(item, profile);
@@ -337,37 +341,24 @@ class KeyProviderV2AdapterTest {
     }
 
     @Test
-    void resolveSignatureAlgorithm_readsTheSelection_withoutTouchingTheConnector() {
+    void resolveSignatureAlgorithm_refusesASubmittedSignatureAlgorithmAttribute_withoutTouchingTheConnector() {
         // given
         List<RequestAttribute> signatureAttributes = List
                 .of(stringAttribute("keyLabel", "tsa-key"),
                         SignatureAlgorithmAttribute.request(SignatureAlgorithm.SHA384_WITH_RSA_PSS));
 
         // when
-        ResolvedSignatureAlgorithm resolved = adapter
+        Executable resolve = () -> adapter
                 .resolveSignatureAlgorithm(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA),
                         CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA), signatureAttributes);
 
         // then
-        assertEquals(SignatureAlgorithm.SHA384_WITH_RSA_PSS, resolved.platformAlgorithm());
+        assertThrows(ValidationException.class, resolve);
         verifyNoInteractions(operationsClient);
     }
 
     @Test
-    void resolveSignatureAlgorithm_acceptsThePostQuantumParameterSetOfTheKey() {
-        // when
-        ResolvedSignatureAlgorithm resolved = adapter
-                .resolveSignatureAlgorithm(
-                        CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.MLDSA),
-                        CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.MLDSA, "ML-DSA-65"),
-                        List.of(SignatureAlgorithmAttribute.request(SignatureAlgorithm.ML_DSA_65)));
-
-        // then
-        assertEquals(SignatureAlgorithm.ML_DSA_65, resolved.platformAlgorithm());
-    }
-
-    @Test
-    void resolveSignatureAlgorithm_refusesAMissingSelection() {
+    void resolveSignatureAlgorithm_refusesAMissingChoice() {
         // when
         Executable resolve = () -> adapter
                 .resolveSignatureAlgorithm(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA),
@@ -392,7 +383,7 @@ class KeyProviderV2AdapterTest {
     }
 
     @Test
-    void resolveSignatureAlgorithm_namesThePostQuantumKeysOwnParameterSet_whenNothingIsSelected() {
+    void resolveSignatureAlgorithm_namesThePostQuantumKeysOwnParameterSet_whenNothingIsChosen() {
         // when
         ResolvedSignatureAlgorithm resolved = adapter
                 .resolveSignatureAlgorithm(
@@ -401,46 +392,6 @@ class KeyProviderV2AdapterTest {
 
         // then
         assertEquals(SignatureAlgorithm.ML_DSA_87, resolved.platformAlgorithm());
-    }
-
-    @ParameterizedTest(name = "{0}")
-    @MethodSource("selectionsTheKeyCannotSignWith")
-    void resolveSignatureAlgorithm_refusesAnAlgorithmTheKeyCannotSignWith(UnfitSelection selection) {
-        // when
-        Executable resolve = () -> adapter
-                .resolveSignatureAlgorithm(selection.privateKey(), selection.publicKey(),
-                        List.of(SignatureAlgorithmAttribute.request(selection.algorithm())));
-
-        // then
-        ValidationException failure = assertThrows(ValidationException.class, resolve);
-        assertTrue(failure.getMessage().contains(selection.algorithm().getCode()));
-    }
-
-    private static Stream<Named<UnfitSelection>> selectionsTheKeyCannotSignWith() {
-        return Stream
-                .of(named("ECDSA on an RSA key",
-                        new UnfitSelection(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA),
-                                CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA),
-                                SignatureAlgorithm.SHA256_WITH_ECDSA)),
-                        named("ML-DSA on an RSA key",
-                                new UnfitSelection(
-                                        CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA),
-                                        CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA),
-                                        SignatureAlgorithm.ML_DSA_65)),
-                        named("another ML-DSA parameter set",
-                                new UnfitSelection(
-                                        CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.MLDSA),
-                                        CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.MLDSA, "ML-DSA-65"),
-                                        SignatureAlgorithm.ML_DSA_44)),
-                        named("Ed25519, which no platform key algorithm signs with",
-                                new UnfitSelection(
-                                        CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.ECDSA),
-                                        CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.ECDSA),
-                                        SignatureAlgorithm.ED25519)));
-    }
-
-    record UnfitSelection(CryptographicKeyItemOperationModel privateKey, CryptographicKeyItemOperationModel publicKey,
-            SignatureAlgorithm algorithm) {
     }
 
     @Test
@@ -454,12 +405,12 @@ class KeyProviderV2AdapterTest {
         stubAttributes(Resource.TOKEN_PROFILE, profile.uuid(), List.of(requestAttribute("stored-profile")),
                 resolvedProfile);
         when(operationsClient.listSignAttributes(any(), any()))
-                .thenReturn(List.of(dataAttributeDefinition("digest", true)));
+                .thenReturn(signableSchema(dataAttributeDefinition("digest", true)));
         SignDataResponseV2Dto body = new SignDataResponseV2Dto();
         body.setSignatures(List.of(new SignatureDataV2Dto(new byte[]{7}, "0")));
         when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
         SignDataRequestDto request = new SignDataRequestDto();
-        request.setSignatureAttributes(List.of(stringAttribute("digest", "SHA256")));
+        request.setSignatureAttributes(signableAttributes(stringAttribute("digest", "SHA256")));
         SignatureRequestData item = new SignatureRequestData();
         item.setData(Base64.getEncoder().encodeToString(new byte[]{1}));
         request.setData(List.of(item));
@@ -484,10 +435,10 @@ class KeyProviderV2AdapterTest {
     void signData_rejectsResponseWithoutSynchronousResult(ResponseEntity<SignDataResponseV2Dto> response)
             throws Exception {
         // given
-        when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of());
+        when(operationsClient.listSignAttributes(any(), any())).thenReturn(signableSchema());
         when(operationsClient.signData(any(), any())).thenReturn(response);
         SignDataRequestDto request = new SignDataRequestDto();
-        request.setSignatureAttributes(List.of());
+        request.setSignatureAttributes(signableAttributes());
         SignatureRequestData item = new SignatureRequestData();
         item.setData("AQ==");
         request.setData(List.of(item));
@@ -518,9 +469,9 @@ class KeyProviderV2AdapterTest {
     void signData_rejectsInvalidAttributes_beforeCallingConnector() throws Exception {
         // given
         when(operationsClient.listSignAttributes(any(), any()))
-                .thenReturn(List.of(dataAttributeDefinition("digest", true)));
+                .thenReturn(signableSchema(dataAttributeDefinition("digest", true)));
         SignDataRequestDto request = new SignDataRequestDto();
-        request.setSignatureAttributes(List.of());
+        request.setSignatureAttributes(signableAttributes());
         SignatureRequestData item = new SignatureRequestData();
         item.setData("AQ==");
         request.setData(List.of(item));
@@ -584,9 +535,10 @@ class KeyProviderV2AdapterTest {
     }
 
     @Test
-    void signData_sendsNoSignatureAttributes_whenTheRequestStatesNone() throws Exception {
+    void signData_sendsThePostQuantumKeysParameterSet_whenTheRequestStatesNoAttributes() throws Exception {
         // given
-        when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of());
+        when(operationsClient.listSignAttributes(any(), any()))
+                .thenReturn(List.of(SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.ML_DSA_65))));
         SignDataResponseV2Dto body = new SignDataResponseV2Dto();
         body.setSignatures(List.of(new SignatureDataV2Dto(new byte[]{7}, "0")));
         when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
@@ -595,12 +547,67 @@ class KeyProviderV2AdapterTest {
         request.setData(List.of(signatureItem("AQ==", null)));
 
         // when
-        adapter.signData(v2Context(metadata("handle")), request);
+        adapter.signData(v2Context(metadata("handle"), KeyAlgorithm.MLDSA), request);
 
         // then
         ArgumentCaptor<SignDataRequestV2Dto> sent = ArgumentCaptor.forClass(SignDataRequestV2Dto.class);
         verify(operationsClient).signData(any(), sent.capture());
-        assertEquals(List.of(), sent.getValue().getSignatureAttributes());
+        assertEquals(SignatureAlgorithm.ML_DSA_65,
+                SignatureAlgorithmAttribute.selectedAlgorithm(sent.getValue().getSignatureAttributes()));
+    }
+
+    @Test
+    void signData_refusesAnRsaKeyWhoseConnectorListsNoAlgorithm_beforeCallingConnector() throws Exception {
+        // given
+        when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of());
+        SignDataRequestDto request = new SignDataRequestDto();
+        request.setSignatureAttributes(signableAttributes());
+        request.setData(List.of(signatureItem("AQ==", null)));
+
+        // when
+        Executable sign = () -> adapter.signData(v2Context(metadata("handle")), request);
+
+        // then
+        ValidationException failure = assertThrows(ValidationException.class, sign);
+        assertTrue(failure.getMessage().contains("offers no signature algorithm"), failure.getMessage());
+        verify(operationsClient, never()).signData(any(), any());
+    }
+
+    @Test
+    void signData_refusesAConnectorThatPublishesAFieldOfCore_beforeCallingConnector() throws Exception {
+        // given
+        when(operationsClient.listSignAttributes(any(), any()))
+                .thenReturn(signableSchema(
+                        dataAttributeDefinition(RsaSignatureAttributes.ATTRIBUTE_DATA_SIG_DIGEST, false)));
+        SignDataRequestDto request = new SignDataRequestDto();
+        request.setSignatureAttributes(signableAttributes());
+        request.setData(List.of(signatureItem("AQ==", null)));
+
+        // when
+        Executable sign = () -> adapter.signData(v2Context(metadata("handle")), request);
+
+        // then
+        assertThrows(ConnectorException.class, sign);
+        verify(operationsClient, never()).signData(any(), any());
+    }
+
+    @Test
+    void verifyData_refusesAConnectorThatPublishesAFieldOfCore_beforeCallingConnector() throws Exception {
+        // given
+        when(operationsClient.listVerifyAttributes(any(), any()))
+                .thenReturn(signableSchema(
+                        dataAttributeDefinition(RsaSignatureAttributes.ATTRIBUTE_DATA_RSA_SIG_SCHEME, false)));
+        VerifyDataRequestDto request = new VerifyDataRequestDto();
+        request.setSignatureAttributes(signableAttributes());
+        request.setData(List.of(signatureItem("AQ==", null)));
+        request.setSignatures(List.of(signatureItem("Ag==", null)));
+
+        // when
+        Executable verify = () -> adapter.verifyData(v2Context(metadata("handle")), request);
+
+        // then
+        assertThrows(ConnectorException.class, verify);
+        verify(operationsClient, never()).verifyData(any(), any());
     }
 
     @Test
@@ -621,12 +628,12 @@ class KeyProviderV2AdapterTest {
     @Test
     void verifyData_pairsDataAndSignaturesByPosition_andRestoresIdentifiers() throws Exception {
         // given
-        when(operationsClient.listVerifyAttributes(any(), any())).thenReturn(List.of());
+        when(operationsClient.listVerifyAttributes(any(), any())).thenReturn(signableSchema());
         VerifyDataResponseV2Dto body = new VerifyDataResponseV2Dto();
         body.setVerifications(List.of(new VerificationResponseItemV2Dto(true, "0", null)));
         when(operationsClient.verifyData(any(), any())).thenReturn(body);
         VerifyDataRequestDto request = new VerifyDataRequestDto();
-        request.setSignatureAttributes(List.of());
+        request.setSignatureAttributes(signableAttributes());
         SignatureRequestData data = new SignatureRequestData();
         data.setData("AQ==");
         SignatureRequestData signature = new SignatureRequestData();
@@ -695,9 +702,9 @@ class KeyProviderV2AdapterTest {
     @Test
     void verifyData_rejectsMismatchedBatchSizes() throws Exception {
         // given
-        when(operationsClient.listVerifyAttributes(any(), any())).thenReturn(List.of());
+        when(operationsClient.listVerifyAttributes(any(), any())).thenReturn(signableSchema());
         VerifyDataRequestDto request = new VerifyDataRequestDto();
-        request.setSignatureAttributes(List.of());
+        request.setSignatureAttributes(signableAttributes());
         SignatureRequestData one = new SignatureRequestData();
         one.setData("AQ==");
         request.setData(List.of(one));
@@ -715,7 +722,7 @@ class KeyProviderV2AdapterTest {
     @Test
     void verifyData_sendsMatchingIdentifierSets_whenOnlyDataIsIdentified() throws Exception {
         // given
-        when(operationsClient.listVerifyAttributes(any(), any())).thenReturn(List.of());
+        when(operationsClient.listVerifyAttributes(any(), any())).thenReturn(signableSchema());
         VerifyDataResponseV2Dto body = new VerifyDataResponseV2Dto();
         body
                 .setVerifications(List
@@ -723,7 +730,7 @@ class KeyProviderV2AdapterTest {
                                 new VerificationResponseItemV2Dto(false, "1", null)));
         when(operationsClient.verifyData(any(), any())).thenReturn(body);
         VerifyDataRequestDto request = new VerifyDataRequestDto();
-        request.setSignatureAttributes(List.of());
+        request.setSignatureAttributes(signableAttributes());
         request.setData(List.of(signatureItem("AQ==", "a"), signatureItem("Ag==", "b")));
         request.setSignatures(List.of(signatureItem("Aw==", null), signatureItem("BA==", null)));
 
@@ -742,7 +749,7 @@ class KeyProviderV2AdapterTest {
     @Test
     void signData_numbersEveryItemPositionally_andRestoresCallerIdentifiers() throws Exception {
         // given
-        when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of());
+        when(operationsClient.listSignAttributes(any(), any())).thenReturn(signableSchema());
         SignDataResponseV2Dto body = new SignDataResponseV2Dto();
         body
                 .setSignatures(List
@@ -750,7 +757,7 @@ class KeyProviderV2AdapterTest {
                                 new SignatureDataV2Dto(new byte[]{3}, "2")));
         when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
         SignDataRequestDto request = new SignDataRequestDto();
-        request.setSignatureAttributes(List.of());
+        request.setSignatureAttributes(signableAttributes());
         request
                 .setData(List
                         .of(signatureItem("AQ==", "custom"), signatureItem("Ag==", null), signatureItem("Aw==", "1")));
@@ -770,14 +777,14 @@ class KeyProviderV2AdapterTest {
     @Test
     void signData_restoresRequestOrder_whenConnectorReordersTheBatch() throws Exception {
         // given
-        when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of());
+        when(operationsClient.listSignAttributes(any(), any())).thenReturn(signableSchema());
         SignDataResponseV2Dto body = new SignDataResponseV2Dto();
         body
                 .setSignatures(List
                         .of(new SignatureDataV2Dto(new byte[]{2}, "1"), new SignatureDataV2Dto(new byte[]{1}, "0")));
         when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
         SignDataRequestDto request = new SignDataRequestDto();
-        request.setSignatureAttributes(List.of());
+        request.setSignatureAttributes(signableAttributes());
         request.setData(List.of(signatureItem("AQ==", "first"), signatureItem("Ag==", "second")));
 
         // when
@@ -793,14 +800,14 @@ class KeyProviderV2AdapterTest {
     @Test
     void signData_rejectsRepeatedPosition() throws Exception {
         // given
-        when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of());
+        when(operationsClient.listSignAttributes(any(), any())).thenReturn(signableSchema());
         SignDataResponseV2Dto body = new SignDataResponseV2Dto();
         body
                 .setSignatures(List
                         .of(new SignatureDataV2Dto(new byte[]{1}, "0"), new SignatureDataV2Dto(new byte[]{2}, "0")));
         when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
         SignDataRequestDto request = new SignDataRequestDto();
-        request.setSignatureAttributes(List.of());
+        request.setSignatureAttributes(signableAttributes());
         request.setData(List.of(signatureItem("AQ==", null), signatureItem("Ag==", null)));
 
         // when
@@ -813,12 +820,12 @@ class KeyProviderV2AdapterTest {
     @Test
     void signData_rejectsResultWithFewerItemsThanTheRequest() throws Exception {
         // given
-        when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of());
+        when(operationsClient.listSignAttributes(any(), any())).thenReturn(signableSchema());
         SignDataResponseV2Dto body = new SignDataResponseV2Dto();
         body.setSignatures(List.of(new SignatureDataV2Dto(new byte[]{1}, "0")));
         when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
         SignDataRequestDto request = new SignDataRequestDto();
-        request.setSignatureAttributes(List.of());
+        request.setSignatureAttributes(signableAttributes());
         request.setData(List.of(signatureItem("AQ==", null), signatureItem("Ag==", null)));
 
         // when
@@ -832,7 +839,7 @@ class KeyProviderV2AdapterTest {
     void verifyData_rejectsCallerIdentifiersThatDoNotLineUp_beforeCallingConnector() throws Exception {
         // given
         VerifyDataRequestDto request = new VerifyDataRequestDto();
-        request.setSignatureAttributes(List.of());
+        request.setSignatureAttributes(signableAttributes());
         request.setData(List.of(signatureItem("AQ==", "a"), signatureItem("Ag==", "b")));
         request.setSignatures(List.of(signatureItem("Aw==", "b"), signatureItem("BA==", "a")));
 
@@ -849,12 +856,12 @@ class KeyProviderV2AdapterTest {
         // given
         String expandedSecret = "resolved-provider-password";
         stubExpandedSecret(Resource.TOKEN, expandedSecret);
-        when(operationsClient.listVerifyAttributes(any(), any())).thenReturn(List.of());
+        when(operationsClient.listVerifyAttributes(any(), any())).thenReturn(signableSchema());
         VerifyDataResponseV2Dto response = new VerifyDataResponseV2Dto();
         response.setVerifications(List.of(new VerificationResponseItemV2Dto(false, "0", expandedSecret)));
         when(operationsClient.verifyData(any(), any())).thenReturn(response);
         VerifyDataRequestDto request = new VerifyDataRequestDto();
-        request.setSignatureAttributes(List.of());
+        request.setSignatureAttributes(signableAttributes());
         request.setData(List.of(signatureItem("AQ==", null)));
         request.setSignatures(List.of(signatureItem("Ag==", null)));
 
@@ -869,12 +876,12 @@ class KeyProviderV2AdapterTest {
     void signData_resolvesScopeOnce_andNeverTouchesTheAttributeEngineForTheSchema() throws Exception {
         // given
         when(operationsClient.listSignAttributes(any(), any()))
-                .thenReturn(List.of(dataAttributeDefinition("digest", false)));
+                .thenReturn(signableSchema(dataAttributeDefinition("digest", false)));
         SignDataResponseV2Dto body = new SignDataResponseV2Dto();
         body.setSignatures(List.of(new SignatureDataV2Dto(new byte[]{7}, "0")));
         when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
         SignDataRequestDto request = new SignDataRequestDto();
-        request.setSignatureAttributes(List.of());
+        request.setSignatureAttributes(signableAttributes());
         request.setData(List.of(signatureItem("AQ==", null)));
 
         // when
@@ -895,12 +902,12 @@ class KeyProviderV2AdapterTest {
     @ValueSource(strings = {"not-a-position", "1", "-1"})
     void signData_rejectsIdentifierThatWasNotPartOfTheRequest(String returnedIdentifier) throws Exception {
         // given
-        when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of());
+        when(operationsClient.listSignAttributes(any(), any())).thenReturn(signableSchema());
         SignDataResponseV2Dto body = new SignDataResponseV2Dto();
         body.setSignatures(List.of(new SignatureDataV2Dto(new byte[]{7}, returnedIdentifier)));
         when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
         SignDataRequestDto request = new SignDataRequestDto();
-        request.setSignatureAttributes(List.of());
+        request.setSignatureAttributes(signableAttributes());
         request.setData(List.of(signatureItem("AQ==", "caller")));
 
         // when
@@ -967,7 +974,7 @@ class KeyProviderV2AdapterTest {
         List<BaseAttribute> result = adapterListing.list(adapter, v2Context(metadata("handle")));
 
         // then
-        assertSame(schema, result);
+        assertEquals(schema, result);
         verify(attributes).updateDataAttributeDefinitions(profile.connectorUuid(), null, schema);
     }
 
@@ -1008,30 +1015,56 @@ class KeyProviderV2AdapterTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("signatureListings")
-    void listSignatureAttributes_serveTheConnectorsSelection_whenTheFieldsCannotExpressIt(String operation,
+    void listSignatureAttributes_presentTheFieldsOfTheKeysAlgorithm_whenTheConnectorListsOtherCodesToo(String operation,
             ClientListing clientListing, AdapterListing adapterListing) throws Exception {
         // given
-        BaseAttribute selection = SignatureAlgorithmAttribute
-                .definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA, SignatureAlgorithm.SHA256_WITH_ECDSA));
-        when(clientListing.list(operationsClient)).thenReturn(List.of(selection));
+        when(clientListing.list(operationsClient))
+                .thenReturn(List
+                        .of(SignatureAlgorithmAttribute
+                                .definition(List
+                                        .of(SignatureAlgorithm.SHA256_WITH_RSA,
+                                                SignatureAlgorithm.SHA256_WITH_ECDSA))));
 
         // when
         List<BaseAttribute> result = adapterListing.list(adapter, v2Context(metadata("handle")));
 
         // then
-        assertEquals(List.of(selection), result);
-        assertSame(selection, result.get(0));
+        assertEquals(
+                List
+                        .of(RsaSignatureAttributes.ATTRIBUTE_DATA_RSA_SIG_SCHEME,
+                                RsaSignatureAttributes.ATTRIBUTE_DATA_SIG_DIGEST),
+                result.stream().map(BaseAttribute::getName).toList());
         verify(attributes).updateDataAttributeDefinitions(profile.connectorUuid(), null, result);
     }
 
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("signatureListings")
+    void listSignatureAttributes_refuseAConnectorThatPublishesAFieldOfCore(String operation,
+            ClientListing clientListing, AdapterListing adapterListing) throws Exception {
+        // given
+        when(clientListing.list(operationsClient))
+                .thenReturn(signableSchema(
+                        dataAttributeDefinition(RsaSignatureAttributes.ATTRIBUTE_DATA_SIG_DIGEST, false)));
+
+        // when
+        Executable list = () -> adapterListing.list(adapter, v2Context(metadata("handle")));
+
+        // then
+        ConnectorException failure = assertThrows(ConnectorException.class, list);
+        assertTrue(failure.getMessage().contains(RsaSignatureAttributes.ATTRIBUTE_DATA_SIG_DIGEST),
+                failure.getMessage());
+        verify(attributes, never()).updateDataAttributeDefinitions(any(), any(), any());
+    }
+
     @Test
-    void listSignAttributes_rejectsASecretEchoedInTheSelectionTheFieldsReplace() throws Exception {
+    void listSignAttributes_rejectsASecretEchoedInTheSignatureAlgorithmAttributeTheFieldsReplace() throws Exception {
         // given
         String expandedSecret = "resolved-provider-password";
         stubExpandedSecret(Resource.TOKEN, expandedSecret);
-        var selection = SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA));
-        selection.setDescription(expandedSecret);
-        when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of(selection));
+        var signatureAlgorithmAttribute = SignatureAlgorithmAttribute
+                .definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA));
+        signatureAlgorithmAttribute.setDescription(expandedSecret);
+        when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of(signatureAlgorithmAttribute));
 
         // when
         Executable listDefinitions = () -> adapter.listSignAttributes(v2Context(metadata("handle")));
@@ -1045,7 +1078,7 @@ class KeyProviderV2AdapterTest {
     void signAttributeSchema_namesTheConnectorTheOwner_andKeepsWhatItPublished() throws Exception {
         // given
         List<BaseAttribute> published = List
-                .of(SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.SHA256_WITH_ECDSA)));
+                .of(SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA)));
         when(operationsClient.listSignAttributes(any(), any())).thenReturn(published);
 
         // when
@@ -1053,8 +1086,12 @@ class KeyProviderV2AdapterTest {
 
         // then
         assertEquals(profile.connectorUuid(), schema.ownerConnectorUuid());
-        assertEquals(List.of(RsaSignatureAttributes.ATTRIBUTE_DATA_SIG_DIGEST),
-                schema.definitions().stream().map(BaseAttribute::getName).toList());
+        assertEquals(KeyAlgorithm.RSA, schema.keyAlgorithm());
+        assertEquals(
+                List
+                        .of(RsaSignatureAttributes.ATTRIBUTE_DATA_RSA_SIG_SCHEME,
+                                RsaSignatureAttributes.ATTRIBUTE_DATA_SIG_DIGEST),
+                schema.presentedDefinitions().stream().map(BaseAttribute::getName).toList());
         assertSame(published, schema.connectorDefinitions());
     }
 
@@ -1095,9 +1132,9 @@ class KeyProviderV2AdapterTest {
     @NullAndEmptySource
     void signData_rejectsItemWithoutData_beforeCallingConnector(String data) throws Exception {
         // given
-        when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of());
+        when(operationsClient.listSignAttributes(any(), any())).thenReturn(signableSchema());
         SignDataRequestDto request = new SignDataRequestDto();
-        request.setSignatureAttributes(List.of());
+        request.setSignatureAttributes(signableAttributes());
         request.setData(List.of(signatureItem(data, null)));
 
         // when
@@ -1111,12 +1148,12 @@ class KeyProviderV2AdapterTest {
     @Test
     void signData_rejectsSignatureWithoutData() throws Exception {
         // given
-        when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of());
+        when(operationsClient.listSignAttributes(any(), any())).thenReturn(signableSchema());
         SignDataResponseV2Dto body = new SignDataResponseV2Dto();
         body.setSignatures(List.of(new SignatureDataV2Dto(new byte[0], "0")));
         when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
         SignDataRequestDto request = new SignDataRequestDto();
-        request.setSignatureAttributes(List.of());
+        request.setSignatureAttributes(signableAttributes());
         request.setData(List.of(signatureItem("AQ==", null)));
 
         // when
@@ -1914,6 +1951,22 @@ class KeyProviderV2AdapterTest {
         attribute.setName("note");
         attribute.setContent(List.of(new StringAttributeContentV3(value)));
         return attribute;
+    }
+
+    /** A schema offering SHA256withRSA, which an RSA key signs under. */
+    private static List<BaseAttribute> signableSchema(BaseAttribute... others) {
+        List<BaseAttribute> schema = new ArrayList<>();
+        schema.add(SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA)));
+        schema.addAll(List.of(others));
+        return schema;
+    }
+
+    /** The fields choosing SHA256withRSA. */
+    private static List<RequestAttribute> signableAttributes(RequestAttribute... others) {
+        List<RequestAttribute> attributes = new ArrayList<>(
+                rsaFields(RsaSignatureScheme.PKCS1_v1_5, DigestAlgorithm.SHA_256));
+        attributes.addAll(List.of(others));
+        return attributes;
     }
 
     private static List<RequestAttribute> rsaFields(RsaSignatureScheme scheme, DigestAlgorithm digest) {
