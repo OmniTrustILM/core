@@ -3,6 +3,7 @@ package com.otilm.core.integration.service;
 import com.otilm.core.dao.entity.ScheduledJob;
 import com.otilm.core.dao.repository.ScheduledJobHistoryRepository;
 import com.otilm.core.dao.repository.ScheduledJobsRepository;
+import com.otilm.core.service.SchedulerInternalService;
 import com.otilm.core.service.writer.scheduler.ScheduledJobWriter;
 import com.otilm.core.tasks.CryptoAssetPqcSweepTask;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -15,12 +16,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The skip writer against a real database: in place, one row however often the job skips, and a vanished job reported.
+ * The skip writer against a real database: in place, one row however often the job skips, and a vanished job reported;
+ * and a declined run from the scheduler's trigger to the skip on the job.
  */
 class ScheduledJobWriterITest extends BaseSpringBootTest {
 
@@ -34,6 +35,9 @@ class ScheduledJobWriterITest extends BaseSpringBootTest {
 
     @Autowired
     private ScheduledJobHistoryRepository scheduledJobHistoryRepository;
+
+    @Autowired
+    private SchedulerInternalService schedulerService;
 
     private ScheduledJob scheduledJob;
 
@@ -74,9 +78,6 @@ class ScheduledJobWriterITest extends BaseSpringBootTest {
         ScheduledJob stored = scheduledJobsRepository.findById(scheduledJob.getUuid()).orElseThrow();
         assertEquals("The CBOM repository answered 503 Service Unavailable", stored.getLastSkipReason());
         assertTrue(!stored.getLastSkippedAt().isBefore(first));
-        // Neither skip left a run in the job's history: a skip is recorded on the job, not as a history row.
-        assertNull(
-                scheduledJobHistoryRepository.findTopByScheduledJobUuidOrderByJobExecutionDesc(scheduledJob.getUuid()));
     }
 
     /**
@@ -103,5 +104,19 @@ class ScheduledJobWriterITest extends BaseSpringBootTest {
         UUID gone = UUID.randomUUID();
 
         assertThrows(IllegalStateException.class, () -> writer.recordSkipped(gone, NOTHING_TO_DO));
+    }
+
+    /**
+     * A declined run end to end, as the scheduler triggers it: the PQC sweep on an empty estate finds nothing and
+     * declines. Its STARTED row is gone once the run returns, and the skip is on the job.
+     */
+    @Test
+    void aDeclinedRunLeavesNoHistoryRowAndItsSkipOnTheJob() throws Exception {
+        schedulerService.runScheduledJob(CryptoAssetPqcSweepTask.NAME);
+
+        assertFalse(scheduledJobHistoryRepository.existsByScheduledJobUuid(scheduledJob.getUuid()));
+        ScheduledJob stored = scheduledJobsRepository.findById(scheduledJob.getUuid()).orElseThrow();
+        assertNotNull(stored.getLastSkippedAt());
+        assertEquals(NOTHING_TO_DO, stored.getLastSkipReason());
     }
 }
