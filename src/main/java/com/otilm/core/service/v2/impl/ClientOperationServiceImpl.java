@@ -9,6 +9,7 @@ import com.otilm.api.exception.ConnectorClientException;
 import com.otilm.api.exception.ConnectorCommunicationException;
 import com.otilm.api.exception.ConnectorEntityNotFoundException;
 import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ConnectorProblemException;
 import com.otilm.api.exception.ConnectorServerException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationError;
@@ -21,6 +22,7 @@ import com.otilm.api.model.client.location.PushToLocationRequestDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
+import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.connector.v2.CertificateOperationCancelRequestDto;
 import com.otilm.api.model.connector.v3.certificate.CertificateRequestContent;
 import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
@@ -158,6 +160,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
@@ -180,6 +183,10 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * wording must fit all of them.
      */
     private static final String CERTIFICATE_REQUESTED_EVENT_MESSAGE = "Certificate requested";
+    private static final String REVOKE_AUTHORITY_UNREACHABLE = "the authority could not be reached";
+    private static final String REVOKE_AUTHORITY_REFUSED_CREDENTIALS = "the authority refused Core's credentials";
+    private static final String REVOKE_AUTHORITY_ERROR = "the authority reported an error";
+    private static final String REVOKE_AUTHORITY_REJECTED = "the authority rejected the revocation";
 
     /**
      * Structured event-log surface for system-level state-transition events that are not directly user-triggered, per
@@ -1621,16 +1628,39 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
     /**
      * Core-authored text for a revocation the authority did not carry out. A connector's own message can name its
-     * exception classes and upstream internals, so it stays in the log.
+     * exception classes and upstream internals, so it stays in the log. A connector's 422 arrives as a
+     * {@link ValidationException} carrying the validation messages the contract has it return, which pass through.
      */
     private static String describeRevokeFailure(Exception e) {
-        if (e instanceof ConnectorCommunicationException) {
-            return "the authority could not be reached";
+        return switch (e) {
+            case ConnectorCommunicationException ignored -> REVOKE_AUTHORITY_UNREACHABLE;
+            case ConnectorProblemException problem when problem.getProblemDetail() != null ->
+                describeRevokeFailure(problem.getProblemDetail().getErrorCode());
+            case ConnectorClientException client -> describeRevokeFailure(client.getHttpStatus());
+            case ConnectorServerException server -> describeRevokeFailure(server.getHttpStatus());
+            case ConnectorException ignored -> REVOKE_AUTHORITY_REJECTED;
+            default -> safeMessage(e, "revocation failed");
+        };
+    }
+
+    private static String describeRevokeFailure(ErrorCode code) {
+        return switch (code) {
+            case SERVICE_UNAVAILABLE, GATEWAY_TIMEOUT, REQUEST_TIMEOUT -> REVOKE_AUTHORITY_UNREACHABLE;
+            case UNAUTHORIZED, FORBIDDEN, CREDENTIAL_INVALID -> REVOKE_AUTHORITY_REFUSED_CREDENTIALS;
+            case INTERNAL_SERVER_ERROR, UPSTREAM_ERROR, RATE_LIMIT_EXCEEDED -> REVOKE_AUTHORITY_ERROR;
+            case null, default -> REVOKE_AUTHORITY_REJECTED;
+        };
+    }
+
+    private static String describeRevokeFailure(HttpStatus status) {
+        if (status == null) {
+            return REVOKE_AUTHORITY_REJECTED;
         }
-        if (e instanceof ConnectorException) {
-            return "the authority rejected the revocation";
-        }
-        return safeMessage(e, "revocation failed");
+        return switch (status) {
+            case BAD_GATEWAY, SERVICE_UNAVAILABLE, GATEWAY_TIMEOUT, REQUEST_TIMEOUT -> REVOKE_AUTHORITY_UNREACHABLE;
+            case UNAUTHORIZED, FORBIDDEN -> REVOKE_AUTHORITY_REFUSED_CREDENTIALS;
+            default -> status.is5xxServerError() ? REVOKE_AUTHORITY_ERROR : REVOKE_AUTHORITY_REJECTED;
+        };
     }
 
     private static ValidationException alreadyRevoked(Certificate certificate) {
@@ -2633,14 +2663,14 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                                 certificate.getUuid(), e.getMessage(), e);
                 throw new CertificateOperationException(msg);
             }
-            // Connector itself failed. Nothing transitioned the cert before the connector call, so there is no
-            // state to restore; writing the entry state back would undo a revocation a concurrent action has
-            // committed since this one read the certificate.
+            // Connector itself failed. This action changed no state before the connector call, so it writes none
+            // back: the entry state would undo a revocation a concurrent action has committed since this one read
+            // the certificate.
             String msg = "Failed to revoke certificate: " + describeRevokeFailure(e);
             certificateEventHistoryService
                     .addEventHistory(certificate.getUuid(), CertificateEvent.REVOKE, CertificateEventStatus.FAILED, msg,
                             "");
-            logger.error("Failed to revoke certificate {}: {}", certificate.getUuid(), e.getMessage());
+            logger.error("Failed to revoke certificate {}: {}", certificate.getUuid(), e.getMessage(), e);
             throw new CertificateOperationException(msg);
         }
 
