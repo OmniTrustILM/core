@@ -12,9 +12,10 @@ import org.springframework.http.HttpStatus;
 
 /**
  * Core-authored text for a revocation the authority did not carry out, safe for the certificate history and the error
- * an operator reads. A connector's own message can name its exception classes and upstream internals, so it stays in
- * the log. A connector's legacy 422 arrives as a {@link ValidationException} carrying the validation messages the
- * contract has it return, which pass through.
+ * an operator reads. A connector's own message and cause reach neither of those nor the log, which names the failure by
+ * {@link #logDetail}: they can quote the connector's answer, which may carry credentials the request sent. A
+ * connector's legacy 422 arrives as a {@link ValidationException} carrying the validation messages the contract has it
+ * return, which pass through.
  */
 public final class AuthorityRevokeFailures {
 
