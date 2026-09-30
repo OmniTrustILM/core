@@ -3,10 +3,14 @@ package com.otilm.core.integration.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
+import com.otilm.api.model.client.attribute.custom.CustomAttributeUpdateRequestDto;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.client.certificate.SearchSortRequestDto;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.auth.UserDto;
 import com.otilm.api.model.core.auth.UserProfileDto;
@@ -23,6 +27,7 @@ import com.otilm.core.dao.repository.ListViewRepository;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
 import com.otilm.core.security.authn.PlatformUserDetails;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
+import com.otilm.core.service.AttributeExternalService;
 import com.otilm.core.service.ListViewExternalService;
 import com.otilm.core.service.ListViewInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -55,6 +60,9 @@ class ListViewServiceITest extends BaseSpringBootTest {
 
     @Autowired
     private ListViewRepository listViewRepository;
+
+    @Autowired
+    private AttributeExternalService attributeService;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -469,6 +477,68 @@ class ListViewServiceITest extends BaseSpringBootTest {
         ValidationException e = Assertions
                 .assertThrows(ValidationException.class, () -> listViewService.createView(request));
         Assertions.assertTrue(e.getMessage().contains("deleted|STRING"));
+    }
+
+    /**
+     * Hiding a custom attribute keeps it in the catalogue but narrows it to presence conditions, so a view already
+     * filtering on one of its values would otherwise be refused on every rename.
+     */
+    @Test
+    void aFilterWhoseConditionTheFieldNoLongerOffersSurvivesARename()
+            throws AlreadyExistException, AttributeException, NotFoundException {
+        UUID team = createTeamAttribute();
+        SearchFilterRequestDto pki = teamFilter(FilterConditionOperator.EQUALS, "pki");
+        ListViewRequestDto request = request("Team", column("COMMON_NAME"));
+        request.setFilters(List.of(pki));
+        ListViewDto created = listViewService.createView(request);
+        hide(team);
+
+        ListViewUpdateRequestDto rename = update("Renamed", column("COMMON_NAME"));
+        rename.setFilters(List.of(pki));
+        ListViewDto renamed = listViewService.editView(created.getUuid(), rename);
+
+        Assertions.assertEquals("Renamed", renamed.getName());
+        Assertions.assertEquals(List.of(pki), renamed.getFilters());
+    }
+
+    @Test
+    void aChangedFilterOnAFieldThatNoLongerOffersItsConditionIsRejected()
+            throws AlreadyExistException, AttributeException, NotFoundException {
+        UUID team = createTeamAttribute();
+        ListViewRequestDto request = request("Team", column("COMMON_NAME"));
+        request.setFilters(List.of(teamFilter(FilterConditionOperator.EQUALS, "pki")));
+        ListViewDto created = listViewService.createView(request);
+        hide(team);
+
+        ListViewUpdateRequestDto edit = update("Team", column("COMMON_NAME"));
+        edit.setFilters(List.of(teamFilter(FilterConditionOperator.EQUALS, "ops")));
+        String uuid = created.getUuid();
+
+        ValidationException e = Assertions
+                .assertThrows(ValidationException.class, () -> listViewService.editView(uuid, edit));
+        Assertions.assertTrue(e.getMessage().contains("does not offer these filter conditions: team|STRING EQUALS"));
+    }
+
+    private UUID createTeamAttribute() throws AlreadyExistException, AttributeException {
+        CustomAttributeCreateRequestDto request = new CustomAttributeCreateRequestDto();
+        request.setName("team");
+        request.setLabel("Team");
+        request.setResources(List.of(Resource.CERTIFICATE));
+        request.setContentType(AttributeContentType.STRING);
+        request.setVisible(true);
+        return UUID.fromString(attributeService.createCustomAttribute(request).getUuid());
+    }
+
+    private void hide(UUID attribute) throws NotFoundException, AttributeException {
+        CustomAttributeUpdateRequestDto request = new CustomAttributeUpdateRequestDto();
+        request.setLabel("Team");
+        request.setResources(List.of(Resource.CERTIFICATE));
+        request.setVisible(false);
+        attributeService.editCustomAttribute(attribute, request);
+    }
+
+    private static SearchFilterRequestDto teamFilter(FilterConditionOperator condition, String value) {
+        return new SearchFilterRequestDto(FilterFieldSource.CUSTOM, "team|STRING", condition, value);
     }
 
     /**

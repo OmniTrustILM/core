@@ -244,9 +244,10 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
      * already - is held to the current catalogue in full.
      *
      * <p>
-     * {@code filtersCarried} are the filters the stored view holds. One whose field has left the catalogue is exempt on
-     * the same terms, or a view filtering on a deleted attribute could not be renamed either. The exemption covers the
-     * stored filter exactly, so a changed condition or value on that field is held to the catalogue.
+     * {@code filtersCarried} are the filters the stored view holds, and one sent back unchanged is exempt on the same
+     * terms. Its field may have left the catalogue, or stayed in it but stopped offering the stored condition - a
+     * hidden or encrypted custom attribute accepts only presence conditions - and either way a view could not be
+     * renamed. The exemption covers the stored filter exactly, so a new or changed filter is held to the catalogue.
      *
      * <p>
      * An ordering has no such exemption. It is applied by re-issuing the listing request, which refuses a field that is
@@ -321,7 +322,7 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
 
         List<SearchFilterRequestDto> filters = requested
                 .stream()
-                .filter(filter -> catalogue.offers(CatalogueField.of(filter)) || !filtersCarried.contains(filter))
+                .filter(filter -> !filtersCarried.contains(filter))
                 .toList();
 
         rejectUnknown(resource,
