@@ -3257,6 +3257,38 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
+    void cancelPendingCertificateOperation_keepsRuntimeCauseOutOfHistory_whenTheConnectorCallFailsUnexpectedly() {
+        // given - reloading the certificate for the connector call fails with an unchecked exception
+        certificate.setState(CertificateState.PENDING_REVOKE);
+        certificateRepository.save(certificate);
+        doThrow(new RuntimeException("internal db detail"))
+                .when(certificateRepository)
+                .findForPollingByUuid(certificate.getUuid());
+        CancelPendingCertificateRequestDto req = new CancelPendingCertificateRequestDto();
+
+        // when - the cancel still completes locally
+        Assertions
+                .assertDoesNotThrow(() -> clientOperationService
+                        .cancelPendingCertificateOperation(
+                                SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
+                                raProfile.getSecuredUuid(), certificate.getUuid().toString(), req));
+
+        // then
+        Certificate after = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        Assertions.assertEquals(CertificateState.ISSUED, after.getState());
+        List<String> failures = certificateEventHistoryRepository
+                .findByCertificateOrderByCreatedDesc(after)
+                .stream()
+                .filter(h -> h.getStatus() == CertificateEventStatus.FAILED)
+                .map(CertificateEventHistory::getMessage)
+                .filter(message -> message.startsWith("Connector cancel call failed"))
+                .toList();
+        Assertions
+                .assertEquals(List.of("Connector cancel call failed (proceeding with local cancel): internal error"),
+                        failures);
+    }
+
+    @Test
     void cancelPendingCertificateOperation_blocksOnNonPendingState() {
         // certificate is ISSUED from setUp()
         CancelPendingCertificateRequestDto req = new CancelPendingCertificateRequestDto();

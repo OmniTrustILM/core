@@ -3683,7 +3683,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // cancel is a local-state operation and a connector hiccup should not strand
             // the cert in PENDING_*.
             recordCancelSoftFailure(cert, target,
-                    "Connector cancel call failed (proceeding with local cancel): " + unexpected.getMessage(),
+                    "Connector cancel call failed (proceeding with local cancel): "
+                            + safeMessage(unexpected, INTERNAL_ERROR),
                     "Connector cancel call failed (" + unexpected.getClass().getSimpleName()
                             + "); proceeded with local cancel",
                     "Connector cancel call failed for cert {} ({}: {}) — proceeding with local cancel",
