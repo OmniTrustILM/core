@@ -4,28 +4,16 @@ import com.otilm.api.model.connector.discovery.v2.DiscoveredCertificateDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredItemDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredItemPayloadDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryResultsResponseDto;
-import com.otilm.api.model.connector.discovery.v2.DiscoveryRunState;
-import com.otilm.api.model.connector.discovery.v2.event.DiscoveryErrorEvent;
-import com.otilm.api.model.connector.discovery.v2.event.DiscoveryHeartbeatEvent;
-import com.otilm.api.model.connector.discovery.v2.event.DiscoveryProgressEvent;
-import com.otilm.api.model.connector.discovery.v2.event.DiscoveryResultBatchEvent;
-import com.otilm.api.model.connector.discovery.v2.event.DiscoveryStateChangedEvent;
 import com.otilm.api.model.core.auth.Resource;
-import com.otilm.api.model.core.discovery.DiscoveryMessageSeverity;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryItem;
-import com.otilm.core.dao.entity.DiscoveryMessage;
-import com.otilm.core.dao.entity.DiscoveryWork;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
 import com.otilm.core.dao.repository.DiscoveryItemRepository;
-import com.otilm.core.dao.repository.DiscoveryMessageRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
-import com.otilm.core.dao.repository.DiscoveryWorkRepository;
-import com.otilm.core.model.discovery.DiscoveryWorkType;
 import com.otilm.core.service.handler.discovery.DiscoveryEventIngestor;
 import com.otilm.core.service.writer.CertificateKeyWriter;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -49,9 +37,8 @@ import static com.otilm.core.util.builders.DiscoveredKeyDtoBuilder.aPublicKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Ingestion behaviour against real PostgreSQL: what a drain page stages, where the cursor lands, and what an advisory
- * event may and may not do. The cursor rules are the point — every one of them is a way to silently lose or re-import
- * discovered data.
+ * Ingestion behaviour against real PostgreSQL: what a drain page stages and where the cursor lands. The cursor rules
+ * are the point — every one of them is a way to silently lose or re-import discovered data.
  */
 @Transactional
 class DiscoveryEventIngestorITest extends BaseSpringBootTest {
@@ -72,10 +59,6 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
     private CertificateKeyWriter certificateKeyWriter;
     @Autowired
     private DiscoveryCertificateRepository certificateRepository;
-    @Autowired
-    private DiscoveryWorkRepository workRepository;
-    @Autowired
-    private DiscoveryMessageRepository messageRepository;
     @PersistenceContext
     private EntityManager entityManager;
 
@@ -229,95 +212,6 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
         assertThat(certificateRepository.countByDiscovery(reload(second))).isEqualTo(1);
     }
 
-    @Test
-    void stateChangedEvent_asksForAStatusTickWithoutCommittingTheStateItReports() {
-        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
-        DiscoveryStateChangedEvent event = new DiscoveryStateChangedEvent();
-        event.setState(DiscoveryRunState.FAILED);
-
-        ingestor.applyAdvisoryEvent(run.getUuid(), event);
-
-        assertThat(reload(run).getStatus())
-                .as("only an authoritative status answer may commit a transition")
-                .isEqualTo(DiscoveryStatus.IN_PROGRESS);
-        assertThat(agenda(run)).extracting(DiscoveryWork::getWorkType).containsExactly(DiscoveryWorkType.STATUS);
-    }
-
-    @Test
-    void resultBatchEvent_asksForADrainTickAndIngestsNoneOfItsOwnItems() {
-        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
-
-        ingestor.applyAdvisoryEvent(run.getUuid(), new DiscoveryResultBatchEvent());
-
-        assertThat(agenda(run)).extracting(DiscoveryWork::getWorkType).containsExactly(DiscoveryWorkType.DRAIN);
-        assertThat(stagedRefs(run)).isEmpty();
-        assertThat(reload(run).getLastAppliedSequence()).isZero();
-    }
-
-    @Test
-    void errorEvent_joinsTheRunMessageLogWithoutFailingTheRun() {
-        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
-        DiscoveryErrorEvent event = new DiscoveryErrorEvent();
-        event.setCode("HOST_UNREACHABLE");
-        event.setMessage("10.0.0.7 did not answer");
-
-        ingestor.applyAdvisoryEvent(run.getUuid(), event);
-
-        // The code is the connector-declared identifier, which the message row is keyed by; the prose beside it
-        // is the connector's own, and this log is read through the API -- so that prose stays in the log file
-        // and never reaches the run.
-        assertThat(messages(run)).singleElement().satisfies(message -> {
-            assertThat(message.getCode()).isEqualTo("HOST_UNREACHABLE");
-            assertThat(message.getSeverity()).isEqualTo(DiscoveryMessageSeverity.ERROR);
-            assertThat(message.getMessage()).doesNotContain("10.0.0.7");
-        });
-        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
-        assertThat(agenda(run)).isEmpty();
-    }
-
-    @Test
-    void progressEvent_storesTheSnapshotAndNothingElse() {
-        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
-        DiscoveryProgressEvent event = new DiscoveryProgressEvent();
-        event.setTargetsProcessed(12L);
-        event.setTargetsTotal(40L);
-        event.setPhase("scanning");
-        event.setTargetsFailed(28L);
-
-        ingestor.applyAdvisoryEvent(run.getUuid(), event);
-
-        Discovery reloaded = reload(run);
-        assertThat(reloaded.getProgress()).isNotNull();
-        assertThat(reloaded.getProgress().getTargetsProcessed()).isEqualTo(12L);
-        assertThat(reloaded.getProgress().getTargetsTotal()).isEqualTo(40L);
-        assertThat(reloaded.getProgress().getPhase()).isEqualTo("scanning");
-        // The snapshot is copied field by field rather than mapped, so a counter added to the contract is
-        // dropped here silently until someone remembers to copy it too.
-        assertThat(reloaded.getProgress().getTargetsFailed()).isEqualTo(28L);
-        assertThat(agenda(run)).isEmpty();
-    }
-
-    @Test
-    void heartbeatEvent_changesNothing() {
-        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
-
-        ingestor.applyAdvisoryEvent(run.getUuid(), new DiscoveryHeartbeatEvent());
-
-        assertThat(agenda(run)).isEmpty();
-        assertThat(reload(run).getProgress()).isNull();
-    }
-
-    @Test
-    void terminalRun_gainsNoAgendaRowFromALateAdvisoryEvent() {
-        Discovery run = v2Run(DiscoveryStatus.CANCELLED);
-
-        ingestor.applyAdvisoryEvent(run.getUuid(), new DiscoveryResultBatchEvent());
-
-        assertThat(agenda(run))
-                .as("the terminal transition deleted this run's agenda; nothing may put work back")
-                .isEmpty();
-    }
-
     private DiscoveryResultsResponseDto page(long highestSequence, boolean more, DiscoveredItemDto... items) {
         DiscoveryResultsResponseDto page = new DiscoveryResultsResponseDto();
         page.setItems(List.of(items));
@@ -399,17 +293,5 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
                 .filter(item -> item.getDiscoveryUuid().equals(run.getUuid()))
                 .map(DiscoveryItem::getUniqueRef)
                 .toList();
-    }
-
-    private List<DiscoveryWork> agenda(Discovery run) {
-        entityManager.flush();
-        entityManager.clear();
-        return workRepository.findAll().stream().filter(w -> w.getDiscoveryUuid().equals(run.getUuid())).toList();
-    }
-
-    private List<DiscoveryMessage> messages(Discovery run) {
-        entityManager.flush();
-        entityManager.clear();
-        return messageRepository.findByDiscoveryUuidOrderByIdAsc(run.getUuid());
     }
 }

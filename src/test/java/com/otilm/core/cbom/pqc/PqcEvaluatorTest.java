@@ -444,18 +444,19 @@ class PqcEvaluatorTest {
         assertThat(decision.ruleId()).isEqualTo("NAME-CIPHER-SUITE");
     }
 
+    /** No reference recorded is a deferral of its own, apart from a reference recorded and unresolved. */
     @Test
-    void certificatesAreDeferredUnderTheirOwnRuleId() {
+    void aCertificateThatRecordsNoKeyIsDeferredUnderItsOwnRuleId() {
         PqcDecision decision = verdictOf(component("certificate", "www.example.test", "{}"));
-        assertThat(decision.verdict()).isEqualTo(PqcVerdict.NOT_APPLICABLE);
-        assertThat(decision.ruleId())
-                .describedAs("a deferral must be queryable apart from a genuine not-an-algorithm")
-                .isEqualTo("CERT-DEFERRED-V1");
+        assertThat(decision.verdict()).isEqualTo(PqcVerdict.UNKNOWN);
+        assertThat(decision.ruleId()).isEqualTo("CERT-NO-KEY-RECORDED");
     }
 
     @Test
-    void protocolsAreNotApplicable() {
-        assertThat(verdictOf(component("protocol", "TLSv1.3", "{}")).ruleId()).isEqualTo("PROTOCOL-NOT-ALGORITHM");
+    void aProtocolThatRecordsNoSuiteIsDeferredUnderItsOwnRuleId() {
+        PqcDecision decision = verdictOf(component("protocol", "TLSv1.3", "{}"));
+        assertThat(decision.verdict()).isEqualTo(PqcVerdict.UNKNOWN);
+        assertThat(decision.ruleId()).isEqualTo("PROTOCOL-NO-SUITES");
     }
 
     // ---- related cryptographic material ----------------------------------------------------------------------------
@@ -1053,11 +1054,16 @@ class PqcEvaluatorTest {
         }
     }
 
+    /**
+     * Every case also proves the explanation of the same input decides the same way; see {@link PqcExplanationTest}.
+     */
     private PqcDecision verdictOf(JsonNode component) {
         JsonNode properties = component.get("cryptoProperties");
-        return evaluator
-                .evaluate(evaluator.fromStoredRow(storedRow(normalizer.normalize(component).asset()), properties),
-                        PqcEvaluator.nistQuantumSecurityLevel(properties));
+        PqcRuleInput input = evaluator.fromStoredRow(storedRow(normalizer.normalize(component).asset()), properties);
+        Integer level = PqcEvaluator.nistQuantumSecurityLevel(properties);
+        PqcDecision decision = evaluator.evaluate(input, level);
+        PqcExplanationTest.assertExplains(evaluator.explain(input, level), decision, input.assetType());
+        return decision;
     }
 
     /**

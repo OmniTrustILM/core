@@ -1153,6 +1153,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
             attributeEngine
                     .validateUpdateDataAttributes(signingSchema.ownerConnectorUuid(), AttributeOperation.SIGN,
                             signingSchema.definitions(), signingOperationAttributes);
+            signingSchema.requireOfferedSignatureAlgorithm(signingOperationAttributes);
             return attributeEngine.replaceObjectDataAttributesContent(content, signingOperationAttributes);
         }
         // Clears what an earlier write left for this version, whichever connector owned it.

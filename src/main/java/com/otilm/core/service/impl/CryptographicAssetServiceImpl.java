@@ -13,9 +13,12 @@ import com.otilm.api.model.core.cryptoasset.CryptographicAssetDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetEvidenceDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetNormalizedFieldsDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetOidDto;
+import com.otilm.api.model.core.cryptoasset.CryptographicAssetPqcExplanationDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetSourceDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetType;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetVerdictDto;
+import com.otilm.api.model.core.cryptoasset.PqcExplanationStepDto;
+import com.otilm.api.model.core.cryptoasset.PqcReferencedAssetDto;
 import com.otilm.api.model.core.cryptoasset.PqcVerdict;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.api.model.core.search.FilterFieldSource;
@@ -28,6 +31,9 @@ import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFil
 import com.otilm.core.attribute.engine.ListingSortResolver;
 import com.otilm.core.cbom.asset.CompositeCurve;
 import com.otilm.core.cbom.asset.ServedAssetType;
+import com.otilm.core.cbom.pqc.PqcExplanation;
+import com.otilm.core.cbom.pqc.PqcRules;
+import com.otilm.core.cbom.pqc.PqcVerdictExplainer;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.dao.entity.Cbom;
 import com.otilm.core.dao.entity.Cbom_;
@@ -66,9 +72,11 @@ import jakarta.persistence.criteria.Subquery;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
@@ -116,6 +124,13 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
     private ObjectFilterAspect objectFilterAspect;
 
     private AttributeEngine attributeEngine;
+
+    private PqcVerdictExplainer verdictExplainer;
+
+    @Autowired
+    public void setVerdictExplainer(PqcVerdictExplainer verdictExplainer) {
+        this.verdictExplainer = verdictExplainer;
+    }
 
     private ListingSortResolver listingSortResolver;
 
@@ -202,7 +217,132 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
                 .findByUuid(uuid)
                 .orElseThrow(() -> new NotFoundException(CryptoAsset.class, uuid));
         List<CryptoAssetSource> sources = cryptoAssetSourceRepository.findWithCbomByAssetUuid(asset.getUuid());
-        return toDetailDto(asset, sources, visibleCbomUuids(asset.getUuid()));
+        Set<UUID> visibleCbomUuids = visibleCbomUuids(asset.getUuid());
+        CryptographicAssetDetailDto detail = toDetailDto(asset, sources, visibleCbomUuids);
+        if (detail.getVerdict() != null) {
+            detail.getVerdict().setReferencedAsset(referencedAsset(asset.getPqcReferencedAssetUuid()));
+            if (!storedEvidenceVisible(asset, sources, visibleCbomUuids)) {
+                detail.getVerdict().setEvaluatedFields(withoutDocumentFields(detail.getVerdict().getEvaluatedFields()));
+            }
+        }
+        return detail;
+    }
+
+    /**
+     * The asset a verdict was carried over from, as the caller may see it: its name and type only when the row still
+     * exists and the caller's own crypto-asset detail access admits it. Resource-level access is already proven by the
+     * caller reaching this far, so only the object-level half can differ.
+     */
+    private PqcReferencedAssetDto referencedAsset(UUID referencedUuid) {
+        if (referencedUuid == null) {
+            return null;
+        }
+        PqcReferencedAssetDto dto = new PqcReferencedAssetDto();
+        dto.setUuid(referencedUuid);
+        Optional<CryptoAsset> target = cryptoAssetRepository.findById(referencedUuid);
+        if (target.isPresent() && detailVisible(referencedUuid)) {
+            dto.setVisible(true);
+            dto.setName(servedName(target.get().getName(), target.get().getOid(), target.get().getIdentityGuard()));
+            dto.setType(ServedAssetType.of(target.get().getAssetType()));
+        }
+        return dto;
+    }
+
+    private boolean detailVisible(UUID assetUuid) {
+        SecurityFilter filter = SecurityFilter.create();
+        objectFilterAspect.populateSecurityFilter(Resource.CRYPTO_ASSET, ResourceAction.DETAIL, null, null, filter);
+        return !cryptoAssetRepository
+                .findUuidsUsingSecurityFilter(filter, (root, cb, query) -> cb.equal(root.get("uuid"), assetUuid), null,
+                        null)
+                .isEmpty();
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.CRYPTO_ASSET, action = ResourceAction.DETAIL)
+    public CryptographicAssetPqcExplanationDto getCryptographicAssetPqcExplanation(SecuredUUID uuid)
+            throws NotFoundException {
+        CryptoAsset asset = cryptoAssetRepository
+                .findByUuid(uuid)
+                .orElseThrow(() -> new NotFoundException(CryptoAsset.class, uuid));
+        PqcVerdictExplainer.Result result = verdictExplainer
+                .explain(asset.getUuid())
+                .orElseThrow(() -> new NotFoundException(CryptoAsset.class, uuid));
+        List<CryptoAssetSource> sources = cryptoAssetSourceRepository.findWithCbomByAssetUuid(asset.getUuid());
+        return toExplanationDto(asset, result,
+                electingDocumentVisible(asset, sources, visibleCbomUuids(asset.getUuid())));
+    }
+
+    /**
+     * Whether the stored verdict's document values may be served: they were copied from the source elected when the
+     * verdict was taken, which is the current one only while the row is still at the revision the verdict evaluated --
+     * a re-election advances it. A stale verdict may carry a withdrawn or hidden source's values under a visible
+     * successor, so it is served without them until the sweep restamps it.
+     */
+    private static boolean storedEvidenceVisible(CryptoAsset asset, List<CryptoAssetSource> sources,
+            Set<UUID> visibleCbomUuids) {
+        return Objects.equals(asset.getPqcEvaluatedRevision(), asset.getInputRevision())
+                && electingDocumentVisible(asset, sources, visibleCbomUuids);
+    }
+
+    /**
+     * Strips the values the electing document supplied verbatim, for a caller who may not read that document: the same
+     * rule that withholds the elected payload, applied to the evidence copied out of it.
+     */
+    private static Map<String, Object> withoutDocumentFields(Map<String, Object> fields) {
+        if (fields == null) {
+            return null;
+        }
+        Map<String, Object> kept = new LinkedHashMap<>(fields);
+        kept.keySet().removeAll(PqcRules.DOCUMENT_FIELDS);
+        return kept;
+    }
+
+    private CryptographicAssetPqcExplanationDto toExplanationDto(CryptoAsset asset, PqcVerdictExplainer.Result result,
+            boolean documentVisible) {
+        PqcExplanation explanation = result.explanation();
+        CryptographicAssetPqcExplanationDto dto = new CryptographicAssetPqcExplanationDto();
+        dto.setUuid(asset.getUuid());
+        dto.setVerdict(explanation.decision().verdict());
+        dto.setRuleId(explanation.decision().ruleId());
+        dto.setReason(explanation.decision().reason());
+        dto.setInputs(documentVisible ? result.inputs() : withoutDocumentFields(result.inputs()));
+        dto.setSteps(explanation.steps().stream().map(step -> toStepDto(step, documentVisible)).toList());
+        boolean evaluated = asset.getPqcEvaluatedAt() != null;
+        if (evaluated) {
+            dto.setStoredVerdict(asset.getPqcVerdict());
+            dto.setStoredRuleId(asset.getPqcRuleId());
+            dto.setStoredEvaluatedAt(asset.getPqcEvaluatedAt());
+        }
+        dto
+                .setMatchesStored(evaluated && asset.getPqcVerdict() == explanation.decision().verdict()
+                        && Objects.equals(asset.getPqcRuleId(), explanation.decision().ruleId())
+                        && storedVerdictIsCurrent(asset, result.referenceBasis()));
+        dto.setExplainedAt(OffsetDateTime.now());
+        return dto;
+    }
+
+    /**
+     * The sweep's own definition of fresh, so {@code matchesStored} cannot say true for a row the sweep is about to
+     * restamp: the stored verdict was taken at the row's current revision, and from the reference verdicts the
+     * explanation just read. Agreeing on the verdict alone would hide both.
+     */
+    private static boolean storedVerdictIsCurrent(CryptoAsset asset, String referenceBasis) {
+        return Objects.equals(asset.getPqcEvaluatedRevision(), asset.getInputRevision())
+                && Objects.equals(asset.getPqcReferenceBasis(), referenceBasis);
+    }
+
+    private PqcExplanationStepDto toStepDto(PqcExplanation.Step step, boolean documentVisible) {
+        PqcExplanationStepDto dto = new PqcExplanationStepDto();
+        dto.setRuleId(step.ruleId());
+        dto.setTitle(step.title());
+        dto.setOutcome(step.outcome());
+        dto.setVerdict(step.verdict());
+        dto.setMessage(step.message());
+        dto
+                .setEvaluatedFields(
+                        documentVisible ? step.evaluatedFields() : withoutDocumentFields(step.evaluatedFields()));
+        dto.setReferencedAsset(referencedAsset(step.referencedAssetUuid()));
+        return dto;
     }
 
     /**
@@ -274,7 +414,6 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
                                 .prepareSearch(FilterField.CBOM_ASSET_VARIANT,
                                         cryptoAssetRepository.findDistinctVariant()),
                         SearchHelper.prepareSearch(FilterField.CBOM_ASSET_PQC_VERDICT),
-                        SearchHelper.prepareSearch(FilterField.CBOM_ASSET_PQC_RULESET_VERSION),
                         SearchHelper.prepareSearch(FilterField.CBOM_ASSET_RULESET_VERSION),
                         SearchHelper.prepareSearch(FilterField.CBOM_ASSET_SOURCE_COUNT), SearchHelper
                                 .prepareSearch(FilterField.CBOM_ASSET_SOURCE_CBOM, cbomSerialNumbersScopedToCaller()));
@@ -609,27 +748,31 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
      */
     private static Map<String, Object> servedElectedPayload(CryptoAsset asset, List<CryptoAssetSource> sources,
             Set<UUID> visibleCbomUuids) {
+        return electingDocumentVisible(asset, sources, visibleCbomUuids) ? asset.getMergedCryptoProperties() : null;
+    }
+
+    /**
+     * Whether the caller may read the document whose payload the merge elected. A pointer naming a row absent from the
+     * loaded list (should not happen, but is not this method's invariant to enforce) is treated the same as an
+     * invisible one.
+     */
+    private static boolean electingDocumentVisible(CryptoAsset asset, List<CryptoAssetSource> sources,
+            Set<UUID> visibleCbomUuids) {
         UUID electingSourceUuid = asset.getPropertiesSourceUuid();
-        if (electingSourceUuid == null) {
-            return null;
-        }
-        // A pointer naming a row absent from the loaded list (should not happen, but is not this method's invariant
-        // to enforce) is treated the same as an invisible one: no visible row, no payload.
-        boolean electingDocumentVisible = sources
+        return electingSourceUuid != null && sources
                 .stream()
                 .filter(source -> electingSourceUuid.equals(source.getUuid()))
                 .findFirst()
                 .map(source -> visibleCbomUuids.contains(source.getCbomUuid()))
                 .orElse(false);
-        return electingDocumentVisible ? asset.getMergedCryptoProperties() : null;
     }
 
     /**
      * Verdict provenance exists only once a rule set has evaluated the asset, and a row without it is reachable by
      * design, not only before the rule set shipped: a row waits between its upsert and its first evaluation (only the
      * sweep evaluates until ingest does), and a row whose first verdict write failed or was refused by the row-version
-     * guard stays on the work list -- the {@code pqc_ruleset_version IS NULL} arm of the sweep's query offers both
-     * again on the next run. A failed <em>evaluation</em> is not one of these: the sweep stamps it {@code UNKNOWN} /
+     * guard stays on the work list -- the {@code pqc_evaluated_revision} arm of the sweep's query offers both again on
+     * the next run. A failed <em>evaluation</em> is not one of these: the sweep stamps it {@code UNKNOWN} /
      * {@code EVALUATION-FAILED} with a current {@code pqc_evaluated_at}, so that row serves a block naming the failure
      * and leaves the work list. Until a row is stamped, a fabricated all-default block would present "never evaluated"
      * as a decision, so the block is omitted -- the contract marks it not required (interfaces#938, PR interfaces#940)
@@ -640,7 +783,6 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
             return null;
         }
         CryptographicAssetVerdictDto dto = new CryptographicAssetVerdictDto();
-        dto.setRuleSetVersion(asset.getPqcRulesetVersion() == null ? 0 : asset.getPqcRulesetVersion());
         dto.setRuleId(asset.getPqcRuleId());
         dto.setReason(asset.getPqcReason());
         dto.setEvaluatedFields(asset.getPqcEvaluatedFields());

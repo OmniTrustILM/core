@@ -19,6 +19,7 @@ import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.service.handler.key.ImportAnswer;
 import com.otilm.core.service.handler.key.KeyProviderAdapter;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
+import com.otilm.core.service.writer.CryptographicKeyWriter;
 import com.otilm.core.service.writer.KeyImportWriter;
 import com.otilm.core.util.CryptographyUtil;
 import java.util.List;
@@ -48,12 +49,15 @@ public class KeyImportReconciler {
     private final TokenProfileRepository tokenProfileRepository;
     private final KeyProviderAdapterFactory keyProviderAdapterFactory;
     private final KeyImportWriter keyImportWriter;
+    private final KeyImportGates keyImportGates;
 
     public KeyImportReconciler(TokenProfileRepository tokenProfileRepository,
-            KeyProviderAdapterFactory keyProviderAdapterFactory, KeyImportWriter keyImportWriter) {
+            KeyProviderAdapterFactory keyProviderAdapterFactory, KeyImportWriter keyImportWriter,
+            KeyImportGates keyImportGates) {
         this.tokenProfileRepository = tokenProfileRepository;
         this.keyProviderAdapterFactory = keyProviderAdapterFactory;
         this.keyImportWriter = keyImportWriter;
+        this.keyImportGates = keyImportGates;
     }
 
     /**
@@ -84,10 +88,10 @@ public class KeyImportReconciler {
             if (check.lastLook()) {
                 unsettled(check, "the connector no longer knows it");
             } else {
-                keyImportWriter.failUnsent(check.attempt(), NEVER_ACCEPTED);
+                keyImportWriter.failUntaken(check.attempt(), NEVER_ACCEPTED);
             }
         } else if (answer instanceof ImportAnswer.NotImported) {
-            keyImportWriter.failUnsent(check.attempt(), KeyImportSaga.NOT_IMPORTED);
+            keyImportWriter.failUntaken(check.attempt(), KeyImportSaga.NOT_IMPORTED);
         } else if (answer instanceof ImportAnswer.Imported imported && keyImportWriter.compensating(check.attempt())) {
             return compensate(check, profile.get(), adapter, imported);
         } else if (answer instanceof ImportAnswer.Running) {
@@ -116,7 +120,8 @@ public class KeyImportReconciler {
 
     /**
      * Destroys the imported key, private key first. The attempt is compensated once the connector has destroyed the
-     * private key, even when the public key stays in the token, which exposes nothing.
+     * private key, even when the public key stays in the token, which exposes nothing. It is recorded so before the
+     * public key is destroyed, as a later look can no longer learn of a destroy left unrecorded.
      *
      * @return whether the connector answered about the private key
      */
@@ -136,15 +141,15 @@ public class KeyImportReconciler {
             unsettled(check, "the connector did not destroy its key (" + e.getClass().getSimpleName() + ")");
             return false;
         }
+        keyImportWriter.compensated(attemptUuid);
+        logger
+                .info("Key import {} is undone: the connector destroyed the key its requester never received",
+                        attemptUuid);
         imported
                 .items()
                 .stream()
                 .filter(item -> item.type() == KeyType.PUBLIC_KEY)
                 .forEach(publicKey -> destroyPublicKey(attemptUuid, profile, adapter, publicKey));
-        keyImportWriter.compensated(attemptUuid);
-        logger
-                .info("Key import {} is undone: the connector destroyed the key its requester never received",
-                        attemptUuid);
         return true;
     }
 
@@ -160,8 +165,10 @@ public class KeyImportReconciler {
     }
 
     /**
-     * Registers the key the connector refused to destroy, deactivated, with what the attempt keeps. When the platform
-     * cannot register it the attempt is unresolved, and the key reference is logged to find the key in the token.
+     * Registers the key the connector refused to destroy, deactivated, with what the attempt keeps: as a key of its
+     * own, or into the public-key-only record that holds its public key, which it takes only once the requester is
+     * shown to be allowed to update it. When the platform cannot register it the attempt is unresolved, and the key
+     * reference is logged to find the key in the token.
      */
     private void quarantine(KeyImportCheck check, TokenProfileFullModel profile, ImportAnswer.Imported imported) {
         KeyImportAttempt attempt = check.attempt();
@@ -169,14 +176,16 @@ public class KeyImportReconciler {
                 .calculateKeyFingerprint(new KeyMaterial(KeyFormat.SPKI, imported.publicKey()));
         ImportedKeyRegistration registration = new ImportedKeyRegistration(profile, imported.items(),
                 attempt.keyReference(), fingerprint, check.exportable(),
-                new KeyImportMetadata(check.name(), null, Set.of(), null), check.requester(), true);
+                new KeyImportMetadata(check.name(), null, Set.of(), null), check.requester(), true, null);
         try {
+            UUID adoptable = keyImportGates.adoptableBy(check.requester(), fingerprint).orElse(null);
             keyImportWriter
-                    .quarantine(attempt.uuid(), registration)
+                    .quarantine(attempt.uuid(), registration.adopting(adoptable))
                     .ifPresent(keyUuid -> logger
                             .warn("Key import {} could not be undone: the connector refused to destroy its key, registered deactivated as key {}",
                                     attempt.uuid(), keyUuid));
-        } catch (ValidationException | DataIntegrityViolationException | AttributeException | NotFoundException e) {
+        } catch (ValidationException | DataIntegrityViolationException | CryptographicKeyWriter.UncheckedRecordException
+                | AttributeException | NotFoundException e) {
             if (keyImportWriter.unresolved(attempt, NOT_REGISTERED)) {
                 logger
                         .warn("Key import {} is unresolved: the connector refused to destroy its key and the platform could not register it ({}); key reference {} identifies the key in token instance {}",

@@ -11,6 +11,7 @@ import java.util.UUID;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -32,4 +33,23 @@ public interface KeyImportRepository extends JpaRepository<KeyImport, UUID> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     List<KeyImport> findForUpdateByStateInAndNextCheckAtLessThanEqualOrderByNextCheckAt(
             Collection<KeyImportState> states, OffsetDateTime now, Pageable page);
+
+    /**
+     * Deletes the attempts that completed, failed or were compensated before the cutoff, at most {@code limit} of them
+     * and the oldest first, in one statement. An attempt another transaction holds, as another node's delete does, is
+     * skipped rather than waited for.
+     *
+     * @return how many attempts were deleted
+     */
+    @Modifying
+    @Query(value = """
+            DELETE FROM {h-schema}key_import
+            WHERE uuid IN (
+                SELECT uuid FROM {h-schema}key_import
+                WHERE state IN ('COMPLETED', 'FAILED', 'COMPENSATED') AND updated_at < :cutoff
+                ORDER BY updated_at
+                LIMIT :limit
+                FOR UPDATE SKIP LOCKED)
+            """, nativeQuery = true)
+    int deleteFinishedBefore(@Param("cutoff") OffsetDateTime cutoff, @Param("limit") int limit);
 }

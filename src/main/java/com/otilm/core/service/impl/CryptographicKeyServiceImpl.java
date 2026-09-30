@@ -444,7 +444,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
             AttributeException, NotFoundException {
         logger.debug("Creating a new key for Token profile {}", tokenProfileUuid);
 
-        if (cryptographicKeyRepository.findByName(request.getName()).isPresent()) {
+        if (cryptographicKeyRepository.existsByName(request.getName())) {
             logger.error("Key with same name already exists");
             throw new AlreadyExistException("Existing Key with the same name already exists");
         }

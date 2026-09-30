@@ -159,7 +159,7 @@ class SensitiveRequestRedactionTest {
 
     private static String certificateImport(String passphraseJson) {
         return "{\"file\":\"" + FILE + "\",\"passphrase\":" + passphraseJson
-                + ",\"entries\":[{\"entryReference\":\"reference-1\",\"importId\":\"import-1\"}]}";
+                + ",\"entries\":[{\"entryReference\":\"reference-1\"}]}";
     }
 
     private static String keyImport(String passphraseJson) {

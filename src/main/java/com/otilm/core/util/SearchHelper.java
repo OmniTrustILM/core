@@ -92,9 +92,9 @@ public class SearchHelper {
                         FilterField.CBOM_ASSET_OID, FilterField.CBOM_ASSET_ALGORITHM_FAMILY,
                         FilterField.CBOM_ASSET_PRIMITIVE, FilterField.CBOM_ASSET_PARAMETER_SET,
                         FilterField.CBOM_ASSET_CURVE, FilterField.CBOM_ASSET_MODE, FilterField.CBOM_ASSET_PADDING,
-                        FilterField.CBOM_ASSET_VARIANT, FilterField.CBOM_ASSET_PQC_RULESET_VERSION,
-                        FilterField.CBOM_ASSET_RULESET_VERSION, FilterField.CBOM_ASSET_OID_REFUTED,
-                        FilterField.CBOM_ASSET_SOURCE_CBOM, FilterField.CBOM_ASSET_FREE_TEXT);
+                        FilterField.CBOM_ASSET_VARIANT, FilterField.CBOM_ASSET_RULESET_VERSION,
+                        FilterField.CBOM_ASSET_OID_REFUTED, FilterField.CBOM_ASSET_SOURCE_CBOM,
+                        FilterField.CBOM_ASSET_FREE_TEXT);
 
         private FilterFieldSets() {
         }
@@ -409,7 +409,8 @@ public class SearchHelper {
                 .toList();
     }
 
-    private static String buildFieldIdentifier(final SearchFieldObject attributeSearchInfo) {
+    /** The identifier the catalogue publishes an attribute field under: name|CONTENT_TYPE. */
+    public static String buildFieldIdentifier(final SearchFieldObject attributeSearchInfo) {
         return attributeSearchInfo.getAttributeName() + "|" + attributeSearchInfo.getAttributeContentType().name();
     }
 

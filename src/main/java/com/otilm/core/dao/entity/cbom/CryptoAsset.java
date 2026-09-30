@@ -148,9 +148,6 @@ public class CryptoAsset extends UniquelyIdentifiedAndAudited {
     @Column(name = "pqc_reason", columnDefinition = "TEXT")
     private String pqcReason;
 
-    @Column(name = "pqc_ruleset_version")
-    private Integer pqcRulesetVersion;
-
     /**
      * When the current verdict <em>value</em> was decided. Unmoved by a re-evaluation that reaches the same verdict.
      */
@@ -160,6 +157,22 @@ public class CryptoAsset extends UniquelyIdentifiedAndAudited {
     /** When the verdict was last evaluated, whether or not the value changed. */
     @Column(name = "pqc_evaluated_at")
     private OffsetDateTime pqcEvaluatedAt;
+
+    /** Advanced by every write that changes what the PQC rules read; see the sweep's work list. */
+    @Column(name = "input_revision", nullable = false)
+    private long inputRevision;
+
+    /** The {@code inputRevision} the stored verdict was evaluated at; null before the first evaluation. */
+    @Column(name = "pqc_evaluated_revision")
+    private Long pqcEvaluatedRevision;
+
+    /** The asset whose own verdict a reference rule carried over. No FK: the verdict outlives its target. */
+    @Column(name = "pqc_referenced_asset_uuid")
+    private UUID pqcReferencedAssetUuid;
+
+    /** What a certificate's or protocol's references read when its verdict was taken; see the sweep's work list. */
+    @Column(name = "pqc_reference_basis", columnDefinition = "TEXT")
+    private String pqcReferenceBasis;
 
     // Which fields the rule actually read, so a verdict can be re-justified without re-running the rule set.
     @SuppressWarnings("java:S1948")
