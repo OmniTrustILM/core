@@ -30,12 +30,17 @@ import com.otilm.api.model.core.search.SortDirection;
 import com.otilm.api.model.core.settings.PlatformSettingsDto;
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.UtilsSettingsDto;
+import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
 import com.otilm.core.cbom.sync.CbomSyncPolicy;
 import com.otilm.core.cbom.sync.CbomSyncPolicyProvider;
 import com.otilm.core.cbom.sync.CbomSyncSkipSearch;
 import com.otilm.core.dao.entity.Cbom;
+import com.otilm.core.dao.entity.ScheduledJob;
+import com.otilm.core.dao.entity.ScheduledJobHistory;
 import com.otilm.core.dao.entity.cbom.CbomSyncSkip;
 import com.otilm.core.dao.repository.CbomRepository;
+import com.otilm.core.dao.repository.ScheduledJobHistoryRepository;
+import com.otilm.core.dao.repository.ScheduledJobsRepository;
 import com.otilm.core.dao.repository.cbom.CbomSyncSkipRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.cbom.CbomHeaderCounts;
@@ -45,12 +50,14 @@ import com.otilm.core.service.CbomInternalService;
 import com.otilm.core.service.impl.CbomServiceImpl;
 import com.otilm.core.service.writer.cbom.CbomSyncSkipWriter;
 import com.otilm.core.settings.SettingsCache;
+import com.otilm.core.tasks.CbomSyncTask;
 import com.otilm.core.util.BaseSpringBootTest;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.Date;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -107,6 +114,12 @@ class CbomSyncITest extends BaseSpringBootTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private ScheduledJobsRepository scheduledJobsRepository;
+
+    @Autowired
+    private ScheduledJobHistoryRepository scheduledJobHistoryRepository;
 
     private WireMockServer repository;
     private PlatformSettingsDto originalSettings;
@@ -946,13 +959,67 @@ class CbomSyncITest extends BaseSpringBootTest {
     @Test
     void theHourlySyncStillStoresADocumentListedBeforeTheUpgrade() throws Exception {
         stampTheUpgrade();
-        stubPage("after", "0", "[" + entry("urn:uuid:uploaded-before", "1", STATS, null) + "]", null);
+        recordASuccessfulHourlyRun(new Date(System.currentTimeMillis() - Duration.ofHours(1).toMillis()));
+        stubSearchAtAnyWatermark("[" + entry("urn:uuid:uploaded-before", "1", STATS, null) + "]");
         stubDocument("urn:uuid:uploaded-before", 1);
 
         String result = cbomInternalService.sync();
 
         assertThat(result).contains("stored 1 new entries").doesNotContain("held back");
         assertThat(cbomRepository.count()).isOne();
+    }
+
+    /**
+     * An hourly pass with no successful run behind it lists from 0, exactly as the reconcile does, and would bring
+     * every 2.19 deletion back a week before the reconcile could. It is held back the same way.
+     */
+    @Test
+    void anHourlySyncWithNoWatermarkHoldsBackLikeTheReconcile() throws Exception {
+        stampTheUpgrade();
+        OffsetDateTime afterTheUpgrade = OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(5);
+        stubPage("after", "0", "[" + entry("urn:uuid:deleted-in-2.19", "1", STATS, null) + ","
+                + entry("urn:uuid:new", "1", afterTheUpgrade) + "]", null);
+        stubDocument("urn:uuid:deleted-in-2.19", 1);
+        stubDocument("urn:uuid:new", 1);
+
+        String result = cbomInternalService.sync();
+
+        assertThat(result)
+                .contains("stored 1 new entries")
+                .endsWith("1 entries listed before the upgrade to 2.20.0 and absent from Core were held back");
+        assertThat(cbomRepository.findAll()).extracting(Cbom::getSerialNumber).containsExactly("urn:uuid:new");
+        repository.verify(0, WireMock.getRequestedFor(WireMock.urlPathEqualTo("/api/v1/bom/urn:uuid:deleted-in-2.19")));
+    }
+
+    /**
+     * A database no earlier Core has run against gets no stamp: nothing there was deleted without a tombstone, and a
+     * fresh Core pointed at a repository older than itself has to bring that repository in.
+     */
+    @Test
+    void theMigrationStampsNothingWhereNoCoreHasRunBefore() throws Exception {
+        runTheUpgradeMigration();
+        stubPage("after", "0", "[" + entry("urn:uuid:older-than-core", "1", STATS, null) + "]", null);
+        stubDocument("urn:uuid:older-than-core", 1);
+
+        String result = cbomInternalService.reconcile();
+
+        assertThat(upgradeStamps()).isZero();
+        assertThat(result).contains("stored 1 new entries").doesNotContain("held back");
+        assertThat(cbomRepository.count()).isOne();
+    }
+
+    /** {@code setting} has no unique key, and a second stamp would fail every pass that reads it as a single row. */
+    @Test
+    void aReplayedMigrationLeavesOneStamp() throws Exception {
+        stampTheUpgrade();
+        runTheUpgradeMigration();
+        stubPage("after", "0", "[" + entry("urn:uuid:deleted-in-2.19", "1", STATS, null) + "]", null);
+
+        String result = cbomInternalService.reconcile();
+
+        assertThat(upgradeStamps()).isOne();
+        assertThat(result)
+                .endsWith("1 entries listed before the upgrade to 2.20.0 and absent from Core were held back");
     }
 
     @Test
@@ -1011,11 +1078,37 @@ class CbomSyncITest extends BaseSpringBootTest {
 
     // ---- helpers ----
 
-    /** Runs the migration that stamps the upgrade; tests build the schema from the entities, without Flyway. */
+    /** Registers the sync job as every earlier Core did at boot, then runs the migration that stamps the upgrade. */
     private void stampTheUpgrade() throws Exception {
+        ScheduledJob syncJob = new ScheduledJob();
+        syncJob.setJobName(CbomSyncTask.NAME);
+        syncJob.setJobClassName(CbomSyncTask.class.getName());
+        syncJob.setEnabled(true);
+        scheduledJobsRepository.save(syncJob);
+        runTheUpgradeMigration();
+    }
+
+    /** Tests build the schema from the entities, without Flyway, so the migration is executed here. */
+    private void runTheUpgradeMigration() throws Exception {
         jdbcTemplate
                 .execute(new ClassPathResource("db/migration/V202609301200__cbom_sync_upgrade_instant.sql")
                         .getContentAsString(StandardCharsets.UTF_8));
+    }
+
+    private int upgradeStamps() {
+        Integer stamps = jdbcTemplate
+                .queryForObject("SELECT count(*) FROM setting WHERE name = 'cbomSyncUpgradedAt'", Integer.class);
+        return stamps == null ? 0 : stamps;
+    }
+
+    private void recordASuccessfulHourlyRun(Date startedAt) {
+        ScheduledJob syncJob = scheduledJobsRepository.findByJobName(CbomSyncTask.NAME).orElseThrow();
+        ScheduledJobHistory run = new ScheduledJobHistory();
+        run.setScheduledJobUuid(syncJob.getUuid());
+        run.setJobExecution(startedAt);
+        run.setJobEndTime(startedAt);
+        run.setSchedulerExecutionStatus(SchedulerJobExecutionStatus.SUCCESS);
+        scheduledJobHistoryRepository.save(run);
     }
 
     private static String entry(String serialNumber, String version, OffsetDateTime createdAt) {

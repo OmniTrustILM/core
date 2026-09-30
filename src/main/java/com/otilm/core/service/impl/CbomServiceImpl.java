@@ -165,7 +165,10 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      */
     private static final String INVENTORY_SOURCE_CONSTRAINT = "crypto_asset_source_to_cbom_key";
 
-    /** The {@code platform}/{@code utils} setting row the 2.20.0 upgrade migration stamps; see {@link #isHeldBack}. */
+    /**
+     * The {@code platform}/{@code utils} setting row the 2.20.0 upgrade migration stamps on a database an earlier Core
+     * has run against; see {@link #isHeldBack}.
+     */
     private static final String UPGRADE_INSTANT_SETTING = "cbomSyncUpgradedAt";
 
     private CbomRepository cbomRepository;
@@ -869,8 +872,9 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      * {@code (serialNumber, version)}, the same tombstone test before an entry is stored, the same skip bookkeeping,
      * the same ingest pass at the end. What it adds is reach -- an entry the feed never offered inside any window the
      * hourly pass asked for is invisible to that pass for ever, and this is where it is found. Almost every entry it
-     * reads is already stored and costs one indexed existence check; only a missing one costs a document read. The one
-     * rule of its own: a missing entry listed before the upgrade to 2.20.0 is held back ({@link #isHeldBack}).
+     * reads is already stored and costs one indexed existence check; only a missing one costs a document read. A
+     * missing entry listed before the upgrade to 2.20.0 is held back ({@link #isHeldBack}), as it is on any pass that
+     * lists from 0.
      *
      * <p>
      * It does not touch the hourly watermark in either direction: that is read from {@code CbomSyncTask}'s own job
@@ -890,8 +894,11 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
     private String runSync(SyncScope scope) throws CbomRepositoryException {
         // Read once, here: a policy changed in the Settings UI applies to the next run, never to half of this one.
         final CbomSyncPolicy policy = syncPolicyProvider.current();
-        final SyncRun run = new SyncRun(OffsetDateTime.now(), policy,
-                scope == SyncScope.THE_WHOLE_LISTING ? readUpgradeInstant() : null);
+        // The whole-listing pass opens at 0, so the overlap the hourly pass needs against a late-arriving entry is
+        // not read at all: there is no watermark to step back from. An hourly pass with no successful run behind it
+        // opens at 0 too, and is then the whole listing in everything but name, the hold-back included.
+        final long after = scope == SyncScope.THE_WHOLE_LISTING ? 0L : getLastSyncTimestamp(policy.overlap());
+        final SyncRun run = new SyncRun(OffsetDateTime.now(), policy, after == 0L ? readUpgradeInstant() : null);
         logger
                 .getLogger()
                 .info("CBOM Sync: started with an overlap of {} seconds, a retry budget of {} runs, an ingest budget of {} documents and asset ingest {}",
@@ -899,7 +906,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
                         policy.assetIngestEnabled() ? "on" : "off");
         final Map<SyncIdentity, CbomSyncSkip> skips = loadSkipRecords();
 
-        readFeed(run, skips, scope);
+        readFeed(run, skips, after);
         retrySkipped(run, skips);
         settleUnavailable(run, scope);
         ingestPending(run);
@@ -928,14 +935,19 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         SINCE_THE_LAST_RUN,
         THE_WHOLE_LISTING;
 
-        /** Says which pass the job history is reporting on, so two schedules do not read as one. */
+        /**
+         * Says which pass the job history is reporting on, so two schedules do not read as one, and how many entries a
+         * run that applied the hold-back kept out.
+         */
         String report(SyncRun run) {
-            if (this == SINCE_THE_LAST_RUN) {
-                return run.summary();
+            final String summary = this == THE_WHOLE_LISTING
+                    ? "Reconciled against the whole listing. " + run.summary()
+                    : run.summary();
+            if (run.upgradedAt == null) {
+                return summary;
             }
-            return "Reconciled against the whole listing. " + run.summary()
-                    + "; %d entries listed before the upgrade to 2.20.0 and absent from Core were held back"
-                            .formatted(run.heldBack);
+            return summary + "; %d entries listed before the upgrade to 2.20.0 and absent from Core were held back"
+                    .formatted(run.heldBack);
         }
     }
 
@@ -965,12 +977,10 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
                 .orElse(null);
     }
 
-    private void readFeed(SyncRun run, Map<SyncIdentity, CbomSyncSkip> skips, SyncScope scope)
+    private void readFeed(SyncRun run, Map<SyncIdentity, CbomSyncSkip> skips, long after)
             throws CbomRepositoryException {
         final BomSearchRequestDto query = new BomSearchRequestDto();
-        // The whole-listing pass opens at 0, so the overlap the hourly pass needs against a late-arriving entry is
-        // not read at all: there is no watermark to step back from.
-        query.setAfter(scope == SyncScope.THE_WHOLE_LISTING ? 0L : getLastSyncTimestamp(run.policy.overlap()));
+        query.setAfter(after);
         query.setLimit(run.policy.pageSize());
         logger.getLogger().debug("CBOM sync: listing entries created after {}", query.getAfter());
 
@@ -1106,7 +1116,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
     }
 
     /**
-     * Whether the whole-listing pass leaves an entry Core neither holds nor has tombstoned unstored, because it may
+     * Whether a pass that lists from 0 leaves an entry Core neither holds nor has tombstoned unstored, because it may
      * have been deleted before the upgrade to 2.20.0.
      *
      * <p>
@@ -1114,8 +1124,10 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      * deleted then, or never synced; Core cannot tell the two apart. Storing it would bring a deletion back for good,
      * since the stored row is indistinguishable from a synced one, while holding it back loses nothing: the document
      * stays in the repository. An entry with a skip row is not held back, because only 2.20 writes those, so Core met
-     * it after the upgrade. An entry without a creation time counts as listed before. The hourly pass is not held back,
-     * and without the migration's stamp nothing is.
+     * it after the upgrade. An entry without a creation time counts as listed before. An hourly pass with a watermark
+     * is not held back: what it lists is new to it. Without the migration's stamp nothing is, and the migration writes
+     * none on a database no earlier Core has run against, where a whole listing is how a repository older than the
+     * install comes in.
      */
     private boolean isHeldBack(BomEntryDto entry, SyncIdentity identity, SyncRun run,
             Map<SyncIdentity, CbomSyncSkip> skips) {
@@ -1827,7 +1839,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         final OffsetDateTime startedAt;
         /** The operator policy this run was started with; a setting changed mid-run waits for the next one. */
         final CbomSyncPolicy policy;
-        /** The 2.20.0 upgrade instant on a whole-listing pass, null on the hourly one; see {@link #isHeldBack}. */
+        /** The 2.20.0 upgrade instant on a pass listing from 0, null on a windowed one; see {@link #isHeldBack}. */
         final Instant upgradedAt;
         final Set<SyncIdentity> attempted = new HashSet<>();
         /** Entries whose document read got no answer, awaiting the run's verdict. */
