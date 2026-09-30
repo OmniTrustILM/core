@@ -2,6 +2,7 @@ package com.otilm.core.service.handler.discovery;
 
 import com.otilm.api.exception.ConnectorEntityNotFoundException;
 import com.otilm.api.exception.ConnectorProblemException;
+import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.core.service.handler.authority.ConnectorOperationErrorCodes;
 import org.springframework.http.HttpStatus;
@@ -33,6 +34,7 @@ public final class DiscoveryConnectorErrors {
         }
         return switch (problem.getProblemDetail().getErrorCode()) {
             case OPERATION_NOT_TRACKED -> "the connector no longer tracks the run";
+            case VALIDATION_FAILED -> "the connector refused the run's configuration";
             case CHECKPOINT_LOST -> "the connector lost the run's checkpoint";
             case UNAUTHORIZED, FORBIDDEN, CREDENTIAL_INVALID -> "the connector refused Core's credentials";
             case SERVICE_UNAVAILABLE, GATEWAY_TIMEOUT, REQUEST_TIMEOUT -> "the connector was unreachable";
@@ -41,6 +43,15 @@ public final class DiscoveryConnectorErrors {
             case INTERNAL_SERVER_ERROR -> "the connector reported an internal error";
             case null, default -> UNANSWERED;
         };
+    }
+
+    /**
+     * True when the connector refused the run's configuration: a verdict on what was asked, which a retry repeats and
+     * only whoever asked can correct.
+     */
+    public static boolean isConfigurationRefused(Throwable e) {
+        return e instanceof ConnectorProblemException problem && problem.getProblemDetail() != null
+                && problem.getProblemDetail().getErrorCode() == ErrorCode.VALIDATION_FAILED;
     }
 
     /**

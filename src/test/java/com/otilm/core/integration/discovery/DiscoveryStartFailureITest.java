@@ -1,8 +1,12 @@
 package com.otilm.core.integration.discovery;
 
 import com.otilm.api.exception.ConnectorEntityNotFoundException;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ConnectorProblemException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
+import com.otilm.api.model.common.error.ErrorCode;
+import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryInitiateResponseDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryStopResponseDto;
 import com.otilm.api.model.core.auth.Resource;
@@ -22,6 +26,7 @@ import com.otilm.core.util.DiscoveryInterfaceFixture;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.PersistenceContext;
+import java.net.URI;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -87,6 +92,53 @@ class DiscoveryStartFailureITest extends BaseSpringBootTest {
         assertThat(persisted.getScheduledJobHistoryUuid())
                 .as("a run whose ending still names its job execution finalizes that job history a second time")
                 .isNull();
+    }
+
+    /**
+     * A scheduled run has no caller to hand the refusal to, so it ends FAILED -- saying the connector answered, which
+     * sends a reader to the run's configuration rather than to the connector's availability.
+     */
+    @Test
+    void aRunWhoseConfigurationTheConnectorRefusesWithNoCallerEndsFailedSayingSo() throws Exception {
+        Discovery run = v2Run();
+        when(client.supportedResources(any())).thenReturn(List.of(Resource.CERTIFICATE));
+        when(client.initiate(any())).thenThrow(configurationRefusal());
+
+        adapter.start(run.getUuid(), null);
+
+        Discovery persisted = discoveryRepository.findByUuid(run.getUuid()).orElseThrow();
+        assertThat(persisted.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
+        assertThat(persisted.getConnectorStatus()).isEqualTo(DiscoveryStatus.FAILED);
+        assertThat(persisted.getMessage())
+                .isEqualTo("Discovery could not be started at its connector: the connector refused the run's "
+                        + "configuration");
+    }
+
+    @Test
+    void aConfigurationTheConnectorRefusesReachesTheCallerAndLeavesNoRun() throws Exception {
+        Discovery run = v2Run();
+        when(client.supportedResources(any())).thenReturn(List.of(Resource.CERTIFICATE));
+        when(client.initiate(any())).thenThrow(configurationRefusal());
+
+        assertThatThrownBy(() -> adapter.startForCaller(run.getUuid()))
+                .isInstanceOf(ConnectorProblemException.class)
+                .hasMessageContaining("10.0.0.999");
+
+        assertThat(discoveryRepository.findByUuid(run.getUuid())).isEmpty();
+    }
+
+    /** Only a verdict on the request is the caller's to hear; a connector that could not answer fails the run. */
+    @Test
+    void aCallersRunThatFailsForAnotherReasonIsKeptFailed() throws Exception {
+        Discovery run = v2Run();
+        when(client.supportedResources(any())).thenReturn(List.of(Resource.CERTIFICATE));
+        when(client.initiate(any())).thenThrow(new ConnectorException("connection refused"));
+
+        adapter.startForCaller(run.getUuid());
+
+        Discovery persisted = discoveryRepository.findByUuid(run.getUuid()).orElseThrow();
+        assertThat(persisted.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
+        assertThat(persisted.getMessage()).endsWith("the connector did not answer");
     }
 
     /** Over the AMQP proxy the 404 arrives as an exception, not a status; it still means what cancel asked for. */
@@ -195,6 +247,12 @@ class DiscoveryStartFailureITest extends BaseSpringBootTest {
             run.setStoppedAt(OffsetDateTime.now(ZoneOffset.UTC));
         }
         return discoveryRepository.saveAndFlush(run);
+    }
+
+    private static ConnectorProblemException configurationRefusal() {
+        return new ConnectorProblemException(ProblemDetailExtended
+                .fromErrorCode(ErrorCode.VALIDATION_FAILED, "data_hosts entry \"10.0.0.999\" is not valid",
+                        URI.create("https://example.com/discoveries/initiate"), null));
     }
 
     private Discovery v2Run() {

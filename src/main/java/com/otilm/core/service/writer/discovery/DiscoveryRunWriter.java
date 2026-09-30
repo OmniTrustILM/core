@@ -14,6 +14,7 @@ import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.mapper.discovery.DiscoveryDtoMapper;
 import com.otilm.core.service.TriggerExternalService;
+import com.otilm.core.service.TriggerInternalService;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -37,14 +38,16 @@ public class DiscoveryRunWriter {
     private final DiscoveryRepository discoveryRepository;
     private final AttributeEngine attributeEngine;
     private final TriggerExternalService triggerService;
+    private final TriggerInternalService triggerInternalService;
 
     // Constructed rather than set, unlike the services that hold this same collaborator: a writer bean may expose no
     // public method that is not a REQUIRED transaction, which a setter would be.
     public DiscoveryRunWriter(DiscoveryRepository discoveryRepository, AttributeEngine attributeEngine,
-            TriggerExternalService triggerService) {
+            TriggerExternalService triggerService, TriggerInternalService triggerInternalService) {
         this.discoveryRepository = discoveryRepository;
         this.attributeEngine = attributeEngine;
         this.triggerService = triggerService;
+        this.triggerInternalService = triggerInternalService;
     }
 
     /**
@@ -104,5 +107,19 @@ public class DiscoveryRunWriter {
         // All zero by construction: the run was inserted in this transaction and nothing since has written a message
         // or staged an item.
         return DiscoveryDtoMapper.toDetailDto(saved, new DiscoveryDtoMapper.DetailCounts(0, 0, 0, 0));
+    }
+
+    /**
+     * Removes a run its connector refused at initiate, for a caller still waiting on the create: the refusal is their
+     * answer, and a failed run left behind would be one nobody asked to keep. Nothing past initiate has been written
+     * for such a run, so what {@link #createRun} wrote is all there is to remove.
+     */
+    @Transactional
+    public void discardUnstartedRun(UUID discoveryUuid) {
+        discoveryRepository.findByUuid(discoveryUuid).ifPresent(run -> {
+            attributeEngine.deleteObjectAttributeContent(Resource.DISCOVERY, discoveryUuid);
+            triggerInternalService.deleteTriggerAssociations(Resource.DISCOVERY, discoveryUuid);
+            discoveryRepository.delete(run);
+        });
     }
 }
