@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.core.cbom.asset.OccurrenceEvidenceCapper;
+import com.otilm.core.model.cbom.CbomHeaderCounts;
 import com.otilm.core.model.cbom.CryptoAssetIdentityGuard;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import java.util.ArrayDeque;
@@ -97,7 +98,13 @@ public final class CbomAssetExtractor {
      */
     public record ExtractedAsset(String identityKey, String chainStep, NormalizedAsset normalized, String componentName,
             JsonNode retainedProperties, List<Map<String, Object>> evidence, int reportedOccurrences,
-            CryptoAssetIdentityGuard guard, List<String> findings) {
+            CryptoAssetIdentityGuard guard, List<String> findings, List<String> bomRefs,
+            List<AssetReferences.Reference> references) {
+
+        public ExtractedAsset {
+            bomRefs = bomRefs == null ? List.of() : List.copyOf(bomRefs);
+            references = references == null ? List.of() : List.copyOf(references);
+        }
 
         /**
          * Folds the assets of one document that key as the same asset into one, in first-seen order.
@@ -134,10 +141,13 @@ public final class CbomAssetExtractor {
                 evidence.addAll(next.evidence);
             }
             ExtractedAsset richer = richness.applyAsInt(next) > richness.applyAsInt(first) ? next : first;
+            List<String> bomRefs = new ArrayList<>(first.bomRefs);
+            bomRefs.addAll(next.bomRefs);
+            // The richer component's, beside the richer payload they were read from.
             return new ExtractedAsset(first.identityKey, richer.chainStep, richer.normalized, first.componentName,
                     richer.retainedProperties, List.copyOf(evidence),
                     first.reportedOccurrences + next.reportedOccurrences,
-                    first.guard == null ? next.guard : first.guard, first.findings);
+                    first.guard == null ? next.guard : first.guard, first.findings, bomRefs, richer.references);
         }
 
         /**
@@ -178,9 +188,14 @@ public final class CbomAssetExtractor {
      * document, and {@link DocumentScope#of} explains why neither reading of a duplicate can be trusted. A ref with no
      * UTF-8 encoding is replaced by {@link #UNENCODABLE_REF} -- it cannot be stored or shown, and dropping it silently
      * would understate how many the document carries.
+     *
+     * <p>
+     * {@code headerCounts} is the document's count by the cbom-repository's version-2 rule (see {@link #countOf}). It
+     * is deliberately not {@code assetCount()}: that counts what this class could key, the header counts what the
+     * repository would report.
      */
     public record Extraction(List<ExtractedAsset> assets, List<Skip> skips, boolean depthLimitReached,
-            boolean documentScopeUnavailable, List<String> ambiguousRefs) {
+            boolean documentScopeUnavailable, List<String> ambiguousRefs, CbomHeaderCounts headerCounts) {
 
         public int assetCount() {
             return assets.size();
@@ -205,7 +220,7 @@ public final class CbomAssetExtractor {
      */
     public Extraction extract(JsonNode document, Set<String> batchRefutedDigests) {
         if (document == null || !document.isObject()) {
-            return new Extraction(List.of(), List.of(), false, false, List.of());
+            return new Extraction(List.of(), List.of(), false, false, List.of(), CbomHeaderCounts.ZERO);
         }
         Set<String> refuted = batchRefutedDigests == null ? Set.of() : batchRefutedDigests;
 
@@ -237,7 +252,8 @@ public final class CbomAssetExtractor {
                 ExtractedAsset asset = new ExtractedAsset(extracted.key(), extracted.step(), extracted.asset(),
                         nameOf(component), extracted.redaction().storedPayload(),
                         OccurrenceEvidenceCapper.cap(occurrences == null ? null : retainedOccurrences(occurrences)),
-                        occurrences == null ? 0 : occurrences.size(), extracted.guard(), extracted.findings());
+                        occurrences == null ? 0 : occurrences.size(), extracted.guard(), extracted.findings(),
+                        bomRefOf(component), AssetReferences.of(component));
                 requireEncodable(asset);
                 assets.add(asset);
             } catch (RuntimeException e) {
@@ -250,7 +266,46 @@ public final class CbomAssetExtractor {
             }
         }
         return new Extraction(List.copyOf(assets), List.copyOf(skips), walk.depthLimitReached(), scopeUnavailable,
-                encodable(scope.ambiguousRefs()));
+                encodable(scope.ambiguousRefs()), countOf(walk.components()));
+    }
+
+    /**
+     * Counts the walked components exactly as the cbom-repository's version-2 {@code CalculateCryptoStats} does, so a
+     * recounted header agrees with what a current upload reports.
+     *
+     * <p>
+     * <b>Narrower than {@link #isCryptographicAsset} on purpose.</b> The repository counts a component only when it is
+     * typed {@code cryptographic-asset} <em>and</em> carries {@code cryptoProperties}; extraction takes either, so as
+     * not to lose an asset. Unifying the two would make the header disagree with every version-2 count, or make
+     * extraction drop assets.
+     */
+    private static CbomHeaderCounts countOf(List<JsonNode> components) {
+        int algorithms = 0;
+        int certificates = 0;
+        int protocols = 0;
+        int relatedCryptoMaterials = 0;
+        int total = 0;
+        for (JsonNode component : components) {
+            JsonNode type = component.get("type");
+            JsonNode properties = component.get("cryptoProperties");
+            if (type == null || !"cryptographic-asset".equals(type.textValue()) || properties == null
+                    || !properties.isObject()) {
+                continue;
+            }
+            total++;
+            // Any other assetType, or none, is counted in the total only -- as the repository does.
+            String assetType = properties.path("assetType").asText("");
+            if ("algorithm".equals(assetType)) {
+                algorithms++;
+            } else if ("certificate".equals(assetType)) {
+                certificates++;
+            } else if ("protocol".equals(assetType)) {
+                protocols++;
+            } else if ("related-crypto-material".equals(assetType)) {
+                relatedCryptoMaterials++;
+            }
+        }
+        return new CbomHeaderCounts(algorithms, certificates, protocols, relatedCryptoMaterials, total);
     }
 
     /** Stands in for a duplicated {@code bom-ref} that has no UTF-8 encoding, so no column can hold its spelling. */
@@ -412,6 +467,11 @@ public final class CbomAssetExtractor {
         boolean declaredType = type != null && type.isTextual() && "cryptographic-asset".equals(type.textValue());
         JsonNode properties = component.get("cryptoProperties");
         return declaredType || (properties != null && properties.isObject());
+    }
+
+    private static List<String> bomRefOf(JsonNode component) {
+        JsonNode ref = component.get("bom-ref");
+        return ref != null && ref.isTextual() && !ref.textValue().isEmpty() ? List.of(ref.textValue()) : List.of();
     }
 
     private static String nameOf(JsonNode component) {

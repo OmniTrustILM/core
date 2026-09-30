@@ -168,6 +168,40 @@ class CryptographicAssetAuthorizationHttpITest extends BaseSpringBootTest {
                 .andExpectAll(status().isForbidden(), jsonPath("$.code").value("ACCESS_DENIED"));
     }
 
+    /** The explanation introduces no action of its own: it is gated by the detail it explains. */
+    @Test
+    void deniesTheExplanationWhenTheDetailActionIsDenied() throws Exception {
+        UUID assetUuid = seedOneAsset();
+        denyResourceAccess(Resource.CRYPTO_ASSET, ResourceAction.DETAIL);
+
+        mockMvc
+                .perform(get(DETAIL_ENDPOINT + assetUuid + "/pqcExplanation"))
+                .andExpectAll(status().isForbidden(), jsonPath("$.code").value("ACCESS_DENIED"));
+    }
+
+    @Test
+    void theExplanationOfAnUnknownAssetIsA404() throws Exception {
+        mockMvc.perform(get(DETAIL_ENDPOINT + UUID.randomUUID() + "/pqcExplanation")).andExpect(status().isNotFound());
+    }
+
+    /**
+     * The explanation serves inputs and every step's evaluated fields, the same kind of map-typed channel the detail
+     * does, so it gets the same two identity-key assertions.
+     */
+    @Test
+    void theExplanationCarriesNoIdentityKey() throws Exception {
+        UUID assetUuid = seedAssetWithSourcesPayloadsAndVerdict();
+
+        String body = mockMvc
+                .perform(get(DETAIL_ENDPOINT + assetUuid + "/pqcExplanation"))
+                .andExpectAll(status().isOk(), jsonPath("$.steps").isArray(), jsonPath("$.inputs").isMap())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        assertThat(body).doesNotContainPattern(IDENTITY_KEY).doesNotContain(theSeededKeyLiteral());
+    }
+
     @Test
     void deniesStatisticsWhenTheListActionIsDenied() throws Exception {
         denyResourceAccess(Resource.CRYPTO_ASSET, ResourceAction.LIST);
@@ -257,7 +291,7 @@ class CryptographicAssetAuthorizationHttpITest extends BaseSpringBootTest {
                 .upsertSource(seededUuid, cbom.getUuid(), payload,
                         List.of(Map.of("location", "src/fence.c", "line", 1)), OffsetDateTime.now());
         assetWriter
-                .applyPqcVerdict(seededUuid, PqcVerdict.NOT_READY, "fence-rule", "fence reason", 1,
+                .applyPqcVerdict(seededUuid, PqcVerdict.NOT_READY, "fence-rule", "fence reason",
                         Map.of("checked", "field"));
         return seededUuid;
     }

@@ -32,6 +32,7 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -83,12 +84,13 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
                 ? listViewRepository.findByUserUuidOrderByCreatedAscUuidAsc(userUuid)
                 : listViewRepository.findByUserUuidAndResourceOrderByCreatedAscUuidAsc(userUuid, resource);
 
-        // One catalogue per resource, certain to hold every field any of that resource's views names.
+        // One catalogue per resource, certain to hold every field any of its views orders by. Reading consults it for
+        // the ordering alone, and naming a column whose field has left the catalogue would reload it on every read.
         Map<Resource, List<NamedField>> named = views
                 .stream()
                 .collect(Collectors
                         .groupingBy(ListView::getResource, () -> new EnumMap<>(Resource.class),
-                                Collectors.flatMapping(view -> namedFields(view).stream(), Collectors.toList())));
+                                Collectors.flatMapping(view -> sortField(view).stream(), Collectors.toList())));
         Map<Resource, Catalogue> catalogues = new EnumMap<>(Resource.class);
         named.forEach((viewResource, fields) -> catalogues.put(viewResource, catalogueOf(viewResource, fields)));
         return views.stream().map(view -> toDto(view, catalogues.get(view.getResource()))).toList();
@@ -101,7 +103,7 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         UUID userUuid = loggedUserUuid();
         Resource resource = request.getResource();
         Catalogue catalogue = catalogueOf(resource, namedFields(request));
-        validateRequest(resource, request, Set.of(), catalogue);
+        validateRequest(resource, request, Set.of(), List.of(), catalogue);
 
         serializeWritesFor(userUuid, resource);
         if (listViewRepository.existsByUserUuidAndResourceAndName(userUuid, resource, request.getName())) {
@@ -124,7 +126,7 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         UUID userUuid = loggedUserUuid();
         ListView view = ownView(uuid, userUuid);
         Catalogue catalogue = catalogueOf(view.getResource(), namedFields(request));
-        validateRequest(view.getResource(), request, columnsOf(view), catalogue);
+        validateRequest(view.getResource(), request, columnsOf(view), filtersOf(view), catalogue);
 
         serializeWritesFor(userUuid, view.getResource());
         if (listViewRepository
@@ -215,16 +217,11 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         dto.setName(view.getName());
         dto.setResource(view.getResource());
         dto.setDefaultView(view.isDefaultView());
-        // A column the listing can no longer show is still returned: the client has the same catalogue this is read
-        // from, so it can mark the column unavailable and offer to remove it, and a view whose every column was
-        // withdrawn still reads back in a shape it can be saved in. Only a field that has left the catalogue outright
-        // is dropped, having nothing left to label it with.
-        dto
-                .setColumns(view
-                        .getColumns()
-                        .stream()
-                        .filter(column -> catalogue.offers(CatalogueField.of(column)))
-                        .toList());
+        // Every stored column is returned, including one whose field the listing can no longer show or that has left
+        // the catalogue outright. The client has the same catalogue this is read from, so it marks such a column
+        // unavailable, names it and offers to remove it. Withholding it instead would let the client's next full-row
+        // write erase it without the user ever having seen it, when the field may yet come back.
+        dto.setColumns(view.getColumns());
         dto.setFilters(view.getFilters());
         // Returning an ordering the listing would now refuse hands the client a view whose every application answers
         // an error; dropping it opens the view in the listing's own order instead.
@@ -240,11 +237,18 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
      * actually use.
      *
      * <p>
-     * {@code carriedAlready} are the columns the stored view holds, which are exempt from the column gate. A field can
-     * stop being one the listing shows after a view stored it, and rejecting it would leave that view unsaveable: the
-     * client reads it back, renames it, and the rename is refused over a column it did not touch. So a withdrawn column
-     * can be kept or removed but not introduced, and a creation - which carries nothing already - is held to the
-     * current catalogue in full.
+     * {@code carriedAlready} are the columns the stored view holds, which are exempt from the column gates. A field can
+     * stop being one the listing shows, or leave the catalogue outright, after a view stored it, and rejecting it would
+     * leave that view unsaveable: the client reads it back, renames it, and the rename is refused over a column it did
+     * not touch. So such a column can be kept or removed but not introduced, and a creation - which carries nothing
+     * already - is held to the current catalogue in full.
+     *
+     * <p>
+     * {@code filtersCarried} are the filters the stored view holds, and one sent back unchanged is exempt on the same
+     * terms. Its field may have left the catalogue, or stayed in it but stopped offering the stored condition - a
+     * hidden or encrypted custom attribute accepts only presence conditions - and either way a view could not be
+     * renamed. The exemption covers the stored filter exactly, so a new or changed filter, or a second copy of a stored
+     * one, is held to the catalogue.
      *
      * <p>
      * An ordering has no such exemption. It is applied by re-issuing the listing request, which refuses a field that is
@@ -252,7 +256,7 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
      * ordering is dropped on read instead.
      */
     private static void validateRequest(Resource resource, ListViewUpdateRequestDto request,
-            Set<CatalogueField> carriedAlready, Catalogue catalogue) {
+            Set<CatalogueField> carriedAlready, List<SearchFilterRequestDto> filtersCarried, Catalogue catalogue) {
         if (catalogue.isEmpty()) {
             throw new ValidationException(ValidationError
                     .create("Resource %s has no field catalogue and cannot carry views."
@@ -260,12 +264,16 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         }
 
         validateColumns(resource, request.getColumns(), catalogue, carriedAlready);
-        validateFilters(resource, request.getFilters(), catalogue);
+        validateFilters(resource, request.getFilters(), catalogue, filtersCarried);
         validateSort(resource, request.getSort(), catalogue);
     }
 
     private static Set<CatalogueField> columnsOf(ListView view) {
         return view.getColumns().stream().map(CatalogueField::of).collect(Collectors.toUnmodifiableSet());
+    }
+
+    private static List<SearchFilterRequestDto> filtersOf(ListView view) {
+        return view.getFilters() == null ? List.of() : List.copyOf(view.getFilters());
     }
 
     private static void validateColumns(Resource resource, List<ListViewColumnDto> columns, Catalogue catalogue,
@@ -284,6 +292,7 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         rejectUnknown(resource,
                 columns
                         .stream()
+                        .filter(column -> !carriedAlready.contains(CatalogueField.of(column)))
                         .filter(column -> !catalogue.offers(CatalogueField.of(column)))
                         .map(ListViewColumnDto::getFieldIdentifier)
                         .toList());
@@ -306,9 +315,18 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
      * both against the same catalogue when the view is applied: a filter naming another resource's field, or an
      * operator the field has no expression for, would fail there rather than here.
      */
-    private static void validateFilters(Resource resource, List<SearchFilterRequestDto> filters, Catalogue catalogue) {
-        if (filters == null) {
+    private static void validateFilters(Resource resource, List<SearchFilterRequestDto> requested, Catalogue catalogue,
+            List<SearchFilterRequestDto> filtersCarried) {
+        if (requested == null) {
             return;
+        }
+
+        List<SearchFilterRequestDto> uncarried = new ArrayList<>(filtersCarried);
+        List<SearchFilterRequestDto> filters = new ArrayList<>();
+        for (SearchFilterRequestDto filter : requested) {
+            if (!uncarried.remove(filter)) {
+                filters.add(filter);
+            }
         }
 
         rejectUnknown(resource,
@@ -380,15 +398,10 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         return new Catalogue(fields);
     }
 
-    private static List<NamedField> namedFields(ListView view) {
-        List<NamedField> named = new ArrayList<>();
-        view
-                .getColumns()
-                .forEach(column -> named.add(NamedField.of(column.getFieldSource(), column.getFieldIdentifier())));
-        if (view.getSort() != null) {
-            named.add(NamedField.of(view.getSort().getFieldSource(), view.getSort().getFieldIdentifier()));
-        }
-        return named;
+    private static Optional<NamedField> sortField(ListView view) {
+        return Optional
+                .ofNullable(view.getSort())
+                .map(sort -> NamedField.of(sort.getFieldSource(), sort.getFieldIdentifier()));
     }
 
     private static List<NamedField> namedFields(ListViewUpdateRequestDto request) {
