@@ -71,7 +71,7 @@ public class ScheduledJobHistoryWriter {
 
     /**
      * The task declined the run ({@code ScheduledJobSkippedException}): the row goes; what remains of the run is what
-     * {@code ScheduledJobWriter} recorded on the job.
+     * {@code ScheduledJobWriter} recorded on the job, so this is called only once that has committed.
      */
     @Transactional
     public void removeSkipped(UUID historyUuid) {

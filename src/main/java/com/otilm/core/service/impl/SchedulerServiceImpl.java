@@ -71,6 +71,8 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
 
     private static final String UNOBSERVED = "Scheduler job list could not be read ({}); serving schedule state 'unknown'";
 
+    private static final String SKIP_NOT_RECORDED = "The run was skipped but the skip could not be recorded; see the Core log";
+
     private AuthHelper authHelper;
 
     private ApplicationContext applicationContext;
@@ -407,23 +409,37 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
     }
 
     /**
-     * A declined run: the skip goes on the job, then the run's row goes. Each is the writer's own transaction and each
-     * failing is logged, never thrown -- a skip is not a failure, and the row that should have gone is named so an
-     * operator can remove it.
+     * A declined run: the skip goes on the job, then the run's row goes. The row is removed only once the skip is
+     * stored, so the run is never lost from both: a skip that cannot be recorded closes the row as FAILED instead, with
+     * fixed text, as a close that fails does in {@link #finalizeFinishedScheduledJob}. Each write is the writer's own
+     * transaction, and each failing is logged, never thrown -- the task did not fail; the row left behind is named so
+     * an operator can find it.
      */
     private void recordSkip(ScheduledJob scheduledJob, UUID historyUuid, String reason) {
         try {
             scheduledJobWriter.recordSkipped(scheduledJob.getUuid(), reason);
         } catch (RuntimeException bookkeeping) {
             logger
-                    .error("Scheduled job '{}' declined its run but the skip could not be recorded on the job",
-                            scheduledJob.getJobName(), bookkeeping);
+                    .error("Scheduled job '{}' declined its run but the skip could not be recorded on the job; its history row {} is closed as FAILED instead",
+                            scheduledJob.getJobName(), historyUuid, bookkeeping);
+            closeUnrecordedSkip(scheduledJob, historyUuid);
+            return;
         }
         try {
             historyWriter.removeSkipped(historyUuid);
         } catch (RuntimeException bookkeeping) {
             logger
                     .error("Scheduled job '{}' declined its run but its history row {} could not be removed",
+                            scheduledJob.getJobName(), historyUuid, bookkeeping);
+        }
+    }
+
+    private void closeUnrecordedSkip(ScheduledJob scheduledJob, UUID historyUuid) {
+        try {
+            historyWriter.recordFailed(historyUuid, SKIP_NOT_RECORDED);
+        } catch (RuntimeException bookkeeping) {
+            logger
+                    .error("Scheduled job '{}' declined its run, and neither the skip nor its history row {} could be written",
                             scheduledJob.getJobName(), historyUuid, bookkeeping);
         }
     }

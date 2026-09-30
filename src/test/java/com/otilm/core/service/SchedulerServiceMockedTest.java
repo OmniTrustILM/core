@@ -666,21 +666,54 @@ class SchedulerServiceMockedTest {
         verify(eventProducer, never()).produceMessage(any());
     }
 
-    /** A skip is not a failure: bookkeeping that fails is logged, and the other write still happens. */
+    /**
+     * Removing the row as well would leave the run nowhere: no history row and no skip on the job. The row is closed as
+     * FAILED instead, with fixed text rather than the writer's own, and the run still does not throw.
+     */
     @Test
-    void testRunScheduledJob_WhenTheSkipCannotBeRecorded_StillRemovesTheHistoryRow() throws Exception {
+    void testRunScheduledJob_WhenTheSkipCannotBeRecorded_ClosesTheHistoryRowAsFailedInsteadOfRemovingIt()
+            throws Exception {
         TestTask testTask = spy(new TestTask(new ScheduledJobSkippedException("nothing to do")));
 
         when(scheduledJobsRepository.findByJobName(JOB_NAME)).thenReturn(Optional.of(scheduledJob));
         when(historyWriter.recordStarted(scheduledJob)).thenReturn(scheduledJobHistory);
         when(applicationContext.getBean(eq(TestTask.class))).thenReturn(testTask);
-        doThrow(new IllegalStateException("vanished"))
+        doThrow(new IllegalStateException("scheduled_job row " + JOB_UUID + " vanished before its skip was recorded"))
                 .when(scheduledJobWriter)
                 .recordSkipped(JOB_UUID, "nothing to do");
 
         assertDoesNotThrow(() -> schedulerService.runScheduledJob(JOB_NAME));
 
-        verify(historyWriter).removeSkipped(HISTORY_UUID);
+        verify(historyWriter)
+                .recordFailed(HISTORY_UUID, "The run was skipped but the skip could not be recorded; see the Core log");
+        verify(historyWriter, never()).removeSkipped(any());
+    }
+
+    /** And when the row cannot be closed either, both failures are logged and the run still does not throw. */
+    @Test
+    void testRunScheduledJob_WhenNeitherTheSkipNorTheFailedCloseCanBeWritten_LogsBothAndDoesNotThrow()
+            throws Exception {
+        TestTask testTask = spy(new TestTask(new ScheduledJobSkippedException("nothing to do")));
+
+        when(scheduledJobsRepository.findByJobName(JOB_NAME)).thenReturn(Optional.of(scheduledJob));
+        when(historyWriter.recordStarted(scheduledJob)).thenReturn(scheduledJobHistory);
+        when(applicationContext.getBean(eq(TestTask.class))).thenReturn(testTask);
+        doThrow(new IllegalStateException("skip write failed"))
+                .when(scheduledJobWriter)
+                .recordSkipped(JOB_UUID, "nothing to do");
+        doThrow(new IllegalStateException("close write failed")).when(historyWriter).recordFailed(any(), any());
+        List<ILoggingEvent> errors = new ArrayList<>();
+
+        capturing(Level.ERROR, errors, () -> {
+            assertDoesNotThrow(() -> schedulerService.runScheduledJob(JOB_NAME));
+            return null;
+        });
+
+        verify(historyWriter, never()).removeSkipped(any());
+        assertEquals(List.of("skip write failed", "close write failed"),
+                errors.stream().map(error -> error.getThrowableProxy().getMessage()).toList());
+        assertTrue(errors.get(1).getFormattedMessage().contains(HISTORY_UUID.toString()),
+                errors.get(1).getFormattedMessage());
     }
 
     @Test
@@ -946,6 +979,13 @@ class SchedulerServiceMockedTest {
 
     /** Runs {@code action} with the service's log captured, adding to {@code warnings} what it logged at WARN. */
     private static <T> T capturingWarnings(List<ILoggingEvent> warnings, Supplier<T> action) {
+        return capturing(Level.WARN, warnings, action);
+    }
+
+    /**
+     * Runs {@code action} with the service's log captured, adding to {@code events} what it logged at {@code level}.
+     */
+    private static <T> T capturing(Level level, List<ILoggingEvent> events, Supplier<T> action) {
         ListAppender<ILoggingEvent> logs = new ListAppender<>();
         Logger serviceLogger = (Logger) LoggerFactory.getLogger(SchedulerServiceImpl.class);
         logs.start();
@@ -954,7 +994,7 @@ class SchedulerServiceMockedTest {
             return action.get();
         } finally {
             serviceLogger.detachAppender(logs);
-            logs.list.stream().filter(event -> event.getLevel() == Level.WARN).forEach(warnings::add);
+            logs.list.stream().filter(event -> event.getLevel() == level).forEach(events::add);
         }
     }
 
