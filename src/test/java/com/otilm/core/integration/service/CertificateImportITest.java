@@ -48,6 +48,7 @@ import com.otilm.core.container.Pkcs12Fixtures;
 import com.otilm.core.dao.entity.AuditLog;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateEventHistory;
+import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyEventHistory;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.KeyImport;
@@ -73,6 +74,7 @@ import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.CertificateUploadService;
 import com.otilm.core.service.ResourceObjectAssociationService;
 import com.otilm.core.service.SettingExternalService;
+import com.otilm.core.service.handler.KeyImportGates;
 import com.otilm.core.service.handler.KeyImportSaga;
 import com.otilm.core.service.impl.CertificateImportServiceImpl;
 import com.otilm.core.service.writer.CertificateKeyWriter;
@@ -874,15 +876,13 @@ class CertificateImportITest extends BaseSpringBootTest {
     }
 
     /**
-     * The certificate's key is a record another user owns, which the caller may not update: the entry is refused in the
-     * words a key held otherwise is, before the connector is asked, and the rest of the request goes on.
+     * The certificate's key is a record another user owns, which the caller may see but not update: the entry is
+     * refused with that reason, before the connector is asked, and the rest of the request goes on.
      */
     @Test
     void importCertificates_refusesTheKeyOfARecordTheCallerMayNotUpdate() throws Exception {
         // given
-        String registered = certificateUploadService
-                .upload(Base64.getEncoder().encodeToString(chain.leaf().getEncoded()), null, true);
-        UUID recordUuid = certificateRepository.findByFingerprint(registered).orElseThrow().getKeyUuid();
+        UUID recordUuid = uploadedLeafKey();
         objectAssociationService.setOwner(Resource.CRYPTOGRAPHIC_KEY, recordUuid, UUID.randomUUID(), "another");
         denyResourceAccess(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.UPDATE);
         CertificateImportRequestDto request = request(pkcs12(aes()), PASSPHRASE,
@@ -895,11 +895,60 @@ class CertificateImportITest extends BaseSpringBootTest {
         assertThat(results)
                 .extracting(CertificateImportResultDto::isImported, CertificateImportResultDto::getKeyOutcome,
                         CertificateImportResultDto::getKeyUuid, CertificateImportResultDto::getMessage)
-                .containsExactly(tuple(false, null, null, CryptographicKeyWriter.KEY_ALREADY_HELD),
+                .containsExactly(
+                        tuple(false, null, null,
+                                KeyImportGates.NOT_UPDATABLE.formatted(nameOfKey(recordUuid.toString()))),
                         tuple(true, null, null, null));
         connectorMock.verifyImportKeyRequests(0);
         assertThat(keyImportRepository.count()).isZero();
         assertThat(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(recordUuid))).hasSize(1);
+    }
+
+    /** The same, where the caller may not see the record either: the refusal says nothing of whose it is. */
+    @Test
+    void importCertificates_refusesTheKeyOfARecordTheCallerMayNeitherSeeNorUpdateInNeutralWords() throws Exception {
+        // given
+        UUID recordUuid = uploadedLeafKey();
+        denyResourceAccess(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.UPDATE);
+        denyKeyDetailOf(recordUuid);
+
+        // when
+        List<CertificateImportResultDto> results = importCertificates(
+                request(pkcs12(aes()), PASSPHRASE, entry(keyPairReference(), destination("leaf key"))));
+
+        // then
+        assertThat(results)
+                .singleElement()
+                .extracting(CertificateImportResultDto::isImported, CertificateImportResultDto::getMessage)
+                .containsExactly(false, CryptographicKeyWriter.KEY_ALREADY_HELD);
+        connectorMock.verifyImportKeyRequests(0);
+    }
+
+    /**
+     * The certificate's key is in a token that holds its public key without its private key, so the imported private
+     * key cannot be added to it: the entry is refused with that reason, before the connector is asked, and the key is
+     * left as it was.
+     */
+    @Test
+    void importCertificates_tellsTheCallerThatATokenHoldsTheCertificateKeyWithoutItsPrivateKey() throws Exception {
+        // given
+        UUID keyUuid = uploadedLeafKey();
+        CryptographicKey inAToken = cryptographicKeyRepository.findById(keyUuid).orElseThrow();
+        inAToken.setTokenInstanceReferenceUuid(profile.getTokenInstanceReferenceUuid());
+        cryptographicKeyRepository.saveAndFlush(inAToken);
+
+        // when
+        List<CertificateImportResultDto> results = importCertificates(
+                request(pkcs12(aes()), PASSPHRASE, entry(keyPairReference(), destination("leaf key"))));
+
+        // then
+        assertThat(results)
+                .singleElement()
+                .extracting(CertificateImportResultDto::isImported, CertificateImportResultDto::getMessage)
+                .containsExactly(false, KeyImportGates.HELD_IN_TOKEN.formatted(inAToken.getName()));
+        connectorMock.verifyImportKeyRequests(0);
+        assertThat(keyImportRepository.count()).isZero();
+        assertThat(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(keyUuid))).hasSize(1);
     }
 
     /** A secret key has no public key; the key import's own record answers the same file sent again. */
@@ -1587,6 +1636,13 @@ class CertificateImportITest extends BaseSpringBootTest {
 
     private String nameOfKey(String keyUuid) {
         return cryptographicKeyRepository.findByUuid(UUID.fromString(keyUuid)).orElseThrow().getName();
+    }
+
+    /** Uploads the chain's leaf, whose public key the platform then holds as a public-key-only record. */
+    private UUID uploadedLeafKey() throws Exception {
+        String registered = certificateUploadService
+                .upload(Base64.getEncoder().encodeToString(chain.leaf().getEncoded()), null, true);
+        return certificateRepository.findByFingerprint(registered).orElseThrow().getKeyUuid();
     }
 
     private CustomAttributeV3 departmentAttribute() throws Exception {

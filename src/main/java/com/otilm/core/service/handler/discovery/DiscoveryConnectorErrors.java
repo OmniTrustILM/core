@@ -48,8 +48,9 @@ public final class DiscoveryConnectorErrors {
      * cannot recover the run, which ends FAILED.
      *
      * <p>
-     * The status gates the code rather than the reverse, since a code is trusted only on a 404; over the AMQP proxy the
-     * same condition arrives instead as a plain {@link ConnectorEntityNotFoundException}.
+     * The status gates the code rather than the reverse, since a code is trusted only on a 404; through an AMQP proxy
+     * that drops the problem document the same condition arrives instead as a plain
+     * {@link ConnectorEntityNotFoundException}.
      */
     public static boolean isRunNoLongerTracked(Throwable e) {
         if (e instanceof ConnectorProblemException problem) {

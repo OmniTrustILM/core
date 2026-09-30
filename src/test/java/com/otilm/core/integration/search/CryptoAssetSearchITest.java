@@ -557,6 +557,12 @@ class CryptoAssetSearchITest extends BaseSpringBootTest {
         assertThat(FilterField.CBOM_ASSET_SYNC_STATE.getEnumClass()).isEqualTo(CbomAssetSyncState.class);
     }
 
+    @Test
+    void cbomContributionFilterIsRejectedOnCryptoAssetListing() {
+        assertThatThrownBy(() -> search(aPropertyEqualsFilter(FilterField.CBOM_HAS_CONTRIBUTED_ASSETS, true)))
+                .isInstanceOf(ValidationException.class);
+    }
+
     // ---- helpers ----
 
     private void assertFieldBehaviour(FilterField field, Serializable matchingValue) {

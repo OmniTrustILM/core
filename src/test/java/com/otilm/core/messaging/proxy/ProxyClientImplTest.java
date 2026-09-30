@@ -1,5 +1,6 @@
 package com.otilm.core.messaging.proxy;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.clients.mq.model.ConnectorAuth;
 import com.otilm.api.clients.mq.model.ConnectorResponse;
@@ -9,11 +10,14 @@ import com.otilm.api.exception.ConnectorClientException;
 import com.otilm.api.exception.ConnectorCommunicationException;
 import com.otilm.api.exception.ConnectorEntityNotFoundException;
 import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ConnectorProblemException;
 import com.otilm.api.exception.ConnectorServerException;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.core.connector.AuthType;
 import com.otilm.api.model.core.connector.ConnectorDto;
 import com.otilm.api.model.core.proxy.ProxyDto;
+import com.otilm.core.serialization.ObjectMapperFactory;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
@@ -22,10 +26,14 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -64,7 +72,7 @@ class ProxyClientImplTest {
 
     @BeforeEach
     void setUp() {
-        objectMapper = new ObjectMapper();
+        objectMapper = ObjectMapperFactory.wire();
         proxyProperties = new ProxyProperties("test-exchange", "test-queue", "test-instance", Duration.ofSeconds(30),
                 1000, null);
 
@@ -560,6 +568,100 @@ class ProxyClientImplTest {
         assertThatThrownBy(() -> proxyClient.sendRequest(connector, "/v1/test", "GET", null, String.class))
                 .isInstanceOf(ConnectorServerException.class)
                 .hasMessageContaining("500");
+    }
+
+    // ==================== Error Handling - Connector Problem Details ====================
+
+    @Test
+    @Timeout(value = 5, unit = TimeUnit.SECONDS)
+    void sendRequestForEntity_withProblemDetailReply_throwsConnectorProblemException() throws Exception {
+        ConnectorDto connector = createConnector("proxy-001");
+        replyWith(answeredError(422, "unknown", "application/problem+json", """
+                {"type":"https://docs.otilm.com/problems/connector/cryptography/KEY_DECRYPTION_FAILED",
+                 "title":"Key decryption failed","status":422,"detail":"The key could not be decrypted.",
+                 "errorCode":"KEY_DECRYPTION_FAILED","timestamp":"2026-09-27T21:49:08.245Z","retryable":false,
+                 "causes":[{"name":"passphrase","reason":"does not open the key"}]}"""));
+
+        assertThatThrownBy(() -> proxyClient
+                .sendRequestForEntity(connector, "/v2/cryptographyProvider/keys/import", "POST", null, Map.class,
+                        Duration.ofSeconds(5)))
+                .isInstanceOfSatisfying(ConnectorProblemException.class, problem -> {
+                    assertThat(problem.getProblemDetail().getErrorCode()).isEqualTo(ErrorCode.KEY_DECRYPTION_FAILED);
+                    assertThat(problem.getProblemDetail().getStatus()).isEqualTo(422);
+                    assertThat(problem.getMessage()).isEqualTo("The key could not be decrypted.");
+                    assertThat(problem.getConnector()).isSameAs(connector);
+                });
+    }
+
+    @Test
+    @Timeout(value = 5, unit = TimeUnit.SECONDS)
+    void sendRequest_withProblemDetailDeclaringAnotherStatus_keepsTheStatusOfTheReply() throws Exception {
+        ConnectorDto connector = createConnector("proxy-001");
+        replyWith(answeredError(422, "unknown", "application/problem+json", """
+                {"type":"about:blank","title":"Resource not found","status":404,"errorCode":"RESOURCE_NOT_FOUND",
+                 "timestamp":"2026-09-27T21:49:08.245Z","retryable":false}"""));
+
+        assertThatThrownBy(() -> proxyClient.sendRequest(connector, "/v1/test", "POST", null, Map.class))
+                .isInstanceOfSatisfying(ConnectorProblemException.class,
+                        problem -> assertThat(problem.getProblemDetail().getStatus()).isEqualTo(422));
+    }
+
+    @Test
+    @Timeout(value = 5, unit = TimeUnit.SECONDS)
+    void sendRequestForEntity_withProblemDetailOnARedirect_throwsConnectorProblemException() throws Exception {
+        ConnectorDto connector = createConnector("proxy-001");
+        replyWith(ConnectorResponse
+                .builder()
+                .statusCode(303)
+                .headers(Map.of("Content-Type", "application/problem+json"))
+                .body(objectMapper.readValue("""
+                        {"type":"about:blank","title":"See other","status":303,
+                         "timestamp":"2026-09-27T21:49:08.245Z","retryable":false}""", Object.class))
+                .build());
+
+        assertThatThrownBy(() -> proxyClient
+                .sendRequestForEntity(connector, "/v1/test", "GET", null, Map.class, Duration.ofSeconds(5)))
+                .isInstanceOfSatisfying(ConnectorProblemException.class,
+                        problem -> assertThat(problem.getProblemDetail().getStatus()).isEqualTo(303));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("repliesWithoutAReadableProblemDetail")
+    @Timeout(value = 5, unit = TimeUnit.SECONDS)
+    void sendRequestForEntity_withoutAReadableProblemDetail_keepsTheErrorCategoryMapping(String description,
+            ConnectorResponse reply, Class<? extends Exception> expected, String message) {
+        ConnectorDto connector = createConnector("proxy-001");
+        replyWith(reply);
+
+        assertThatThrownBy(() -> proxyClient
+                .sendRequestForEntity(connector, "/v1/test", "POST", null, Map.class, Duration.ofSeconds(5)))
+                .isExactlyInstanceOf(expected)
+                .hasMessage(message);
+    }
+
+    static Stream<Arguments> repliesWithoutAReadableProblemDetail() throws JsonProcessingException {
+        ConnectorResponse bodyOfAnotherType = answeredError(422, "unknown", "application/json", """
+                {"message":"name must not be empty"}""");
+        ConnectorResponse unknownErrorCode = answeredError(404, "not_found", "application/problem+json", """
+                {"type":"about:blank","title":"Not found","status":404,"errorCode":"NOT_A_KNOWN_CODE",
+                 "timestamp":"2026-09-27T21:49:08.245Z","retryable":false}""");
+        ConnectorResponse emptyProblemDetail = answeredError(422, "unknown", "application/problem+json", null);
+        ConnectorResponse bodyWithoutHeaders = ConnectorResponse
+                .builder()
+                .statusCode(422)
+                .body(Map.of("message", "name must not be empty"))
+                .error("HTTP 422")
+                .errorCategory("unknown")
+                .build();
+        return Stream
+                .of(Arguments.of("error body of another type", bodyOfAnotherType, ConnectorException.class, "HTTP 422"),
+                        Arguments
+                                .of("problem detail with an unknown error code", unknownErrorCode,
+                                        ConnectorEntityNotFoundException.class, "HTTP 404"),
+                        Arguments.of("empty problem detail", emptyProblemDetail, ConnectorException.class, "HTTP 422"),
+                        Arguments
+                                .of("error body without headers", bodyWithoutHeaders, ConnectorException.class,
+                                        "HTTP 422"));
     }
 
     // ==================== Exception Propagation ====================
@@ -1321,6 +1423,35 @@ class ProxyClientImplTest {
         connector.setUrl("http://connector.example.com");
         connector.setAuthType(AuthType.NONE);
         return connector;
+    }
+
+    private void replyWith(ConnectorResponse response) {
+        when(correlator.registerRequest(anyString(), any(Duration.class)))
+                .thenReturn(CompletableFuture
+                        .completedFuture(ProxyMessage
+                                .builder()
+                                .correlationId("test-corr")
+                                .proxyId("proxy-001")
+                                .timestamp(Instant.now())
+                                .connectorResponse(response)
+                                .build()));
+    }
+
+    /**
+     * A connector's error answer as the proxy forwards it: the connector's status, headers and body, if it had one,
+     * with the error and category the proxy classifies the status as.
+     */
+    private static ConnectorResponse answeredError(int status, String errorCategory, String contentType, String body)
+            throws JsonProcessingException {
+        String length = body == null ? "0" : String.valueOf(body.length());
+        return ConnectorResponse
+                .builder()
+                .statusCode(status)
+                .headers(Map.of("Content-Type", contentType, "Content-Length", length))
+                .body(body == null ? null : ObjectMapperFactory.wire().readValue(body, Object.class))
+                .error("HTTP " + status)
+                .errorCategory(errorCategory)
+                .build();
     }
 
     @Test

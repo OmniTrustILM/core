@@ -39,6 +39,7 @@ import com.otilm.core.model.crypto.ImportedKeyRegistration;
 import com.otilm.core.model.crypto.KeyImportMetadata;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.PublicKeyHolder;
+import com.otilm.core.model.crypto.PublicKeyHolder.Holding;
 import com.otilm.core.model.crypto.RegisteredKey;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
@@ -231,12 +232,11 @@ public class CryptographicKeyWriter {
     }
 
     /**
-     * The key holding the public key an import brings: a key of its own, which holds the private key too, or a
-     * public-key-only record the import may adopt.
+     * The key holding the public key an import brings: a key of its own, which holds the private key too, a
+     * public-key-only record the import may adopt, or a key a token holds the public key in without its private key.
      *
      * @return the key, or nothing for a public key the platform does not hold
-     * @throws ValidationException when the key is no longer active, or holds the public key in a token without its
-     * private key
+     * @throws ValidationException when the key is no longer active
      */
     @Transactional
     public Optional<PublicKeyHolder> publicKeyHolder(String spkiFingerprint) {
@@ -246,12 +246,16 @@ public class CryptographicKeyWriter {
         }
         CryptographicKey holder = held.get().getKey();
         requireActive(holder);
-        if (!holder.isPublicKeyOnly() && !holder.holdsPrivateKey()) {
-            throw new ValidationException(ValidationError.create(KEY_ALREADY_HELD));
-        }
         return Optional
                 .of(new PublicKeyHolder(ImmutableCryptographicKeyFullModel.from(holder), held.get().getUuid(),
-                        holder.isPublicKeyOnly()));
+                        holdingOf(holder)));
+    }
+
+    private static Holding holdingOf(CryptographicKey holder) {
+        if (holder.isPublicKeyOnly()) {
+            return Holding.PUBLIC_KEY_ONLY;
+        }
+        return holder.holdsPrivateKey() ? Holding.KEY_PAIR : Holding.PUBLIC_KEY_IN_TOKEN;
     }
 
     /**

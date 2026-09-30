@@ -63,6 +63,7 @@ import org.bouncycastle.asn1.pkcs.Attribute;
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.asn1.x509.Extensions;
+import org.bouncycastle.asn1.x509.KeyUsage;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -204,6 +205,14 @@ class CertificateRequestIntegrationITest extends BaseSpringBootTest {
         if (OidHandler.getOidCache(OidCategory.CERTIFICATE_EXTENSION) == null) {
             OidHandler.cacheOidCategory(OidCategory.CERTIFICATE_EXTENSION, new HashMap<>());
         }
+        // The commonName attribute maps to the CN RDN code, which the same validation resolves through the
+        // RDN cache; another test class in the JVM can leave that cache without it.
+        if (OidHandler.getOidCache(OidCategory.RDN_ATTRIBUTE_TYPE) == null) {
+            OidHandler.cacheOidCategory(OidCategory.RDN_ATTRIBUTE_TYPE, new HashMap<>());
+        }
+        OidHandler
+                .cacheOid(OidCategory.RDN_ATTRIBUTE_TYPE, "2.5.4.3",
+                        OidRecord.builder().displayName("Common Name").code("CN").altCodes(List.of()).build());
         OidHandler
                 .cacheOid(OidCategory.CERTIFICATE_EXTENSION, CUSTOM_EXT_OID,
                         OidRecord
@@ -301,6 +310,55 @@ class CertificateRequestIntegrationITest extends BaseSpringBootTest {
                 .isNotNull();
         assertThat(storedExts.getExtension(new ASN1ObjectIdentifier(CUSTOM_EXT_OID)))
                 .as("stored CSR should carry the connector-supplied extension-mapped attribute")
+                .isNotNull();
+    }
+
+    @Test
+    void projectsLegacyBase64KeyUsageMapping_whenSubmittingRequest() throws Exception {
+        // given a connector attribute carrying the pre-2.20 opaque mapping on Key Usage
+        requestAttributeWriter
+                .saveStaticSet(raProfile,
+                        AttributeDefinitionUtils.serialize(List.of(CsrAttributes.commonNameAttribute())),
+                        AttributeSetMergeMode.MERGE, null);
+        stubRequestAttributes("""
+                [
+                  {
+                    "uuid": "%s",
+                    "name": "legacyKeyUsage",
+                    "description": "Legacy key usage",
+                    "type": "data",
+                    "version": 3,
+                    "contentType": "string",
+                    "properties": {"label": "Key Usage", "required": false, "readOnly": false,
+                                   "visible": true, "list": false, "multiSelect": false},
+                    "fieldMapping": {
+                      "objectType": "x509Certificate",
+                      "fields": [{"fieldType": "extension", "extensionOid": "2.5.29.15"}]
+                    }
+                  }
+                ]
+                """.formatted(EXT_ATTR_UUID));
+        stubIssueAttributes("[]");
+        stubSigning();
+
+        var keyUsageBase64 = Base64.getEncoder().encodeToString(new KeyUsage(KeyUsage.digitalSignature).getEncoded());
+        var request = baseRequest();
+        request
+                .setCsrAttributes(List
+                        .of(commonNameAttribute("LegacyKeyUsage"),
+                                aCustomAttribute()
+                                        .withUuid(EXT_ATTR_UUID)
+                                        .withName("legacyKeyUsage")
+                                        .withStringContent(keyUsageBase64)
+                                        .build()));
+
+        // when
+        CertificateDetailDto result = clientOperationService.submitCertificateRequest(request, null);
+
+        // then
+        Extensions storedExts = extensionsOfStoredCsr(result);
+        assertThat(storedExts.getExtension(Extension.keyUsage))
+                .as("stored CSR should carry the key usage from the legacy base64 mapping")
                 .isNotNull();
     }
 

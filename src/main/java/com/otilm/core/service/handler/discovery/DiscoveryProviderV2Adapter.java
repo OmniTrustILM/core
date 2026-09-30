@@ -495,10 +495,10 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
      * only the genuinely unexpected.
      *
      * <p>
-     * A conformant connector's refusal is a {@code ConnectorProblemException} over REST and a
-     * {@link ValidationException} over MQ, and {@code ExceptionHandlingAdvice} maps both — as it maps a connector being
-     * unreachable or broken. Wrapping them would turn each into a 500, answering the same refusal differently depending
-     * on the transport underneath.
+     * A conformant connector's refusal is a {@code ConnectorProblemException}, or through an MQ proxy that drops the
+     * problem document a {@link ValidationException} or another {@code ConnectorException}, and
+     * {@code ExceptionHandlingAdvice} maps each — as it maps a connector being unreachable or broken. Wrapping them
+     * would turn each into a 500, answering the same refusal differently depending on the transport underneath.
      */
     private <T> T call(UUID discoveryUuid, String operation, ConnectorCall<T> connectorCall) throws ConnectorException {
         try {

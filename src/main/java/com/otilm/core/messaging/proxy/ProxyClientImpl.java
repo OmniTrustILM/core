@@ -11,11 +11,15 @@ import com.otilm.api.exception.ConnectorClientException;
 import com.otilm.api.exception.ConnectorCommunicationException;
 import com.otilm.api.exception.ConnectorEntityNotFoundException;
 import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ConnectorProblemException;
 import com.otilm.api.exception.ConnectorServerException;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.common.error.ProblemDetailExtended;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -24,7 +28,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 
@@ -265,6 +271,8 @@ public class ProxyClientImpl implements ProxyClient {
             return null;
         }
 
+        throwProblemDetail(response, connector);
+
         if (response.hasError()) {
             throwProxyError(response, connector);
         }
@@ -310,6 +318,8 @@ public class ProxyClientImpl implements ProxyClient {
             return null;
         }
 
+        throwProblemDetail(response, connector);
+
         // Check for proxy-level errors
         if (response.hasError()) {
             throwProxyError(response, connector);
@@ -344,6 +354,51 @@ public class ProxyClientImpl implements ProxyClient {
     @SuppressWarnings("unchecked")
     private static <E extends Throwable> RuntimeException sneakyThrow(Throwable e) throws E {
         throw (E) e;
+    }
+
+    /**
+     * Throw the connector's problem detail when a reply that is not a 2xx carries one, as the REST client does for an
+     * {@code application/problem+json} answer, so a caller reads the connector's error code whichever way the request
+     * travelled. The status is the reply's, whatever the document declares. A reply without a problem detail that can
+     * be read keeps the mapping by error category and status.
+     */
+    private void throwProblemDetail(ConnectorResponse response, ApiClientConnectorInfo connector) {
+        int statusCode = response.getStatusCode();
+        boolean successful = statusCode >= 200 && statusCode < 300;
+        if (successful || response.getBody() == null || !isProblemDocument(response.getHeaders())) {
+            return;
+        }
+
+        ProblemDetailExtended problemDetail;
+        try {
+            problemDetail = objectMapper.convertValue(response.getBody(), ProblemDetailExtended.class);
+        } catch (IllegalArgumentException e) {
+            // The failure type only: its message quotes the connector's answer, which can echo a secret.
+            Throwable failure = Objects.requireNonNullElse(e.getCause(), e);
+            log
+                    .warn("Connector {} answered {} with a problem detail that could not be read: {}",
+                            connector.getName(), statusCode, failure.getClass().getName());
+            return;
+        }
+        if (problemDetail.getStatus() != statusCode) {
+            log
+                    .warn("Connector problem document declares status {} on a {} response; using the response status",
+                            problemDetail.getStatus(), statusCode);
+            problemDetail.setStatus(statusCode);
+        }
+
+        ConnectorProblemException problem = new ConnectorProblemException(problemDetail);
+        problem.setConnector(connector);
+        throw sneakyThrow(problem);
+    }
+
+    private static boolean isProblemDocument(Map<String, String> headers) {
+        return headers != null && headers
+                .entrySet()
+                .stream()
+                .filter(header -> HttpHeaders.CONTENT_TYPE.equalsIgnoreCase(header.getKey()))
+                .map(header -> Objects.toString(header.getValue(), "").toLowerCase(Locale.ROOT))
+                .anyMatch(contentType -> contentType.contains(MediaType.APPLICATION_PROBLEM_JSON_VALUE));
     }
 
     /**

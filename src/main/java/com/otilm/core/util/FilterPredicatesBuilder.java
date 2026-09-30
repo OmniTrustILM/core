@@ -17,6 +17,7 @@ import com.otilm.core.dao.entity.AttributeContent2Object;
 import com.otilm.core.dao.entity.AttributeContent2Object_;
 import com.otilm.core.dao.entity.AttributeContentItem_;
 import com.otilm.core.dao.entity.AttributeDefinition_;
+import com.otilm.core.dao.entity.Cbom;
 import com.otilm.core.dao.entity.Cbom_;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.CryptographicKeyItem_;
@@ -410,6 +411,24 @@ public class FilterPredicatesBuilder {
             Map<String, From> joinedAssociations, boolean refutedOidsOptedIn) {
         final FilterField filterField = FilterField.valueOf(filterDto.getFieldIdentifier());
         requireAdvertisedCondition(filterField, filterDto.getCondition());
+        if (filterField == FilterField.CBOM_HAS_CONTRIBUTED_ASSETS) {
+            if (!Cbom.class.equals(root.getJavaType())) {
+                throw new ValidationException("Field " + filterField.name() + " can only filter CBOM listings.");
+            }
+            Object rawValue = filterDto.getValue();
+            if (!(rawValue instanceof Boolean) && !(rawValue instanceof String value
+                    && ("true".equalsIgnoreCase(value) || "false".equalsIgnoreCase(value)))) {
+                throw new ValidationException(
+                        "Field " + filterField + " accepts a single boolean value, true or false.");
+            }
+            boolean requested = Boolean.parseBoolean(rawValue.toString());
+            @SuppressWarnings("unchecked")
+            Root<Cbom> cbomRoot = (Root<Cbom>) root;
+            Predicate contributed = CbomAssetSourcePredicates.hasContributedAssets(cbomRoot, criteriaBuilder, query);
+            return requested == (filterDto.getCondition() == FilterConditionOperator.EQUALS)
+                    ? contributed
+                    : criteriaBuilder.not(contributed);
+        }
         From from = getJoinedAssociation(root, joinedAssociations, filterField, filterDto.getCondition());
 
         // prepare filter values, expression and set filter characteristics
