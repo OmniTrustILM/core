@@ -87,6 +87,13 @@ class KeyImportSagaTest {
     private static final List<String> SENT = List.of("sent-secret-digest");
     private static final List<MetadataAttribute> HANDLE = List.of(meta("operation"));
 
+    /** The message of a violation, which no refusal may repeat. */
+    private static final String VIOLATION_MESSAGE = "constraint violated";
+
+    private static final String UNIQUE_VIOLATION = "23505";
+
+    private static final String FOREIGN_KEY_VIOLATION = "23503";
+
     private final KeyImportRepository keyImportRepository = mock(KeyImportRepository.class);
     private final CryptographicKeyRepository cryptographicKeyRepository = mock(CryptographicKeyRepository.class);
     private final CryptographicKeyWriter cryptographicKeyWriter = mock(CryptographicKeyWriter.class);
@@ -923,14 +930,14 @@ class KeyImportSagaTest {
     void importKey_handsALostRaceToTheReconciliation() throws Exception {
         // given
         when(adapter.importKey(terms, attempt, key, "imported key")).thenReturn(imported(key.subjectPublicKeyInfo()));
-        when(keyImportWriter.complete(eq(attempt.uuid()), any())).thenThrow(violationOf(ConstraintKind.UNIQUE));
+        when(keyImportWriter.complete(eq(attempt.uuid()), any())).thenThrow(violationOf(UNIQUE_VIOLATION));
 
         // when
         // then
         assertThatThrownBy(() -> saga.importKey(terms, RETRY, key, metadata))
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining(CryptographicKeyWriter.KEY_ALREADY_HELD)
-                .hasMessageNotContaining("duplicate fingerprint");
+                .hasMessageNotContaining(VIOLATION_MESSAGE);
         verify(keyImportWriter, never()).failUntaken(any(), any());
         verify(keyImportWriter, times(2)).complete(eq(attempt.uuid()), any());
         verify(keyImportWriter).dueNow(attempt.uuid());
@@ -940,7 +947,7 @@ class KeyImportSagaTest {
     @Test
     void importKey_failsOnAnIntegrityViolationOtherThanTheUniquePublicKey() throws Exception {
         // given
-        DataIntegrityViolationException another = violationOf(ConstraintKind.OTHER);
+        DataIntegrityViolationException another = violationOf(FOREIGN_KEY_VIOLATION);
         when(adapter.importKey(terms, attempt, key, "imported key")).thenReturn(imported(key.subjectPublicKeyInfo()));
         when(keyImportWriter.complete(eq(attempt.uuid()), any())).thenThrow(another);
 
@@ -954,10 +961,10 @@ class KeyImportSagaTest {
     @Test
     void importKey_failsWhenTheSecondRegistrationMeetsAnotherViolation() throws Exception {
         // given
-        DataIntegrityViolationException another = violationOf(ConstraintKind.OTHER);
+        DataIntegrityViolationException another = violationOf(FOREIGN_KEY_VIOLATION);
         when(adapter.importKey(terms, attempt, key, "imported key")).thenReturn(imported(key.subjectPublicKeyInfo()));
         when(keyImportWriter.complete(eq(attempt.uuid()), any()))
-                .thenThrow(violationOf(ConstraintKind.UNIQUE))
+                .thenThrow(violationOf(UNIQUE_VIOLATION))
                 .thenThrow(another);
 
         // when
@@ -1001,7 +1008,7 @@ class KeyImportSagaTest {
         return Stream
                 .of(named("found once the public key was looked for",
                         new CryptographicKeyWriter.UncheckedRecordException()),
-                        named("found by the unique fingerprint", violationOf(ConstraintKind.UNIQUE)));
+                        named("found by the unique fingerprint", violationOf(UNIQUE_VIOLATION)));
     }
 
     /** A record that appeared meanwhile, which the requester may not update, is not taken: the import is refused. */
@@ -1012,7 +1019,7 @@ class KeyImportSagaTest {
         when(keyImportGates.adoptableBy(terms.requester(), "fingerprint"))
                 .thenReturn(Optional.empty())
                 .thenThrow(new ValidationException(ValidationError.create(CryptographicKeyWriter.KEY_ALREADY_HELD)));
-        when(keyImportWriter.complete(eq(attempt.uuid()), any())).thenThrow(violationOf(ConstraintKind.UNIQUE));
+        when(keyImportWriter.complete(eq(attempt.uuid()), any())).thenThrow(violationOf(UNIQUE_VIOLATION));
 
         // when
         // then
@@ -1252,9 +1259,12 @@ class KeyImportSagaTest {
         return attribute;
     }
 
-    /** A violation shaped the way the JPA stack delivers one, with the kind of constraint in the Hibernate cause. */
-    private static DataIntegrityViolationException violationOf(ConstraintKind kind) {
-        return new DataIntegrityViolationException("constraint violated", new ConstraintViolationException(
-                "constraint violated", new SQLException("constraint violated"), kind, "constraint"));
+    /**
+     * A violation shaped the way PostgreSQL delivers one through Hibernate: of kind OTHER whatever the constraint, with
+     * the SQL state in the JDBC cause.
+     */
+    private static DataIntegrityViolationException violationOf(String sqlState) {
+        return new DataIntegrityViolationException(VIOLATION_MESSAGE, new ConstraintViolationException(
+                VIOLATION_MESSAGE, new SQLException(VIOLATION_MESSAGE, sqlState), ConstraintKind.OTHER, "constraint"));
     }
 }

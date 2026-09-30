@@ -21,9 +21,9 @@ public final class UniqueViolations {
      * the two.
      *
      * <p>
-     * Three signals because not every path reports Hibernate's own constraint kind: a native query raises no
-     * {@link ConstraintViolationException} at all, and a failed batch reports an unknown kind, so the SQL state is the
-     * signal every path carries.
+     * Hibernate's PostgreSQL dialect reports every constraint violation as kind OTHER, batched or not, so SQL state
+     * 23505 is the signal on the supported database; {@link DuplicateKeyException} and the UNIQUE kind cover
+     * translators that do classify it.
      */
     public static boolean isUniqueViolation(Throwable throwable) {
         Throwable cause = throwable;

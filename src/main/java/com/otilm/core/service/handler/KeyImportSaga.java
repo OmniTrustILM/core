@@ -444,8 +444,8 @@ public class KeyImportSaga {
 
     /**
      * A key registered meanwhile shows as a record the registration was not told of, or as a violated unique
-     * constraint, the public key's. Any other violation is a fault, not a key held otherwise: it hands the attempt to
-     * the reconciliation and fails the import as it is.
+     * constraint, such as the public key's. Any other violation is a fault, not a key held otherwise: it hands the
+     * attempt to the reconciliation and fails the import as it is.
      */
     private void requireHeldMeanwhile(KeyImportAttempt attempt, RuntimeException failure) {
         if (failure instanceof DataIntegrityViolationException violation
