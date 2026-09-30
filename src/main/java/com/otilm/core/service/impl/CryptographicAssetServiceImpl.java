@@ -48,6 +48,7 @@ import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetSourceRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.model.cbom.CryptoAssetCounts;
 import com.otilm.core.model.cbom.CryptoAssetIdentityGuard;
 import com.otilm.core.model.cbom.CryptoAssetListRow;
 import com.otilm.core.security.authz.ExternalAuthorization;
@@ -688,8 +689,9 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
         // field; that residual is interfaces' contract friction, raised on the PR.
         dto.setName(servedName(row));
         dto.setType(ServedAssetType.of(row.assetType()));
-        dto.setSourceCbomCount(row.sourceCount());
-        dto.setOccurrenceCount(row.occurrenceCount());
+        CryptoAssetCounts counts = new CryptoAssetCounts(Math.toIntExact(row.sourceCount()), row.occurrenceCount());
+        dto.setSourceCbomCount(counts.sourceCount());
+        dto.setOccurrenceCount(counts.occurrenceCount());
         dto.setPqcVerdict(servedVerdict(row.pqcVerdict()));
         dto.setQuarantined(quarantined(row.identityGuard()));
         return dto;
@@ -704,9 +706,12 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
         dto.setPqcVerdict(servedVerdict(asset.getPqcVerdict()));
         // GLOBAL badges: computed over every loaded row, before the CBOM visibility filter below, so they keep
         // reconciling with the list (scoped by CRYPTO_ASSET, not CBOM) exactly as the list endpoint serves them --
-        // the visibility gate below is on per-document CONTENT, not on whether a document contributed.
-        dto.setSourceCbomCount(asset.getSourceCount());
-        dto.setOccurrenceCount(sources.stream().mapToLong(CryptoAssetSource::getOccurrenceCount).sum());
+        // the visibility gate below is on per-document CONTENT, not on whether a document contributed. Both counts
+        // come from this one read so a concurrent withdrawal cannot leave them disagreeing.
+        List<Integer> occurrenceCountPerSource = sources.stream().map(CryptoAssetSource::getOccurrenceCount).toList();
+        CryptoAssetCounts counts = CryptoAssetCounts.ofSourceOccurrenceCounts(occurrenceCountPerSource);
+        dto.setSourceCbomCount(counts.sourceCount());
+        dto.setOccurrenceCount(counts.occurrenceCount());
         dto.setQuarantined(quarantined(asset.getIdentityGuard()));
         dto.setVerdict(toVerdictDto(asset));
         dto.setNormalizedFields(toNormalizedFieldsDto(asset));

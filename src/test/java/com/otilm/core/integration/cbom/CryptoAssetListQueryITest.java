@@ -137,7 +137,7 @@ class CryptoAssetListQueryITest extends BaseSpringBootTest {
     }
 
     @Test
-    void listRowsProjectSourceCountAndSumOccurrenceCountPerAsset() {
+    void listRowsCountSourcesAndOccurrencesOverTheSameJoin() {
         UUID sourced = upsert(new CryptoAssetIdentityFields(CryptographicAssetType.ALGORITHM, "AES", "oid-sourced",
                 null, null, null, null, null, null, null), null);
         UUID sourceless = upsert(new CryptoAssetIdentityFields(CryptographicAssetType.ALGORITHM, "ECDSA",
@@ -154,6 +154,8 @@ class CryptoAssetListQueryITest extends BaseSpringBootTest {
         sourceWriter
                 .upsertSource(sourced, cbomTwo.getUuid(), Map.of("k", "v"),
                         List.of(Map.of("location", "d"), Map.of("location", "e")), OffsetDateTime.now());
+        Cbom unlocated = newCbom("urn:uuid:proj-unlocated");
+        sourceWriter.upsertSource(sourced, unlocated.getUuid(), Map.of("k", "v"), List.of(), OffsetDateTime.now());
         assetWriter.applyPqcVerdict(sourced, PqcVerdict.NOT_READY, "rule", "reason", Map.of());
 
         List<CryptoAssetListRow> rows = assetRepository.findListRowsByUuids(List.of(sourced, sourceless, guarded));
@@ -161,9 +163,9 @@ class CryptoAssetListQueryITest extends BaseSpringBootTest {
 
         CryptoAssetListRow sourcedRow = rowFor(rows, sourced);
         assertThat(sourcedRow.occurrenceCount())
-                .describedAs("occurrences summed across both sources: 3 + 2")
-                .isEqualTo(5);
-        assertThat(sourcedRow.sourceCount()).describedAs("the writer's recompute maintains this").isEqualTo(2);
+                .describedAs("3 + 2 located occurrences, plus 1 for the report that recorded no location")
+                .isEqualTo(6);
+        assertThat(sourcedRow.sourceCount()).describedAs("counted over the joined source rows").isEqualTo(3);
         assertThat(sourcedRow.pqcVerdict()).isEqualTo(PqcVerdict.NOT_READY);
         assertThat(sourcedRow.name()).isEqualTo("aes");
         assertThat(sourcedRow.oid())

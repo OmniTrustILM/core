@@ -61,20 +61,20 @@ class SearchHelperITest extends BaseSpringBootTest {
         dataAttributeProperties.setList(true);
         attributeV3.setContentType(AttributeContentType.DATE);
         attributeV3.setProperties(dataAttributeProperties);
-        SearchFieldObject searchFieldObject = new SearchFieldObject(attributeV3.getName(), attributeV3.getContentType(),
-                AttributeType.DATA, "label", true, attributeV3);
+        SearchFieldObject searchFieldObject = new SearchFieldObject(null, attributeV3.getName(),
+                attributeV3.getContentType(), AttributeType.DATA, "label", true, attributeV3);
         assertThat(searchFieldObject.getContentItems()).isEqualTo(List.of(now.toString()));
 
         dataAttributeProperties.setList(false);
         attributeV3.setProperties(dataAttributeProperties);
-        searchFieldObject = new SearchFieldObject(attributeV3.getName(), attributeV3.getContentType(),
+        searchFieldObject = new SearchFieldObject(null, attributeV3.getName(), attributeV3.getContentType(),
                 AttributeType.DATA, "label", true, attributeV3);
         assertThat(searchFieldObject.getContentItems()).isNull();
 
         dataAttributeProperties.setList(true);
         dataAttributeProperties.setProtectionLevel(ProtectionLevel.ENCRYPTED);
         attributeV3.setProperties(dataAttributeProperties);
-        searchFieldObject = new SearchFieldObject(attributeV3.getName(), attributeV3.getContentType(),
+        searchFieldObject = new SearchFieldObject(null, attributeV3.getName(), attributeV3.getContentType(),
                 AttributeType.DATA, "label", true, attributeV3);
         assertThat(searchFieldObject.getContentItems()).isNull();
 
@@ -85,19 +85,19 @@ class SearchHelperITest extends BaseSpringBootTest {
         customAttributeProperties.setList(true);
         customAttributeV3.setContentType(AttributeContentType.DATE);
         customAttributeV3.setProperties(customAttributeProperties);
-        searchFieldObject = new SearchFieldObject(customAttributeV3.getName(), customAttributeV3.getContentType(),
+        searchFieldObject = new SearchFieldObject(null, customAttributeV3.getName(), customAttributeV3.getContentType(),
                 AttributeType.CUSTOM, "label", true, customAttributeV3);
         assertThat(searchFieldObject.getContentItems()).isEqualTo(List.of("string"));
 
         customAttributeProperties.setList(false);
         customAttributeV3.setProperties(customAttributeProperties);
-        searchFieldObject = new SearchFieldObject(customAttributeV3.getName(), customAttributeV3.getContentType(),
+        searchFieldObject = new SearchFieldObject(null, customAttributeV3.getName(), customAttributeV3.getContentType(),
                 AttributeType.CUSTOM, "label", true, customAttributeV3);
         assertThat(searchFieldObject.getContentItems()).isNull();
         customAttributeProperties.setList(true);
         customAttributeProperties.setProtectionLevel(ProtectionLevel.ENCRYPTED);
         customAttributeV3.setProperties(customAttributeProperties);
-        searchFieldObject = new SearchFieldObject(customAttributeV3.getName(), customAttributeV3.getContentType(),
+        searchFieldObject = new SearchFieldObject(null, customAttributeV3.getName(), customAttributeV3.getContentType(),
                 AttributeType.CUSTOM, "label", true, customAttributeV3);
         assertThat(searchFieldObject.getContentItems()).isNull();
 

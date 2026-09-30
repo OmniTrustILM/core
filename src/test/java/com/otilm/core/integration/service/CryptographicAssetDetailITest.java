@@ -168,7 +168,7 @@ class CryptographicAssetDetailITest extends BaseSpringBootTest {
         assertThat(detail.getPqcVerdict())
                 .describedAs("never evaluated -> UNKNOWN, not null")
                 .isEqualTo(PqcVerdict.UNKNOWN);
-        // the zero-source wire shape: no sources, no elected payload, zero aggregate occurrences
+        // the zero-source wire shape: no sources, no elected payload, zero occurrences
         assertThat(detail.getSources()).isEmpty();
         assertThat(detail.getElectedPayload()).isNull();
         assertThat(detail.getOccurrenceCount()).isZero();

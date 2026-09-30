@@ -559,28 +559,26 @@ public class PqcEvaluator {
      * {@code hybridComponents} is re-derived, not read: it is out-of-key by construction and has no column.
      *
      * <p>
-     * The material tier derives no family -- {@code AssetNormalizer} leaves it null for every
-     * {@code related-crypto-material} component, with or without an {@code algorithmRef} -- so a private key whose own
-     * name says {@code RSA-2048} reached the rules with nothing to classify. The name is a column, so reading the
-     * family out of it is available to every caller. Confined to material: on an algorithm row a null family is the
-     * normalizer's decision, a cipher suite above all, and stands. The same goes for the size the name spells, which
-     * the material tier also leaves unread.
+     * A material row is judged by its own name and its stored properties, never by its family, size or curve columns.
+     * Those hold what {@code CryptoAssetIdentity} copied from the algorithm the row references and the key's own
+     * declared {@code size}: filter slots, not evidence. Read here, half an algorithm decided the key -- the family of
+     * {@code X25519-Kyber768} is {@code ECDH} and its hybrid components have no column, so a shared secret under it
+     * read {@code CLASSICAL-SHOR} on the classical half alone -- and a referenced size outranked the one the key's own
+     * name spells. So the family and the size come from the name. Confined to material: on an algorithm row a null
+     * family is the normalizer's decision, a cipher suite above all, and stands.
      */
     public PqcRuleInput fromStoredRow(CryptoAssetIdentityFields fields, JsonNode mergedCryptoProperties) {
         boolean material = fields.assetType() == CryptographicAssetType.RELATED_CRYPTO_MATERIAL;
-        String family = ratifiedFamily(fields.algorithmFamily());
-        if (family == null && material) {
-            family = ratifiedFamily(normalizer.familyFromName(fields.name()));
-        }
-        Integer parameterSet = parameterSet(fields.parameterSet());
-        if (parameterSet == null && material) {
-            parameterSet = sizeFromName(fields.name(), family);
-        }
+        String family = material
+                ? ratifiedFamily(normalizer.familyFromName(fields.name()))
+                : ratifiedFamily(fields.algorithmFamily());
+        Integer parameterSet = material ? sizeFromName(fields.name(), family) : parameterSet(fields.parameterSet());
+        String curve = material ? null : fields.curve();
         String secondary = normalizer.secondaryTokens(fields.name(), family);
         List<String> hybrid = normalizer.hybridComponents(fields.name(), family, secondary);
-        return new PqcRuleInput(fields.assetType(), family, parameterSet, fields.curve(), fields.mode(),
-                fields.padding(), variantOf(fields, secondary), fields.name(), hybrid,
-                materialType(mergedCryptoProperties), materialSize(mergedCryptoProperties));
+        return new PqcRuleInput(fields.assetType(), family, parameterSet, curve, fields.mode(), fields.padding(),
+                variantOf(fields, secondary), fields.name(), hybrid, materialType(mergedCryptoProperties),
+                materialSize(mergedCryptoProperties));
     }
 
     /**

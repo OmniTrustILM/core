@@ -26,6 +26,7 @@ import com.otilm.api.model.core.search.SortDirection;
 import com.otilm.api.model.core.secret.SecretDto;
 import com.otilm.api.model.core.secret.SecretState;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.Discovery;
@@ -40,6 +41,7 @@ import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.SecretRepository;
 import com.otilm.core.dao.repository.SecretVersionRepository;
+import com.otilm.core.dao.repository.SortSpecification;
 import com.otilm.core.dao.repository.VaultInstanceRepository;
 import com.otilm.core.dao.repository.VaultProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;
@@ -507,21 +509,43 @@ class AttributeColumnSortITest extends BaseSpringBootTest {
      * Ordering must not read further than the projection that renders a column does.
      *
      * <p>
-     * With the caller restricted to an allow-list this definition is not on, the projection blanks the column - so the
-     * sort key has to come back null for every row too. If it did not, reversing the sort would reorder the page by
-     * values the caller may not read, which is a comparative oracle over exactly the content the allow-list withholds.
-     * With every key null the uuid tie-break decides both directions, so the two pages are identical rather than
-     * reversed.
+     * With the caller restricted to an allow-list this definition is not on, the catalogue omits the attribute, so an
+     * ordering on it is refused as one on a field that does not exist would be. Accepting it would let reversing the
+     * sort reorder the page by values the caller may not read - a comparative oracle over exactly the content the
+     * allow-list withholds.
      */
     @Test
     void anAttributeTheCallerMayNotReadCannotOrderThePage() {
         restrictObjectAccess(Resource.ATTRIBUTE, ResourceAction.MEMBERS);
 
-        List<String> ascending = listNames(SortDirection.ASC, 1, 10);
-        List<String> descending = listNames(SortDirection.DESC, 1, 10);
+        ValidationException e = Assertions
+                .assertThrows(ValidationException.class, () -> listNames(SortDirection.ASC, 1, 10));
+        Assertions.assertTrue(e.getMessage().contains("Unknown sort field identifier"), e.getMessage());
+    }
+
+    /**
+     * The sort key applies the caller's permissions as well, beneath the refusal above: a specification that reached
+     * the repository for a definition the caller may not read must still order by nothing it withholds. With every key
+     * null the uuid tie-break decides both directions, so the two pages are identical rather than reversed.
+     */
+    @Test
+    void aSortKeyReadsNoContentTheCallerMayNotRead() {
+        List<String> ascending = namesOrderedByEnvironmentWithoutAccess(SortDirection.ASC);
 
         Assertions.assertEquals(3, ascending.size());
-        Assertions.assertEquals(ascending, descending);
+        Assertions.assertEquals(ascending, namesOrderedByEnvironmentWithoutAccess(SortDirection.DESC));
+    }
+
+    private List<String> namesOrderedByEnvironmentWithoutAccess(SortDirection direction) {
+        CustomAttributeContentFilter noneReadable = new CustomAttributeContentFilter(List.of(UUID.randomUUID()), null);
+        SortSpecification sort = new SortSpecification(FilterFieldSource.CUSTOM,
+                ENVIRONMENT + "|" + AttributeContentType.TEXT.name(), direction, Resource.DISCOVERY,
+                () -> noneReadable);
+        return discoveryRepository
+                .findUsingSecurityFilter(SecurityFilter.create(), List.of(), null, null, null, sort)
+                .stream()
+                .map(Discovery::getName)
+                .toList();
     }
 
     /** The values do decide the order when the caller may read them, which is what the case above removes. */
