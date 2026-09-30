@@ -26,7 +26,7 @@ import org.hibernate.type.SqlTypes;
  *
  * <p>
  * Fields are stored by identifier, so a renamed or deleted attribute leaves its column or filter dormant instead of
- * requiring stored rows to be migrated. A dormant field is still returned on read, for the client to mark unavailable.
+ * requiring stored rows to be migrated.
  */
 @Setter
 @Getter
