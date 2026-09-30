@@ -2694,6 +2694,34 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
+    void rekeyCertificateAction_keepsRuntimeCauseOutOfHistoryAndError_whenLocalUpdateFailsAfterAcceptance()
+            throws Exception {
+        // given - the connector rekeys synchronously, then recording the issued successor fails
+        prepareCertificateForRenewal();
+        String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/renew"))
+                        .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
+        doThrow(new RuntimeException("internal db detail"))
+                .when(certificateService)
+                .issueRequestedCertificate(any(), any(), any());
+        ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
+        UUID successorUuid = certificate.getUuid();
+
+        // when
+        CertificateOperationException ex = Assertions
+                .assertThrows(CertificateOperationException.class,
+                        () -> clientOperationInternalService.rekeyCertificateAction(successorUuid, request, true));
+
+        // then
+        Assertions
+                .assertEquals("Connector accepted rekey but local update failed for certificate %s: internal error"
+                        .formatted(successorUuid), ex.getMessage());
+        assertFailedHistory(CertificateEvent.REKEY, "Connector accepted rekey but local update failed: internal error");
+    }
+
+    @Test
     void renewCertificate_blocked_when_certInPendingIssue() {
         certificate.setState(CertificateState.PENDING_ISSUE);
         certificateRepository.save(certificate);

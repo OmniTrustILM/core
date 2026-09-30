@@ -2790,12 +2790,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
         @Test
         void groupMemberReadsRelations_withoutDetailPermission() throws NotFoundException {
             // given - the caller does not own the fixture certificate, which belongs to a group
-            GroupAssociation groupAssociation = new GroupAssociation();
-            groupAssociation.setGroup(group);
-            groupAssociation.setGroupUuid(group.getUuid());
-            groupAssociation.setResource(Resource.CERTIFICATE);
-            groupAssociation.setObjectUuid(certificate.getUuid());
-            groupAssociationRepository.saveAndFlush(groupAssociation);
+            assignFixtureToGroup();
             denyResourceAccess(Resource.CERTIFICATE, ResourceAction.DETAIL);
 
             // when
@@ -2804,6 +2799,67 @@ class CertificateServiceITest extends BaseSpringBootTest {
 
             // then
             assertThat(relations.getCertificateUuid()).isEqualTo(certificate.getUuid());
+        }
+
+        @Test
+        void groupMemberDownloadsCertificate_withoutDetailPermission()
+                throws NotFoundException, CertificateException, IOException {
+            // given
+            CertificateContent content = certificateContentRepository
+                    .save(aCertificateContent().withContent(DOWNLOADABLE_CERT_BASE64).build());
+            certificate.setCertificateContent(content);
+            certificateRepository.save(certificate);
+            assignFixtureToGroup();
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.DETAIL);
+
+            // when
+            CertificateDownloadResponseDto download = certificateService
+                    .downloadCertificate(certificate.getSecuredUuid(), CertificateFormat.RAW,
+                            CertificateFormatEncoding.PEM);
+
+            // then
+            assertThat(download.getContent()).isNotBlank();
+        }
+
+        @Test
+        void groupMemberReadsContent_withoutListOrDetailPermission() {
+            // given - both the method's List check and its per-certificate Detail check must pass on the group
+            assignFixtureToGroup();
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.LIST);
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.DETAIL);
+
+            // when
+            List<CertificateContentDto> contents = certificateService
+                    .getCertificateContent(List.of(certificate.getSecuredUuid()));
+
+            // then
+            assertThat(contents)
+                    .extracting(CertificateContentDto::getUuid, CertificateContentDto::getCertificateContent)
+                    .containsExactly(tuple(certificate.getUuid().toString(), "123456"));
+        }
+
+        @Test
+        void groupMemberReadsHistory_withoutDetailPermission() throws NotFoundException {
+            // given
+            certificateService.archiveCertificate(certificate.getSecuredUuid());
+            assignFixtureToGroup();
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.DETAIL);
+
+            // when
+            List<CertificateEventHistoryDto> history = certificateEventHistoryService
+                    .getCertificateEventHistory(certificate.getSecuredUuid());
+
+            // then
+            assertThat(history).extracting(CertificateEventHistoryDto::getEvent).contains(CertificateEvent.ARCHIVE);
+        }
+
+        private void assignFixtureToGroup() {
+            GroupAssociation groupAssociation = new GroupAssociation();
+            groupAssociation.setGroup(group);
+            groupAssociation.setGroupUuid(group.getUuid());
+            groupAssociation.setResource(Resource.CERTIFICATE);
+            groupAssociation.setObjectUuid(certificate.getUuid());
+            groupAssociationRepository.saveAndFlush(groupAssociation);
         }
     }
 
