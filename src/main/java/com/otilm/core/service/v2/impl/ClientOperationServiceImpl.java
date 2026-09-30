@@ -2654,7 +2654,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     /**
      * The approval of a revocation the authority did not carry out is already closed, so nothing would ever move the
      * certificate out of {@code PENDING_APPROVAL}. Returns it to {@code ISSUED} under a row lock, unless a concurrent
-     * action has moved it on since.
+     * action has moved it on since. The failed revoke is already in the history, so the restore records nothing more.
      */
     private void returnFailedApprovedRevokeToIssued(UUID certificateUuid) {
         TransactionStatus tx = transactionManager.getTransaction(new DefaultTransactionDefinition());
@@ -2662,10 +2662,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             certificateRepository
                     .findAndLockWithAssociationsByUuid(certificateUuid)
                     .filter(locked -> locked.getState() == CertificateState.PENDING_APPROVAL)
-                    .ifPresent(locked -> stateMachine
-                            .transition(locked, CertificateState.ISSUED, CertificateEvent.REVOKE,
-                                    "Approved revocation failed; certificate restored to "
-                                            + CertificateState.ISSUED.getLabel() + "."));
+                    .ifPresent(locked -> stateMachine.transitionAuditedExternally(locked, CertificateState.ISSUED));
             transactionManager.commit(tx);
         } catch (RuntimeException e) {
             if (!tx.isCompleted()) {

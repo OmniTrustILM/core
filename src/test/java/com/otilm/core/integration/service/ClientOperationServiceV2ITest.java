@@ -2481,6 +2481,17 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 .assertEquals(CertificateState.ISSUED,
                         certificateRepository.findByUuid(certificateUuid).orElseThrow().getState(),
                         "the approval is closed, so a failed revoke must leave the certificate revocable again");
+        Certificate fetched = certificateRepository.findByUuid(certificateUuid).orElseThrow();
+        Assertions
+                .assertEquals(List.of("Failed to revoke certificate: the authority rejected the revocation"),
+                        certificateEventHistoryRepository
+                                .findByCertificateOrderByCreatedDesc(fetched)
+                                .stream()
+                                .filter(h -> h.getEvent() == CertificateEvent.REVOKE
+                                        && h.getStatus() == CertificateEventStatus.FAILED)
+                                .map(CertificateEventHistory::getMessage)
+                                .toList(),
+                        "the restore must not record the failure a second time");
     }
 
     @Test
