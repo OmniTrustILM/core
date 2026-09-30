@@ -2671,6 +2671,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                     .addEventHistory(certificate.getUuid(), CertificateEvent.REVOKE, CertificateEventStatus.FAILED, msg,
                             "");
             logger.error("Failed to revoke certificate {}: {}", certificate.getUuid(), e.getMessage(), e);
+            if (certificate.getState() == CertificateState.PENDING_APPROVAL) {
+                returnFailedApprovedRevokeToIssued(certificate.getUuid());
+            }
             throw new CertificateOperationException(msg);
         }
 
@@ -2689,6 +2692,32 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                         .constructEventMessage(certificate.getUuid(), ResourceAction.REVOKE));
 
         logger.debug("Certificate revoked: {}", certificate);
+    }
+
+    /**
+     * The approval of a revocation the authority did not carry out is already closed, so nothing would ever move the
+     * certificate out of {@code PENDING_APPROVAL}. Returns it to {@code ISSUED} under a row lock, unless a concurrent
+     * action has moved it on since.
+     */
+    private void returnFailedApprovedRevokeToIssued(UUID certificateUuid) {
+        TransactionStatus tx = transactionManager.getTransaction(new DefaultTransactionDefinition());
+        try {
+            certificateRepository
+                    .findAndLockWithAssociationsByUuid(certificateUuid)
+                    .filter(locked -> locked.getState() == CertificateState.PENDING_APPROVAL)
+                    .ifPresent(locked -> stateMachine
+                            .transition(locked, CertificateState.ISSUED, CertificateEvent.REVOKE,
+                                    "Approved revocation failed; certificate restored to "
+                                            + CertificateState.ISSUED.getLabel() + "."));
+            transactionManager.commit(tx);
+        } catch (RuntimeException e) {
+            if (!tx.isCompleted()) {
+                transactionManager.rollback(tx);
+            }
+            logger
+                    .error("Failed to restore certificate {} to {} after a failed approved revocation: {}",
+                            certificateUuid, CertificateState.ISSUED.getLabel(), e.getMessage(), e);
+        }
     }
 
     @Override

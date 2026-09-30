@@ -2467,6 +2467,25 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
+    void revokeCertificateAction_failedApprovedRevokeReturnsTheCertificateToIssued() {
+        certificate.setState(CertificateState.PENDING_APPROVAL);
+        certificateRepository.save(certificate);
+        stubRevokeResponse(WireMock.jsonResponse("{\"message\": \"refused\"}", 400));
+        UUID certificateUuid = certificate.getUuid();
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+
+        Assertions
+                .assertThrows(CertificateOperationException.class,
+                        () -> clientOperationInternalService.revokeCertificateAction(certificateUuid, request, true));
+
+        Assertions
+                .assertEquals(CertificateState.ISSUED,
+                        certificateRepository.findByUuid(certificateUuid).orElseThrow().getState(),
+                        "the approval is closed, so a failed revoke must leave the certificate revocable again");
+    }
+
+    @Test
     void revokeCertificateAction_keepsAComplianceResultStoredWhileTheConnectorWasCalled() throws Exception {
         String revokePath = "/v2/authorityProvider/authorities/[^/]+/certificates/revoke";
         stubRevokeResponse(WireMock.aResponse().withStatus(204).withFixedDelay(1_000));
