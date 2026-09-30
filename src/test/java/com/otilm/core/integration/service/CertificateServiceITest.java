@@ -2534,8 +2534,6 @@ class CertificateServiceITest extends BaseSpringBootTest {
     }
 
     // ── Owner access ─────────────────────────────────────────────────────────
-    // The owner association grants every action on the owned certificate, so each call below runs with the
-    // resource-wide permission for its action denied.
     @Nested
     class OwnerAccess {
 
@@ -2786,8 +2784,6 @@ class CertificateServiceITest extends BaseSpringBootTest {
     }
 
     // ── Group member access ──────────────────────────────────────────────────
-    // Group membership grants LIST and DETAIL on the group's certificates, which reaches these calls once they
-    // receive the certificate UUID.
     @Nested
     class GroupMemberAccess {
 
