@@ -25,6 +25,8 @@ import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
+import com.otilm.api.model.core.settings.SettingsSection;
+import com.otilm.api.model.core.settings.SettingsSectionCategory;
 import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
 import com.otilm.core.attribute.engine.AttributeColumnProjector;
 import com.otilm.core.attribute.engine.AttributeEngine;
@@ -43,9 +45,11 @@ import com.otilm.core.dao.CryptoAssetConstraintTranslator;
 import com.otilm.core.dao.entity.Cbom;
 import com.otilm.core.dao.entity.Cbom_;
 import com.otilm.core.dao.entity.ScheduledJobHistory;
+import com.otilm.core.dao.entity.Setting;
 import com.otilm.core.dao.entity.cbom.CbomSyncSkip;
 import com.otilm.core.dao.repository.CbomRepository;
 import com.otilm.core.dao.repository.ScheduledJobHistoryRepository;
+import com.otilm.core.dao.repository.SettingRepository;
 import com.otilm.core.dao.repository.cbom.CbomSyncSkipRepository;
 import com.otilm.core.dao.repository.cbom.CbomTombstoneRepository;
 import com.otilm.core.enums.FilterField;
@@ -78,6 +82,7 @@ import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import java.net.URI;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Date;
@@ -160,6 +165,9 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      */
     private static final String INVENTORY_SOURCE_CONSTRAINT = "crypto_asset_source_to_cbom_key";
 
+    /** The {@code platform}/{@code utils} setting row the 2.20.0 upgrade migration stamps; see {@link #isHeldBack}. */
+    private static final String UPGRADE_INSTANT_SETTING = "cbomSyncUpgradedAt";
+
     private CbomRepository cbomRepository;
 
     private CbomRepositoryClient cbomRepositoryClient;
@@ -191,6 +199,8 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
     private CbomTombstoneRepository tombstoneRepository;
 
     private ClusterOperationSynchronizer clusterSynchronizer;
+
+    private SettingRepository settingRepository;
 
     private AuditorAware<String> auditorAware;
 
@@ -267,6 +277,11 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
     @Autowired
     public void setTombstoneRepository(CbomTombstoneRepository tombstoneRepository) {
         this.tombstoneRepository = tombstoneRepository;
+    }
+
+    @Autowired
+    public void setSettingRepository(SettingRepository settingRepository) {
+        this.settingRepository = settingRepository;
     }
 
     @Autowired
@@ -854,7 +869,8 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      * {@code (serialNumber, version)}, the same tombstone test before an entry is stored, the same skip bookkeeping,
      * the same ingest pass at the end. What it adds is reach -- an entry the feed never offered inside any window the
      * hourly pass asked for is invisible to that pass for ever, and this is where it is found. Almost every entry it
-     * reads is already stored and costs one indexed existence check; only a missing one costs a document read.
+     * reads is already stored and costs one indexed existence check; only a missing one costs a document read. The one
+     * rule of its own: a missing entry listed before the upgrade to 2.20.0 is held back ({@link #isHeldBack}).
      *
      * <p>
      * It does not touch the hourly watermark in either direction: that is read from {@code CbomSyncTask}'s own job
@@ -874,7 +890,8 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
     private String runSync(SyncScope scope) throws CbomRepositoryException {
         // Read once, here: a policy changed in the Settings UI applies to the next run, never to half of this one.
         final CbomSyncPolicy policy = syncPolicyProvider.current();
-        final SyncRun run = new SyncRun(OffsetDateTime.now(), policy);
+        final SyncRun run = new SyncRun(OffsetDateTime.now(), policy,
+                scope == SyncScope.THE_WHOLE_LISTING ? readUpgradeInstant() : null);
         logger
                 .getLogger()
                 .info("CBOM Sync: started with an overlap of {} seconds, a retry budget of {} runs, an ingest budget of {} documents and asset ingest {}",
@@ -887,7 +904,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         settleUnavailable(run, scope);
         ingestPending(run);
 
-        final String syncResultMessage = scope.report(run.summary());
+        final String syncResultMessage = scope.report(run);
         logger.getLogger().info("CBOM Sync: finished. {}", syncResultMessage);
         return syncResultMessage;
     }
@@ -912,8 +929,13 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         THE_WHOLE_LISTING;
 
         /** Says which pass the job history is reporting on, so two schedules do not read as one. */
-        String report(String summary) {
-            return this == THE_WHOLE_LISTING ? "Reconciled against the whole listing. " + summary : summary;
+        String report(SyncRun run) {
+            if (this == SINCE_THE_LAST_RUN) {
+                return run.summary();
+            }
+            return "Reconciled against the whole listing. " + run.summary()
+                    + "; %d entries listed before the upgrade to 2.20.0 and absent from Core were held back"
+                            .formatted(run.heldBack);
         }
     }
 
@@ -1047,6 +1069,14 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
             resolveSkipIfRecorded(identity, skips, run, "was deleted by an operator");
             return;
         }
+        if (isHeldBack(entry, identity, run, skips)) {
+            logger
+                    .getLogger()
+                    .debug("CBOM Sync: CBOM serialNumber {} version {} was listed before the upgrade to 2.20.0 and is not in Core; holding it back",
+                            identity.serialNumber(), identity.version());
+            run.heldBack++;
+            return;
+        }
 
         final CbomHeaderCounts counts = CbomHeaderCounts.from(entry.getCryptoStats());
         final StoreOutcome outcome = store(identity, counts, run);
@@ -1073,6 +1103,35 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
             }
             default -> throw new IllegalStateException("Unhandled store outcome " + outcome.kind());
         }
+    }
+
+    /**
+     * Whether the whole-listing pass leaves an entry Core neither holds nor has tombstoned unstored, because it may
+     * have been deleted before the upgrade to 2.20.0.
+     *
+     * <p>
+     * Up to 2.19 a delete removed the row and wrote no tombstone, so such an entry listed before the upgrade was
+     * deleted then, or never synced; Core cannot tell the two apart. Storing it would bring a deletion back for good,
+     * since the stored row is indistinguishable from a synced one, while holding it back loses nothing: the document
+     * stays in the repository. An entry with a skip row is not held back, because only 2.20 writes those, so Core met
+     * it after the upgrade. An entry without a creation time counts as listed before. The hourly pass is not held back,
+     * and without the migration's stamp nothing is.
+     */
+    private boolean isHeldBack(BomEntryDto entry, SyncIdentity identity, SyncRun run,
+            Map<SyncIdentity, CbomSyncSkip> skips) {
+        if (run.upgradedAt == null) {
+            return false;
+        }
+        final boolean listedBeforeUpgrade = entry.getCreatedAt() == null
+                || entry.getCreatedAt().toInstant().isBefore(run.upgradedAt);
+        return listedBeforeUpgrade && previousSkip(identity, skips) == null;
+    }
+
+    private Instant readUpgradeInstant() {
+        final Setting stamp = settingRepository
+                .findBySectionAndCategoryAndName(SettingsSection.PLATFORM,
+                        SettingsSectionCategory.PLATFORM_UTILS.getCode(), UPGRADE_INSTANT_SETTING);
+        return stamp == null || stamp.getValue() == null ? null : Instant.parse(stamp.getValue());
     }
 
     private void retrySkipped(SyncRun run, Map<SyncIdentity, CbomSyncSkip> skips) {
@@ -1768,6 +1827,8 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         final OffsetDateTime startedAt;
         /** The operator policy this run was started with; a setting changed mid-run waits for the next one. */
         final CbomSyncPolicy policy;
+        /** The 2.20.0 upgrade instant on a whole-listing pass, null on the hourly one; see {@link #isHeldBack}. */
+        final Instant upgradedAt;
         final Set<SyncIdentity> attempted = new HashSet<>();
         /** Entries whose document read got no answer, awaiting the run's verdict. */
         final List<DeferredSkip> deferred = new ArrayList<>();
@@ -1790,6 +1851,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         int alreadyPermanent;
         /** Feed entries an operator had deleted, which this run left deleted. */
         int tombstoned;
+        int heldBack;
         int successfulReads;
         int ingested;
         int ingestRefused;
@@ -1805,9 +1867,10 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
          */
         int ingestReads;
 
-        SyncRun(OffsetDateTime startedAt, CbomSyncPolicy policy) {
+        SyncRun(OffsetDateTime startedAt, CbomSyncPolicy policy, Instant upgradedAt) {
             this.startedAt = startedAt;
             this.policy = policy;
+            this.upgradedAt = upgradedAt;
         }
 
         String summary() {

@@ -46,8 +46,10 @@ import com.otilm.core.service.impl.CbomServiceImpl;
 import com.otilm.core.service.writer.cbom.CbomSyncSkipWriter;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.BaseSpringBootTest;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
@@ -55,7 +57,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.ProblemDetail;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -100,6 +104,9 @@ class CbomSyncITest extends BaseSpringBootTest {
     private CbomSyncSkipWriter skipWriter;
     @Autowired
     private CbomExternalService cbomService;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     private WireMockServer repository;
     private PlatformSettingsDto originalSettings;
@@ -912,7 +919,110 @@ class CbomSyncITest extends BaseSpringBootTest {
         assertThat(skipRepository.count()).isZero();
     }
 
+    // ---- CBOMs deleted before the upgrade to 2.20.0 ----
+
+    /**
+     * Up to 2.19 a delete left no tombstone, so the whole listing offers a CBOM an operator deleted then exactly as it
+     * offers one Core never synced. Storing it would bring the deletion back with its assets, and nothing could find it
+     * again afterwards.
+     */
+    @Test
+    void aCbomDeletedBeforeTheUpgradeIsNotStoredByTheReconcile() throws Exception {
+        stampTheUpgrade();
+        stubPage("after", "0", "[" + entry("urn:uuid:deleted-in-2.19", "1", STATS, null) + "]", null);
+        stubDocument("urn:uuid:deleted-in-2.19", 1);
+
+        String result = cbomInternalService.reconcile();
+
+        assertThat(result)
+                .contains("stored 0 new entries")
+                .endsWith("1 entries listed before the upgrade to 2.20.0 and absent from Core were held back");
+        assertThat(cbomRepository.count()).isZero();
+        assertThat(skipRepository.count()).isZero();
+        repository.verify(0, WireMock.getRequestedFor(WireMock.urlPathEqualTo("/api/v1/bom/urn:uuid:deleted-in-2.19")));
+    }
+
+    /** The hourly pass keeps its watermark across the upgrade, so it is not held back: what it lists is new to it. */
+    @Test
+    void theHourlySyncStillStoresADocumentListedBeforeTheUpgrade() throws Exception {
+        stampTheUpgrade();
+        stubPage("after", "0", "[" + entry("urn:uuid:uploaded-before", "1", STATS, null) + "]", null);
+        stubDocument("urn:uuid:uploaded-before", 1);
+
+        String result = cbomInternalService.sync();
+
+        assertThat(result).contains("stored 1 new entries").doesNotContain("held back");
+        assertThat(cbomRepository.count()).isOne();
+    }
+
+    @Test
+    void aCbomListedAfterTheUpgradeIsStillReconciled() throws Exception {
+        stampTheUpgrade();
+        OffsetDateTime afterTheUpgrade = OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(5);
+        stubPage("after", "0", "[" + entry("urn:uuid:new", "1", afterTheUpgrade) + "]", null);
+        stubDocument("urn:uuid:new", 1);
+
+        String result = cbomInternalService.reconcile();
+
+        assertThat(result)
+                .contains("stored 1 new entries")
+                .endsWith("0 entries listed before the upgrade to 2.20.0 and absent from Core were held back");
+        assertThat(cbomRepository.count()).isOne();
+    }
+
+    @Test
+    void aDeleteAfterTheUpgradeStillTombstonesAndStaysOut() throws Exception {
+        stampTheUpgrade();
+        Cbom deleted = new Cbom();
+        deleted.setSerialNumber("urn:uuid:deleted-in-2.20");
+        deleted.setVersion(1);
+        deleted.setSpecVersion("1.6");
+        cbomService.deleteCbom(cbomRepository.save(deleted).getUuid());
+        OffsetDateTime afterTheUpgrade = OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(5);
+        stubPage("after", "0", "[" + entry("urn:uuid:deleted-in-2.20", "1", afterTheUpgrade) + "]", null);
+        stubDocument("urn:uuid:deleted-in-2.20", 1);
+
+        String result = cbomInternalService.reconcile();
+
+        assertThat(result)
+                .contains("1 entries an operator had deleted were not stored again")
+                .endsWith("0 entries listed before the upgrade to 2.20.0 and absent from Core were held back");
+        assertThat(cbomRepository.count()).isZero();
+    }
+
+    /**
+     * Only 2.20 writes skip rows, so an entry with one was offered after the upgrade and cannot be a 2.19 deletion.
+     * Holding it back would also keep it from its own retry, since the feed pass has already claimed it for the run.
+     */
+    @Test
+    void anEntryWithASkipRowIsReconciledEvenIfListedBeforeTheUpgrade() throws Exception {
+        stampTheUpgrade();
+        skipWriter
+                .recordAttempt("urn:uuid:skipped", 1, "stubbed failure", CbomHeaderCounts.ZERO,
+                        OffsetDateTime.now().truncatedTo(ChronoUnit.MICROS), 5);
+        stubPage("after", "0", "[" + entry("urn:uuid:skipped", "1", STATS, null) + "]", null);
+        stubDocument("urn:uuid:skipped", 1);
+
+        String result = cbomInternalService.reconcile();
+
+        assertThat(result).contains("stored 1 new entries");
+        assertThat(skipRepository.count()).isZero();
+    }
+
     // ---- helpers ----
+
+    /** Runs the migration that stamps the upgrade; tests build the schema from the entities, without Flyway. */
+    private void stampTheUpgrade() throws Exception {
+        jdbcTemplate
+                .execute(new ClassPathResource("db/migration/V202609301200__cbom_sync_upgrade_instant.sql")
+                        .getContentAsString(StandardCharsets.UTF_8));
+    }
+
+    private static String entry(String serialNumber, String version, OffsetDateTime createdAt) {
+        return """
+                {"serialNumber":"%s","version":"%s","created_at":"%s","cryptoStats":%s}"""
+                .formatted(serialNumber, version, createdAt.toInstant().truncatedTo(ChronoUnit.SECONDS), STATS);
+    }
 
     private static String entry(String serialNumber, String version, String statsJson, String warning) {
         return """
