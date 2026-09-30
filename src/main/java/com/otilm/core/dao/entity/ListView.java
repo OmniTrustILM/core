@@ -25,8 +25,8 @@ import org.hibernate.type.SqlTypes;
  * deletion, in {@link com.otilm.core.service.UserManagementExternalService#deleteUser(String)}.
  *
  * <p>
- * Field identifiers are resolved against the resource's live field catalogue on read, so a renamed or deleted attribute
- * drops out of the view instead of requiring stored rows to be migrated.
+ * Fields are stored by identifier, so a renamed or deleted attribute leaves its column or filter dormant instead of
+ * requiring stored rows to be migrated. A dormant field is still returned on read, for the client to mark unavailable.
  */
 @Setter
 @Getter
