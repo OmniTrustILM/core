@@ -39,10 +39,10 @@ public class CryptoAssetPqcVerdictWriter {
      * whether the row it stamped as unevaluable is the one that landed before it can report having recorded it.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public List<UUID> applyStaleBatch(List<PqcVerdictWrite> batch, int rulesetVersion) {
+    public List<UUID> applyStaleBatch(List<PqcVerdictWrite> batch) {
         List<UUID> written = new ArrayList<>(batch.size());
         for (PqcVerdictWrite write : batch) {
-            if (apply(write, rulesetVersion) == 1) {
+            if (apply(write) == 1) {
                 written.add(write.assetUuid());
             }
         }
@@ -58,14 +58,15 @@ public class CryptoAssetPqcVerdictWriter {
      * @return true if the row was written, false if the guard refused it
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public boolean applyStaleRow(PqcVerdictWrite write, int rulesetVersion) {
-        return apply(write, rulesetVersion) == 1;
+    public boolean applyStaleRow(PqcVerdictWrite write) {
+        return apply(write) == 1;
     }
 
-    private int apply(PqcVerdictWrite write, int rulesetVersion) {
+    private int apply(PqcVerdictWrite write) {
         return assetRepository
                 .applyPqcVerdictIfStale(write.assetUuid(), write.rowVersion(), write.decision().verdict().name(),
-                        write.decision().ruleId(), write.decision().reason(), rulesetVersion,
-                        JsonColumnText.render(write.decision().evaluatedFields()));
+                        write.decision().ruleId(), write.decision().reason(),
+                        JsonColumnText.render(write.decision().evaluatedFields()),
+                        write.decision().referencedAssetUuid(), write.referenceBasis());
     }
 }

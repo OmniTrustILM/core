@@ -31,6 +31,9 @@ caching:
   time-quality-configs:
     ttl-minutes: 5
     max-size: 100
+  attribute-search-fields:
+    ttl-minutes: 5
+    max-size: 200
 
 connector:
   api-client:
