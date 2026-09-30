@@ -207,9 +207,9 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
         }
         List<SearchFieldDataDto> fieldDataDtos = new ArrayList<>();
         for (FilterField filterField : filterFields) {
-            // skip filter fields with JSON paths since it is not supported by rule evaluator
-            // If getting only settable fields, skip not settable fields
-            if (filterField.getJsonPath() != null || (settable && !filterField.isSettable())) {
+            // Listing-only predicates and JSON paths cannot be evaluated as rule conditions.
+            if (filterField == FilterField.CBOM_HAS_CONTRIBUTED_ASSETS || filterField.getJsonPath() != null
+                    || (settable && !filterField.isSettable())) {
                 continue;
             }
             // Filter field has a single value, don't need to provide list
