@@ -2,6 +2,7 @@ package com.otilm.core.service.handler.discovery;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ConnectorProblemException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.interfaces.client.v2.DiscoverySyncApiClient;
 import com.otilm.api.model.client.attribute.RequestAttribute;
@@ -12,6 +13,8 @@ import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSecretContentData;
+import com.otilm.api.model.common.error.ErrorCode;
+import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryDrainRequestDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryInitiateResponseDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryResultsResponseDto;
@@ -31,6 +34,7 @@ import com.otilm.core.service.CredentialInternalService;
 import com.otilm.core.service.ResourceInternalService;
 import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.DiscoveryCheckpointFixture;
+import java.net.URI;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -309,6 +313,40 @@ class DiscoveryV2ClientTest {
         // The connector has opened the run by now; refusing would leave it scanning with nothing in Core to
         // cancel it by.
         assertThat(client.initiate(run).getCheckpoint()).isEqualTo(echo.getCheckpoint());
+    }
+
+    /**
+     * A refusal of the initiate now reaches the API caller, and the request carried secrets the caller may not read, so
+     * the connector's words go and its verdict stays: still a 422 refusal of the configuration.
+     */
+    @Test
+    void anInitiateRefusalForARunCarryingSecrets_dropsTheConnectorsWordsButNotItsVerdict() throws Exception {
+        givenARunResolvingASecret();
+        when(apiClient.initiate(any(), any())).thenThrow(validationRefusal("token s3cr3t-token is not valid"));
+
+        assertThatThrownBy(() -> client.initiate(run))
+                .isInstanceOfSatisfying(ConnectorProblemException.class, refused -> {
+                    assertThat(refused.getMessage()).doesNotContain("s3cr3t-token");
+                    assertThat(refused.getProblemDetail().getErrorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
+                    assertThat(refused.getProblemDetail().getStatus()).isEqualTo(422);
+                });
+    }
+
+    /** Nothing secret went out, so the connector's words are the caller's best account of what to correct. */
+    @Test
+    void anInitiateRefusalForARunWithoutSecrets_keepsTheConnectorsWords() throws Exception {
+        when(apiClient.initiate(any(), any()))
+                .thenThrow(validationRefusal("data_hosts entry \"10.0.0.999\" is not valid"));
+
+        assertThatThrownBy(() -> client.initiate(run))
+                .isInstanceOf(ConnectorProblemException.class)
+                .hasMessageContaining("10.0.0.999");
+    }
+
+    private static ConnectorProblemException validationRefusal(String detail) {
+        return new ConnectorProblemException(ProblemDetailExtended
+                .fromErrorCode(ErrorCode.VALIDATION_FAILED, detail,
+                        URI.create("https://connector.example.com/v2/discoveryProvider/discoveries/initiate"), null));
     }
 
     @Test

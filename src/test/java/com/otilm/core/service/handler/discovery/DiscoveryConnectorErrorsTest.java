@@ -67,6 +67,27 @@ class DiscoveryConnectorErrorsTest {
     }
 
     @Test
+    void validationRefusal_isARefusalOfTheConfiguration() {
+        assertThat(DiscoveryConnectorErrors.isConfigurationRefused(problem(ErrorCode.VALIDATION_FAILED))).isTrue();
+    }
+
+    @Test
+    void otherAnswersAndFailures_areNotARefusalOfTheConfiguration() {
+        assertThat(DiscoveryConnectorErrors.isConfigurationRefused(problem(ErrorCode.INTERNAL_SERVER_ERROR))).isFalse();
+        assertThat(DiscoveryConnectorErrors.isConfigurationRefused(problem(ErrorCode.SERVICE_UNAVAILABLE))).isFalse();
+        assertThat(DiscoveryConnectorErrors.isConfigurationRefused(new ConnectorException("connection refused")))
+                .isFalse();
+    }
+
+    @Test
+    void validationRefusal_saysTheConnectorAnswered() {
+        // The connector answered, naming what it refused; "did not answer" would send an operator to check its
+        // availability instead of the run's configuration.
+        assertThat(DiscoveryConnectorErrors.describe(problem(ErrorCode.VALIDATION_FAILED)))
+                .isEqualTo("the connector refused the run's configuration");
+    }
+
+    @Test
     void connectorSuppliedProse_neverReachesTheRun() {
         ProblemDetailExtended detail = ProblemDetailExtended
                 .fromErrorCode(ErrorCode.INTERNAL_SERVER_ERROR,

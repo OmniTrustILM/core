@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class DiscoveryProviderV2AdapterTest {
 
     private final DiscoveryProviderV2Adapter adapter = new DiscoveryProviderV2Adapter(null, null, null, null, null,
-            null, null, null, null);
+            null, null, null, null, null);
 
     @Test
     void anUnexpectedFailuresOwnWordsNeverReachTheRun() {
