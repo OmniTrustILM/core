@@ -2,9 +2,12 @@ package com.otilm.core.util;
 
 import java.time.Instant;
 import java.util.Date;
+import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationInfo;
+import org.flywaydb.core.api.MigrationInfoService;
 import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -29,6 +32,29 @@ class SchemaHistoryTest {
         MigrationInfo[] applied = {migration("202601271114", INSTALLED)};
 
         assertThat(SchemaHistory.installedOn(applied, MigrationVersion.fromVersion("202608271000"))).isEmpty();
+    }
+
+    @Test
+    void readsTheAppliedMigrationsFromFlyway() {
+        MigrationInfo[] applied = {migration("202608271000", INSTALLED)};
+        MigrationInfoService info = mock(MigrationInfoService.class);
+        when(info.applied()).thenReturn(applied);
+        Flyway flyway = mock(Flyway.class);
+        when(flyway.info()).thenReturn(info);
+
+        assertThat(new SchemaHistory(provider(flyway)).installedOn("202608271000")).contains(INSTALLED);
+    }
+
+    @Test
+    void withoutFlywayNothingIsInstalled() {
+        assertThat(new SchemaHistory(provider(null)).installedOn("202608271000")).isEmpty();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ObjectProvider<Flyway> provider(Flyway flyway) {
+        ObjectProvider<Flyway> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(flyway);
+        return provider;
     }
 
     private static MigrationInfo migration(String version, Instant installedOn) {

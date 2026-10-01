@@ -1000,7 +1000,9 @@ class CbomSyncITest extends BaseSpringBootTest {
      */
     @Test
     void aFreshInstallHoldsNothingBack() throws Exception {
-        tombstonesKeptSince(Instant.now().minus(Duration.ofMinutes(1)));
+        Instant installedOn = Instant.now().minus(Duration.ofMinutes(1));
+        recordARun(syncJob(), Date.from(installedOn.plusSeconds(1)), SchedulerJobExecutionStatus.FAILED);
+        tombstonesKeptSince(installedOn);
         stubPage("after", "0", "[" + entry("urn:uuid:older-than-core", "1", STATS, null) + "]", null);
         stubDocument("urn:uuid:older-than-core", 1);
 
@@ -1008,6 +1010,46 @@ class CbomSyncITest extends BaseSpringBootTest {
 
         assertThat(result).contains("stored 1 new entries").doesNotContain("held back");
         assertThat(cbomRepository.count()).isOne();
+    }
+
+    /**
+     * Every upgraded database has other jobs' history from before the upgrade, so that history says nothing. An estate
+     * that configures its first repository after upgrading deleted nothing in 2.19, and its first sync has to bring the
+     * repository in.
+     */
+    @Test
+    void aRepositoryFirstSyncedAfterTheUpgradeIsNotHeldBack() throws Exception {
+        Instant tombstonesSince = Instant.now().minus(Duration.ofMinutes(1));
+        ScheduledJob otherJob = new ScheduledJob();
+        otherJob.setJobName("UpdateCertificateStatusTask");
+        otherJob.setJobClassName("com.otilm.core.tasks.UpdateCertificateStatusTask");
+        otherJob.setEnabled(true);
+        recordARun(scheduledJobsRepository.save(otherJob), Date.from(tombstonesSince.minus(Duration.ofDays(1))),
+                SchedulerJobExecutionStatus.SUCCESS);
+        tombstonesKeptSince(tombstonesSince);
+        stubPage("after", "0", "[" + entry("urn:uuid:older-than-the-upgrade", "1", STATS, null) + "]", null);
+        stubDocument("urn:uuid:older-than-the-upgrade", 1);
+
+        String result = cbomInternalService.sync();
+
+        assertThat(result).contains("stored 1 new entries").doesNotContain("held back");
+        assertThat(cbomRepository.count()).isOne();
+    }
+
+    /** A listing without creation times cannot show an entry was offered after the upgrade, so it is held back. */
+    @Test
+    void anEntryWithoutACreationTimeIsHeldBack() throws Exception {
+        stampTheUpgrade();
+        stubPage("after", "0", "[" + entryWithoutCreationTime("urn:uuid:undated", "1") + "]", null);
+        stubDocument("urn:uuid:undated", 1);
+
+        String result = cbomInternalService.reconcile();
+
+        assertThat(result)
+                .contains("stored 0 new entries")
+                .endsWith("1 entries listed before the upgrade to 2.20.0 and absent from Core were held back");
+        assertThat(cbomRepository.count()).isZero();
+        repository.verify(0, WireMock.getRequestedFor(WireMock.urlPathEqualTo("/api/v1/bom/urn:uuid:undated")));
     }
 
     @Test
@@ -1072,17 +1114,26 @@ class CbomSyncITest extends BaseSpringBootTest {
      */
     private void stampTheUpgrade() {
         Instant tombstonesSince = Instant.now().minus(Duration.ofMinutes(1));
-        ScheduledJob syncJob = new ScheduledJob();
-        syncJob.setJobName(CbomSyncTask.NAME);
-        syncJob.setJobClassName(CbomSyncTask.class.getName());
-        syncJob.setEnabled(true);
-        scheduledJobsRepository.save(syncJob);
-        ScheduledJobHistory earlierRun = new ScheduledJobHistory();
-        earlierRun.setScheduledJobUuid(syncJob.getUuid());
-        earlierRun.setJobExecution(Date.from(tombstonesSince.minus(Duration.ofDays(1))));
-        earlierRun.setSchedulerExecutionStatus(SchedulerJobExecutionStatus.FAILED);
-        scheduledJobHistoryRepository.save(earlierRun);
+        recordARun(syncJob(), Date.from(tombstonesSince.minus(Duration.ofDays(1))), SchedulerJobExecutionStatus.FAILED);
         tombstonesKeptSince(tombstonesSince);
+    }
+
+    private ScheduledJob syncJob() {
+        return scheduledJobsRepository.findByJobName(CbomSyncTask.NAME).orElseGet(() -> {
+            ScheduledJob syncJob = new ScheduledJob();
+            syncJob.setJobName(CbomSyncTask.NAME);
+            syncJob.setJobClassName(CbomSyncTask.class.getName());
+            syncJob.setEnabled(true);
+            return scheduledJobsRepository.save(syncJob);
+        });
+    }
+
+    private void recordARun(ScheduledJob job, Date startedAt, SchedulerJobExecutionStatus status) {
+        ScheduledJobHistory run = new ScheduledJobHistory();
+        run.setScheduledJobUuid(job.getUuid());
+        run.setJobExecution(startedAt);
+        run.setSchedulerExecutionStatus(status);
+        scheduledJobHistoryRepository.save(run);
     }
 
     /**
@@ -1106,6 +1157,11 @@ class CbomSyncITest extends BaseSpringBootTest {
         run.setJobEndTime(startedAt);
         run.setSchedulerExecutionStatus(SchedulerJobExecutionStatus.SUCCESS);
         scheduledJobHistoryRepository.save(run);
+    }
+
+    private static String entryWithoutCreationTime(String serialNumber, String version) {
+        return """
+                {"serialNumber":"%s","version":"%s","cryptoStats":%s}""".formatted(serialNumber, version, STATS);
     }
 
     private static String entry(String serialNumber, String version, OffsetDateTime createdAt) {

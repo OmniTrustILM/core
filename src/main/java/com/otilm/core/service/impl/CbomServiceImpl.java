@@ -1119,8 +1119,9 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      * since the stored row is indistinguishable from a synced one, while holding it back loses nothing: the document
      * stays in the repository. An entry with a skip row is not held back, because only 2.20 writes those, so Core met
      * it after the upgrade. An entry without a creation time counts as listed before. An hourly pass with a watermark
-     * is not held back: what it lists is new to it. Nor is anything on a database no earlier Core has run against,
-     * where a whole listing is how a repository older than the install comes in ({@link #readUpgradeInstant}).
+     * is not held back: what it lists is new to it. Nor is anything on a database where no earlier Core ever synced a
+     * repository, where a whole listing is how a repository older than the install comes in
+     * ({@link #readUpgradeInstant}).
      */
     private boolean isHeldBack(BomEntryDto entry, SyncIdentity identity, SyncRun run,
             Map<SyncIdentity, CbomSyncSkip> skips) {
@@ -1133,14 +1134,18 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
     }
 
     /**
-     * When this database started keeping tombstones, provided an earlier Core ran scheduled jobs against it before
-     * then; null on a fresh install, whose job history all postdates its migrations.
+     * When this database started keeping tombstones, provided an earlier Core ran the sync job against a configured
+     * repository before then; null otherwise. Up to 2.19 a sync run with no repository configured was skipped and its
+     * history row removed, so a sync run older than the tombstones is the only sign a CBOM could have been deleted
+     * without one. Other jobs' history does not count: a database upgraded before its first repository was configured
+     * deleted nothing, and its first whole listing has to bring that repository in.
      */
     private Instant readUpgradeInstant() {
         return schemaHistory
                 .installedOn(TOMBSTONE_MIGRATION_VERSION)
                 .filter(tombstonesSince -> scheduledJobHistoryRepository
-                        .existsByJobExecutionBefore(Date.from(tombstonesSince)))
+                        .existsByScheduledJobJobNameAndJobExecutionBefore(CbomSyncTask.NAME,
+                                Date.from(tombstonesSince)))
                 .orElse(null);
     }
 
@@ -1837,7 +1842,10 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         final OffsetDateTime startedAt;
         /** The operator policy this run was started with; a setting changed mid-run waits for the next one. */
         final CbomSyncPolicy policy;
-        /** The 2.20.0 upgrade instant on a pass listing from 0, null on a windowed one; see {@link #isHeldBack}. */
+        /**
+         * When this database started keeping tombstones, set only on a run that applies the hold-back; see
+         * {@link #isHeldBack}.
+         */
         final Instant upgradedAt;
         final Set<SyncIdentity> attempted = new HashSet<>();
         /** Entries whose document read got no answer, awaiting the run's verdict. */

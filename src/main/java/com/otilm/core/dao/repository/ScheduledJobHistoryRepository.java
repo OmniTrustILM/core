@@ -17,7 +17,7 @@ public interface ScheduledJobHistoryRepository extends SecurityFilterRepository<
 
     boolean existsByScheduledJobUuid(UUID scheduledJobUuid);
 
-    boolean existsByJobExecutionBefore(Date jobExecution);
+    boolean existsByScheduledJobJobNameAndJobExecutionBefore(String jobName, Date jobExecution);
 
     boolean existsByScheduledJobUuidAndSchedulerExecutionStatusAndJobEndTimeIsNull(UUID scheduledJobUuid,
             SchedulerJobExecutionStatus schedulerExecutionStatus);
