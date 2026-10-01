@@ -1150,10 +1150,10 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
                 .build();
         if (signingScheme instanceof StaticKeyManagedSigningRequestDto staticKeyScheme) {
             List<RequestAttribute> signingOperationAttributes = staticKeyScheme.getSigningOperationAttributes();
+            signingSchema.requireOfferedSignatureAlgorithm(signingOperationAttributes);
             attributeEngine
                     .validateUpdateDataAttributes(signingSchema.ownerConnectorUuid(), AttributeOperation.SIGN,
                             signingSchema.presentedDefinitions(), signingOperationAttributes);
-            signingSchema.requireOfferedSignatureAlgorithm(signingOperationAttributes);
             return attributeEngine.replaceObjectDataAttributesContent(content, signingOperationAttributes);
         }
         // Clears what an earlier write left for this version, whichever connector owned it.

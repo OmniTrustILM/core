@@ -102,8 +102,8 @@ public interface KeyProviderAdapter {
     List<BaseAttribute> listSignAttributes(OperationKeyContext context) throws ConnectorException;
 
     /**
-     * The sign attributes with their owner and the connector's own definitions. Checking a scheme and digest pair needs
-     * the connector's definitions.
+     * The sign attributes of Core's own registry, which a v1 provider signs with. Only the presence check applies to
+     * them.
      */
     default OperationAttributeSchema signAttributeSchema(OperationKeyContext context) throws ConnectorException {
         return OperationAttributeSchema.ofCoreRegistry(listSignAttributes(context));

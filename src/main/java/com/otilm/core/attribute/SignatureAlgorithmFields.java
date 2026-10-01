@@ -6,7 +6,6 @@ import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.attribute.common.AttributeContent;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.DataAttribute;
-import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.RsaSignatureScheme;
@@ -197,17 +196,23 @@ public final class SignatureAlgorithmFields {
         if (listings != 1) {
             return List.of();
         }
-        List<String> codes = AttributeDefinitionUtils
-                .getAttributeContentValueList(SignatureAlgorithmAttribute.NAME, connectorDefinitions,
-                        StringAttributeContentV2.class);
-        return codes == null
+        List<?> items = AttributeDefinitionUtils
+                .getAttributeContent(SignatureAlgorithmAttribute.NAME, connectorDefinitions, false);
+        return items == null
                 ? List.of()
-                : codes
+                : items
                         .stream()
-                        .filter(Objects::nonNull)
+                        .map(SignatureAlgorithmFields::stringData)
+                        .flatMap(Optional::stream)
                         .map(SignatureAlgorithm::lookupByCode)
                         .flatMap(Optional::stream)
                         .toList();
+    }
+
+    private static Optional<String> stringData(Object item) {
+        return item instanceof AttributeContent content && content.getData() instanceof String data
+                ? Optional.of(data)
+                : Optional.empty();
     }
 
     private static boolean isSignatureAlgorithmAttribute(BaseAttribute definition) {
@@ -261,12 +266,6 @@ public final class SignatureAlgorithmFields {
             return value
                     .orElseThrow(() -> new ValidationException(
                             ValidationError.create("Signature attributes must choose one value of {}.", name)));
-        }
-
-        private static Optional<String> stringData(Object item) {
-            return item instanceof AttributeContent content && content.getData() instanceof String data
-                    ? Optional.of(data)
-                    : Optional.empty();
         }
     }
 

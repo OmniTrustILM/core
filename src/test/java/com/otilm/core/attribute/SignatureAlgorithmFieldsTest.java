@@ -12,6 +12,7 @@ import com.otilm.api.model.common.attribute.v2.content.IntegerAttributeContentV2
 import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.IntegerAttributeContentV3;
+import com.otilm.api.model.common.attribute.v3.content.ObjectAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
@@ -21,7 +22,9 @@ import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorit
 import com.otilm.core.util.CryptographyUtil;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -119,6 +122,26 @@ class SignatureAlgorithmFieldsTest {
                                 SignatureAlgorithm.SHA256_WITH_RSA.getCode()),
                                 new StringAttributeContentV3("FALCON-512", "FALCON-512"),
                                 new IntegerAttributeContentV3(256)));
+
+        // when
+        List<BaseAttribute> form = SignatureAlgorithmFields.toClient(KeyAlgorithm.RSA, List.of(listed));
+
+        // then
+        assertThat(names(form)).isEqualTo(List.of(SCHEME, DIGEST));
+        assertThat(offeredValues(form.get(0))).isEqualTo(List.of("PKCS1-v1_5"));
+        assertThat(offeredValues(form.get(1))).isEqualTo(List.of("SHA-256"));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("contentItemsCarryingNoCode")
+    void toClient_dropsAContentItemThatCarriesNoCode(AttributeContent itemCarryingNoCode) {
+        // given
+        DataAttributeV3 listed = offering();
+        listed
+                .setContent(Arrays
+                        .asList(itemCarryingNoCode,
+                                new StringAttributeContentV3(SignatureAlgorithm.SHA256_WITH_RSA.getLabel(),
+                                        SignatureAlgorithm.SHA256_WITH_RSA.getCode())));
 
         // when
         List<BaseAttribute> form = SignatureAlgorithmFields.toClient(KeyAlgorithm.RSA, List.of(listed));
@@ -497,6 +520,12 @@ class SignatureAlgorithmFieldsTest {
         // then
         assertThat(resolvedByV2(keyAlgorithm, parameterSet, List.of()))
                 .isEqualTo(platformAlgorithmV1Names(keyAlgorithm, parameterSet, List.of()));
+    }
+
+    private static Stream<Arguments> contentItemsCarryingNoCode() {
+        var objectItem = new ObjectAttributeContentV3(
+                new HashMap<>(Map.of("code", SignatureAlgorithm.SHA256_WITH_RSA.getCode())));
+        return Stream.of(arguments(named("a null item", null)), arguments(named("an object item", objectItem)));
     }
 
     private static Stream<Arguments> postQuantumParameterSets() {

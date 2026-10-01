@@ -986,6 +986,35 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
+        void create_v2PostQuantumKey_refusesEachFieldItDoesNotPresent_whenTheConnectorHoldsNoDefinitionOfIt()
+                throws Exception {
+            // given: no key has stored Core's fields under the connector
+            KeyPair mlDsaKeyPair = CertificateGeneratorHelper
+                    .generateKeyPair(KeyAlgorithm.MLDSA, MLDSAParameterSpec.ml_dsa_65);
+            persistV2KeyPair(v2Token, v2TokenProfile, mlDsaKeyPair, "v2-ml-dsa-key", KeyAlgorithm.MLDSA);
+            Certificate mlDsaCertificate = v2Ca.issueSigningCertificate(mlDsaKeyPair, "CN=V2 ML-DSA Signing");
+            v2Mock.stubOperationAttributes("sign", mlDsa65Schema());
+            SigningProfileRequestDto request = aSigningProfileRequest()
+                    .withName("v2-ml-dsa-with-unstored-rsa-fields")
+                    .withStaticKeyManagedSigning(mlDsaCertificate.getUuid(), RsaSignatureScheme.PSS,
+                            DigestAlgorithm.SHA_256)
+                    .withRawSigning()
+                    .build();
+
+            // when
+            Executable create = () -> signingProfileService.createSigningProfile(request);
+
+            // then
+            ValidationException failure = assertThrows(ValidationException.class, create);
+            assertThat(failure.getErrors().stream().map(ValidationError::getErrorDescription).toList())
+                    .containsExactlyInAnyOrder(
+                            "The signing key presents no attribute "
+                                    + RsaSignatureAttributes.ATTRIBUTE_DATA_RSA_SIG_SCHEME + ".",
+                            "The signing key presents no attribute " + RsaSignatureAttributes.ATTRIBUTE_DATA_SIG_DIGEST
+                                    + ".");
+        }
+
+        @Test
         void update_swappingAV1KeyForAV2Key_replacesTheSigningAttributes() throws Exception {
             // given: a v1-backed profile holding Core's RSA attributes
             SigningProfileDto created = signingProfileService
