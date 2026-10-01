@@ -32,10 +32,12 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateContentDto;
 import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.certificate.CertificateDownloadResponseDto;
 import com.otilm.api.model.core.certificate.CertificateDto;
 import com.otilm.api.model.core.certificate.CertificateEvent;
+import com.otilm.api.model.core.certificate.CertificateEventHistoryDto;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
@@ -43,6 +45,7 @@ import com.otilm.api.model.core.certificate.CertificateKeyUsage;
 import com.otilm.api.model.core.certificate.CertificateQcStatementsDto;
 import com.otilm.api.model.core.certificate.CertificateRegistrationState;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
+import com.otilm.api.model.core.certificate.CertificateRelationsDto;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateSubjectType;
 import com.otilm.api.model.core.certificate.CertificateType;
@@ -118,9 +121,11 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.security.authz.opa.dto.OpaObjectAccessResult;
 import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
 import com.otilm.core.service.AttributeExternalService;
+import com.otilm.core.service.CertificateEventHistoryExternalService;
 import com.otilm.core.service.ResourceObjectAssociationService;
 import com.otilm.core.service.handler.authority.lifecycle.InvalidTransitionException;
 import com.otilm.core.service.impl.CertificateServiceImpl;
+import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateTestData;
 import com.otilm.core.util.CertificateTestUtil;
@@ -215,6 +220,9 @@ class CertificateServiceITest extends BaseSpringBootTest {
 
     @Autowired
     private CertificateEventHistoryRepository certificateEventHistoryRepository;
+
+    @Autowired
+    private CertificateEventHistoryExternalService certificateEventHistoryService;
 
     @Autowired
     private CertificateContentRepository certificateContentRepository;
@@ -1258,7 +1266,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
             // given - the fixture certificate is not archived
 
             // when
-            certificateService.archiveCertificate(certificate.getUuid());
+            certificateService.archiveCertificate(certificate.getSecuredUuid());
 
             // then
             assertThat(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().isArchived()).isTrue();
@@ -1271,7 +1279,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
             certificateRepository.save(certificate);
 
             // when
-            certificateService.unarchiveCertificate(certificate.getUuid());
+            certificateService.unarchiveCertificate(certificate.getSecuredUuid());
 
             // then
             assertThat(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().isArchived()).isFalse();
@@ -1280,7 +1288,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
         @Test
         void bulkArchivesCertificates() {
             // when
-            certificateService.bulkArchiveCertificates(List.of(certificate.getUuid()));
+            certificateService.bulkArchiveCertificates(List.of(certificate.getSecuredUuid()));
 
             // then
             assertThat(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().isArchived()).isTrue();
@@ -1293,7 +1301,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
             certificateRepository.save(certificate);
 
             // when
-            certificateService.bulkUnarchiveCertificates(List.of(certificate.getUuid()));
+            certificateService.bulkUnarchiveCertificates(List.of(certificate.getSecuredUuid()));
 
             // then
             assertThat(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().isArchived()).isFalse();
@@ -2007,7 +2015,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
         @Test
         void rejectsSelfAssociation() {
             // given — the fixture certificate is ISSUED
-            var uuid = certificate.getUuid();
+            var uuid = certificate.getSecuredUuid();
 
             // when / then
             assertThatThrownBy(() -> certificateService.associateCertificates(uuid, uuid))
@@ -2018,8 +2026,8 @@ class CertificateServiceITest extends BaseSpringBootTest {
         @Test
         void rejectsAssociation_whenPredecessorNotIssuedOrRevoked() {
             // given — predecessor has no state, so it is neither ISSUED nor REVOKED
-            var successorUuid = certificate.getUuid();
-            var predecessorUuid = certificateRepository.save(aCertificate().build()).getUuid();
+            var successorUuid = certificate.getSecuredUuid();
+            var predecessorUuid = certificateRepository.save(aCertificate().build()).getSecuredUuid();
 
             // when / then
             assertThatThrownBy(() -> certificateService.associateCertificates(successorUuid, predecessorUuid))
@@ -2032,10 +2040,10 @@ class CertificateServiceITest extends BaseSpringBootTest {
             // given
             certificate.setState(CertificateState.FAILED);
             certificateRepository.save(certificate);
-            var successorUuid = certificate.getUuid();
+            var successorUuid = certificate.getSecuredUuid();
             var predecessorUuid = certificateRepository
                     .save(aCertificate().withState(CertificateState.ISSUED).build())
-                    .getUuid();
+                    .getSecuredUuid();
 
             // when / then
             assertThatThrownBy(() -> certificateService.associateCertificates(successorUuid, predecessorUuid))
@@ -2048,13 +2056,13 @@ class CertificateServiceITest extends BaseSpringBootTest {
             // given
             certificate.setSubjectType(CertificateSubjectType.END_ENTITY);
             certificateRepository.save(certificate);
-            var successorUuid = certificate.getUuid();
+            var successorUuid = certificate.getSecuredUuid();
             var predecessorUuid = certificateRepository
                     .save(aCertificate()
                             .withState(CertificateState.ISSUED)
                             .withSubjectType(CertificateSubjectType.ROOT_CA)
                             .build())
-                    .getUuid();
+                    .getSecuredUuid();
 
             // when / then
             assertThatThrownBy(() -> certificateService.associateCertificates(successorUuid, predecessorUuid))
@@ -2065,10 +2073,10 @@ class CertificateServiceITest extends BaseSpringBootTest {
         @Test
         void rejectsDuplicateAssociation_inEitherDirection() throws NotFoundException {
             // given
-            var successorUuid = certificate.getUuid();
+            var successorUuid = certificate.getSecuredUuid();
             var predecessorUuid = certificateRepository
                     .save(aCertificate().withState(CertificateState.ISSUED).build())
-                    .getUuid();
+                    .getSecuredUuid();
             certificateService.associateCertificates(successorUuid, predecessorUuid);
 
             // when / then — the same pair, either way round, is already related
@@ -2098,7 +2106,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
                             .build());
 
             // when
-            certificateService.associateCertificates(certificate.getUuid(), predecessor.getUuid());
+            certificateService.associateCertificates(certificate.getSecuredUuid(), predecessor.getSecuredUuid());
 
             // then
             assertThat(relationTypeOf(certificate.getUuid(), predecessor.getUuid()))
@@ -2122,7 +2130,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
                             .build());
 
             // when
-            certificateService.associateCertificates(certificate.getUuid(), predecessor.getUuid());
+            certificateService.associateCertificates(certificate.getSecuredUuid(), predecessor.getSecuredUuid());
 
             // then
             assertThat(relationTypeOf(certificate.getUuid(), predecessor.getUuid()))
@@ -2138,7 +2146,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
             var predecessor = certificateRepository.save(aCertificate().withState(CertificateState.ISSUED).build());
 
             // when
-            certificateService.associateCertificates(certificate.getUuid(), predecessor.getUuid());
+            certificateService.associateCertificates(certificate.getSecuredUuid(), predecessor.getSecuredUuid());
 
             // then
             assertThat(relationTypeOf(certificate.getUuid(), predecessor.getUuid()))
@@ -2153,7 +2161,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
             var predecessor = certificateRepository.save(aCertificate().withState(CertificateState.ISSUED).build());
 
             // when
-            certificateService.associateCertificates(certificate.getUuid(), predecessor.getUuid());
+            certificateService.associateCertificates(certificate.getSecuredUuid(), predecessor.getSecuredUuid());
 
             // then
             assertThat(relationTypeOf(certificate.getUuid(), predecessor.getUuid()))
@@ -2163,10 +2171,10 @@ class CertificateServiceITest extends BaseSpringBootTest {
         @Test
         void removesAssociation_andRejectsRemovingItAgain() throws NotFoundException {
             // given
-            var successorUuid = certificate.getUuid();
+            var successorUuid = certificate.getSecuredUuid();
             var predecessorUuid = certificateRepository
                     .save(aCertificate().withState(CertificateState.ISSUED).build())
-                    .getUuid();
+                    .getSecuredUuid();
             certificateService.associateCertificates(successorUuid, predecessorUuid);
 
             // when
@@ -2188,10 +2196,10 @@ class CertificateServiceITest extends BaseSpringBootTest {
                     .save(aCertificate().withState(CertificateState.ISSUED).withNotBefore(new Date()).build());
 
             // when — the older certificate is the predecessor, so the newer one is its successor
-            certificateService.associateCertificates(certificate.getUuid(), newer.getUuid());
+            certificateService.associateCertificates(certificate.getSecuredUuid(), newer.getSecuredUuid());
 
             // then
-            var relations = certificateService.getCertificateRelations(certificate.getUuid());
+            var relations = certificateService.getCertificateRelations(certificate.getSecuredUuid());
             assertThat(relations.getSuccessorCertificates()).anyMatch(dto -> dto.getUuid().equals(newer.getUuid()));
             assertThat(relations.getPredecessorCertificates()).noneMatch(dto -> dto.getUuid().equals(newer.getUuid()));
         }
@@ -2234,7 +2242,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
         private CertificateRelationType relationTypeOf(UUID successorUuid, UUID predecessorUuid)
                 throws NotFoundException {
             return certificateService
-                    .getCertificateRelations(successorUuid)
+                    .getCertificateRelations(SecuredUUID.fromUUID(successorUuid))
                     .getPredecessorCertificates()
                     .stream()
                     .filter(dto -> dto.getUuid().equals(predecessorUuid))
@@ -2245,7 +2253,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
 
         private CertificateRelationType firstPredecessorRelationType(UUID successorUuid) throws NotFoundException {
             return certificateService
-                    .getCertificateRelations(successorUuid)
+                    .getCertificateRelations(SecuredUUID.fromUUID(successorUuid))
                     .getPredecessorCertificates()
                     .getFirst()
                     .getRelationType();
@@ -2525,6 +2533,340 @@ class CertificateServiceITest extends BaseSpringBootTest {
         }
     }
 
+    // ── Owner access ─────────────────────────────────────────────────────────
+    @Nested
+    class OwnerAccess {
+
+        @Test
+        void ownerArchivesOwnCertificate_withoutArchivePermission() throws NotFoundException {
+            // given
+            makeCallerOwnerOf(certificate);
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.ARCHIVE);
+
+            // when
+            certificateService.archiveCertificate(certificate.getSecuredUuid());
+
+            // then
+            assertThat(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().isArchived()).isTrue();
+        }
+
+        @Test
+        void ownerUnarchivesOwnCertificate_withoutArchivePermission() throws NotFoundException {
+            // given
+            makeCallerOwnerOf(certificate);
+            certificate.setArchived(true);
+            certificateRepository.save(certificate);
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.ARCHIVE);
+
+            // when
+            certificateService.unarchiveCertificate(certificate.getSecuredUuid());
+
+            // then
+            assertThat(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().isArchived()).isFalse();
+        }
+
+        @Test
+        void ownerBulkArchivesOwnCertificates_withoutArchivePermission() {
+            // given
+            makeCallerOwnerOf(certificate);
+            Certificate second = certificateOwnedByCaller();
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.ARCHIVE);
+
+            // when
+            certificateService.bulkArchiveCertificates(List.of(certificate.getSecuredUuid(), second.getSecuredUuid()));
+
+            // then
+            assertThat(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().isArchived()).isTrue();
+            assertThat(certificateRepository.findByUuid(second.getUuid()).orElseThrow().isArchived()).isTrue();
+        }
+
+        @Test
+        void ownerBulkUnarchivesOwnCertificates_withoutArchivePermission() {
+            // given
+            makeCallerOwnerOf(certificate);
+            certificate.setArchived(true);
+            certificateRepository.save(certificate);
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.ARCHIVE);
+
+            // when
+            certificateService.bulkUnarchiveCertificates(List.of(certificate.getSecuredUuid()));
+
+            // then
+            assertThat(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().isArchived()).isFalse();
+        }
+
+        @Test
+        void deniesArchive_whenCallerDoesNotOwnCertificate() {
+            // given - the fixture certificate is owned by another user
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.ARCHIVE);
+            SecuredUUID uuid = certificate.getSecuredUuid();
+
+            // when / then
+            assertThatThrownBy(() -> certificateService.archiveCertificate(uuid))
+                    .isInstanceOf(AccessDeniedException.class);
+            assertThat(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().isArchived()).isFalse();
+        }
+
+        @Test
+        void deniesWholeBulkArchive_whenOneCertificateIsNotOwned() {
+            // given - the caller owns the second certificate only
+            Certificate owned = certificateOwnedByCaller();
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.ARCHIVE);
+            List<SecuredUUID> uuids = List.of(owned.getSecuredUuid(), certificate.getSecuredUuid());
+
+            // when / then
+            assertThatThrownBy(() -> certificateService.bulkArchiveCertificates(uuids))
+                    .isInstanceOf(AccessDeniedException.class);
+            assertThat(certificateRepository.findByUuid(owned.getUuid()).orElseThrow().isArchived()).isFalse();
+        }
+
+        @Test
+        void ownerDownloadsOwnCertificate_withoutDetailPermission()
+                throws NotFoundException, CertificateException, IOException {
+            // given
+            CertificateContent content = certificateContentRepository
+                    .save(aCertificateContent().withContent(DOWNLOADABLE_CERT_BASE64).build());
+            certificate.setCertificateContent(content);
+            certificateRepository.save(certificate);
+            makeCallerOwnerOf(certificate);
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.DETAIL);
+
+            // when
+            CertificateDownloadResponseDto download = certificateService
+                    .downloadCertificate(certificate.getSecuredUuid(), CertificateFormat.RAW,
+                            CertificateFormatEncoding.PEM);
+
+            // then
+            assertThat(download.getContent()).isNotBlank();
+        }
+
+        @Test
+        void ownerReadsRelationsOfOwnCertificate_withoutDetailPermission() throws NotFoundException {
+            // given
+            makeCallerOwnerOf(certificate);
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.DETAIL);
+
+            // when
+            CertificateRelationsDto relations = certificateService
+                    .getCertificateRelations(certificate.getSecuredUuid());
+
+            // then
+            assertThat(relations.getCertificateUuid()).isEqualTo(certificate.getUuid());
+        }
+
+        @Test
+        void ownerAssociatesOwnCertificates_withoutUpdatePermission() throws NotFoundException {
+            // given
+            makeCallerOwnerOf(certificate);
+            Certificate predecessor = certificateOwnedByCaller();
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.UPDATE);
+
+            // when
+            certificateService.associateCertificates(certificate.getSecuredUuid(), predecessor.getSecuredUuid());
+
+            // then
+            assertThat(certificateRelationRepository
+                    .existsById(new CertificateRelationId(certificate.getUuid(), predecessor.getUuid()))).isTrue();
+        }
+
+        @Test
+        void ownerRemovesAssociationOfOwnCertificates_withoutUpdatePermission() throws NotFoundException {
+            // given - the association is created while UPDATE is still granted
+            makeCallerOwnerOf(certificate);
+            Certificate predecessor = certificateOwnedByCaller();
+            certificateService.associateCertificates(certificate.getSecuredUuid(), predecessor.getSecuredUuid());
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.UPDATE);
+
+            // when
+            certificateService.removeCertificateAssociation(certificate.getSecuredUuid(), predecessor.getSecuredUuid());
+
+            // then
+            assertThat(certificateRelationRepository
+                    .existsById(new CertificateRelationId(certificate.getUuid(), predecessor.getUuid()))).isFalse();
+        }
+
+        @Test
+        void deniesAssociation_whenAssociatedCertificateIsNotOwned() {
+            // given - the caller owns the successor but not the fixture certificate
+            Certificate owned = certificateOwnedByCaller();
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.UPDATE);
+            SecuredUUID ownedUuid = owned.getSecuredUuid();
+            SecuredUUID notOwnedUuid = certificate.getSecuredUuid();
+
+            // when / then
+            assertThatThrownBy(() -> certificateService.associateCertificates(ownedUuid, notOwnedUuid))
+                    .isInstanceOf(AccessDeniedException.class);
+        }
+
+        @Test
+        void ownerReadsContentOfOwnCertificate_withoutListOrDetailPermission() {
+            // given
+            makeCallerOwnerOf(certificate);
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.LIST);
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.DETAIL);
+
+            // when
+            List<CertificateContentDto> contents = certificateService
+                    .getCertificateContent(List.of(certificate.getSecuredUuid()));
+
+            // then
+            assertThat(contents)
+                    .extracting(CertificateContentDto::getUuid, CertificateContentDto::getCertificateContent)
+                    .containsExactly(tuple(certificate.getUuid().toString(), "123456"));
+        }
+
+        @Test
+        void ownerReadsHistoryOfOwnCertificate_withoutDetailPermission() throws NotFoundException {
+            // given
+            makeCallerOwnerOf(certificate);
+            certificateService.archiveCertificate(certificate.getSecuredUuid());
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.DETAIL);
+
+            // when
+            List<CertificateEventHistoryDto> history = certificateEventHistoryService
+                    .getCertificateEventHistory(certificate.getSecuredUuid());
+
+            // then
+            assertThat(history).extracting(CertificateEventHistoryDto::getEvent).contains(CertificateEvent.ARCHIVE);
+        }
+
+        @Test
+        void ownerBulkArchivesOwnCertificate_whenRequestRepeatsIt() {
+            // given
+            makeCallerOwnerOf(certificate);
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.ARCHIVE);
+
+            // when
+            certificateService
+                    .bulkArchiveCertificates(List.of(certificate.getSecuredUuid(), certificate.getSecuredUuid()));
+
+            // then - one transition, one history entry
+            Certificate archived = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+            assertThat(archived.isArchived()).isTrue();
+            assertThat(certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(archived))
+                    .filteredOn(h -> h.getEvent() == CertificateEvent.ARCHIVE)
+                    .hasSize(1);
+        }
+
+        @Test
+        void countsEachOwnedCertificateOnce_whenItHasSeveralOwnerRows() {
+            // given - the caller owns one certificate, recorded twice, and not the fixture certificate
+            Certificate owned = certificateOwnedByCaller();
+            saveCallerOwnerRow(owned.getUuid());
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.ARCHIVE);
+            List<SecuredUUID> uuids = List.of(owned.getSecuredUuid(), certificate.getSecuredUuid());
+
+            // when / then
+            assertThatThrownBy(() -> certificateService.bulkArchiveCertificates(uuids))
+                    .isInstanceOf(AccessDeniedException.class);
+            assertThat(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().isArchived()).isFalse();
+        }
+
+        private void makeCallerOwnerOf(Certificate owned) {
+            NameAndUuidDto caller = AuthHelper.getUserIdentification();
+            OwnerAssociation owner = owned.getOwner();
+            owner.setOwnerUuid(UUID.fromString(caller.getUuid()));
+            owner.setOwnerUsername(caller.getName());
+            ownerAssociationRepository.saveAndFlush(owner);
+        }
+
+        private Certificate certificateOwnedByCaller() {
+            Certificate owned = certificateRepository.save(aCertificate().withState(CertificateState.ISSUED).build());
+            saveCallerOwnerRow(owned.getUuid());
+            return owned;
+        }
+
+        private void saveCallerOwnerRow(UUID objectUuid) {
+            NameAndUuidDto caller = AuthHelper.getUserIdentification();
+            OwnerAssociation owner = new OwnerAssociation();
+            owner.setOwnerUuid(UUID.fromString(caller.getUuid()));
+            owner.setOwnerUsername(caller.getName());
+            owner.setResource(Resource.CERTIFICATE);
+            owner.setObjectUuid(objectUuid);
+            ownerAssociationRepository.saveAndFlush(owner);
+        }
+    }
+
+    // ── Group member access ──────────────────────────────────────────────────
+    @Nested
+    class GroupMemberAccess {
+
+        @Test
+        void groupMemberReadsRelations_withoutDetailPermission() throws NotFoundException {
+            // given - the caller does not own the fixture certificate, which belongs to a group
+            assignFixtureToGroup();
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.DETAIL);
+
+            // when
+            CertificateRelationsDto relations = certificateService
+                    .getCertificateRelations(certificate.getSecuredUuid());
+
+            // then
+            assertThat(relations.getCertificateUuid()).isEqualTo(certificate.getUuid());
+        }
+
+        @Test
+        void groupMemberDownloadsCertificate_withoutDetailPermission()
+                throws NotFoundException, CertificateException, IOException {
+            // given
+            CertificateContent content = certificateContentRepository
+                    .save(aCertificateContent().withContent(DOWNLOADABLE_CERT_BASE64).build());
+            certificate.setCertificateContent(content);
+            certificateRepository.save(certificate);
+            assignFixtureToGroup();
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.DETAIL);
+
+            // when
+            CertificateDownloadResponseDto download = certificateService
+                    .downloadCertificate(certificate.getSecuredUuid(), CertificateFormat.RAW,
+                            CertificateFormatEncoding.PEM);
+
+            // then
+            assertThat(download.getContent()).isNotBlank();
+        }
+
+        @Test
+        void groupMemberReadsContent_withoutListOrDetailPermission() {
+            // given - both the method's List check and its per-certificate Detail check must pass on the group
+            assignFixtureToGroup();
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.LIST);
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.DETAIL);
+
+            // when
+            List<CertificateContentDto> contents = certificateService
+                    .getCertificateContent(List.of(certificate.getSecuredUuid()));
+
+            // then
+            assertThat(contents)
+                    .extracting(CertificateContentDto::getUuid, CertificateContentDto::getCertificateContent)
+                    .containsExactly(tuple(certificate.getUuid().toString(), "123456"));
+        }
+
+        @Test
+        void groupMemberReadsHistory_withoutDetailPermission() throws NotFoundException {
+            // given
+            certificateService.archiveCertificate(certificate.getSecuredUuid());
+            assignFixtureToGroup();
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.DETAIL);
+
+            // when
+            List<CertificateEventHistoryDto> history = certificateEventHistoryService
+                    .getCertificateEventHistory(certificate.getSecuredUuid());
+
+            // then
+            assertThat(history).extracting(CertificateEventHistoryDto::getEvent).contains(CertificateEvent.ARCHIVE);
+        }
+
+        private void assignFixtureToGroup() {
+            GroupAssociation groupAssociation = new GroupAssociation();
+            groupAssociation.setGroup(group);
+            groupAssociation.setGroupUuid(group.getUuid());
+            groupAssociation.setResource(Resource.CERTIFICATE);
+            groupAssociation.setObjectUuid(certificate.getUuid());
+            groupAssociationRepository.saveAndFlush(groupAssociation);
+        }
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private @NonNull RequestAttributeV3 getAttribute() throws AlreadyExistException, AttributeException {
@@ -2553,7 +2895,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
     private void downloadAndRecreate(CertificateFormat format, CertificateFormatEncoding encoding)
             throws NotFoundException, CertificateException, IOException {
         CertificateDownloadResponseDto certificateDownloadResponseDto = certificateService
-                .downloadCertificate(certificate.getUuid(), format, encoding);
+                .downloadCertificate(certificate.getSecuredUuid(), format, encoding);
         assertThatCode(() -> certificateService
                 .createCertificate(certificateDownloadResponseDto.getContent(), CertificateType.X509))
                 .doesNotThrowAnyException();

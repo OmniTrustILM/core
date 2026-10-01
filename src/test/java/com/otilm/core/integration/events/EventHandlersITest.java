@@ -297,7 +297,7 @@ class EventHandlersITest extends BaseSpringBootTest {
                         .constructEventMessage(certificate.getUuid(), CertificateValidationStatus.INACTIVE,
                                 certificate.getValidationStatus()));
         List<CertificateEventHistoryDto> historyList = certificateEventHistoryService
-                .getCertificateEventHistory(certificate.getUuid());
+                .getCertificateEventHistory(certificate.getSecuredUuid());
         Assertions.assertEquals(1, historyList.size());
         Assertions.assertEquals(CertificateEvent.UPDATE_VALIDATION_STATUS, historyList.getFirst().getEvent());
 
@@ -334,7 +334,7 @@ class EventHandlersITest extends BaseSpringBootTest {
                 .mapToDto();
         approvalRequestedEventHandler
                 .handleEvent(ApprovalRequestedEventHandler.constructEventMessage(approval.getUuid(), approvalStepDto));
-        historyList = certificateEventHistoryService.getCertificateEventHistory(certificate.getUuid());
+        historyList = certificateEventHistoryService.getCertificateEventHistory(certificate.getSecuredUuid());
         Assertions.assertEquals(2, historyList.size());
         Assertions.assertEquals(CertificateEvent.APPROVAL_REQUEST, historyList.getFirst().getEvent());
         Assertions
@@ -349,7 +349,7 @@ class EventHandlersITest extends BaseSpringBootTest {
         approvalClosedEventHandler
                 .handleEvent(ApprovalClosedEventHandler
                         .constructEventMessage(approval.getUuid(), ApprovalStatusEnum.APPROVED));
-        historyList = certificateEventHistoryService.getCertificateEventHistory(certificate.getUuid());
+        historyList = certificateEventHistoryService.getCertificateEventHistory(certificate.getSecuredUuid());
         Assertions.assertEquals(3, historyList.size());
         Assertions.assertEquals(CertificateEvent.APPROVAL_CLOSE, historyList.getFirst().getEvent());
         Assertions
