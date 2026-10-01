@@ -22,6 +22,7 @@ import com.otilm.core.messaging.jms.configuration.DiscoveryWorkProperties;
 import com.otilm.core.model.discovery.DiscoveryRunLifecycle;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
 import com.otilm.core.service.handler.ConnectorCapabilityService;
+import com.otilm.core.service.writer.discovery.DiscoveryRunWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.tasks.ScheduledJobInfo;
 import com.otilm.core.util.AttributeDefinitionUtils;
@@ -71,6 +72,7 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
     private final ConnectorCapabilityService capabilityService;
     private final TransactionHandler transactionHandler;
     private final DiscoveryWorkProperties workProperties;
+    private final DiscoveryRunWriter runWriter;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -80,7 +82,7 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
             ConnectorInterfaceRepository connectorInterfaceRepository, DiscoveryV2Client client,
             DiscoveryWorkWriter workWriter, DiscoveryRunTerminator terminator,
             ConnectorCapabilityService capabilityService, TransactionHandler transactionHandler,
-            DiscoveryWorkProperties workProperties) {
+            DiscoveryWorkProperties workProperties, DiscoveryRunWriter runWriter) {
         this.discoveryRepository = discoveryRepository;
         this.detailCounts = detailCounts;
         this.connectorInterfaceRepository = connectorInterfaceRepository;
@@ -90,10 +92,45 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
         this.capabilityService = capabilityService;
         this.transactionHandler = transactionHandler;
         this.workProperties = workProperties;
+        this.runWriter = runWriter;
     }
 
     @Override
     public DiscoveryDetailDto start(UUID discoveryUuid, ScheduledJobInfo scheduledJobInfo) {
+        Discovery run = runToStart(discoveryUuid);
+        try {
+            // Outside any transaction, by DiscoveryV2Client's own NOT_SUPPORTED boundary.
+            validateResources(run);
+            return recordOrDrop(run, client.initiate(run), scheduledJobInfo);
+        } catch (Exception e) {
+            return failStart(discoveryUuid, e);
+        }
+    }
+
+    @Override
+    public DiscoveryDetailDto startForCaller(UUID discoveryUuid) throws ConnectorProblemException {
+        Discovery run = runToStart(discoveryUuid);
+        DiscoveryInitiateResponseDto response;
+        try {
+            validateResources(run);
+            response = client.initiate(run);
+        } catch (Exception e) {
+            if (DiscoveryConnectorErrors.isConfigurationRefused(e)) {
+                // The connector never took the run, so there is nothing to drop at its end.
+                logger.info("Discovery {} was refused by its connector at initiate; discarding it", discoveryUuid);
+                runWriter.discardUnstartedRun(discoveryUuid);
+                throw (ConnectorProblemException) e;
+            }
+            return failStart(discoveryUuid, e);
+        }
+        try {
+            return recordOrDrop(run, response, null);
+        } catch (Exception e) {
+            return failStart(discoveryUuid, e);
+        }
+    }
+
+    private Discovery runToStart(UUID discoveryUuid) {
         Discovery run = transactionHandler
                 .runInNewTransaction(() -> discoveryRepository.findByUuid(discoveryUuid).orElse(null));
         if (run == null) {
@@ -101,23 +138,21 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
             // it ends any run it cannot dispatch, rather than this throwing into an async caller.
             throw new UnsupportedDiscoveryVersionException(runLabel(discoveryUuid) + " no longer exists");
         }
-        try {
-            // Outside any transaction, by DiscoveryV2Client's own NOT_SUPPORTED boundary.
-            validateResources(run);
-            return recordOrDrop(run, client.initiate(run), scheduledJobInfo);
-        } catch (Exception e) {
-            if (e instanceof InterruptedException) {
-                Thread.currentThread().interrupt();
-            }
-            logger.error("Discovery {} could not be started at its connector", discoveryUuid, e);
-            terminator.endWith(discoveryUuid, failing -> {
-                // Whoever asked for the run is still on the thread and reports this failure to the scheduler itself;
-                // announcing it here as well would finalize the same job history twice.
-                failing.setScheduledJobHistoryUuid(null);
-                return new DiscoveryRunTerminator.Ending(DiscoveryStatus.FAILED, startFailureReason(e));
-            });
-            return detailOf(discoveryUuid);
+        return run;
+    }
+
+    private DiscoveryDetailDto failStart(UUID discoveryUuid, Exception e) {
+        if (e instanceof InterruptedException) {
+            Thread.currentThread().interrupt();
         }
+        logger.error("Discovery {} could not be started at its connector", discoveryUuid, e);
+        terminator.endWith(discoveryUuid, failing -> {
+            // Whoever asked for the run is still on the thread and reports this failure to the scheduler itself;
+            // announcing it here as well would finalize the same job history twice.
+            failing.setScheduledJobHistoryUuid(null);
+            return new DiscoveryRunTerminator.Ending(DiscoveryStatus.FAILED, startFailureReason(e));
+        });
+        return detailOf(discoveryUuid);
     }
 
     /**
@@ -423,8 +458,7 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
         }
         // Through the decide hook so connector_status and the terminal transition commit under one lock: split, the
         // run is non-terminal between the two commits and a status tick in that window overwrites this. Set here
-        // rather than in the terminator, which also ends runs whose connector said nothing and must leave its last
-        // known view standing; this cancel was acknowledged.
+        // because the terminator keeps a terminal status the connector reported, and this cancel was acknowledged.
         terminator.endWith(discoveryUuid, run -> {
             run.setConnectorStatus(DiscoveryStatus.CANCELLED);
             return new DiscoveryRunTerminator.Ending(DiscoveryStatus.CANCELLED, "Discovery cancelled");
@@ -495,10 +529,10 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
      * only the genuinely unexpected.
      *
      * <p>
-     * A conformant connector's refusal is a {@code ConnectorProblemException} over REST and a
-     * {@link ValidationException} over MQ, and {@code ExceptionHandlingAdvice} maps both — as it maps a connector being
-     * unreachable or broken. Wrapping them would turn each into a 500, answering the same refusal differently depending
-     * on the transport underneath.
+     * A conformant connector's refusal is a {@code ConnectorProblemException}, or through an MQ proxy that drops the
+     * problem document a {@link ValidationException} or another {@code ConnectorException}, and
+     * {@code ExceptionHandlingAdvice} maps each — as it maps a connector being unreachable or broken. Wrapping them
+     * would turn each into a 500, answering the same refusal differently depending on the transport underneath.
      */
     private <T> T call(UUID discoveryUuid, String operation, ConnectorCall<T> connectorCall) throws ConnectorException {
         try {

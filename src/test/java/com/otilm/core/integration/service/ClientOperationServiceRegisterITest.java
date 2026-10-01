@@ -901,6 +901,37 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     }
 
     @Test
+    void registerKeepsRuntimeCauseOutOfHistory_whenMetadataPersistenceFails() throws Exception {
+        // given
+        when(registeringAdapter().register(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult
+                        .syncOk(null, List.of(caHandle("endEntityName", "device-1")), CertificateType.X509));
+        doThrow(new RuntimeException("internal db detail"))
+                .when(attributeEngine)
+                .updateMetadataAttributes(Mockito.anyList(), Mockito.any());
+
+        // when
+        ClientCertificateDataResponseDto response = clientOperationService
+                .registerCertificate(authorityParent, securedRaProfile, registrationRequest());
+
+        // then - registration completes and the failure is recorded without the runtime detail
+        Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
+        Assertions.assertEquals(CertificateState.REGISTERED, cert.getState());
+        List<String> failures = eventHistoryRepository
+                .findByCertificateOrderByCreatedDesc(cert)
+                .stream()
+                .filter(h -> h.getEvent() == CertificateEvent.UPDATE_STATE
+                        && h.getStatus() == CertificateEventStatus.FAILED)
+                .map(CertificateEventHistory::getMessage)
+                .toList();
+        Assertions
+                .assertEquals(List
+                        .of("Failed to persist connector registration metadata; later status tracking may "
+                                + "be limited. Cause: internal error"),
+                        failures);
+    }
+
+    @Test
     void registerValidatesAndPersistsCustomAttributes() throws Exception {
         // Custom attributes on the registration request must be validated up front and actually persisted
         // against the placeholder, the same as the submit/issue flow — not silently dropped.

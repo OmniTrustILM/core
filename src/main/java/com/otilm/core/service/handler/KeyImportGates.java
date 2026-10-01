@@ -11,6 +11,9 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.model.crypto.CryptographicKeyFullModel;
+import com.otilm.core.model.crypto.PublicKeyHolder;
+import com.otilm.core.model.crypto.PublicKeyHolder.Holding;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -28,7 +31,9 @@ import org.springframework.stereotype.Component;
 /**
  * What a key import requires of the token profile it imports into: access to the profile and its token, and a profile
  * that takes keys of the key's type and algorithm. An import into the public-key-only record that holds the key's
- * public key requires the right to update that record too.
+ * public key requires the right to update that record too, and a key a token holds the public key in without its
+ * private key cannot take the private key. Such a refusal gives its reason, naming the key, only to a caller who may
+ * see the key in detail.
  *
  * <p>
  * Whoever only asks whether a profile would take keys is answered in the words the import refuses them with, from one
@@ -42,6 +47,8 @@ public class KeyImportGates {
     public static final String NOT_OFFERED = "Token profile %s does not import a %s.";
     public static final String ALGORITHM_NOT_OFFERED = "Token profile %s does not import the %s algorithm for a %s.";
     public static final String PROFILE_CHANGED = "Token profile %s changed while its import was checked. Try again.";
+    public static final String NOT_UPDATABLE = "Key %s holds the same public key, and you may not update it.";
+    public static final String HELD_IN_TOKEN = "Key %s holds the same public key in a token without its private key.";
 
     private final AuthorizationEnforcer authorizationEnforcer;
     private final TokenProfileRepository tokenProfileRepository;
@@ -93,20 +100,43 @@ public class KeyImportGates {
     }
 
     /**
-     * Requires that the caller may update the public-key-only record the import would adopt, before the connector is
-     * asked.
+     * Requires, before the connector is asked, that the import may go on with the key that holds the key pair's public
+     * key: a public-key-only record needs the caller's right to update it, a key a token holds the public key in
+     * without its private key cannot take the private key, and a key of its own is left to the import, which answers
+     * with it.
      *
-     * @param recordUuid UUID of the record
-     * @throws ValidationException refusing the import as the import of a key held otherwise is, which says nothing of
-     * whose the record is, when the caller may not
+     * @param holder the key that holds the public key
+     * @throws ValidationException when the import cannot go on with the key: with the reason, which names the key, to a
+     * caller who may see the key in detail, and to any other caller as the import of a key held otherwise is refused,
+     * which says nothing of whose the key is
      */
-    public void requireUpdatable(UUID recordUuid) {
+    public void requireImportableInto(PublicKeyHolder holder) {
+        if (holder.holding() == Holding.PUBLIC_KEY_IN_TOKEN) {
+            throw heldOtherwise(holder.key(), HELD_IN_TOKEN);
+        }
+        if (holder.holding() == Holding.PUBLIC_KEY_ONLY) {
+            requireUpdatable(holder.key());
+        }
+    }
+
+    private void requireUpdatable(CryptographicKeyFullModel adoptable) {
         try {
             authorizationEnforcer
-                    .enforce(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.UPDATE, SecuredUUID.fromUUID(recordUuid));
+                    .enforce(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.UPDATE, SecuredUUID.fromUUID(adoptable.uuid()));
         } catch (AccessDeniedException denied) {
-            throw heldOtherwise();
+            throw heldOtherwise(adoptable, NOT_UPDATABLE);
         }
+    }
+
+    /** The refusal with the reason given, to a caller who may see the key in detail, and in neutral words otherwise. */
+    private ValidationException heldOtherwise(CryptographicKeyFullModel key, String reason) {
+        try {
+            authorizationEnforcer
+                    .enforce(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.DETAIL, SecuredUUID.fromUUID(key.uuid()));
+        } catch (AccessDeniedException hidden) {
+            return heldOtherwise();
+        }
+        return new ValidationException(ValidationError.create(reason.formatted(key.name())));
     }
 
     /**

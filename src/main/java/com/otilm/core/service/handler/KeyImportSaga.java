@@ -27,6 +27,7 @@ import com.otilm.core.model.crypto.KeyImportMetadata;
 import com.otilm.core.model.crypto.KeyImportTerms;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.PublicKeyHolder;
+import com.otilm.core.model.crypto.PublicKeyHolder.Holding;
 import com.otilm.core.service.CryptographicKeyEventHistoryService;
 import com.otilm.core.service.handler.key.ImportAnswer;
 import com.otilm.core.service.handler.key.KeyProviderAdapter;
@@ -115,7 +116,7 @@ public class KeyImportSaga {
             return existing(repeated.get());
         }
         Optional<PublicKeyHolder> holder = holderOf(terms);
-        if (holder.isPresent() && !holder.get().publicKeyOnly()) {
+        if (holder.isPresent() && holder.get().holding() == Holding.KEY_PAIR) {
             return existing(holder.get().key());
         }
         if (holder.isEmpty() && cryptographicKeyRepository.existsByName(metadata.name())) {
@@ -156,17 +157,15 @@ public class KeyImportSaga {
      * The key holding the key pair's public key: a key of its own, or a public-key-only record the import would adopt,
      * which the caller may update. A secret key has no public key, so nothing holds it.
      *
-     * @throws ValidationException when the platform holds the public key in a key no longer active, or otherwise, or in
-     * a record the caller may not update
+     * @throws ValidationException when the platform holds the public key in a key no longer active, or in a token
+     * without its private key, or in a record the caller may not update
      */
     private Optional<PublicKeyHolder> holderOf(KeyImportTerms terms) {
         if (terms.type() == KeyRequestType.SECRET) {
             return Optional.empty();
         }
         Optional<PublicKeyHolder> holder = cryptographicKeyWriter.publicKeyHolder(terms.spkiFingerprint());
-        holder
-                .filter(PublicKeyHolder::publicKeyOnly)
-                .ifPresent(adoptable -> keyImportGates.requireUpdatable(adoptable.key().uuid()));
+        holder.ifPresent(keyImportGates::requireImportableInto);
         return holder;
     }
 
@@ -252,7 +251,7 @@ public class KeyImportSaga {
             keyImportWriter.failUntaken(attempt, held.getMessage());
             throw held;
         }
-        if (holder.isPresent() && !holder.get().publicKeyOnly()) {
+        if (holder.isPresent() && holder.get().holding() == Holding.KEY_PAIR) {
             keyImportWriter.failUntaken(attempt, REGISTERED_MEANWHILE);
             return existing(holder.get().key());
         }

@@ -111,7 +111,7 @@ public class CertificateControllerImpl implements CertificateController {
     public CertificateDownloadResponseDto downloadCertificate(@LogResource(uuid = true) UUID uuid,
             CertificateFormat certificateFormat, CertificateFormatEncoding encoding)
             throws CertificateException, NotFoundException, IOException {
-        return certificateService.downloadCertificate(uuid, certificateFormat, encoding);
+        return certificateService.downloadCertificate(SecuredUUID.fromUUID(uuid), certificateFormat, encoding);
     }
 
     @Override
@@ -217,7 +217,7 @@ public class CertificateControllerImpl implements CertificateController {
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.HISTORY)
     public List<CertificateEventHistoryDto> getCertificateEventHistory(@LogResource(uuid = true) UUID uuid)
             throws NotFoundException {
-        return certificateEventHistoryService.getCertificateEventHistory(uuid);
+        return certificateEventHistoryService.getCertificateEventHistory(SecuredUUID.fromUUID(uuid));
     }
 
     @Override
@@ -255,7 +255,7 @@ public class CertificateControllerImpl implements CertificateController {
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.GET_CONTENT)
     public List<CertificateContentDto> getCertificateContent(@LogResource(uuid = true) List<UUID> uuids) {
-        return certificateService.getCertificateContent(uuids);
+        return certificateService.getCertificateContent(SecuredUUID.fromUuidList(uuids));
     }
 
     @Override
@@ -294,32 +294,32 @@ public class CertificateControllerImpl implements CertificateController {
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.ARCHIVE)
     public void archiveCertificate(@LogResource(uuid = true) UUID uuid) throws NotFoundException {
-        certificateService.archiveCertificate(uuid);
+        certificateService.archiveCertificate(SecuredUUID.fromUUID(uuid));
     }
 
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.UNARCHIVE)
     public void unarchiveCertificate(@LogResource(uuid = true) UUID uuid) throws NotFoundException {
-        certificateService.unarchiveCertificate(uuid);
+        certificateService.unarchiveCertificate(SecuredUUID.fromUUID(uuid));
     }
 
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.ARCHIVE)
     public void bulkArchiveCertificate(List<UUID> uuids) {
-        certificateService.bulkArchiveCertificates(uuids);
+        certificateService.bulkArchiveCertificates(SecuredUUID.fromUuidList(uuids));
     }
 
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.UNARCHIVE)
     public void bulkUnarchiveCertificate(List<UUID> uuids) {
-        certificateService.bulkUnarchiveCertificates(uuids);
+        certificateService.bulkUnarchiveCertificates(SecuredUUID.fromUuidList(uuids));
     }
 
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.GET_ASSOCIATIONS)
     public CertificateRelationsDto getCertificateRelations(@LogResource(uuid = true) UUID uuid)
             throws NotFoundException {
-        return certificateService.getCertificateRelations(uuid);
+        return certificateService.getCertificateRelations(SecuredUUID.fromUUID(uuid));
     }
 
     @Override
@@ -327,7 +327,7 @@ public class CertificateControllerImpl implements CertificateController {
             affiliatedResource = Resource.CERTIFICATE)
     public void associateCertificates(@LogResource(uuid = true) UUID uuid,
             @LogResource(uuid = true, affiliated = true) UUID certificateUuid) throws NotFoundException {
-        certificateService.associateCertificates(uuid, certificateUuid);
+        certificateService.associateCertificates(SecuredUUID.fromUUID(uuid), SecuredUUID.fromUUID(certificateUuid));
     }
 
     @Override
@@ -335,7 +335,8 @@ public class CertificateControllerImpl implements CertificateController {
             affiliatedResource = Resource.CERTIFICATE)
     public void removeCertificateAssociation(@LogResource(uuid = true) UUID uuid,
             @LogResource(uuid = true, affiliated = true) UUID certificateUuid) throws NotFoundException {
-        certificateService.removeCertificateAssociation(uuid, certificateUuid);
+        certificateService
+                .removeCertificateAssociation(SecuredUUID.fromUUID(uuid), SecuredUUID.fromUUID(certificateUuid));
     }
 
     // SETTERs

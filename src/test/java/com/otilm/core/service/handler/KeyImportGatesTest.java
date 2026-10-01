@@ -14,9 +14,12 @@ import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.connector.ImmutableConnectorInterface;
+import com.otilm.core.model.crypto.CryptographicKeyFullModel;
 import com.otilm.core.model.crypto.ImmutableTokenInstanceFullModel;
 import com.otilm.core.model.crypto.ImmutableTokenProfileFullModel;
 import com.otilm.core.model.crypto.KeyTransfer;
+import com.otilm.core.model.crypto.PublicKeyHolder;
+import com.otilm.core.model.crypto.PublicKeyHolder.Holding;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.model.crypto.TransferableKeyType;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
@@ -40,11 +43,13 @@ import org.springframework.security.access.AccessDeniedException;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.entry;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -53,6 +58,7 @@ class KeyImportGatesTest {
 
     private static final Map<KeyRequestType, Set<KeyAlgorithm>> RSA_KEY_PAIRS = Map
             .of(KeyRequestType.KEY_PAIR, Set.of(KeyAlgorithm.RSA));
+    private static final UUID HOLDER_UUID = UUID.randomUUID();
 
     private final AuthorizationEnforcer authorizationEnforcer = mock(AuthorizationEnforcer.class);
     private final TokenProfileRepository profiles = mock(TokenProfileRepository.class);
@@ -261,32 +267,90 @@ class KeyImportGatesTest {
     }
 
     @Test
-    void requireUpdatable_letsACallerWhoMayUpdateTheRecordAdoptIt() {
+    void requireImportableInto_letsACallerWhoMayUpdateTheRecordAdoptIt() {
         // given
-        UUID recordUuid = UUID.randomUUID();
+        PublicKeyHolder adoptable = holder(Holding.PUBLIC_KEY_ONLY);
 
         // when
-        gates.requireUpdatable(recordUuid);
+        gates.requireImportableInto(adoptable);
 
         // then
         verify(authorizationEnforcer)
-                .enforce(eq(Resource.CRYPTOGRAPHIC_KEY), eq(ResourceAction.UPDATE), secured(recordUuid));
+                .enforce(eq(Resource.CRYPTOGRAPHIC_KEY), eq(ResourceAction.UPDATE), secured(HOLDER_UUID));
+    }
+
+    @Test
+    void requireImportableInto_tellsACallerWhoMaySeeTheRecordThatTheyMayNotUpdateIt() {
+        // given
+        PublicKeyHolder adoptable = holder(Holding.PUBLIC_KEY_ONLY);
+        deny(ResourceAction.UPDATE);
+
+        // when
+        ValidationException refused = assertThrows(ValidationException.class,
+                () -> gates.requireImportableInto(adoptable));
+
+        // then
+        assertThat(refused.getMessage())
+                .isEqualTo("Key certKey_SuperAdmin holds the same public key, and you may not update it.");
     }
 
     /** The refusal is the one a key held otherwise gets, so it says nothing of whose the record is. */
     @Test
-    void requireUpdatable_refusesACallerWhoMayNotUpdateTheRecordInNeutralWords() {
+    void requireImportableInto_refusesACallerWhoMayNeitherSeeNorUpdateTheRecordInNeutralWords() {
         // given
-        UUID recordUuid = UUID.randomUUID();
-        doThrow(new AccessDeniedException("denied"))
-                .when(authorizationEnforcer)
-                .enforce(eq(Resource.CRYPTOGRAPHIC_KEY), eq(ResourceAction.UPDATE), secured(recordUuid));
+        PublicKeyHolder adoptable = holder(Holding.PUBLIC_KEY_ONLY);
+        deny(ResourceAction.UPDATE);
+        deny(ResourceAction.DETAIL);
 
         // when
-        ValidationException refused = assertThrows(ValidationException.class, () -> gates.requireUpdatable(recordUuid));
+        ValidationException refused = assertThrows(ValidationException.class,
+                () -> gates.requireImportableInto(adoptable));
 
         // then
         assertThat(refused.getMessage()).isEqualTo(CryptographicKeyWriter.KEY_ALREADY_HELD);
+    }
+
+    @Test
+    void requireImportableInto_tellsACallerWhoMaySeeTheKeyThatATokenHoldsItsPublicKeyWithoutItsPrivateKey() {
+        // given
+        PublicKeyHolder inAToken = holder(Holding.PUBLIC_KEY_IN_TOKEN);
+
+        // when
+        ValidationException refused = assertThrows(ValidationException.class,
+                () -> gates.requireImportableInto(inAToken));
+
+        // then
+        assertThat(refused.getMessage())
+                .isEqualTo("Key certKey_SuperAdmin holds the same public key in a token without its private key.");
+        verify(authorizationEnforcer, never())
+                .enforce(eq(Resource.CRYPTOGRAPHIC_KEY), eq(ResourceAction.UPDATE), any(SecuredUUID.class));
+    }
+
+    @Test
+    void requireImportableInto_refusesAKeyInATokenInNeutralWordsToACallerWhoMayNotSeeIt() {
+        // given
+        PublicKeyHolder inAToken = holder(Holding.PUBLIC_KEY_IN_TOKEN);
+        deny(ResourceAction.DETAIL);
+
+        // when
+        ValidationException refused = assertThrows(ValidationException.class,
+                () -> gates.requireImportableInto(inAToken));
+
+        // then
+        assertThat(refused.getMessage()).isEqualTo(CryptographicKeyWriter.KEY_ALREADY_HELD);
+    }
+
+    /** A key of its own is answered by the import as the key the inventory holds, so nothing is required of it. */
+    @Test
+    void requireImportableInto_requiresNothingOfAKeyOfItsOwn() {
+        // given
+        PublicKeyHolder keyPair = holder(Holding.KEY_PAIR);
+
+        // when
+        gates.requireImportableInto(keyPair);
+
+        // then
+        verifyNoInteractions(authorizationEnforcer);
     }
 
     /** The right is checked as the requester, so it holds where nobody is signed in, as in the reconciliation. */
@@ -390,6 +454,21 @@ class KeyImportGatesTest {
     /** Matches the secured form of the UUID, which compares by identity. */
     private static SecuredUUID secured(UUID uuid) {
         return argThat(secured -> secured != null && uuid.equals(secured.getValue()));
+    }
+
+    /** The key that holds the key pair's public key, as the platform holds a certificate's key. */
+    private static PublicKeyHolder holder(Holding holding) {
+        CryptographicKeyFullModel key = mock(CryptographicKeyFullModel.class);
+        when(key.uuid()).thenReturn(HOLDER_UUID);
+        when(key.name()).thenReturn("certKey_SuperAdmin");
+        return new PublicKeyHolder(key, UUID.randomUUID(), holding);
+    }
+
+    /** Refuses the caller the action on the key that holds the public key. */
+    private void deny(ResourceAction action) {
+        doThrow(new AccessDeniedException("denied"))
+                .when(authorizationEnforcer)
+                .enforce(eq(Resource.CRYPTOGRAPHIC_KEY), eq(action), secured(HOLDER_UUID));
     }
 
     private static ImmutableTokenInstanceFullModel importingToken() {

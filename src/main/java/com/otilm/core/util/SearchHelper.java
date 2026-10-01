@@ -77,6 +77,9 @@ public class SearchHelper {
                         // the v1 detail DTO does.
                         FilterField.CONNECTOR_AUTH_TYPE,
 
+                        // CBOMs. Contribution is derived from asset source rows; CbomDto has no such property.
+                        FilterField.CBOM_HAS_CONTRIBUTED_ASSETS,
+
                         // Secrets. Secret.setCommonFields sets the source vault profile and not the sync ones.
                         FilterField.SECRET_SYNC_VAULT_PROFILE,
 
@@ -160,6 +163,9 @@ public class SearchHelper {
      * available values.
      */
     public static List<FilterConditionOperator> availableConditions(final FilterField filterField) {
+        if (filterField == FilterField.CBOM_HAS_CONTRIBUTED_ASSETS) {
+            return List.of(FilterConditionOperator.EQUALS, FilterConditionOperator.NOT_EQUALS);
+        }
         // A FREE_TEXT field has no single attribute by design (it spans several columns), so the
         // null-attribute downgrade to presence-only conditions must not apply to it.
         boolean presenceOnly = filterField.getFieldAttribute() == null

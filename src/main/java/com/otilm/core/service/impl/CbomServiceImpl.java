@@ -753,7 +753,8 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
                                 .prepareSearch(FilterField.CBOM_ASSET_SYNC_STATE,
                                         CbomAssetSyncState.class.getEnumConstants()),
                         SearchHelper.prepareSearch(FilterField.CBOM_ASSETS_SYNCED_AT),
-                        SearchHelper.prepareSearch(FilterField.CBOM_ASSET_SYNC_ERROR));
+                        SearchHelper.prepareSearch(FilterField.CBOM_ASSET_SYNC_ERROR),
+                        SearchHelper.prepareSearch(FilterField.CBOM_HAS_CONTRIBUTED_ASSETS));
 
         fields = new ArrayList<>(fields);
         fields.sort(new SearchFieldDataComparator());
