@@ -38,6 +38,7 @@ import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.repository.AttributeDefinitionRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.model.SearchFieldObject;
+import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.AttributeExternalService;
 import com.otilm.core.service.DiscoveryExternalService;
@@ -275,12 +276,7 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
         onAnotherReplica(() -> createCustomAttribute("late-filter"));
 
         ListViewRequestDto request = certificateView("late filter", commonNameColumn());
-        ListViewFilterDto filter = new ListViewFilterDto();
-        filter.setFieldSource(FilterFieldSource.CUSTOM);
-        filter.setFieldIdentifier("late-filter|TEXT");
-        filter.setCondition(FilterConditionOperator.EQUALS);
-        filter.setValue("production");
-        request.setFilters(List.of(filter));
+        request.setFilters(List.of(lateFilter("late-filter|TEXT")));
 
         assertThat(listViewService.createView(request).getFilters()).hasSize(1);
     }
@@ -306,7 +302,53 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
 
         assertThat(listViewService.listViews(Resource.CERTIFICATE))
                 .singleElement()
-                .satisfies(view -> assertThat(view.getColumns()).hasSize(1));
+                .satisfies(view -> assertThat(view.getColumns())
+                        .singleElement()
+                        .satisfies(column -> assertThat(column.getStatus()).isEqualTo(ListViewFieldStatus.AVAILABLE)));
+    }
+
+    @Test
+    void aViewSavedElsewhereKeepsItsFilterHere() throws Exception {
+        catalogue.fields(Resource.CERTIFICATE, false);
+        onAnotherReplica(() -> {
+            createCustomAttribute("late-read-filter");
+            ListViewRequestDto request = certificateView("read filter", commonNameColumn());
+            request.setFilters(List.of(lateFilter("late-read-filter|TEXT")));
+            return listViewService.createView(request);
+        });
+
+        assertThat(listViewService.listViews(Resource.CERTIFICATE))
+                .singleElement()
+                .satisfies(view -> assertThat(view.getFilters())
+                        .singleElement()
+                        .satisfies(filter -> assertThat(filter.getStatus()).isEqualTo(ListViewFieldStatus.AVAILABLE)));
+    }
+
+    /**
+     * Recreated on another replica, so this one's catalogue still lists the field under the definition the caller may
+     * read. The replacement they may not read is neither bound nor disclosed, and the stored column does not read as
+     * replaced by it.
+     */
+    @Test
+    void aReplacementTheCallerMayNotReadIsNeitherBoundNorDisclosed() throws Exception {
+        CustomAttributeDefinitionDetailDto original = createCustomAttribute("swapped");
+        listViewService.createView(certificateView("swapped", customColumn("swapped|TEXT")));
+        catalogue.fields(Resource.CERTIFICATE, false);
+        CustomAttributeDefinitionDetailDto replacement = onAnotherReplica(() -> {
+            attributeService.deleteCustomAttribute(UUID.fromString(original.getUuid()));
+            return createCustomAttribute("swapped");
+        });
+        forbidObjectAccess(Resource.ATTRIBUTE, ResourceAction.MEMBERS, List.of(UUID.fromString(replacement.getUuid())));
+
+        assertThat(catalogue.fields(Resource.CERTIFICATE, false))
+                .anyMatch(row -> original.getUuid().equals(row.getDefinitionUuid().toString()));
+        ListViewColumnDto read = listViewService.listViews(Resource.CERTIFICATE).getFirst().getColumns().getFirst();
+        assertThat(read.getStatus()).isEqualTo(ListViewFieldStatus.UNAVAILABLE);
+        assertThat(read.getAttributeDefinitionUuids()).containsExactly(UUID.fromString(original.getUuid()));
+        ListViewRequestDto another = certificateView("another", customColumn("swapped|TEXT"));
+        assertThatThrownBy(() -> listViewService.createView(another))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("has no field swapped|TEXT");
     }
 
     @Test
@@ -502,6 +544,15 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
         return request;
     }
 
+    private static ListViewFilterDto lateFilter(String fieldIdentifier) {
+        ListViewFilterDto filter = new ListViewFilterDto();
+        filter.setFieldSource(FilterFieldSource.CUSTOM);
+        filter.setFieldIdentifier(fieldIdentifier);
+        filter.setCondition(FilterConditionOperator.EQUALS);
+        filter.setValue("production");
+        return filter;
+    }
+
     private static ListViewColumnDto customColumn(String fieldIdentifier) {
         return new ListViewColumnDto(FilterFieldSource.CUSTOM, fieldIdentifier, null);
     }
@@ -533,11 +584,12 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
     }
 
     /** Makes a change as another replica would: afterwards this one holds exactly the entries it held before. */
-    private void onAnotherReplica(Callable<?> change) throws Exception {
+    private <T> T onAnotherReplica(Callable<T> change) throws Exception {
         Map<Object, Object> entriesBeforeTheChange = Map.copyOf(nativeCache().asMap());
-        change.call();
+        T changed = change.call();
         nativeCache().invalidateAll();
         nativeCache().putAll(entriesBeforeTheChange);
+        return changed;
     }
 
     @SuppressWarnings("unchecked")

@@ -201,16 +201,18 @@ public class AttributeEngine {
     }
 
     /**
-     * The definitions currently registered under each named attribute field in the resource's catalogue, whoever may
-     * read them. A field with none is absent from the map. A definition of the same name and content type that belongs
-     * only to another resource is not one of them, so it cannot vouch for a field it does not back here.
+     * The definitions currently registered under each named attribute field in the resource's catalogue, narrowed to
+     * the custom definitions the caller may read. A field with none is absent from the map. A definition of the same
+     * name and content type that belongs only to another resource is not one of them, so it cannot vouch for a field it
+     * does not back here, and neither can one the caller may not read.
      *
      * <p>
      * Read from the definitions rather than the cached catalogue, so a definition deleted or created on another replica
      * is seen at once: an identifier names only an attribute and content type, and these are what tell a definition
      * created later under the same identifier apart from the one a stored view was bound to.
      */
-    public Map<NamedField, Set<UUID>> definitionsBehind(Resource resource, Collection<NamedField> named) {
+    public Map<NamedField, Set<UUID>> definitionsBehind(Resource resource, Collection<NamedField> named,
+            Supplier<CustomAttributeContentFilter> contentFilterSource) {
         Map<String, List<NamedField>> byName = new HashMap<>();
         for (NamedField field : named) {
             if (field.isAttribute()) {
@@ -233,7 +235,8 @@ public class AttributeEngine {
         Map<NamedField, Set<UUID>> definitions = new HashMap<>();
         for (AttributeDefinitionIdentity identity : attributeDefinitionRepository
                 .findIdentitiesOfResource(resource, types, byName.keySet())) {
-            if (identity.contentType() == null) {
+            if (identity.contentType() == null
+                    || identity.type() == AttributeType.CUSTOM && !contentFilterSource.get().permits(identity.uuid())) {
                 continue;
             }
             NamedField field = NamedField.ofDefinition(identity.type(), identity.name(), identity.contentType());

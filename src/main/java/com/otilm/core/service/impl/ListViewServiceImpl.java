@@ -87,28 +87,22 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
                 ? listViewRepository.findByUserUuidOrderByCreatedAscUuidAsc(userUuid)
                 : listViewRepository.findByUserUuidAndResourceOrderByCreatedAscUuidAsc(userUuid, resource);
 
-        // One catalogue per resource, certain to hold every field any of its views orders by. Reading consults it for
-        // the ordering alone, and naming a column whose field has left the catalogue would reload it on every read.
-        // Every catalogue is narrowed by one resolution of the caller's attribute permissions.
+        // One catalogue per resource, certain to hold every field of its views that a definition still backs. A field
+        // with none left is not named, as naming it would reload the catalogue on every read. Every catalogue is
+        // narrowed by one resolution of the caller's attribute permissions.
         Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
-        Map<Resource, List<NamedField>> named = views
-                .stream()
-                .collect(Collectors
-                        .groupingBy(ListView::getResource, () -> new EnumMap<>(Resource.class),
-                                Collectors.flatMapping(view -> sortField(view).stream(), Collectors.toList())));
-        Map<Resource, Catalogue> catalogues = new EnumMap<>(Resource.class);
-        named
-                .forEach((viewResource, fields) -> catalogues
-                        .put(viewResource, catalogueOf(viewResource, fields, contentFilter)));
         Map<Resource, List<NamedField>> attributeFields = views
                 .stream()
                 .collect(Collectors
                         .groupingBy(ListView::getResource, () -> new EnumMap<>(Resource.class),
                                 Collectors.flatMapping(view -> namedFields(view).stream(), Collectors.toList())));
         Map<Resource, Map<NamedField, Set<UUID>>> definitions = new EnumMap<>(Resource.class);
-        attributeFields
-                .forEach((viewResource, fields) -> definitions
-                        .put(viewResource, attributeEngine.definitionsBehind(viewResource, fields)));
+        Map<Resource, Catalogue> catalogues = new EnumMap<>(Resource.class);
+        attributeFields.forEach((viewResource, fields) -> {
+            Map<NamedField, Set<UUID>> behind = attributeEngine.definitionsBehind(viewResource, fields, contentFilter);
+            definitions.put(viewResource, behind);
+            catalogues.put(viewResource, catalogueOf(viewResource, behind.keySet(), contentFilter));
+        });
         return views
                 .stream()
                 .map(view -> toDto(view, catalogues.get(view.getResource()), definitions.get(view.getResource())))
@@ -121,8 +115,8 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
     public ListViewDto createView(ListViewRequestDto request) throws AlreadyExistException {
         UUID userUuid = loggedUserUuid();
         Resource resource = request.getResource();
-        Catalogue catalogue = catalogueOf(resource, namedFields(request),
-                attributeEngine.customAttributeContentFilterOnce());
+        Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
+        Catalogue catalogue = catalogueOf(resource, namedFields(request), contentFilter);
         validateRequest(resource, request, Set.of(), List.of(), catalogue);
 
         serializeWritesFor(userUuid, resource);
@@ -133,7 +127,8 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         ListView view = new ListView();
         view.setUserUuid(userUuid);
         view.setResource(resource);
-        Map<NamedField, Set<UUID>> definitions = attributeEngine.definitionsBehind(resource, namedFields(request));
+        Map<NamedField, Set<UUID>> definitions = attributeEngine
+                .definitionsBehind(resource, namedFields(request), contentFilter);
         applyRequest(view, request, new Binder(resource, catalogue, definitions));
 
         return toDto(save(view, request.getName()), catalogue, definitions);
@@ -146,8 +141,8 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
             throws NotFoundException, AlreadyExistException {
         UUID userUuid = loggedUserUuid();
         ListView view = ownView(uuid, userUuid);
-        Catalogue catalogue = catalogueOf(view.getResource(), namedFields(request),
-                attributeEngine.customAttributeContentFilterOnce());
+        Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
+        Catalogue catalogue = catalogueOf(view.getResource(), namedFields(request), contentFilter);
         validateRequest(view.getResource(), request, columnsOf(view), filtersOf(view), catalogue);
 
         serializeWritesFor(userUuid, view.getResource());
@@ -158,7 +153,7 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         }
 
         Map<NamedField, Set<UUID>> definitions = attributeEngine
-                .definitionsBehind(view.getResource(), namedFields(request));
+                .definitionsBehind(view.getResource(), namedFields(request), contentFilter);
         applyRequest(view, request, new Binder(view.getResource(), catalogue, definitions));
 
         return toDto(save(view, request.getName()), catalogue, definitions);
@@ -349,17 +344,23 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
     }
 
     /**
-     * Binds the entries of a request to the attribute definitions behind them, which is what lets a read tell the
+     * Binds the entries of a request to the attribute definitions behind them. The binding is what lets a read tell the
      * definition an entry was added for from one created later under the same name and content type.
      *
      * <p>
-     * A new entry, or one sent with {@code rebind}, is bound to the current definitions. The validation before has held
-     * it to the catalogue, but that may be a replica's stale copy, so a field with no definition behind it is refused
-     * here as a missing one. An entry carried over from the stored view keeps its binding while that no longer
-     * resolves, so saving a view back unchanged never adopts a replacement. While it still resolves it is bound to the
-     * current definitions, so it follows definitions registered under the same identifier alongside the ones it was
-     * bound to. Bindings change only for a field the caller is offered, so an entry on an attribute the caller may not
-     * read is stored as it was.
+     * <b>New entries:</b> an entry the stored view does not hold, or one sent with {@code rebind}, is bound to the
+     * current definitions. Validation held it to the catalogue, which may be a replica's stale copy. A field with no
+     * current definition behind it is therefore refused here as a missing one.
+     *
+     * <p>
+     * <b>Carried entries:</b> an entry carried over from the stored view keeps its binding while that no longer
+     * resolves, so saving a view back unchanged never adopts a replacement. While the binding still resolves, the entry
+     * is bound to the current definitions, following any registered under the same identifier alongside it.
+     *
+     * <p>
+     * <b>Permissions:</b> the current definitions are only those the caller may read, so none other is ever bound.
+     * Bindings change only for a field the caller is offered, and an entry on an attribute the caller may not read is
+     * stored as it was.
      */
     private record Binder(Resource resource, Catalogue catalogue, Map<NamedField, Set<UUID>> definitions) {
 
