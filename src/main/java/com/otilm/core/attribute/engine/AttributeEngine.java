@@ -201,15 +201,16 @@ public class AttributeEngine {
     }
 
     /**
-     * The definitions currently registered under each named attribute field, whatever resource they apply to and
-     * whoever may read them. A field with none is absent from the map.
+     * The definitions currently registered under each named attribute field in the resource's catalogue, whoever may
+     * read them. A field with none is absent from the map. A definition of the same name and content type that belongs
+     * only to another resource is not one of them, so it cannot vouch for a field it does not back here.
      *
      * <p>
      * Read from the definitions rather than the cached catalogue, so a definition deleted or created on another replica
      * is seen at once: an identifier names only an attribute and content type, and these are what tell a definition
      * created later under the same identifier apart from the one a stored view was bound to.
      */
-    public Map<NamedField, Set<UUID>> definitionsBehind(Collection<NamedField> named) {
+    public Map<NamedField, Set<UUID>> definitionsBehind(Resource resource, Collection<NamedField> named) {
         Map<String, List<NamedField>> byName = new HashMap<>();
         for (NamedField field : named) {
             if (field.isAttribute()) {
@@ -231,7 +232,7 @@ public class AttributeEngine {
         Set<NamedField> wanted = byName.values().stream().flatMap(List::stream).collect(Collectors.toSet());
         Map<NamedField, Set<UUID>> definitions = new HashMap<>();
         for (AttributeDefinitionIdentity identity : attributeDefinitionRepository
-                .findIdentitiesByTypeInAndNameIn(types, byName.keySet())) {
+                .findIdentitiesOfResource(resource, types, byName.keySet())) {
             if (identity.contentType() == null) {
                 continue;
             }

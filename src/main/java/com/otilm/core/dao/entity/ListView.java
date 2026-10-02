@@ -70,6 +70,12 @@ public class ListView extends UniquelyIdentifiedAndAudited {
     @JdbcTypeCode(SqlTypes.JSON)
     private SearchSortRequestDto sort;
 
+    /** The binding of an attribute ordering, kept beside it because the ordering's own shape is the listing's. */
+    @SuppressWarnings("java:S1948")
+    @Column(name = "sort_attribute_definition_uuids", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
+    private List<UUID> sortAttributeDefinitionUuids;
+
     // No-op overrides required by S2160: identity and hashing stay UUID-based, and the added columns never
     // affect equality.
     @Override

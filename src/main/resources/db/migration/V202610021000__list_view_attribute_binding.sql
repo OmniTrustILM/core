@@ -1,7 +1,9 @@
--- Binds every stored attribute column and filter to the definitions that back its identifier today, so an existing view
--- keeps resolving exactly what it shows now. An entry whose definition is already gone is bound to nothing and can no
--- longer be claimed by a definition created later under the same name and content type.
-CREATE FUNCTION pg_temp.bind_list_view_entries(entries JSONB) RETURNS JSONB AS $$
+-- Binds every stored attribute column, filter and ordering to the definitions that back its identifier in the view's
+-- resource today, so an existing view keeps resolving exactly what it shows now. An entry whose definition is already
+-- gone is bound to nothing and can no longer be claimed by a definition created later under the same name and content
+-- type. A definition counts for a resource as the catalogue counts it: related to the resource, or holding content on
+-- one of its objects.
+CREATE FUNCTION pg_temp.bind_list_view_entries(entries JSONB, view_resource VARCHAR) RETURNS JSONB AS $$
     SELECT COALESCE(jsonb_agg(
         CASE
             WHEN entry ->> 'fieldSource' IN ('custom', 'meta', 'data') THEN entry || jsonb_build_object(
@@ -11,6 +13,19 @@ CREATE FUNCTION pg_temp.bind_list_view_entries(entries JSONB) RETURNS JSONB AS $
                     FROM attribute_definition ad
                     WHERE ad.type = upper(entry ->> 'fieldSource')
                       AND ad.name || '|' || ad.content_type = entry ->> 'fieldIdentifier'
+                      AND (
+                          ad.uuid IN (
+                              SELECT ar.attribute_definition_uuid
+                              FROM attribute_relation ar
+                              WHERE ar.resource = view_resource
+                          )
+                          OR ad.uuid IN (
+                              SELECT aci.attribute_definition_uuid
+                              FROM attribute_content_item aci
+                              JOIN attribute_content_2_object aco ON aco.attribute_content_item_uuid = aci.uuid
+                              WHERE aco.object_type = view_resource
+                          )
+                      )
                 ), '[]'::JSONB))
             ELSE entry
         END
@@ -18,8 +33,17 @@ CREATE FUNCTION pg_temp.bind_list_view_entries(entries JSONB) RETURNS JSONB AS $
     FROM jsonb_array_elements(entries) WITH ORDINALITY AS stored(entry, position)
 $$ LANGUAGE SQL STABLE;
 
-UPDATE list_view SET columns = pg_temp.bind_list_view_entries(columns) WHERE jsonb_typeof(columns) = 'array';
+ALTER TABLE list_view ADD COLUMN sort_attribute_definition_uuids JSONB;
 
-UPDATE list_view SET filters = pg_temp.bind_list_view_entries(filters) WHERE jsonb_typeof(filters) = 'array';
+UPDATE list_view SET columns = pg_temp.bind_list_view_entries(columns, resource)
+WHERE jsonb_typeof(columns) = 'array';
 
-DROP FUNCTION pg_temp.bind_list_view_entries(JSONB);
+UPDATE list_view SET filters = pg_temp.bind_list_view_entries(filters, resource)
+WHERE jsonb_typeof(filters) = 'array';
+
+UPDATE list_view
+SET sort_attribute_definition_uuids
+    = pg_temp.bind_list_view_entries(jsonb_build_array(sort), resource) -> 0 -> 'attributeDefinitionUuids'
+WHERE jsonb_typeof(sort) = 'object' AND sort ->> 'fieldSource' IN ('custom', 'meta', 'data');
+
+DROP FUNCTION pg_temp.bind_list_view_entries(JSONB, VARCHAR);

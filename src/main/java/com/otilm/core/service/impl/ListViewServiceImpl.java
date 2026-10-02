@@ -100,9 +100,19 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         named
                 .forEach((viewResource, fields) -> catalogues
                         .put(viewResource, catalogueOf(viewResource, fields, contentFilter)));
-        Map<NamedField, Set<UUID>> definitions = attributeEngine
-                .definitionsBehind(views.stream().flatMap(view -> namedFields(view).stream()).toList());
-        return views.stream().map(view -> toDto(view, catalogues.get(view.getResource()), definitions)).toList();
+        Map<Resource, List<NamedField>> attributeFields = views
+                .stream()
+                .collect(Collectors
+                        .groupingBy(ListView::getResource, () -> new EnumMap<>(Resource.class),
+                                Collectors.flatMapping(view -> namedFields(view).stream(), Collectors.toList())));
+        Map<Resource, Map<NamedField, Set<UUID>>> definitions = new EnumMap<>(Resource.class);
+        attributeFields
+                .forEach((viewResource, fields) -> definitions
+                        .put(viewResource, attributeEngine.definitionsBehind(viewResource, fields)));
+        return views
+                .stream()
+                .map(view -> toDto(view, catalogues.get(view.getResource()), definitions.get(view.getResource())))
+                .toList();
     }
 
     @Override
@@ -123,8 +133,8 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         ListView view = new ListView();
         view.setUserUuid(userUuid);
         view.setResource(resource);
-        Map<NamedField, Set<UUID>> definitions = attributeEngine.definitionsBehind(namedFields(request));
-        applyRequest(view, request, new Binder(catalogue, definitions));
+        Map<NamedField, Set<UUID>> definitions = attributeEngine.definitionsBehind(resource, namedFields(request));
+        applyRequest(view, request, new Binder(resource, catalogue, definitions));
 
         return toDto(save(view, request.getName()), catalogue, definitions);
     }
@@ -147,8 +157,9 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
             throw new AlreadyExistException(ListView.class, request.getName());
         }
 
-        Map<NamedField, Set<UUID>> definitions = attributeEngine.definitionsBehind(namedFields(request));
-        applyRequest(view, request, new Binder(catalogue, definitions));
+        Map<NamedField, Set<UUID>> definitions = attributeEngine
+                .definitionsBehind(view.getResource(), namedFields(request));
+        applyRequest(view, request, new Binder(view.getResource(), catalogue, definitions));
 
         return toDto(save(view, request.getName()), catalogue, definitions);
     }
@@ -209,6 +220,7 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         view.setDefaultView(request.isDefaultView());
         view.setFilters(filters.isEmpty() ? null : filters);
         view.setSort(request.getSort());
+        view.setSortAttributeDefinitionUuids(binder.sort(request.getSort()));
     }
 
     private ListView ownView(String uuid, UUID userUuid) throws NotFoundException {
@@ -252,15 +264,13 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
                                 .map(filter -> resolvedFilter(filter, catalogue, definitions))
                                 .toList());
         // Returning an ordering the listing would now refuse hands the client a view whose every application answers
-        // an error; dropping it opens the view in the listing's own order instead. An ordering by a column the client
-        // must not show as its field would order the listing by values nobody chose, so it is dropped the same way.
+        // an error; dropping it opens the view in the listing's own order instead. An ordering whose attribute is now
+        // backed by other definitions would order the listing by values nobody chose, so it is dropped the same way.
         SearchSortRequestDto sort = view.getSort();
         dto
                 .setSort(sort != null && catalogue.canSortBy(CatalogueField.of(sort))
-                        && columns
-                                .stream()
-                                .noneMatch(column -> CatalogueField.of(column).equals(CatalogueField.of(sort))
-                                        && column.getStatus() != ListViewFieldStatus.AVAILABLE) ? sort : null);
+                        && statusOf(CatalogueField.of(sort), view.getSortAttributeDefinitionUuids(), catalogue,
+                                definitions) == ListViewFieldStatus.AVAILABLE ? sort : null);
         return dto;
     }
 
@@ -287,20 +297,26 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
     }
 
     /**
-     * An entry stored without a binding was written before entries carried one, and resolves by its identifier alone as
-     * it always did until a save binds it.
+     * The catalogue may be a replica's cached copy, so a field with no definition behind it any more is unavailable
+     * even while the catalogue still lists it. An entry stored without a binding was written before entries carried
+     * one, and resolves by its identifier alone as it always did until a save binds it.
      */
     private static ListViewFieldStatus statusOf(CatalogueField field, List<UUID> binding, Catalogue catalogue,
             Map<NamedField, Set<UUID>> definitions) {
         if (!catalogue.offers(field)) {
             return ListViewFieldStatus.UNAVAILABLE;
         }
-        if (!field.named().isAttribute() || binding == null) {
+        if (!field.named().isAttribute()) {
             return ListViewFieldStatus.AVAILABLE;
         }
-        return intersects(binding, definitions.getOrDefault(field.named(), Set.of()))
-                ? ListViewFieldStatus.AVAILABLE
-                : ListViewFieldStatus.REPLACED;
+        Set<UUID> current = definitions.getOrDefault(field.named(), Set.of());
+        if (current.isEmpty()) {
+            return ListViewFieldStatus.UNAVAILABLE;
+        }
+        if (binding == null) {
+            return ListViewFieldStatus.AVAILABLE;
+        }
+        return intersects(binding, current) ? ListViewFieldStatus.AVAILABLE : ListViewFieldStatus.REPLACED;
     }
 
     private static boolean intersects(List<UUID> binding, Set<UUID> definitions) {
@@ -337,14 +353,23 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
      * definition an entry was added for from one created later under the same name and content type.
      *
      * <p>
-     * A new entry, or one sent with {@code rebind}, is bound to the current definitions; the validation before has held
-     * it to the catalogue, so they exist. An entry carried over from the stored view keeps its binding while that no
-     * longer resolves, so saving a view back unchanged never adopts a replacement. While it still resolves it is bound
-     * to the current definitions, so it follows definitions registered under the same identifier alongside the ones it
-     * was bound to. Bindings change only for a field the caller is offered, so an entry on an attribute the caller may
-     * not read is stored as it was.
+     * A new entry, or one sent with {@code rebind}, is bound to the current definitions. The validation before has held
+     * it to the catalogue, but that may be a replica's stale copy, so a field with no definition behind it is refused
+     * here as a missing one. An entry carried over from the stored view keeps its binding while that no longer
+     * resolves, so saving a view back unchanged never adopts a replacement. While it still resolves it is bound to the
+     * current definitions, so it follows definitions registered under the same identifier alongside the ones it was
+     * bound to. Bindings change only for a field the caller is offered, so an entry on an attribute the caller may not
+     * read is stored as it was.
      */
-    private record Binder(Catalogue catalogue, Map<NamedField, Set<UUID>> definitions) {
+    private record Binder(Resource resource, Catalogue catalogue, Map<NamedField, Set<UUID>> definitions) {
+
+        /**
+         * A stored ordering that no longer resolves is never returned, so an ordering a client sends is its own choice
+         * made afresh rather than one carried over, and is bound to the current definitions.
+         */
+        List<UUID> sort(SearchSortRequestDto sort) {
+            return sort == null ? null : bindingOf(CatalogueField.of(sort), null, false);
+        }
 
         List<ListViewColumnDto> columns(List<ListViewColumnDto> requested, List<ListViewColumnDto> stored) {
             Map<CatalogueField, ListViewColumnDto> carriable = stored == null
@@ -389,10 +414,13 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
             }
             List<UUID> current = definitions.getOrDefault(field.named(), Set.of()).stream().sorted().toList();
             if (!carried) {
+                if (current.isEmpty()) {
+                    rejectUnknown(resource, List.of(field.fieldIdentifier()));
+                }
                 return current;
             }
             boolean resolves = storedBinding == null || intersects(storedBinding, Set.copyOf(current));
-            return catalogue.offers(field) && resolves ? current : storedBinding;
+            return catalogue.offers(field) && !current.isEmpty() && resolves ? current : storedBinding;
         }
     }
 
@@ -576,6 +604,7 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         if (view.getFilters() != null) {
             view.getFilters().forEach(filter -> named.add(CatalogueField.of(filter).named()));
         }
+        sortField(view).ifPresent(named::add);
         return named;
     }
 

@@ -998,6 +998,67 @@ class ListViewServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void anOrderingOnAReplacedAttributeIsDroppedOnReadWithoutAColumnForIt()
+            throws AlreadyExistException, AttributeException, NotFoundException {
+        UUID team = createTeamAttribute();
+        ListViewRequestDto request = request("Team", column("COMMON_NAME"));
+        request.setSort(new SearchSortRequestDto(FilterFieldSource.CUSTOM, TEAM, SortDirection.ASC));
+        listViewService.createView(request);
+        Assertions.assertNotNull(readTheOnlyView().getSort());
+
+        recreateTeamAttribute(team);
+
+        Assertions.assertNull(readTheOnlyView().getSort());
+    }
+
+    /** A replaced ordering never reads back, so an ordering a client sends on that field is a choice made afresh. */
+    @Test
+    void anOrderingChosenAgainAfterTheAttributeWasRecreatedIsKept()
+            throws AlreadyExistException, AttributeException, NotFoundException {
+        UUID team = createTeamAttribute();
+        ListViewRequestDto request = request("Team", column("COMMON_NAME"));
+        request.setSort(new SearchSortRequestDto(FilterFieldSource.CUSTOM, TEAM, SortDirection.ASC));
+        ListViewDto created = listViewService.createView(request);
+        recreateTeamAttribute(team);
+
+        ListViewUpdateRequestDto edit = update("Team", column("COMMON_NAME"));
+        edit.setSort(new SearchSortRequestDto(FilterFieldSource.CUSTOM, TEAM, SortDirection.DESC));
+        listViewService.editView(created.getUuid(), edit);
+
+        Assertions.assertEquals(SortDirection.DESC, readTheOnlyView().getSort().getDirection());
+    }
+
+    /**
+     * An attribute the owner may no longer read is out of their catalogue, so a save neither binds the entries on it to
+     * anything nor lets them be rebound: the binding stays what it was until someone who can see the field saves.
+     */
+    @Test
+    void aSaveByACallerWhoCannotReadTheAttributeLeavesItsBindingAlone()
+            throws AlreadyExistException, AttributeException, NotFoundException {
+        UUID team = createTeamAttribute();
+        ListView stored = save("Legacy", List.of(column("COMMON_NAME"), teamColumn()),
+                List.of(teamFilter(FilterConditionOperator.EQUALS, "pki")), null);
+        forbidObjectAccess(Resource.ATTRIBUTE, ResourceAction.MEMBERS, List.of(team));
+        ListViewDto read = readTheOnlyView();
+        Assertions.assertEquals(ListViewFieldStatus.UNAVAILABLE, teamColumnOf(read).getStatus());
+        Assertions.assertEquals(ListViewFieldStatus.UNAVAILABLE, read.getFilters().getFirst().getStatus());
+
+        listViewService.editView(stored.getUuid().toString(), savedBack(read, "Legacy"));
+
+        ListView after = listViewRepository.findById(stored.getUuid()).orElseThrow();
+        Assertions.assertNull(after.getColumns().get(1).getAttributeDefinitionUuids());
+        Assertions.assertNull(after.getFilters().getFirst().getAttributeDefinitionUuids());
+
+        ListViewDto again = readTheOnlyView();
+        teamColumnOf(again).setRebind(true);
+        ListViewUpdateRequestDto rebind = savedBack(again, "Legacy");
+        String uuid = again.getUuid();
+        ValidationException e = Assertions
+                .assertThrows(ValidationException.class, () -> listViewService.editView(uuid, rebind));
+        Assertions.assertTrue(e.getMessage().contains("has no field " + TEAM), e.getMessage());
+    }
+
+    @Test
     void aUuidThatIsNotAUuidIsNotFoundRatherThanAnInternalError() {
         Assertions.assertThrows(NotFoundException.class, () -> listViewService.deleteView("not-a-uuid"));
     }

@@ -52,12 +52,29 @@ public interface AttributeDefinitionRepository extends SecurityFilterRepository<
 
     Boolean existsByTypeAndName(AttributeType type, String attributeName);
 
+    /**
+     * The definitions of these types and names that belong to the resource's catalogue: related to the resource, or
+     * holding content on one of its objects, the same membership the searchable-fields queries below apply.
+     */
     @Query("""
             SELECT new com.otilm.core.model.AttributeDefinitionIdentity(ad.uuid, ad.type, ad.name, ad.contentType)
                 FROM AttributeDefinition ad
-                WHERE ad.type IN ?1 AND ad.name IN ?2
+                WHERE ad.type IN ?2 AND ad.name IN ?3 AND (
+                    ad.uuid IN (
+                        SELECT ar.attributeDefinitionUuid FROM AttributeRelation ar WHERE ar.resource = ?1
+                    )
+                    OR ad.uuid IN (
+                        SELECT aci.attributeDefinitionUuid
+                            FROM AttributeContentItem aci
+                            WHERE aci.uuid IN (
+                                SELECT aco.attributeContentItemUuid
+                                    FROM AttributeContent2Object aco
+                                    WHERE aco.objectType = ?1
+                            )
+                    )
+                )
             """)
-    List<AttributeDefinitionIdentity> findIdentitiesByTypeInAndNameIn(Collection<AttributeType> types,
+    List<AttributeDefinitionIdentity> findIdentitiesOfResource(Resource resource, Collection<AttributeType> types,
             Collection<String> names);
 
     Boolean existsByTypeAndNameAndGlobalTrue(AttributeType type, String attributeName);

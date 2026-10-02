@@ -1,6 +1,7 @@
 package com.otilm.core.integration.attribute;
 
 import com.github.benmanes.caffeine.cache.Cache;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
 import com.otilm.api.model.client.attribute.custom.CustomAttributeDefinitionDetailDto;
@@ -21,6 +22,8 @@ import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.listview.ListViewColumnDto;
+import com.otilm.api.model.core.listview.ListViewDto;
+import com.otilm.api.model.core.listview.ListViewFieldStatus;
 import com.otilm.api.model.core.listview.ListViewFilterDto;
 import com.otilm.api.model.core.listview.ListViewRequestDto;
 import com.otilm.api.model.core.search.FilterConditionOperator;
@@ -32,6 +35,7 @@ import com.otilm.core.attribute.engine.NamedField;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.dao.entity.Connector;
+import com.otilm.core.dao.repository.AttributeDefinitionRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.model.SearchFieldObject;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -51,6 +55,7 @@ import org.springframework.cache.CacheManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
 
@@ -77,6 +82,9 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
 
     @Autowired
     private ConnectorRepository connectorRepository;
+
+    @Autowired
+    private AttributeDefinitionRepository attributeDefinitionRepository;
 
     @Test
     void aSecondReadRunsNoCatalogueQuery() throws Exception {
@@ -331,6 +339,75 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
         assertThat(discoveryService.listDiscoveries(SecurityFilter.create(), request).getDiscoveries()).isEmpty();
     }
 
+    /**
+     * The same metadata name is registered on keys and on certificates. A certificate view is bound to the certificate
+     * definition alone, so once that one is gone a definition registered on certificates later is a replacement, even
+     * though the key definition the view never showed is still there.
+     */
+    @Test
+    void aMetadataColumnIsNotTakenOverOnceItsOwnDefinitionLeavesTheResource() throws Exception {
+        Connector onKeys = savedConnector("keys-writer");
+        Connector first = savedConnector("first-writer");
+        writeMetadataTo(Resource.CRYPTOGRAPHIC_KEY, onKeys, "status");
+        writeMetadataTo(Resource.CERTIFICATE, first, "status");
+        UUID own = metadataDefinition(first, "status");
+        ListViewDto created = listViewService
+                .createView(certificateView("status",
+                        new ListViewColumnDto(FilterFieldSource.META, "status|STRING", null)));
+        assertThat(created.getColumns().getFirst().getAttributeDefinitionUuids()).containsExactly(own);
+
+        transactionTemplate.executeWithoutResult(tx -> deleteMetadata(own));
+        writeMetadataTo(Resource.CERTIFICATE, savedConnector("second-writer"), "status");
+
+        ListViewColumnDto read = listViewService.listViews(Resource.CERTIFICATE).getFirst().getColumns().getFirst();
+        assertThat(read.getStatus()).isEqualTo(ListViewFieldStatus.REPLACED);
+        assertThat(read.getAttributeDefinitionUuids()).containsExactly(own);
+    }
+
+    /**
+     * Deleted on another replica, so this one's catalogue still offers the field while no definition backs it. The
+     * stored column reads as gone rather than replaced, and nothing can be bound to the field in that window.
+     */
+    @Test
+    void aFieldNoDefinitionBacksAnyMoreIsUnavailableAndCannotBeBound() throws Exception {
+        CustomAttributeDefinitionDetailDto gone = createCustomAttribute("gone-elsewhere");
+        listViewService.createView(certificateView("gone", customColumn("gone-elsewhere|TEXT")));
+        catalogue.fields(Resource.CERTIFICATE, false);
+
+        onAnotherReplica(() -> {
+            attributeService.deleteCustomAttribute(UUID.fromString(gone.getUuid()));
+            return null;
+        });
+
+        assertThat(catalogue.fields(Resource.CERTIFICATE, false))
+                .anyMatch(row -> "gone-elsewhere".equals(row.getAttributeName()));
+        assertThat(listViewService.listViews(Resource.CERTIFICATE).getFirst().getColumns().getFirst().getStatus())
+                .isEqualTo(ListViewFieldStatus.UNAVAILABLE);
+        ListViewRequestDto another = certificateView("another", customColumn("gone-elsewhere|TEXT"));
+        assertThatThrownBy(() -> listViewService.createView(another))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("has no field gone-elsewhere|TEXT");
+    }
+
+    private void writeMetadataTo(Resource resource, Connector connector, String name) throws Exception {
+        writeMetadata(resource, connector, UUID.randomUUID(), name, name, false);
+    }
+
+    private UUID metadataDefinition(Connector connector, String name) {
+        return attributeDefinitionRepository
+                .findByTypeAndConnectorUuidAndName(AttributeType.META, connector.getUuid(), name)
+                .orElseThrow()
+                .getUuid();
+    }
+
+    private void deleteMetadata(UUID definition) {
+        try {
+            attributeEngine.deleteAttributeDefinition(AttributeType.META, definition);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     /** A global metadata attribute is in a resource's catalogue once a connector has written it to an object. */
     private GlobalMetadataDefinitionDetailDto createGlobalMetadataOnACertificate(String name, String label)
             throws Exception {
@@ -346,6 +423,11 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
 
     private void writeMetadataToACertificate(Connector connector, UUID uuid, String name, String label, boolean global)
             throws Exception {
+        writeMetadata(Resource.CERTIFICATE, connector, uuid, name, label, global);
+    }
+
+    private void writeMetadata(Resource resource, Connector connector, UUID uuid, String name, String label,
+            boolean global) throws Exception {
         MetadataAttributeProperties properties = new MetadataAttributeProperties();
         properties.setLabel(label);
         properties.setVisible(true);
@@ -360,7 +442,7 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
         attributeEngine
                 .updateMetadataAttribute(written,
                         ObjectAttributeContentInfo
-                                .builder(Resource.CERTIFICATE, UUID.randomUUID())
+                                .builder(resource, UUID.randomUUID())
                                 .connector(connector.getUuid())
                                 .build());
     }
@@ -392,9 +474,13 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
     }
 
     private Connector savedConnector() {
+        return savedConnector("attribute-writer");
+    }
+
+    private Connector savedConnector(String name) {
         Connector connector = new Connector();
-        connector.setName("attribute-writer");
-        connector.setUrl("http://localhost:3665");
+        connector.setName(name);
+        connector.setUrl("http://" + name + ":3665");
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         return connectorRepository.save(connector);
