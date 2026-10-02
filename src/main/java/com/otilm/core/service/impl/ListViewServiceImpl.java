@@ -11,6 +11,7 @@ import com.otilm.api.model.core.listview.ListViewDto;
 import com.otilm.api.model.core.listview.ListViewFieldStatus;
 import com.otilm.api.model.core.listview.ListViewFilterDto;
 import com.otilm.api.model.core.listview.ListViewRequestDto;
+import com.otilm.api.model.core.listview.ListViewSortRequestDto;
 import com.otilm.api.model.core.listview.ListViewUpdateRequestDto;
 import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldSource;
@@ -37,6 +38,7 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -226,8 +228,14 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         view.setColumns(columns);
         view.setDefaultView(request.isDefaultView());
         view.setFilters(filters.isEmpty() ? null : filters);
-        view.setSort(request.getSort());
-        view.setSortAttributeDefinitionUuids(binder.sort(request.getSort()));
+        List<UUID> sortBinding = binder.sort(request.getSort(), view.getSort(), view.getSortAttributeDefinitionUuids());
+        ListViewSortRequestDto sort = request.getSort();
+        view
+                .setSort(sort == null
+                        ? null
+                        : new SearchSortRequestDto(sort.getFieldSource(), sort.getFieldIdentifier(),
+                                sort.getDirection()));
+        view.setSortAttributeDefinitionUuids(sortBinding);
     }
 
     private ListView ownView(String uuid, UUID userUuid) throws NotFoundException {
@@ -391,11 +399,20 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
     private record Binder(Resource resource, Catalogue catalogue, Map<NamedField, Set<UUID>> definitions) {
 
         /**
-         * A stored ordering that no longer resolves is never returned, so an ordering a client sends is its own choice
-         * made afresh rather than one carried over, and is bound to the current definitions.
+         * A stored ordering that no longer resolves is dropped on read, but a client that read the view earlier can
+         * still send it back. So an ordering sent exactly as stored, direction included, and without {@code rebind} is
+         * carried like a column, and keeps a binding that no longer resolves rather than adopting a replacement. Any
+         * other ordering is a choice made now and is bound to the current definitions, or refused if none backs it.
          */
-        List<UUID> sort(SearchSortRequestDto sort) {
-            return sort == null ? null : bindingOf(CatalogueField.of(sort), null, false);
+        List<UUID> sort(ListViewSortRequestDto requested, SearchSortRequestDto stored, List<UUID> storedBinding) {
+            if (requested == null) {
+                return null;
+            }
+            boolean carried = !Boolean.TRUE.equals(requested.getRebind()) && stored != null
+                    && requested.getFieldSource() == stored.getFieldSource()
+                    && Objects.equals(requested.getFieldIdentifier(), stored.getFieldIdentifier())
+                    && requested.getDirection() == stored.getDirection();
+            return bindingOf(CatalogueField.of(requested), carried ? storedBinding : null, carried);
         }
 
         List<ListViewColumnDto> columns(List<ListViewColumnDto> requested, List<ListViewColumnDto> stored) {

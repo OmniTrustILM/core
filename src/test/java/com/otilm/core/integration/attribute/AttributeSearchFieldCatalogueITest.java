@@ -9,7 +9,6 @@ import com.otilm.api.model.client.attribute.metadata.GlobalMetadataCreateRequest
 import com.otilm.api.model.client.attribute.metadata.GlobalMetadataDefinitionDetailDto;
 import com.otilm.api.model.client.attribute.metadata.GlobalMetadataUpdateRequestDto;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
-import com.otilm.api.model.client.certificate.SearchSortRequestDto;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
@@ -26,6 +25,7 @@ import com.otilm.api.model.core.listview.ListViewDto;
 import com.otilm.api.model.core.listview.ListViewFieldStatus;
 import com.otilm.api.model.core.listview.ListViewFilterDto;
 import com.otilm.api.model.core.listview.ListViewRequestDto;
+import com.otilm.api.model.core.listview.ListViewSortRequestDto;
 import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SortDirection;
@@ -287,7 +287,7 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
         onAnotherReplica(() -> createCustomAttribute("late-order"));
 
         ListViewRequestDto request = certificateView("late order", commonNameColumn());
-        request.setSort(new SearchSortRequestDto(FilterFieldSource.CUSTOM, "late-order|TEXT", SortDirection.ASC));
+        request.setSort(new ListViewSortRequestDto(FilterFieldSource.CUSTOM, "late-order|TEXT", SortDirection.ASC));
 
         assertThat(listViewService.createView(request).getSort()).isNotNull();
     }
@@ -358,7 +358,7 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
             createCustomAttribute("late-read-order");
             ListViewRequestDto request = certificateView("read order", commonNameColumn());
             request
-                    .setSort(new SearchSortRequestDto(FilterFieldSource.CUSTOM, "late-read-order|TEXT",
+                    .setSort(new ListViewSortRequestDto(FilterFieldSource.CUSTOM, "late-read-order|TEXT",
                             SortDirection.ASC));
             return listViewService.createView(request);
         });
@@ -376,7 +376,7 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
         SearchRequestDto request = new SearchRequestDto();
         request.setPageNumber(1);
         request.setItemsPerPage(10);
-        request.setSort(new SearchSortRequestDto(FilterFieldSource.CUSTOM, "late-sort|TEXT", SortDirection.ASC));
+        request.setSort(new ListViewSortRequestDto(FilterFieldSource.CUSTOM, "late-sort|TEXT", SortDirection.ASC));
 
         assertThat(discoveryService.listDiscoveries(SecurityFilter.create(), request).getDiscoveries()).isEmpty();
     }

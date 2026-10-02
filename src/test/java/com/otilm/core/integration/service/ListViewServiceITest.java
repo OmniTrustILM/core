@@ -18,6 +18,7 @@ import com.otilm.api.model.core.listview.ListViewDto;
 import com.otilm.api.model.core.listview.ListViewFieldStatus;
 import com.otilm.api.model.core.listview.ListViewFilterDto;
 import com.otilm.api.model.core.listview.ListViewRequestDto;
+import com.otilm.api.model.core.listview.ListViewSortRequestDto;
 import com.otilm.api.model.core.listview.ListViewUpdateRequestDto;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.api.model.core.search.FilterConditionOperator;
@@ -303,7 +304,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
 
         ListViewRequestDto request = request("Sliced", column("COMMON_NAME"));
         request.setFilters(List.of(filter));
-        request.setSort(sort);
+        request.setSort(sent(sort));
 
         listViewService.createView(request);
 
@@ -322,7 +323,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
         ListViewRequestDto request = request("Inventory", column("CBOM_ASSET_NAME"),
                 column("CBOM_ASSET_PQC_VERDICT", "Readiness"), column("CBOM_ASSET_SOURCE_COUNT"));
         request.setResource(Resource.CRYPTO_ASSET);
-        request.setSort(sort);
+        request.setSort(sent(sort));
 
         listViewService.createView(request);
 
@@ -687,7 +688,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
 
         ListViewUpdateRequestDto rename = update("Team renamed", read.getColumns().toArray(ListViewColumnDto[]::new));
         rename.setFilters(read.getFilters());
-        rename.setSort(read.getSort());
+        rename.setSort(sent(read.getSort()));
         ListViewDto renamed = listViewService.editView(read.getUuid(), rename);
 
         Assertions.assertEquals("Team renamed", renamed.getName());
@@ -734,10 +735,16 @@ class ListViewServiceITest extends BaseSpringBootTest {
         return createTeamAttribute();
     }
 
+    private static ListViewSortRequestDto sent(SearchSortRequestDto sort) {
+        return sort == null
+                ? null
+                : new ListViewSortRequestDto(sort.getFieldSource(), sort.getFieldIdentifier(), sort.getDirection());
+    }
+
     private static ListViewUpdateRequestDto savedBack(ListViewDto read, String name) {
         ListViewUpdateRequestDto request = update(name, read.getColumns().toArray(ListViewColumnDto[]::new));
         request.setFilters(read.getFilters());
-        request.setSort(read.getSort());
+        request.setSort(sent(read.getSort()));
         return request;
     }
 
@@ -1031,7 +1038,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
             throws AlreadyExistException, AttributeException, NotFoundException {
         UUID team = createTeamAttribute();
         ListViewRequestDto request = request("Team", column("COMMON_NAME"), teamColumn());
-        request.setSort(new SearchSortRequestDto(FilterFieldSource.CUSTOM, TEAM, SortDirection.ASC));
+        request.setSort(new ListViewSortRequestDto(FilterFieldSource.CUSTOM, TEAM, SortDirection.ASC));
         listViewService.createView(request);
         Assertions.assertNotNull(readTheOnlyView().getSort());
 
@@ -1097,7 +1104,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
             throws AlreadyExistException, AttributeException, NotFoundException {
         UUID team = createTeamAttribute();
         ListViewRequestDto request = request("Team", column("COMMON_NAME"));
-        request.setSort(new SearchSortRequestDto(FilterFieldSource.CUSTOM, TEAM, SortDirection.ASC));
+        request.setSort(new ListViewSortRequestDto(FilterFieldSource.CUSTOM, TEAM, SortDirection.ASC));
         listViewService.createView(request);
         Assertions.assertNotNull(readTheOnlyView().getSort());
 
@@ -1106,21 +1113,69 @@ class ListViewServiceITest extends BaseSpringBootTest {
         Assertions.assertNull(readTheOnlyView().getSort());
     }
 
-    /** A replaced ordering never reads back, so an ordering a client sends on that field is a choice made afresh. */
+    /** An ordering changed from the stored one is a choice made afresh, so it binds to the recreated attribute. */
     @Test
     void anOrderingChosenAgainAfterTheAttributeWasRecreatedIsKept()
             throws AlreadyExistException, AttributeException, NotFoundException {
         UUID team = createTeamAttribute();
         ListViewRequestDto request = request("Team", column("COMMON_NAME"));
-        request.setSort(new SearchSortRequestDto(FilterFieldSource.CUSTOM, TEAM, SortDirection.ASC));
+        request.setSort(new ListViewSortRequestDto(FilterFieldSource.CUSTOM, TEAM, SortDirection.ASC));
         ListViewDto created = listViewService.createView(request);
-        recreateTeamAttribute(team);
+        UUID recreated = recreateTeamAttribute(team);
 
         ListViewUpdateRequestDto edit = update("Team", column("COMMON_NAME"));
-        edit.setSort(new SearchSortRequestDto(FilterFieldSource.CUSTOM, TEAM, SortDirection.DESC));
+        edit.setSort(new ListViewSortRequestDto(FilterFieldSource.CUSTOM, TEAM, SortDirection.DESC));
         listViewService.editView(created.getUuid(), edit);
 
         Assertions.assertEquals(SortDirection.DESC, readTheOnlyView().getSort().getDirection());
+        Assertions.assertEquals(List.of(recreated), storedSortBinding(created));
+    }
+
+    /**
+     * A client that read the view before its attribute was replaced still holds the ordering the read now drops, and
+     * sending it back unchanged must not hand it to the replacement.
+     */
+    @Test
+    void anUnchangedOrderingSentBackByAStaleClientKeepsItsBinding()
+            throws AlreadyExistException, AttributeException, NotFoundException {
+        UUID team = createTeamAttribute();
+        ListViewRequestDto request = request("Team", column("COMMON_NAME"));
+        request.setSort(new ListViewSortRequestDto(FilterFieldSource.CUSTOM, TEAM, SortDirection.ASC));
+        ListViewDto created = listViewService.createView(request);
+        ListViewUpdateRequestDto stale = savedBack(readTheOnlyView(), "Renamed");
+        recreateTeamAttribute(team);
+
+        listViewService.editView(created.getUuid(), stale);
+
+        Assertions.assertEquals(List.of(team), storedSortBinding(created));
+        Assertions.assertEquals("Renamed", readTheOnlyView().getName());
+        Assertions.assertNull(readTheOnlyView().getSort());
+    }
+
+    @Test
+    void theSameOrderingChosenAgainWithRebindFollowsTheRecreatedAttribute()
+            throws AlreadyExistException, AttributeException, NotFoundException {
+        UUID team = createTeamAttribute();
+        ListViewRequestDto request = request("Team", column("COMMON_NAME"));
+        request.setSort(new ListViewSortRequestDto(FilterFieldSource.CUSTOM, TEAM, SortDirection.ASC));
+        ListViewDto created = listViewService.createView(request);
+        UUID recreated = recreateTeamAttribute(team);
+
+        ListViewUpdateRequestDto edit = update("Team", column("COMMON_NAME"));
+        ListViewSortRequestDto chosen = new ListViewSortRequestDto(FilterFieldSource.CUSTOM, TEAM, SortDirection.ASC);
+        chosen.setRebind(true);
+        edit.setSort(chosen);
+        listViewService.editView(created.getUuid(), edit);
+
+        Assertions.assertEquals(List.of(recreated), storedSortBinding(created));
+        Assertions.assertEquals(SortDirection.ASC, readTheOnlyView().getSort().getDirection());
+    }
+
+    private List<UUID> storedSortBinding(ListViewDto view) {
+        return listViewRepository
+                .findById(UUID.fromString(view.getUuid()))
+                .orElseThrow()
+                .getSortAttributeDefinitionUuids();
     }
 
     /**
@@ -1242,7 +1297,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
     void anOrderingTheListingWouldRefuseIsRejectedOnWrite() {
         ListViewRequestDto request = request("Unorderable", column("COMMON_NAME"));
         request
-                .setSort(new SearchSortRequestDto(FilterFieldSource.PROPERTY, "CERTIFICATE_PROTOCOL",
+                .setSort(new ListViewSortRequestDto(FilterFieldSource.PROPERTY, "CERTIFICATE_PROTOCOL",
                         SortDirection.ASC));
 
         ValidationException e = Assertions
@@ -1409,7 +1464,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
     @Test
     void anOrderingOnAFieldTheResourceDoesNotOfferIsRejectedOnWrite() {
         ListViewRequestDto request = request("Impossible", column("COMMON_NAME"));
-        request.setSort(new SearchSortRequestDto(FilterFieldSource.PROPERTY, "CKI_NAME", SortDirection.ASC));
+        request.setSort(new ListViewSortRequestDto(FilterFieldSource.PROPERTY, "CKI_NAME", SortDirection.ASC));
 
         ValidationException e = Assertions
                 .assertThrows(ValidationException.class, () -> listViewService.createView(request));
@@ -1425,7 +1480,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
                 .setFilters(List
                         .of(new ListViewFilterDto(FilterFieldSource.PROPERTY, "COMMON_NAME",
                                 FilterConditionOperator.CONTAINS, "test")));
-        edit.setSort(new SearchSortRequestDto(FilterFieldSource.PROPERTY, "NOT_AFTER", SortDirection.DESC));
+        edit.setSort(new ListViewSortRequestDto(FilterFieldSource.PROPERTY, "NOT_AFTER", SortDirection.DESC));
 
         ListViewDto edited = listViewService.editView(created.getUuid(), edit);
 
