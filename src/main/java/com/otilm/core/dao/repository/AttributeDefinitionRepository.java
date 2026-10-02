@@ -54,24 +54,26 @@ public interface AttributeDefinitionRepository extends SecurityFilterRepository<
 
     /**
      * The definitions of these types and names that belong to the resource's catalogue: related to the resource, or
-     * holding content on one of its objects, the same membership the searchable-fields queries below apply.
+     * holding content on one of its objects, the same membership the searchable-fields queries below apply. The two
+     * halves are a UNION of correlated probes for the same reason those are split: an OR of the two would make the
+     * planner read every content mapping of the resource.
      */
     @Query("""
             SELECT new com.otilm.core.model.AttributeDefinitionIdentity(ad.uuid, ad.type, ad.name, ad.contentType)
                 FROM AttributeDefinition ad
-                WHERE ad.type IN ?2 AND ad.name IN ?3 AND (
-                    ad.uuid IN (
-                        SELECT ar.attributeDefinitionUuid FROM AttributeRelation ar WHERE ar.resource = ?1
-                    )
-                    OR ad.uuid IN (
-                        SELECT aci.attributeDefinitionUuid
-                            FROM AttributeContentItem aci
-                            WHERE aci.uuid IN (
-                                SELECT aco.attributeContentItemUuid
-                                    FROM AttributeContent2Object aco
-                                    WHERE aco.objectType = ?1
-                            )
-                    )
+                WHERE ad.type IN ?2 AND ad.name IN ?3 AND EXISTS (
+                    SELECT 1 FROM AttributeRelation ar
+                        WHERE ar.attributeDefinitionUuid = ad.uuid AND ar.resource = ?1
+                )
+            UNION
+            SELECT new com.otilm.core.model.AttributeDefinitionIdentity(ad.uuid, ad.type, ad.name, ad.contentType)
+                FROM AttributeDefinition ad
+                WHERE ad.type IN ?2 AND ad.name IN ?3 AND EXISTS (
+                    SELECT 1 FROM AttributeContentItem aci
+                        WHERE aci.attributeDefinitionUuid = ad.uuid AND EXISTS (
+                            SELECT 1 FROM AttributeContent2Object aco
+                                WHERE aco.attributeContentItemUuid = aci.uuid AND aco.objectType = ?1
+                        )
                 )
             """)
     List<AttributeDefinitionIdentity> findIdentitiesOfResource(Resource resource, Collection<AttributeType> types,

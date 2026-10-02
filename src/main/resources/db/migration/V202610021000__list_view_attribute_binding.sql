@@ -2,7 +2,8 @@
 -- resource today, so an existing view keeps resolving exactly what it shows now. An entry whose definition is already
 -- gone is bound to nothing and can no longer be claimed by a definition created later under the same name and content
 -- type. A definition counts for a resource as the catalogue counts it: related to the resource, or holding content on
--- one of its objects.
+-- one of its objects. Each candidate definition is probed through the indexes on its content items and their object
+-- mappings rather than by reading every mapping of the resource.
 CREATE FUNCTION pg_temp.bind_list_view_entries(entries JSONB, view_resource VARCHAR) RETURNS JSONB AS $$
     SELECT COALESCE(jsonb_agg(
         CASE
@@ -14,16 +15,16 @@ CREATE FUNCTION pg_temp.bind_list_view_entries(entries JSONB, view_resource VARC
                     WHERE ad.type = upper(entry ->> 'fieldSource')
                       AND ad.name || '|' || ad.content_type = entry ->> 'fieldIdentifier'
                       AND (
-                          ad.uuid IN (
-                              SELECT ar.attribute_definition_uuid
+                          EXISTS (
+                              SELECT 1
                               FROM attribute_relation ar
-                              WHERE ar.resource = view_resource
+                              WHERE ar.attribute_definition_uuid = ad.uuid AND ar.resource = view_resource
                           )
-                          OR ad.uuid IN (
-                              SELECT aci.attribute_definition_uuid
+                          OR EXISTS (
+                              SELECT 1
                               FROM attribute_content_item aci
                               JOIN attribute_content_2_object aco ON aco.attribute_content_item_uuid = aci.uuid
-                              WHERE aco.object_type = view_resource
+                              WHERE aci.attribute_definition_uuid = ad.uuid AND aco.object_type = view_resource
                           )
                       )
                 ), '[]'::JSONB))
