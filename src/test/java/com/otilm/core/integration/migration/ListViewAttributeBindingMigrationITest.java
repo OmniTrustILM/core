@@ -129,8 +129,10 @@ class ListViewAttributeBindingMigrationITest extends BaseSpringBootTest {
                                     .formatted(COLUMNS, FILTERS, sort("meta", "owner|STRING"))
                             + "('aaaaaaaa-0000-4000-8000-000000000002', 'CERTIFICATE', 'Plain', '%s', NULL, '%s'), "
                                     .formatted(COLUMNS, sort("property", "COMMON_NAME"))
-                            + "('aaaaaaaa-0000-4000-8000-000000000003', 'CRYPTOGRAPHIC_KEY', 'Keys', '%s', NULL, NULL)"
-                                    .formatted(COLUMNS));
+                            + "('aaaaaaaa-0000-4000-8000-000000000003', 'CRYPTOGRAPHIC_KEY', 'Keys', '%s', NULL, NULL), "
+                                    .formatted(COLUMNS)
+                            + "('aaaaaaaa-0000-4000-8000-000000000004', 'CERTIFICATE', 'Orphaned', '%s', NULL, '%s')"
+                                    .formatted(COLUMNS, sort("custom", "deleted|STRING")));
         }
     }
 
@@ -191,6 +193,9 @@ class ListViewAttributeBindingMigrationITest extends BaseSpringBootTest {
                 .describedAs("a property ordering names no attribute definition")
                 .isNull();
         assertThat(sortBindingOf(connection, "Keys")).isNull();
+        assertThat(sortBindingOf(connection, "Orphaned"))
+                .describedAs("an ordering whose attribute is already gone is bound to nothing, not left unbound")
+                .isEqualTo("{}");
         JsonNode keyColumns = json(connection, "SELECT columns FROM list_view WHERE name = 'Keys'");
         assertThat(bindingOf(keyColumns.get(1)))
                 .describedAs("the custom attribute is related to certificates, not to keys")
