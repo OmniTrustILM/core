@@ -6,16 +6,33 @@
     <property name="LOG_FILE" value="/dev/stdout"/>
     <!--    <include resource="org/springframework/boot/logging/logback/file-appender.xml" />-->
 
-    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
-        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
-            <level>${CONSOLE_LOG_THRESHOLD}</level>
-        </filter>
-        <filter class="com.otilm.core.tasks.ScheduledLoggingFilter" />
-        <encoder>
-            <pattern>${CONSOLE_LOG_PATTERN}</pattern>
-            <charset>${CONSOLE_LOG_CHARSET}</charset>
-        </encoder>
-    </appender>
+    <!-- The format picks the whole appender: logback does not support <if> nested inside an <appender> -->
+    <if condition='property("CONSOLE_LOG_STRUCTURED_FORMAT").isEmpty()'>
+        <then>
+            <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+                <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+                    <level>${CONSOLE_LOG_THRESHOLD}</level>
+                </filter>
+                <filter class="com.otilm.core.tasks.ScheduledLoggingFilter" />
+                <encoder>
+                    <pattern>${CONSOLE_LOG_PATTERN}</pattern>
+                    <charset>${CONSOLE_LOG_CHARSET}</charset>
+                </encoder>
+            </appender>
+        </then>
+        <else>
+            <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+                <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+                    <level>${CONSOLE_LOG_THRESHOLD}</level>
+                </filter>
+                <filter class="com.otilm.core.tasks.ScheduledLoggingFilter" />
+                <encoder class="com.otilm.core.logging.LogRecordStructuredLogEncoder">
+                    <format>${CONSOLE_LOG_STRUCTURED_FORMAT}</format>
+                    <charset>${CONSOLE_LOG_CHARSET}</charset>
+                </encoder>
+            </appender>
+        </else>
+    </if>
 
     <if condition='property("otel.sdk.disabled").equals("false")'>
         <appender name="OpenTelemetry" class="io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender">

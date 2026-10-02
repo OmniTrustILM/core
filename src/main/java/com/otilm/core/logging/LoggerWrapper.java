@@ -17,6 +17,7 @@ import java.util.Map;
 import lombok.Getter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.event.Level;
 
 @Getter
 public class LoggerWrapper {
@@ -40,7 +41,7 @@ public class LoggerWrapper {
         }
 
         try {
-            logger.info(OBJECT_MAPPER.writeValueAsString(logRecord));
+            log(Level.INFO, logRecord);
         } catch (JsonProcessingException e) {
             logger.warn("Cannot serialize audit LogRecord to JSON: {}", e.getMessage());
         }
@@ -55,11 +56,7 @@ public class LoggerWrapper {
         try {
             LogRecord logRecord = buildLogRecord(false, this.module, this.resource, resourceObjects, operation,
                     operationResult, operationData, message, null);
-            if (operationResult == OperationResult.SUCCESS) {
-                logger.info(OBJECT_MAPPER.writeValueAsString(logRecord));
-            } else {
-                logger.error(OBJECT_MAPPER.writeValueAsString(logRecord));
-            }
+            log(operationResult == OperationResult.SUCCESS ? Level.INFO : Level.ERROR, logRecord);
 
         } catch (JsonProcessingException e) {
             logger.warn("Cannot serialize event LogRecord to JSON: {}", e.getMessage());
@@ -75,10 +72,15 @@ public class LoggerWrapper {
         try {
             LogRecord logRecord = buildLogRecord(false, this.module, this.resource, resourceObjects, operation,
                     operationResult, operationData, message, null);
-            logger.debug(OBJECT_MAPPER.writeValueAsString(logRecord));
+            log(Level.DEBUG, logRecord);
         } catch (JsonProcessingException e) {
             logger.warn("Cannot serialize debug event LogRecord to JSON: {}", e.getMessage());
         }
+    }
+
+    private void log(Level level, LogRecord logRecord) throws JsonProcessingException {
+        String json = OBJECT_MAPPER.writeValueAsString(logRecord);
+        logger.atLevel(level).addKeyValue(SerializedLogRecord.KEY, SerializedLogRecord.of(logRecord, json)).log(json);
     }
 
     public boolean isLogFiltered(boolean audited, Module module, Resource resource, OperationResult result) {

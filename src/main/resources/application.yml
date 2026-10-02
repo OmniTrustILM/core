@@ -193,6 +193,9 @@ logging:
   pattern:
     console: '[%d{yyyy-MM-dd HH:mm:ss.SSS}] %-5level [%t] [%logger - %line]: %m%n'
     file: '[%d{yyyy-MM-dd HH:mm:ss.SSS}] %-5level [%t] [%logger - %line]: %m%n'
+  structured:
+    format:
+      console: ${PLATFORM_LOG_FORMAT:}   # Empty keeps the text pattern above; ecs, logstash or gelf writes one JSON object per line
   schema-version: '@log-schema.version@'
 
 # Configuration of actuator
