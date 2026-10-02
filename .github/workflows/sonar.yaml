@@ -80,7 +80,7 @@ jobs:
       # to the sonar-scanner CLI, because the mvn step below executes the fork's
       # pom with SONAR_TOKEN in scope. Pinned to head_sha rather than the
       # fork-writable branch ref, so the tree matches the PR data read above.
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ github.event.workflow_run.head_repository.full_name }}
           ref: ${{ github.event.workflow_run.head_sha }}
