@@ -80,6 +80,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+/**
+ * Verifies cryptographic operation validation, provider routing, and event recording.
+ */
 @ExtendWith(MockitoExtension.class)
 class CryptographicOperationServiceImplTest {
 
@@ -460,8 +463,8 @@ class CryptographicOperationServiceImplTest {
         List<KeyUsage> currentUsages = List.of(KeyUsage.DECRYPT);
         KeyUsage missingUsage = KeyUsage.ENCRYPT;
         CryptographicKeyItemOperationModel key = withUsage(legacyKey(), currentUsages);
-        String expectedMessage = "Key item " + key.toIdentifierString() + " does not have required usage "
-                + missingUsage.name() + ". Current usages: " + currentUsages + ".";
+        String expectedMessage = "Key item '" + key.toIdentifierString() + "' does not have required usage '"
+                + missingUsage.name() + "'. Current usages: " + currentUsages + ".";
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
         CipherDataRequestDto request = new CipherDataRequestDto();
         request.setCipherData(List.of());
