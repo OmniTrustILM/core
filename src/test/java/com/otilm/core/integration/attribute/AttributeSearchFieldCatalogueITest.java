@@ -7,7 +7,6 @@ import com.otilm.api.model.client.attribute.custom.CustomAttributeDefinitionDeta
 import com.otilm.api.model.client.attribute.metadata.GlobalMetadataCreateRequestDto;
 import com.otilm.api.model.client.attribute.metadata.GlobalMetadataDefinitionDetailDto;
 import com.otilm.api.model.client.attribute.metadata.GlobalMetadataUpdateRequestDto;
-import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.client.certificate.SearchSortRequestDto;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
@@ -22,6 +21,7 @@ import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.listview.ListViewColumnDto;
+import com.otilm.api.model.core.listview.ListViewFilterDto;
 import com.otilm.api.model.core.listview.ListViewRequestDto;
 import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldSource;
@@ -267,7 +267,7 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
         onAnotherReplica(() -> createCustomAttribute("late-filter"));
 
         ListViewRequestDto request = certificateView("late filter", commonNameColumn());
-        SearchFilterRequestDto filter = new SearchFilterRequestDto();
+        ListViewFilterDto filter = new ListViewFilterDto();
         filter.setFieldSource(FilterFieldSource.CUSTOM);
         filter.setFieldIdentifier("late-filter|TEXT");
         filter.setCondition(FilterConditionOperator.EQUALS);

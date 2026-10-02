@@ -1,9 +1,9 @@
 package com.otilm.core.dao.entity;
 
-import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.client.certificate.SearchSortRequestDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.listview.ListViewColumnDto;
+import com.otilm.api.model.core.listview.ListViewFilterDto;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -26,7 +26,8 @@ import org.hibernate.type.SqlTypes;
  *
  * <p>
  * Fields are stored by identifier, so a renamed or deleted attribute leaves its column or filter dormant instead of
- * requiring stored rows to be migrated.
+ * requiring stored rows to be migrated. An attribute column or filter also stores the definitions it was bound to, so a
+ * definition created later under the same identifier does not take it over.
  */
 @Setter
 @Getter
@@ -62,7 +63,7 @@ public class ListView extends UniquelyIdentifiedAndAudited {
     @SuppressWarnings("java:S1948")
     @Column(name = "filters", columnDefinition = "jsonb")
     @JdbcTypeCode(SqlTypes.JSON)
-    private List<SearchFilterRequestDto> filters;
+    private List<ListViewFilterDto> filters;
 
     @SuppressWarnings("java:S1948")
     @Column(name = "sort", columnDefinition = "jsonb")

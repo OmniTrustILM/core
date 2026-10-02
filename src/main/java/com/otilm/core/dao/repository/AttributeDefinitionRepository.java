@@ -4,6 +4,7 @@ import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.dao.entity.AttributeDefinition;
+import com.otilm.core.model.AttributeDefinitionIdentity;
 import com.otilm.core.model.SearchFieldObject;
 import java.util.Collection;
 import java.util.List;
@@ -50,6 +51,14 @@ public interface AttributeDefinitionRepository extends SecurityFilterRepository<
     Optional<AttributeDefinition> findByTypeAndName(AttributeType type, String attributeName);
 
     Boolean existsByTypeAndName(AttributeType type, String attributeName);
+
+    @Query("""
+            SELECT new com.otilm.core.model.AttributeDefinitionIdentity(ad.uuid, ad.type, ad.name, ad.contentType)
+                FROM AttributeDefinition ad
+                WHERE ad.type IN ?1 AND ad.name IN ?2
+            """)
+    List<AttributeDefinitionIdentity> findIdentitiesByTypeInAndNameIn(Collection<AttributeType> types,
+            Collection<String> names);
 
     Boolean existsByTypeAndNameAndGlobalTrue(AttributeType type, String attributeName);
 
