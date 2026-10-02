@@ -27,6 +27,9 @@ import com.otilm.core.service.ListViewInternalService;
 import com.otilm.core.service.writer.ListViewWriter;
 import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.SearchHelper;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityNotFoundException;
+import jakarta.persistence.PersistenceContext;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.EnumMap;
@@ -58,6 +61,7 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
     private ListViewWriter listViewWriter;
     private AttributeEngine attributeEngine;
     private ClusterOperationSynchronizer clusterSynchronizer;
+    private EntityManager entityManager;
 
     @Autowired
     public void setListViewRepository(ListViewRepository listViewRepository) {
@@ -77,6 +81,11 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
     @Autowired
     public void setClusterSynchronizer(ClusterOperationSynchronizer clusterSynchronizer) {
         this.clusterSynchronizer = clusterSynchronizer;
+    }
+
+    @PersistenceContext
+    public void setEntityManager(EntityManager entityManager) {
+        this.entityManager = entityManager;
     }
 
     @Override
@@ -141,11 +150,14 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
             throws NotFoundException, AlreadyExistException {
         UUID userUuid = loggedUserUuid();
         ListView view = ownView(uuid, userUuid);
+        serializeWritesFor(userUuid, view.getResource());
+        // The stored entries decide what each requested one carries, so they are read again once no other write runs.
+        refresh(view, uuid);
+
         Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
         Catalogue catalogue = catalogueOf(view.getResource(), namedFields(request), contentFilter);
         validateRequest(view.getResource(), request, columnsOf(view), filtersOf(view), catalogue);
 
-        serializeWritesFor(userUuid, view.getResource());
         if (listViewRepository
                 .existsByUserUuidAndResourceAndNameAndUuidNot(userUuid, view.getResource(), request.getName(),
                         view.getUuid())) {
@@ -228,6 +240,14 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         return listViewRepository
                 .findByUuidAndUserUuid(viewUuid, userUuid)
                 .orElseThrow(() -> new NotFoundException(ListView.class, uuid));
+    }
+
+    private void refresh(ListView view, String uuid) throws NotFoundException {
+        try {
+            entityManager.refresh(view);
+        } catch (EntityNotFoundException e) {
+            throw new NotFoundException(ListView.class, uuid);
+        }
     }
 
     private static UUID loggedUserUuid() {

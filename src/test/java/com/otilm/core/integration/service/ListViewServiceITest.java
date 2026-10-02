@@ -50,6 +50,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 class ListViewServiceITest extends BaseSpringBootTest {
@@ -857,6 +858,51 @@ class ListViewServiceITest extends BaseSpringBootTest {
         Assertions.assertEquals(ListViewFieldStatus.AVAILABLE, filter.getStatus());
         Assertions.assertEquals(List.of(recreated), filter.getAttributeDefinitionUuids());
         Assertions.assertEquals(ListViewFieldStatus.AVAILABLE, readTheOnlyView().getFilters().getFirst().getStatus());
+    }
+
+    /**
+     * The request that waited held the view as it was before the rebind, loaded in a session that stays open across the
+     * write. Carrying the binding from that copy would put back the one the rebind had just replaced.
+     */
+    @Test
+    void aSaveThatWaitedOnARebindKeepsTheRebinding()
+            throws AlreadyExistException, AttributeException, NotFoundException {
+        UUID team = createTeamAttribute();
+        createTeamColumnView();
+        UUID recreated = recreateTeamAttribute(team);
+        ListViewUpdateRequestDto rename = savedBack(readTheOnlyView(), "Renamed");
+        ListViewDto read = readTheOnlyView();
+        teamColumnOf(read).setRebind(true);
+        ListViewUpdateRequestDto rebind = savedBack(read, "Team");
+
+        transactionTemplate.executeWithoutResult(status -> {
+            listViewRepository.findById(UUID.fromString(read.getUuid())).orElseThrow();
+            inANewTransaction(() -> listViewService.editView(read.getUuid(), rebind));
+            inThisTransaction(() -> listViewService.editView(read.getUuid(), rename));
+        });
+
+        ListViewColumnDto stored = teamColumnOf(readTheOnlyView());
+        Assertions.assertEquals(List.of(recreated), stored.getAttributeDefinitionUuids());
+        Assertions.assertEquals(ListViewFieldStatus.AVAILABLE, stored.getStatus());
+    }
+
+    private void inANewTransaction(ListViewCall call) {
+        TransactionTemplate requiresNew = new TransactionTemplate(transactionTemplate.getTransactionManager());
+        requiresNew.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        requiresNew.executeWithoutResult(status -> inThisTransaction(call));
+    }
+
+    private static void inThisTransaction(ListViewCall call) {
+        try {
+            call.run();
+        } catch (AlreadyExistException | NotFoundException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    @FunctionalInterface
+    private interface ListViewCall {
+        Object run() throws AlreadyExistException, NotFoundException;
     }
 
     @Test
