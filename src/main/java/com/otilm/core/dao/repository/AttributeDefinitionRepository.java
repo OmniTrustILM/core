@@ -54,9 +54,9 @@ public interface AttributeDefinitionRepository extends SecurityFilterRepository<
 
     /**
      * The definitions of these types and names that belong to the resource's catalogue: related to the resource, or
-     * holding content on one of its objects, the same membership the searchable-fields queries below apply. The two
-     * halves are a UNION of correlated probes for the same reason those are split: an OR of the two would make the
-     * planner read every content mapping of the resource.
+     * holding content on one of its objects, the same membership the searchable-fields queries below apply. Each half
+     * probes per definition: uncorrelated IN subqueries over the two tables would make the planner read every content
+     * mapping of the resource.
      */
     @Query("""
             SELECT new com.otilm.core.model.AttributeDefinitionIdentity(ad.uuid, ad.type, ad.name, ad.contentType)
