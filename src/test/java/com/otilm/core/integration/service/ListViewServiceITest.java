@@ -8,7 +8,6 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
 import com.otilm.api.model.client.attribute.custom.CustomAttributeUpdateRequestDto;
-import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.client.certificate.SearchSortRequestDto;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.core.auth.Resource;
@@ -16,12 +15,16 @@ import com.otilm.api.model.core.auth.UserDto;
 import com.otilm.api.model.core.auth.UserProfileDto;
 import com.otilm.api.model.core.listview.ListViewColumnDto;
 import com.otilm.api.model.core.listview.ListViewDto;
+import com.otilm.api.model.core.listview.ListViewFieldStatus;
+import com.otilm.api.model.core.listview.ListViewFilterDto;
 import com.otilm.api.model.core.listview.ListViewRequestDto;
+import com.otilm.api.model.core.listview.ListViewSortRequestDto;
 import com.otilm.api.model.core.listview.ListViewUpdateRequestDto;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SortDirection;
+import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.dao.entity.ListView;
 import com.otilm.core.dao.repository.ListViewRepository;
 import com.otilm.core.model.auth.ResourceAction;
@@ -32,15 +35,18 @@ import com.otilm.core.service.AttributeExternalService;
 import com.otilm.core.service.ListViewExternalService;
 import com.otilm.core.service.ListViewInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -49,6 +55,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 class ListViewServiceITest extends BaseSpringBootTest {
@@ -72,6 +79,9 @@ class ListViewServiceITest extends BaseSpringBootTest {
 
     @Autowired
     private TransactionTemplate transactionTemplate;
+
+    @Autowired
+    private ClusterOperationSynchronizer clusterSynchronizer;
 
     private UUID user;
     private UUID otherUser;
@@ -146,6 +156,15 @@ class ListViewServiceITest extends BaseSpringBootTest {
 
     private static List<String> identifiersOf(ListViewDto view) {
         return view.getColumns().stream().map(ListViewColumnDto::getFieldIdentifier).toList();
+    }
+
+    private static List<String> termsOf(List<ListViewFilterDto> filters) {
+        return filters
+                .stream()
+                .map(filter -> "%s %s %s %s"
+                        .formatted(filter.getFieldSource(), filter.getFieldIdentifier(), filter.getCondition(),
+                                filter.getValue()))
+                .toList();
     }
 
     private static ListViewRequestDto keyRequest(String name) {
@@ -278,14 +297,14 @@ class ListViewServiceITest extends BaseSpringBootTest {
 
     @Test
     void filtersAndOrderingAreStoredAndReturnedWithTheColumns() throws AlreadyExistException {
-        SearchFilterRequestDto filter = new SearchFilterRequestDto(FilterFieldSource.PROPERTY, "COMMON_NAME",
+        ListViewFilterDto filter = new ListViewFilterDto(FilterFieldSource.PROPERTY, "COMMON_NAME",
                 FilterConditionOperator.CONTAINS, "test");
         SearchSortRequestDto sort = new SearchSortRequestDto(FilterFieldSource.PROPERTY, "NOT_AFTER",
                 SortDirection.DESC);
 
         ListViewRequestDto request = request("Sliced", column("COMMON_NAME"));
         request.setFilters(List.of(filter));
-        request.setSort(sort);
+        request.setSort(sent(sort));
 
         listViewService.createView(request);
 
@@ -304,7 +323,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
         ListViewRequestDto request = request("Inventory", column("CBOM_ASSET_NAME"),
                 column("CBOM_ASSET_PQC_VERDICT", "Readiness"), column("CBOM_ASSET_SOURCE_COUNT"));
         request.setResource(Resource.CRYPTO_ASSET);
-        request.setSort(sort);
+        request.setSort(sent(sort));
 
         listViewService.createView(request);
 
@@ -415,7 +434,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
 
     @Test
     void aFilterOnAFieldThatNoLongerExistsSurvivesARename() throws NotFoundException, AlreadyExistException {
-        SearchFilterRequestDto deleted = new SearchFilterRequestDto(FilterFieldSource.CUSTOM, "deleted|STRING",
+        ListViewFilterDto deleted = new ListViewFilterDto(FilterFieldSource.CUSTOM, "deleted|STRING",
                 FilterConditionOperator.EQUALS, "x");
         ListView stored = storeFiltered("Filtered", List.of(column("COMMON_NAME")), List.of(deleted));
 
@@ -424,19 +443,19 @@ class ListViewServiceITest extends BaseSpringBootTest {
         ListViewDto renamed = listViewService.editView(stored.getUuid().toString(), rename);
 
         Assertions.assertEquals("Renamed", renamed.getName());
-        Assertions.assertEquals(List.of(deleted), renamed.getFilters());
+        Assertions.assertEquals(termsOf(List.of(deleted)), termsOf(renamed.getFilters()));
     }
 
     @Test
     void aFilterOnAFieldThatNoLongerExistsCannotBeChangedOnAnExistingView() {
-        SearchFilterRequestDto deleted = new SearchFilterRequestDto(FilterFieldSource.CUSTOM, "deleted|STRING",
+        ListViewFilterDto deleted = new ListViewFilterDto(FilterFieldSource.CUSTOM, "deleted|STRING",
                 FilterConditionOperator.EQUALS, "x");
         ListView stored = storeFiltered("Filtered", List.of(column("COMMON_NAME")), List.of(deleted));
 
         ListViewUpdateRequestDto edit = update("Filtered", column("COMMON_NAME"));
         edit
                 .setFilters(List
-                        .of(new SearchFilterRequestDto(FilterFieldSource.CUSTOM, "deleted|STRING",
+                        .of(new ListViewFilterDto(FilterFieldSource.CUSTOM, "deleted|STRING",
                                 FilterConditionOperator.CONTAINS, "x")));
         String uuid = stored.getUuid().toString();
 
@@ -447,7 +466,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
 
     @Test
     void aStoredFilterOnAFieldThatNoLongerExistsCannotBeRepeated() {
-        SearchFilterRequestDto deleted = new SearchFilterRequestDto(FilterFieldSource.CUSTOM, "deleted|STRING",
+        ListViewFilterDto deleted = new ListViewFilterDto(FilterFieldSource.CUSTOM, "deleted|STRING",
                 FilterConditionOperator.EQUALS, "x");
         ListView stored = storeFiltered("Filtered", List.of(column("COMMON_NAME")), List.of(deleted));
 
@@ -466,7 +485,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
         ListViewUpdateRequestDto edit = update("Clean", column("COMMON_NAME"));
         edit
                 .setFilters(List
-                        .of(new SearchFilterRequestDto(FilterFieldSource.CUSTOM, "deleted|STRING",
+                        .of(new ListViewFilterDto(FilterFieldSource.CUSTOM, "deleted|STRING",
                                 FilterConditionOperator.EQUALS, "x")));
         String uuid = created.getUuid();
 
@@ -505,7 +524,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
     void aFilterWhoseConditionTheFieldNoLongerOffersSurvivesARename()
             throws AlreadyExistException, AttributeException, NotFoundException {
         UUID team = createTeamAttribute();
-        SearchFilterRequestDto pki = teamFilter(FilterConditionOperator.EQUALS, "pki");
+        ListViewFilterDto pki = teamFilter(FilterConditionOperator.EQUALS, "pki");
         ListViewRequestDto request = request("Team", column("COMMON_NAME"));
         request.setFilters(List.of(pki));
         ListViewDto created = listViewService.createView(request);
@@ -516,7 +535,8 @@ class ListViewServiceITest extends BaseSpringBootTest {
         ListViewDto renamed = listViewService.editView(created.getUuid(), rename);
 
         Assertions.assertEquals("Renamed", renamed.getName());
-        Assertions.assertEquals(List.of(pki), renamed.getFilters());
+        Assertions.assertEquals(termsOf(List.of(pki)), termsOf(renamed.getFilters()));
+        Assertions.assertEquals(ListViewFieldStatus.UNAVAILABLE, renamed.getFilters().getFirst().getStatus());
     }
 
     @Test
@@ -555,8 +575,8 @@ class ListViewServiceITest extends BaseSpringBootTest {
         attributeService.editCustomAttribute(attribute, request);
     }
 
-    private static SearchFilterRequestDto teamFilter(FilterConditionOperator condition, String value) {
-        return new SearchFilterRequestDto(FilterFieldSource.CUSTOM, "team|STRING", condition, value);
+    private static ListViewFilterDto teamFilter(FilterConditionOperator condition, String value) {
+        return new ListViewFilterDto(FilterFieldSource.CUSTOM, "team|STRING", condition, value);
     }
 
     /**
@@ -571,6 +591,9 @@ class ListViewServiceITest extends BaseSpringBootTest {
         ListViewDto read = listViewService.listViews(Resource.CERTIFICATE).getFirst();
 
         Assertions.assertEquals(List.of("COMMON_NAME", "CERTIFICATE_PROTOCOL"), identifiersOf(read));
+        Assertions
+                .assertEquals(List.of(ListViewFieldStatus.AVAILABLE, ListViewFieldStatus.UNAVAILABLE),
+                        read.getColumns().stream().map(ListViewColumnDto::getStatus).toList());
     }
 
     /**
@@ -610,11 +633,11 @@ class ListViewServiceITest extends BaseSpringBootTest {
         save(name, columns, null, sort);
     }
 
-    private ListView storeFiltered(String name, List<ListViewColumnDto> columns, List<SearchFilterRequestDto> filters) {
+    private ListView storeFiltered(String name, List<ListViewColumnDto> columns, List<ListViewFilterDto> filters) {
         return save(name, columns, filters, null);
     }
 
-    private ListView save(String name, List<ListViewColumnDto> columns, List<SearchFilterRequestDto> filters,
+    private ListView save(String name, List<ListViewColumnDto> columns, List<ListViewFilterDto> filters,
             SearchSortRequestDto sort) {
         ListView stored = new ListView();
         stored.setUserUuid(user);
@@ -648,7 +671,9 @@ class ListViewServiceITest extends BaseSpringBootTest {
         ListViewDto read = listViewService.listViews(Resource.CERTIFICATE).getFirst();
 
         Assertions.assertEquals(List.of("COMMON_NAME", TEAM), identifiersOf(read));
-        Assertions.assertEquals(List.of(teamFilter(FilterConditionOperator.EQUALS, "blue")), read.getFilters());
+        Assertions
+                .assertEquals(termsOf(List.of(teamFilter(FilterConditionOperator.EQUALS, "blue"))),
+                        termsOf(read.getFilters()));
         Assertions.assertNull(read.getSort());
     }
 
@@ -663,7 +688,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
 
         ListViewUpdateRequestDto rename = update("Team renamed", read.getColumns().toArray(ListViewColumnDto[]::new));
         rename.setFilters(read.getFilters());
-        rename.setSort(read.getSort());
+        rename.setSort(sent(read.getSort()));
         ListViewDto renamed = listViewService.editView(read.getUuid(), rename);
 
         Assertions.assertEquals("Team renamed", renamed.getName());
@@ -680,6 +705,506 @@ class ListViewServiceITest extends BaseSpringBootTest {
 
         ValidationException e = Assertions
                 .assertThrows(ValidationException.class, () -> listViewService.createView(request));
+        Assertions.assertTrue(e.getMessage().contains("has no field " + TEAM), e.getMessage());
+    }
+
+    private static ListViewColumnDto teamColumn() {
+        return new ListViewColumnDto(FilterFieldSource.CUSTOM, TEAM, null);
+    }
+
+    private static ListViewColumnDto teamColumnOf(ListViewDto view) {
+        return view.getColumns().stream().filter(c -> TEAM.equals(c.getFieldIdentifier())).findFirst().orElseThrow();
+    }
+
+    private ListViewDto readTheOnlyView() {
+        return listViewService.listViews(Resource.CERTIFICATE).getFirst();
+    }
+
+    private ListViewDto createTeamColumnView() throws AlreadyExistException {
+        return listViewService.createView(request("Team", column("COMMON_NAME"), teamColumn()));
+    }
+
+    private ListViewDto createTeamFilterView() throws AlreadyExistException {
+        ListViewRequestDto request = request("Team", column("COMMON_NAME"));
+        request.setFilters(List.of(teamFilter(FilterConditionOperator.EQUALS, "pki")));
+        return listViewService.createView(request);
+    }
+
+    private UUID recreateTeamAttribute(UUID team) throws NotFoundException, AlreadyExistException, AttributeException {
+        attributeService.deleteCustomAttribute(team);
+        return createTeamAttribute();
+    }
+
+    private static ListViewSortRequestDto sent(SearchSortRequestDto sort) {
+        return sort == null
+                ? null
+                : new ListViewSortRequestDto(sort.getFieldSource(), sort.getFieldIdentifier(), sort.getDirection());
+    }
+
+    private static ListViewUpdateRequestDto savedBack(ListViewDto read, String name) {
+        ListViewUpdateRequestDto request = update(name, read.getColumns().toArray(ListViewColumnDto[]::new));
+        request.setFilters(read.getFilters());
+        request.setSort(sent(read.getSort()));
+        return request;
+    }
+
+    @Test
+    void anAttributeColumnIsBoundToTheDefinitionItWasAddedFor() throws AlreadyExistException, AttributeException {
+        UUID team = createTeamAttribute();
+
+        ListViewDto created = createTeamColumnView();
+
+        Assertions.assertEquals(List.of(team), teamColumnOf(created).getAttributeDefinitionUuids());
+        Assertions.assertEquals(ListViewFieldStatus.AVAILABLE, teamColumnOf(created).getStatus());
+        Assertions.assertEquals(List.of(team), teamColumnOf(readTheOnlyView()).getAttributeDefinitionUuids());
+        Assertions.assertEquals(ListViewFieldStatus.AVAILABLE, teamColumnOf(readTheOnlyView()).getStatus());
+    }
+
+    @Test
+    void aPropertyColumnCarriesNoBindingAndReadsAvailable() throws AlreadyExistException {
+        listViewService.createView(request("Plain", column("COMMON_NAME")));
+
+        ListViewColumnDto read = readTheOnlyView().getColumns().getFirst();
+
+        Assertions.assertNull(read.getAttributeDefinitionUuids());
+        Assertions.assertEquals(ListViewFieldStatus.AVAILABLE, read.getStatus());
+    }
+
+    @Test
+    void aColumnOfADeletedAttributeReadsUnavailable()
+            throws AlreadyExistException, AttributeException, NotFoundException {
+        UUID team = createTeamAttribute();
+        createTeamColumnView();
+
+        attributeService.deleteCustomAttribute(team);
+
+        Assertions.assertEquals(ListViewFieldStatus.UNAVAILABLE, teamColumnOf(readTheOnlyView()).getStatus());
+    }
+
+    @Test
+    void anAttributeRecreatedUnderTheSameNameAndTypeDoesNotClaimAStoredColumn()
+            throws AlreadyExistException, AttributeException, NotFoundException {
+        UUID team = createTeamAttribute();
+        createTeamColumnView();
+
+        recreateTeamAttribute(team);
+
+        ListViewColumnDto read = teamColumnOf(readTheOnlyView());
+        Assertions.assertEquals(ListViewFieldStatus.REPLACED, read.getStatus());
+        Assertions.assertEquals(List.of(team), read.getAttributeDefinitionUuids());
+    }
+
+    @Test
+    void anAttributeRecreatedUnderTheSameNameAndTypeDoesNotClaimAStoredFilter()
+            throws AlreadyExistException, AttributeException, NotFoundException {
+        UUID team = createTeamAttribute();
+        ListViewDto created = createTeamFilterView();
+        Assertions.assertEquals(List.of(team), created.getFilters().getFirst().getAttributeDefinitionUuids());
+        Assertions.assertEquals(ListViewFieldStatus.AVAILABLE, created.getFilters().getFirst().getStatus());
+
+        attributeService.deleteCustomAttribute(team);
+        Assertions.assertEquals(ListViewFieldStatus.UNAVAILABLE, readTheOnlyView().getFilters().getFirst().getStatus());
+        createTeamAttribute();
+
+        ListViewFilterDto read = readTheOnlyView().getFilters().getFirst();
+        Assertions.assertEquals(ListViewFieldStatus.REPLACED, read.getStatus());
+        Assertions.assertEquals(List.of(team), read.getAttributeDefinitionUuids());
+    }
+
+    /** What a client that predates the binding does: it sends back what it read, under a new name. */
+    @Test
+    void aReplacedColumnAndFilterStayReplacedWhenTheViewIsSavedBack()
+            throws AlreadyExistException, AttributeException, NotFoundException {
+        UUID team = createTeamAttribute();
+        ListViewRequestDto request = request("Team", column("COMMON_NAME"), teamColumn());
+        request.setFilters(List.of(teamFilter(FilterConditionOperator.EQUALS, "pki")));
+        listViewService.createView(request);
+        recreateTeamAttribute(team);
+        ListViewDto read = readTheOnlyView();
+
+        ListViewDto renamed = listViewService.editView(read.getUuid(), savedBack(read, "Renamed"));
+
+        Assertions.assertEquals(ListViewFieldStatus.REPLACED, teamColumnOf(renamed).getStatus());
+        Assertions.assertEquals(List.of(team), teamColumnOf(renamed).getAttributeDefinitionUuids());
+        Assertions.assertEquals(ListViewFieldStatus.REPLACED, renamed.getFilters().getFirst().getStatus());
+        Assertions.assertEquals(ListViewFieldStatus.REPLACED, teamColumnOf(readTheOnlyView()).getStatus());
+        Assertions.assertEquals(ListViewFieldStatus.REPLACED, readTheOnlyView().getFilters().getFirst().getStatus());
+    }
+
+    @Test
+    void aReplacedColumnSentWithoutItsBindingStaysReplaced()
+            throws AlreadyExistException, AttributeException, NotFoundException {
+        UUID team = createTeamAttribute();
+        ListViewDto created = createTeamColumnView();
+        recreateTeamAttribute(team);
+
+        ListViewDto renamed = listViewService
+                .editView(created.getUuid(), update("Renamed", column("COMMON_NAME"), teamColumn()));
+
+        Assertions.assertEquals(ListViewFieldStatus.REPLACED, teamColumnOf(renamed).getStatus());
+    }
+
+    @Test
+    void rebindingAReplacedColumnBindsItToTheCurrentDefinition()
+            throws AlreadyExistException, AttributeException, NotFoundException {
+        UUID team = createTeamAttribute();
+        createTeamColumnView();
+        UUID recreated = recreateTeamAttribute(team);
+        ListViewDto read = readTheOnlyView();
+        teamColumnOf(read).setRebind(true);
+
+        ListViewDto rebound = listViewService.editView(read.getUuid(), savedBack(read, "Team"));
+
+        Assertions.assertEquals(ListViewFieldStatus.AVAILABLE, teamColumnOf(rebound).getStatus());
+        Assertions.assertEquals(List.of(recreated), teamColumnOf(rebound).getAttributeDefinitionUuids());
+        Assertions.assertEquals(ListViewFieldStatus.AVAILABLE, teamColumnOf(readTheOnlyView()).getStatus());
+        Assertions.assertNull(teamColumnOf(readTheOnlyView()).getRebind());
+    }
+
+    @Test
+    void rebindingAReplacedFilterBindsItToTheCurrentDefinition()
+            throws AlreadyExistException, AttributeException, NotFoundException {
+        UUID team = createTeamAttribute();
+        createTeamFilterView();
+        UUID recreated = recreateTeamAttribute(team);
+        ListViewDto read = readTheOnlyView();
+        read.getFilters().getFirst().setRebind(true);
+
+        ListViewDto rebound = listViewService.editView(read.getUuid(), savedBack(read, "Team"));
+
+        ListViewFilterDto filter = rebound.getFilters().getFirst();
+        Assertions.assertEquals(ListViewFieldStatus.AVAILABLE, filter.getStatus());
+        Assertions.assertEquals(List.of(recreated), filter.getAttributeDefinitionUuids());
+        Assertions.assertEquals(ListViewFieldStatus.AVAILABLE, readTheOnlyView().getFilters().getFirst().getStatus());
+    }
+
+    /**
+     * The request that waited held the view as it was before the rebind, loaded in a session that stays open across the
+     * write. Carrying the binding from that copy would put back the one the rebind had just replaced.
+     */
+    @Test
+    void aSaveThatWaitedOnARebindKeepsTheRebinding()
+            throws AlreadyExistException, AttributeException, NotFoundException {
+        UUID team = createTeamAttribute();
+        createTeamColumnView();
+        UUID recreated = recreateTeamAttribute(team);
+        ListViewUpdateRequestDto rename = savedBack(readTheOnlyView(), "Renamed");
+        ListViewDto read = readTheOnlyView();
+        teamColumnOf(read).setRebind(true);
+        ListViewUpdateRequestDto rebind = savedBack(read, "Team");
+
+        transactionTemplate.executeWithoutResult(status -> {
+            listViewRepository.findById(UUID.fromString(read.getUuid())).orElseThrow();
+            inANewTransaction(() -> listViewService.editView(read.getUuid(), rebind));
+            inThisTransaction(() -> listViewService.editView(read.getUuid(), rename));
+        });
+
+        ListViewColumnDto stored = teamColumnOf(readTheOnlyView());
+        Assertions.assertEquals(List.of(recreated), stored.getAttributeDefinitionUuids());
+        Assertions.assertEquals(ListViewFieldStatus.AVAILABLE, stored.getStatus());
+    }
+
+    @Test
+    void aViewDeletedWhileAnEditWaitsForItsLockIsNotFound() throws Exception {
+        ListViewDto created = listViewService.createView(request("Doomed", column("COMMON_NAME")));
+        SecurityContext context = SecurityContextHolder.getContext();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<ListViewDto> edit = transactionTemplate.execute(status -> {
+                clusterSynchronizer.lock("list-view:" + user + ":" + Resource.CERTIFICATE.getCode());
+                Future<ListViewDto> waiting = executor.submit(() -> {
+                    SecurityContextHolder.setContext(context);
+                    try {
+                        return listViewService.editView(created.getUuid(), update("Renamed", column("COMMON_NAME")));
+                    } finally {
+                        SecurityContextHolder.clearContext();
+                    }
+                });
+                Awaitility
+                        .await()
+                        .atMost(Duration.ofSeconds(10))
+                        .until(() -> jdbcTemplate
+                                .queryForObject(
+                                        "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted",
+                                        Long.class) >= 1);
+                jdbcTemplate
+                        .update("DELETE FROM " + dbSchema + ".list_view WHERE uuid = ?",
+                                UUID.fromString(created.getUuid()));
+                return waiting;
+            });
+
+            ExecutionException e = Assertions
+                    .assertThrows(ExecutionException.class, () -> edit.get(30, TimeUnit.SECONDS));
+            Assertions.assertInstanceOf(NotFoundException.class, e.getCause());
+        } finally {
+            executor.shutdownNow();
+            Assertions.assertTrue(executor.awaitTermination(30, TimeUnit.SECONDS));
+        }
+    }
+
+    private void inANewTransaction(ListViewCall call) {
+        TransactionTemplate requiresNew = new TransactionTemplate(transactionTemplate.getTransactionManager());
+        requiresNew.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        requiresNew.executeWithoutResult(status -> inThisTransaction(call));
+    }
+
+    private static void inThisTransaction(ListViewCall call) {
+        try {
+            call.run();
+        } catch (AlreadyExistException | NotFoundException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    @FunctionalInterface
+    private interface ListViewCall {
+        Object run() throws AlreadyExistException, NotFoundException;
+    }
+
+    @Test
+    void aColumnRemovedAndAddedAgainBindsToTheCurrentDefinition()
+            throws AlreadyExistException, AttributeException, NotFoundException {
+        UUID team = createTeamAttribute();
+        ListViewDto created = createTeamColumnView();
+        UUID recreated = recreateTeamAttribute(team);
+
+        listViewService.editView(created.getUuid(), update("Team", column("COMMON_NAME")));
+        ListViewDto readded = listViewService
+                .editView(created.getUuid(), update("Team", column("COMMON_NAME"), teamColumn()));
+
+        Assertions.assertEquals(ListViewFieldStatus.AVAILABLE, teamColumnOf(readded).getStatus());
+        Assertions.assertEquals(List.of(recreated), teamColumnOf(readded).getAttributeDefinitionUuids());
+    }
+
+    @Test
+    void aChangedFilterOnARecreatedAttributeBindsToTheCurrentDefinition()
+            throws AlreadyExistException, AttributeException, NotFoundException {
+        UUID team = createTeamAttribute();
+        ListViewDto created = createTeamFilterView();
+        UUID recreated = recreateTeamAttribute(team);
+
+        ListViewUpdateRequestDto edit = update("Team", column("COMMON_NAME"));
+        edit.setFilters(List.of(teamFilter(FilterConditionOperator.EQUALS, "ops")));
+        ListViewDto edited = listViewService.editView(created.getUuid(), edit);
+
+        Assertions.assertEquals(List.of(recreated), edited.getFilters().getFirst().getAttributeDefinitionUuids());
+        Assertions.assertEquals(ListViewFieldStatus.AVAILABLE, edited.getFilters().getFirst().getStatus());
+    }
+
+    @Test
+    void rebindingAColumnWhoseAttributeIsGoneIsRejected()
+            throws AlreadyExistException, AttributeException, NotFoundException {
+        UUID team = createTeamAttribute();
+        createTeamColumnView();
+        attributeService.deleteCustomAttribute(team);
+        ListViewDto read = readTheOnlyView();
+        teamColumnOf(read).setRebind(true);
+        ListViewUpdateRequestDto rebind = savedBack(read, "Team");
+        String uuid = read.getUuid();
+
+        ValidationException e = Assertions
+                .assertThrows(ValidationException.class, () -> listViewService.editView(uuid, rebind));
+        Assertions.assertTrue(e.getMessage().contains("has no field " + TEAM), e.getMessage());
+    }
+
+    @Test
+    void aBindingSentByTheClientIsIgnored() throws AlreadyExistException, AttributeException, NotFoundException {
+        UUID team = createTeamAttribute();
+        ListViewDto created = createTeamColumnView();
+        UUID recreated = recreateTeamAttribute(team);
+        ListViewColumnDto forged = teamColumn();
+        forged.setAttributeDefinitionUuids(List.of(recreated));
+        forged.setStatus(ListViewFieldStatus.AVAILABLE);
+
+        ListViewDto edited = listViewService.editView(created.getUuid(), update("Team", column("COMMON_NAME"), forged));
+
+        Assertions.assertEquals(List.of(team), teamColumnOf(edited).getAttributeDefinitionUuids());
+        Assertions.assertEquals(ListViewFieldStatus.REPLACED, teamColumnOf(edited).getStatus());
+    }
+
+    @Test
+    void aNewViewIgnoresABindingSentByTheClient() throws AlreadyExistException, AttributeException {
+        UUID team = createTeamAttribute();
+        ListViewColumnDto forged = teamColumn();
+        forged.setAttributeDefinitionUuids(List.of(UUID.randomUUID()));
+
+        ListViewDto created = listViewService.createView(request("Team", column("COMMON_NAME"), forged));
+
+        Assertions.assertEquals(List.of(team), teamColumnOf(created).getAttributeDefinitionUuids());
+    }
+
+    @Test
+    void anOrderingOnAReplacedColumnIsDroppedOnRead()
+            throws AlreadyExistException, AttributeException, NotFoundException {
+        UUID team = createTeamAttribute();
+        ListViewRequestDto request = request("Team", column("COMMON_NAME"), teamColumn());
+        request.setSort(new ListViewSortRequestDto(FilterFieldSource.CUSTOM, TEAM, SortDirection.ASC));
+        listViewService.createView(request);
+        Assertions.assertNotNull(readTheOnlyView().getSort());
+
+        recreateTeamAttribute(team);
+
+        Assertions.assertNull(readTheOnlyView().getSort());
+    }
+
+    /**
+     * A row written before entries carried a binding, by a replica that predates it. It resolves by identifier, as it
+     * always did, and is bound to what it shows the next time the view is saved.
+     */
+    @Test
+    void aColumnStoredWithoutABindingResolvesByIdentifierAndIsBoundOnTheNextSave()
+            throws AlreadyExistException, AttributeException, NotFoundException {
+        UUID team = createTeamAttribute();
+        ListView stored = save("Legacy", List.of(column("COMMON_NAME"), teamColumn()),
+                List.of(teamFilter(FilterConditionOperator.EQUALS, "pki")), null);
+
+        ListViewDto read = readTheOnlyView();
+        Assertions.assertEquals(ListViewFieldStatus.AVAILABLE, teamColumnOf(read).getStatus());
+        Assertions.assertNull(teamColumnOf(read).getAttributeDefinitionUuids());
+        Assertions.assertEquals(ListViewFieldStatus.AVAILABLE, read.getFilters().getFirst().getStatus());
+
+        ListViewDto saved = listViewService.editView(stored.getUuid().toString(), savedBack(read, "Legacy"));
+
+        Assertions.assertEquals(List.of(team), teamColumnOf(saved).getAttributeDefinitionUuids());
+        Assertions.assertEquals(List.of(team), saved.getFilters().getFirst().getAttributeDefinitionUuids());
+    }
+
+    @Test
+    void aColumnBoundWhileTheAttributeWasAlreadyGoneNeverResolves() throws AlreadyExistException, AttributeException {
+        ListViewColumnDto dormant = teamColumn();
+        dormant.setAttributeDefinitionUuids(List.of());
+        store("Dormant", List.of(column("COMMON_NAME"), dormant), null);
+
+        createTeamAttribute();
+
+        Assertions.assertEquals(ListViewFieldStatus.REPLACED, teamColumnOf(readTheOnlyView()).getStatus());
+    }
+
+    @Test
+    void theStatusAndTheRebindFlagAreNotStored() throws AlreadyExistException, AttributeException, NotFoundException {
+        UUID team = createTeamAttribute();
+        createTeamColumnView();
+        recreateTeamAttribute(team);
+        ListViewDto read = readTheOnlyView();
+        teamColumnOf(read).setRebind(true);
+        listViewService.editView(read.getUuid(), savedBack(read, "Team"));
+
+        String columns = jdbcTemplate
+                .queryForObject(
+                        "SELECT CAST(\"columns\" AS TEXT) FROM " + dbSchema + ".\"list_view\" WHERE \"uuid\" = ?",
+                        String.class, UUID.fromString(read.getUuid()));
+
+        Assertions.assertFalse(columns.contains("status"), columns);
+        Assertions.assertFalse(columns.contains("rebind"), columns);
+        Assertions.assertTrue(columns.contains("attributeDefinitionUuids"), columns);
+    }
+
+    @Test
+    void anOrderingOnAReplacedAttributeIsDroppedOnReadWithoutAColumnForIt()
+            throws AlreadyExistException, AttributeException, NotFoundException {
+        UUID team = createTeamAttribute();
+        ListViewRequestDto request = request("Team", column("COMMON_NAME"));
+        request.setSort(new ListViewSortRequestDto(FilterFieldSource.CUSTOM, TEAM, SortDirection.ASC));
+        listViewService.createView(request);
+        Assertions.assertNotNull(readTheOnlyView().getSort());
+
+        recreateTeamAttribute(team);
+
+        Assertions.assertNull(readTheOnlyView().getSort());
+    }
+
+    /** An ordering changed from the stored one is a choice made afresh, so it binds to the recreated attribute. */
+    @Test
+    void anOrderingChosenAgainAfterTheAttributeWasRecreatedIsKept()
+            throws AlreadyExistException, AttributeException, NotFoundException {
+        UUID team = createTeamAttribute();
+        ListViewRequestDto request = request("Team", column("COMMON_NAME"));
+        request.setSort(new ListViewSortRequestDto(FilterFieldSource.CUSTOM, TEAM, SortDirection.ASC));
+        ListViewDto created = listViewService.createView(request);
+        UUID recreated = recreateTeamAttribute(team);
+
+        ListViewUpdateRequestDto edit = update("Team", column("COMMON_NAME"));
+        edit.setSort(new ListViewSortRequestDto(FilterFieldSource.CUSTOM, TEAM, SortDirection.DESC));
+        listViewService.editView(created.getUuid(), edit);
+
+        Assertions.assertEquals(SortDirection.DESC, readTheOnlyView().getSort().getDirection());
+        Assertions.assertEquals(List.of(recreated), storedSortBinding(created));
+    }
+
+    /**
+     * A client that read the view before its attribute was replaced still holds the ordering the read now drops, and
+     * sending it back unchanged must not hand it to the replacement.
+     */
+    @Test
+    void anUnchangedOrderingSentBackByAStaleClientKeepsItsBinding()
+            throws AlreadyExistException, AttributeException, NotFoundException {
+        UUID team = createTeamAttribute();
+        ListViewRequestDto request = request("Team", column("COMMON_NAME"));
+        request.setSort(new ListViewSortRequestDto(FilterFieldSource.CUSTOM, TEAM, SortDirection.ASC));
+        ListViewDto created = listViewService.createView(request);
+        ListViewUpdateRequestDto stale = savedBack(readTheOnlyView(), "Renamed");
+        recreateTeamAttribute(team);
+
+        listViewService.editView(created.getUuid(), stale);
+
+        Assertions.assertEquals(List.of(team), storedSortBinding(created));
+        Assertions.assertEquals("Renamed", readTheOnlyView().getName());
+        Assertions.assertNull(readTheOnlyView().getSort());
+    }
+
+    @Test
+    void theSameOrderingChosenAgainWithRebindFollowsTheRecreatedAttribute()
+            throws AlreadyExistException, AttributeException, NotFoundException {
+        UUID team = createTeamAttribute();
+        ListViewRequestDto request = request("Team", column("COMMON_NAME"));
+        request.setSort(new ListViewSortRequestDto(FilterFieldSource.CUSTOM, TEAM, SortDirection.ASC));
+        ListViewDto created = listViewService.createView(request);
+        UUID recreated = recreateTeamAttribute(team);
+
+        ListViewUpdateRequestDto edit = update("Team", column("COMMON_NAME"));
+        ListViewSortRequestDto chosen = new ListViewSortRequestDto(FilterFieldSource.CUSTOM, TEAM, SortDirection.ASC);
+        chosen.setRebind(true);
+        edit.setSort(chosen);
+        listViewService.editView(created.getUuid(), edit);
+
+        Assertions.assertEquals(List.of(recreated), storedSortBinding(created));
+        Assertions.assertEquals(SortDirection.ASC, readTheOnlyView().getSort().getDirection());
+    }
+
+    private List<UUID> storedSortBinding(ListViewDto view) {
+        return listViewRepository
+                .findById(UUID.fromString(view.getUuid()))
+                .orElseThrow()
+                .getSortAttributeDefinitionUuids();
+    }
+
+    /**
+     * An attribute the owner may no longer read is out of their catalogue, so a save neither binds the entries on it to
+     * anything nor lets them be rebound: the binding stays what it was until someone who can see the field saves.
+     */
+    @Test
+    void aSaveByACallerWhoCannotReadTheAttributeLeavesItsBindingAlone()
+            throws AlreadyExistException, AttributeException, NotFoundException {
+        UUID team = createTeamAttribute();
+        ListView stored = save("Legacy", List.of(column("COMMON_NAME"), teamColumn()),
+                List.of(teamFilter(FilterConditionOperator.EQUALS, "pki")), null);
+        forbidObjectAccess(Resource.ATTRIBUTE, ResourceAction.MEMBERS, List.of(team));
+        ListViewDto read = readTheOnlyView();
+        Assertions.assertEquals(ListViewFieldStatus.UNAVAILABLE, teamColumnOf(read).getStatus());
+        Assertions.assertEquals(ListViewFieldStatus.UNAVAILABLE, read.getFilters().getFirst().getStatus());
+
+        listViewService.editView(stored.getUuid().toString(), savedBack(read, "Legacy"));
+
+        ListView after = listViewRepository.findById(stored.getUuid()).orElseThrow();
+        Assertions.assertNull(after.getColumns().get(1).getAttributeDefinitionUuids());
+        Assertions.assertNull(after.getFilters().getFirst().getAttributeDefinitionUuids());
+
+        ListViewDto again = readTheOnlyView();
+        teamColumnOf(again).setRebind(true);
+        ListViewUpdateRequestDto rebind = savedBack(again, "Legacy");
+        String uuid = again.getUuid();
+        ValidationException e = Assertions
+                .assertThrows(ValidationException.class, () -> listViewService.editView(uuid, rebind));
         Assertions.assertTrue(e.getMessage().contains("has no field " + TEAM), e.getMessage());
     }
 
@@ -772,7 +1297,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
     void anOrderingTheListingWouldRefuseIsRejectedOnWrite() {
         ListViewRequestDto request = request("Unorderable", column("COMMON_NAME"));
         request
-                .setSort(new SearchSortRequestDto(FilterFieldSource.PROPERTY, "CERTIFICATE_PROTOCOL",
+                .setSort(new ListViewSortRequestDto(FilterFieldSource.PROPERTY, "CERTIFICATE_PROTOCOL",
                         SortDirection.ASC));
 
         ValidationException e = Assertions
@@ -789,7 +1314,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
         ListViewRequestDto request = request("Filtered", column("COMMON_NAME"));
         request
                 .setFilters(List
-                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, "CERTIFICATE_PROTOCOL",
+                        .of(new ListViewFilterDto(FilterFieldSource.PROPERTY, "CERTIFICATE_PROTOCOL",
                                 FilterConditionOperator.EQUALS, "acme")));
 
         ListViewDto created = listViewService.createView(request);
@@ -915,7 +1440,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
         ListViewRequestDto request = request("Impossible", column("COMMON_NAME"));
         request
                 .setFilters(List
-                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, "CKI_NAME",
+                        .of(new ListViewFilterDto(FilterFieldSource.PROPERTY, "CKI_NAME",
                                 FilterConditionOperator.EQUALS, "key")));
 
         ValidationException e = Assertions
@@ -928,7 +1453,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
         ListViewRequestDto request = request("Impossible", column("COMMON_NAME"));
         request
                 .setFilters(List
-                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, "NOT_AFTER",
+                        .of(new ListViewFilterDto(FilterFieldSource.PROPERTY, "NOT_AFTER",
                                 FilterConditionOperator.CONTAINS, "test")));
 
         ValidationException e = Assertions
@@ -939,7 +1464,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
     @Test
     void anOrderingOnAFieldTheResourceDoesNotOfferIsRejectedOnWrite() {
         ListViewRequestDto request = request("Impossible", column("COMMON_NAME"));
-        request.setSort(new SearchSortRequestDto(FilterFieldSource.PROPERTY, "CKI_NAME", SortDirection.ASC));
+        request.setSort(new ListViewSortRequestDto(FilterFieldSource.PROPERTY, "CKI_NAME", SortDirection.ASC));
 
         ValidationException e = Assertions
                 .assertThrows(ValidationException.class, () -> listViewService.createView(request));
@@ -953,9 +1478,9 @@ class ListViewServiceITest extends BaseSpringBootTest {
         ListViewUpdateRequestDto edit = update("Sliced", column("COMMON_NAME"));
         edit
                 .setFilters(List
-                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, "COMMON_NAME",
+                        .of(new ListViewFilterDto(FilterFieldSource.PROPERTY, "COMMON_NAME",
                                 FilterConditionOperator.CONTAINS, "test")));
-        edit.setSort(new SearchSortRequestDto(FilterFieldSource.PROPERTY, "NOT_AFTER", SortDirection.DESC));
+        edit.setSort(new ListViewSortRequestDto(FilterFieldSource.PROPERTY, "NOT_AFTER", SortDirection.DESC));
 
         ListViewDto edited = listViewService.editView(created.getUuid(), edit);
 
