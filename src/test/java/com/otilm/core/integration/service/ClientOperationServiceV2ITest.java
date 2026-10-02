@@ -52,7 +52,7 @@ import com.otilm.api.model.core.v2.ClientCertificateRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
 import com.otilm.core.attribute.CsrAttributes;
 import com.otilm.core.attribute.RsaSignatureAttributes;
-import com.otilm.core.attribute.SignatureAlgorithmFields;
+import com.otilm.core.attribute.SignatureAlgorithmUtils;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
@@ -90,7 +90,7 @@ import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;
-import com.otilm.core.model.crypto.OperationAttributeSchema;
+import com.otilm.core.model.crypto.AttributesWithOwner;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateEventHistoryInternalService;
@@ -1284,7 +1284,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         stubAuthorityProviderAttributesEndpoints();
         TokenInstanceReference token = persistV2Token();
         CryptographicKey key = persistV2Key(token);
-        when(cryptographicOperationService.listSignAttributeSchema(key.getUuid()))
+        when(cryptographicOperationService.validateAttributesAndGetSchema(eq(key.getUuid()), anyList()))
                 .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
         when(cryptographicOperationService
                 .generateCsr(eq(key.getUuid()), eq(key.getTokenProfileUuid()), any(), any(), anyList(), any(), any(),
@@ -1316,7 +1316,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         stubAuthorityProviderAttributesEndpoints();
         TokenInstanceReference token = persistV2Token();
         CryptographicKey key = persistV2Key(token);
-        when(cryptographicOperationService.listSignAttributeSchema(key.getUuid()))
+        when(cryptographicOperationService.validateAttributesAndGetSchema(eq(key.getUuid()), anyList()))
                 .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
         ClientCertificateRequestDto request = uploadedRequest(key.getUuid(), sha256WithRsa());
 
@@ -1337,13 +1337,9 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         stubAuthorityProviderAttributesEndpoints();
         TokenInstanceReference token = persistV2Token();
         CryptographicKey key = persistV2Key(token);
-        List<BaseAttribute> published = List
-                .of(SignatureAlgorithmAttribute
-                        .definition(
-                                List.of(SignatureAlgorithm.SHA256_WITH_RSA, SignatureAlgorithm.SHA384_WITH_RSA_PSS)));
-        when(cryptographicOperationService.listSignAttributeSchema(key.getUuid()))
-                .thenReturn(new OperationAttributeSchema(token.getConnectorUuid(),
-                        SignatureAlgorithmFields.form(published), published));
+        String unsupportedSelectionMessage = "The signature attribute values or their combination are not supported by the key.";
+        when(cryptographicOperationService.validateAttributesAndGetSchema(eq(key.getUuid()), anyList()))
+                .thenThrow(new ValidationException(unsupportedSelectionMessage));
         ClientCertificateRequestDto request = uploadedRequest(key.getUuid(),
                 List
                         .of(RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PSS),
@@ -1354,7 +1350,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         // then
         ValidationException failure = Assertions.assertThrows(ValidationException.class, submit);
-        Assertions.assertTrue(failure.getMessage().contains("PSS with SHA-256"), failure.getMessage());
+        Assertions.assertEquals(unsupportedSelectionMessage, failure.getMessage());
     }
 
     @Test
@@ -1366,7 +1362,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         attributeEngine
                 .updateDataAttributeDefinitions(token.getConnectorUuid(), AttributeOperation.SIGN,
                         List.of(SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA))));
-        when(cryptographicOperationService.listSignAttributeSchema(key.getUuid()))
+        when(cryptographicOperationService.validateAttributesAndGetSchema(eq(key.getUuid()), anyList()))
                 .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
         List<RequestAttribute> attributes = new ArrayList<>(sha256WithRsa());
         attributes.add(SignatureAlgorithmAttribute.request(SignatureAlgorithm.SHA256_WITH_RSA));
@@ -1387,7 +1383,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         stubAuthorityProviderAttributesEndpoints();
         TokenInstanceReference token = persistV2Token();
         CryptographicKey key = persistV2Key(token);
-        when(cryptographicOperationService.listSignAttributeSchema(key.getUuid()))
+        when(cryptographicOperationService.validateAttributesAndGetSchema(eq(key.getUuid()), anyList()))
                 .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
         clientOperationService.submitCertificateRequest(uploadedRequest(key.getUuid(), sha256WithRsa()), null);
 
@@ -1407,7 +1403,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         stubAuthorityProviderAttributesEndpoints();
         TokenInstanceReference token = persistV2Token();
         CryptographicKey key = persistV2Key(token);
-        when(cryptographicOperationService.listSignAttributeSchema(key.getUuid()))
+        when(cryptographicOperationService.validateAttributesAndGetSchema(eq(key.getUuid()), anyList()))
                 .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
         clientOperationService.submitCertificateRequest(uploadedRequest(key.getUuid(), null), null);
 
@@ -1419,7 +1415,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         Assertions
                 .assertEquals(SHA256_WITH_RSA_FIELDS,
                         describe(resubmitted.getCertificateRequest().getSignatureAttributes()));
-        verify(cryptographicOperationService).listSignAttributeSchema(key.getUuid());
+        verify(cryptographicOperationService).validateAttributesAndGetSchema(eq(key.getUuid()), anyList());
     }
 
     @Test
@@ -1429,7 +1425,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         TokenInstanceReference token = persistV2Token();
         CryptographicKey key = persistV2Key(token);
         holdPublicKeyOf(key, SAMPLE_PKCS10);
-        when(cryptographicOperationService.listSignAttributeSchema(key.getUuid()))
+        when(cryptographicOperationService.validateAttributesAndGetSchema(eq(key.getUuid()), anyList()))
                 .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
 
         // when
@@ -1440,7 +1436,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         Assertions
                 .assertEquals(SHA256_WITH_RSA_FIELDS,
                         describe(submitted.getCertificateRequest().getSignatureAttributes()));
-        verify(cryptographicOperationService).listSignAttributeSchema(key.getUuid());
+        verify(cryptographicOperationService).validateAttributesAndGetSchema(eq(key.getUuid()), anyList());
     }
 
     @Test
@@ -1449,7 +1445,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         stubAuthorityProviderAttributesEndpoints();
         TokenInstanceReference token = persistV2Token();
         CryptographicKey key = persistV2Key(token);
-        when(cryptographicOperationService.listSignAttributeSchema(key.getUuid()))
+        when(cryptographicOperationService.validateAttributesAndGetSchema(eq(key.getUuid()), anyList()))
                 .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
         CertificateDetailDto submitted = clientOperationService
                 .submitCertificateRequest(uploadedRequest(key.getUuid(), sha256WithRsa()), null);
@@ -1477,10 +1473,11 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         TokenInstanceReference token = persistV2Token();
         CryptographicKey key = persistV2Key(token);
         AtomicReference<Boolean> transactionActive = new AtomicReference<>();
-        when(cryptographicOperationService.listSignAttributeSchema(key.getUuid())).thenAnswer(invocation -> {
-            transactionActive.set(TransactionSynchronizationManager.isActualTransactionActive());
-            return signatureAlgorithmSchema(token.getConnectorUuid());
-        });
+        when(cryptographicOperationService.validateAttributesAndGetSchema(eq(key.getUuid()), anyList()))
+                .thenAnswer(invocation -> {
+                    transactionActive.set(TransactionSynchronizationManager.isActualTransactionActive());
+                    return signatureAlgorithmSchema(token.getConnectorUuid());
+                });
 
         // when
         clientOperationService.submitCertificateRequest(uploadedRequest(key.getUuid(), sha256WithRsa()), null);
@@ -1618,7 +1615,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         stubAuthorityProviderAttributesEndpoints();
         TokenInstanceReference token = persistV2Token();
         CryptographicKey key = persistV2Key(token);
-        when(cryptographicOperationService.listSignAttributeSchema(key.getUuid()))
+        when(cryptographicOperationService.validateAttributesAndGetSchema(eq(key.getUuid()), anyList()))
                 .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
         CertificateDetailDto submitted = clientOperationService
                 .submitCertificateRequest(uploadedRequest(key.getUuid(), sha256WithRsa()), null);
@@ -1636,7 +1633,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
     /** Stores a request the key signed with SHA256withRSA as the fixture certificate's, as a v2 issuance leaves it. */
     private void signCertificateRequestWith(CryptographicKey key, TokenInstanceReference token) throws Exception {
-        when(cryptographicOperationService.listSignAttributeSchema(any()))
+        when(cryptographicOperationService.validateAttributesAndGetSchema(any(), anyList()))
                 .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
         X509Certificate predecessor = CertificateTestUtil
                 .createCertificateWithSubjectAndSans("CN=rekey.example.com",
@@ -1769,10 +1766,11 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     /** The schema Core presents for a v2 key whose connector offers SHA256withRSA. */
-    private static OperationAttributeSchema signatureAlgorithmSchema(UUID connectorUuid) {
+    private static AttributesWithOwner signatureAlgorithmSchema(UUID connectorUuid) {
         List<BaseAttribute> published = List
                 .of(SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA)));
-        return new OperationAttributeSchema(connectorUuid, SignatureAlgorithmFields.form(published), published);
+        List<BaseAttribute> definitions = SignatureAlgorithmUtils.expandSignatureAlgorithmDefinition(published);
+        return new AttributesWithOwner(connectorUuid, definitions);
     }
 
     private static List<RequestAttribute> sha256WithRsa() {

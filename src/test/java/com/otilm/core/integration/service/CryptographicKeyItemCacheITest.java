@@ -158,12 +158,17 @@ class CryptographicKeyItemCacheITest extends BaseSpringBootTest {
     void getKeyItemModel_mapsRemoteUuidReference() throws NotFoundException {
         // given
         UUID remoteUuid = keyItem.getKeyReferenceUuid();
+        UUID tokenReferenceUuid = key.getTokenInstanceReferenceUuid();
+        UUID tokenProfileUuid = key.getTokenProfileUuid();
 
         // when
         CryptographicKeyItemOperationModel model = cryptographicKeyInternalService.getKeyItemModel(keyItem.getUuid());
 
         // then
         assertThat(model.reference()).isEqualTo(new RemoteKeyReference.UuidReference(remoteUuid));
+        assertThat(model.tokenInstanceReferenceUuid()).isEqualTo(tokenReferenceUuid);
+        assertThat(model.tokenProfileUuid()).isEqualTo(tokenProfileUuid);
+        assertThat(model.tokenInstanceUuid()).isNotEqualTo(tokenReferenceUuid);
     }
 
     @Test

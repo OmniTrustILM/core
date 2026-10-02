@@ -89,6 +89,8 @@ import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
+import com.otilm.core.dao.repository.signing.SigningProfileRepository;
+import com.otilm.core.dao.repository.signing.SigningProfileVersionRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.helpers.TestCertificateAuthority;
@@ -130,6 +132,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -143,6 +146,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
 
 import static com.otilm.core.util.CertificateTestData.DOCUMENT_SIGNING_OID;
@@ -267,6 +271,15 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
 
     @Autowired
     private AttributeContent2ObjectRepository attributeContent2ObjectRepository;
+
+    @Autowired
+    private SigningProfileRepository signingProfileRepository;
+
+    @Autowired
+    private SigningProfileVersionRepository signingProfileVersionRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     /**
      * The row is re-read because the field's instance predates {@code certificateUploader.validate} and would write a
@@ -730,6 +743,83 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
+        void create_connectorSchemaFailure_doesNotPersistProfileOrVersion() {
+            // given
+            String profileName = "v2-failed-create";
+            SigningProfileRequestDto request = v2SigningRequest(profileName);
+            long versionCount = signingProfileVersionRepository.count();
+            v2Mock.stubOperationError("sign/attributes");
+
+            // when
+            Executable create = () -> signingProfileService.createSigningProfile(request);
+
+            // then
+            assertThrows(ConnectorException.class, create);
+            assertTrue(signingProfileRepository.findByName(profileName).isEmpty());
+            assertEquals(versionCount, signingProfileVersionRepository.count());
+        }
+
+        @Test
+        void update_connectorSchemaFailure_preservesProfileAndSigningAttributes() throws Exception {
+            // given
+            SigningProfileDto existing = signingProfileService
+                    .createSigningProfile(v2SigningRequest("v2-failed-update"));
+            SecuredUUID profileUuid = SecuredUUID.fromString(existing.getUuid());
+            String changedName = "v2-failed-update-renamed";
+            SigningProfileRequestDto request = aSigningProfileRequestFromExistingProfile(existing)
+                    .withName(changedName)
+                    .withStaticKeyManagedSigning(v2SigningCertificate.getUuid(),
+                            signingAttributes(RsaSignatureScheme.PKCS1_v1_5, DigestAlgorithm.SHA_256))
+                    .build();
+            long versionCount = signingProfileVersionRepository.count();
+            v2Mock.stubOperationError("sign/attributes");
+
+            // when
+            Executable update = () -> signingProfileService.updateSigningProfile(profileUuid, request);
+
+            // then
+            assertThrows(ConnectorException.class, update);
+            assertEquals(existing, signingProfileService.getSigningProfile(profileUuid, null));
+            assertTrue(signingProfileRepository.findByName(changedName).isEmpty());
+            assertEquals(versionCount, signingProfileVersionRepository.count());
+        }
+
+        @Test
+        void update_fetchesSchemaOnce_withoutHoldingProfileLock() throws Exception {
+            // given
+            SigningProfileDto existing = signingProfileService
+                    .createSigningProfile(v2SigningRequest("v2-unlocked-update"));
+            SecuredUUID profileUuid = SecuredUUID.fromString(existing.getUuid());
+            SigningProfileRequestDto request = aSigningProfileRequestFromExistingProfile(existing).build();
+            List<Boolean> lockAvailableDuringHttp = new CopyOnWriteArrayList<>();
+            String lockKey = "signing-profile:" + existing.getUuid();
+            v2Mock
+                    .onOperationAttributesRequest("sign",
+                            () -> lockAvailableDuringHttp
+                                    .add(jdbcTemplate
+                                            .queryForObject("SELECT pg_try_advisory_xact_lock(hashtext(?))",
+                                                    Boolean.class, lockKey)));
+
+            // when
+            SigningProfileDto updated = signingProfileService.updateSigningProfile(profileUuid, request);
+
+            // then
+            assertEquals(existing, updated);
+            assertEquals(List.of(true), lockAvailableDuringHttp);
+            int schemaRequestsForCreateAndUpdate = 2;
+            v2Mock.verifyOperationAttributesRequests("sign", schemaRequestsForCreateAndUpdate);
+        }
+
+        private SigningProfileRequestDto v2SigningRequest(String name) {
+            return aSigningProfileRequest()
+                    .withName(name)
+                    .withStaticKeyManagedSigning(v2SigningCertificate.getUuid(),
+                            signingAttributes(RsaSignatureScheme.PSS, DigestAlgorithm.SHA_256))
+                    .withRawSigning()
+                    .build();
+        }
+
+        @Test
         void listSignatureAttributesForCertificate_asksCoresFields_besideTheConnectorsOwn() throws Exception {
             // when
             List<BaseAttribute> attributes = signingProfileService
@@ -909,12 +999,13 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
 
             // then
             ValidationException failure = assertThrows(ValidationException.class, create);
-            assertTrue(firstErrorMessage(failure).contains("PSS with SHA-384"), firstErrorMessage(failure));
+            assertTrue(firstErrorMessage(failure).contains("not supported by the key"), firstErrorMessage(failure));
         }
 
         @Test
         void create_v2Key_refusesASignatureAlgorithmStatedBesideTheFields() throws Exception {
             // given: a definition of the connector's attribute stored before Core presented the fields
+            String expectedError = "Signature attributes must contain one or two attributes.";
             attributeEngine
                     .updateDataAttributeDefinitions(v2Connector.getUuid(), AttributeOperation.SIGN, List
                             .of(SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA))));
@@ -932,8 +1023,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
 
             // then
             ValidationException failure = assertThrows(ValidationException.class, create);
-            assertTrue(firstErrorMessage(failure).contains("attributes the signing key presents"),
-                    firstErrorMessage(failure));
+            assertEquals(expectedError, firstErrorMessage(failure));
         }
 
         @Test
@@ -995,8 +1085,10 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         /** Core's fields choose the signature algorithm, and the connector's own attributes repeat the choice. */
         private static List<RequestAttribute> signingAttributes(RsaSignatureScheme scheme, DigestAlgorithm digest) {
             return List
-                    .of(RsaSignatureAttributes.buildRequestRsaSigScheme(scheme),
-                            RsaSignatureAttributes.buildRequestDigest(digest),
+                    .of(aStringAttributeV3(UUID.fromString(RsaSignatureAttributes.ATTRIBUTE_DATA_RSA_SIG_SCHEME_UUID),
+                            RsaSignatureAttributes.ATTRIBUTE_DATA_RSA_SIG_SCHEME, scheme.getCode()),
+                            aStringAttributeV3(UUID.fromString(RsaSignatureAttributes.ATTRIBUTE_DATA_SIG_DIGEST_UUID),
+                                    RsaSignatureAttributes.ATTRIBUTE_DATA_SIG_DIGEST, digest.getCode()),
                             aStringAttributeV3(SCHEME_UUID, "signatureScheme", scheme.getCode()),
                             aStringAttributeV3(DIGEST_UUID, "digestAlgorithm", digest.getCode()));
         }

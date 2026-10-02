@@ -18,6 +18,7 @@ import com.otilm.core.serialization.ObjectMapperFactory;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
@@ -49,6 +50,22 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
                         .post(WireMock.urlPathEqualTo(OPERATIONS + operation + "/attributes"))
                         .willReturn(WireMock.okJson(responseJson)));
         return this;
+    }
+
+    public void onOperationAttributesRequest(String operation, Runnable observation) {
+        Objects.requireNonNull(operation, "operation must not be null");
+        Objects.requireNonNull(observation, "observation must not be null");
+        String path = OPERATIONS + operation + "/attributes";
+        server.addMockServiceRequestListener((request, response) -> {
+            if (request.getUrl().equals(path)) {
+                observation.run();
+            }
+        });
+    }
+
+    public void verifyOperationAttributesRequests(String operation, int count) {
+        Objects.requireNonNull(operation, "operation must not be null");
+        server.verify(count, postRequestedFor(WireMock.urlPathEqualTo(OPERATIONS + operation + "/attributes")));
     }
 
     public CryptographyProviderV2ConnectorMock stubOperation(String operation, String responseJson) {
