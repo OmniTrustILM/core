@@ -209,7 +209,7 @@ class KeyProviderV2AdapterTest {
         CryptographicKeyItemOperationModel item = new CryptographicKeyItemOperationModel(UUID.randomUUID(), true,
                 keyAlgorithm, KeyState.ACTIVE, KeyType.PRIVATE_KEY, List.of(KeyUsage.SIGN, KeyUsage.ENCRYPT), null,
                 new RemoteKeyReference.MetadataReference(keyMeta), profile.connectorUuid(), null, UUID.randomUUID(),
-                ConnectorInterface.CRYPTOGRAPHY, "v2");
+                ConnectorInterface.CRYPTOGRAPHY, "v2", profile.tokenInstanceReferenceUuid(), profile.uuid());
         KeyOperationScope scope = new KeyOperationScope(profile.uuid(), profile.name(), profile.description(),
                 profile.tokenInstanceName(), profile.tokenInstanceReferenceUuid(), profile.enabled(),
                 BitMaskEnum.convertSetToBitMask(EnumSet.copyOf(profile.usages())));

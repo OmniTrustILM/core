@@ -39,6 +39,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -188,8 +189,8 @@ class KeyProviderAdapterFactoryTest {
     void forKeyItem_appliesServiceScopeValidation_beforeBuildingTheRequest() throws Exception {
         // given
         CryptographicKeyItemOperationModel item = keyItem(ConnectorInterface.CRYPTOGRAPHY, "v2");
-        KeyOperationScope scope = new KeyOperationScope(UUID.randomUUID(), "reassigned-profile", null, "token",
-                UUID.randomUUID(), true, 0);
+        KeyOperationScope scope = new KeyOperationScope(UUID.randomUUID(), "profile", null, "token", UUID.randomUUID(),
+                true, 0);
         when(keyRepository.findOperationScopeByUuid(item.keyUuid())).thenReturn(Optional.of(scope));
         ValidationException rejectedScope = new ValidationException(
                 "The key no longer belongs to the authorized profile.");
@@ -204,6 +205,27 @@ class KeyProviderAdapterFactoryTest {
         // then
         assertSame(rejectedScope, assertThrows(ValidationException.class, list));
         verify(keyRepository).findOperationScopeByUuid(item.keyUuid());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"true", "false"})
+    void forKeyItem_rejectsChangedAssociation_withDefaultValidation(boolean tokenChanged) throws Exception {
+        // given
+        CryptographicKeyItemOperationModel item = keyItem(ConnectorInterface.CRYPTOGRAPHY, "v2");
+        UUID currentTokenUuid = tokenChanged ? UUID.randomUUID() : item.tokenInstanceReferenceUuid();
+        UUID currentProfileUuid = tokenChanged ? item.tokenProfileUuid() : UUID.randomUUID();
+        KeyOperationScope scope = new KeyOperationScope(currentProfileUuid, "profile", null, "token", currentTokenUuid,
+                true, 0);
+        when(keyRepository.findOperationScopeByUuid(item.keyUuid())).thenReturn(Optional.of(scope));
+        KeyProviderAdapter adapter = factory.forKeyItem(item);
+
+        // when
+        Executable list = () -> adapter.listSignAttributes(item);
+
+        // then
+        ValidationException exception = assertThrows(ValidationException.class, list);
+        assertEquals("Key token or token profile association changed during the operation. Retry the operation.",
+                exception.getMessage());
     }
 
     @ParameterizedTest(name = "{0} {1}")
@@ -224,7 +246,7 @@ class KeyProviderAdapterFactoryTest {
         return new CryptographicKeyItemOperationModel(UUID.randomUUID(), true, KeyAlgorithm.RSA, KeyState.ACTIVE,
                 KeyType.PRIVATE_KEY, List.of(KeyUsage.SIGN), null,
                 new RemoteKeyReference.UuidReference(UUID.randomUUID()), connector.uuid(), UUID.randomUUID(),
-                UUID.randomUUID(), code, version);
+                UUID.randomUUID(), code, version, UUID.randomUUID(), UUID.randomUUID());
     }
 
     private ImmutableTokenInstanceFullModel token(ImmutableConnectorInterface connectorInterface) {

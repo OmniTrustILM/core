@@ -88,7 +88,8 @@ class PlatformProviderTest {
             CryptographicKeyItemOperationModel disabled = new CryptographicKeyItemOperationModel(allowed.keyItemUuid(),
                     false, allowed.keyAlgorithm(), allowed.keyState(), allowed.keyType(), allowed.keyUsage(),
                     allowed.pqcParameterSpecName(), allowed.reference(), allowed.connectorUuid(),
-                    allowed.tokenInstanceUuid(), allowed.keyUuid(), null, null);
+                    allowed.tokenInstanceUuid(), allowed.keyUuid(), null, null, allowed.tokenInstanceReferenceUuid(),
+                    allowed.tokenProfileUuid());
             Stream<Arguments> inactive = Stream
                     .of(KeyState.values())
                     .filter(state -> state != KeyState.ACTIVE)
@@ -243,7 +244,7 @@ class PlatformProviderTest {
         return new CryptographicKeyItemOperationModel(UUID.randomUUID(), true, privateItem.keyAlgorithm(),
                 privateItem.keyState(), privateItem.keyType(), privateItem.keyUsage(), null,
                 new RemoteKeyReference.MetadataReference(List.of()), privateItem.connectorUuid(), null,
-                UUID.randomUUID(), ConnectorInterface.CRYPTOGRAPHY, "v2");
+                UUID.randomUUID(), ConnectorInterface.CRYPTOGRAPHY, "v2", UUID.randomUUID(), UUID.randomUUID());
     }
 
     private static SignDataResponseDto signingResult(byte[] bytes) {

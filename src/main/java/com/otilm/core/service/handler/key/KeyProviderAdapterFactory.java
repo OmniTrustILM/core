@@ -2,6 +2,7 @@ package com.otilm.core.service.handler.key;
 
 import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.connector.cryptography.v2.OperationResponseValidator;
 import com.otilm.core.attribute.engine.AttributeEngine;
@@ -23,7 +24,9 @@ import java.util.Objects;
 import java.util.function.Consumer;
 import org.springframework.stereotype.Component;
 
-/** Selects the key-provider adapter from the token's persisted connector-interface association. */
+/**
+ * Selects the key-provider adapter from the token's persisted connector-interface association.
+ */
 @Component
 public class KeyProviderAdapterFactory {
 
@@ -70,9 +73,18 @@ public class KeyProviderAdapterFactory {
         return forInterface(iface, connector, "token instance " + tokenInstance.toIdentifierString());
     }
 
-    /** Selects the adapter for a key item from the interface columns cached on its operation model. */
+    /**
+     * Selects the adapter with default scope validation that rejects token or profile changes before resolving
+     * attributes.
+     */
     public KeyProviderAdapter forKeyItem(CryptographicKeyItemOperationModel keyItem) throws NotFoundException {
+        Objects.requireNonNull(keyItem, "A key item is required to select a key-provider adapter.");
         return forKeyItem(keyItem, scope -> {
+            if (!Objects.equals(scope.tokenInstanceReferenceUuid(), keyItem.tokenInstanceReferenceUuid())
+                    || !Objects.equals(scope.tokenProfileUuid(), keyItem.tokenProfileUuid())) {
+                throw new ValidationException(
+                        "Key token or token profile association changed during the operation. Retry the operation.");
+            }
         });
     }
 

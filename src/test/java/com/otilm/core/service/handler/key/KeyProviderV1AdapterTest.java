@@ -841,7 +841,7 @@ class KeyProviderV1AdapterTest {
             UUID tokenInstanceUuid) {
         return new CryptographicKeyItemOperationModel(UUID.randomUUID(), true, algorithm, KeyState.ACTIVE,
                 KeyType.PRIVATE_KEY, List.of(KeyUsage.SIGN, KeyUsage.ENCRYPT), null, reference, UUID.randomUUID(),
-                tokenInstanceUuid, UUID.randomUUID(), null, null);
+                tokenInstanceUuid, UUID.randomUUID(), null, null, UUID.randomUUID(), UUID.randomUUID());
     }
 
     private static RequestAttribute requestAttribute(String name) {

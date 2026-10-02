@@ -486,7 +486,8 @@ class CryptographicOperationServiceImplTest {
         CryptographicKeyItemOperationModel active = legacyKey();
         CryptographicKeyItemOperationModel key = new CryptographicKeyItemOperationModel(active.keyItemUuid(), true,
                 active.keyAlgorithm(), KeyState.DEACTIVATED, active.keyType(), active.keyUsage(), null,
-                active.reference(), active.connectorUuid(), active.tokenInstanceUuid(), active.keyUuid(), null, null);
+                active.reference(), active.connectorUuid(), active.tokenInstanceUuid(), active.keyUuid(), null, null,
+                active.tokenInstanceReferenceUuid(), active.tokenProfileUuid());
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
         VerifyDataRequestDto request = new VerifyDataRequestDto();
         request.setSignatures(List.of());
@@ -744,7 +745,7 @@ class CryptographicOperationServiceImplTest {
         return new CryptographicKeyItemOperationModel(UUID.randomUUID(), true, KeyAlgorithm.RSA, KeyState.ACTIVE,
                 KeyType.PRIVATE_KEY, List.of(KeyUsage.ENCRYPT, KeyUsage.DECRYPT, KeyUsage.SIGN, KeyUsage.VERIFY), null,
                 new RemoteKeyReference.UuidReference(UUID.randomUUID()), UUID.randomUUID(), UUID.randomUUID(),
-                UUID.randomUUID(), null, null);
+                UUID.randomUUID(), null, null, UUID.randomUUID(), UUID.randomUUID());
     }
 
     private static CryptographicKeyItemOperationModel v2Key() {
@@ -753,14 +754,15 @@ class CryptographicOperationServiceImplTest {
         return new CryptographicKeyItemOperationModel(UUID.randomUUID(), true, KeyAlgorithm.RSA, KeyState.ACTIVE,
                 KeyType.PRIVATE_KEY, List.of(KeyUsage.ENCRYPT, KeyUsage.DECRYPT, KeyUsage.SIGN, KeyUsage.VERIFY), null,
                 new RemoteKeyReference.MetadataReference(List.of(handle)), UUID.randomUUID(), null, UUID.randomUUID(),
-                ConnectorInterface.CRYPTOGRAPHY, "v2");
+                ConnectorInterface.CRYPTOGRAPHY, "v2", UUID.randomUUID(), UUID.randomUUID());
     }
 
     private static CryptographicKeyItemOperationModel withUsage(CryptographicKeyItemOperationModel key,
             List<KeyUsage> usage) {
         return new CryptographicKeyItemOperationModel(key.keyItemUuid(), key.enabled(), key.keyAlgorithm(),
                 key.keyState(), key.keyType(), usage, key.pqcParameterSpecName(), key.reference(), key.connectorUuid(),
-                key.tokenInstanceUuid(), key.keyUuid(), key.connectorInterfaceCode(), key.connectorInterfaceVersion());
+                key.tokenInstanceUuid(), key.keyUuid(), key.connectorInterfaceCode(), key.connectorInterfaceVersion(),
+                key.tokenInstanceReferenceUuid(), key.tokenProfileUuid());
     }
 
     private static KeyOperationScope scope() {
