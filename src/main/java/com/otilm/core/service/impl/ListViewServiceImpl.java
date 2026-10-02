@@ -283,9 +283,10 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         // backed by other definitions would order the listing by values nobody chose, so it is dropped the same way.
         SearchSortRequestDto sort = view.getSort();
         dto
-                .setSort(sort != null && catalogue.canSortBy(CatalogueField.of(sort))
-                        && statusOf(CatalogueField.of(sort), view.getSortAttributeDefinitionUuids(), catalogue,
-                                definitions) == ListViewFieldStatus.AVAILABLE ? sort : null);
+                .setSort(sort != null && statusOf(CatalogueField.of(sort), catalogue.canSortBy(CatalogueField.of(sort)),
+                        view.getSortAttributeDefinitionUuids(), definitions) == ListViewFieldStatus.AVAILABLE
+                                ? sort
+                                : null);
         return dto;
     }
 
@@ -295,8 +296,8 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
                 stored.getLabel());
         column.setAttributeDefinitionUuids(stored.getAttributeDefinitionUuids());
         column
-                .setStatus(statusOf(CatalogueField.of(stored), stored.getAttributeDefinitionUuids(), catalogue,
-                        definitions));
+                .setStatus(statusOf(CatalogueField.of(stored), catalogue.canDisplay(CatalogueField.of(stored)),
+                        stored.getAttributeDefinitionUuids(), definitions));
         return column;
     }
 
@@ -306,19 +307,24 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
                 stored.getCondition(), stored.getValue());
         filter.setAttributeDefinitionUuids(stored.getAttributeDefinitionUuids());
         filter
-                .setStatus(statusOf(CatalogueField.of(stored), stored.getAttributeDefinitionUuids(), catalogue,
-                        definitions));
+                .setStatus(statusOf(CatalogueField.of(stored),
+                        catalogue.accepts(CatalogueField.of(stored), stored.getCondition()),
+                        stored.getAttributeDefinitionUuids(), definitions));
         return filter;
     }
 
     /**
+     * A client applies only an available entry, so one the listing can no longer use as stored - a column it does not
+     * show, or a filter whose condition the field no longer offers - is unavailable while the field stays listed.
+     *
+     * <p>
      * The catalogue may be a replica's cached copy, so a field with no definition behind it any more is unavailable
      * even while the catalogue still lists it. An entry stored without a binding was written before entries carried
      * one, and resolves by its identifier alone as it always did until a save binds it.
      */
-    private static ListViewFieldStatus statusOf(CatalogueField field, List<UUID> binding, Catalogue catalogue,
+    private static ListViewFieldStatus statusOf(CatalogueField field, boolean usable, List<UUID> binding,
             Map<NamedField, Set<UUID>> definitions) {
-        if (!catalogue.offers(field)) {
+        if (!usable) {
             return ListViewFieldStatus.UNAVAILABLE;
         }
         if (!field.named().isAttribute()) {
@@ -450,8 +456,9 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
      * actually use.
      *
      * <p>
-     * {@code carriedAlready} are the columns the stored view holds, which are exempt from the column gates. A field can
-     * stop being one the listing shows, or leave the catalogue outright, after a view stored it, and rejecting it would
+     * {@code carriedAlready} are the columns the stored view holds, which are exempt from the column gates unless sent
+     * with {@code rebind}, which binds them afresh and so holds them to the catalogue as new columns. A field can stop
+     * being one the listing shows, or leave the catalogue outright, after a view stored it, and rejecting it would
      * leave that view unsaveable: the client reads it back, renames it, and the rename is refused over a column it did
      * not touch. So such a column can be kept or removed but not introduced, and a creation - which carries nothing
      * already - is held to the current catalogue in full.
@@ -460,8 +467,8 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
      * {@code filtersCarried} are the filters the stored view holds, and one sent back unchanged is exempt on the same
      * terms. Its field may have left the catalogue, or stayed in it but stopped offering the stored condition - a
      * hidden or encrypted custom attribute accepts only presence conditions - and either way a view could not be
-     * renamed. The exemption covers the stored filter exactly, so a new or changed filter, or a second copy of a stored
-     * one, is held to the catalogue.
+     * renamed. The exemption covers the stored filter exactly, so a new or changed filter, a second copy of a stored
+     * one, or one sent with {@code rebind}, is held to the catalogue.
      *
      * <p>
      * An ordering has no such exemption. It is applied by re-issuing the listing request, which refuses a field that is

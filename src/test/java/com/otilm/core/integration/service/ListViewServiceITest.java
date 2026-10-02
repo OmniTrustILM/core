@@ -23,6 +23,7 @@ import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SortDirection;
+import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.dao.entity.ListView;
 import com.otilm.core.dao.repository.ListViewRepository;
 import com.otilm.core.model.auth.ResourceAction;
@@ -33,15 +34,18 @@ import com.otilm.core.service.AttributeExternalService;
 import com.otilm.core.service.ListViewExternalService;
 import com.otilm.core.service.ListViewInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -74,6 +78,9 @@ class ListViewServiceITest extends BaseSpringBootTest {
 
     @Autowired
     private TransactionTemplate transactionTemplate;
+
+    @Autowired
+    private ClusterOperationSynchronizer clusterSynchronizer;
 
     private UUID user;
     private UUID otherUser;
@@ -528,6 +535,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
 
         Assertions.assertEquals("Renamed", renamed.getName());
         Assertions.assertEquals(termsOf(List.of(pki)), termsOf(renamed.getFilters()));
+        Assertions.assertEquals(ListViewFieldStatus.UNAVAILABLE, renamed.getFilters().getFirst().getStatus());
     }
 
     @Test
@@ -582,6 +590,9 @@ class ListViewServiceITest extends BaseSpringBootTest {
         ListViewDto read = listViewService.listViews(Resource.CERTIFICATE).getFirst();
 
         Assertions.assertEquals(List.of("COMMON_NAME", "CERTIFICATE_PROTOCOL"), identifiersOf(read));
+        Assertions
+                .assertEquals(List.of(ListViewFieldStatus.AVAILABLE, ListViewFieldStatus.UNAVAILABLE),
+                        read.getColumns().stream().map(ListViewColumnDto::getStatus).toList());
     }
 
     /**
@@ -884,6 +895,44 @@ class ListViewServiceITest extends BaseSpringBootTest {
         ListViewColumnDto stored = teamColumnOf(readTheOnlyView());
         Assertions.assertEquals(List.of(recreated), stored.getAttributeDefinitionUuids());
         Assertions.assertEquals(ListViewFieldStatus.AVAILABLE, stored.getStatus());
+    }
+
+    @Test
+    void aViewDeletedWhileAnEditWaitsForItsLockIsNotFound() throws Exception {
+        ListViewDto created = listViewService.createView(request("Doomed", column("COMMON_NAME")));
+        SecurityContext context = SecurityContextHolder.getContext();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<ListViewDto> edit = transactionTemplate.execute(status -> {
+                clusterSynchronizer.lock("list-view:" + user + ":" + Resource.CERTIFICATE.getCode());
+                Future<ListViewDto> waiting = executor.submit(() -> {
+                    SecurityContextHolder.setContext(context);
+                    try {
+                        return listViewService.editView(created.getUuid(), update("Renamed", column("COMMON_NAME")));
+                    } finally {
+                        SecurityContextHolder.clearContext();
+                    }
+                });
+                Awaitility
+                        .await()
+                        .atMost(Duration.ofSeconds(10))
+                        .until(() -> jdbcTemplate
+                                .queryForObject(
+                                        "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted",
+                                        Long.class) >= 1);
+                jdbcTemplate
+                        .update("DELETE FROM " + dbSchema + ".list_view WHERE uuid = ?",
+                                UUID.fromString(created.getUuid()));
+                return waiting;
+            });
+
+            ExecutionException e = Assertions
+                    .assertThrows(ExecutionException.class, () -> edit.get(30, TimeUnit.SECONDS));
+            Assertions.assertInstanceOf(NotFoundException.class, e.getCause());
+        } finally {
+            executor.shutdownNow();
+            Assertions.assertTrue(executor.awaitTermination(30, TimeUnit.SECONDS));
+        }
     }
 
     private void inANewTransaction(ListViewCall call) {
