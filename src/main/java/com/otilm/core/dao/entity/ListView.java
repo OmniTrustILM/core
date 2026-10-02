@@ -71,9 +71,10 @@ public class ListView extends UniquelyIdentifiedAndAudited {
     private SearchSortRequestDto sort;
 
     /** The binding of an attribute ordering, kept beside it because the ordering's own shape is the listing's. */
+    // Hibernate shares one resolution per List<UUID>, so mapping this one as JSON remaps every UUID array column.
     @SuppressWarnings("java:S1948")
-    @Column(name = "sort_attribute_definition_uuids", columnDefinition = "jsonb")
-    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "sort_attribute_definition_uuids")
+    @JdbcTypeCode(SqlTypes.ARRAY)
     private List<UUID> sortAttributeDefinitionUuids;
 
     // No-op overrides required by S2160: identity and hashing stay UUID-based, and the added columns never

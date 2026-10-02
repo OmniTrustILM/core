@@ -34,7 +34,7 @@ CREATE FUNCTION pg_temp.bind_list_view_entries(entries JSONB, view_resource VARC
     FROM jsonb_array_elements(entries) WITH ORDINALITY AS stored(entry, position)
 $$ LANGUAGE SQL STABLE;
 
-ALTER TABLE list_view ADD COLUMN sort_attribute_definition_uuids JSONB;
+ALTER TABLE list_view ADD COLUMN sort_attribute_definition_uuids UUID[];
 
 UPDATE list_view SET columns = pg_temp.bind_list_view_entries(columns, resource)
 WHERE jsonb_typeof(columns) = 'array';
@@ -43,8 +43,13 @@ UPDATE list_view SET filters = pg_temp.bind_list_view_entries(filters, resource)
 WHERE jsonb_typeof(filters) = 'array';
 
 UPDATE list_view
-SET sort_attribute_definition_uuids
-    = pg_temp.bind_list_view_entries(jsonb_build_array(sort), resource) -> 0 -> 'attributeDefinitionUuids'
+SET sort_attribute_definition_uuids = ARRAY(
+    SELECT bound.uuid::UUID
+    FROM jsonb_array_elements_text(
+        pg_temp.bind_list_view_entries(jsonb_build_array(sort), resource) -> 0 -> 'attributeDefinitionUuids'
+    ) WITH ORDINALITY AS bound(uuid, position)
+    ORDER BY bound.position
+)
 WHERE jsonb_typeof(sort) = 'object' AND sort ->> 'fieldSource' IN ('custom', 'meta', 'data');
 
 DROP FUNCTION pg_temp.bind_list_view_entries(JSONB, VARCHAR);

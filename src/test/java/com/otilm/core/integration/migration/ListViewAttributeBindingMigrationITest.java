@@ -186,8 +186,7 @@ class ListViewAttributeBindingMigrationITest extends BaseSpringBootTest {
     }
 
     private void assertOrderingsAreBound(Connection connection) throws Exception {
-        assertThat(sortBindingOf(connection, "Filtered"))
-                .isEqualTo("[\"%s\", \"%s\"]".formatted(OWNER_FIRST, OWNER_SECOND));
+        assertThat(sortBindingOf(connection, "Filtered")).isEqualTo("{%s,%s}".formatted(OWNER_FIRST, OWNER_SECOND));
         assertThat(sortBindingOf(connection, "Plain"))
                 .describedAs("a property ordering names no attribute definition")
                 .isNull();
