@@ -22,7 +22,6 @@ import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cryptography.key.KeyEvent;
 import com.otilm.api.model.core.cryptography.key.KeyEventStatus;
-import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.core.config.TokenContentSigner;
 import com.otilm.core.dao.entity.CryptographicKey;
@@ -77,6 +76,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+
+import static com.otilm.core.service.handler.key.KeyOperationValidator.requireActive;
+import static com.otilm.core.service.handler.key.KeyOperationValidator.requireUsage;
+import static com.otilm.core.service.handler.key.KeyOperationValidator.verifyActive;
 
 @Service
 public class CryptographicOperationServiceImpl
@@ -202,7 +205,7 @@ public class CryptographicOperationServiceImpl
         if (request.getCipherData() == null) {
             throw new ValidationException(ValidationError.create("Cannot encrypt null data"));
         }
-        requireUsage(keyItem, KeyUsage.ENCRYPT, "encryption");
+        requireUsage(keyItem, KeyUsage.ENCRYPT);
         KeyProviderAdapter adapter = createValidatingKeyProviderAdapter(keyItem, tokenInstanceUuid.getValue(),
                 tokenProfileUuid.getValue(), uuid);
         return recordEvent(keyItem, KeyEvent.ENCRYPT, "Encryption of data success ", "Encryption of data failed ",
@@ -222,7 +225,7 @@ public class CryptographicOperationServiceImpl
         if (request.getCipherData() == null) {
             throw new ValidationException(ValidationError.create("Cannot decrypt null data"));
         }
-        requireUsage(keyItem, KeyUsage.DECRYPT, "decryption");
+        requireUsage(keyItem, KeyUsage.DECRYPT);
         KeyProviderAdapter adapter = createValidatingKeyProviderAdapter(keyItem, tokenInstanceUuid.getValue(),
                 tokenProfileUuid.getValue(), uuid);
         return recordEvent(keyItem, KeyEvent.DECRYPT, "Decryption of data success ", "Decryption of data failed ",
@@ -316,7 +319,7 @@ public class CryptographicOperationServiceImpl
         if (request.getData() == null) {
             throw new ValidationException(ValidationError.create("Cannot sign empty data"));
         }
-        requireUsage(keyItem, KeyUsage.SIGN, "signing");
+        requireUsage(keyItem, KeyUsage.SIGN);
         return adapter.signData(keyItem, request);
     }
 
@@ -333,7 +336,7 @@ public class CryptographicOperationServiceImpl
         if (request.getSignatures() == null) {
             throw new ValidationException(ValidationError.create("Cannot verify empty data"));
         }
-        requireUsage(keyItem, KeyUsage.VERIFY, "verification");
+        requireUsage(keyItem, KeyUsage.VERIFY);
         KeyProviderAdapter adapter = createValidatingKeyProviderAdapter(keyItem, tokenInstanceUuid.getValue(),
                 tokenProfileUuid.getValue(), uuid);
         return recordEvent(keyItem, KeyEvent.VERIFY, "Verification of data completed ", "Verification of data failed ",
@@ -410,17 +413,6 @@ public class CryptographicOperationServiceImpl
         }
         eventHistoryService.addEventHistory(event, KeyEventStatus.SUCCESS, successMessage, null, key.keyItemUuid());
         return result;
-    }
-
-    private static void requireActive(CryptographicKeyItemOperationModel key) {
-        verifyActive(key.keyState(), key.enabled());
-    }
-
-    private static void requireUsage(CryptographicKeyItemOperationModel key, KeyUsage usage, String operation) {
-        if (!key.keyUsage().contains(usage)) {
-            throw new ValidationException(
-                    ValidationError.create("Key Usage of the certificate does not support " + operation));
-        }
     }
 
     @FunctionalInterface
@@ -583,13 +575,6 @@ public class CryptographicOperationServiceImpl
                 key.getTokenInstanceReferenceUuid());
     }
 
-    private static void verifyActive(KeyState state, boolean enabled) {
-        if (state != KeyState.ACTIVE || !enabled) {
-            throw new ValidationException(
-                    ValidationError.create("Key needs to be " + KeyState.ACTIVE.getLabel() + " and enabled."));
-        }
-    }
-
     private String generateCsr(X500Name subject, Extensions extensions, CsrKeyPair keyPair,
             List<RequestAttribute> signatureAttributes, CsrKeyPair altKeyPair,
             List<RequestAttribute> altSignatureAttributes)
@@ -634,7 +619,7 @@ public class CryptographicOperationServiceImpl
             throws NotFoundException {
         // A v1 CSR has never checked usage, and existing v1 keys keep that.
         if (keyPair.privateKeyItem().hasConnectorInterface()) {
-            requireUsage(keyPair.privateKeyItem(), KeyUsage.SIGN, "signing");
+            requireUsage(keyPair.privateKeyItem(), KeyUsage.SIGN);
         }
         CryptographicKeyItemOperationModel signingKey = keyPair.privateKeyItem();
         KeyProviderAdapter keyProvider = createValidatingKeyProviderAdapter(signingKey, keyPair.tokenInstanceUuid(),

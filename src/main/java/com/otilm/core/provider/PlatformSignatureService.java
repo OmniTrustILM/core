@@ -9,9 +9,11 @@ import com.otilm.api.model.client.cryptography.operations.SignDataResponseDto;
 import com.otilm.api.model.client.cryptography.operations.SignatureRequestData;
 import com.otilm.api.model.client.cryptography.operations.VerifyDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.VerifyDataResponseDto;
+import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.provider.key.PlatformPrivateKey;
 import com.otilm.core.provider.key.PlatformPublicKey;
+import com.otilm.core.service.handler.key.KeyOperationValidator;
 import com.otilm.core.service.handler.key.KeyProviderAdapter;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import java.security.SignatureException;
@@ -35,6 +37,7 @@ public class PlatformSignatureService {
         Objects.requireNonNull(dataToSign, "dataToSign must not be null");
         try {
             CryptographicKeyItemOperationModel keyItem = privateKey.keyItem();
+            KeyOperationValidator.requireAllowed(keyItem, KeyUsage.SIGN);
             KeyProviderAdapter adapter = adapterFactory.forKeyItem(keyItem);
 
             SignDataRequestDto request = new SignDataRequestDto();
@@ -61,6 +64,7 @@ public class PlatformSignatureService {
         Objects.requireNonNull(dataToVerify, "dataToVerify must not be null");
         try {
             CryptographicKeyItemOperationModel keyItem = publicKey.keyItem();
+            KeyOperationValidator.requireAllowed(keyItem, KeyUsage.VERIFY);
             KeyProviderAdapter adapter = adapterFactory.forKeyItem(keyItem);
 
             VerifyDataRequestDto request = new VerifyDataRequestDto();

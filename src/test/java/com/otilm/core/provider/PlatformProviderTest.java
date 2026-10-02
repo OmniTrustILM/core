@@ -7,10 +7,14 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.cryptography.operations.*;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.core.cryptography.key.KeyState;
+import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.core.model.crypto.CryptographicKeyItemModelFixtures;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.provider.key.PlatformPrivateKey;
+import com.otilm.core.provider.key.PlatformPublicKey;
 import com.otilm.core.service.handler.key.KeyProviderAdapter;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import java.security.KeyPairGenerator;
@@ -34,6 +38,7 @@ import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 
@@ -46,7 +51,81 @@ class PlatformProviderTest {
     private final KeyProviderAdapter adapter = mock(KeyProviderAdapter.class);
     private final PlatformProvider provider = PlatformProvider.getInstance("test", false, factory);
     private final CryptographicKeyItemOperationModel privateItem = CryptographicKeyItemModelFixtures
-            .activeSigningPrivateKey(KeyAlgorithm.RSA);
+            .keyItem(KeyType.PRIVATE_KEY, KeyAlgorithm.RSA, KeyState.ACTIVE, List.of(KeyUsage.SIGN, KeyUsage.DECRYPT));
+
+    @ParameterizedTest
+    @MethodSource("disallowedKeys")
+    void operation_rejectsDisallowedKey_beforeSelectingAdapter(KeyUsage operation,
+            CryptographicKeyItemOperationModel keyItem) {
+        // given
+        byte[] input = {1, 2, 3};
+        PlatformCipherService cipherService = new PlatformCipherService(factory, "RSA");
+        PlatformSignatureService signatureService = new PlatformSignatureService(factory, "SHA256withRSA");
+
+        // when
+        Executable execute = () -> {
+            switch (operation) {
+                case DECRYPT -> cipherService.decrypt(input, new PlatformPrivateKey(keyItem));
+                case SIGN -> signatureService.sign(new PlatformPrivateKey(keyItem), input);
+                case VERIFY -> signatureService.verify(new PlatformPublicKey(keyItem), input, input);
+                default -> throw new AssertionError("Unexpected test operation");
+            }
+        };
+
+        // then
+        Exception failure = operation == KeyUsage.DECRYPT
+                ? assertThrows(ProviderException.class, execute)
+                : assertThrows(SignatureException.class, execute);
+        assertInstanceOf(ValidationException.class, failure.getCause());
+        verifyNoInteractions(factory, adapter);
+    }
+
+    private static Stream<Arguments> disallowedKeys() {
+        return Stream.of(KeyUsage.DECRYPT, KeyUsage.SIGN, KeyUsage.VERIFY).flatMap(operation -> {
+            KeyType type = operation == KeyUsage.VERIFY ? KeyType.PUBLIC_KEY : KeyType.PRIVATE_KEY;
+            CryptographicKeyItemOperationModel allowed = CryptographicKeyItemModelFixtures
+                    .keyItem(type, KeyAlgorithm.RSA, KeyState.ACTIVE, List.of(operation));
+            CryptographicKeyItemOperationModel disabled = new CryptographicKeyItemOperationModel(allowed.keyItemUuid(),
+                    false, allowed.keyAlgorithm(), allowed.keyState(), allowed.keyType(), allowed.keyUsage(),
+                    allowed.pqcParameterSpecName(), allowed.reference(), allowed.connectorUuid(),
+                    allowed.tokenInstanceUuid(), allowed.keyUuid(), null, null);
+            Stream<Arguments> inactive = Stream
+                    .of(KeyState.values())
+                    .filter(state -> state != KeyState.ACTIVE)
+                    .map(state -> Arguments
+                            .of(operation,
+                                    Named
+                                            .of(state.name(), CryptographicKeyItemModelFixtures
+                                                    .keyItem(type, KeyAlgorithm.RSA, state, List.of(operation)))));
+            Stream<Arguments> restricted = Stream
+                    .of(Arguments.of(operation, Named.of("disabled", disabled)), Arguments
+                            .of(operation,
+                                    Named
+                                            .of("missing usage", CryptographicKeyItemModelFixtures
+                                                    .keyItem(type, KeyAlgorithm.RSA, KeyState.ACTIVE, List.of()))));
+            return Stream.concat(inactive, restricted);
+        });
+    }
+
+    @Test
+    void verification_allowsActiveEnabledKey_withVerifyUsage() throws Exception {
+        // given
+        CryptographicKeyItemOperationModel publicItem = CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA);
+        byte[] input = {1, 2, 3};
+        VerificationResponseData verification = new VerificationResponseData();
+        verification.setResult(true);
+        VerifyDataResponseDto response = new VerifyDataResponseDto();
+        response.setVerifications(List.of(verification));
+        when(adapter.verifyData(eq(publicItem), any())).thenReturn(response);
+        PlatformSignatureService service = new PlatformSignatureService(factory, "SHA256withRSA");
+
+        // when
+        boolean valid = service.verify(new PlatformPublicKey(publicItem), input, input);
+
+        // then
+        assertTrue(valid);
+        verify(adapter).verifyData(eq(publicItem), any());
+    }
 
     @BeforeEach
     void setUp() throws Exception {

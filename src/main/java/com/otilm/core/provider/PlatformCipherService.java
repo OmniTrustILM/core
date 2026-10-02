@@ -7,8 +7,10 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.cryptography.operations.CipherDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.CipherRequestData;
 import com.otilm.api.model.client.cryptography.operations.DecryptDataResponseDto;
+import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.provider.key.PlatformPrivateKey;
+import com.otilm.core.service.handler.key.KeyOperationValidator;
 import com.otilm.core.service.handler.key.KeyProviderAdapter;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import java.security.ProviderException;
@@ -32,6 +34,7 @@ public class PlatformCipherService {
         Objects.requireNonNull(privateKey, "privateKey must not be null");
         try {
             CryptographicKeyItemOperationModel keyItem = privateKey.keyItem();
+            KeyOperationValidator.requireAllowed(keyItem, KeyUsage.DECRYPT);
             KeyProviderAdapter adapter = adapterFactory.forKeyItem(keyItem);
 
             CipherRequestData data = new CipherRequestData();

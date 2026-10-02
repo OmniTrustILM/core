@@ -457,7 +457,11 @@ class CryptographicOperationServiceImplTest {
     @Test
     void encryptData_rejectsKeyWithoutUsage_beforeRouting() throws Exception {
         // given
-        CryptographicKeyItemOperationModel key = withUsage(legacyKey(), List.of(KeyUsage.DECRYPT));
+        List<KeyUsage> currentUsages = List.of(KeyUsage.DECRYPT);
+        KeyUsage missingUsage = KeyUsage.ENCRYPT;
+        CryptographicKeyItemOperationModel key = withUsage(legacyKey(), currentUsages);
+        String expectedMessage = "Key item " + key.toIdentifierString() + " does not have required usage "
+                + missingUsage.name() + ". Current usages: " + currentUsages + ".";
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
         CipherDataRequestDto request = new CipherDataRequestDto();
         request.setCipherData(List.of());
@@ -469,7 +473,7 @@ class CryptographicOperationServiceImplTest {
 
         // then
         ValidationException failure = assertThrows(ValidationException.class, encrypt);
-        assertTrue(failure.getMessage().contains("does not support encryption"));
+        assertTrue(failure.getMessage().contains(expectedMessage));
         verifyNoInteractions(keyProviderAdapterFactory);
     }
 
