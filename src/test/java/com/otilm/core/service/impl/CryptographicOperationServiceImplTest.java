@@ -601,7 +601,7 @@ class CryptographicOperationServiceImplTest {
     void listSignAttributeSchema_servesCoresRegistry_forALegacyKey_withoutLoadingScope() throws Exception {
         // given
         CryptographicKeyItemOperationModel key = legacyKey();
-        OperationAttributeSchema registry = OperationAttributeSchema.ofCoreRegistry(List.of(new DataAttributeV3()));
+        OperationAttributeSchema registry = new OperationAttributeSchema(null, List.of(new DataAttributeV3()));
         when(keyService.getPrivateKeyItemModel(key.keyUuid())).thenReturn(key);
         when(keyProviderAdapterFactory.forKeyItem(key)).thenReturn(adapter);
         when(adapter.signAttributeSchema(any())).thenReturn(registry);
@@ -639,7 +639,7 @@ class CryptographicOperationServiceImplTest {
         CryptographicKeyItemOperationModel key = v2Key();
         KeyOperationScope scope = scope();
         OperationAttributeSchema connectorSchema = new OperationAttributeSchema(key.connectorUuid(),
-                List.of(new DataAttributeV3()), List.of(new DataAttributeV3()), key.keyAlgorithm());
+                List.of(new DataAttributeV3()));
         when(keyService.getPrivateKeyItemModel(key.keyUuid())).thenReturn(key);
         when(cryptographicKeyRepository.findOperationScopeByUuid(key.keyUuid())).thenReturn(Optional.of(scope));
         when(keyProviderAdapterFactory.forKeyItem(key)).thenReturn(adapter);

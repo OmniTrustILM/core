@@ -3028,10 +3028,10 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             return;
         }
         OperationAttributeSchema schema = cryptographicOperationService.listSignAttributeSchema(keyUuid);
-        schema.requireOfferedSignatureAlgorithm(signatureAttributes);
         attributeEngine
                 .validateUpdateDataAttributes(schema.ownerConnectorUuid(), AttributeOperation.SIGN,
-                        schema.presentedDefinitions(), signatureAttributes);
+                        schema.definitions(), signatureAttributes);
+        schema.requireOfferedSignatureAlgorithm(signatureAttributes);
     }
 
     /**
