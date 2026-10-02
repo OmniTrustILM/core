@@ -72,6 +72,7 @@ import com.otilm.core.model.crypto.KeyImportTerms;
 import com.otilm.core.model.crypto.KeyMaterial;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.PublicKeyHolder;
+import com.otilm.core.model.crypto.PublicKeyHolder.Holding;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.security.authz.SecurityResourceFilter;
@@ -1231,9 +1232,9 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         PublicKeyHolder key = cryptographicKeyWriter.publicKeyHolder(fingerprint).orElseThrow();
 
         // then
-        assertThat(adoptable.publicKeyOnly()).isTrue();
+        assertThat(adoptable.holding()).isEqualTo(Holding.PUBLIC_KEY_ONLY);
         assertThat(adoptable.key().uuid()).isEqualTo(recordUuid);
-        assertThat(key.publicKeyOnly()).isFalse();
+        assertThat(key.holding()).isEqualTo(Holding.KEY_PAIR);
         assertThat(key.key().uuid()).isEqualTo(recordUuid);
         assertThat(key.key().items()).hasSize(2);
         assertThat(cryptographicKeyWriter.publicKeyHolder(fingerprintOf(rsa()))).isEmpty();
@@ -1260,21 +1261,24 @@ class KeyImportWriterITest extends BaseSpringBootTest {
 
     /** A token holds the public key but the platform not its private key, so the key is neither a record nor held. */
     @Test
-    void publicKeyHolder_refusesAPublicKeyATokenHoldsWithoutItsPrivateKey() throws Exception {
+    void publicKeyHolder_tellsAPublicKeyATokenHoldsWithoutItsPrivateKey() throws Exception {
         // given
         TokenProfileFullModel profile = persistedProfile();
         KeyPair pair = rsa();
-        CryptographicKey holder = cryptographicKeyRepository.findById(certificatePublicKey(pair)).orElseThrow();
+        UUID holderUuid = certificatePublicKey(pair);
+        CryptographicKey holder = cryptographicKeyRepository.findById(holderUuid).orElseThrow();
         holder.setTokenProfileUuid(profile.uuid());
         holder.setTokenInstanceReferenceUuid(profile.tokenInstanceReferenceUuid());
         cryptographicKeyRepository.saveAndFlush(holder);
-        String fingerprint = fingerprintOf(pair);
 
         // when
+        Optional<PublicKeyHolder> held = cryptographicKeyWriter.publicKeyHolder(fingerprintOf(pair));
+
         // then
-        assertThatThrownBy(() -> cryptographicKeyWriter.publicKeyHolder(fingerprint))
-                .isInstanceOf(ValidationException.class)
-                .hasMessageContaining(CryptographicKeyWriter.KEY_ALREADY_HELD);
+        assertThat(held).hasValueSatisfying(inAToken -> {
+            assertThat(inAToken.holding()).isEqualTo(Holding.PUBLIC_KEY_IN_TOKEN);
+            assertThat(inAToken.key().uuid()).isEqualTo(holderUuid);
+        });
     }
 
     /**

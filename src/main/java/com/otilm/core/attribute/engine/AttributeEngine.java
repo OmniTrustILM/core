@@ -814,7 +814,8 @@ public class AttributeEngine {
         // JSON extension values first: validateAttributesContent removes each matched definition from the
         // mapping as it goes (it uses the leftovers to find missing required attributes), so running after it
         // would see no definition for any attribute that actually carried content.
-        List<ValidationError> errors = validateJsonExtensionValues(definitionsMapping, requestAttributes);
+        List<ValidationError> errors = validateVersionsMatch(definitionsMapping, requestAttributes);
+        errors.addAll(validateJsonExtensionValues(definitionsMapping, requestAttributes));
         errors.addAll(validateAttributesContent(definitionsMapping, requestAttributes));
         if (!errors.isEmpty()) {
             throw new ValidationException(errors);
@@ -2728,6 +2729,29 @@ public class AttributeEngine {
                     .encryptAndEncodeSecretString(attributeContentItem.getData().toString(), SecretEncodingVersion.V1);
         }
         return encryptedData;
+    }
+
+    /**
+     * Content is stored in its definition's version and read back as that version's classes, so an attribute sent in
+     * another version passes every content check and then fails on the first read. A client that leaves out
+     * {@code "version"} sends exactly that, since the wire format defaults it to v2.
+     */
+    private static List<ValidationError> validateVersionsMatch(Map<String, AttributeDefinition> definitionsMapping,
+            List<RequestAttribute> requestAttributes) {
+        List<ValidationError> errors = new ArrayList<>();
+        for (RequestAttribute attribute : requestAttributes) {
+            AttributeDefinition definition = definitionsMapping.get(attribute.getName());
+            if (definition == null || attribute.getVersion() == null
+                    || attribute.getVersion().getVersion() == definition.getVersion()) {
+                continue;
+            }
+            String expected = AttributeVersion.fromIntVersion(definition.getVersion()).getCode();
+            errors
+                    .add(ValidationError
+                            .create("Attribute {} is defined in version {} and must be sent with \"version\": \"{}\"",
+                                    attribute.getName(), expected, expected));
+        }
+        return errors;
     }
 
     private List<ValidationError> validateAttributesContent(Map<String, AttributeDefinition> definitionsMapping,

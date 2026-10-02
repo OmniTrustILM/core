@@ -31,6 +31,7 @@ import com.otilm.core.model.crypto.KeyImportTerms;
 import com.otilm.core.model.crypto.KeyMaterial;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.PublicKeyHolder;
+import com.otilm.core.model.crypto.PublicKeyHolder.Holding;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceFullModel;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
@@ -58,7 +59,6 @@ import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -303,7 +303,7 @@ class KeyImportSagaTest {
         // given
         CryptographicKeyFullModel held = mock(CryptographicKeyFullModel.class);
         when(cryptographicKeyWriter.publicKeyHolder("fingerprint"))
-                .thenReturn(Optional.of(new PublicKeyHolder(held, UUID.randomUUID(), false)));
+                .thenReturn(Optional.of(new PublicKeyHolder(held, UUID.randomUUID(), Holding.KEY_PAIR)));
 
         // when
         ImportedKey result = saga.importKey(terms, RETRY, key, metadata);
@@ -316,19 +316,41 @@ class KeyImportSagaTest {
         verify(cryptographicKeyRepository, never()).existsByName(any());
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {CryptographicKeyWriter.KEY_ALREADY_HELD, CryptographicKeyWriter.KEY_NOT_ACTIVE})
-    void importKey_refusesAPublicKeyThePlatformHoldsBeforeAnAttemptOpens(String refusal) {
+    @Test
+    void importKey_refusesAKeyNoLongerActiveBeforeAnAttemptOpens() {
         // given
         when(cryptographicKeyWriter.publicKeyHolder("fingerprint"))
-                .thenThrow(new ValidationException(ValidationError.create(refusal)));
+                .thenThrow(new ValidationException(ValidationError.create(CryptographicKeyWriter.KEY_NOT_ACTIVE)));
 
         // when
         // then
         assertThatThrownBy(() -> saga.importKey(terms, RETRY, key, metadata))
                 .isInstanceOf(ValidationException.class)
-                .hasMessageContaining(refusal);
+                .hasMessageContaining(CryptographicKeyWriter.KEY_NOT_ACTIVE);
         verify(keyImportWriter, never()).open(any(), any(), any(), any());
+    }
+
+    /**
+     * A token holds the public key without its private key, so the key is not one the inventory holds: the gates refuse
+     * the import before anything is recorded or asked.
+     */
+    @Test
+    void importKey_refusesAPublicKeyATokenHoldsWithoutItsPrivateKeyBeforeAnAttemptOpens() {
+        // given
+        PublicKeyHolder inAToken = new PublicKeyHolder(mock(CryptographicKeyFullModel.class), UUID.randomUUID(),
+                Holding.PUBLIC_KEY_IN_TOKEN);
+        when(cryptographicKeyWriter.publicKeyHolder("fingerprint")).thenReturn(Optional.of(inAToken));
+        doThrow(new ValidationException(ValidationError.create("in a token without its private key")))
+                .when(keyImportGates)
+                .requireImportableInto(inAToken);
+
+        // when
+        // then
+        assertThatThrownBy(() -> saga.importKey(terms, RETRY, key, metadata))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("in a token without its private key");
+        verify(keyImportWriter, never()).open(any(), any(), any(), any());
+        verifyNoInteractions(adapter);
     }
 
     @Test
@@ -1056,7 +1078,6 @@ class KeyImportSagaTest {
     void importKey_importsIntoARecordTheCallerMayUpdateUnderTheRecordsName() throws Exception {
         // given
         PublicKeyHolder adoptable = publicKeyRecord(UUID.randomUUID());
-        UUID recordUuid = adoptable.key().uuid();
         when(cryptographicKeyWriter.publicKeyHolder("fingerprint")).thenReturn(Optional.of(adoptable));
         when(cryptographicKeyRepository.existsByName("imported key")).thenReturn(true);
         when(keyImportWriter.open(terms, RETRY, "certificate key", keyDigests)).thenReturn(attempt);
@@ -1068,20 +1089,19 @@ class KeyImportSagaTest {
 
         // then
         assertThat(result.key()).isSameAs(registered);
-        verify(keyImportGates, times(2)).requireUpdatable(recordUuid);
+        verify(keyImportGates, times(2)).requireImportableInto(adoptable);
         verify(cryptographicKeyRepository, never()).existsByName(any());
     }
 
-    /** A caller who may not update the record is refused in neutral words, before anything is recorded or asked. */
+    /** A caller who may not update the record is refused before anything is recorded or asked. */
     @Test
     void importKey_refusesARecordTheCallerMayNotUpdateBeforeAnAttemptOpens() {
         // given
         PublicKeyHolder adoptable = publicKeyRecord(UUID.randomUUID());
-        UUID recordUuid = adoptable.key().uuid();
         when(cryptographicKeyWriter.publicKeyHolder("fingerprint")).thenReturn(Optional.of(adoptable));
         doThrow(new ValidationException(ValidationError.create(CryptographicKeyWriter.KEY_ALREADY_HELD)))
                 .when(keyImportGates)
-                .requireUpdatable(recordUuid);
+                .requireImportableInto(adoptable);
 
         // when
         // then
@@ -1162,7 +1182,7 @@ class KeyImportSagaTest {
         CryptographicKeyFullModel held = mock(CryptographicKeyFullModel.class);
         when(cryptographicKeyWriter.publicKeyHolder("fingerprint"))
                 .thenReturn(Optional.empty())
-                .thenReturn(Optional.of(new PublicKeyHolder(held, UUID.randomUUID(), false)));
+                .thenReturn(Optional.of(new PublicKeyHolder(held, UUID.randomUUID(), Holding.KEY_PAIR)));
 
         // when
         ImportedKey result = saga.importKey(terms, RETRY, key, metadata);
@@ -1216,7 +1236,7 @@ class KeyImportSagaTest {
         CryptographicKeyFullModel publicKeyOnly = mock(CryptographicKeyFullModel.class);
         when(publicKeyOnly.uuid()).thenReturn(UUID.randomUUID());
         when(publicKeyOnly.name()).thenReturn("certificate key");
-        return new PublicKeyHolder(publicKeyOnly, publicKeyItemUuid, true);
+        return new PublicKeyHolder(publicKeyOnly, publicKeyItemUuid, Holding.PUBLIC_KEY_ONLY);
     }
 
     private void openAttempt(KeyImportAttempt open) {

@@ -59,6 +59,7 @@ import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
+import com.otilm.core.dao.entity.CertificateEventHistory;
 import com.otilm.core.dao.entity.CertificateLocation;
 import com.otilm.core.dao.entity.CertificateRelation;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
@@ -92,6 +93,7 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.crypto.OperationAttributeSchema;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
+import com.otilm.core.service.CertificateEventHistoryInternalService;
 import com.otilm.core.service.CertificateExternalService;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.CryptographicKeyInternalService;
@@ -158,6 +160,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
@@ -199,8 +202,11 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     @Autowired
     private ClientOperationInternalService clientOperationInternalService;
 
-    @Autowired
+    @MockitoSpyBean
     private CertificateInternalService certificateService;
+
+    @MockitoSpyBean
+    private CertificateEventHistoryInternalService certificateEventHistoryService;
 
     @Autowired
     private CertificateExternalService certificateExternalService;
@@ -263,12 +269,8 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     private WireMockServer mockServer;
 
     private X509Certificate x509Cert;
+    @MockitoSpyBean
     private AttributeEngine attributeEngine;
-
-    @Autowired
-    void setAttributeEngine(AttributeEngine attributeEngine) {
-        this.attributeEngine = attributeEngine;
-    }
 
     @BeforeEach
     void setUp() throws GeneralSecurityException, IOException, NotFoundException, AttributeException {
@@ -2051,7 +2053,47 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     @Test
     void issueCertificateAction_persistsMeta_when202CarriesMetadata() throws Exception {
         UUID certUuid = prepareCertificateForIssuance();
-        // 202 with a meta entry the connector wants to track against the certificate
+        stubIssueAcceptedWithMetadata();
+
+        clientOperationInternalService.issueCertificateAction(certUuid, true);
+
+        Certificate fetched = certificateRepository.findByUuid(certUuid).orElseThrow();
+        Assertions.assertEquals(CertificateState.PENDING_ISSUE, fetched.getState());
+        // Meta should be persisted against the certificate via the standard attribute pipeline
+        var storedMeta = attributeEngine
+                .getMetadataAttributesDefinitionContent(ObjectAttributeContentInfo
+                        .builder(Resource.CERTIFICATE, fetched.getUuid())
+                        .connector(connector.getUuid())
+                        .build());
+        Assertions.assertNotNull(storedMeta);
+        Assertions
+                .assertFalse(storedMeta.isEmpty(),
+                        "expected the connector's meta to be persisted against the certificate");
+        Assertions.assertEquals("orderId", storedMeta.getFirst().getName());
+    }
+
+    @Test
+    void issueCertificateAction_keepsRuntimeCauseOutOfHistory_when202MetadataPersistenceFails() throws Exception {
+        // given - the connector accepts asynchronously, then persisting its metadata fails
+        UUID certUuid = prepareCertificateForIssuance();
+        stubIssueAcceptedWithMetadata();
+        doThrow(new RuntimeException("internal db detail"))
+                .when(attributeEngine)
+                .updateMetadataAttributes(anyList(), any());
+
+        // when
+        clientOperationInternalService.issueCertificateAction(certUuid, true);
+
+        // then - the accepted operation stays pending and the failure is recorded without the runtime detail
+        Certificate fetched = certificateRepository.findByUuid(certUuid).orElseThrow();
+        Assertions.assertEquals(CertificateState.PENDING_ISSUE, fetched.getState());
+        assertFailedHistory(CertificateEvent.ISSUE, "Failed to persist connector metadata returned with HTTP 202; "
+                + "cancellation of this pending operation may be limited if the connector requires the original "
+                + "metadata. Cause: internal error");
+    }
+
+    /** A 202 carrying one meta entry the connector wants tracked against the certificate. */
+    private void stubIssueAcceptedWithMetadata() {
         mockServer
                 .stubFor(WireMock
                         .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue"))
@@ -2075,22 +2117,6 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                                           ]
                                         }
                                         """)));
-
-        clientOperationInternalService.issueCertificateAction(certUuid, true);
-
-        Certificate fetched = certificateRepository.findByUuid(certUuid).orElseThrow();
-        Assertions.assertEquals(CertificateState.PENDING_ISSUE, fetched.getState());
-        // Meta should be persisted against the certificate via the standard attribute pipeline
-        var storedMeta = attributeEngine
-                .getMetadataAttributesDefinitionContent(ObjectAttributeContentInfo
-                        .builder(Resource.CERTIFICATE, fetched.getUuid())
-                        .connector(connector.getUuid())
-                        .build());
-        Assertions.assertNotNull(storedMeta);
-        Assertions
-                .assertFalse(storedMeta.isEmpty(),
-                        "expected the connector's meta to be persisted against the certificate");
-        Assertions.assertEquals("orderId", storedMeta.getFirst().getName());
     }
 
     @Test
@@ -2371,6 +2397,62 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
+    void revokeCertificateAction_keepsRuntimeCauseOutOfHistoryAndError_whenLocalStepFailsAfterAcceptance()
+            throws Exception {
+        // given - the connector revokes synchronously, then the local attribute write fails
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/revoke"))
+                        .willReturn(WireMock.aResponse().withStatus(204)));
+        doThrow(new RuntimeException("internal db detail"))
+                .when(attributeEngine)
+                .updateObjectDataAttributesContent(any(), anyList());
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+
+        // when
+        CertificateOperationException ex = Assertions
+                .assertThrows(CertificateOperationException.class, () -> clientOperationInternalService
+                        .revokeCertificateAction(certificate.getUuid(), request, true));
+
+        // then
+        Assertions
+                .assertEquals("Connector accepted revoke but local state update failed: internal error",
+                        ex.getMessage());
+        assertFailedHistory(CertificateEvent.REVOKE,
+                "Connector accepted revoke but local state update failed: internal error");
+    }
+
+    @Test
+    void revokeCertificateAction_keepsRuntimeCauseOutOfHistoryAndError_whenFailingBeforeTheConnector() {
+        // given - assembling the connector request fails before anything is sent
+        doThrow(new RuntimeException("internal db detail"))
+                .when(attributeEngine)
+                .getRequestObjectDataAttributesContent(any());
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+
+        // when
+        CertificateOperationException ex = Assertions
+                .assertThrows(CertificateOperationException.class, () -> clientOperationInternalService
+                        .revokeCertificateAction(certificate.getUuid(), request, true));
+
+        // then
+        Assertions.assertEquals("Failed to revoke certificate: internal error", ex.getMessage());
+        assertFailedHistory(CertificateEvent.REVOKE, "Revocation failed");
+    }
+
+    private void assertFailedHistory(CertificateEvent event, String expectedMessage) {
+        List<String> failures = certificateEventHistoryRepository
+                .findAll()
+                .stream()
+                .filter(h -> h.getEvent() == event && h.getStatus() == CertificateEventStatus.FAILED)
+                .map(CertificateEventHistory::getMessage)
+                .toList();
+        Assertions.assertEquals(List.of(expectedMessage), failures);
+    }
+
+    @Test
     void revokeCertificateAction_recordsEventHistoryEntry_on202() throws Exception {
         mockServer
                 .stubFor(WireMock
@@ -2580,6 +2662,35 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                                 + "to precede ISSUED on the sync renew path");
     }
 
+    @Test
+    void renewCertificateAction_keepsRuntimeCauseOutOfHistoryAndError_whenLocalUpdateFailsAfterAcceptance()
+            throws Exception {
+        // given - the connector renews synchronously, then recording the issued successor fails
+        prepareCertificateForRenewal();
+        String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/renew"))
+                        .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
+        doThrow(new RuntimeException("internal db detail"))
+                .when(certificateService)
+                .issueRequestedCertificate(any(), any(), any());
+        ClientCertificateRenewRequestDto request = ClientCertificateRenewRequestDto.builder().build();
+        UUID successorUuid = certificate.getUuid();
+
+        // when
+        CertificateOperationException ex = Assertions
+                .assertThrows(CertificateOperationException.class,
+                        () -> clientOperationInternalService.renewCertificateAction(successorUuid, request, true));
+
+        // then
+        Assertions
+                .assertEquals("Connector accepted renewal but local update failed for certificate %s: internal error"
+                        .formatted(successorUuid), ex.getMessage());
+        assertFailedHistory(CertificateEvent.RENEW,
+                "Connector accepted renewal but local update failed: internal error");
+    }
+
     /**
      * The synchronous (HTTP 200) rekey path moves the new certificate to PENDING_ISSUE via the state machine BEFORE the
      * connector call, then finishes in ISSUED — mirroring the renew path.
@@ -2609,6 +2720,124 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                                         && "Certificate requested".equals(h.getMessage())),
                         "expected the PENDING_ISSUE audit row (ISSUE/SUCCESS, \"Certificate requested\") "
                                 + "to precede ISSUED on the sync rekey path");
+    }
+
+    @Test
+    void rekeyCertificateAction_keepsRuntimeCauseOutOfHistoryAndError_whenLocalUpdateFailsAfterAcceptance()
+            throws Exception {
+        // given - the connector rekeys synchronously, then recording the issued successor fails
+        prepareCertificateForRenewal();
+        String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/renew"))
+                        .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
+        doThrow(new RuntimeException("internal db detail"))
+                .when(certificateService)
+                .issueRequestedCertificate(any(), any(), any());
+        ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
+        UUID successorUuid = certificate.getUuid();
+
+        // when
+        CertificateOperationException ex = Assertions
+                .assertThrows(CertificateOperationException.class,
+                        () -> clientOperationInternalService.rekeyCertificateAction(successorUuid, request, true));
+
+        // then
+        Assertions
+                .assertEquals("Connector accepted rekey but local update failed for certificate %s: internal error"
+                        .formatted(successorUuid), ex.getMessage());
+        assertFailedHistory(CertificateEvent.REKEY, "Connector accepted rekey but local update failed: internal error");
+    }
+
+    @Test
+    void renewCertificateAction_keepsRuntimeCauseOutOfHistoryAndError_whenReplacingInLocationFails() throws Exception {
+        // given - the predecessor sits on a location, and recording its removal from there fails after the renewal
+        UUID predecessorUuid = prepareCertificateForRenewal();
+        placeOnLocation(predecessorUuid, "renew-location");
+        String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/renew"))
+                        .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/remove"))
+                        .willReturn(WireMock.okJson("{}")));
+        doThrow(new RuntimeException("internal db detail"))
+                .when(certificateEventHistoryService)
+                .addEventHistory(any(UUID.class), eq(CertificateEvent.UPDATE_LOCATION),
+                        eq(CertificateEventStatus.SUCCESS), anyString(), anyString());
+        ClientCertificateRenewRequestDto request = ClientCertificateRenewRequestDto.builder().build();
+        request.setReplaceInLocations(true);
+        UUID successorUuid = certificate.getUuid();
+
+        // when
+        CertificateOperationException ex = Assertions
+                .assertThrows(CertificateOperationException.class,
+                        () -> clientOperationInternalService.renewCertificateAction(successorUuid, request, true));
+
+        // then
+        Assertions
+                .assertEquals("Failed to replace certificate in all locations during renew operation: internal error",
+                        ex.getMessage());
+        assertFailedHistory(CertificateEvent.UPDATE_LOCATION,
+                "Failed to replace certificate in location renew-location: internal error");
+    }
+
+    @Test
+    void rekeyCertificateAction_keepsRuntimeCauseOutOfHistoryAndError_whenReplacingInLocationFails() throws Exception {
+        // given - the predecessor sits on a location, and recording its removal from there fails after the rekey
+        UUID predecessorUuid = prepareCertificateForRenewal();
+        placeOnLocation(predecessorUuid, "rekey-location");
+        String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/renew"))
+                        .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/remove"))
+                        .willReturn(WireMock.okJson("{}")));
+        doThrow(new RuntimeException("internal db detail"))
+                .when(certificateEventHistoryService)
+                .addEventHistory(any(UUID.class), eq(CertificateEvent.UPDATE_LOCATION),
+                        eq(CertificateEventStatus.SUCCESS), anyString(), anyString());
+        ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
+        request.setReplaceInLocations(true);
+        UUID successorUuid = certificate.getUuid();
+
+        // when
+        CertificateOperationException ex = Assertions
+                .assertThrows(CertificateOperationException.class,
+                        () -> clientOperationInternalService.rekeyCertificateAction(successorUuid, request, true));
+
+        // then
+        Assertions
+                .assertEquals("Failed to replace certificate in all locations during rekey operation: internal error",
+                        ex.getMessage());
+        assertFailedHistory(CertificateEvent.UPDATE_LOCATION,
+                "Failed to replace certificate in location rekey-location: internal error");
+    }
+
+    private void placeOnLocation(UUID certificateUuid, String locationName) {
+        EntityInstanceReference entityInstanceReference = new EntityInstanceReference();
+        entityInstanceReference.setEntityInstanceUuid(UUID.randomUUID().toString());
+        entityInstanceReference.setConnector(connector);
+        entityInstanceReference = entityInstanceReferenceRepository.save(entityInstanceReference);
+
+        Location location = new Location();
+        location.setUuid(UUID.randomUUID());
+        location.setName(locationName);
+        location.setEnabled(true);
+        location.setEntityInstanceReference(entityInstanceReference);
+        location.setEntityInstanceReferenceUuid(entityInstanceReference.getUuid());
+
+        CertificateLocation certificateLocation = new CertificateLocation();
+        certificateLocation.setCertificate(certificateRepository.findByUuid(certificateUuid).orElseThrow());
+        certificateLocation.setLocation(location);
+        location.getCertificates().add(certificateLocation);
+        locationRepository.save(location);
     }
 
     @Test
@@ -3025,6 +3254,38 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                                 .anyMatch(h -> h.getEvent() == CertificateEvent.REVOKE
                                         && h.getStatus() == CertificateEventStatus.FAILED),
                         "cancelling a pending revoke must record REVOKE/FAILED for the restored cert");
+    }
+
+    @Test
+    void cancelPendingCertificateOperation_keepsRuntimeCauseOutOfHistory_whenTheConnectorCallFailsUnexpectedly() {
+        // given - reloading the certificate for the connector call fails with an unchecked exception
+        certificate.setState(CertificateState.PENDING_REVOKE);
+        certificateRepository.save(certificate);
+        doThrow(new RuntimeException("internal db detail"))
+                .when(certificateRepository)
+                .findForPollingByUuid(certificate.getUuid());
+        CancelPendingCertificateRequestDto req = new CancelPendingCertificateRequestDto();
+
+        // when - the cancel still completes locally
+        Assertions
+                .assertDoesNotThrow(() -> clientOperationService
+                        .cancelPendingCertificateOperation(
+                                SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
+                                raProfile.getSecuredUuid(), certificate.getUuid().toString(), req));
+
+        // then
+        Certificate after = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        Assertions.assertEquals(CertificateState.ISSUED, after.getState());
+        List<String> failures = certificateEventHistoryRepository
+                .findByCertificateOrderByCreatedDesc(after)
+                .stream()
+                .filter(h -> h.getStatus() == CertificateEventStatus.FAILED)
+                .map(CertificateEventHistory::getMessage)
+                .filter(message -> message.startsWith("Connector cancel call failed"))
+                .toList();
+        Assertions
+                .assertEquals(List.of("Connector cancel call failed (proceeding with local cancel): internal error"),
+                        failures);
     }
 
     @Test
