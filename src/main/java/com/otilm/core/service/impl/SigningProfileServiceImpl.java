@@ -1157,8 +1157,14 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
             // applyScheme rejects ineligible certificates before persistence writes any profile state.
             return new AttributesWithOwner(null, List.of());
         }
-        return cryptographicOperationService
-                .validateAttributesAndGetSchema(keyUuid, staticKeyScheme.getSigningOperationAttributes());
+        List<RequestAttribute> submittedAttributes = staticKeyScheme.getSigningOperationAttributes();
+        // The key's token determines which cryptography provider interface handles signing. With the legacy v1
+        // interface, FALCON, MLDSA and SLHDSA keys determine their own signature algorithm and expose no signing
+        // attributes, so a signing-profile request may omit this list (null). Validation requires a non-null list.
+        // The v2 interface requires an explicit algorithm selection even when only one algorithm is available;
+        // converting null to an empty list lets that validation reject the missing selection.
+        List<RequestAttribute> signingAttributes = submittedAttributes == null ? List.of() : submittedAttributes;
+        return cryptographicOperationService.validateAttributesAndGetSchema(keyUuid, signingAttributes);
     }
 
     private List<ResponseAttribute> persistSigningOperationAttributes(SigningProfile signingProfile,
