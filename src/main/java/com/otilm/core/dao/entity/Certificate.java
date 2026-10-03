@@ -51,10 +51,13 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
+import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.annotations.Mutability;
 import org.hibernate.annotations.SQLJoinTableRestriction;
 import org.hibernate.proxy.HibernateProxy;
 import org.hibernate.type.SqlTypes;
+import org.hibernate.type.descriptor.java.Immutability;
 
 @Getter
 @Setter
@@ -91,6 +94,11 @@ import org.hibernate.type.SqlTypes;
                         attributeNodes = @NamedAttributeNode("authorityInstanceReference"))})
 @Entity
 @Table(name = "certificate")
+// A request may hold a copy read before a revocation or another state change committed; writing only what it changed
+// keeps the state the change gave the certificate. The JSON columns are marked immutable for the same reason:
+// Hibernate would otherwise compare them by value and write the copy's old value back. Replace them, never mutate them
+// in place.
+@DynamicUpdate
 public class Certificate extends UniquelyIdentifiedAndAudited
         implements
             ComplianceSubject,
@@ -230,6 +238,7 @@ public class Certificate extends UniquelyIdentifiedAndAudited
 
     @Column(name = "compliance_result", columnDefinition = "jsonb")
     @JdbcTypeCode(SqlTypes.JSON)
+    @Mutability(Immutability.class)
     private ComplianceResultDto complianceResult;
 
     @Column(name = "compliance_status", nullable = false)
@@ -304,6 +313,7 @@ public class Certificate extends UniquelyIdentifiedAndAudited
      */
     @Column(name = "pending_revoke_attributes", columnDefinition = "jsonb")
     @JdbcTypeCode(SqlTypes.JSON)
+    @Mutability(Immutability.class)
     private List<RequestAttribute> pendingRevokeAttributes;
 
     @OneToOne(fetch = FetchType.LAZY, mappedBy = "certificate", cascade = CascadeType.ALL)
