@@ -1875,12 +1875,17 @@ public class AttributeEngine {
         // filter out updating
         processSecurityFilter(definitionUuid, attributeDefinition);
 
+        // Validated before the stored content goes: a rejection is a checked AttributeException, which rolls nothing
+        // back, so validating after the delete left the object without its previous value.
+        List<BaseAttributeContentV3<?>> contentV3s = null;
+        if (attributeContentItems != null && !attributeContentItems.isEmpty()) {
+            contentV3s = AttributeVersionHelper.getBaseAttributeContentV3s(attributeContentItems, attributeDefinition);
+            validateAttributeContent(attributeDefinition, contentV3s);
+        }
+
         // custom attributes content is automatically replaced
         deleteObjectAttributeDefinitionContent(attributeDefinition.getUuid(), objectType, objectUuid);
-        if (attributeContentItems != null && !attributeContentItems.isEmpty()) {
-            List<BaseAttributeContentV3<?>> contentV3s = AttributeVersionHelper
-                    .getBaseAttributeContentV3s(attributeContentItems, attributeDefinition);
-            validateAttributeContent(attributeDefinition, contentV3s);
+        if (contentV3s != null) {
             createObjectAttributeContent(attributeDefinition,
                     ObjectAttributeContentInfo.builder(objectType, objectUuid).build(), contentV3s);
         }

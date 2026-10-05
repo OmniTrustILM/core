@@ -20,12 +20,14 @@ import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.properties.CustomAttributeProperties;
 import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.content.BaseAttributeContentV2;
 import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
+import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.enums.BitMaskEnum;
@@ -1737,6 +1739,64 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
                 .findFirst()
                 .orElseThrow();
         Assertions.assertEquals("copiedValue", attr.getContent().getFirst().getData().toString());
+    }
+
+    @Test
+    void testMappingRejectedByThePredefinedListKeepsTheStoredValue()
+            throws AttributeException, NotFoundException, RuleException {
+        CustomAttributeV3 pillar = new CustomAttributeV3();
+        pillar.setUuid(UUID.randomUUID().toString());
+        pillar.setName("pillarTarget");
+        pillar.setType(AttributeType.CUSTOM);
+        pillar.setContentType(AttributeContentType.STRING);
+        CustomAttributeProperties properties = new CustomAttributeProperties();
+        properties.setLabel("pillarTarget");
+        properties.setList(true);
+        properties.setExtensibleList(false);
+        pillar.setProperties(properties);
+        pillar.setContent(List.of(new StringAttributeContentV3("Retail"), new StringAttributeContentV3("Corporate")));
+        attributeEngine.updateCustomAttributeDefinition(pillar, List.of(Resource.CERTIFICATE));
+        attributeEngine
+                .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate.getUuid(), null, "pillarTarget",
+                        List.of(new StringAttributeContentV3("Retail")));
+
+        Connector connector = new Connector();
+        connector.setVersion(ConnectorVersion.V1);
+        connectorRepository.save(connector);
+        MetadataAttributeV2 metaAttr = new MetadataAttributeV2();
+        metaAttr.setContentType(AttributeContentType.STRING);
+        metaAttr.setName("pillarSource");
+        metaAttr.setUuid(UUID.randomUUID().toString());
+        metaAttr.setContent(List.of(new StringAttributeContentV2(null, "Unknown")));
+        metaAttr.setType(AttributeType.META);
+        MetadataAttributeProperties props = new MetadataAttributeProperties();
+        props.setLabel("pillarSource");
+        metaAttr.setProperties(props);
+        attributeEngine
+                .updateMetadataAttributes(List.of(metaAttr),
+                        ObjectAttributeContentInfo
+                                .builder(Resource.CERTIFICATE, certificate.getUuid())
+                                .connector(connector.getUuid())
+                                .build());
+
+        executionItem.setFieldSource(FilterFieldSource.CUSTOM);
+        executionItem.setFieldIdentifier("pillarTarget|STRING");
+        executionItem.setSourceFieldSource(FilterFieldSource.META);
+        executionItem.setSourceFieldIdentifier("pillarSource|STRING");
+        executionItem.setData(null);
+
+        TriggerHistory triggerHistory = triggerService
+                .createTriggerHistory(trigger.getUuid(), null, certificate.getUuid(), null, null, Resource.CERTIFICATE);
+        certificateTriggerEvaluator.performActions(trigger, triggerHistory, certificate, null);
+
+        Assertions.assertEquals(1, triggerHistory.getRecords().size(), "the rejected mapping is recorded");
+        ResponseAttributeV3 stored = (ResponseAttributeV3) attributeEngine
+                .getObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid())
+                .stream()
+                .filter(a -> a.getName().equals("pillarTarget"))
+                .findFirst()
+                .orElseThrow();
+        Assertions.assertEquals("Retail", stored.getContent().getFirst().getData().toString());
     }
 
     @Test
