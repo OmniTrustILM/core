@@ -147,6 +147,11 @@ class DiscoveryDtoMapperTest {
             public String getMeta() {
                 return null;
             }
+
+            @Override
+            public String getProtectedMeta() {
+                return null;
+            }
         };
     }
 

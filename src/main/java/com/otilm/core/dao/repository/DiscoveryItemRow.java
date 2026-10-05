@@ -42,4 +42,7 @@ public interface DiscoveryItemRow {
     String getProcessedError();
 
     String getMeta();
+
+    /** Metadata attributes held apart from {@link #getMeta()}, encrypted; see {@code StagedMetadata}. */
+    String getProtectedMeta();
 }

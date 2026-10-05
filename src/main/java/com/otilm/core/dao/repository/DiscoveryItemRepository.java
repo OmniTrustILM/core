@@ -23,21 +23,24 @@ public interface DiscoveryItemRepository extends JpaRepository<DiscoveryItem, UU
      *
      * @param payload the item's payload, pre-serialized to JSON text
      * @param meta serialized {@code MetadataAttribute} list, or {@code null}
+     * @param protectedMeta the encrypted attributes held apart from {@code meta}, or {@code null}; see
+     * {@code StagedMetadata}
      */
     // S107: native query binds one parameter per column.
     @SuppressWarnings("java:S107")
     @Modifying
     @Query(value = """
             INSERT INTO {h-schema}discovery_item
-                (uuid, discovery_uuid, resource, sequence, unique_ref, payload, discovered_at, newly_discovered, meta)
+                (uuid, discovery_uuid, resource, sequence, unique_ref, payload, discovered_at, newly_discovered, meta,
+                 protected_meta)
             VALUES (:uuid, :discoveryUuid, :resource, :sequence, :uniqueRef, CAST(:payload AS jsonb),
-                    :discoveredAt, :newlyDiscovered, CAST(:meta AS jsonb))
+                    :discoveredAt, :newlyDiscovered, CAST(:meta AS jsonb), :protectedMeta)
             ON CONFLICT (discovery_uuid, resource, unique_ref) DO NOTHING
             """, nativeQuery = true)
     void stage(@Param("uuid") UUID uuid, @Param("discoveryUuid") UUID discoveryUuid, @Param("resource") String resource,
             @Param("sequence") long sequence, @Param("uniqueRef") String uniqueRef, @Param("payload") String payload,
             @Param("discoveredAt") OffsetDateTime discoveredAt, @Param("newlyDiscovered") boolean newlyDiscovered,
-            @Param("meta") String meta);
+            @Param("meta") String meta, @Param("protectedMeta") String protectedMeta);
 
     /**
      * One page of everything the run staged, as a union of the two staging stores ({@code DiscoveryDetailCounts} says
@@ -78,6 +81,7 @@ public interface DiscoveryItemRepository extends JpaRepository<DiscoveryItem, UU
                    (i.processed_at IS NOT NULL) AS processed,
                    i.processed_error AS processed_error,
                    i.meta #>> '{}' AS meta,
+                   i.protected_meta AS protected_meta,
                    ck.name AS inventory_name
               FROM {h-schema}discovery_item i
               LEFT JOIN {h-schema}cryptographic_key ck ON ck.uuid = i.inventory_uuid
@@ -87,7 +91,8 @@ public interface DiscoveryItemRepository extends JpaRepository<DiscoveryItem, UU
                     OR i.newly_discovered = CAST(:newlyDiscovered AS BOOLEAN))
             UNION ALL
             SELECT c.uuid, c.inventory_uuid, c.sequence, c.unique_ref, c.resource, c.discovered_at, c.staged_payload,
-                   c.content_id, c.newly_discovered, c.processed, c.processed_error, c.meta, c.inventory_name
+                   c.content_id, c.newly_discovered, c.processed, c.processed_error, c.meta, c.protected_meta,
+                   c.inventory_name
               FROM (
                 SELECT dc.uuid AS uuid,
                        cert.uuid AS inventory_uuid,
@@ -102,6 +107,7 @@ public interface DiscoveryItemRepository extends JpaRepository<DiscoveryItem, UU
                        dc.processed AS processed,
                        dc.processed_error AS processed_error,
                        dc.meta #>> '{}' AS meta,
+                       dc.protected_meta AS protected_meta,
                        cert.common_name AS inventory_name
                   FROM {h-schema}discovery_certificate dc
                   JOIN {h-schema}certificate_content cc ON cc.id = dc.certificate_content_id
@@ -127,6 +133,7 @@ public interface DiscoveryItemRepository extends JpaRepository<DiscoveryItem, UU
                    p.processed AS "processed",
                    p.processed_error AS "processedError",
                    p.meta AS "meta",
+                   p.protected_meta AS "protectedMeta",
                    p.inventory_name AS "inventoryName"
               FROM page p
               LEFT JOIN {h-schema}certificate_content cc ON cc.id = p.content_id

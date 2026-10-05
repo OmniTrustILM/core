@@ -116,7 +116,8 @@ public class KeyDiscoveredHandler {
         transactionHandler
                 .runInNewTransaction(() -> keyWriter
                         .importKey(item, publicKey, fingerprint)
-                        .ifPresent(keyItemUuid -> recordWhereFound(run, keyItemUuid, item.getMeta())));
+                        .ifPresent(keyItemUuid -> recordWhereFound(run, keyItemUuid,
+                                StagedMetadata.unseal(item.getMeta(), item.getProtectedMeta()))));
         return true;
     }
 

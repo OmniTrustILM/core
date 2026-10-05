@@ -88,6 +88,10 @@ public class DiscoveryItem extends UniquelyIdentified {
     @JdbcTypeCode(SqlTypes.JSON)
     private List<MetadataAttribute> meta;
 
+    // Metadata attributes the connector declared encrypted, kept out of meta and encrypted; see StagedMetadata.
+    @Column(name = "protected_meta", length = Integer.MAX_VALUE)
+    private String protectedMeta;
+
     // No-op overrides required by S2160: identity and hashing stay UUID-based, and the added columns never
     // affect equality.
     @Override

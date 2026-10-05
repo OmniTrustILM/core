@@ -16,6 +16,7 @@ import com.otilm.core.dao.entity.DiscoveryMessage;
 import com.otilm.core.dao.entity.workflows.Trigger;
 import com.otilm.core.dao.repository.DiscoveryItemRow;
 import com.otilm.core.serialization.ObjectMapperFactory;
+import com.otilm.core.service.handler.discovery.StagedMetadata;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.CertificateUtil;
 import java.time.ZoneOffset;
@@ -137,10 +138,10 @@ public class DiscoveryDtoMapper {
         dto.setNewlyDiscovered(row.isNewlyDiscovered());
         dto.setProcessed(row.isProcessed());
         dto.setProcessedError(row.getProcessedError());
-        dto
-                .setMeta(row.getMeta() == null
-                        ? null
-                        : AttributeDefinitionUtils.deserialize(row.getMeta(), MetadataAttribute.class));
+        List<MetadataAttribute> stagedMeta = row.getMeta() == null
+                ? null
+                : AttributeDefinitionUtils.deserialize(row.getMeta(), MetadataAttribute.class);
+        dto.setMeta(StagedMetadata.unseal(stagedMeta, row.getProtectedMeta()));
         return dto;
     }
 

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredItemDto;
 import com.otilm.core.dao.repository.DiscoveryItemRepository;
+import com.otilm.core.service.handler.discovery.StagedMetadata;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,11 +33,12 @@ public class DiscoveryItemWriter {
      */
     @Transactional
     public void stage(UUID discoveryUuid, DiscoveredItemDto item, boolean newlyDiscovered) {
+        StagedMetadata.Sealed stagedMeta = StagedMetadata.seal(item.getMeta());
         itemRepository
                 // Stores the enum's name, since the column is read back through EnumType.STRING.
                 .stage(UUID.randomUUID(), discoveryUuid, item.getResource().name(), item.getSequence(),
                         item.getUniqueRef(), asJson(item.getPayload()), item.getDiscoveredAt(), newlyDiscovered,
-                        item.getMeta() == null ? null : asJson(item.getMeta()));
+                        stagedMeta.meta() == null ? null : asJson(stagedMeta.meta()), stagedMeta.protectedMeta());
     }
 
     private String asJson(Object value) {
