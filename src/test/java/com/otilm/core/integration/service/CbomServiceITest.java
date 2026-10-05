@@ -641,6 +641,21 @@ class CbomServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void uploadRefusesANonIntegerVersionWithoutContactingTheRepository() throws JsonProcessingException {
+        CbomUploadRequestDto request = objectMapper.readValue("""
+                {"content": {"bomFormat": "CycloneDX", "specVersion": "1.6",
+                 "serialNumber": "urn:uuid:3e671687-395b-41f5-a30f-a58921a69b79", "version": 10.2}}
+                """, CbomUploadRequestDto.class);
+
+        ValidationException refusal = assertThrows(ValidationException.class, () -> cbomService.createCbom(request));
+
+        assertEquals("Invalid CBOM version. Version must be an integer greater than or equal to 1. Example: 1",
+                refusal.getErrors().getFirst().getErrorDescription());
+        mockServer.verify(0, WireMock.postRequestedFor(WireMock.urlPathEqualTo("/api/v1/bom")));
+        assertEquals(0, cbomRepository.count());
+    }
+
+    @Test
     void testUploadCbom_MissingSerialNumber() throws AlreadyExistException, CbomRepositoryException {
         // Given
         LinkedHashMap<String, Object> content = new LinkedHashMap<>();
@@ -705,7 +720,7 @@ class CbomServiceITest extends BaseSpringBootTest {
         content.put("serialNumber", "urn:uuid:test-123");
         content.put("bomFormat", "CycloneDX");
         // Missing specVersion
-        content.put("version", "1");
+        content.put("version", 1);
 
         CbomUploadRequestDto request = new CbomUploadRequestDto();
         request.setContent(content);
@@ -721,7 +736,7 @@ class CbomServiceITest extends BaseSpringBootTest {
         content.put("serialNumber", "urn:uuid:test-123");
         content.put("bomFormat", "CycloneDX");
         content.put("specVersion", "1.5");
-        content.put("version", "1");
+        content.put("version", 1);
         // Missing metadata
 
         CbomUploadRequestDto request = new CbomUploadRequestDto();
@@ -750,7 +765,7 @@ class CbomServiceITest extends BaseSpringBootTest {
         content.put("serialNumber", "urn:uuid:test-123");
         content.put("bomFormat", "CycloneDX");
         content.put("specVersion", "1.5");
-        content.put("version", "1");
+        content.put("version", 1);
         content.put("metadata", "not an object"); // String instead of Map
 
         CbomUploadRequestDto request = new CbomUploadRequestDto();
@@ -779,7 +794,7 @@ class CbomServiceITest extends BaseSpringBootTest {
         content.put("serialNumber", "urn:uuid:test-123");
         content.put("bomFormat", "CycloneDX");
         content.put("specVersion", "1.5");
-        content.put("version", "1");
+        content.put("version", 1);
 
         Map<String, Object> metadata = new HashMap<>();
         // Missing timestamp
@@ -811,7 +826,7 @@ class CbomServiceITest extends BaseSpringBootTest {
         content.put("serialNumber", "urn:uuid:test-123");
         content.put("bomFormat", "CycloneDX");
         content.put("specVersion", "1.5");
-        content.put("version", "1");
+        content.put("version", 1);
 
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("timestamp", "not-a-valid-timestamp");
@@ -843,7 +858,7 @@ class CbomServiceITest extends BaseSpringBootTest {
         content.put("serialNumber", "urn:uuid:test-123");
         content.put("bomFormat", "CycloneDX");
         content.put("specVersion", "1.5");
-        content.put("version", "1");
+        content.put("version", 1);
 
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("timestamp", 42);
