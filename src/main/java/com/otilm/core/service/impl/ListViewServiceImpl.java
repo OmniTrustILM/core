@@ -116,7 +116,8 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         });
         return views
                 .stream()
-                .map(view -> toDto(view, catalogues.get(view.getResource()), definitions.get(view.getResource())))
+                .map(view -> toDto(view, catalogues.get(view.getResource()), definitions.get(view.getResource()),
+                        contentFilter))
                 .toList();
     }
 
@@ -126,8 +127,8 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
     public ListViewDto createView(ListViewRequestDto request) throws AlreadyExistException {
         UUID userUuid = loggedUserUuid();
         Resource resource = request.getResource();
-        Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
         List<NamedField> named = namedFields(request);
+        Supplier<CustomAttributeContentFilter> contentFilter = contentFilterFor(named);
         Catalogue catalogue = catalogueOf(resource, named, contentFilter);
         validateRequest(resource, request, Set.of(), List.of(), catalogue);
         Map<NamedField, Set<UUID>> definitions = attributeEngine.definitionsBehind(resource, named, contentFilter);
@@ -142,7 +143,7 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         view.setResource(resource);
         applyRequest(view, request, new Binder(resource, catalogue, definitions));
 
-        return toDto(save(view, request.getName()), catalogue, definitions);
+        return toDto(save(view, request.getName()), catalogue, definitions, contentFilter);
     }
 
     @Override
@@ -155,8 +156,8 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         Resource resource = view.getResource();
         // Resolving the caller's attribute permissions can wait on the policy engine, so it is done before the lock
         // that every other write of this user's views of the resource queues behind.
-        Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
         List<NamedField> named = namedFields(request);
+        Supplier<CustomAttributeContentFilter> contentFilter = contentFilterFor(named);
         Catalogue catalogue = catalogueOf(resource, named, contentFilter);
         Map<NamedField, Set<UUID>> definitions = attributeEngine.definitionsBehind(resource, named, contentFilter);
 
@@ -172,7 +173,7 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
 
         applyRequest(view, request, new Binder(resource, catalogue, definitions));
 
-        return toDto(save(view, request.getName()), catalogue, definitions);
+        return toDto(save(view, request.getName()), catalogue, definitions, contentFilter);
     }
 
     @Override
@@ -198,6 +199,18 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
      */
     private void serializeWritesFor(UUID userUuid, Resource resource) {
         clusterSynchronizer.lock("list-view:" + userUuid + ":" + resource.getCode());
+    }
+
+    /**
+     * The caller's custom-attribute permissions, already resolved when the request names a custom attribute, because
+     * the response withholds what they do not permit and is built while the write lock is held.
+     */
+    private Supplier<CustomAttributeContentFilter> contentFilterFor(List<NamedField> named) {
+        Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
+        if (named.stream().anyMatch(field -> field.source() == FilterFieldSource.CUSTOM)) {
+            contentFilter.get();
+        }
+        return contentFilter;
     }
 
     private ListView save(ListView view, String name) throws AlreadyExistException {
@@ -265,7 +278,8 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         return UUID.fromString(AuthHelper.getUserIdentification().getUuid());
     }
 
-    private static ListViewDto toDto(ListView view, Catalogue catalogue, Map<NamedField, Set<UUID>> definitions) {
+    private static ListViewDto toDto(ListView view, Catalogue catalogue, Map<NamedField, Set<UUID>> definitions,
+            Supplier<CustomAttributeContentFilter> contentFilter) {
         ListViewDto dto = new ListViewDto();
         dto.setUuid(view.getUuid().toString());
         dto.setName(view.getName());
@@ -278,7 +292,7 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         List<ListViewColumnDto> columns = view
                 .getColumns()
                 .stream()
-                .map(column -> resolvedColumn(column, catalogue, definitions))
+                .map(column -> resolvedColumn(column, catalogue, definitions, contentFilter))
                 .toList();
         dto.setColumns(columns);
         dto
@@ -287,7 +301,7 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
                         : view
                                 .getFilters()
                                 .stream()
-                                .map(filter -> resolvedFilter(filter, catalogue, definitions))
+                                .map(filter -> resolvedFilter(filter, catalogue, definitions, contentFilter))
                                 .toList());
         // Returning an ordering the listing would now refuse hands the client a view whose every application answers
         // an error; dropping it opens the view in the listing's own order instead. An ordering whose attribute is now
@@ -302,10 +316,12 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
     }
 
     private static ListViewColumnDto resolvedColumn(ListViewColumnDto stored, Catalogue catalogue,
-            Map<NamedField, Set<UUID>> definitions) {
+            Map<NamedField, Set<UUID>> definitions, Supplier<CustomAttributeContentFilter> contentFilter) {
         ListViewColumnDto column = new ListViewColumnDto(stored.getFieldSource(), stored.getFieldIdentifier(),
                 stored.getLabel());
-        column.setAttributeDefinitionUuids(stored.getAttributeDefinitionUuids());
+        column
+                .setAttributeDefinitionUuids(
+                        disclosed(CatalogueField.of(stored), stored.getAttributeDefinitionUuids(), contentFilter));
         column
                 .setStatus(statusOf(CatalogueField.of(stored), catalogue.canDisplay(CatalogueField.of(stored)),
                         stored.getAttributeDefinitionUuids(), definitions));
@@ -313,15 +329,31 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
     }
 
     private static ListViewFilterDto resolvedFilter(ListViewFilterDto stored, Catalogue catalogue,
-            Map<NamedField, Set<UUID>> definitions) {
+            Map<NamedField, Set<UUID>> definitions, Supplier<CustomAttributeContentFilter> contentFilter) {
         ListViewFilterDto filter = new ListViewFilterDto(stored.getFieldSource(), stored.getFieldIdentifier(),
                 stored.getCondition(), stored.getValue());
-        filter.setAttributeDefinitionUuids(stored.getAttributeDefinitionUuids());
+        filter
+                .setAttributeDefinitionUuids(
+                        disclosed(CatalogueField.of(stored), stored.getAttributeDefinitionUuids(), contentFilter));
         filter
                 .setStatus(statusOf(CatalogueField.of(stored),
                         catalogue.accepts(CatalogueField.of(stored), stored.getCondition()),
                         stored.getAttributeDefinitionUuids(), definitions));
         return filter;
+    }
+
+    /**
+     * The part of a stored binding the caller may see. A binding can name a custom definition they may not read: one
+     * bound by the migration, which could not apply its owner's permissions, or one withheld since it was bound. Only
+     * the response is narrowed; the status and every later save work from the binding as stored.
+     */
+    private static List<UUID> disclosed(CatalogueField field, List<UUID> binding,
+            Supplier<CustomAttributeContentFilter> contentFilter) {
+        if (binding == null || binding.isEmpty() || field.fieldSource() != FilterFieldSource.CUSTOM) {
+            return binding;
+        }
+        CustomAttributeContentFilter permissions = contentFilter.get();
+        return binding.stream().filter(permissions::permits).toList();
     }
 
     /**

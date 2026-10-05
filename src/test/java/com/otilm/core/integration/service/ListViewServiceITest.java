@@ -951,6 +951,26 @@ class ListViewServiceITest extends BaseSpringBootTest {
     void anEditResolvesAttributePermissionsBeforeItTakesTheLock() throws Exception {
         createTeamAttribute();
         ListViewDto created = createTeamColumnView();
+
+        ListViewDto edited = editWhileTheLockIsHeld(created, update("Renamed", column("COMMON_NAME"), teamColumn()));
+
+        Assertions.assertEquals(ListViewFieldStatus.AVAILABLE, teamColumnOf(edited).getStatus());
+    }
+
+    /** Withholding a binding the caller may not read needs their permissions even with no definition left to check. */
+    @Test
+    void anEditOfAColumnWhoseAttributeIsGoneResolvesAttributePermissionsBeforeItTakesTheLock() throws Exception {
+        UUID team = createTeamAttribute();
+        ListViewDto created = createTeamColumnView();
+        attributeService.deleteCustomAttribute(team);
+
+        ListViewDto edited = editWhileTheLockIsHeld(created, update("Renamed", column("COMMON_NAME"), teamColumn()));
+
+        Assertions.assertEquals(List.of(team), teamColumnOf(edited).getAttributeDefinitionUuids());
+    }
+
+    /** Edits the view while its lock is held, asserting no permission is resolved once the edit has the lock. */
+    private ListViewDto editWhileTheLockIsHeld(ListViewDto view, ListViewUpdateRequestDto request) throws Exception {
         SecurityContext context = SecurityContextHolder.getContext();
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
@@ -961,8 +981,7 @@ class ListViewServiceITest extends BaseSpringBootTest {
                 Future<ListViewDto> waiting = executor.submit(() -> {
                     SecurityContextHolder.setContext(context);
                     try {
-                        return listViewService
-                                .editView(created.getUuid(), update("Renamed", column("COMMON_NAME"), teamColumn()));
+                        return listViewService.editView(view.getUuid(), request);
                     } finally {
                         SecurityContextHolder.clearContext();
                     }
@@ -979,9 +998,9 @@ class ListViewServiceITest extends BaseSpringBootTest {
             });
 
             ListViewDto edited = edit.get(30, TimeUnit.SECONDS);
-            Assertions.assertEquals(ListViewFieldStatus.AVAILABLE, teamColumnOf(edited).getStatus());
             Assertions.assertTrue(checksWhileWaiting.get() > 0);
             Assertions.assertEquals(checksWhileWaiting.get(), objectAccessChecks());
+            return edited;
         } finally {
             executor.shutdownNow();
             Assertions.assertTrue(executor.awaitTermination(30, TimeUnit.SECONDS));
@@ -1261,6 +1280,42 @@ class ListViewServiceITest extends BaseSpringBootTest {
         ValidationException e = Assertions
                 .assertThrows(ValidationException.class, () -> listViewService.editView(uuid, rebind));
         Assertions.assertTrue(e.getMessage().contains("has no field " + TEAM), e.getMessage());
+    }
+
+    /**
+     * A stored binding can name a definition its owner may not read: the migration bound views without their owners'
+     * permissions, and a permission can be withdrawn after a save. Reading the view must not disclose it, and sending
+     * the read back must not cost the view the binding it stands for.
+     */
+    @Test
+    void aBindingTheCallerMayNotReadIsWithheldAndSurvivesASaveBack()
+            throws AlreadyExistException, AttributeException, NotFoundException {
+        UUID team = createTeamAttribute();
+        ListViewColumnDto boundColumn = teamColumn();
+        boundColumn.setAttributeDefinitionUuids(List.of(team));
+        ListViewFilterDto boundFilter = teamFilter(FilterConditionOperator.EQUALS, "pki");
+        boundFilter.setAttributeDefinitionUuids(List.of(team));
+        ListView stored = save("Bound", List.of(column("COMMON_NAME"), boundColumn), List.of(boundFilter), null);
+        forbidObjectAccess(Resource.ATTRIBUTE, ResourceAction.MEMBERS, List.of(team));
+
+        ListViewDto read = readTheOnlyView();
+        Assertions.assertEquals(List.of(), teamColumnOf(read).getAttributeDefinitionUuids());
+        Assertions.assertEquals(List.of(), read.getFilters().getFirst().getAttributeDefinitionUuids());
+        Assertions.assertEquals(ListViewFieldStatus.UNAVAILABLE, teamColumnOf(read).getStatus());
+
+        ListViewDto saved = listViewService.editView(stored.getUuid().toString(), savedBack(read, "Bound"));
+
+        Assertions.assertEquals(List.of(), teamColumnOf(saved).getAttributeDefinitionUuids());
+        Assertions.assertEquals(List.of(), saved.getFilters().getFirst().getAttributeDefinitionUuids());
+        ListView after = listViewRepository.findById(stored.getUuid()).orElseThrow();
+        Assertions.assertEquals(List.of(team), after.getColumns().get(1).getAttributeDefinitionUuids());
+        Assertions.assertEquals(List.of(team), after.getFilters().getFirst().getAttributeDefinitionUuids());
+
+        mockSuccessfulCheckObjectAccess();
+        ListViewDto granted = readTheOnlyView();
+        Assertions.assertEquals(List.of(team), teamColumnOf(granted).getAttributeDefinitionUuids());
+        Assertions.assertEquals(ListViewFieldStatus.AVAILABLE, teamColumnOf(granted).getStatus());
+        Assertions.assertEquals(ListViewFieldStatus.AVAILABLE, granted.getFilters().getFirst().getStatus());
     }
 
     @Test
