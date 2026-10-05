@@ -1,7 +1,16 @@
 package com.otilm.core.integration.service;
 
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.spi.ThrowableProxyUtil;
+import ch.qos.logback.core.read.ListAppender;
 import com.github.tomakehurst.wiremock.WireMockServer;
+import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder;
 import com.github.tomakehurst.wiremock.client.WireMock;
+import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
+import com.github.tomakehurst.wiremock.extension.Parameters;
+import com.github.tomakehurst.wiremock.extension.ServeEventListener;
+import com.github.tomakehurst.wiremock.http.Fault;
+import com.github.tomakehurst.wiremock.stubbing.ServeEvent;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.CertificateOperationException;
 import com.otilm.api.exception.ConnectorException;
@@ -25,6 +34,7 @@ import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.content.ObjectAttributeContentV2;
+import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
@@ -41,6 +51,7 @@ import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
@@ -58,6 +69,7 @@ import com.otilm.core.attribute.SignatureAlgorithmUtils;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
+import com.otilm.core.config.CustomAuditAware;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
@@ -92,6 +104,7 @@ import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.model.compliance.ComplianceResultDto;
 import com.otilm.core.model.crypto.AttributesWithOwner;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -104,6 +117,7 @@ import com.otilm.core.service.CryptographicOperationInternalService;
 import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
+import com.otilm.core.service.v2.impl.ClientOperationServiceImpl;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateRequestUtils;
 import com.otilm.core.util.CertificateTestUtil;
@@ -132,7 +146,14 @@ import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.sql.DataSource;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.asn1.x509.Extensions;
@@ -151,15 +172,21 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.concurrent.DelegatingSecurityContextExecutorService;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -255,6 +282,8 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     @Autowired
     private PlatformTransactionManager transactionManager;
     @Autowired
+    private DataSource dataSource;
+    @Autowired
     private CryptographicKeyItemRepository cryptographicKeyItemRepository;
     @Autowired
     private TokenProfileRepository tokenProfileRepository;
@@ -272,6 +301,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     private CertificateContent certificateContent;
 
     private WireMockServer mockServer;
+    private final ResponseGate responseGate = new ResponseGate();
 
     private X509Certificate x509Cert;
     @MockitoSpyBean
@@ -279,7 +309,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
     @BeforeEach
     void setUp() throws GeneralSecurityException, IOException, NotFoundException, AttributeException {
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(WireMockConfiguration.wireMockConfig().dynamicPort().extensions(responseGate));
         mockServer.start();
 
         WireMock.configureFor("localhost", mockServer.port());
@@ -2437,6 +2467,369 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
+    void revokeCertificateAction_revocationSurvivesACopyReadBeforeItAndSavedAfterIt() throws Exception {
+        stubRevokeResponse(WireMock.aResponse().withStatus(204));
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+
+        try (ExecutorService revoker = new DelegatingSecurityContextExecutorService(
+                Executors.newSingleThreadExecutor())) {
+            new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                Certificate readBeforeRevoke = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+                try {
+                    revoker.submit(() -> {
+                        clientOperationInternalService.revokeCertificateAction(certificate.getUuid(), request, true);
+                        return null;
+                    }).get(30, TimeUnit.SECONDS);
+                } catch (Exception e) {
+                    throw new IllegalStateException(e);
+                }
+                readBeforeRevoke.setValidationStatus(CertificateValidationStatus.INVALID);
+            });
+        }
+
+        Certificate fetched = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        Assertions
+                .assertEquals(CertificateState.REVOKED, fetched.getState(),
+                        "a copy that did not change the state must not write it back");
+        Assertions.assertEquals(CertificateValidationStatus.INVALID, fetched.getValidationStatus());
+    }
+
+    @Test
+    void revokeCertificateAction_rejectsARevokedCertificateAsAlreadyRevoked() {
+        certificate.setState(CertificateState.REVOKED);
+        certificateRepository.save(certificate);
+        UUID certificateUuid = certificate.getUuid();
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+
+        ValidationException ex = Assertions
+                .assertThrows(ValidationException.class,
+                        () -> clientOperationInternalService.revokeCertificateAction(certificateUuid, request, true));
+        Assertions
+                .assertEquals("Certificate is already revoked. Certificate: " + certificate.toStringShort(),
+                        ex.getMessage());
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|',
+            value = {
+                    "500 | the authority reported an error",
+                    "503 | the authority could not be reached",
+                    "401 | the authority refused Core's credentials",
+                    "400 | the authority rejected the revocation"})
+    void revokeCertificateAction_describesTheAuthoritysAnswerInItsOwnWords(int status, String reason) {
+        stubRevokeResponse(WireMock
+                .jsonResponse(
+                        """
+                                {"message": "java.lang.IllegalStateException: com.otilm.ca.connector.ejbca.ws.AlreadyRevokedException_Exception: Certificate has previously been revoked."}
+                                """,
+                        status));
+
+        assertRevokeFailsWith("Failed to revoke certificate: " + reason);
+    }
+
+    @Test
+    void revokeCertificateAction_describesAProblemDetailByItsErrorCode() {
+        stubRevokeResponse(
+                WireMock.aResponse().withStatus(502).withHeader("Content-Type", "application/problem+json").withBody("""
+                        {"type": "about:blank", "title": "Upstream error", "status": 502,
+                         "errorCode": "UPSTREAM_ERROR", "detail": "EJBCA at 10.0.0.5:8443 answered SOAP fault"}
+                        """));
+
+        assertRevokeFailsWith("Failed to revoke certificate: the authority reported an error");
+    }
+
+    @Test
+    void revokeCertificateAction_failedApprovedRevokeReturnsTheCertificateToIssued() {
+        certificate.setState(CertificateState.PENDING_APPROVAL);
+        certificateRepository.save(certificate);
+        stubRevokeResponse(WireMock.jsonResponse("{\"message\": \"refused\"}", 400));
+        UUID certificateUuid = certificate.getUuid();
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+
+        Assertions
+                .assertThrows(CertificateOperationException.class,
+                        () -> clientOperationInternalService.revokeCertificateAction(certificateUuid, request, true));
+
+        Assertions
+                .assertEquals(CertificateState.ISSUED,
+                        certificateRepository.findByUuid(certificateUuid).orElseThrow().getState(),
+                        "the approval is closed, so a failed revoke must leave the certificate revocable again");
+        Certificate fetched = certificateRepository.findByUuid(certificateUuid).orElseThrow();
+        Assertions
+                .assertEquals(List.of("Failed to revoke certificate: the authority rejected the revocation"),
+                        certificateEventHistoryRepository
+                                .findByCertificateOrderByCreatedDesc(fetched)
+                                .stream()
+                                .filter(h -> h.getEvent() == CertificateEvent.REVOKE
+                                        && h.getStatus() == CertificateEventStatus.FAILED)
+                                .map(CertificateEventHistory::getMessage)
+                                .toList(),
+                        "the restore must not record the failure a second time");
+    }
+
+    @Test
+    void revokeCertificateAction_failedApprovedRevokeKeepsItsOwnErrorWhenTheRestoreFails() {
+        certificate.setState(CertificateState.PENDING_APPROVAL);
+        certificateRepository.save(certificate);
+        stubRevokeResponse(WireMock.jsonResponse("{\"message\": \"refused\"}", 400));
+        UUID certificateUuid = certificate.getUuid();
+        doThrow(new IllegalStateException("lock wait timeout"))
+                .when(certificateRepository)
+                .findAndLockWithAssociationsByUuid(certificateUuid);
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+
+        CertificateOperationException ex = Assertions
+                .assertThrows(CertificateOperationException.class,
+                        () -> clientOperationInternalService.revokeCertificateAction(certificateUuid, request, true));
+
+        Assertions.assertEquals("Failed to revoke certificate: the authority rejected the revocation", ex.getMessage());
+        Assertions
+                .assertEquals(CertificateState.PENDING_APPROVAL,
+                        certificateRepository.findByUuid(certificateUuid).orElseThrow().getState());
+    }
+
+    @Test
+    void revokeCertificateAction_keepsAComplianceResultStoredWhileTheConnectorWasCalled() throws Exception {
+        String revokePath = "/v2/authorityProvider/authorities/[^/]+/certificates/revoke";
+        stubRevokeResponse(WireMock.aResponse().withStatus(204));
+        CountDownLatch release = responseGate.hold();
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+
+        try (ExecutorService revoker = new DelegatingSecurityContextExecutorService(
+                Executors.newSingleThreadExecutor())) {
+            Future<?> revoke = revoker.submit(() -> {
+                clientOperationInternalService.revokeCertificateAction(certificate.getUuid(), request, true);
+                return null;
+            });
+            await()
+                    .atMost(5, TimeUnit.SECONDS)
+                    .until(() -> mockServer
+                            .countRequestsMatching(
+                                    WireMock.postRequestedFor(WireMock.urlPathMatching(revokePath)).build())
+                            .getCount() == 1);
+            storeComplianceResult(ComplianceStatus.OK);
+            release.countDown();
+            revoke.get(10, TimeUnit.SECONDS);
+        }
+
+        Certificate fetched = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        Assertions.assertEquals(CertificateState.REVOKED, fetched.getState());
+        Assertions.assertNotNull(fetched.getComplianceResult(), "the revoke must not write its stale copy back");
+        Assertions.assertEquals(ComplianceStatus.OK, fetched.getComplianceResult().getStatus());
+    }
+
+    @Test
+    void pendingRevokeAttributesSurviveADetachedCopySavedAfterThem() {
+        Certificate readBefore = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        RequestAttributeV2 revokeAttribute = new RequestAttributeV2(UUID.randomUUID(), "reasonDetail",
+                AttributeContentType.STRING, List.of(new StringAttributeContentV2("key compromise")));
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            Certificate pending = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+            pending.setPendingRevokeAttributes(List.of(revokeAttribute));
+        });
+
+        readBefore.setValidationStatus(CertificateValidationStatus.INVALID);
+        certificateRepository.save(readBefore);
+
+        Certificate fetched = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        Assertions.assertNotNull(fetched.getPendingRevokeAttributes(), "a stale copy must not clear them");
+        Assertions.assertEquals(1, fetched.getPendingRevokeAttributes().size());
+        Assertions.assertEquals(CertificateValidationStatus.INVALID, fetched.getValidationStatus());
+    }
+
+    private void storeComplianceResult(ComplianceStatus status) {
+        ComplianceResultDto complianceResult = new ComplianceResultDto();
+        complianceResult.setStatus(status);
+        new TransactionTemplate(transactionManager).executeWithoutResult(tx -> {
+            Certificate checked = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+            checked.setComplianceResult(complianceResult);
+            checked.setComplianceStatus(status);
+        });
+    }
+
+    @Test
+    void revokeCertificateAction_recordsWhoLastModifiedTheCertificate() throws Exception {
+        stubRevokeResponse(WireMock.aResponse().withStatus(204));
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        jdbc.update("UPDATE core.certificate SET i_author = 'someone-else' WHERE uuid = ?", certificate.getUuid());
+
+        clientOperationInternalService.revokeCertificateAction(certificate.getUuid(), request, true);
+
+        String author = jdbc
+                .queryForObject("SELECT i_author FROM core.certificate WHERE uuid = ?", String.class,
+                        certificate.getUuid());
+        Assertions.assertEquals(new CustomAuditAware().getCurrentAuditor().orElseThrow(), author);
+    }
+
+    @Test
+    void revokeCertificateAction_revocationSurvivesADetachedCopySavedAfterIt() throws Exception {
+        stubRevokeResponse(WireMock.aResponse().withStatus(204));
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+
+        Certificate readBeforeRevoke = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        clientOperationInternalService.revokeCertificateAction(certificate.getUuid(), request, true);
+        readBeforeRevoke.setValidationStatus(CertificateValidationStatus.INVALID);
+        certificateRepository.save(readBeforeRevoke);
+
+        Certificate fetched = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        Assertions
+                .assertEquals(CertificateState.REVOKED, fetched.getState(),
+                        "a copy that did not change the state must not write it back");
+        Assertions.assertEquals(CertificateValidationStatus.INVALID, fetched.getValidationStatus());
+    }
+
+    @Test
+    void revokeCertificateAction_failedRevokeKeepsWhatWasCommittedWhileItWaited() throws Exception {
+        String revokePath = "/v2/authorityProvider/authorities/[^/]+/certificates/revoke";
+        stubRevokeResponse(WireMock.jsonResponse("{\"message\": \"already revoked\"}", 500));
+        CountDownLatch release = responseGate.hold();
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+
+        try (ExecutorService revoker = new DelegatingSecurityContextExecutorService(
+                Executors.newSingleThreadExecutor())) {
+            Future<?> failing = revoker.submit(() -> {
+                clientOperationInternalService.revokeCertificateAction(certificate.getUuid(), request, true);
+                return null;
+            });
+            await()
+                    .atMost(5, TimeUnit.SECONDS)
+                    .until(() -> mockServer
+                            .countRequestsMatching(
+                                    WireMock.postRequestedFor(WireMock.urlPathMatching(revokePath)).build())
+                            .getCount() == 1);
+            ComplianceResultDto complianceResult = new ComplianceResultDto();
+            complianceResult.setStatus(ComplianceStatus.OK);
+            new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                Certificate concurrent = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+                concurrent.setState(CertificateState.REVOKED);
+                concurrent.setComplianceResult(complianceResult);
+                concurrent.setComplianceStatus(ComplianceStatus.OK);
+            });
+
+            release.countDown();
+            ExecutionException failure = Assertions
+                    .assertThrows(ExecutionException.class, () -> failing.get(10, TimeUnit.SECONDS));
+            Assertions.assertInstanceOf(CertificateOperationException.class, failure.getCause());
+        }
+
+        Certificate fetched = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        Assertions.assertEquals(CertificateState.REVOKED, fetched.getState());
+        Assertions.assertNotNull(fetched.getComplianceResult(), "the failed revoke must not write its stale copy back");
+        Assertions.assertEquals(ComplianceStatus.OK, fetched.getComplianceResult().getStatus());
+    }
+
+    @Test
+    void revokeCertificateAction_reportsAnUnreachableAuthority() {
+        stubRevokeResponse(WireMock.aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER));
+
+        assertRevokeFailsWith("Failed to revoke certificate: the authority could not be reached");
+    }
+
+    @Test
+    void revokeCertificateAction_keepsTheConnectorsAnswerOutOfTheLog() {
+        String sentinel = "SENTINEL-SECRET-2410";
+        stubRevokeResponse(WireMock.jsonResponse("{\"message\": \"credential " + sentinel + " was refused\"}", 500));
+        UUID certificateUuid = certificate.getUuid();
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+        ListAppender<ILoggingEvent> logged = new ListAppender<>();
+        logged.start();
+        ch.qos.logback.classic.Logger serviceLogger = (ch.qos.logback.classic.Logger) LoggerFactory
+                .getLogger(ClientOperationServiceImpl.class);
+        serviceLogger.addAppender(logged);
+        try {
+            Assertions
+                    .assertThrows(CertificateOperationException.class, () -> clientOperationInternalService
+                            .revokeCertificateAction(certificateUuid, request, true));
+        } finally {
+            serviceLogger.detachAppender(logged);
+        }
+
+        List<String> events = logged.list
+                .stream()
+                .map(event -> event.getFormattedMessage() + (event.getThrowableProxy() == null
+                        ? ""
+                        : ThrowableProxyUtil.asString(event.getThrowableProxy())))
+                .toList();
+        Assertions
+                .assertTrue(events.stream().anyMatch(event -> event.contains("the authority reported an error")),
+                        "the failure is still logged: " + events);
+        Assertions
+                .assertTrue(events.stream().noneMatch(event -> event.contains(sentinel)),
+                        "the connector's answer must not reach the log: " + events);
+    }
+
+    /**
+     * Holds the connector's answer until the test releases it, so a competing write provably commits while the
+     * operation waits on the authority.
+     */
+    private static final class ResponseGate implements ServeEventListener {
+
+        private volatile CountDownLatch release;
+
+        CountDownLatch hold() {
+            release = new CountDownLatch(1);
+            return release;
+        }
+
+        @Override
+        public void beforeResponseSent(ServeEvent serveEvent, Parameters parameters) {
+            CountDownLatch gate = release;
+            if (gate == null) {
+                return;
+            }
+            try {
+                gate.await(10, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        @Override
+        public String getName() {
+            return "responseGate";
+        }
+    }
+
+    private void stubRevokeResponse(ResponseDefinitionBuilder response) {
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/revoke"))
+                        .willReturn(response));
+    }
+
+    /** The failure the operator reads, in both the thrown error and the certificate history, and the state kept. */
+    private void assertRevokeFailsWith(String expectedMessage) {
+        UUID certificateUuid = certificate.getUuid();
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+
+        CertificateOperationException ex = Assertions
+                .assertThrows(CertificateOperationException.class,
+                        () -> clientOperationInternalService.revokeCertificateAction(certificateUuid, request, true));
+
+        Assertions.assertEquals(expectedMessage, ex.getMessage());
+        Certificate fetched = certificateRepository.findByUuid(certificateUuid).orElseThrow();
+        Assertions.assertEquals(CertificateState.ISSUED, fetched.getState());
+        List<String> revokeFailures = certificateEventHistoryRepository
+                .findByCertificateOrderByCreatedDesc(fetched)
+                .stream()
+                .filter(h -> h.getEvent() == CertificateEvent.REVOKE && h.getStatus() == CertificateEventStatus.FAILED)
+                .map(CertificateEventHistory::getMessage)
+                .toList();
+        Assertions.assertEquals(List.of(expectedMessage), revokeFailures);
+    }
+
+    @Test
     void revokeCertificateAction_keepsRuntimeCauseOutOfHistoryAndError_whenLocalStepFailsAfterAcceptance()
             throws Exception {
         // given - the connector revokes synchronously, then the local attribute write fails
@@ -2479,7 +2872,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         // then
         Assertions.assertEquals("Failed to revoke certificate: internal error", ex.getMessage());
-        assertFailedHistory(CertificateEvent.REVOKE, "Revocation failed");
+        assertFailedHistory(CertificateEvent.REVOKE, "Failed to revoke certificate: internal error");
     }
 
     private void assertFailedHistory(CertificateEvent event, String expectedMessage) {
@@ -2930,6 +3323,24 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         Assertions
                 .assertTrue(ex.getMessage().toLowerCase().contains("pending"),
                         "expected error message to mention pending state, got: " + ex.getMessage());
+    }
+
+    @Test
+    void revokeCertificate_rejectsARevokedCertificateAsAlreadyRevoked() {
+        certificate.setState(CertificateState.REVOKED);
+        certificateRepository.save(certificate);
+
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+        SecuredParentUUID authorityUuid = SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid());
+        SecuredUUID raProfileSecuredUuid = raProfile.getSecuredUuid();
+        String certUuidString = certificate.getUuid().toString();
+        ValidationException ex = Assertions
+                .assertThrows(ValidationException.class, () -> clientOperationService
+                        .revokeCertificate(authorityUuid, raProfileSecuredUuid, certUuidString, request));
+        Assertions
+                .assertEquals("Certificate is already revoked. Certificate: " + certificate.toStringShort(),
+                        ex.getMessage());
     }
 
     @Test

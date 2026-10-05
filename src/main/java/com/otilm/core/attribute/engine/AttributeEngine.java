@@ -67,6 +67,7 @@ import com.otilm.core.dao.repository.AttributeDefinitionRepository;
 import com.otilm.core.dao.repository.AttributeRelationRepository;
 import com.otilm.core.extension.ExtensionValues;
 import com.otilm.core.extension.JerCodec;
+import com.otilm.core.model.AttributeDefinitionIdentity;
 import com.otilm.core.model.SearchFieldObject;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.oid.OidHandler;
@@ -87,6 +88,7 @@ import java.time.DateTimeException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -196,6 +198,53 @@ public class AttributeEngine {
             Collection<NamedField> named, Supplier<CustomAttributeContentFilter> contentFilterSource) {
         return searchableFieldGroups(resource, settable,
                 readable(attributeSearchFieldCatalogue.fieldsNaming(resource, settable, named), contentFilterSource));
+    }
+
+    /**
+     * The definitions currently registered under each named attribute field in the resource's catalogue, narrowed to
+     * the custom definitions the caller may read. A field with none is absent from the map. A definition of the same
+     * name and content type that belongs only to another resource is not one of them, so it cannot vouch for a field it
+     * does not back here, and neither can one the caller may not read.
+     *
+     * <p>
+     * Read from the definitions rather than the cached catalogue, so a definition deleted or created on another replica
+     * is seen at once: an identifier names only an attribute and content type, and these are what tell a definition
+     * created later under the same identifier apart from the one a stored view was bound to.
+     */
+    public Map<NamedField, Set<UUID>> definitionsBehind(Resource resource, Collection<NamedField> named,
+            Supplier<CustomAttributeContentFilter> contentFilterSource) {
+        Map<String, List<NamedField>> byName = new HashMap<>();
+        for (NamedField field : named) {
+            if (field.isAttribute()) {
+                field
+                        .attributeName()
+                        .ifPresent(name -> byName.computeIfAbsent(name, n -> new ArrayList<>()).add(field));
+            }
+        }
+        if (byName.isEmpty()) {
+            return Map.of();
+        }
+
+        Set<AttributeType> types = byName
+                .values()
+                .stream()
+                .flatMap(List::stream)
+                .map(field -> field.source().getAttributeType())
+                .collect(Collectors.toCollection(() -> EnumSet.noneOf(AttributeType.class)));
+        Set<NamedField> wanted = byName.values().stream().flatMap(List::stream).collect(Collectors.toSet());
+        Map<NamedField, Set<UUID>> definitions = new HashMap<>();
+        for (AttributeDefinitionIdentity identity : attributeDefinitionRepository
+                .findIdentitiesOfResource(resource, types, byName.keySet())) {
+            if (identity.contentType() == null
+                    || identity.type() == AttributeType.CUSTOM && !contentFilterSource.get().permits(identity.uuid())) {
+                continue;
+            }
+            NamedField field = NamedField.ofDefinition(identity.type(), identity.name(), identity.contentType());
+            if (wanted.contains(field)) {
+                definitions.computeIfAbsent(field, f -> new HashSet<>()).add(identity.uuid());
+            }
+        }
+        return definitions;
     }
 
     /**

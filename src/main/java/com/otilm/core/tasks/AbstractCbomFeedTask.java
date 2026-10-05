@@ -77,7 +77,7 @@ public abstract class AbstractCbomFeedTask implements ScheduledJobTask {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public ScheduledTaskResult performJob(final ScheduledJobInfo scheduledJobInfo, final Object taskData) {
         if (!cbomService.isCbomRepositoryClientConfigured()) {
-            throw new ScheduledJobSkippedException();
+            throw new ScheduledJobSkippedException("No CBOM repository client is configured");
         }
 
         String runResultMessage;
@@ -86,7 +86,8 @@ public abstract class AbstractCbomFeedTask implements ScheduledJobTask {
         } catch (Exception e) {
             if (e instanceof CbomRepositoryException ex && ex.getProblemDetail() != null
                     && ex.getProblemDetail().getStatus() == HttpStatus.SERVICE_UNAVAILABLE.value()) {
-                throw new ScheduledJobSkippedException();
+                // Fixed text: the repository's own words never reach the job row.
+                throw new ScheduledJobSkippedException("The CBOM repository answered 503 Service Unavailable");
             }
 
             // Only a shaped domain exception's own message is operator-safe; anything else (JPA, the WebClient
