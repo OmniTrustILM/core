@@ -6,7 +6,6 @@ import com.otilm.api.exception.DiscoveryException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.interfaces.client.v1.DiscoverySyncApiClient;
 import com.otilm.api.model.client.discovery.DiscoveryDetailDto;
-import com.otilm.api.model.common.attribute.common.AttributeContent;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.DataAttribute;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
@@ -46,8 +45,8 @@ import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -438,8 +437,7 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
             final List<DiscoveryProviderCertificateDataDto> duplicateCertificates, final ExecutorService executor,
             final int currentPage) {
         // categorize certs and collect metadata definitions
-        List<MetadataAttribute> metadataDefinitions = new ArrayList<>();
-        Map<String, Set<AttributeContent>> metadataContentsMapping = new HashMap<>();
+        Map<String, MetadataAttribute> metadataDefinitions = new LinkedHashMap<>();
         List<DiscoveryProviderCertificateDataDto> discoveredCertificates = new ArrayList<>();
         response.getCertificateData().forEach(c -> {
             if (uniqueCertificateContents.contains(c.getBase64Content())) {
@@ -450,20 +448,13 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
             }
 
             for (MetadataAttribute m : c.getMeta()) {
-                Set<AttributeContent> metadataContents = metadataContentsMapping.get(m.getUuid());
-                if (metadataContents == null) {
-                    metadataDefinitions.add(m);
-                    metadataContents = new HashSet<>();
-                    metadataContentsMapping.put(m.getUuid(), metadataContents);
-                }
-
-                metadataContents.addAll(m.getContent());
+                metadataDefinitions.putIfAbsent(m.getUuid(), m);
             }
         });
 
         // add/update certificate metadata to prevent creating duplicate definitions in parallel processing
         certificateHandler
-                .updateMetadataDefinition(metadataDefinitions, metadataContentsMapping,
+                .updateMetadataDefinition(new ArrayList<>(metadataDefinitions.values()),
                         UUID.fromString(connector.getUuid()), connector.getName());
 
         // run in separate virtual thread and continue

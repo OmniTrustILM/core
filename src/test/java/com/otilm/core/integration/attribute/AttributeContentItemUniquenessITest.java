@@ -5,6 +5,7 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.attribute.ResponseAttributeV3;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.content.data.ProtectionLevel;
 import com.otilm.api.model.common.attribute.common.properties.CustomAttributeProperties;
@@ -20,8 +21,10 @@ import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.repository.AttributeContentItemRepository;
+import com.otilm.core.dao.repository.AttributeDefinitionRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
+import com.otilm.core.service.handler.CertificateHandler;
 import com.otilm.core.util.BaseSpringBootTest;
 import java.sql.Connection;
 import java.sql.ResultSet;
@@ -65,6 +68,24 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
     private PlatformTransactionManager transactionManager;
     @Autowired
     private DataSource dataSource;
+    @Autowired
+    private CertificateHandler certificateHandler;
+    @Autowired
+    private AttributeDefinitionRepository attributeDefinitionRepository;
+
+    @Test
+    void registeringDiscoveredMetadataStoresTheDefinitionButNoValues() {
+        Connector connector = new Connector();
+        connector.setVersion(ConnectorVersion.V1);
+        connector = connectorRepository.save(connector);
+
+        certificateHandler
+                .updateMetadataDefinition(List.<MetadataAttribute>of(metadataAttribute("pillar", "Retail")),
+                        connector.getUuid(), "discovery-connector");
+
+        Assertions.assertEquals(1, attributeDefinitionRepository.count());
+        Assertions.assertEquals(0, attributeContentItemRepository.count(), "values arrive with the import, mapped");
+    }
 
     @Test
     void concurrentWritersOfANewValueShareOneRow() throws Exception {

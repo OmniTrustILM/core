@@ -1,6 +1,5 @@
 package com.otilm.core.service.handler.discovery;
 
-import com.otilm.api.model.common.attribute.common.AttributeContent;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.connector.discovery.DiscoveryProviderCertificateDataDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredCertificateDto;
@@ -22,7 +21,6 @@ import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -192,27 +190,20 @@ public class DiscoveryEventIngestor {
      * cannot race to insert the same new definition. Commits in its own transaction, independent of the page's.
      */
     private void registerMetadataDefinitions(Discovery run, List<DiscoveredItemDto> items) {
-        List<MetadataAttribute> definitions = new ArrayList<>();
-        Map<String, Set<AttributeContent>> contentsByDefinition = new HashMap<>();
+        Map<String, MetadataAttribute> definitions = new LinkedHashMap<>();
         for (DiscoveredItemDto item : items) {
             if (item.getMeta() == null) {
                 continue;
             }
             for (MetadataAttribute attribute : item.getMeta()) {
-                Set<AttributeContent> contents = contentsByDefinition.get(attribute.getUuid());
-                if (contents == null) {
-                    definitions.add(attribute);
-                    contents = new HashSet<>();
-                    contentsByDefinition.put(attribute.getUuid(), contents);
-                }
-                contents.addAll(attribute.getContent());
+                definitions.putIfAbsent(attribute.getUuid(), attribute);
             }
         }
         if (definitions.isEmpty()) {
             return;
         }
         certificateHandler
-                .updateMetadataDefinition(definitions, contentsByDefinition, run.getConnectorUuid(),
+                .updateMetadataDefinition(new ArrayList<>(definitions.values()), run.getConnectorUuid(),
                         run.getConnectorName());
     }
 

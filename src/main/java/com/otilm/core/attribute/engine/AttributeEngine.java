@@ -1419,13 +1419,6 @@ public class AttributeEngine {
         return mapping.values().stream().toList();
     }
 
-    public void registerAttributeContentItems(UUID attributeDefinitionUuid,
-            Collection<AttributeContent> attributeContentItems) {
-        for (AttributeContent attributeContentItem : attributeContentItems) {
-            findOrCreateContentItem(attributeDefinitionUuid, attributeContentItem);
-        }
-    }
-
     public List<ResponseAttribute> loadResponseAttributes(AttributeType attributeType, UUID connectorUuid,
             List<RequestAttribute> requestAttributes) {
         List<UUID> attributeUuids = new ArrayList<>();
