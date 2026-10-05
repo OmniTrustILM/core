@@ -444,7 +444,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
             AttributeException, NotFoundException {
         logger.debug("Creating a new key for Token profile {}", tokenProfileUuid);
 
-        if (cryptographicKeyRepository.findByName(request.getName()).isPresent()) {
+        if (cryptographicKeyRepository.existsByName(request.getName())) {
             logger.error("Key with same name already exists");
             throw new AlreadyExistException("Existing Key with the same name already exists");
         }
@@ -1105,6 +1105,17 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
             throw new NotFoundException("Connector associated to the Key is not found");
         }
         return row.toModel();
+    }
+
+    @Override
+    // A single read that joins its caller's transaction; the class-level NOT_SUPPORTED would suspend it onto a second
+    // connection.
+    @Transactional(propagation = Propagation.SUPPORTS)
+    public UUID getSignAttributeOwner(UUID keyUuid) {
+        if (keyUuid == null) {
+            return null;
+        }
+        return cryptographicKeyRepository.findV2ConnectorUuidByUuid(keyUuid).orElse(null);
     }
 
     @Override

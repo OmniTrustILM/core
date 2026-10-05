@@ -57,8 +57,8 @@ public class KeyImport extends UniquelyIdentified {
     @Column(name = "key_algorithm", nullable = false, updatable = false)
     private KeyAlgorithm keyAlgorithm;
 
-    /** The fingerprint of the key's public key, as the inventory computes it. */
-    @Column(name = "spki_fingerprint", nullable = false, updatable = false)
+    /** The fingerprint of the key's public key, as the inventory computes it, or null for a secret key. */
+    @Column(name = "spki_fingerprint", updatable = false)
     private String spkiFingerprint;
 
     @Column(name = "name", nullable = false, updatable = false)

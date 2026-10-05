@@ -5,6 +5,7 @@ import com.otilm.api.model.core.cryptoasset.PqcVerdict;
 import com.otilm.core.cbom.asset.identity.AssetNormalizer;
 import com.otilm.core.cbom.asset.identity.IdentityTables;
 import com.otilm.core.cluster.ClusterOperationSynchronizer;
+import com.otilm.core.dao.repository.cbom.CryptoAssetReferenceRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
 import com.otilm.core.model.cbom.PqcStaleVerdictRow;
 import com.otilm.core.service.writer.cbom.CryptoAssetPqcVerdictWriter;
@@ -48,6 +49,7 @@ class PqcVerdictSweeperTest {
         PqcVerdictSweeper.SweepOutcome outcome = sweeper.sweep();
 
         assertThat(outcome.ran()).isFalse();
+        assertThat(outcome.status()).isEqualTo(PqcVerdictSweeper.SweepOutcome.Status.DISABLED);
         verify(synchronizer, never()).tryLock(any(ClusterOperationSynchronizer.Operation.class));
     }
 
@@ -56,15 +58,18 @@ class PqcVerdictSweeperTest {
         when(synchronizer.tryLock(ClusterOperationSynchronizer.Operation.CRYPTO_ASSET_PQC_SWEEP)).thenReturn(false);
         PqcVerdictSweeper sweeper = sweeper(5, 10);
 
-        assertThat(sweeper.sweep().ran()).isFalse();
-        verify(repository, never()).staleVerdictRows(anyInt(), any(), anyInt());
+        PqcVerdictSweeper.SweepOutcome outcome = sweeper.sweep();
+
+        assertThat(outcome.ran()).isFalse();
+        assertThat(outcome.status()).isEqualTo(PqcVerdictSweeper.SweepOutcome.Status.CONTENDED);
+        verify(repository, never()).staleVerdictRows(any(), anyInt());
     }
 
     /** The cap bounds how long the outer transaction stays open, so it must stop the loop even with work left. */
     @Test
     void theSweepStopsAtThePerSweepCap() {
         lockHeld();
-        when(repository.staleVerdictRows(anyInt(), any(), anyInt())).thenAnswer(call -> rows(5));
+        when(repository.staleVerdictRows(any(), anyInt())).thenAnswer(call -> rows(5));
         everythingLands();
 
         PqcVerdictSweeper.SweepOutcome outcome = sweeper(5, 3).sweep();
@@ -79,7 +84,7 @@ class PqcVerdictSweeperTest {
     @Test
     void aShortBatchEndsTheSweep() {
         lockHeld();
-        when(repository.staleVerdictRows(anyInt(), any(), anyInt())).thenReturn(rows(2)).thenReturn(List.of());
+        when(repository.staleVerdictRows(any(), anyInt())).thenReturn(rows(2)).thenReturn(List.of());
         everythingLands();
 
         assertThat(sweeper(5, 10).sweep().batches()).isEqualTo(1);
@@ -99,8 +104,8 @@ class PqcVerdictSweeperTest {
         lockHeld();
         List<PqcStaleVerdictRow> first = rows(2);
         List<PqcStaleVerdictRow> second = rows(2);
-        when(repository.staleVerdictRows(anyInt(), any(), anyInt())).thenAnswer(call -> {
-            UUID after = call.getArgument(1);
+        when(repository.staleVerdictRows(any(), anyInt())).thenAnswer(call -> {
+            UUID after = call.getArgument(0);
             if (after.equals(BEFORE_FIRST)) {
                 return first;
             }
@@ -109,12 +114,12 @@ class PqcVerdictSweeperTest {
             }
             return List.of();
         });
-        when(writer.applyStaleBatch(any(), anyInt())).thenReturn(List.of());
+        when(writer.applyStaleBatch(any())).thenReturn(List.of());
 
         PqcVerdictSweeper.SweepOutcome outcome = sweeper(2, 10).sweep();
 
         ArgumentCaptor<UUID> cursor = ArgumentCaptor.captor();
-        verify(repository, times(3)).staleVerdictRows(anyInt(), cursor.capture(), anyInt());
+        verify(repository, times(3)).staleVerdictRows(cursor.capture(), anyInt());
         assertThat(cursor.getAllValues()).containsExactly(BEFORE_FIRST, last(first), last(second));
         assertThat(outcome.batches()).isEqualTo(2);
         assertThat(outcome.read()).isEqualTo(4);
@@ -133,9 +138,9 @@ class PqcVerdictSweeperTest {
         lockHeld();
         List<PqcStaleVerdictRow> page = rows(3);
         UUID poisoned = page.get(2).uuid();
-        when(repository.staleVerdictRows(anyInt(), any(), anyInt())).thenReturn(page).thenReturn(List.of());
-        when(writer.applyStaleBatch(any(), anyInt())).thenThrow(new IllegalStateException("deadlock detected"));
-        when(writer.applyStaleRow(any(), anyInt())).thenAnswer(call -> {
+        when(repository.staleVerdictRows(any(), anyInt())).thenReturn(page).thenReturn(List.of());
+        when(writer.applyStaleBatch(any())).thenThrow(new IllegalStateException("deadlock detected"));
+        when(writer.applyStaleRow(any())).thenAnswer(call -> {
             PqcVerdictWrite write = call.getArgument(0);
             if (write.assetUuid().equals(poisoned)) {
                 throw new IllegalStateException("new row for relation violates check constraint");
@@ -145,7 +150,7 @@ class PqcVerdictSweeperTest {
 
         PqcVerdictSweeper.SweepOutcome outcome = sweeper(3, 10).sweep();
 
-        verify(writer, times(3)).applyStaleRow(any(), anyInt());
+        verify(writer, times(3)).applyStaleRow(any());
         assertThat(outcome.written()).isEqualTo(2);
         assertThat(outcome.writeFailures()).isEqualTo(1);
         assertThat(outcome.refused()).isZero();
@@ -160,7 +165,7 @@ class PqcVerdictSweeperTest {
     @Test
     void aFailingWorkListReadStopsTheSweepAndIsReported() {
         lockHeld();
-        when(repository.staleVerdictRows(anyInt(), any(), anyInt()))
+        when(repository.staleVerdictRows(any(), anyInt()))
                 .thenReturn(rows(2))
                 .thenThrow(new IllegalStateException("connection is closed"));
         everythingLands();
@@ -179,7 +184,7 @@ class PqcVerdictSweeperTest {
     void aRowThatCannotBeEvaluatedIsStampedSoTheSweepAdvances() {
         lockHeld();
         List<PqcStaleVerdictRow> poison = List.of(unreadablePayload());
-        when(repository.staleVerdictRows(anyInt(), any(), anyInt())).thenReturn(poison).thenReturn(List.of());
+        when(repository.staleVerdictRows(any(), anyInt())).thenReturn(poison).thenReturn(List.of());
         everythingLands();
 
         PqcVerdictSweeper.SweepOutcome outcome = sweeper(5, 10).sweep();
@@ -187,7 +192,7 @@ class PqcVerdictSweeperTest {
         assertThat(outcome.unevaluated()).isEqualTo(1);
         assertThat(outcome.written()).isEqualTo(1);
         ArgumentCaptor<List<PqcVerdictWrite>> batch = ArgumentCaptor.captor();
-        verify(writer).applyStaleBatch(batch.capture(), anyInt());
+        verify(writer).applyStaleBatch(batch.capture());
         assertThat(batch.getValue()).hasSize(1);
         assertThat(batch.getValue().get(0).assetUuid()).isEqualTo(poison.get(0).uuid());
         assertThat(batch.getValue().get(0).decision().ruleId()).isEqualTo("EVALUATION-FAILED");
@@ -202,10 +207,10 @@ class PqcVerdictSweeperTest {
     @Test
     void aStampTheGuardRefusedIsNotReportedAsRecorded() {
         lockHeld();
-        when(repository.staleVerdictRows(anyInt(), any(), anyInt()))
+        when(repository.staleVerdictRows(any(), anyInt()))
                 .thenReturn(List.of(unreadablePayload()))
                 .thenReturn(List.of());
-        when(writer.applyStaleBatch(any(), anyInt())).thenReturn(List.of());
+        when(writer.applyStaleBatch(any())).thenReturn(List.of());
 
         PqcVerdictSweeper.SweepOutcome outcome = sweeper(5, 10).sweep();
 
@@ -219,7 +224,7 @@ class PqcVerdictSweeperTest {
     }
 
     private void everythingLands() {
-        when(writer.applyStaleBatch(any(), anyInt())).thenAnswer(call -> {
+        when(writer.applyStaleBatch(any())).thenAnswer(call -> {
             List<PqcVerdictWrite> batch = call.getArgument(0);
             return batch.stream().map(PqcVerdictWrite::assetUuid).toList();
         });
@@ -247,6 +252,7 @@ class PqcVerdictSweeperTest {
 
     private PqcVerdictSweeper sweeper(int batchSize, int maxBatches) {
         return new PqcVerdictSweeper(repository, writer, new PqcEvaluator(new AssetNormalizer(IdentityTables.load())),
-                synchronizer, new SimpleMeterRegistry(), new PqcSweepProperties(batchSize, maxBatches));
+                new PqcReferenceReader(mock(CryptoAssetReferenceRepository.class)), synchronizer,
+                new SimpleMeterRegistry(), new PqcSweepProperties(batchSize, maxBatches));
     }
 }

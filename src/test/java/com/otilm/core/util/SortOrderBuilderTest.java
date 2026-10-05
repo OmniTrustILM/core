@@ -21,8 +21,9 @@ class SortOrderBuilderTest {
     }
 
     /**
-     * An attribute sort resolves to a scalar subquery, and the entity query selects DISTINCT, which cannot be ordered
-     * by an expression absent from its select list. It therefore goes through the query that carries the sort key.
+     * An attribute sort joins a table of one key per object, and the entity query selects DISTINCT, which cannot be
+     * ordered by a column absent from its select list. It therefore goes through the query that selects a page of
+     * uuids.
      */
     @Test
     void attributeSourcedFieldNeedsTheRankedUuidQuery() {

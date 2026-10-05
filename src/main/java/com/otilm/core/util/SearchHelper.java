@@ -21,7 +21,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.EnumSet;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -78,12 +77,27 @@ public class SearchHelper {
                         // the v1 detail DTO does.
                         FilterField.CONNECTOR_AUTH_TYPE,
 
+                        // CBOMs. Contribution is derived from asset source rows; CbomDto has no such property.
+                        FilterField.CBOM_HAS_CONTRIBUTED_ASSETS,
+
                         // Secrets. Secret.setCommonFields sets the source vault profile and not the sync ones.
                         FilterField.SECRET_SYNC_VAULT_PROFILE,
 
                         // Signing records. SigningRecordMapper.toListDto sets the retrieval timestamp on the detail
                         // DTO only; SigningRecordListDto has no property for it.
-                        FilterField.SIGNING_RECORD_SIGNED_DOCUMENT_RETRIEVED_AT);
+                        FilterField.SIGNING_RECORD_SIGNED_DOCUMENT_RETRIEVED_AT,
+
+                        // Crypto assets. The listing serves each CryptographicAssetDto from CryptoAssetListRow, which
+                        // carries the name, type, verdict, source and occurrence counts and none of the normalized
+                        // properties.
+                        // The OID rides along only as the name's fallback, and the refuted-OID guard only to withhold
+                        // that fallback, so neither is a value the row shows.
+                        FilterField.CBOM_ASSET_OID, FilterField.CBOM_ASSET_ALGORITHM_FAMILY,
+                        FilterField.CBOM_ASSET_PRIMITIVE, FilterField.CBOM_ASSET_PARAMETER_SET,
+                        FilterField.CBOM_ASSET_CURVE, FilterField.CBOM_ASSET_MODE, FilterField.CBOM_ASSET_PADDING,
+                        FilterField.CBOM_ASSET_VARIANT, FilterField.CBOM_ASSET_RULESET_VERSION,
+                        FilterField.CBOM_ASSET_OID_REFUTED, FilterField.CBOM_ASSET_SOURCE_CBOM,
+                        FilterField.CBOM_ASSET_FREE_TEXT);
 
         private FilterFieldSets() {
         }
@@ -149,6 +163,9 @@ public class SearchHelper {
      * available values.
      */
     public static List<FilterConditionOperator> availableConditions(final FilterField filterField) {
+        if (filterField == FilterField.CBOM_HAS_CONTRIBUTED_ASSETS) {
+            return List.of(FilterConditionOperator.EQUALS, FilterConditionOperator.NOT_EQUALS);
+        }
         // A FREE_TEXT field has no single attribute by design (it spans several columns), so the
         // null-attribute downgrade to presence-only conditions must not apply to it.
         boolean presenceOnly = filterField.getFieldAttribute() == null
@@ -230,7 +247,7 @@ public class SearchHelper {
      */
     private static final Set<Resource> CONFIGURABLE_COLUMN_RESOURCES = Set
             .of(Resource.CERTIFICATE, Resource.CRYPTOGRAPHIC_KEY, Resource.DISCOVERY, Resource.CONNECTOR,
-                    Resource.SECRET, Resource.CBOM, Resource.SIGNING_RECORD);
+                    Resource.SECRET, Resource.CBOM, Resource.SIGNING_RECORD, Resource.CRYPTO_ASSET);
 
     /**
      * Content whose column renders a composite identity rather than the value a sort key would read.
@@ -398,7 +415,8 @@ public class SearchHelper {
                 .toList();
     }
 
-    private static String buildFieldIdentifier(final SearchFieldObject attributeSearchInfo) {
+    /** The identifier the catalogue publishes an attribute field under: name|CONTENT_TYPE. */
+    public static String buildFieldIdentifier(final SearchFieldObject attributeSearchInfo) {
         return attributeSearchInfo.getAttributeName() + "|" + attributeSearchInfo.getAttributeContentType().name();
     }
 
@@ -470,14 +488,14 @@ public class SearchHelper {
     }
 
     private static Set<String> filterDuplicity(final List<SearchFieldObject> searchFieldObjectList) {
-        final Set<String> uniqueNames = new HashSet<>();
-        final Set<String> duplicatesOfNames = new HashSet<>();
-        for (final SearchFieldObject attr : searchFieldObjectList) {
-            if (!uniqueNames.add(attr.getAttributeName())) {
-                duplicatesOfNames.add(attr.getAttributeName());
-            }
-        }
-        return duplicatesOfNames;
+        return searchFieldObjectList
+                .stream()
+                .collect(Collectors.groupingBy(SearchFieldObject::getAttributeName, Collectors.counting()))
+                .entrySet()
+                .stream()
+                .filter(nameCount -> nameCount.getValue() > 1)
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toSet());
     }
 
 }

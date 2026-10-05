@@ -42,6 +42,15 @@ public interface CryptographicKeyInternalService extends ResourceExtensionServic
     CryptographicKeyItemOperationModel getPrivateKeyItemModel(UUID keyUuid) throws NotFoundException;
 
     /**
+     * Returns the connector whose schema the key's signing attributes are stored under. It is read from the key's
+     * token, so it outlives the key's items.
+     *
+     * @return the connector UUID for a key on a cryptography provider v2; null for Core's registry (crypto v1), and for
+     * a null or unknown key
+     */
+    UUID getSignAttributeOwner(UUID keyUuid);
+
+    /**
      * Upload public key of existing certificate
      *
      * @param name Name of the cryptographic key

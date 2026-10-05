@@ -303,6 +303,9 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
                 .signRequest(signatureItems(request.getData()), request.getSignatureAttributes());
         var response = operationsApiClient
                 .signData(connectorInfo, remoteTokenUuid(key), requireV1KeyReference(key), connectorRequest);
+        if (response == null) {
+            throw new ConnectorException("Connector returned no signing result.", connectorInfo);
+        }
         SignDataResponseDto result = new SignDataResponseDto();
         if (response.getSignatures() != null) {
             List<OperationResultItem> signatures = LegacyOperationCodec.signatureResults(response.getSignatures());
@@ -327,6 +330,9 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
                         signatureItems(request.getSignatures()), request.getSignatureAttributes());
         var response = operationsApiClient
                 .verifyData(connectorInfo, remoteTokenUuid(key), requireV1KeyReference(key), connectorRequest);
+        if (response == null) {
+            throw new ConnectorException("Connector returned no verification result.", connectorInfo);
+        }
         VerifyDataResponseDto result = new VerifyDataResponseDto();
         if (response.getVerifications() != null) {
             List<OperationResultItem> verifications = LegacyOperationCodec

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.core.cbom.asset.OccurrenceEvidenceCapper;
+import com.otilm.core.model.cbom.CbomHeaderCounts;
 import com.otilm.core.model.cbom.CryptoAssetIdentityGuard;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import java.util.ArrayDeque;
@@ -87,6 +88,12 @@ public final class CbomAssetExtractor {
      * {@code cbom_ingest_finding} report the ingest writes for the document.
      *
      * <p>
+     * {@code bomRefs} is the {@code bom-ref} of every component folded into the asset that gives one as a non-empty
+     * string, spelled as the document spells it and in document order; the ingest resolves other assets'
+     * {@code references} against it. A source row stores only its bounded, storable part, {@link #storedBomRefs}, as
+     * navigation data. Neither is an input to the key.
+     *
+     * <p>
      * <b>{@code identityKey}, and this file is allowlisted for that vocabulary.</b> The component was called
      * {@code key} so the exposure fence's regex would not see it -- which worked, and was the wrong shape: a production
      * source routing <em>around</em> a fence is invisible to the next reader, where an allowlist entry is a reviewed
@@ -97,7 +104,58 @@ public final class CbomAssetExtractor {
      */
     public record ExtractedAsset(String identityKey, String chainStep, NormalizedAsset normalized, String componentName,
             JsonNode retainedProperties, List<Map<String, Object>> evidence, int reportedOccurrences,
-            CryptoAssetIdentityGuard guard, List<String> findings) {
+            CryptoAssetIdentityGuard guard, List<String> findings, List<String> bomRefs,
+            List<AssetReferences.Reference> references) {
+
+        public ExtractedAsset {
+            bomRefs = bomRefs == null ? List.of() : List.copyOf(bomRefs);
+            references = references == null ? List.of() : List.copyOf(references);
+        }
+
+        /**
+         * How many {@code bom-ref} values one source row keeps: the first this many in document order, the rest dropped
+         * whole. Every component of a document that folds into one asset adds its ref, so a document naming one
+         * algorithm from thousands of components would otherwise grow one row -- and every page that serves it --
+         * without bound. A component past the cap links to nothing, which the contract says: this is the number
+         * {@code CbomContributedAssetDto} documents.
+         */
+        public static final int MAX_BOM_REFS = 256;
+
+        /**
+         * The longest {@code bom-ref} a source row stores, in code points -- the unit PostgreSQL's {@code length()}
+         * counts, so a ref of astral characters is measured as the database measures it rather than at twice its
+         * length. A longer one links to nothing, like an unencodable one: the JSON reader bounds a string at megabytes,
+         * and a row -- and every page serving it -- must not carry that.
+         */
+        public static final int MAX_BOM_REF_LENGTH = 1024;
+
+        /**
+         * The refs the source row stores as navigation data: {@link #bomRefs} in document order, each once, without the
+         * ones no row can hold, and at most {@link #MAX_BOM_REFS} of them.
+         *
+         * <p>
+         * Derived when the row is written rather than filtered into {@code bomRefs}, because that list is also the
+         * index the ingest resolves a certificate's and a protocol's references against, and has to stay every ref the
+         * document defines: a reference to the 300th component folded into one algorithm, or to a ref too long to
+         * store, still resolves. Each once is insurance: a document that repeats a ref is refused before any asset or
+         * source row is written.
+         *
+         * <p>
+         * A ref that cannot be stored is dropped, not refused like every other string headed for storage
+         * ({@link CbomAssetExtractor#requireEncodable}): it is not part of the asset, and a component whose ref cannot
+         * be stored is still an asset the inventory has to hold. The NUL rule is PostgreSQL's: no text column can hold
+         * that character, so a ref carrying one would fail the source write, and with it the document's ingest on every
+         * retry. The empty ref is excluded here as well as where {@code bomRefs} is read, so the stored rule does not
+         * depend on every producer of this record applying it.
+         */
+        public List<String> storedBomRefs() {
+            return bomRefs.stream().filter(ExtractedAsset::isStorable).distinct().limit(MAX_BOM_REFS).toList();
+        }
+
+        private static boolean isStorable(String ref) {
+            return !ref.isEmpty() && ref.codePointCount(0, ref.length()) <= MAX_BOM_REF_LENGTH && ref.indexOf('\0') < 0
+                    && hasEncoding(ref);
+        }
 
         /**
          * Folds the assets of one document that key as the same asset into one, in first-seen order.
@@ -115,8 +173,8 @@ public final class CbomAssetExtractor {
          * key as its own field, so no method outside this record has to hand the value on to group by it.
          *
          * @param richness how much detail a payload carries, by whatever measure the caller's merge elects on. The
-         * richest payload of the group survives; a tie keeps the earlier component, so the fold does not depend on
-         * document order
+         * richest payload of the group survives wherever it sits in the document, and a tie keeps the earlier
+         * component's; the refs are not elected but kept, every component's, in document order
          */
         public static List<ExtractedAsset> coalesceByIdentity(List<ExtractedAsset> assets,
                 ToIntFunction<ExtractedAsset> richness) {
@@ -134,10 +192,13 @@ public final class CbomAssetExtractor {
                 evidence.addAll(next.evidence);
             }
             ExtractedAsset richer = richness.applyAsInt(next) > richness.applyAsInt(first) ? next : first;
+            List<String> bomRefs = new ArrayList<>(first.bomRefs);
+            bomRefs.addAll(next.bomRefs);
+            // The richer component's, beside the richer payload they were read from.
             return new ExtractedAsset(first.identityKey, richer.chainStep, richer.normalized, first.componentName,
                     richer.retainedProperties, List.copyOf(evidence),
                     first.reportedOccurrences + next.reportedOccurrences,
-                    first.guard == null ? next.guard : first.guard, first.findings);
+                    first.guard == null ? next.guard : first.guard, first.findings, bomRefs, richer.references);
         }
 
         /**
@@ -178,9 +239,14 @@ public final class CbomAssetExtractor {
      * document, and {@link DocumentScope#of} explains why neither reading of a duplicate can be trusted. A ref with no
      * UTF-8 encoding is replaced by {@link #UNENCODABLE_REF} -- it cannot be stored or shown, and dropping it silently
      * would understate how many the document carries.
+     *
+     * <p>
+     * {@code headerCounts} is the document's count by the cbom-repository's version-2 rule (see {@link #countOf}). It
+     * is deliberately not {@code assetCount()}: that counts what this class could key, the header counts what the
+     * repository would report.
      */
     public record Extraction(List<ExtractedAsset> assets, List<Skip> skips, boolean depthLimitReached,
-            boolean documentScopeUnavailable, List<String> ambiguousRefs) {
+            boolean documentScopeUnavailable, List<String> ambiguousRefs, CbomHeaderCounts headerCounts) {
 
         public int assetCount() {
             return assets.size();
@@ -196,16 +262,16 @@ public final class CbomAssetExtractor {
      * Extracts every cryptographic asset in the document.
      *
      * <p>
-     * Output order is document order, and that is a convenience for a reader rather than a guarantee anything depends
-     * on: an asset's identity is a function of the asset alone, so permuting the components -- or the documents --
-     * cannot change which rows result or what they are keyed as.
+     * Output order is document order. Which rows result, and what they are keyed as, do not depend on it: an asset's
+     * identity is a function of the asset alone, so permuting the components -- or the documents -- changes neither.
+     * The order of the refs folded into a row does depend on it.
      *
      * @param batchRefutedDigests certificate digests a batch-scoped index found contradicted <em>across</em> documents;
      * empty reduces to document-scoped refutation
      */
     public Extraction extract(JsonNode document, Set<String> batchRefutedDigests) {
         if (document == null || !document.isObject()) {
-            return new Extraction(List.of(), List.of(), false, false, List.of());
+            return new Extraction(List.of(), List.of(), false, false, List.of(), CbomHeaderCounts.ZERO);
         }
         Set<String> refuted = batchRefutedDigests == null ? Set.of() : batchRefutedDigests;
 
@@ -237,7 +303,8 @@ public final class CbomAssetExtractor {
                 ExtractedAsset asset = new ExtractedAsset(extracted.key(), extracted.step(), extracted.asset(),
                         nameOf(component), extracted.redaction().storedPayload(),
                         OccurrenceEvidenceCapper.cap(occurrences == null ? null : retainedOccurrences(occurrences)),
-                        occurrences == null ? 0 : occurrences.size(), extracted.guard(), extracted.findings());
+                        occurrences == null ? 0 : occurrences.size(), extracted.guard(), extracted.findings(),
+                        bomRefOf(component), AssetReferences.of(component));
                 requireEncodable(asset);
                 assets.add(asset);
             } catch (RuntimeException e) {
@@ -250,7 +317,46 @@ public final class CbomAssetExtractor {
             }
         }
         return new Extraction(List.copyOf(assets), List.copyOf(skips), walk.depthLimitReached(), scopeUnavailable,
-                encodable(scope.ambiguousRefs()));
+                encodable(scope.ambiguousRefs()), countOf(walk.components()));
+    }
+
+    /**
+     * Counts the walked components exactly as the cbom-repository's version-2 {@code CalculateCryptoStats} does, so a
+     * recounted header agrees with what a current upload reports.
+     *
+     * <p>
+     * <b>Narrower than {@link #isCryptographicAsset} on purpose.</b> The repository counts a component only when it is
+     * typed {@code cryptographic-asset} <em>and</em> carries {@code cryptoProperties}; extraction takes either, so as
+     * not to lose an asset. Unifying the two would make the header disagree with every version-2 count, or make
+     * extraction drop assets.
+     */
+    private static CbomHeaderCounts countOf(List<JsonNode> components) {
+        int algorithms = 0;
+        int certificates = 0;
+        int protocols = 0;
+        int relatedCryptoMaterials = 0;
+        int total = 0;
+        for (JsonNode component : components) {
+            JsonNode type = component.get("type");
+            JsonNode properties = component.get("cryptoProperties");
+            if (type == null || !"cryptographic-asset".equals(type.textValue()) || properties == null
+                    || !properties.isObject()) {
+                continue;
+            }
+            total++;
+            // Any other assetType, or none, is counted in the total only -- as the repository does.
+            String assetType = properties.path("assetType").asText("");
+            if ("algorithm".equals(assetType)) {
+                algorithms++;
+            } else if ("certificate".equals(assetType)) {
+                certificates++;
+            } else if ("protocol".equals(assetType)) {
+                protocols++;
+            } else if ("related-crypto-material".equals(assetType)) {
+                relatedCryptoMaterials++;
+            }
+        }
+        return new CbomHeaderCounts(algorithms, certificates, protocols, relatedCryptoMaterials, total);
     }
 
     /** Stands in for a duplicated {@code bom-ref} that has no UTF-8 encoding, so no column can hold its spelling. */
@@ -282,16 +388,20 @@ public final class CbomAssetExtractor {
         return encodable(name, UNENCODABLE_NAME);
     }
 
+    private static boolean hasEncoding(String text) {
+        try {
+            IdentityDigests.requireWellFormedUnicode(text);
+            return true;
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
     private static String encodable(String text, String standIn) {
         if (text == null) {
             return null;
         }
-        try {
-            IdentityDigests.requireWellFormedUnicode(text);
-            return text;
-        } catch (IllegalArgumentException e) {
-            return standIn;
-        }
+        return hasEncoding(text) ? text : standIn;
     }
 
     /** The component's occurrence objects in producer order, or {@code null} when it reported none. */
@@ -352,10 +462,11 @@ public final class CbomAssetExtractor {
      * a keyed slot was already a reported skip. A string that reaches storage without reaching a pre-image was not: a
      * cipher-suite name on a version-less protocol row, or an unread member of {@code algorithmProperties} on a row
      * keyed by family, was retained in a payload that has no valid encoding for the {@code jsonb} column -- so whether
-     * the row survived was decided by the database, on a path that once rolled back a whole source upsert. Five
-     * surfaces are what persistence receives, and each is checked: the component name, the stored payload, the
-     * sanitized evidence, the provenance notes, and the findings -- which echo producer member names, so a surrogate in
-     * a member the redaction dropped reached them on a tier whose pre-image never read that member.
+     * the row survived was decided by the database, on a path that once rolled back a whole source upsert. Each surface
+     * checked here is refused: the component name, the stored payload, the sanitized evidence, the provenance notes,
+     * and the findings -- which echo producer member names, so a surrogate in a member the redaction dropped reached
+     * them on a tier whose pre-image never read that member. The navigation refs are persisted too but filtered rather
+     * than refused, by {@link ExtractedAsset#storedBomRefs}, so an unstorable ref costs only its link.
      *
      * <p>
      * The one exemption is the occurrence {@code location}: {@link Occurrences} scrubs a surrogate there rather than
@@ -414,6 +525,11 @@ public final class CbomAssetExtractor {
         return declaredType || (properties != null && properties.isObject());
     }
 
+    private static List<String> bomRefOf(JsonNode component) {
+        JsonNode ref = component.get("bom-ref");
+        return ref != null && ref.isTextual() && !ref.textValue().isEmpty() ? List.of(ref.textValue()) : List.of();
+    }
+
     private static String nameOf(JsonNode component) {
         JsonNode name = component.get("name");
         return name != null && name.isTextual() ? name.textValue() : "";
@@ -427,7 +543,8 @@ public final class CbomAssetExtractor {
      *
      * <p>
      * An explicit stack rather than a recursive descent: see {@link #MAX_DEPTH}. The children of a component are pushed
-     * in reverse so they pop in document order, which keeps the output readable without making anything depend on it.
+     * in reverse so they pop in document order -- depth first, the components nested in one before its next sibling.
+     * How an asset is keyed does not depend on that order; the order of the refs folded into it does.
      */
     private static Walk walkComponents(JsonNode document) {
         List<JsonNode> found = new ArrayList<>();

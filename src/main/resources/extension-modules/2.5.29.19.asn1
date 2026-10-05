@@ -1,0 +1,11 @@
+-- RFC 5280 4.2.1.9 Basic Constraints. CAs MUST NOT include pathLenConstraint unless cA is asserted,
+-- which the members alone cannot say; the component constraint does: either no path length, or cA TRUE.
+BasicConstraintsModule DEFINITIONS IMPLICIT TAGS ::= BEGIN
+
+BasicConstraints ::= SEQUENCE {
+     cA                      BOOLEAN DEFAULT FALSE,
+     pathLenConstraint       INTEGER (0..MAX) OPTIONAL }
+  (WITH COMPONENTS { ..., pathLenConstraint ABSENT } |
+   WITH COMPONENTS { ..., cA (TRUE) })
+
+END

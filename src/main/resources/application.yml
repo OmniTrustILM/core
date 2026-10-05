@@ -41,6 +41,10 @@ caching:
   time-quality-configs:
     ttl-minutes: ${TQC_CACHE_TTL_MINUTES:5}   # How long a cached TQC model is considered valid
     max-size: ${TQC_CACHE_MAX_SIZE:50}        # Maximum number of cached TQC models
+  # Attribute search-field cache holds the attribute rows of each resource's field catalogue for /search, saved views and sort checks
+  attribute-search-fields:
+    ttl-minutes: ${ATTRIBUTE_SEARCH_FIELDS_CACHE_TTL_MINUTES:5}   # How long a catalogue may miss a change made on another replica or written by a connector
+    max-size: ${ATTRIBUTE_SEARCH_FIELDS_CACHE_MAX_SIZE:200}       # One entry per resource and settable flag
 
 certificate:
   chain:
@@ -449,6 +453,10 @@ key-import:
   retry-window: 15m
   # How often the reconciliation runs.
   sweep-interval: 60s
+  # How long an import that completed, failed or was compensated is kept after it finished, before the reconciliation
+  # deletes it. It is longer than an import can stay open, unresolved-after, retry-window and sweep-interval together
+  # (checked at startup).
+  retention: 7d
 
 cbom:
   client:

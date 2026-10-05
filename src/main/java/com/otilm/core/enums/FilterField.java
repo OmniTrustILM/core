@@ -404,6 +404,7 @@ public enum FilterField {
     // serve it, so it is a column as well as a filter.
     CBOM_ASSET_SYNC_ERROR(Resource.CBOM, null, null, Cbom_.assetSyncError, "Asset Sync Error",
             SearchFieldTypeEnum.STRING),
+    CBOM_HAS_CONTRIBUTED_ASSETS(Resource.CBOM, null, null, null, "Has Contributed Assets", SearchFieldTypeEnum.BOOLEAN),
 
     // CBOM cryptographic asset inventory.
     //
@@ -428,8 +429,6 @@ public enum FilterField {
     CBOM_ASSET_VARIANT(Resource.CRYPTO_ASSET, null, null, CryptoAsset_.variant, "Variant", SearchFieldTypeEnum.LIST),
     CBOM_ASSET_PQC_VERDICT(Resource.CRYPTO_ASSET, null, null, CryptoAsset_.pqcVerdict, "PQC Readiness",
             SearchFieldTypeEnum.LIST, PqcVerdict.class),
-    CBOM_ASSET_PQC_RULESET_VERSION(Resource.CRYPTO_ASSET, null, null, CryptoAsset_.pqcRulesetVersion,
-            "PQC Rule Set Version", SearchFieldTypeEnum.NUMBER),
     CBOM_ASSET_RULESET_VERSION(Resource.CRYPTO_ASSET, null, null, CryptoAsset_.rulesetVersion,
             "Identity Rule Set Version", SearchFieldTypeEnum.NUMBER),
     CBOM_ASSET_SOURCE_COUNT(Resource.CRYPTO_ASSET, null, null, CryptoAsset_.sourceCount, "Source CBOMs",

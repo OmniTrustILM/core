@@ -2,7 +2,6 @@ package com.otilm.core.cbom.ingest;
 
 import com.otilm.api.model.core.cryptoasset.PqcVerdict;
 import com.otilm.api.model.core.other.ResourceEvent;
-import com.otilm.core.cbom.pqc.PqcRuleset;
 import com.otilm.core.cbom.sync.CbomSyncPolicy;
 import com.otilm.core.cbom.sync.CbomSyncPolicyProvider;
 import com.otilm.core.dao.entity.Cbom;
@@ -108,12 +107,12 @@ class InventoryEventOutboxDispatcherTest {
     }
 
     @Test
-    void anOldVerdictAlsoKeepsTheEventPendingUntilTheCurrentRulesEvaluateIt() {
+    void aVerdictForAnOldInputRevisionKeepsTheEventPending() {
         UUID newAsset = UUID.randomUUID();
         givenRow(true, List.of(newAsset));
         givenCbom();
         CryptoAsset asset = asset(newAsset);
-        asset.setPqcRulesetVersion(PqcRuleset.VERSION - 1);
+        asset.setPqcEvaluatedRevision(0L);
         when(assets.findSourcedAssets(List.of(newAsset))).thenReturn(List.of(asset));
 
         dispatcher.dispatchCbom(cbomUuid);
@@ -123,12 +122,12 @@ class InventoryEventOutboxDispatcherTest {
     }
 
     @Test
-    void aVerdictPredatingTheAssetMergeKeepsTheEventPending() {
+    void aVerdictForAPreviousAssetMergeKeepsTheEventPending() {
         UUID newAsset = UUID.randomUUID();
         givenRow(true, List.of(newAsset));
         givenCbom();
         CryptoAsset asset = asset(newAsset);
-        asset.setUpdated(asset.getPqcEvaluatedAt().plusSeconds(1));
+        asset.setInputRevision(2L);
         when(assets.findSourcedAssets(List.of(newAsset))).thenReturn(List.of(asset));
 
         dispatcher.dispatchCbom(cbomUuid);
@@ -224,7 +223,8 @@ class InventoryEventOutboxDispatcherTest {
         CryptoAsset asset = new CryptoAsset();
         asset.setUuid(uuid);
         asset.setPqcVerdict(PqcVerdict.READY);
-        asset.setPqcRulesetVersion(PqcRuleset.VERSION);
+        asset.setInputRevision(1L);
+        asset.setPqcEvaluatedRevision(1L);
         OffsetDateTime now = OffsetDateTime.now();
         asset.setUpdated(now);
         asset.setPqcEvaluatedAt(now);

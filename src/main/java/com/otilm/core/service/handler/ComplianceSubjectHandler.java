@@ -13,6 +13,7 @@ import com.otilm.core.model.compliance.ComplianceResultDto;
 import com.otilm.core.model.compliance.ComplianceResultProviderRulesDto;
 import com.otilm.core.model.compliance.ComplianceResultRulesDto;
 import com.otilm.core.service.writer.ComplianceSubjectWriter;
+import jakarta.persistence.EntityManager;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -38,16 +39,19 @@ public class ComplianceSubjectHandler<T extends ComplianceSubject> {
     private final TriggerEvaluator<T> triggerEvaluator;
     private final ComplianceSubjectRepository<T> repository;
     private final ComplianceSubjectWriter complianceSubjectWriter;
+    private final EntityManager entityManager;
 
     private final Map<UUID, ComplianceCheckSubjectContext<T>> subjectContexts = new HashMap<>();
 
     public ComplianceSubjectHandler(boolean checkByProfiles, Resource resource, TriggerEvaluator<T> triggerEvaluator,
-            ComplianceSubjectRepository<T> repository, ComplianceSubjectWriter complianceSubjectWriter) {
+            ComplianceSubjectRepository<T> repository, ComplianceSubjectWriter complianceSubjectWriter,
+            EntityManager entityManager) {
         this.checkByProfiles = checkByProfiles;
         this.resource = resource;
         this.triggerEvaluator = triggerEvaluator;
         this.repository = repository;
         this.complianceSubjectWriter = complianceSubjectWriter;
+        this.entityManager = entityManager;
     }
 
     public void initSubjectComplianceResult(ComplianceSubject subject) {
@@ -199,6 +203,10 @@ public class ComplianceSubjectHandler<T extends ComplianceSubject> {
     /**
      * Persists the calculated compliance result for the provided subject. The method sets the result timestamp,
      * computes the overall compliance status, and stores the result on the subject and in the repository.
+     * <p>
+     * A check run in a request may hold the subject in the request's persistence context, as the copy read before the
+     * connector calls, which the request's next transaction would write back whole over changes made to the row since.
+     * The subject is detached first, so that only the writer stores the result and the request reads the row afresh.
      *
      * @param subjectUuid the subject UUID whose compliance result should be saved
      * @param errorMessage optional error message, if provided the compliance status will be set to FAILED
@@ -221,6 +229,9 @@ public class ComplianceSubjectHandler<T extends ComplianceSubject> {
             complianceResultDto.setStatus(calculateComplianceStatus(complianceResultDto));
         }
 
+        if (entityManager.contains(complianceSubject)) {
+            entityManager.detach(complianceSubject);
+        }
         complianceSubject.setComplianceResult(complianceResultDto);
         complianceSubject.setComplianceStatus(complianceResultDto.getStatus());
 

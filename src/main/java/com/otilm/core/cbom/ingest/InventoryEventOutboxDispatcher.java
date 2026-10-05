@@ -2,7 +2,6 @@ package com.otilm.core.cbom.ingest;
 
 import com.otilm.api.model.common.events.data.CryptoAssetAddedEventData;
 import com.otilm.api.model.core.cbom.CbomAssetSyncState;
-import com.otilm.core.cbom.pqc.PqcRuleset;
 import com.otilm.core.cbom.sync.CbomSyncPolicyProvider;
 import com.otilm.core.dao.entity.Cbom;
 import com.otilm.core.dao.entity.cbom.CryptoAsset;
@@ -148,8 +147,7 @@ public class InventoryEventOutboxDispatcher {
     }
 
     private static boolean hasCurrentVerdict(CryptoAsset asset) {
-        return asset.getPqcVerdict() != null && asset.getPqcRulesetVersion() != null
-                && asset.getPqcRulesetVersion() >= PqcRuleset.VERSION && asset.getPqcEvaluatedAt() != null
-                && asset.getUpdated() != null && !asset.getPqcEvaluatedAt().isBefore(asset.getUpdated());
+        return asset.getPqcVerdict() != null && asset.getPqcEvaluatedRevision() != null
+                && asset.getPqcEvaluatedRevision() == asset.getInputRevision();
     }
 }

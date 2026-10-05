@@ -71,12 +71,13 @@ public interface CbomRepository extends SecurityFilterRepository<Cbom, UUID> {
      *
      * <p>
      * <b>Ingested, not merely stored.</b> The write-off this answers is irreversible -- nothing in this application
-     * ever moves a row from {@code SYNCED} back to {@code PENDING} -- so it has to be earned by the newer revision
-     * actually contributing, not by its header row existing. After the upgrade that introduced the column every
-     * pre-existing row defaults to {@code PENDING}, which means a serial's revisions are commonly all unsynced at once:
-     * writing the older ones off against a newer row whose document turns out to be unreadable would leave the serial
-     * number contributing nothing at all, where before it contributed a stale-but-present inventory. The withdrawal
-     * half of supersession is already driven by a successful ingest, and this is the same test on the other half.
+     * moves a superseded row from {@code SYNCED} back to {@code PENDING}, and a migration that re-offers synced rows
+     * re-offers only revisions that still contribute sources -- so it has to be earned by the newer revision actually
+     * contributing, not by its header row existing. After the upgrade that introduced the column every pre-existing row
+     * defaults to {@code PENDING}, which means a serial's revisions are commonly all unsynced at once: writing the
+     * older ones off against a newer row whose document turns out to be unreadable would leave the serial number
+     * contributing nothing at all, where before it contributed a stale-but-present inventory. The withdrawal half of
+     * supersession is already driven by a successful ingest, and this is the same test on the other half.
      */
     @Query("""
             SELECT COUNT(newer) > 0
@@ -346,4 +347,22 @@ public interface CbomRepository extends SecurityFilterRepository<Cbom, UUID> {
             """)
     int updateAssetSyncStateKeepingAttempt(@Param("uuid") UUID uuid, @Param("state") CbomAssetSyncState state,
             @Param("error") String error, @Param("expectedStates") Collection<CbomAssetSyncState> expectedStates);
+
+    /**
+     * Replaces the header counts with a recount. Unconditional: a count is a function of the document, which a
+     * {@code (serial_number, version)} never changes, so two nodes writing it write the same values.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE Cbom c
+               SET c.algorithmsCount = :algorithms,
+                   c.certificatesCount = :certificates,
+                   c.protocolsCount = :protocols,
+                   c.cryptoMaterialCount = :cryptoMaterial,
+                   c.totalAssetsCount = :totalAssets
+             WHERE c.uuid = :uuid
+            """)
+    int updateHeaderCounts(@Param("uuid") UUID uuid, @Param("algorithms") int algorithms,
+            @Param("certificates") int certificates, @Param("protocols") int protocols,
+            @Param("cryptoMaterial") int cryptoMaterial, @Param("totalAssets") int totalAssets);
 }

@@ -463,6 +463,9 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         Discovery reloaded = reload(run);
         assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
         assertThat(reloaded.getMessage()).contains("no longer tracks");
+        assertThat(reloaded.getConnectorStatus())
+                .as("a connector that forgot the run is not still scanning it")
+                .isEqualTo(DiscoveryStatus.FAILED);
         assertThat(agenda(run)).isEmpty();
     }
 
@@ -493,6 +496,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         Discovery reloaded = reload(run);
         assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
         assertThat(reloaded.getMessage()).contains("stopped answering");
+        assertThat(reloaded.getConnectorStatus()).isEqualTo(DiscoveryStatus.FAILED);
         assertThat(agenda(run)).isEmpty();
     }
 

@@ -17,6 +17,7 @@ import com.otilm.core.dao.entity.AttributeContent2Object;
 import com.otilm.core.dao.entity.AttributeContent2Object_;
 import com.otilm.core.dao.entity.AttributeContentItem_;
 import com.otilm.core.dao.entity.AttributeDefinition_;
+import com.otilm.core.dao.entity.Cbom;
 import com.otilm.core.dao.entity.Cbom_;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.CryptographicKeyItem_;
@@ -36,6 +37,7 @@ import com.otilm.core.model.AttributeFieldIdentifier;
 import com.otilm.core.model.cbom.CryptoAssetIdentityGuard;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
+import jakarta.persistence.Tuple;
 import jakarta.persistence.criteria.CommonAbstractCriteria;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Expression;
@@ -74,8 +76,11 @@ import javax.xml.datatype.DatatypeConfigurationException;
 import javax.xml.datatype.DatatypeFactory;
 import javax.xml.datatype.Duration;
 import org.hibernate.query.criteria.HibernateCriteriaBuilder;
+import org.hibernate.query.criteria.JpaDerivedJoin;
 import org.hibernate.query.criteria.JpaExpression;
+import org.hibernate.query.criteria.JpaRoot;
 import org.hibernate.query.criteria.JpaSubQuery;
+import org.hibernate.query.sqm.tree.SqmJoinType;
 
 public class FilterPredicatesBuilder {
 
@@ -95,6 +100,10 @@ public class FilterPredicatesBuilder {
 
     public static final char LIKE_ESCAPE_CHAR = '\\';
     private static final String ARRAY_ITEM_CONTAINS_FUNCTION_NAME = PostgresFunctionContributor.ARRAY_ITEM_CONTAINS;
+
+    /** Columns of a per-object key table: the object the key belongs to, and the key. */
+    static final String KEY_OBJECT = "keyObject";
+    static final String KEY_VALUE = "keyValue";
 
     private static final Set<FilterConditionOperator> OID_CONDITIONS_A_NULL_OID_SATISFIES = Set
             .of(FilterConditionOperator.NOT_EQUALS, FilterConditionOperator.NOT_CONTAINS);
@@ -402,6 +411,24 @@ public class FilterPredicatesBuilder {
             Map<String, From> joinedAssociations, boolean refutedOidsOptedIn) {
         final FilterField filterField = FilterField.valueOf(filterDto.getFieldIdentifier());
         requireAdvertisedCondition(filterField, filterDto.getCondition());
+        if (filterField == FilterField.CBOM_HAS_CONTRIBUTED_ASSETS) {
+            if (!Cbom.class.equals(root.getJavaType())) {
+                throw new ValidationException("Field " + filterField.name() + " can only filter CBOM listings.");
+            }
+            Object rawValue = filterDto.getValue();
+            if (!(rawValue instanceof Boolean) && !(rawValue instanceof String value
+                    && ("true".equalsIgnoreCase(value) || "false".equalsIgnoreCase(value)))) {
+                throw new ValidationException(
+                        "Field " + filterField + " accepts a single boolean value, true or false.");
+            }
+            boolean requested = Boolean.parseBoolean(rawValue.toString());
+            @SuppressWarnings("unchecked")
+            Root<Cbom> cbomRoot = (Root<Cbom>) root;
+            Predicate contributed = CbomAssetSourcePredicates.hasContributedAssets(cbomRoot, criteriaBuilder, query);
+            return requested == (filterDto.getCondition() == FilterConditionOperator.EQUALS)
+                    ? contributed
+                    : criteriaBuilder.not(contributed);
+        }
         From from = getJoinedAssociation(root, joinedAssociations, filterField, filterDto.getCondition());
 
         // prepare filter values, expression and set filter characteristics
@@ -1193,22 +1220,35 @@ public class FilterPredicatesBuilder {
     }
 
     /**
-     * The predicates that pin a content row to one attribute definition and to one object: the definition's type,
-     * content type and name, and the object the content is attached to. Shared by the filter predicate and the sort key
-     * so the two cannot disagree about which rows belong to a field.
+     * The predicates that pin a content row to one attribute definition and to one object: the field predicates, and
+     * the object the content is attached to.
      */
     private static <T> List<Predicate> attributeCorrelationPredicates(final CriteriaBuilder criteriaBuilder,
             final Root<T> root, final Root<AttributeContent2Object> subqueryRoot, final Join joinDefinition,
             final AttributeType attributeType, final AttributeContentType contentType, final String attributeName,
             final Resource resource, final String objectUuidPath) {
+        List<Predicate> predicates = new ArrayList<>(attributeFieldPredicates(criteriaBuilder, subqueryRoot,
+                joinDefinition, attributeType, contentType, attributeName, resource));
+        predicates
+                .add(criteriaBuilder
+                        .equal(subqueryRoot.get(AttributeContent2Object_.objectUuid), root.get(objectUuidPath)));
+        return predicates;
+    }
+
+    /**
+     * The predicates that pin a content row to one field of one resource, whatever object it belongs to: the
+     * definition's type, content type and name, and the resource the content is filed under. Shared by the filter
+     * predicate and the sort key so the two cannot disagree about which rows belong to a field.
+     */
+    private static List<Predicate> attributeFieldPredicates(final CriteriaBuilder criteriaBuilder,
+            final Root<AttributeContent2Object> subqueryRoot, final Join joinDefinition,
+            final AttributeType attributeType, final AttributeContentType contentType, final String attributeName,
+            final Resource resource) {
         return List
                 .of(criteriaBuilder.equal(joinDefinition.get(AttributeDefinition_.type), attributeType),
                         criteriaBuilder.equal(joinDefinition.get(AttributeDefinition_.contentType), contentType),
                         criteriaBuilder.equal(joinDefinition.get(AttributeDefinition_.name), attributeName),
-                        criteriaBuilder.equal(subqueryRoot.get(AttributeContent2Object_.objectType), resource),
-                        criteriaBuilder
-                                .equal(subqueryRoot.get(AttributeContent2Object_.objectUuid),
-                                        root.get(objectUuidPath)));
+                        criteriaBuilder.equal(subqueryRoot.get(AttributeContent2Object_.objectType), resource));
     }
 
     /**
@@ -1241,30 +1281,23 @@ public class FilterPredicatesBuilder {
     }
 
     /**
-     * A scalar sort key carrying the value of one attribute-sourced field for one row.
+     * Joins the table that carries one sort key per object for an attribute-sourced field, and returns the key.
      *
      * <p>
-     * Filtering an attribute is order-agnostic and so is expressed as {@code EXISTS}, which yields no value to order
-     * by. Ordering needs the value itself, so this is a correlated scalar subquery instead: the same definition and
-     * object correlation as the filter, extracted from the stored json with the same {@code jsonb_extract_path_text}
-     * and the same per-content-type cast, so a column sorts by what the cell displays.
-     *
-     * <p>
-     * An attribute may hold several values for one object, which leaves the key ambiguous. The subquery therefore
-     * orders by definition and then by {@code item_order} and takes the first row - the same order the projection query
-     * reads a page of values in - so a multi-valued attribute sorts on the value the cell shows first, and two
-     * identical requests cannot pick differently among the definitions one attribute name may map to. A row with no
-     * value for the field yields no row and so a null key, which is ordered last in both directions by the caller
-     * rather than being dropped.
+     * The table is computed once for the query, not once per row: the field's content rows, extracted with the same
+     * {@code jsonb_extract_path_text} and per-content-type cast the filter uses, grouped by the object they belong to.
+     * A multi-valued attribute sorts on its smallest value ascending and its largest descending - the rule a sort
+     * through a collection join follows - so two identical requests always order alike. An object with no readable
+     * value finds no key, and the caller's ordering places it last in both directions.
      *
      * <p>
      * Ordering reads a value, so it is gated like the projection that renders one: encrypted content is skipped, a
      * definition marked not visible is skipped whatever its attribute type, a disabled custom definition is skipped,
      * and the caller's custom-attribute permissions narrow which definitions are readable at all. That the field may be
-     * ordered on at all - not secret, not a code block, and visible in at least one of the definitions it collapses -
-     * is settled before this by {@code ListingSortResolver} against the resource's published catalogue.
+     * ordered on at all is settled before this by {@code ListingSortResolver} against the resource's catalogue.
      */
-    public static <T> Expression<?> getAttributeSortKey(final CriteriaBuilder criteriaBuilder,
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public static <T> Expression<?> joinAttributeSortKey(final CriteriaBuilder criteriaBuilder,
             final CommonAbstractCriteria query, final Root<T> root, final SortSpecification sort) {
         final FilterFieldSource fieldSource = sort.fieldSource();
         final String fieldIdentifier = sort.fieldIdentifier();
@@ -1281,13 +1314,11 @@ public class FilterPredicatesBuilder {
                     .create("Ordering by %s was not resolved against the caller's attribute permissions."
                             .formatted(fieldIdentifier)));
         }
-
         final AttributeFieldIdentifier identifier = AttributeFieldIdentifier.parse(fieldIdentifier);
         if (identifier == null) {
             throw new ValidationException(ValidationError
                     .create("Sort field identifier %s does not name an attribute.".formatted(fieldIdentifier)));
         }
-        final String attributeName = identifier.attributeName();
         final AttributeContentType contentType = identifier.contentType();
         if (contentType == null) {
             throw new ValidationException(ValidationError
@@ -1300,13 +1331,8 @@ public class FilterPredicatesBuilder {
         final Resource resource = sort.resource() == null ? attributeResourceOf(root) : sort.resource();
         final String objectUuidPath = attributeObjectUuidPath(root, attributeType);
 
-        // Typed to the value's own class rather than to Object: the aggregate the grouped ordering wraps this in
-        // takes a comparable, and an Object-typed subquery is not one.
-        final Class<?> valueClass = castedAttributeContentData.contains(contentType)
-                ? contentType.getContentDataClass()
-                : String.class;
-        final Subquery subquery = query.subquery(valueClass);
-        final Root<AttributeContent2Object> subqueryRoot = subquery.from(AttributeContent2Object.class);
+        final JpaSubQuery<Tuple> keyTable = (JpaSubQuery<Tuple>) query.subquery(Tuple.class);
+        final Root<AttributeContent2Object> subqueryRoot = keyTable.from(AttributeContent2Object.class);
         final Join joinContentItem = subqueryRoot.join(AttributeContent2Object_.attributeContentItem, JoinType.INNER);
         final Join joinDefinition = joinContentItem.join(AttributeContentItem_.attributeDefinition, JoinType.INNER);
 
@@ -1318,8 +1344,8 @@ public class FilterPredicatesBuilder {
                 ? ((JpaExpression<String>) extracted).cast(contentType.getContentDataClass())
                 : extracted;
 
-        final List<Predicate> predicates = new ArrayList<>(attributeCorrelationPredicates(criteriaBuilder, root,
-                subqueryRoot, joinDefinition, attributeType, contentType, attributeName, resource, objectUuidPath));
+        final List<Predicate> predicates = new ArrayList<>(attributeFieldPredicates(criteriaBuilder, subqueryRoot,
+                joinDefinition, attributeType, contentType, identifier.attributeName(), resource));
         predicates
                 .addAll(attributeReadabilityPredicates(criteriaBuilder, joinContentItem, joinDefinition, attributeType,
                         contentFilterSource, true));
@@ -1329,13 +1355,24 @@ public class FilterPredicatesBuilder {
             predicates.add(definitionIsVisible(criteriaBuilder, joinDefinition));
         }
 
-        subquery.select(value).where(predicates.toArray(new Predicate[]{}));
-        ((JpaSubQuery) subquery)
-                .orderBy(criteriaBuilder.asc(joinContentItem.get(AttributeContentItem_.attributeDefinitionUuid)),
-                        criteriaBuilder.asc(subqueryRoot.get(AttributeContent2Object_.order)))
-                .fetch(1);
+        final Path<UUID> objectUuid = subqueryRoot.get(AttributeContent2Object_.objectUuid);
+        keyTable
+                .multiselect(objectUuid.alias(KEY_OBJECT),
+                        SortOrderBuilder.keyAggregate(criteriaBuilder, value, sort.direction()).alias(KEY_VALUE))
+                .where(predicates.toArray(new Predicate[]{}))
+                .groupBy(objectUuid);
+        return joinPerObjectKey(criteriaBuilder, root, keyTable, objectUuidPath);
+    }
 
-        return subquery;
+    /**
+     * Left-joins a table that holds one row per object, keyed by {@link #KEY_OBJECT}, to the root, and returns its
+     * {@link #KEY_VALUE}. Left, so an object without a key stays in the result with a null key.
+     */
+    static Expression<?> joinPerObjectKey(final CriteriaBuilder criteriaBuilder, final Root<?> root,
+            final JpaSubQuery<Tuple> keyTable, final String objectUuidPath) {
+        final JpaDerivedJoin<Tuple> key = ((JpaRoot<?>) root).join(keyTable, SqmJoinType.LEFT);
+        key.on(criteriaBuilder.equal(key.get(KEY_OBJECT), root.get(objectUuidPath)));
+        return key.get(KEY_VALUE);
     }
 
     /**

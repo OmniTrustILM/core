@@ -83,6 +83,7 @@ import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.CommentInternalService;
 import com.otilm.core.service.LocationExternalService;
 import com.otilm.core.service.LocationInternalService;
+import com.otilm.core.service.registration.RegistrationChallengeGate;
 import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
@@ -130,6 +131,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
     private ConnectorInternalService connectorService;
     private CertificateInternalService certificateService;
     private ClientOperationInternalService clientOperationService;
+    private RegistrationChallengeGate registrationChallengeGate;
     private CertificateEventHistoryInternalService certificateEventHistoryService;
     private AttributeEngine attributeEngine;
     private AuthorizationEnforcer authorizationEnforcer;
@@ -186,6 +188,11 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
     @Autowired
     public void setClientOperationService(ClientOperationInternalService clientOperationService) {
         this.clientOperationService = clientOperationService;
+    }
+
+    @Autowired
+    public void setRegistrationChallengeGate(RegistrationChallengeGate registrationChallengeGate) {
+        this.registrationChallengeGate = registrationChallengeGate;
     }
 
     @Autowired
@@ -936,6 +943,16 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
             throw new LocationException(
                     "Certificate with UUID %s is archived. Cannot renew the certificate in the location with UUID %s."
                             .formatted(certificateUuid, locationUuid));
+        }
+        // Location renew cannot present a registration challenge. Ask the renew gate now, with no secret, so a
+        // registration-protected certificate is refused and the attempt recorded before the location generates
+        // a key and CSR for a renewal that cannot happen.
+        try {
+            registrationChallengeGate.verify(certificateInScope.getUuid(), null, CertificateEvent.RENEW);
+        } catch (ValidationException e) {
+            throw new LocationException(
+                    "Certificate with UUID %s cannot be renewed in a location, which cannot present its registration challenge: %s"
+                            .formatted(certificateUuid, e.getMessage()));
         }
         if (certificateInScope.getRaProfile() == null) {
             logger

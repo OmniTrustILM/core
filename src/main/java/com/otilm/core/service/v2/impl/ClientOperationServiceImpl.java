@@ -87,7 +87,9 @@ import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.model.ActionMessage;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.model.crypto.OperationAttributeSchema;
 import com.otilm.core.model.request.CertificateRequest;
+import com.otilm.core.model.request.CertificateRequestKeys;
 import com.otilm.core.model.request.CrmfCertificateRequest;
 import com.otilm.core.model.request.Pkcs10CertificateRequest;
 import com.otilm.core.security.authz.ExternalAuthorization;
@@ -108,6 +110,7 @@ import com.otilm.core.service.handler.authority.AdapterOperationResult;
 import com.otilm.core.service.handler.authority.AsyncOperationCapability;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
+import com.otilm.core.service.handler.authority.AuthorityRevokeFailures;
 import com.otilm.core.service.handler.authority.CancelOutcome;
 import com.otilm.core.service.handler.authority.CertificateOperation;
 import com.otilm.core.service.handler.authority.RegisterCapability;
@@ -166,8 +169,8 @@ import org.springframework.transaction.support.DefaultTransactionDefinition;
 @Service("clientOperationServiceImplV2")
 // Roll back on any exception, checked included, so a connector or attribute failure never commits partial state.
 // The issue/renew/rekey entry points override this with their own NOT_SUPPORTED boundary and manage the persistence
-// transaction internally. submitCertificateRequest does not: reached through the proxy (REST v1 submit, SCEP manual
-// approval) it still runs under this class-level transaction; self-invoked it runs with no ambient transaction.
+// transaction internally. submitCertificateRequest uses SUPPORTS: the REST submit runs without an ambient transaction,
+// as they do, while a caller that brings one (SCEP manual approval) keeps the submission inside it.
 @Transactional(rollbackFor = Exception.class)
 public class ClientOperationServiceImpl implements ClientOperationExternalService, ClientOperationInternalService {
     private static final Logger logger = LoggerFactory.getLogger(ClientOperationServiceImpl.class);
@@ -178,6 +181,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * wording must fit all of them.
      */
     private static final String CERTIFICATE_REQUESTED_EVENT_MESSAGE = "Certificate requested";
+    private static final String INTERNAL_ERROR = "internal error";
 
     /**
      * Structured event-log surface for system-level state-transition events that are not directly user-triggered, per
@@ -444,6 +448,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.CREATE)
+    @Transactional(propagation = Propagation.SUPPORTS, rollbackFor = Exception.class)
     public CertificateDetailDto submitCertificateRequest(ClientCertificateRequestDto request,
             CertificateProtocolInfo protocolInfo) throws ConnectorException, CertificateException,
             NoSuchAlgorithmException, AttributeException, CertificateRequestException, NotFoundException {
@@ -481,16 +486,16 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                             raProfile.getName()));
         }
 
-        // Build the CSR and merge/validate the issue-attributes before opening the persistence transaction. On the
-        // self-invoked issue/renew/rekey paths (NOT_SUPPORTED) this holds no DB connection across the connector
-        // round-trips; proxied callers (REST v1 submit, SCEP manual-approval) still run under the class-level
-        // transaction. Ordering constraint: the uploaded-CSR attribute validation inside generateBase64EncodedCsr
+        // Build the CSR and merge/validate the issue-attributes before opening the persistence transaction, so no
+        // database transaction stays open across the connector round-trips unless the caller brought its own (SCEP
+        // manual approval). Ordering constraint: the uploaded-CSR attribute validation inside generateBase64EncodedCsr
         // must run before the issue-attribute merge.
         PreparedRequest prepared = generateBase64EncodedCsr(request.getRequest(), request.getFormat(),
                 request.getCsrAttributes(), request.getKeyUuid(), request.getTokenProfileUuid(),
                 request.getSignatureAttributes(), request.getAltKeyUuid(), request.getAltTokenProfileUuid(),
                 request.getAltSignatureAttributes(), raProfile);
         String certificateRequest = prepared.csr();
+        claimSignAttributeSchemas(certificateRequest, request);
         if (raProfile != null) {
             extendedAttributeService.mergeAndValidateIssueAttributes(raProfile, request.getIssueAttributes());
         }
@@ -995,7 +1000,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private static void rejectPastRegistrationWindow(ClientCertificateRegistrationDto request) {
         String secret = request.getAuthorizationSecret();
         OffsetDateTime expiresAt = request.getExpiresAt();
-        if (secret != null && !secret.isBlank() && expiresAt != null
+        if (RegistrationChallengeGate.isPresented(secret) && expiresAt != null
                 && !expiresAt.isAfter(OffsetDateTime.now(ZoneOffset.UTC))) {
             throw new ValidationException("The registration issuance window (expiresAt) must be in the future.");
         }
@@ -1009,7 +1014,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      */
     private static void rejectWindowWithoutChallenge(ClientCertificateRegistrationDto request) {
         String secret = request.getAuthorizationSecret();
-        if ((secret == null || secret.isBlank()) && request.getExpiresAt() != null) {
+        if (!RegistrationChallengeGate.isPresented(secret) && request.getExpiresAt() != null) {
             throw new ValidationException(
                     "A registration issuance window (expiresAt) requires an authorization secret; a registration without a challenge has no completion deadline.");
         }
@@ -1041,7 +1046,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private void maybeCreateRegistrationAuthorization(Certificate certificate,
             ClientCertificateRegistrationDto request) {
         String secret = request.getAuthorizationSecret();
-        if (secret == null || secret.isBlank()) {
+        if (!RegistrationChallengeGate.isPresented(secret)) {
             return;
         }
         OffsetDateTime expiresAt = request.getExpiresAt();
@@ -1176,7 +1181,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                     .addEventHistory(certificate.getUuid(), CertificateEvent.UPDATE_STATE,
                             CertificateEventStatus.FAILED,
                             "Failed to persist connector registration metadata; later status tracking may be limited. Cause: "
-                                    + metaEx.getMessage(),
+                                    + safeMessage(metaEx, INTERNAL_ERROR),
                             "");
         }
     }
@@ -1608,12 +1613,64 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     /**
+     * Moves the predecessor's locations to its successor: removes the predecessor from each location and pushes the
+     * successor there with the same push attributes. A failure stops the move and surfaces without its runtime detail.
+     */
+    private void replaceInLocations(Certificate oldCertificate, Certificate certificate, String operation)
+            throws CertificateOperationException {
+        Location location = null;
+        try {
+            logger.info("Replacing certificates in locations for certificate: {}", certificate);
+            for (CertificateLocation cl : oldCertificate.getLocations()) {
+                location = cl.getLocation();
+                PushToLocationRequestDto pushRequest = new PushToLocationRequestDto();
+                pushRequest.setAttributes(AttributeDefinitionUtils.getClientAttributes(cl.getPushAttributes()));
+
+                locationService
+                        .removeCertificateFromLocation(
+                                SecuredParentUUID.fromUUID(cl.getLocation().getEntityInstanceReferenceUuid()),
+                                cl.getLocation().getSecuredUuid(), oldCertificate.getUuid().toString());
+                certificateEventHistoryService
+                        .addEventHistory(oldCertificate.getUuid(), CertificateEvent.UPDATE_LOCATION,
+                                CertificateEventStatus.SUCCESS, "Removed from Location " + cl.getLocation().getName(),
+                                "");
+
+                locationService
+                        .pushCertificateToLocation(
+                                SecuredParentUUID.fromUUID(cl.getLocation().getEntityInstanceReferenceUuid()),
+                                cl.getLocation().getSecuredUuid(), certificate.getUuid().toString(), pushRequest);
+                certificateEventHistoryService
+                        .addEventHistory(certificate.getUuid(), CertificateEvent.UPDATE_LOCATION,
+                                CertificateEventStatus.SUCCESS, "Pushed to Location " + cl.getLocation().getName(), "");
+            }
+        } catch (Exception e) {
+            certificateEventHistoryService
+                    .addEventHistory(certificate.getUuid(), CertificateEvent.UPDATE_LOCATION,
+                            CertificateEventStatus.FAILED,
+                            "Failed to replace certificate in location %s: %s"
+                                    .formatted(location != null ? location.getName() : "",
+                                            safeMessage(e, INTERNAL_ERROR)),
+                            "");
+            logger
+                    .error("Failed to replace certificate in all locations during {} operation: {}", operation,
+                            e.getMessage(), e);
+            throw new CertificateOperationException(
+                    "Failed to replace certificate in all locations during %s operation: %s"
+                            .formatted(operation, safeMessage(e, INTERNAL_ERROR)));
+        }
+    }
+
+    /**
      * Includes the message only from our shaped domain exceptions (connector/operation/validation); other causes (e.g.
      * JPA) fall back to {@code fallback}.
      */
     private static String safeMessage(Exception e, String fallback) {
         return (e instanceof ConnectorException || e instanceof CertificateOperationException
                 || e instanceof ValidationException) && e.getMessage() != null ? e.getMessage() : fallback;
+    }
+
+    private static ValidationException alreadyRevoked(Certificate certificate) {
+        return new ValidationException("Certificate is already revoked. Certificate: " + certificate.toStringShort());
     }
 
     /** Delegates with the metadata from the connector's {@code 202 Accepted} response body. */
@@ -1651,7 +1708,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                         .addEventHistory(certificate.getUuid(), CertificateEvent.ISSUE, CertificateEventStatus.FAILED,
                                 "Failed to persist connector metadata returned with HTTP 202; "
                                         + "cancellation of this pending operation may be limited if "
-                                        + "the connector requires the original metadata. Cause: " + metaEx.getMessage(),
+                                        + "the connector requires the original metadata. Cause: "
+                                        + safeMessage(metaEx, INTERNAL_ERROR),
                                 "");
             }
         }
@@ -1890,7 +1948,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         // authorization exists (never created, closed, or raced away between a protocol match and this
         // gate) would complete the registration without its challenge ever being checked — and would
         // silently ignore a credential the caller clearly expected to be validated.
-        if (!challengeAuthorized && presentedSecret != null && !presentedSecret.isBlank()) {
+        if (!challengeAuthorized && RegistrationChallengeGate.isPresented(presentedSecret)) {
             throw new ValidationException(ValidationError
                     .create("An authorization secret was presented but the certificate has no active registration authorization to verify it against. Certificate: %s"
                             .formatted(certificate.toStringShort())));
@@ -1981,9 +2039,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 ResourceAction.RENEW);
 
         // Self-service gate: a certificate with a live registration authorization renews only against its
-        // challenge; a wrong or missing secret is denied (and counted) before any successor exists. A verified
-        // challenge lets the authorization follow the successor (copied below). A certificate with no
-        // authorization row, or a CLOSED one, renews without challenge verification.
+        // challenge; a wrong or missing secret is denied before any successor exists. A verified challenge
+        // lets the authorization follow the successor (copied below). A certificate with no authorization
+        // row, or a CLOSED one, renews without challenge verification.
         boolean challengeAuthorized = registrationChallengeGate
                 .verify(oldCertificate.getUuid(), request != null ? request.getAuthorizationSecret() : null,
                         CertificateEvent.RENEW);
@@ -2132,66 +2190,27 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // local failure (mapping, persistence, event history) must NOT drive the successor to FAILED. Leave it
             // in PENDING_ISSUE so reconciliation/polling can resolve it against the authority that already accepted;
             // record the failure against the predecessor and surface it. (state-divergence rule)
+            logger.error("Failed to renew certificate {}", certificateUuid, e);
             if (connectorAccepted || e instanceof ConnectorAcceptedButLocalFailureException) {
                 certificateEventHistoryService
                         .addEventHistory(oldCertificate.getUuid(), CertificateEvent.RENEW,
                                 CertificateEventStatus.FAILED,
-                                "Connector accepted renewal but local update failed: " + e.getMessage(),
+                                "Connector accepted renewal but local update failed: " + safeMessage(e, INTERNAL_ERROR),
                                 MetaDefinitions.serialize(additionalInformation));
                 throw new CertificateOperationException(
                         "Connector accepted renewal but local update failed for certificate %s: "
-                                .formatted(certificateUuid) + e.getMessage());
+                                .formatted(certificateUuid) + safeMessage(e, INTERNAL_ERROR));
             }
             handleFailedOrRejectedEvent(certificate, oldCertificate.getUuid(), CertificateState.FAILED,
-                    CertificateEvent.RENEW, additionalInformation, e.getMessage());
+                    CertificateEvent.RENEW, additionalInformation, safeMessage(e, "Renewal failed"));
             throw new CertificateOperationException(
-                    "Failed to renew certificate with UUID %s: ".formatted(certificateUuid) + e.getMessage());
+                    "Failed to renew certificate with UUID %s: ".formatted(certificateUuid)
+                            + safeMessage(e, INTERNAL_ERROR));
         }
 
-        Location location = null;
-        try {
-            // replace certificate in the locations if needed
-            if (request.isReplaceInLocations()) {
-                logger.info("Replacing certificates in locations for certificate: {}", certificate);
-                for (CertificateLocation cl : oldCertificate.getLocations()) {
-                    location = cl.getLocation();
-                    PushToLocationRequestDto pushRequest = new PushToLocationRequestDto();
-                    pushRequest.setAttributes(AttributeDefinitionUtils.getClientAttributes(cl.getPushAttributes()));
-
-                    locationService
-                            .removeCertificateFromLocation(
-                                    SecuredParentUUID.fromUUID(cl.getLocation().getEntityInstanceReferenceUuid()),
-                                    cl.getLocation().getSecuredUuid(), oldCertificate.getUuid().toString());
-                    certificateEventHistoryService
-                            .addEventHistory(oldCertificate.getUuid(), CertificateEvent.UPDATE_LOCATION,
-                                    CertificateEventStatus.SUCCESS,
-                                    "Removed from Location " + cl.getLocation().getName(), "");
-
-                    locationService
-                            .pushCertificateToLocation(
-                                    SecuredParentUUID.fromUUID(cl.getLocation().getEntityInstanceReferenceUuid()),
-                                    cl.getLocation().getSecuredUuid(), certificate.getUuid().toString(), pushRequest);
-                    certificateEventHistoryService
-                            .addEventHistory(certificate.getUuid(), CertificateEvent.UPDATE_LOCATION,
-                                    CertificateEventStatus.SUCCESS, "Pushed to Location " + cl.getLocation().getName(),
-                                    "");
-                }
-            }
-
-        } catch (Exception e) {
-            certificateEventHistoryService
-                    .addEventHistory(certificate.getUuid(), CertificateEvent.UPDATE_LOCATION,
-                            CertificateEventStatus.FAILED,
-                            String
-                                    .format("Failed to replace certificate in location %s: %s",
-                                            location != null ? location.getName() : "", e.getMessage()),
-                            "");
-            logger.error("Failed to replace certificate in all locations during renew operation: {}", e.getMessage());
-            throw new CertificateOperationException(
-                    "Failed to replace certificate in all locations during renew operation: " + e.getMessage());
-        }
-
-        if (!request.isReplaceInLocations()) {
+        if (request.isReplaceInLocations()) {
+            replaceInLocations(oldCertificate, certificate, "renew");
+        } else {
             // push certificate to locations
             for (CertificateLocation cl : certificate.getLocations()) {
                 try {
@@ -2313,7 +2332,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         } else {
             if (oldCertificate.getCertificateRequest() != null) {
                 signatureAttributes = attributeEngine
-                        .getRequestObjectDataAttributesContent(ObjectAttributeContentInfo
+                        .getRequestOperationDataAttributesContent(ObjectAttributeContentInfo
                                 .builder(Resource.CERTIFICATE_REQUEST, oldCertificate.getCertificateRequest().getUuid())
                                 .operation(AttributeOperation.SIGN)
                                 .build());
@@ -2334,7 +2353,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             } else {
                 if (oldCertificate.getCertificateRequest() != null) {
                     altSignatureAttributes = attributeEngine
-                            .getRequestObjectDataAttributesContent(ObjectAttributeContentInfo
+                            .getRequestOperationDataAttributesContent(ObjectAttributeContentInfo
                                     .builder(Resource.CERTIFICATE_REQUEST,
                                             oldCertificate.getCertificateRequest().getUuid())
                                     .operation(AttributeOperation.SIGN)
@@ -2434,63 +2453,26 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // local failure (mapping, persistence, event history) must NOT drive the successor to FAILED. Leave it
             // in PENDING_ISSUE so reconciliation/polling can resolve it against the authority that already accepted;
             // record the failure against the predecessor and surface it. (state-divergence rule)
+            logger.error("Failed to rekey certificate {}", certificateUuid, e);
             if (connectorAccepted || e instanceof ConnectorAcceptedButLocalFailureException) {
                 certificateEventHistoryService
                         .addEventHistory(oldCertificate.getUuid(), CertificateEvent.REKEY,
                                 CertificateEventStatus.FAILED,
-                                "Connector accepted rekey but local update failed: " + e.getMessage(),
+                                "Connector accepted rekey but local update failed: " + safeMessage(e, INTERNAL_ERROR),
                                 MetaDefinitions.serialize(additionalInformation));
                 throw new CertificateOperationException(
                         "Connector accepted rekey but local update failed for certificate %s: "
-                                .formatted(certificateUuid) + e.getMessage());
+                                .formatted(certificateUuid) + safeMessage(e, INTERNAL_ERROR));
             }
             handleFailedOrRejectedEvent(certificate, oldCertificate.getUuid(), CertificateState.FAILED,
-                    CertificateEvent.REKEY, additionalInformation, e.getMessage());
+                    CertificateEvent.REKEY, additionalInformation, safeMessage(e, "Rekey failed"));
             throw new CertificateOperationException(
-                    "Failed to rekey certificate with UUID %s: ".formatted(certificateUuid) + e.getMessage());
+                    "Failed to rekey certificate with UUID %s: ".formatted(certificateUuid)
+                            + safeMessage(e, INTERNAL_ERROR));
         }
 
-        Location location = null;
-        try {
-            /* replace certificate in the locations if needed */
-            if (request.isReplaceInLocations()) {
-                logger.info("Replacing certificates in locations for certificate: {}", certificate);
-                for (CertificateLocation cl : oldCertificate.getLocations()) {
-                    location = cl.getLocation();
-                    PushToLocationRequestDto pushRequest = new PushToLocationRequestDto();
-                    pushRequest.setAttributes(AttributeDefinitionUtils.getClientAttributes(cl.getPushAttributes()));
-
-                    locationService
-                            .removeCertificateFromLocation(
-                                    SecuredParentUUID.fromUUID(cl.getLocation().getEntityInstanceReferenceUuid()),
-                                    cl.getLocation().getSecuredUuid(), oldCertificate.getUuid().toString());
-                    certificateEventHistoryService
-                            .addEventHistory(oldCertificate.getUuid(), CertificateEvent.UPDATE_LOCATION,
-                                    CertificateEventStatus.SUCCESS,
-                                    "Removed from Location " + cl.getLocation().getName(), "");
-
-                    locationService
-                            .pushCertificateToLocation(
-                                    SecuredParentUUID.fromUUID(cl.getLocation().getEntityInstanceReferenceUuid()),
-                                    cl.getLocation().getSecuredUuid(), certificate.getUuid().toString(), pushRequest);
-                    certificateEventHistoryService
-                            .addEventHistory(certificate.getUuid(), CertificateEvent.UPDATE_LOCATION,
-                                    CertificateEventStatus.SUCCESS, "Pushed to Location " + cl.getLocation().getName(),
-                                    "");
-                }
-            }
-
-        } catch (Exception e) {
-            certificateEventHistoryService
-                    .addEventHistory(certificate.getUuid(), CertificateEvent.UPDATE_LOCATION,
-                            CertificateEventStatus.FAILED,
-                            String
-                                    .format("Failed to replace certificate in location %s: %s",
-                                            location != null ? location.getName() : "", e.getMessage()),
-                            "");
-            logger.error("Failed to replace certificate in all locations during rekey operation: {}", e.getMessage());
-            throw new CertificateOperationException(
-                    "Failed to replace certificate in all locations during rekey operation: " + e.getMessage());
+        if (request.isReplaceInLocations()) {
+            replaceInLocations(oldCertificate, certificate, "rekey");
         }
 
         // raise event
@@ -2534,6 +2516,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         final Certificate certificate = certificateRepository
                 .findWithAssociationsByUuid(certificateUuid)
                 .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
+        if (certificate.getState() == CertificateState.REVOKED) {
+            throw alreadyRevoked(certificate);
+        }
         if (certificate.getState() != CertificateState.ISSUED
                 && certificate.getState() != CertificateState.PENDING_APPROVAL) {
             throw new ValidationException(ValidationError
@@ -2541,7 +2526,6 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                             .format("Cannot revoke certificate in state %s. Certificate: %s",
                                     certificate.getState().getLabel(), certificate.toStringShort())));
         }
-        final CertificateState entryState = certificate.getState();
 
         RaProfile raProfile = certificate.getRaProfile();
 
@@ -2601,7 +2585,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 // Leave the cert state as-is — the upstream is committed and rolling back here
                 // would create state divergence between the platform and the authority. Surface
                 // the local failure but do not mask the upstream success.
-                String msg = "Connector accepted revoke but local state update failed: " + e.getMessage();
+                String msg = "Connector accepted revoke but local state update failed: "
+                        + safeMessage(e, INTERNAL_ERROR);
                 certificateEventHistoryService
                         .addEventHistory(certificate.getUuid(), CertificateEvent.REVOKE, CertificateEventStatus.FAILED,
                                 msg, "");
@@ -2610,18 +2595,25 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                                 certificate.getUuid(), e.getMessage(), e);
                 throw new CertificateOperationException(msg);
             }
-            // Connector itself failed. Nothing transitioned the cert before the connector call, so
-            // this restores it to its entry state — a defensive no-op, not a real transition, and so
-            // intentionally not routed through the SM (there is no self-transition row, and the SM
-            // governs state changes rather than idempotent restores). The FAILED audit below is the
-            // meaningful record of the failed revoke attempt.
-            certificate.setState(entryState);
-            certificateRepository.save(certificate);
+            // Connector itself failed. This action changed no state before the connector call, so it writes none
+            // back: the entry state would undo a revocation a concurrent action has committed since this one read
+            // the certificate.
+            String reason = AuthorityRevokeFailures.describe(e);
+            String msg = "Failed to revoke certificate: " + reason;
             certificateEventHistoryService
-                    .addEventHistory(certificate.getUuid(), CertificateEvent.REVOKE, CertificateEventStatus.FAILED,
-                            e.getMessage(), "");
-            logger.error("Failed to revoke Certificate: {}", e.getMessage());
-            throw new CertificateOperationException("Failed to revoke certificate: " + e.getMessage());
+                    .addEventHistory(certificate.getUuid(), CertificateEvent.REVOKE, CertificateEventStatus.FAILED, msg,
+                            "");
+            if (e instanceof ConnectorException connectorFailure) {
+                logger
+                        .error("Failed to revoke certificate {}: {} ({})", certificate.getUuid(), reason,
+                                AuthorityRevokeFailures.logDetail(connectorFailure));
+            } else {
+                logger.error("Failed to revoke certificate {}: {}", certificate.getUuid(), reason, e);
+            }
+            if (certificate.getState() == CertificateState.PENDING_APPROVAL) {
+                returnFailedApprovedRevokeToIssued(certificate.getUuid());
+            }
+            throw new CertificateOperationException(msg);
         }
 
         if (certificate.getKey() != null && request.isDestroyKey()) {
@@ -2639,6 +2631,35 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                         .constructEventMessage(certificate.getUuid(), ResourceAction.REVOKE));
 
         logger.debug("Certificate revoked: {}", certificate);
+    }
+
+    /**
+     * The approval of a revocation the authority did not carry out is already closed, so nothing would ever move the
+     * certificate out of {@code PENDING_APPROVAL}. Returns it to {@code ISSUED} under a row lock, unless a concurrent
+     * action has moved it on since. The failed revoke is already in the history, so the restore records nothing more.
+     */
+    private void returnFailedApprovedRevokeToIssued(UUID certificateUuid) {
+        // Nothing here may escape: the caller's sanitized failure is what reaches the requester's notification.
+        TransactionStatus tx = null;
+        try {
+            tx = transactionManager.getTransaction(new DefaultTransactionDefinition());
+            certificateRepository
+                    .findAndLockWithAssociationsByUuid(certificateUuid)
+                    .filter(locked -> locked.getState() == CertificateState.PENDING_APPROVAL)
+                    .ifPresent(locked -> stateMachine.transitionAuditedExternally(locked, CertificateState.ISSUED));
+            transactionManager.commit(tx);
+        } catch (RuntimeException e) {
+            if (tx != null && !tx.isCompleted()) {
+                try {
+                    transactionManager.rollback(tx);
+                } catch (RuntimeException rollbackFailure) {
+                    e.addSuppressed(rollbackFailure);
+                }
+            }
+            logger
+                    .error("Failed to restore certificate {} to {} after a failed approved revocation: {}",
+                            certificateUuid, CertificateState.ISSUED.getLabel(), e.getMessage(), e);
+        }
     }
 
     @Override
@@ -2776,6 +2797,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             throw new ValidationException(
                     "Cannot perform operation %s on certificate with a pending operation. Finalize or cancel the pending operation first. Certificate: %s"
                             .formatted(action.getCode(), oldCertificate.toStringShort()));
+        }
+        if (action == ResourceAction.REVOKE && oldCertificate.getState() == CertificateState.REVOKED) {
+            throw alreadyRevoked(oldCertificate);
         }
         if (!oldCertificate.getState().equals(CertificateState.ISSUED)) {
             throw new ValidationException(String
@@ -3015,6 +3039,45 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             throw new ValidationException(
                     ValidationError.create("Failed to generate the CSR. Error: " + e.getMessage()));
         }
+    }
+
+    /**
+     * Claims the signing schemas for the keys the request's signature attributes are stored under, the ones the
+     * certificate service resolves for storage.
+     */
+    private void claimSignAttributeSchemas(String certificateRequest, ClientCertificateRequestDto request)
+            throws NotFoundException, ConnectorException, AttributeException, NoSuchAlgorithmException,
+            CertificateRequestException {
+        if (isEmpty(request.getSignatureAttributes()) && isEmpty(request.getAltSignatureAttributes())) {
+            return;
+        }
+        CertificateRequestKeys keys = certificateService
+                .findRequestKeys(certificateRequest, request.getFormat(), request.getKeyUuid(),
+                        request.getAltKeyUuid());
+        claimSignAttributeSchema(keys.keyUuid(), request.getSignatureAttributes());
+        claimSignAttributeSchema(keys.altKeyUuid(), request.getAltSignatureAttributes());
+    }
+
+    private static boolean isEmpty(List<RequestAttribute> attributes) {
+        return attributes == null || attributes.isEmpty();
+    }
+
+    /**
+     * Validates a v2 key's signing attributes against its connector's schema and claims that schema for signing, so the
+     * certificate request can store them under the connector and read them back, whether Core signed the request or it
+     * was uploaded. A v1 key signs with Core's registry, which is stored for signing already.
+     */
+    private void claimSignAttributeSchema(UUID keyUuid, List<RequestAttribute> signatureAttributes)
+            throws NotFoundException, ConnectorException, AttributeException {
+        if (signatureAttributes == null || signatureAttributes.isEmpty()
+                || keyInternalService.getSignAttributeOwner(keyUuid) == null) {
+            return;
+        }
+        OperationAttributeSchema schema = cryptographicOperationService.listSignAttributeSchema(keyUuid);
+        attributeEngine
+                .validateUpdateDataAttributes(schema.ownerConnectorUuid(), AttributeOperation.SIGN,
+                        schema.definitions(), signatureAttributes);
+        schema.requireOfferedSignatureAlgorithm(signatureAttributes);
     }
 
     /**
@@ -3666,7 +3729,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // cancel is a local-state operation and a connector hiccup should not strand
             // the cert in PENDING_*.
             recordCancelSoftFailure(cert, target,
-                    "Connector cancel call failed (proceeding with local cancel): " + unexpected.getMessage(),
+                    "Connector cancel call failed (proceeding with local cancel): "
+                            + safeMessage(unexpected, INTERNAL_ERROR),
                     "Connector cancel call failed (" + unexpected.getClass().getSimpleName()
                             + "); proceeded with local cancel",
                     "Connector cancel call failed for cert {} ({}: {}) — proceeding with local cancel",

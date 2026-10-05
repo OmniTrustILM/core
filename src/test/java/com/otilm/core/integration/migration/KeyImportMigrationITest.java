@@ -26,7 +26,17 @@ class KeyImportMigrationITest extends BaseSpringBootTest {
 
     private static final String RECONCILIATION_RESOURCE = "db/migration/V202609261800__key_import_reconciliation.sql";
 
+    private static final String SECRET_KEY_RESOURCE = "db/migration/V202609271300__key_import_secret_key.sql";
+
     private static final String SCRATCH_SCHEMA = "key_import_migration_check";
+
+    private static final String INSERT_SECRET_KEY_ATTEMPT = """
+            INSERT INTO key_import (uuid, key_reference, idempotency_key, requester_uuid, requester_name,
+                token_instance_uuid, token_profile_uuid, key_request_type, key_algorithm, spki_fingerprint, name,
+                exportable, state, secret_digests, created_at, updated_at)
+            VALUES (gen_random_uuid(), gen_random_uuid(), 'retry', gen_random_uuid(), 'requester', gen_random_uuid(),
+                gen_random_uuid(), 'SECRET', 'AES', NULL, 'key', false, ?, '[]', now(), now())
+            """;
 
     private static final String INSERT_ATTEMPT = """
             INSERT INTO key_import (uuid, key_reference, idempotency_key, requester_uuid, requester_name,
@@ -240,6 +250,54 @@ class KeyImportMigrationITest extends BaseSpringBootTest {
         }
     }
 
+    /** A secret key has no public key, so its import is recorded without a fingerprint. */
+    @Test
+    void aSecretKeyImportIsRecordedWithoutAFingerprint() throws Exception {
+        try (Connection connection = dataSource.getConnection()) {
+            try {
+                // given
+                applyMigration(connection);
+                runMigration(connection, RECONCILIATION_RESOURCE);
+                runMigration(connection, SECRET_KEY_RESOURCE);
+
+                // when
+                insertSecretKeyAttempt(connection, "REQUESTED");
+
+                // then
+                try (Statement statement = connection.createStatement();
+                        ResultSet rows = statement
+                                .executeQuery("SELECT count(*) FROM key_import WHERE spki_fingerprint IS NULL")) {
+                    assertThat(rows.next()).isTrue();
+                    assertThat(rows.getInt(1)).isEqualTo(1);
+                }
+            } finally {
+                dropScratchSchema(connection);
+            }
+        }
+    }
+
+    /** A retry while the reconciliation undoes a secret key's import would put a second copy in the token meanwhile. */
+    @Test
+    void aSecretKeyImportBeingUndoneTakesNoOtherAttempt() throws Exception {
+        try (Connection connection = dataSource.getConnection()) {
+            try {
+                // given
+                applyMigration(connection);
+                runMigration(connection, RECONCILIATION_RESOURCE);
+                runMigration(connection, SECRET_KEY_RESOURCE);
+                insertSecretKeyAttempt(connection, "COMPENSATING");
+
+                // when
+                // then
+                assertThatThrownBy(() -> insertSecretKeyAttempt(connection, "REQUESTED"))
+                        .isInstanceOf(SQLException.class)
+                        .hasMessageContaining("uq_key_import_open_secret_attempt");
+            } finally {
+                dropScratchSchema(connection);
+            }
+        }
+    }
+
     private void applyMigration(Connection connection) throws Exception {
         try (Statement statement = connection.createStatement()) {
             statement.execute("DROP SCHEMA IF EXISTS " + SCRATCH_SCHEMA + " CASCADE");
@@ -257,7 +315,15 @@ class KeyImportMigrationITest extends BaseSpringBootTest {
     }
 
     private static void insertAttempt(Connection connection, String state) throws SQLException {
-        try (PreparedStatement insert = connection.prepareStatement(INSERT_ATTEMPT)) {
+        insert(connection, INSERT_ATTEMPT, state);
+    }
+
+    private static void insertSecretKeyAttempt(Connection connection, String state) throws SQLException {
+        insert(connection, INSERT_SECRET_KEY_ATTEMPT, state);
+    }
+
+    private static void insert(Connection connection, String attempt, String state) throws SQLException {
+        try (PreparedStatement insert = connection.prepareStatement(attempt)) {
             insert.setString(1, state);
             insert.executeUpdate();
         }

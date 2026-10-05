@@ -16,6 +16,12 @@ public record CryptographicKeyItemOperationRow(UUID keyItemUuid, boolean enabled
         List<MetadataAttribute> keyMeta, UUID keyUuid, UUID connectorUuid, String tokenInstanceUuid,
         ConnectorInterface connectorInterfaceCode, String connectorInterfaceVersion) {
 
+    @Override
+    public String toString() {
+        return "CryptographicKeyItemOperationRow[keyItemUuid=%s, keyType=%s, keyAlgorithm=%s, keyState=%s]"
+                .formatted(keyItemUuid, keyType, keyAlgorithm, keyState);
+    }
+
     public CryptographicKeyItemOperationModel toModel() {
         RemoteKeyReference reference = keyMeta == null
                 ? new RemoteKeyReference.UuidReference(keyReferenceUuid)

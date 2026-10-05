@@ -12,7 +12,8 @@ import java.util.List;
  * @param profile the token profile the key is imported into
  * @param type the key type the import asks for
  * @param algorithm the key's algorithm, found in the file
- * @param spkiFingerprint the fingerprint of the key's public key, as the inventory computes it
+ * @param spkiFingerprint the fingerprint of the key's public key, as the inventory computes it, or {@code null} for a
+ * secret key
  * @param exportable whether the key may later be exported
  * @param importAttributes the import attributes, validated against the connector's schema
  * @param requester the user who asks for the import

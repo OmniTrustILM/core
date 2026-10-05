@@ -22,6 +22,12 @@ public record CryptographicKeyItemBasicModel(UUID uuid, UUID parentKeyUuid, Stri
         usages = List.copyOf(usages);
     }
 
+    @Override
+    public String toString() {
+        return "CryptographicKeyItemBasicModel[uuid=%s, name=%s, type=%s, format=%s, state=%s]"
+                .formatted(uuid, name, type, format, state);
+    }
+
     public static CryptographicKeyItemBasicModel from(CryptographicKeyItem item) {
         RemoteKeyReference reference = item.getKeyMeta() == null
                 ? new RemoteKeyReference.UuidReference(item.getKeyReferenceUuid())

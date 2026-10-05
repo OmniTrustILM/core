@@ -65,6 +65,9 @@ import com.otilm.core.dao.repository.AttributeContent2ObjectRepository;
 import com.otilm.core.dao.repository.AttributeContentItemRepository;
 import com.otilm.core.dao.repository.AttributeDefinitionRepository;
 import com.otilm.core.dao.repository.AttributeRelationRepository;
+import com.otilm.core.extension.ExtensionValues;
+import com.otilm.core.extension.JerCodec;
+import com.otilm.core.model.AttributeDefinitionIdentity;
 import com.otilm.core.model.SearchFieldObject;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.oid.OidHandler;
@@ -72,10 +75,9 @@ import com.otilm.core.oid.OidRecord;
 import com.otilm.core.security.authz.SecurityResourceFilter;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.writer.AttributeDefinitionWriter;
-import com.otilm.core.util.AsnJsonCodec;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.AuthHelper;
-import com.otilm.core.util.ExtensionSchemas;
+import com.otilm.core.util.ConstraintSchemas;
 import com.otilm.core.util.SearchHelper;
 import com.otilm.core.util.SecretEncodingVersion;
 import com.otilm.core.util.SecretsUtil;
@@ -84,9 +86,9 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.time.DateTimeException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -125,6 +127,7 @@ public class AttributeEngine {
     private AttributeContentItemRepository attributeContentItemRepository;
     private AttributeContent2ObjectRepository attributeContent2ObjectRepository;
     private AttributeDefinitionWriter attributeDefinitionWriter;
+    private AttributeSearchFieldCatalogue attributeSearchFieldCatalogue;
 
     private AuthHelper authHelper;
 
@@ -159,65 +162,128 @@ public class AttributeEngine {
         this.attributeContent2ObjectRepository = attributeContent2ObjectRepository;
     }
 
+    @Autowired
+    public void setAttributeSearchFieldCatalogue(AttributeSearchFieldCatalogue attributeSearchFieldCatalogue) {
+        this.attributeSearchFieldCatalogue = attributeSearchFieldCatalogue;
+    }
+
     // region Search (Filtering) related methods
 
+    /**
+     * The attribute fields of the resource's catalogue that the current caller may read. A custom attribute whose
+     * content the caller's permissions withhold is left out, definition and all: its column would be empty, every
+     * condition on it would answer as though no object held a value, and offering it discloses a definition the caller
+     * may not see.
+     */
     public List<SearchFieldDataByGroupDto> getResourceSearchableFields(Resource resource, boolean settable) {
-        final List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = new ArrayList<>();
+        return searchableFieldGroups(resource, settable,
+                readable(attributeSearchFieldCatalogue.fields(resource, settable), customAttributeContentFilterOnce()));
+    }
 
-        // The following logic is driven by minimizing database operations. So we retrieve everything at once and then
-        // do client-side filtering.
-        if (settable) {
-            List<SearchFieldObject> settableAttributes = attributeDefinitionRepository
-                    .findDistinctAttributeSearchFieldsByResourceAndAttrTypeAndAttrContentType(resource,
-                            List.of(AttributeType.CUSTOM),
-                            Arrays
-                                    .stream(AttributeContentType.values())
-                                    .filter(AttributeContentType::isFilterByData)
-                                    .toList());
-            if (!settableAttributes.isEmpty()) {
-                searchFieldDataByGroupDtos
-                        .add(new SearchFieldDataByGroupDto(
-                                SearchHelper.prepareSearchForJSON(settableAttributes, resource),
-                                FilterFieldSource.CUSTOM));
-            }
-        } else {
-            List<SearchFieldObject> searchableAttributes = attributeDefinitionRepository
-                    .findDistinctAttributeSearchFieldsByResourceAndAttrType(resource,
-                            List.of(AttributeType.CUSTOM, AttributeType.DATA, AttributeType.META));
-            var customAttributes = searchableAttributes
-                    .stream()
-                    .filter(attr -> attr.getAttributeType().equals(AttributeType.CUSTOM))
-                    .toList();
-            if (!customAttributes.isEmpty()) {
-                searchFieldDataByGroupDtos
-                        .add(new SearchFieldDataByGroupDto(
-                                SearchHelper.prepareSearchForJSON(customAttributes, resource),
-                                FilterFieldSource.CUSTOM));
-            }
+    /**
+     * As {@link #getResourceSearchableFields(Resource, boolean)}, but certain to include each attribute field in
+     * {@code named} that exists and the caller may read: a request that names a field is answered from a catalogue
+     * rebuilt if it lacked one.
+     */
+    public List<SearchFieldDataByGroupDto> getResourceSearchableFields(Resource resource, boolean settable,
+            Collection<NamedField> named) {
+        return getResourceSearchableFields(resource, settable, named, customAttributeContentFilterOnce());
+    }
 
-            var dataAttributes = searchableAttributes
-                    .stream()
-                    .filter(attr -> attr.getAttributeType().equals(AttributeType.DATA))
-                    .toList();
-            if (!dataAttributes.isEmpty()) {
-                searchFieldDataByGroupDtos
-                        .add(new SearchFieldDataByGroupDto(SearchHelper.prepareSearchForJSON(dataAttributes, resource),
-                                FilterFieldSource.DATA));
-            }
+    /**
+     * As {@link #getResourceSearchableFields(Resource, boolean, Collection)}, narrowed by permissions the caller has
+     * already resolved, so a listing that also filters and projects by them resolves them once.
+     */
+    public List<SearchFieldDataByGroupDto> getResourceSearchableFields(Resource resource, boolean settable,
+            Collection<NamedField> named, Supplier<CustomAttributeContentFilter> contentFilterSource) {
+        return searchableFieldGroups(resource, settable,
+                readable(attributeSearchFieldCatalogue.fieldsNaming(resource, settable, named), contentFilterSource));
+    }
 
-            var metadataAttributes = searchableAttributes
-                    .stream()
-                    .filter(attr -> attr.getAttributeType().equals(AttributeType.META))
-                    .toList();
-            if (!metadataAttributes.isEmpty()) {
-                searchFieldDataByGroupDtos
-                        .add(new SearchFieldDataByGroupDto(
-                                SearchHelper.prepareSearchForJSON(metadataAttributes, resource),
-                                FilterFieldSource.META));
+    /**
+     * The definitions currently registered under each named attribute field in the resource's catalogue, narrowed to
+     * the custom definitions the caller may read. A field with none is absent from the map. A definition of the same
+     * name and content type that belongs only to another resource is not one of them, so it cannot vouch for a field it
+     * does not back here, and neither can one the caller may not read.
+     *
+     * <p>
+     * Read from the definitions rather than the cached catalogue, so a definition deleted or created on another replica
+     * is seen at once: an identifier names only an attribute and content type, and these are what tell a definition
+     * created later under the same identifier apart from the one a stored view was bound to.
+     */
+    public Map<NamedField, Set<UUID>> definitionsBehind(Resource resource, Collection<NamedField> named,
+            Supplier<CustomAttributeContentFilter> contentFilterSource) {
+        Map<String, List<NamedField>> byName = new HashMap<>();
+        for (NamedField field : named) {
+            if (field.isAttribute()) {
+                field
+                        .attributeName()
+                        .ifPresent(name -> byName.computeIfAbsent(name, n -> new ArrayList<>()).add(field));
             }
         }
+        if (byName.isEmpty()) {
+            return Map.of();
+        }
 
-        return searchFieldDataByGroupDtos;
+        Set<AttributeType> types = byName
+                .values()
+                .stream()
+                .flatMap(List::stream)
+                .map(field -> field.source().getAttributeType())
+                .collect(Collectors.toCollection(() -> EnumSet.noneOf(AttributeType.class)));
+        Set<NamedField> wanted = byName.values().stream().flatMap(List::stream).collect(Collectors.toSet());
+        Map<NamedField, Set<UUID>> definitions = new HashMap<>();
+        for (AttributeDefinitionIdentity identity : attributeDefinitionRepository
+                .findIdentitiesOfResource(resource, types, byName.keySet())) {
+            if (identity.contentType() == null
+                    || identity.type() == AttributeType.CUSTOM && !contentFilterSource.get().permits(identity.uuid())) {
+                continue;
+            }
+            NamedField field = NamedField.ofDefinition(identity.type(), identity.name(), identity.contentType());
+            if (wanted.contains(field)) {
+                definitions.computeIfAbsent(field, f -> new HashSet<>()).add(identity.uuid());
+            }
+        }
+        return definitions;
+    }
+
+    /**
+     * The rows the caller's permissions let them read. The cached rows are shared by every caller, so they are narrowed
+     * here on each read rather than when loaded; the permissions are resolved only when a custom row is present.
+     */
+    private static List<SearchFieldObject> readable(List<SearchFieldObject> rows,
+            Supplier<CustomAttributeContentFilter> contentFilterSource) {
+        return rows
+                .stream()
+                .filter(row -> row.getAttributeType() != AttributeType.CUSTOM
+                        || contentFilterSource.get().permits(row.getDefinitionUuid()))
+                .toList();
+    }
+
+    private static List<SearchFieldDataByGroupDto> searchableFieldGroups(Resource resource, boolean settable,
+            List<SearchFieldObject> rows) {
+        final List<SearchFieldDataByGroupDto> groups = new ArrayList<>();
+        if (settable) {
+            if (!rows.isEmpty()) {
+                groups
+                        .add(new SearchFieldDataByGroupDto(SearchHelper.prepareSearchForJSON(rows, resource),
+                                FilterFieldSource.CUSTOM));
+            }
+            return groups;
+        }
+        for (FilterFieldSource source : List
+                .of(FilterFieldSource.CUSTOM, FilterFieldSource.DATA, FilterFieldSource.META)) {
+            List<SearchFieldObject> ofSource = rows
+                    .stream()
+                    .filter(row -> row.getAttributeType() == source.getAttributeType())
+                    .toList();
+            if (!ofSource.isEmpty()) {
+                groups
+                        .add(new SearchFieldDataByGroupDto(SearchHelper.prepareSearchForJSON(ofSource, resource),
+                                source));
+            }
+        }
+        return groups;
     }
 
     // endregion
@@ -530,6 +596,7 @@ public class AttributeEngine {
             attributeRelation.setResource(resource);
             attributeRelationRepository.save(attributeRelation);
         }
+        attributeSearchFieldCatalogue.evictAll();
     }
 
     /**
@@ -565,7 +632,7 @@ public class AttributeEngine {
             }
             try {
                 validateAttributeDefinition(v3, null);
-                validateFieldMapping(v3, null, codeToOidMap);
+                validateFieldMapping(v3, null, codeToOidMap, true);
                 validateJsonSchemaDeclarations(v3, null);
             } catch (AttributeException e) {
                 // AttributeException messages are authored inside this class — safe to surface.
@@ -682,6 +749,7 @@ public class AttributeEngine {
             }
         }
 
+        attributeSearchFieldCatalogue.evictAll();
         return attributeDefinition;
     }
 
@@ -795,7 +863,8 @@ public class AttributeEngine {
         // JSON extension values first: validateAttributesContent removes each matched definition from the
         // mapping as it goes (it uses the leftovers to find missing required attributes), so running after it
         // would see no definition for any attribute that actually carried content.
-        List<ValidationError> errors = validateJsonExtensionValues(definitionsMapping, requestAttributes);
+        List<ValidationError> errors = validateVersionsMatch(definitionsMapping, requestAttributes);
+        errors.addAll(validateJsonExtensionValues(definitionsMapping, requestAttributes));
         errors.addAll(validateAttributesContent(definitionsMapping, requestAttributes));
         if (!errors.isEmpty()) {
             throw new ValidationException(errors);
@@ -817,7 +886,7 @@ public class AttributeEngine {
                     continue;
                 }
                 try {
-                    ExtensionSchemas.requireValidSchema((String) constraint.getData());
+                    ConstraintSchemas.requireValidSchema((String) constraint.getData());
                 } catch (ValidationException e) {
                     throw new AttributeException(
                             "JSON Schema constraint of attribute '%s': %s"
@@ -840,9 +909,9 @@ public class AttributeEngine {
     }
 
     /**
-     * Grammar and registry-shape layers for JSON values of DER-encoded extension mappings. The constraint layer is not
-     * here: it already runs with the other constraint types in the general content validation above. Only JSON values
-     * (starting with '{') are checked; base64 values are the legacy path and were never shape-checked.
+     * The ASN.1-type layer for values of DER-encoded extension mappings. The constraint layer is not here: it already
+     * runs with the other constraint types in the general content validation above. An OID whose module is registered
+     * holds its values to that type; one nobody has described takes DER as bytes, which nothing here can check.
      */
     private static List<ValidationError> validateJsonExtensionValues(
             Map<String, AttributeDefinition> definitionsMapping, List<RequestAttribute> requestAttributes) {
@@ -858,8 +927,8 @@ public class AttributeEngine {
     }
 
     /**
-     * Grammar and registry-shape layers for one definition's submitted values. Package-private so the layering can be
-     * driven directly in a unit test; the map-based caller above is what production goes through.
+     * The ASN.1-type layer for one definition's submitted values. Package-private so it can be driven directly in a
+     * unit test; the map-based caller above is what production goes through.
      */
     static List<ValidationError> validateJsonExtensionValues(DataAttributeV3 definition,
             RequestAttribute requestAttribute) {
@@ -874,40 +943,54 @@ public class AttributeEngine {
                 : definition.getName();
         for (Object item : content) {
             if (!(item instanceof AttributeContent attributeContent)
-                    || !(attributeContent.getData() instanceof String value) || !value.strip().startsWith("{")) {
+                    || !(attributeContent.getData() instanceof String value)) {
                 continue;
             }
-            checkJsonExtensionValue(value, extensionOids, label, errors);
+            checkExtensionValue(value, extensionOids, label, errors);
         }
         return errors;
     }
 
-    /** Checks one tree value: that the grammar accepts it, then that each mapped OID permits it. */
-    private static void checkJsonExtensionValue(String value, List<String> extensionOids, String label,
+    /**
+     * Checks one submitted value against each OID the definition maps. An OID whose ASN.1 module is registered holds
+     * its value to that type; an OID nobody has described takes DER as bytes, which the renderer decodes and nothing
+     * here can say more about.
+     */
+    private static void checkExtensionValue(String value, List<String> extensionOids, String label,
             List<ValidationError> errors) {
-        JsonNode tree;
+        JsonNode written;
         try {
-            tree = AsnJsonCodec.parse(value);
-            AsnJsonCodec.encode(tree);
+            written = JerCodec.tryParse(value).orElse(null);
         } catch (ValidationException e) {
             errors.add(ValidationError.create("Extension value of attribute {}: {}", label, e.getMessage()));
             return;
         }
+        if (written == null) {
+            return;
+        }
         for (String extensionOid : extensionOids) {
-            String structuredTarget = StructuredExtensionCodec.structuredTargetName(extensionOid);
-            if (structuredTarget != null) {
-                // Authoring a new opaque mapping for these OIDs is already refused; a legacy one must not gain
-                // a second, weaker way in. The typed target takes its values from a closed vocabulary, so it
-                // cannot express a malformed one - a hand-written tree can.
-                errors
-                        .add(ValidationError
-                                .create("Extension value of attribute {} cannot be a JSON tree: extension {} has the {} mapping target, which is the only way to set it",
-                                        label, extensionOid, structuredTarget));
-                continue;
-            }
-            for (String violation : ExtensionSchemas.validateShape(extensionOid, tree)) {
-                errors.add(ValidationError.create("Extension value of attribute {} {}", label, violation));
-            }
+            checkWrittenValue(written, extensionOid, label, errors);
+        }
+    }
+
+    /** One written value against one mapped OID; the first reason it cannot be accepted is the one reported. */
+    private static void checkWrittenValue(JsonNode written, String extensionOid, String label,
+            List<ValidationError> errors) {
+        String structuredTarget = StructuredExtensionCodec.structuredTargetName(extensionOid);
+        if (structuredTarget != null) {
+            // Authoring a new opaque mapping for these OIDs is already refused; a legacy one must not gain
+            // a second, weaker way in. The typed target takes its values from a closed vocabulary, so it
+            // cannot express a malformed one.
+            errors
+                    .add(ValidationError
+                            .create("Extension value of attribute {} cannot be written here: extension {} has the {} mapping target, which is the only way to set it",
+                                    label, extensionOid, structuredTarget));
+            return;
+        }
+        try {
+            ExtensionValues.encode(extensionOid, written);
+        } catch (ValidationException e) {
+            errors.add(ValidationError.create("Extension value of attribute {}: {}", label, e.getMessage()));
         }
     }
 
@@ -998,8 +1081,10 @@ public class AttributeEngine {
         if (dataAttribute instanceof DataAttributeV3 v3 && v3.getFieldMapping() != null) {
             // A fieldMapping declares projection intent; a malformed one is an authoring error whatever
             // operation the definition registers under (issuance definitions register with operation=null),
-            // so validity is intrinsic to the definition and not gated on the operation.
-            validateFieldMapping(v3, connectorUuid != null ? connectorUuid.toString() : null, codeToOidMap);
+            // so validity is intrinsic to the definition and not gated on the operation. An opaque mapping on a
+            // structured extension is refused only when authored; a stored or connector-declared one is tolerated
+            // here so definitions saved before the typed targets existed keep registering.
+            validateFieldMapping(v3, connectorUuid != null ? connectorUuid.toString() : null, codeToOidMap, false);
         }
 
         // find by connector uuid and name only because attribute uuid could be generated when data attribute was
@@ -1427,6 +1512,16 @@ public class AttributeEngine {
      * @param forbiddenDefinitionUuids definitions explicitly withheld, or {@code null} when none are
      */
     public record CustomAttributeContentFilter(List<UUID> allowedDefinitionUuids, List<UUID> forbiddenDefinitionUuids) {
+
+        /**
+         * Whether the caller may read content of this definition, as the content queries decide it: they match no
+         * {@code null} uuid, which is also the value an empty allow-list holds.
+         */
+        public boolean permits(UUID definitionUuid) {
+            return definitionUuid != null
+                    && (allowedDefinitionUuids == null || allowedDefinitionUuids.contains(definitionUuid))
+                    && (forbiddenDefinitionUuids == null || !forbiddenDefinitionUuids.contains(definitionUuid));
+        }
     }
 
     /**
@@ -1482,6 +1577,26 @@ public class AttributeEngine {
                         info.objectVersion());
         List<ObjectAttributeContent> objectContents = loadDataAttributesContent(info);
         return getRequestAttributes(objectContents);
+    }
+
+    /**
+     * Reads an operation's data attributes under whichever connector stored them. Each stored row keeps its owner, so
+     * content stays readable after the object that named the owner, such as a key, is gone.
+     */
+    public List<ResponseAttribute> getOperationDataAttributesContent(ObjectAttributeContentInfo info) {
+        return getResponseAttributes(loadOperationDataAttributesContent(info));
+    }
+
+    /** Same as {@link #getOperationDataAttributesContent}, as request attributes to submit again. */
+    public List<RequestAttribute> getRequestOperationDataAttributesContent(ObjectAttributeContentInfo info) {
+        return getRequestAttributes(loadOperationDataAttributesContent(info));
+    }
+
+    private List<ObjectAttributeContent> loadOperationDataAttributesContent(ObjectAttributeContentInfo info) {
+        Objects.requireNonNull(info.operation(), "An operation is required to read content of any connector.");
+        return attributeContent2ObjectRepository
+                .getObjectDataAttributesContentAnyConnector(AttributeType.DATA, info.operation(), info.purpose(),
+                        info.objectType(), info.objectUuid(), info.objectVersion());
     }
 
     public List<DataAttribute> getDataAttributesByContent(UUID connectorUuid, List<RequestAttribute> requestAttributes)
@@ -1965,7 +2080,7 @@ public class AttributeEngine {
     }
 
     private static void validateFieldMapping(DataAttributeV3 attribute, String connectorUuidStr,
-            Supplier<Map<String, String>> codeToOidMap) throws AttributeException {
+            Supplier<Map<String, String>> codeToOidMap, boolean rejectStructuredOpaque) throws AttributeException {
         if (attribute.getContentType() != AttributeContentType.STRING
                 && attribute.getContentType() != AttributeContentType.TEXT) {
             throw new AttributeException("fieldMapping is only valid for attributes with STRING or TEXT content type",
@@ -1981,7 +2096,7 @@ public class AttributeEngine {
                     attribute.getName(), attribute.getType(), connectorUuidStr);
         }
         for (MappedField field : fieldMapping.getFields()) {
-            validateMappedField(attribute, field, connectorUuidStr, codeToOidMap);
+            validateMappedField(attribute, field, connectorUuidStr, codeToOidMap, rejectStructuredOpaque);
         }
         rejectDuplicateExtensionOids(attribute, fieldMapping, connectorUuidStr);
     }
@@ -2013,7 +2128,7 @@ public class AttributeEngine {
     }
 
     private static void validateMappedField(DataAttributeV3 attribute, MappedField field, String connectorUuidStr,
-            Supplier<Map<String, String>> codeToOidMap) throws AttributeException {
+            Supplier<Map<String, String>> codeToOidMap, boolean rejectStructuredOpaque) throws AttributeException {
         if (field.getFieldType() == null) {
             throw new AttributeException("fieldMapping field is missing fieldType", attribute.getUuid(),
                     attribute.getName(), attribute.getType(), connectorUuidStr);
@@ -2037,7 +2152,8 @@ public class AttributeEngine {
                             attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
                 }
             }
-            case ExtensionMappedField ext -> validateExtensionMappedField(attribute, connectorUuidStr, ext);
+            case ExtensionMappedField ext ->
+                validateExtensionMappedField(attribute, connectorUuidStr, ext, rejectStructuredOpaque);
             default ->
                 throw new AttributeException("Unexpected MappedField subtype: " + field.getClass().getSimpleName(),
                         attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
@@ -2045,7 +2161,7 @@ public class AttributeEngine {
     }
 
     private static void validateExtensionMappedField(DataAttributeV3 attribute, String connectorUuidStr,
-            ExtensionMappedField ext) throws AttributeException {
+            ExtensionMappedField ext, boolean rejectStructuredOpaque) throws AttributeException {
         String extOid = ext.getExtensionOid();
         if (extOid == null || extOid.isBlank()) {
             throw new AttributeException("fieldMapping EXTENSION field is missing extensionOid", attribute.getUuid(),
@@ -2064,7 +2180,7 @@ public class AttributeEngine {
         // Once a structured target exists for an extension, the base64-DER route to it is closed for
         // authoring - the same treatment subjectAltName gets above.
         String structuredTarget = StructuredExtensionCodec.structuredTargetName(extOid);
-        if (structuredTarget != null) {
+        if (rejectStructuredOpaque && structuredTarget != null) {
             throw new AttributeException(
                     "fieldMapping EXTENSION OID '%s' has a structured mapping target; use the %s mapping target instead"
                             .formatted(extOid, structuredTarget),
@@ -2424,6 +2540,7 @@ public class AttributeEngine {
         // is safe
         attributeDefinitionRepository.removeConnectorByTypeAndConnectorUuid(AttributeType.META, connectorUuid);
         attributeContent2ObjectRepository.removeConnectorByConnectorUuid(connectorUuid);
+        attributeSearchFieldCatalogue.evictAll();
     }
 
     public void deleteAttributeDefinition(AttributeType attributeType, UUID definitionUuid) throws NotFoundException {
@@ -2711,6 +2828,29 @@ public class AttributeEngine {
         return encryptedData;
     }
 
+    /**
+     * Content is stored in its definition's version and read back as that version's classes, so an attribute sent in
+     * another version passes every content check and then fails on the first read. A client that leaves out
+     * {@code "version"} sends exactly that, since the wire format defaults it to v2.
+     */
+    private static List<ValidationError> validateVersionsMatch(Map<String, AttributeDefinition> definitionsMapping,
+            List<RequestAttribute> requestAttributes) {
+        List<ValidationError> errors = new ArrayList<>();
+        for (RequestAttribute attribute : requestAttributes) {
+            AttributeDefinition definition = definitionsMapping.get(attribute.getName());
+            if (definition == null || attribute.getVersion() == null
+                    || attribute.getVersion().getVersion() == definition.getVersion()) {
+                continue;
+            }
+            String expected = AttributeVersion.fromIntVersion(definition.getVersion()).getCode();
+            errors
+                    .add(ValidationError
+                            .create("Attribute {} is defined in version {} and must be sent with \"version\": \"{}\"",
+                                    attribute.getName(), expected, expected));
+        }
+        return errors;
+    }
+
     private List<ValidationError> validateAttributesContent(Map<String, AttributeDefinition> definitionsMapping,
             List<RequestAttribute> attributes) {
         List<ValidationError> errors = new ArrayList<>();
@@ -2930,6 +3070,7 @@ public class AttributeEngine {
         attributeRelationRepository.deleteByAttributeDefinitionUuid(definitionUuid);
         attributeContentItemRepository.deleteByAttributeDefinitionUuid(definitionUuid);
         logger.debug("Deleted {} attribute content items for attribute with UUID {}", deletedCount, definitionUuid);
+        attributeSearchFieldCatalogue.evictAll();
     }
 
     private void deleteObjectAttributeDefinitionContent(UUID definitionUuid, Resource objectType, UUID objectUuid) {

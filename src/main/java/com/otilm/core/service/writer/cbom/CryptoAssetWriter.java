@@ -9,6 +9,7 @@ import com.otilm.core.cbom.asset.CompositeCurve;
 import com.otilm.core.cbom.asset.CryptoAssetIdentityFields;
 import com.otilm.core.cbom.asset.JsonColumnText;
 import com.otilm.core.cbom.asset.identity.IdentityRuleset;
+import com.otilm.core.cbom.pqc.PqcDecision;
 import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.dao.CryptoAssetConstraintTranslator;
 import com.otilm.core.dao.repository.cbom.CryptoAssetAliasRepository;
@@ -124,17 +125,31 @@ public class CryptoAssetWriter {
     }
 
     /**
-     * Stores a PQC verdict with the rule that produced it, the rule-set generation, and the fields the rule read. The
-     * identity columns and the identity rule-set version are untouched: a verdict is not an identity.
+     * Stores a PQC verdict with the rule that produced it and the fields the rule read. The identity columns and the
+     * identity rule-set version are untouched: a verdict is not an identity.
      *
      * @param reason operator-facing text, which the caller must have shaped itself
      */
     @Transactional
-    public void applyPqcVerdict(UUID assetUuid, PqcVerdict verdict, String ruleId, String reason, int rulesetVersion,
+    public void applyPqcVerdict(UUID assetUuid, PqcVerdict verdict, String ruleId, String reason,
             Map<String, Object> evaluatedFields) {
         assetRepository
-                .applyPqcVerdict(assetUuid, verdict == null ? null : verdict.name(), ruleId, reason, rulesetVersion,
-                        JsonColumnText.render(evaluatedFields));
+                .applyPqcVerdict(assetUuid, verdict == null ? null : verdict.name(), ruleId, reason,
+                        JsonColumnText.render(evaluatedFields), null, null);
+    }
+
+    /**
+     * Stores a decision together with what a certificate's or protocol's references read, so the sweep can tell when a
+     * target has moved since.
+     *
+     * @param referenceBasis {@code PqcReferences#basis()} as read, or null
+     */
+    @Transactional
+    public void applyPqcVerdict(UUID assetUuid, PqcDecision decision, String referenceBasis) {
+        assetRepository
+                .applyPqcVerdict(assetUuid, decision.verdict().name(), decision.ruleId(), decision.reason(),
+                        JsonColumnText.render(decision.evaluatedFields()), decision.referencedAssetUuid(),
+                        referenceBasis);
     }
 
     /**

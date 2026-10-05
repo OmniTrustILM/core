@@ -1,6 +1,9 @@
 package com.otilm.core.service.handler.key;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.otilm.api.clients.mq.model.ConnectorResponse;
+import com.otilm.api.clients.mq.model.ProxyMessage;
+import com.otilm.api.clients.mq.v2.KeyApiClient;
 import com.otilm.api.exception.ConnectorCommunicationException;
 import com.otilm.api.exception.ConnectorEntityNotFoundException;
 import com.otilm.api.exception.ConnectorProblemException;
@@ -43,6 +46,7 @@ import com.otilm.api.model.connector.cryptography.v2.key.PublicKeyDataV2Dto;
 import com.otilm.api.model.connector.secrets.content.ApiKeySecretContent;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
+import com.otilm.api.model.core.proxy.ProxyDto;
 import com.otilm.api.model.core.secret.Passphrase;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.OutboundSecretContainment;
@@ -50,6 +54,11 @@ import com.otilm.core.attribute.engine.OutboundSecretLeakException;
 import com.otilm.core.client.CryptographyV2ApiClients;
 import com.otilm.core.dao.entity.KeyImportState;
 import com.otilm.core.key.normalization.NormalizedKey;
+import com.otilm.core.messaging.proxy.ConnectorAuthConverter;
+import com.otilm.core.messaging.proxy.CoreMessageProducer;
+import com.otilm.core.messaging.proxy.ProxyClientImpl;
+import com.otilm.core.messaging.proxy.ProxyMessageCorrelator;
+import com.otilm.core.messaging.proxy.ProxyProperties;
 import com.otilm.core.model.connector.ImmutableConnectorFullModel;
 import com.otilm.core.model.connector.ImmutableConnectorInterface;
 import com.otilm.core.model.crypto.ImmutableTokenInstanceFullModel;
@@ -58,21 +67,27 @@ import com.otilm.core.model.crypto.KeyImportAttempt;
 import com.otilm.core.model.crypto.KeyImportTerms;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.RemoteKeyReference;
+import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.OperationAttributeResolver;
 import jakarta.validation.Validation;
 import java.io.IOException;
 import java.security.KeyPairGenerator;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpStatus;
@@ -82,6 +97,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.groups.Tuple.tuple;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -92,6 +108,8 @@ import static org.mockito.Mockito.when;
 class KeyProviderV2AdapterImportTest {
 
     private static final char[] TRANSPORT_PASSPHRASE = "transport-passphrase-of-forty-three-chars-x".toCharArray();
+    private static final OperationResponseValidator RESPONSE_VALIDATOR = new OperationResponseValidator(
+            Validation.buildDefaultValidatorFactory().getValidator());
 
     private KeySyncApiClient client;
     private OperationAttributeResolver resolver;
@@ -106,18 +124,10 @@ class KeyProviderV2AdapterImportTest {
         connectorUuid = UUID.randomUUID();
         connector = new ImmutableConnectorFullModel(connectorUuid, "connector", ConnectorVersion.V2,
                 "http://connector.test", null, List.of(), ConnectorStatus.CONNECTED, null, List.of(), List.of());
-        CryptographyV2ApiClients apiClients = mock(CryptographyV2ApiClients.class);
-        AttributeEngine attributes = mock(AttributeEngine.class);
         resolver = mock(OperationAttributeResolver.class);
         client = mock(KeySyncApiClient.class);
-        when(apiClients.getKeyManagementApiClient(connector)).thenReturn(client);
-        CryptographicOperationsSyncApiClient operations = mock(CryptographicOperationsSyncApiClient.class);
-        when(apiClients.getCryptographicOperationsApiClient(connector)).thenReturn(operations);
-        when(attributes.getRequestObjectDataAttributesContent(any())).thenReturn(List.of());
         when(resolver.resolveForConnectorRequestAsSystem(connectorUuid, List.of())).thenReturn(List.of());
-        adapter = new KeyProviderV2Adapter(apiClients, connector, attributes, resolver,
-                new OutboundSecretContainment(new ObjectMapper()), new ConnectorCapabilityService(),
-                new OperationResponseValidator(Validation.buildDefaultValidatorFactory().getValidator()));
+        adapter = adapterFor(connector, client);
         KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
         generator.initialize(2048);
         publicKeySpki = generator.generateKeyPair().getPublic().getEncoded();
@@ -230,6 +240,51 @@ class KeyProviderV2AdapterImportTest {
         assertThatThrownBy(() -> adapter.importKey(terms, attempt, key, "key"))
                 .isInstanceOf(ConnectorServerException.class)
                 .hasMessage("The connector failed to import the key.");
+    }
+
+    @Test
+    void importKey_namesTheCodeOfARefusalAnsweredThroughTheProxy() throws Exception {
+        // given
+        KeyProviderV2Adapter adapterBehindProxy = adapterBehindProxy("application/problem+json", """
+                {"type":"https://docs.otilm.com/problems/connector/cryptography/KEY_TYPE_NOT_IMPORTABLE",
+                 "title":"Key type not importable","status":422,"detail":"The token does not import this key.",
+                 "errorCode":"KEY_TYPE_NOT_IMPORTABLE","timestamp":"2026-09-27T21:49:08.245Z","retryable":false}""");
+
+        KeyImportTerms terms = terms(List.of(FeatureFlag.KEY_IMPORT), false);
+        KeyImportAttempt attempt = attempt();
+        NormalizedKey key = normalizedKey();
+
+        // when
+        // then
+        assertThatThrownBy(() -> adapterBehindProxy.importKey(terms, attempt, key, "key"))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("The connector refused to import the key (KEY_TYPE_NOT_IMPORTABLE).");
+    }
+
+    /** A refusal without an error code does not say that nothing was imported. */
+    @ParameterizedTest
+    @MethodSource("refusalsWithoutACode")
+    void importKey_takesARefusalWithoutACodeAnsweredThroughTheProxyForAFailure(String contentType, String body)
+            throws Exception {
+        // given
+        KeyProviderV2Adapter adapterBehindProxy = adapterBehindProxy(contentType, body);
+
+        KeyImportTerms terms = terms(List.of(FeatureFlag.KEY_IMPORT), false);
+        KeyImportAttempt attempt = attempt();
+        NormalizedKey key = normalizedKey();
+
+        // when
+        // then
+        assertThatThrownBy(() -> adapterBehindProxy.importKey(terms, attempt, key, "key"))
+                .isInstanceOf(ConnectorServerException.class)
+                .hasMessage("The connector failed to import the key.");
+    }
+
+    static Stream<Arguments> refusalsWithoutACode() {
+        return Stream.of(Arguments.of("application/json", """
+                ["The key could not be imported."]"""), Arguments.of("application/problem+json", """
+                {"type":"about:blank","title":"Unprocessable key","status":422,
+                 "timestamp":"2026-09-27T21:49:08.245Z","retryable":false}"""));
     }
 
     @Test
@@ -680,6 +735,47 @@ class KeyProviderV2AdapterImportTest {
 
     // ---- fixtures ----
 
+    private KeyProviderV2Adapter adapterFor(ImmutableConnectorFullModel target, KeySyncApiClient keyClient) {
+        CryptographyV2ApiClients apiClients = mock(CryptographyV2ApiClients.class);
+        when(apiClients.getKeyManagementApiClient(target)).thenReturn(keyClient);
+        CryptographicOperationsSyncApiClient operations = mock(CryptographicOperationsSyncApiClient.class);
+        when(apiClients.getCryptographicOperationsApiClient(target)).thenReturn(operations);
+        AttributeEngine attributes = mock(AttributeEngine.class);
+        when(attributes.getRequestObjectDataAttributesContent(any())).thenReturn(List.of());
+        return new KeyProviderV2Adapter(apiClients, target, attributes, resolver,
+                new OutboundSecretContainment(new ObjectMapper()), new ConnectorCapabilityService(),
+                RESPONSE_VALIDATOR);
+    }
+
+    /**
+     * An adapter reaching the connector through the MQ proxy, whose reply forwards the connector's 422 answer. Only the
+     * broker is left out: the MQ key client and the proxy client are the real ones.
+     */
+    private KeyProviderV2Adapter adapterBehindProxy(String contentType, String body) throws IOException {
+        ProxyDto proxy = new ProxyDto();
+        proxy.setCode("proxy-1");
+        ImmutableConnectorFullModel connectorBehindProxy = new ImmutableConnectorFullModel(connectorUuid,
+                connector.name(), ConnectorVersion.V2, connector.url(), null, List.of(), ConnectorStatus.CONNECTED,
+                proxy, List.of(), List.of());
+        ObjectMapper wire = ObjectMapperFactory.wire();
+        ConnectorResponse answer = ConnectorResponse
+                .builder()
+                .statusCode(422)
+                .headers(Map.of("Content-Type", contentType))
+                .body(wire.readValue(body, Object.class))
+                .error("HTTP 422")
+                .errorCategory("unknown")
+                .build();
+        ProxyMessageCorrelator correlator = mock(ProxyMessageCorrelator.class);
+        when(correlator.registerRequest(anyString(), any(Duration.class)))
+                .thenReturn(
+                        CompletableFuture.completedFuture(ProxyMessage.builder().connectorResponse(answer).build()));
+        ProxyClientImpl proxyClient = new ProxyClientImpl(mock(CoreMessageProducer.class), correlator,
+                new ConnectorAuthConverter(), wire,
+                new ProxyProperties("exchange", "queue", "instance", Duration.ofSeconds(30), 1, null));
+        return adapterFor(connectorBehindProxy, new KeyApiClient(proxyClient, RESPONSE_VALIDATOR));
+    }
+
     private KeyImportTerms terms(List<FeatureFlag> features, boolean exportable) {
         return new KeyImportTerms(profile(features), KeyRequestType.KEY_PAIR, KeyAlgorithm.RSA, "fingerprint",
                 exportable, List.of(), new NameAndUuidDto(UUID.randomUUID().toString(), "requester"));
@@ -701,7 +797,8 @@ class KeyProviderV2AdapterImportTest {
     }
 
     private NormalizedKey normalizedKey() {
-        return new NormalizedKey(KeyAlgorithm.RSA, publicKeySpki, envelope, new Passphrase(TRANSPORT_PASSPHRASE));
+        return new NormalizedKey(KeyRequestType.KEY_PAIR, KeyAlgorithm.RSA, 2048, publicKeySpki, envelope,
+                new Passphrase(TRANSPORT_PASSPHRASE));
     }
 
     /** A resolved attribute carrying a secret, as a token or profile credential reaches the adapter. */

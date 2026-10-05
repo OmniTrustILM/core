@@ -1,6 +1,7 @@
 package com.otilm.core.key.normalization;
 
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.core.util.KeySizeUtil;
 import java.io.IOException;
 import java.security.GeneralSecurityException;
 import java.security.KeyFactory;
@@ -11,6 +12,7 @@ import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.RSAPublicKeySpec;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import org.bouncycastle.asn1.ASN1Encoding;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
@@ -57,29 +59,43 @@ record DerivedPublicKey(KeyAlgorithm algorithm, PublicKey publicKey) {
                             BouncyCastlePQCProvider.PROVIDER_NAME));
 
     /**
-     * The algorithm and public key of a private key.
+     * The algorithm and public key of a private key. A key of a platform algorithm that no reader accepts is damaged,
+     * and refused as unreadable.
      *
      * @param privateKeyInfo the private key
-     * @return its algorithm and public key
+     * @return its algorithm and public key, or nothing when its algorithm is not one the platform holds, as for an
+     * elliptic-curve key stating a curve larger than any the platform holds by name
      */
-    static DerivedPublicKey of(PrivateKeyInfo privateKeyInfo) {
+    static Optional<DerivedPublicKey> of(PrivateKeyInfo privateKeyInfo) {
         KeyFileReader.withinDepth(privateKeyInfo.getPrivateKey().getOctets());
+        if (ExplicitCurve.largerThanAnyNamed(privateKeyInfo.getPrivateKeyAlgorithm())) {
+            return Optional.empty();
+        }
         byte[] encoded = encoded(privateKeyInfo);
         try {
             PKCS8EncodedKeySpec specification = new PKCS8EncodedKeySpec(encoded);
             for (Reader reader : READERS) {
                 PrivateKey privateKey = reader.read(specification);
                 if (privateKey != null) {
-                    return new DerivedPublicKey(reader.algorithm(), publicKeyOf(privateKey));
+                    return Optional.of(new DerivedPublicKey(reader.algorithm(), publicKeyOf(privateKey)));
                 }
             }
         } finally {
             Arrays.fill(encoded, (byte) 0);
         }
-        ASN1ObjectIdentifier algorithm = privateKeyInfo.getPrivateKeyAlgorithm().getAlgorithm();
-        throw platformAlgorithm(algorithm)
-                ? KeyFileRefusal.unreadableKey()
-                : KeyFileRefusal.unsupportedAlgorithm(algorithm.getId());
+        if (platformAlgorithm(privateKeyInfo.getPrivateKeyAlgorithm().getAlgorithm())) {
+            throw KeyFileRefusal.unreadableKey();
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * The key's length in bits, as the platform states the length of a key it holds.
+     *
+     * @return the length, or 0 when the platform cannot tell it for the algorithm
+     */
+    int length() {
+        return Math.max(KeySizeUtil.getKeyLength(publicKey), 0);
     }
 
     /**

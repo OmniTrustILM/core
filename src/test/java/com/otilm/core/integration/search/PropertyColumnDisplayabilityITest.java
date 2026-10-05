@@ -5,14 +5,14 @@ import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.SearchHelper;
+import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.api.function.Executable;
 
 /**
  * The property columns each configurable-column listing offers, written out as a literal and asserted to match the
@@ -30,10 +30,11 @@ import org.junit.jupiter.params.provider.EnumSource;
  */
 class PropertyColumnDisplayabilityITest extends BaseSpringBootTest {
 
-    private static final Map<Resource, Set<FilterField>> OFFERED_COLUMNS = new EnumMap<>(Resource.class);
-
-    static {
-        OFFERED_COLUMNS
+    // Keep these values inside a test method. A static initializer or @EnumSource can load FilterField before Spring
+    // populates the JPA metamodel its constants read.
+    private static Map<Resource, Set<FilterField>> offeredColumns() {
+        Map<Resource, Set<FilterField>> offeredColumns = new EnumMap<>(Resource.class);
+        offeredColumns
                 .put(Resource.CERTIFICATE,
                         EnumSet
                                 .of(FilterField.COMMON_NAME, FilterField.SERIAL_NUMBER, FilterField.RA_PROFILE_NAME,
@@ -47,14 +48,14 @@ class PropertyColumnDisplayabilityITest extends BaseSpringBootTest {
                                         FilterField.ISSUERDN, FilterField.ISSUER_SERIAL_NUMBER, FilterField.PRIVATE_KEY,
                                         FilterField.TRUSTED_CA, FilterField.HYBRID_CERTIFICATE, FilterField.ARCHIVED));
 
-        OFFERED_COLUMNS
+        offeredColumns
                 .put(Resource.CRYPTOGRAPHIC_KEY, EnumSet
                         .of(FilterField.CKI_NAME, FilterField.CKI_TYPE, FilterField.CKI_FORMAT, FilterField.CKI_STATE,
                                 FilterField.CKI_CRYPTOGRAPHIC_ALGORITHM, FilterField.CKI_USAGE, FilterField.CKI_LENGTH,
                                 FilterField.CKI_ENABLED, FilterField.CKI_CREATED, FilterField.CK_TOKEN_PROFILE,
                                 FilterField.CK_TOKEN_INSTANCE, FilterField.CK_GROUP, FilterField.CK_OWNER));
 
-        OFFERED_COLUMNS
+        offeredColumns
                 .put(Resource.DISCOVERY,
                         EnumSet
                                 .of(FilterField.DISCOVERY_NAME, FilterField.DISCOVERY_START_TIME,
@@ -62,19 +63,19 @@ class PropertyColumnDisplayabilityITest extends BaseSpringBootTest {
                                         FilterField.DISCOVERY_TOTAL_CERT_DISCOVERED,
                                         FilterField.DISCOVERY_CONNECTOR_NAME, FilterField.DISCOVERY_KIND));
 
-        OFFERED_COLUMNS
+        offeredColumns
                 .put(Resource.CONNECTOR, EnumSet
                         .of(FilterField.CONNECTOR_NAME, FilterField.CONNECTOR_VERSION, FilterField.CONNECTOR_URL,
                                 FilterField.CONNECTOR_STATUS, FilterField.CONNECTOR_INTERFACE,
                                 FilterField.CONNECTOR_FEATURES, FilterField.CONNECTOR_FUNCTION_GROUP));
 
-        OFFERED_COLUMNS
+        offeredColumns
                 .put(Resource.SECRET, EnumSet
                         .of(FilterField.SECRET_NAME, FilterField.SECRET_TYPE, FilterField.SECRET_STATE,
                                 FilterField.SECRET_ENABLED, FilterField.SECRET_GROUP_NAME, FilterField.SECRET_OWNER,
                                 FilterField.SECRET_COMPLIANCE_STATUS, FilterField.SECRET_SOURCE_VAULT_PROFILE));
 
-        OFFERED_COLUMNS
+        offeredColumns
                 .put(Resource.CBOM,
                         EnumSet
                                 .of(FilterField.CBOM_SERIAL_NUMBER, FilterField.CBOM_VERSION,
@@ -84,25 +85,33 @@ class PropertyColumnDisplayabilityITest extends BaseSpringBootTest {
                                         FilterField.CBOM_TOTAL_ASSETS_COUNT, FilterField.CBOM_ASSET_SYNC_STATE,
                                         FilterField.CBOM_ASSETS_SYNCED_AT, FilterField.CBOM_ASSET_SYNC_ERROR));
 
-        OFFERED_COLUMNS
+        offeredColumns
                 .put(Resource.SIGNING_RECORD, EnumSet
                         .of(FilterField.SIGNING_RECORD_NAME, FilterField.SIGNING_RECORD_SIGNING_PROFILE,
                                 FilterField.SIGNING_RECORD_PROTOCOL, FilterField.SIGNING_RECORD_SIGNING_PROFILE_VERSION,
                                 FilterField.SIGNING_RECORD_SIGNING_TIME, FilterField.SIGNING_RECORD_CREATED));
+
+        offeredColumns
+                .put(Resource.CRYPTO_ASSET,
+                        EnumSet
+                                .of(FilterField.CBOM_ASSET_NAME, FilterField.CBOM_ASSET_TYPE,
+                                        FilterField.CBOM_ASSET_PQC_VERDICT, FilterField.CBOM_ASSET_SOURCE_COUNT));
+        return offeredColumns;
     }
 
     /**
      * A listing outside the map offers no columns at all: it returns a DTO the projector cannot fill, so every field of
      * it reports false, and a resource missing from the map yields the empty set that says so.
      */
-    @ParameterizedTest
-    @EnumSource(FilterField.class)
-    void thePublishedColumnsAreExactlyTheDecidedOnes(FilterField filterField) {
-        Set<FilterField> offered = OFFERED_COLUMNS.getOrDefault(filterField.getRootResource(), Set.of());
-
-        Assertions
-                .assertEquals(offered.contains(filterField), SearchHelper.isDisplayable(filterField),
-                        filterField.name());
+    @Test
+    void thePublishedColumnsAreExactlyTheDecidedOnes() {
+        Map<Resource, Set<FilterField>> offeredColumns = offeredColumns();
+        Assertions.assertAll(Arrays.stream(FilterField.values()).map(filterField -> (Executable) () -> {
+            Set<FilterField> offered = offeredColumns.getOrDefault(filterField.getRootResource(), Set.of());
+            Assertions
+                    .assertEquals(offered.contains(filterField), SearchHelper.isDisplayable(filterField),
+                            filterField.name());
+        }));
     }
 
     /**
@@ -118,6 +127,12 @@ class PropertyColumnDisplayabilityITest extends BaseSpringBootTest {
         Assertions.assertEquals(false, field.getDisplayable());
         Assertions.assertEquals(false, field.getSortable());
         Assertions.assertFalse(SearchHelper.isOrderableOnListing(FilterField.CERTIFICATE_PROTOCOL));
+    }
+
+    @Test
+    void derivedCbomContributionFieldIsAbsentFromOfferedColumns() {
+        Assertions.assertFalse(SearchHelper.isDisplayable(FilterField.CBOM_HAS_CONTRIBUTED_ASSETS));
+        Assertions.assertFalse(SearchHelper.isSortableField(FilterField.CBOM_HAS_CONTRIBUTED_ASSETS));
     }
 
     /**

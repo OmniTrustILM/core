@@ -8,37 +8,53 @@ import com.otilm.api.model.client.dashboard.CryptographicAssetStatisticsDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.cbom.CbomContributedAssetDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetDetailDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetEvidenceDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetNormalizedFieldsDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetOidDto;
+import com.otilm.api.model.core.cryptoasset.CryptographicAssetPqcExplanationDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetSourceDto;
+import com.otilm.api.model.core.cryptoasset.CryptographicAssetType;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetVerdictDto;
+import com.otilm.api.model.core.cryptoasset.PqcExplanationStepDto;
+import com.otilm.api.model.core.cryptoasset.PqcReferencedAssetDto;
 import com.otilm.api.model.core.cryptoasset.PqcVerdict;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
+import com.otilm.api.model.core.search.SortDirection;
+import com.otilm.core.attribute.engine.AttributeColumnProjector;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
+import com.otilm.core.attribute.engine.ListingSortResolver;
 import com.otilm.core.cbom.asset.CompositeCurve;
 import com.otilm.core.cbom.asset.ServedAssetType;
+import com.otilm.core.cbom.pqc.PqcExplanation;
+import com.otilm.core.cbom.pqc.PqcRules;
+import com.otilm.core.cbom.pqc.PqcVerdictExplainer;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.dao.entity.Cbom;
 import com.otilm.core.dao.entity.Cbom_;
+import com.otilm.core.dao.entity.UniquelyIdentifiedAndAudited_;
 import com.otilm.core.dao.entity.UniquelyIdentified_;
 import com.otilm.core.dao.entity.cbom.CryptoAsset;
 import com.otilm.core.dao.entity.cbom.CryptoAssetSource;
 import com.otilm.core.dao.entity.cbom.CryptoAssetSource_;
 import com.otilm.core.dao.entity.cbom.CryptoAsset_;
 import com.otilm.core.dao.repository.CbomRepository;
+import com.otilm.core.dao.repository.SortSpecification;
 import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetSourceRepository;
 import com.otilm.core.enums.FilterField;
+import com.otilm.core.mapper.workflows.PaginationResponseMapper;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.model.cbom.CryptoAssetCounts;
 import com.otilm.core.model.cbom.CryptoAssetIdentityGuard;
 import com.otilm.core.model.cbom.CryptoAssetListRow;
+import com.otilm.core.model.cbom.CryptoAssetSourceBomRefsRow;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.ObjectFilterAspect;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -46,27 +62,34 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.security.authz.SecurityResourceFilter;
 import com.otilm.core.service.CryptographicAssetExternalService;
 import com.otilm.core.service.ResourceExtensionService;
+import com.otilm.core.util.CbomAssetSourcePredicates;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import com.otilm.core.util.RequestValidatorHelper;
 import com.otilm.core.util.SearchHelper;
+import com.otilm.core.util.SortOrderBuilder;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.Order;
+import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -109,6 +132,27 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
 
     private AttributeEngine attributeEngine;
 
+    private PqcVerdictExplainer verdictExplainer;
+
+    @Autowired
+    public void setVerdictExplainer(PqcVerdictExplainer verdictExplainer) {
+        this.verdictExplainer = verdictExplainer;
+    }
+
+    private ListingSortResolver listingSortResolver;
+
+    private AttributeColumnProjector attributeColumnProjector;
+
+    @Autowired
+    public void setListingSortResolver(ListingSortResolver listingSortResolver) {
+        this.listingSortResolver = listingSortResolver;
+    }
+
+    @Autowired
+    public void setAttributeColumnProjector(AttributeColumnProjector attributeColumnProjector) {
+        this.attributeColumnProjector = attributeColumnProjector;
+    }
+
     @Autowired
     public void setAttributeEngine(AttributeEngine attributeEngine) {
         this.attributeEngine = attributeEngine;
@@ -138,30 +182,108 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
     @ExternalAuthorization(resource = Resource.CRYPTO_ASSET, action = ResourceAction.LIST)
     public PaginationResponseDto<CryptographicAssetDto> listCryptographicAssets(SecurityFilter filter,
             SearchRequestDto request) {
-        RequestValidatorHelper.revalidateSearchRequestDto(request);
+        return findInventoryPage(filter, request, null,
+                uuids -> loadRows(uuids).stream().map(CryptographicAssetServiceImpl::toDto).toList());
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.CRYPTO_ASSET, action = ResourceAction.LIST)
+    public PaginationResponseDto<CbomContributedAssetDto> listCbomContributedAssets(UUID cbomUuid,
+            SearchRequestDto request, SecurityFilter filter) {
+        return findInventoryPage(filter, request, (root, cb, query) -> contributedBy(cbomUuid, root, cb, query),
+                uuids -> loadContributedRows(cbomUuid, uuids));
+    }
+
+    /**
+     * The one query pipeline behind every listing in the inventory's shape, so they validate, filter, order, count and
+     * project alike and a client pages them the same way. {@code scope} narrows the inventory before the request's
+     * filters apply, or is {@code null} for the whole inventory; it must keep the plain count below correct, as an
+     * EXISTS does and a join would not. {@code rowsOf} serves the page's uuids as the operation's rows, in page order.
+     */
+    private <T extends CryptographicAssetDto> PaginationResponseDto<T> findInventoryPage(SecurityFilter filter,
+            SearchRequestDto request,
+            TriFunction<Root<CryptoAsset>, CriteriaBuilder, CriteriaQuery<?>, Predicate> scope,
+            Function<List<UUID>, List<T>> rowsOf) {
+        RequestValidatorHelper.revalidateSearchRequestDto(request, Resource.CRYPTO_ASSET);
         validatePaging(request);
         final Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
-        TriFunction<Root<CryptoAsset>, CriteriaBuilder, CriteriaQuery<?>, Predicate> where = (root, cb,
-                criteriaQuery) -> FilterPredicatesBuilder
-                        .getFiltersPredicate(cb, criteriaQuery, root, request.getFilters(), contentFilter);
+        TriFunction<Root<CryptoAsset>, CriteriaBuilder, CriteriaQuery<?>, Predicate> where = (root, cb, query) -> {
+            Predicate filters = FilterPredicatesBuilder
+                    .getFiltersPredicate(cb, query, root, request.getFilters(), contentFilter);
+            return scope == null ? filters : cb.and(scope.apply(root, cb, query), filters);
+        };
         Pageable page = PageRequest.of(request.getPageNumber() - 1, request.getItemsPerPage());
-        // The contract's "ordered by name ascending" means the SERVED name -- displayLabel's guarded coalesce --
-        // not the bare column, which would sort every oid-served row after the named ones (NULL sorts last).
-        // Only this term is spelled here: the repository appends the ascending-uuid tiebreak to every paged
-        // secured query (SortOrderBuilder), which keeps page boundaries deterministic inside equal labels.
-        List<UUID> pageUuids = cryptoAssetRepository
-                .findUuidsUsingSecurityFilter(filter, where, page, (root, cb) -> cb.asc(displayLabel(root, cb)));
+        SortSpecification sort = listingSortResolver.resolve(Resource.CRYPTO_ASSET, request.getSort(), contentFilter);
+        // A column whose cell serves a derived value is ordered by that value rather than resolved by the repository
+        // to its bare column, which would split rows that read the same. The repository still appends the uuid
+        // tiebreak (SortOrderBuilder) that keeps page boundaries deterministic.
+        SortKey servedKey = servedSortKey(sort);
+        List<UUID> pageUuids = servedKey == null
+                ? cryptoAssetRepository
+                        .findUuidsUsingSecurityFilter(filter, where, page,
+                                ordered(CryptographicAssetServiceImpl::displayLabel, SortDirection.ASC), sort)
+                : cryptoAssetRepository
+                        .findUuidsUsingSecurityFilter(filter, where, page, ordered(servedKey, sort.direction()), null);
         // The plain-count variant: every crypto-asset predicate is either single-column or an EXISTS subquery and
         // the resource declares no groups or owner, so no query shape can duplicate a root row -- and
         // count(DISTINCT) forfeits parallel aggregation, which at millions of rows is seconds per page request.
         long totalItems = cryptoAssetRepository.countRowsUsingSecurityFilter(filter, where);
-        PaginationResponseDto<CryptographicAssetDto> response = new PaginationResponseDto<>();
-        response.setItems(loadPage(pageUuids));
-        response.setItemsPerPage(request.getItemsPerPage());
-        response.setPageNumber(request.getPageNumber());
-        response.setTotalItems(totalItems);
-        response.setTotalPages((int) Math.ceil((double) totalItems / request.getItemsPerPage()));
-        return response;
+        List<T> items = rowsOf.apply(pageUuids);
+        attributeColumnProjector
+                .project(Resource.CRYPTO_ASSET, request.getColumns(), items, CryptographicAssetDto::getUuid,
+                        contentFilter);
+        return PaginationResponseMapper.toDto(items, request.getPageNumber(), request.getItemsPerPage(), totalItems);
+    }
+
+    /**
+     * {@link #contributesToAsset} read from the asset side: the source row linking this asset to the given CBOM. An
+     * EXISTS rather than a join, for the reason {@code FilterField.CBOM_ASSET_SOURCE_CBOM} gives -- the uuid page query
+     * has no DISTINCT, and the plain count depends on nothing duplicating a root row. Keyed on the CBOM's uuid, not its
+     * serial number, so the page is one version's contribution.
+     */
+    private static Predicate contributedBy(UUID cbomUuid, Root<CryptoAsset> root, CriteriaBuilder cb,
+            CriteriaQuery<?> query) {
+        Subquery<Integer> contributed = query.subquery(Integer.class);
+        Root<CryptoAssetSource> source = contributed.from(CryptoAssetSource.class);
+        contributed
+                .select(cb.literal(1))
+                .where(cb.equal(source.get(CryptoAssetSource_.assetUuid), root.get(UniquelyIdentifiedAndAudited_.uuid)),
+                        cb.equal(source.get(CryptoAssetSource_.cbomUuid), cbomUuid));
+        return cb.exists(contributed);
+    }
+
+    private List<CbomContributedAssetDto> loadContributedRows(UUID cbomUuid, List<UUID> pageUuids) {
+        Map<UUID, List<String>> bomRefsByAsset = bomRefsByAsset(cbomUuid, pageUuids);
+        return contributedRows(loadRows(pageUuids), bomRefsByAsset);
+    }
+
+    /**
+     * Joins the page's rows to this CBOM's refs, leaving out a row the refs did not come back for: this CBOM's source
+     * row for it was withdrawn after the page was read -- a newer version superseded the CBOM, or it was deleted -- so
+     * the asset is no longer its contribution. Every source row carries its refs, empty or not, so a missing entry
+     * means a missing source row, never an asset without refs. The page's {@code totalItems} was counted earlier, so it
+     * can still include a row left out here.
+     */
+    static List<CbomContributedAssetDto> contributedRows(List<CryptoAssetListRow> rows,
+            Map<UUID, List<String>> bomRefsByAsset) {
+        return rows
+                .stream()
+                .filter(row -> bomRefsByAsset.containsKey(row.uuid()))
+                .map(row -> toContributedDto(row, bomRefsByAsset.get(row.uuid())))
+                .toList();
+    }
+
+    private Map<UUID, List<String>> bomRefsByAsset(UUID cbomUuid, List<UUID> assetUuids) {
+        if (assetUuids.isEmpty()) {
+            return Map.of();
+        }
+        return cryptoAssetSourceRepository
+                .findBomRefsByCbomUuidAndAssetUuids(cbomUuid, assetUuids)
+                .stream()
+                // One row per asset while uq_crypto_asset_source stands; a second would otherwise fail the whole page.
+                .collect(Collectors
+                        .toMap(CryptoAssetSourceBomRefsRow::assetUuid, CryptoAssetSourceBomRefsRow::bomRefs,
+                                (first, second) -> first));
     }
 
     @Override
@@ -171,18 +293,143 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
                 .findByUuid(uuid)
                 .orElseThrow(() -> new NotFoundException(CryptoAsset.class, uuid));
         List<CryptoAssetSource> sources = cryptoAssetSourceRepository.findWithCbomByAssetUuid(asset.getUuid());
-        CryptographicAssetDetailDto detail = toDetailDto(asset, sources, visibleCbomUuids(asset.getUuid()));
+        Set<UUID> visibleCbomUuids = visibleCbomUuids(asset.getUuid());
+        CryptographicAssetDetailDto detail = toDetailDto(asset, sources, visibleCbomUuids);
         detail
                 .setCustomAttributes(
                         attributeEngine.getObjectCustomAttributesContent(Resource.CRYPTO_ASSET, asset.getUuid()));
+        if (detail.getVerdict() != null) {
+            detail.getVerdict().setReferencedAsset(referencedAsset(asset.getPqcReferencedAssetUuid()));
+            if (!storedEvidenceVisible(asset, sources, visibleCbomUuids)) {
+                detail.getVerdict().setEvaluatedFields(withoutDocumentFields(detail.getVerdict().getEvaluatedFields()));
+            }
+        }
         return detail;
+    }
+
+    /**
+     * The asset a verdict was carried over from, as the caller may see it: its name and type only when the row still
+     * exists and the caller's own crypto-asset detail access admits it. Resource-level access is already proven by the
+     * caller reaching this far, so only the object-level half can differ.
+     */
+    private PqcReferencedAssetDto referencedAsset(UUID referencedUuid) {
+        if (referencedUuid == null) {
+            return null;
+        }
+        PqcReferencedAssetDto dto = new PqcReferencedAssetDto();
+        dto.setUuid(referencedUuid);
+        Optional<CryptoAsset> target = cryptoAssetRepository.findById(referencedUuid);
+        if (target.isPresent() && detailVisible(referencedUuid)) {
+            dto.setVisible(true);
+            dto.setName(servedName(target.get().getName(), target.get().getOid(), target.get().getIdentityGuard()));
+            dto.setType(ServedAssetType.of(target.get().getAssetType()));
+        }
+        return dto;
+    }
+
+    private boolean detailVisible(UUID assetUuid) {
+        SecurityFilter filter = SecurityFilter.create();
+        objectFilterAspect.populateSecurityFilter(Resource.CRYPTO_ASSET, ResourceAction.DETAIL, null, null, filter);
+        return !cryptoAssetRepository
+                .findUuidsUsingSecurityFilter(filter, (root, cb, query) -> cb.equal(root.get("uuid"), assetUuid), null,
+                        null)
+                .isEmpty();
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.CRYPTO_ASSET, action = ResourceAction.DETAIL)
+    public CryptographicAssetPqcExplanationDto getCryptographicAssetPqcExplanation(SecuredUUID uuid)
+            throws NotFoundException {
+        CryptoAsset asset = cryptoAssetRepository
+                .findByUuid(uuid)
+                .orElseThrow(() -> new NotFoundException(CryptoAsset.class, uuid));
+        PqcVerdictExplainer.Result result = verdictExplainer
+                .explain(asset.getUuid())
+                .orElseThrow(() -> new NotFoundException(CryptoAsset.class, uuid));
+        List<CryptoAssetSource> sources = cryptoAssetSourceRepository.findWithCbomByAssetUuid(asset.getUuid());
+        return toExplanationDto(asset, result,
+                electingDocumentVisible(asset, sources, visibleCbomUuids(asset.getUuid())));
+    }
+
+    /**
+     * Whether the stored verdict's document values may be served: they were copied from the source elected when the
+     * verdict was taken, which is the current one only while the row is still at the revision the verdict evaluated --
+     * a re-election advances it. A stale verdict may carry a withdrawn or hidden source's values under a visible
+     * successor, so it is served without them until the sweep restamps it.
+     */
+    private static boolean storedEvidenceVisible(CryptoAsset asset, List<CryptoAssetSource> sources,
+            Set<UUID> visibleCbomUuids) {
+        return Objects.equals(asset.getPqcEvaluatedRevision(), asset.getInputRevision())
+                && electingDocumentVisible(asset, sources, visibleCbomUuids);
+    }
+
+    /**
+     * Strips the values the electing document supplied verbatim, for a caller who may not read that document: the same
+     * rule that withholds the elected payload, applied to the evidence copied out of it.
+     */
+    private static Map<String, Object> withoutDocumentFields(Map<String, Object> fields) {
+        if (fields == null) {
+            return null;
+        }
+        Map<String, Object> kept = new LinkedHashMap<>(fields);
+        kept.keySet().removeAll(PqcRules.DOCUMENT_FIELDS);
+        return kept;
+    }
+
+    private CryptographicAssetPqcExplanationDto toExplanationDto(CryptoAsset asset, PqcVerdictExplainer.Result result,
+            boolean documentVisible) {
+        PqcExplanation explanation = result.explanation();
+        CryptographicAssetPqcExplanationDto dto = new CryptographicAssetPqcExplanationDto();
+        dto.setUuid(asset.getUuid());
+        dto.setVerdict(explanation.decision().verdict());
+        dto.setRuleId(explanation.decision().ruleId());
+        dto.setReason(explanation.decision().reason());
+        dto.setInputs(documentVisible ? result.inputs() : withoutDocumentFields(result.inputs()));
+        dto.setSteps(explanation.steps().stream().map(step -> toStepDto(step, documentVisible)).toList());
+        boolean evaluated = asset.getPqcEvaluatedAt() != null;
+        if (evaluated) {
+            dto.setStoredVerdict(asset.getPqcVerdict());
+            dto.setStoredRuleId(asset.getPqcRuleId());
+            dto.setStoredEvaluatedAt(asset.getPqcEvaluatedAt());
+        }
+        dto
+                .setMatchesStored(evaluated && asset.getPqcVerdict() == explanation.decision().verdict()
+                        && Objects.equals(asset.getPqcRuleId(), explanation.decision().ruleId())
+                        && storedVerdictIsCurrent(asset, result.referenceBasis()));
+        dto.setExplainedAt(OffsetDateTime.now());
+        return dto;
+    }
+
+    /**
+     * The sweep's own definition of fresh, so {@code matchesStored} cannot say true for a row the sweep is about to
+     * restamp: the stored verdict was taken at the row's current revision, and from the reference verdicts the
+     * explanation just read. Agreeing on the verdict alone would hide both.
+     */
+    private static boolean storedVerdictIsCurrent(CryptoAsset asset, String referenceBasis) {
+        return Objects.equals(asset.getPqcEvaluatedRevision(), asset.getInputRevision())
+                && Objects.equals(asset.getPqcReferenceBasis(), referenceBasis);
+    }
+
+    private PqcExplanationStepDto toStepDto(PqcExplanation.Step step, boolean documentVisible) {
+        PqcExplanationStepDto dto = new PqcExplanationStepDto();
+        dto.setRuleId(step.ruleId());
+        dto.setTitle(step.title());
+        dto.setOutcome(step.outcome());
+        dto.setVerdict(step.verdict());
+        dto.setMessage(step.message());
+        dto
+                .setEvaluatedFields(
+                        documentVisible ? step.evaluatedFields() : withoutDocumentFields(step.evaluatedFields()));
+        dto.setReferencedAsset(referencedAsset(step.referencedAssetUuid()));
+        return dto;
     }
 
     /**
      * The CBOM documents whose content the caller may read, scoped by the caller's own {@code cboms:list} object access
      * -- serial numbers and payloads belong to the CBOM resource, the same rule
      * {@link #cbomSerialNumbersScopedToCaller} applies to the source-CBOM value list. Narrowed to the documents that
-     * actually contribute to this asset, mirroring {@link #hasContributedAssets}, so the EXISTS subquery stays cheap.
+     * actually contribute to this asset, mirroring {@link CbomAssetSourcePredicates#hasContributedAssets}, so the
+     * EXISTS subquery stays cheap.
      */
     private Set<UUID> visibleCbomUuids(UUID assetUuid) {
         SecurityFilter cbomFilter = SecurityFilter.create();
@@ -196,7 +443,8 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
     }
 
     /**
-     * {@link #hasContributedAssets}, narrowed to one asset: the EXISTS subquery a per-detail visibility scope needs.
+     * {@link CbomAssetSourcePredicates#hasContributedAssets}, narrowed to one asset: the EXISTS subquery a per-detail
+     * visibility scope needs.
      */
     private static TriFunction<Root<Cbom>, CriteriaBuilder, CriteriaQuery<?>, Predicate> contributesToAsset(
             UUID assetUuid) {
@@ -246,7 +494,6 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
                                 .prepareSearch(FilterField.CBOM_ASSET_VARIANT,
                                         cryptoAssetRepository.findDistinctVariant()),
                         SearchHelper.prepareSearch(FilterField.CBOM_ASSET_PQC_VERDICT),
-                        SearchHelper.prepareSearch(FilterField.CBOM_ASSET_PQC_RULESET_VERSION),
                         SearchHelper.prepareSearch(FilterField.CBOM_ASSET_RULESET_VERSION),
                         SearchHelper.prepareSearch(FilterField.CBOM_ASSET_SOURCE_COUNT), SearchHelper
                                 .prepareSearch(FilterField.CBOM_ASSET_SOURCE_CBOM, cbomSerialNumbersScopedToCaller()));
@@ -282,7 +529,7 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
                             .countGroupedUsingSecurityFilter(filter, null, CryptoAsset_.algorithmFamily, null, null));
             Future<Long> sourceCbomCount = executor
                     .submit(() -> cbomRepository
-                            .countUsingSecurityFilter(cbomFilter, CryptographicAssetServiceImpl::hasContributedAssets));
+                            .countUsingSecurityFilter(cbomFilter, CbomAssetSourcePredicates::hasContributedAssets));
             Future<Map<String, Long>> bySyncState = executor
                     .submit(() -> cbomRepository
                             .countGroupedUsingSecurityFilter(cbomFilter, null, Cbom_.assetSyncState, null, null));
@@ -320,16 +567,6 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
         SecurityResourceFilter resourceFilter = filter.getResourceFilter();
         return resourceFilter != null && resourceFilter.areOnlySpecificObjectsAllowed()
                 && resourceFilter.getAllowedObjects().isEmpty();
-    }
-
-    /** A document contributed to the inventory when at least one asset-source row points at it. */
-    private static Predicate hasContributedAssets(Root<Cbom> root, CriteriaBuilder cb, CriteriaQuery<?> query) {
-        Subquery<Integer> contributed = query.subquery(Integer.class);
-        Root<CryptoAssetSource> source = contributed.from(CryptoAssetSource.class);
-        contributed
-                .select(cb.literal(1))
-                .where(cb.equal(source.get(CryptoAssetSource_.cbomUuid), root.get(UniquelyIdentified_.uuid)));
-        return cb.exists(contributed);
     }
 
     private OffsetDateTime lastCompletedSyncAt(SecurityFilter cbomFilter) {
@@ -382,11 +619,6 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
     }
 
     private static void validatePaging(SearchRequestDto request) {
-        // No crypto-asset field is marked sortable, and the contract permits sorting only on fields marked sortable.
-        if (request.getSort() != null) {
-            throw new ValidationException(
-                    "Sorting is not supported for the cryptographic asset inventory; results are ordered by name, then UUID.");
-        }
         // PageRequest would otherwise turn an out-of-range value into a 500 rather than a shaped 422.
         if (request.getPageNumber() < 1) {
             throw new ValidationException("Page number must be at least 1, but was " + request.getPageNumber());
@@ -424,7 +656,8 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
                 .toList();
     }
 
-    private List<CryptographicAssetDto> loadPage(List<UUID> pageUuids) {
+    /** The list rows for a page of uuids, in the page's order; a uuid whose row vanished in between is skipped. */
+    private List<CryptoAssetListRow> loadRows(List<UUID> pageUuids) {
         if (pageUuids.isEmpty()) {
             return List.of();
         }
@@ -432,13 +665,7 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
                 .findListRowsByUuids(pageUuids)
                 .stream()
                 .collect(Collectors.toMap(CryptoAssetListRow::uuid, Function.identity()));
-        return pageUuids
-                .stream()
-                // A uuid whose row vanished between the page and projection queries is skipped rather than failed.
-                .map(rowsByUuid::get)
-                .filter(Objects::nonNull)
-                .map(CryptographicAssetServiceImpl::toDto)
-                .collect(Collectors.toList());
+        return pageUuids.stream().map(rowsByUuid::get).filter(Objects::nonNull).toList();
     }
 
     /**
@@ -455,6 +682,44 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
                         cb.nullLiteral(String.class))
                 .otherwise(root.get(CryptoAsset_.oid));
         return cb.coalesce(root.get(CryptoAsset_.name), oidUnlessRefuted);
+    }
+
+    private interface SortKey extends BiFunction<Root<CryptoAsset>, CriteriaBuilder, Expression<?>> {
+    }
+
+    /**
+     * The value a cell serves where it differs from its column: the display label for the name, no type for a stored
+     * tier CycloneDX has no value for, and UNKNOWN for a never-evaluated verdict, as {@link #servedName},
+     * {@link ServedAssetType#of} and {@link #servedVerdict} serve them. {@code null} for any other sort, which the
+     * repository resolves to the column itself.
+     */
+    private static SortKey servedSortKey(SortSpecification sort) {
+        if (sort == null || sort.fieldSource() != FilterFieldSource.PROPERTY) {
+            return null;
+        }
+        if (FilterField.CBOM_ASSET_NAME.name().equals(sort.fieldIdentifier())) {
+            return CryptographicAssetServiceImpl::displayLabel;
+        }
+        if (FilterField.CBOM_ASSET_TYPE.name().equals(sort.fieldIdentifier())) {
+            return CryptographicAssetServiceImpl::servedAssetType;
+        }
+        if (FilterField.CBOM_ASSET_PQC_VERDICT.name().equals(sort.fieldIdentifier())) {
+            return (root, cb) -> cb.coalesce(root.get(CryptoAsset_.pqcVerdict), PqcVerdict.UNKNOWN);
+        }
+        return null;
+    }
+
+    private static Expression<CryptographicAssetType> servedAssetType(Root<CryptoAsset> root, CriteriaBuilder cb) {
+        Path<CryptographicAssetType> stored = root.get(CryptoAsset_.assetType);
+        return cb
+                .<CryptographicAssetType>selectCase()
+                .when(stored.in(ServedAssetType.VALUES), stored)
+                .otherwise(cb.nullLiteral(CryptographicAssetType.class));
+    }
+
+    /** Rows with nothing to serve stay last in either direction, as they do under every other column sort. */
+    private static BiFunction<Root<CryptoAsset>, CriteriaBuilder, Order> ordered(SortKey key, SortDirection direction) {
+        return (root, cb) -> SortOrderBuilder.primary(cb, key.apply(root, cb), direction);
     }
 
     /** The in-memory twin of {@link #displayLabel}; the list orders by that expression and serves this value. */
@@ -489,15 +754,25 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
     }
 
     private static CryptographicAssetDto toDto(CryptoAssetListRow row) {
-        CryptographicAssetDto dto = new CryptographicAssetDto();
+        return fill(new CryptographicAssetDto(), row);
+    }
+
+    private static CbomContributedAssetDto toContributedDto(CryptoAssetListRow row, List<String> bomRefs) {
+        CbomContributedAssetDto dto = fill(new CbomContributedAssetDto(), row);
+        dto.setBomRefs(bomRefs);
+        return dto;
+    }
+
+    private static <T extends CryptographicAssetDto> T fill(T dto, CryptoAssetListRow row) {
         dto.setUuid(row.uuid());
         // The contract marks name REQUIRED and the wire mapper drops nulls, so a nameless producer row serves its
         // recorded OID unless that OID is refuted. A row with no servable label at all serializes without the
         // field; that residual is interfaces' contract friction, raised on the PR.
         dto.setName(servedName(row));
         dto.setType(ServedAssetType.of(row.assetType()));
-        dto.setSourceCbomCount(row.sourceCount());
-        dto.setOccurrenceCount(row.occurrenceCount());
+        CryptoAssetCounts counts = new CryptoAssetCounts(Math.toIntExact(row.sourceCount()), row.occurrenceCount());
+        dto.setSourceCbomCount(counts.sourceCount());
+        dto.setOccurrenceCount(counts.occurrenceCount());
         dto.setPqcVerdict(servedVerdict(row.pqcVerdict()));
         dto.setQuarantined(quarantined(row.identityGuard()));
         return dto;
@@ -512,9 +787,12 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
         dto.setPqcVerdict(servedVerdict(asset.getPqcVerdict()));
         // GLOBAL badges: computed over every loaded row, before the CBOM visibility filter below, so they keep
         // reconciling with the list (scoped by CRYPTO_ASSET, not CBOM) exactly as the list endpoint serves them --
-        // the visibility gate below is on per-document CONTENT, not on whether a document contributed.
-        dto.setSourceCbomCount(asset.getSourceCount());
-        dto.setOccurrenceCount(sources.stream().mapToLong(CryptoAssetSource::getOccurrenceCount).sum());
+        // the visibility gate below is on per-document CONTENT, not on whether a document contributed. Both counts
+        // come from this one read so a concurrent withdrawal cannot leave them disagreeing.
+        List<Integer> occurrenceCountPerSource = sources.stream().map(CryptoAssetSource::getOccurrenceCount).toList();
+        CryptoAssetCounts counts = CryptoAssetCounts.ofSourceOccurrenceCounts(occurrenceCountPerSource);
+        dto.setSourceCbomCount(counts.sourceCount());
+        dto.setOccurrenceCount(counts.occurrenceCount());
         dto.setQuarantined(quarantined(asset.getIdentityGuard()));
         dto.setVerdict(toVerdictDto(asset));
         dto.setNormalizedFields(toNormalizedFieldsDto(asset));
@@ -549,27 +827,31 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
      */
     private static Map<String, Object> servedElectedPayload(CryptoAsset asset, List<CryptoAssetSource> sources,
             Set<UUID> visibleCbomUuids) {
+        return electingDocumentVisible(asset, sources, visibleCbomUuids) ? asset.getMergedCryptoProperties() : null;
+    }
+
+    /**
+     * Whether the caller may read the document whose payload the merge elected. A pointer naming a row absent from the
+     * loaded list (should not happen, but is not this method's invariant to enforce) is treated the same as an
+     * invisible one.
+     */
+    private static boolean electingDocumentVisible(CryptoAsset asset, List<CryptoAssetSource> sources,
+            Set<UUID> visibleCbomUuids) {
         UUID electingSourceUuid = asset.getPropertiesSourceUuid();
-        if (electingSourceUuid == null) {
-            return null;
-        }
-        // A pointer naming a row absent from the loaded list (should not happen, but is not this method's invariant
-        // to enforce) is treated the same as an invisible one: no visible row, no payload.
-        boolean electingDocumentVisible = sources
+        return electingSourceUuid != null && sources
                 .stream()
                 .filter(source -> electingSourceUuid.equals(source.getUuid()))
                 .findFirst()
                 .map(source -> visibleCbomUuids.contains(source.getCbomUuid()))
                 .orElse(false);
-        return electingDocumentVisible ? asset.getMergedCryptoProperties() : null;
     }
 
     /**
      * Verdict provenance exists only once a rule set has evaluated the asset, and a row without it is reachable by
      * design, not only before the rule set shipped: a row waits between its upsert and its first evaluation (only the
      * sweep evaluates until ingest does), and a row whose first verdict write failed or was refused by the row-version
-     * guard stays on the work list -- the {@code pqc_ruleset_version IS NULL} arm of the sweep's query offers both
-     * again on the next run. A failed <em>evaluation</em> is not one of these: the sweep stamps it {@code UNKNOWN} /
+     * guard stays on the work list -- the {@code pqc_evaluated_revision} arm of the sweep's query offers both again on
+     * the next run. A failed <em>evaluation</em> is not one of these: the sweep stamps it {@code UNKNOWN} /
      * {@code EVALUATION-FAILED} with a current {@code pqc_evaluated_at}, so that row serves a block naming the failure
      * and leaves the work list. Until a row is stamped, a fabricated all-default block would present "never evaluated"
      * as a decision, so the block is omitted -- the contract marks it not required (interfaces#938, PR interfaces#940)
@@ -580,7 +862,6 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
             return null;
         }
         CryptographicAssetVerdictDto dto = new CryptographicAssetVerdictDto();
-        dto.setRuleSetVersion(asset.getPqcRulesetVersion() == null ? 0 : asset.getPqcRulesetVersion());
         dto.setRuleId(asset.getPqcRuleId());
         dto.setReason(asset.getPqcReason());
         dto.setEvaluatedFields(asset.getPqcEvaluatedFields());

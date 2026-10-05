@@ -2,6 +2,7 @@ package com.otilm.core.dao.repository.cbom;
 
 import com.otilm.core.dao.entity.cbom.CryptoAsset;
 import com.otilm.core.dao.repository.SecurityFilterRepository;
+import com.otilm.core.model.cbom.CryptoAssetCounts;
 import com.otilm.core.model.cbom.CryptoAssetListRow;
 import com.otilm.core.model.cbom.PqcStaleVerdictRow;
 import jakarta.persistence.LockModeType;
@@ -165,10 +166,10 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
     @Query(value = """
             INSERT INTO {h-schema}crypto_asset (uuid, identity_key, ruleset_version, asset_type, name, oid,
                     algorithm_family, primitive, parameter_set, curve, mode, padding, variant, identity_guard,
-                    properties_leaf_count, source_count, i_cre, i_upd)
+                    properties_leaf_count, source_count, input_revision, i_cre, i_upd)
             VALUES (:uuid, :key, :rulesetVersion, :assetType, :name, :oid, :algorithmFamily, :primitive,
                     :parameterSet, :curve, :mode, :padding, :variant, :identityGuard,
-                    0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    0, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ON CONFLICT (identity_key) DO UPDATE SET
                 ruleset_version = EXCLUDED.ruleset_version,
                 asset_type = COALESCE(crypto_asset.asset_type, EXCLUDED.asset_type),
@@ -182,6 +183,7 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
                 padding = COALESCE(crypto_asset.padding, EXCLUDED.padding),
                 variant = COALESCE(crypto_asset.variant, EXCLUDED.variant),
                 identity_guard = COALESCE(crypto_asset.identity_guard, EXCLUDED.identity_guard),
+                input_revision = crypto_asset.input_revision + 1,
                 i_upd = CURRENT_TIMESTAMP
             """, nativeQuery = true)
     void upsertIdentity(@Param("uuid") UUID uuid, @Param("key") String key, @Param("rulesetVersion") int rulesetVersion,
@@ -226,6 +228,7 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
                 properties_leaf_count = COALESCE(elected.properties_leaf_count, 0),
                 properties_hash = elected.properties_hash,
                 source_count = counted.n,
+                input_revision = a.input_revision + 1,
                 i_upd = CURRENT_TIMESTAMP
             FROM (SELECT count(*) AS n FROM {h-schema}crypto_asset_source s WHERE s.asset_uuid = :uuid) counted
             LEFT JOIN LATERAL (
@@ -238,6 +241,18 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
             WHERE a.uuid = :uuid
             """, nativeQuery = true)
     void recomputeMergeFromSources(@Param("uuid") UUID uuid);
+
+    /**
+     * Advances the input revision alone, for a change to what hangs off the row -- its references -- that the row's own
+     * columns do not show. The row lock it takes is the one every inventory writer takes first.
+     */
+    @Modifying
+    @Query(value = """
+            UPDATE {h-schema}crypto_asset
+            SET input_revision = input_revision + 1, i_upd = CURRENT_TIMESTAMP
+            WHERE uuid = :uuid
+            """, nativeQuery = true)
+    void touch(@Param("uuid") UUID uuid);
 
     /**
      * Stores a PQC verdict together with the rule that produced it and the fields that rule read. The identity columns
@@ -257,9 +272,11 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
             SET pqc_verdict = :verdict,
                 pqc_rule_id = :ruleId,
                 pqc_reason = :reason,
-                pqc_ruleset_version = :rulesetVersion,
                 pqc_evaluated_fields = CAST(:evaluatedFields AS jsonb),
+                pqc_referenced_asset_uuid = :referencedAssetUuid,
+                pqc_reference_basis = :referenceBasis,
                 pqc_evaluated_at = CURRENT_TIMESTAMP,
+                pqc_evaluated_revision = crypto_asset.input_revision,
                 pqc_decided_at = CASE
                     WHEN crypto_asset.pqc_verdict IS DISTINCT FROM CAST(:verdict AS TEXT) THEN CURRENT_TIMESTAMP
                     ELSE COALESCE(crypto_asset.pqc_decided_at, CURRENT_TIMESTAMP)
@@ -268,8 +285,8 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
             WHERE uuid = :uuid
             """, nativeQuery = true)
     void applyPqcVerdict(@Param("uuid") UUID uuid, @Param("verdict") String verdict, @Param("ruleId") String ruleId,
-            @Param("reason") String reason, @Param("rulesetVersion") int rulesetVersion,
-            @Param("evaluatedFields") String evaluatedFields);
+            @Param("reason") String reason, @Param("evaluatedFields") String evaluatedFields,
+            @Param("referencedAssetUuid") UUID referencedAssetUuid, @Param("referenceBasis") String referenceBasis);
 
     /**
      * The sweep's work list, one keyset page of it. See {@link #staleVerdictRows} for what a caller uses.
@@ -284,10 +301,17 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
      * the identity spelling, which the column stores split.
      *
      * <p>
-     * <b>Stale</b> is either half of the contract: a verdict from an older generation of the rules, or a verdict older
-     * than the row it describes. {@code pqc_evaluated_at < i_upd} catches the second -- a payload re-election, a richer
-     * source winning, an identity refresh -- because the guarded write sets both to one {@code CURRENT_TIMESTAMP}, so a
-     * verdict never re-offers itself while any later writer does.
+     * <b>Stale</b> is a verdict never taken, or one taken from an earlier revision of the row: every statement that
+     * changes what the rules read -- an identity refresh, a payload re-election, a reference change -- advances
+     * {@code input_revision} under the row lock, and a stamp records the revision it evaluated. A rule change re-offers
+     * rows with a migration that advances it too. A counter rather than {@code i_upd}: a writer whose transaction began
+     * before a sweep's and committed after it would stamp an {@code i_upd} earlier than the sweep's
+     * {@code pqc_evaluated_at}, and the row would never be offered again. A certificate or protocol is also stale once
+     * what its elected source references no longer holds the verdicts its own was decided from:
+     * {@code pqc_reference_basis} records them as read, and the arm rebuilds the same string from the rows as they
+     * stand. A version rather than a time, for the same reason as the guard below -- a referrer and its target stamped
+     * in one transaction share one {@code CURRENT_TIMESTAMP}, and one stamped from a read that preceded the target's
+     * restamp would compare later.
      *
      * <p>
      * Keyset-cursored, and that is correctness rather than performance: a written row leaves this result set, so an
@@ -309,23 +333,29 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
                    merged_crypto_properties::text AS merged_crypto_properties,
                    xmin::text::bigint AS row_version
             FROM {h-schema}crypto_asset
-            WHERE (pqc_ruleset_version IS NULL
-                    OR pqc_ruleset_version < :version
-                    OR pqc_evaluated_at < i_upd)
+            WHERE (pqc_evaluated_revision IS DISTINCT FROM input_revision
+                    OR (crypto_asset.asset_type IN ('CERTIFICATE', 'PROTOCOL')
+                    AND crypto_asset.pqc_reference_basis IS DISTINCT FROM (
+                        SELECT string_agg(COALESCE(CAST(r.target_asset_uuid AS TEXT), '') || ':'
+                                || COALESCE(t.pqc_verdict, '') || ':' || COALESCE(t.pqc_rule_id, '') || ':'
+                                || COALESCE(t.primitive, ''), ','
+                                ORDER BY r.kind, r.ordinal)
+                        FROM {h-schema}crypto_asset_reference r
+                        LEFT JOIN {h-schema}crypto_asset t ON t.uuid = r.target_asset_uuid
+                        WHERE r.source_uuid = crypto_asset.properties_source_uuid)))
               AND uuid > :after
             ORDER BY uuid
             LIMIT :limit
             """, nativeQuery = true)
-    List<Tuple> findStaleVerdictRows(@Param("version") int version, @Param("after") UUID after,
-            @Param("limit") int limit);
+    List<Tuple> findStaleVerdictRows(@Param("after") UUID after, @Param("limit") int limit);
 
     /**
      * {@link #findStaleVerdictRows} mapped onto the record the sweep evaluates. A default method rather than a
      * {@code @SqlResultSetMapping} so the column-to-component mapping is read by name, in one place, and by a caller
      * that can be mocked.
      */
-    default List<PqcStaleVerdictRow> staleVerdictRows(int version, UUID after, int limit) {
-        return findStaleVerdictRows(version, after, limit).stream().map(PqcStaleVerdictRow::fromWorkListRow).toList();
+    default List<PqcStaleVerdictRow> staleVerdictRows(UUID after, int limit) {
+        return findStaleVerdictRows(after, limit).stream().map(PqcStaleVerdictRow::fromWorkListRow).toList();
     }
 
     /**
@@ -338,8 +368,7 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
      * {@code spring.jpa.open-in-view} produces on the REST {@code sync} path, since {@code JpaTransactionManager}
      * reuses the request-bound {@code EntityManager} and a commit does not evict. An asset two batches of one document
      * both touch would then be evaluated on the payload the first batch saw, and the mis-stamp is permanent: the stamp
-     * sets {@code pqc_evaluated_at} and {@code i_upd} to one {@code CURRENT_TIMESTAMP}, so
-     * {@link #findStaleVerdictRows}' {@code pqc_evaluated_at < i_upd} never re-offers the row.
+     * records the row's current {@code input_revision}, so {@link #findStaleVerdictRows} never re-offers the row.
      *
      * <p>
      * Ordered by {@code uuid}, which the caller depends on: the verdict writes take {@code crypto_asset} row locks, and
@@ -388,9 +417,8 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
      * {@code xmin} as 2, which can only refuse a write the next sweep retries, never admit a stale one.
      *
      * <p>
-     * The staleness clause restates {@link #findStaleVerdictRows}'s definition of the work list, and has to: a row
-     * offered because its payload moved is already at the current generation, so a version-only clause would refuse
-     * every write the widened work list asks for.
+     * The staleness clause restates {@link #findStaleVerdictRows}'s definition of the work list, so a row another
+     * writer stamped since the read is refused rather than stamped twice.
      *
      * @return 1 if the row was written, 0 if it was written by someone else since it was read, or is no longer stale
      */
@@ -400,23 +428,33 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
             SET pqc_verdict = :verdict,
                 pqc_rule_id = :ruleId,
                 pqc_reason = :reason,
-                pqc_ruleset_version = :rulesetVersion,
                 pqc_evaluated_fields = CAST(:evaluatedFields AS jsonb),
+                pqc_referenced_asset_uuid = :referencedAssetUuid,
+                pqc_reference_basis = :referenceBasis,
                 pqc_evaluated_at = CURRENT_TIMESTAMP,
+                pqc_evaluated_revision = crypto_asset.input_revision,
                 pqc_decided_at = CASE
                     WHEN crypto_asset.pqc_verdict IS DISTINCT FROM CAST(:verdict AS TEXT) THEN CURRENT_TIMESTAMP
                     ELSE COALESCE(crypto_asset.pqc_decided_at, CURRENT_TIMESTAMP)
                 END,
                 i_upd = CURRENT_TIMESTAMP
             WHERE uuid = :uuid
-              AND (pqc_ruleset_version IS NULL
-                    OR pqc_ruleset_version < :rulesetVersion
-                    OR pqc_evaluated_at < i_upd)
+              AND (pqc_evaluated_revision IS DISTINCT FROM input_revision
+                    OR (crypto_asset.asset_type IN ('CERTIFICATE', 'PROTOCOL')
+                    AND crypto_asset.pqc_reference_basis IS DISTINCT FROM (
+                        SELECT string_agg(COALESCE(CAST(r.target_asset_uuid AS TEXT), '') || ':'
+                                || COALESCE(t.pqc_verdict, '') || ':' || COALESCE(t.pqc_rule_id, '') || ':'
+                                || COALESCE(t.primitive, ''), ','
+                                ORDER BY r.kind, r.ordinal)
+                        FROM {h-schema}crypto_asset_reference r
+                        LEFT JOIN {h-schema}crypto_asset t ON t.uuid = r.target_asset_uuid
+                        WHERE r.source_uuid = crypto_asset.properties_source_uuid)))
               AND xmin::text::bigint = :rowVersion
             """, nativeQuery = true)
     int applyPqcVerdictIfStale(@Param("uuid") UUID uuid, @Param("rowVersion") long rowVersion,
             @Param("verdict") String verdict, @Param("ruleId") String ruleId, @Param("reason") String reason,
-            @Param("rulesetVersion") int rulesetVersion, @Param("evaluatedFields") String evaluatedFields);
+            @Param("evaluatedFields") String evaluatedFields, @Param("referencedAssetUuid") UUID referencedAssetUuid,
+            @Param("referenceBasis") String referenceBasis);
 
     /**
      * Collects an orphan, and only while it still is one.
@@ -553,17 +591,20 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
 
     /**
      * List-page rows for the given assets. A projection rather than the entity: the list serves none of the JSONB
-     * payload columns, and a page can be 1000 rows. The occurrence total is summed over the per-source rows, whose
-     * count is deliberately uncapped (capping drops evidence payloads, never the count). Rows come back in no
-     * particular order -- IN provides none -- so the caller restores its page order.
+     * payload columns, and a page can be 1000 rows. Both counts come from the same joined source rows rather than from
+     * the stored {@code source_count}, so the pair cannot disagree: a source contributes its uncapped occurrence count
+     * as occurrences, or one occurrence when it recorded no location -- {@link CryptoAssetCounts#occurrencesOf}, the
+     * rule the detail applies. Rows come back in no particular order -- IN provides none -- so the caller restores its
+     * page order.
      */
     @Query("""
             SELECT new com.otilm.core.model.cbom.CryptoAssetListRow(a.uuid, a.name, a.oid, a.assetType,
-                    a.pqcVerdict, a.sourceCount, a.identityGuard, COALESCE(SUM(s.occurrenceCount), 0L))
+                    a.pqcVerdict, COUNT(s.uuid), a.identityGuard,
+                    COALESCE(SUM(CASE WHEN s.occurrenceCount = 0 THEN 1 ELSE s.occurrenceCount END), 0L))
             FROM CryptoAsset a
             LEFT JOIN CryptoAssetSource s ON s.assetUuid = a.uuid
             WHERE a.uuid IN :uuids
-            GROUP BY a.uuid, a.name, a.oid, a.assetType, a.pqcVerdict, a.sourceCount, a.identityGuard
+            GROUP BY a.uuid, a.name, a.oid, a.assetType, a.pqcVerdict, a.identityGuard
             """)
     List<CryptoAssetListRow> findListRowsByUuids(@Param("uuids") Collection<UUID> uuids);
 }

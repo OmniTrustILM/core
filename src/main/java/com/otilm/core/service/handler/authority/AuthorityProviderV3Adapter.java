@@ -464,7 +464,9 @@ public class AuthorityProviderV3Adapter extends AbstractAuthorityProviderAdapter
      * Resolves "connector does not offer this schema" to an empty list.
      * <p>
      * <b>Not-offered signals:</b> HTTP 404 (endpoint absent), {@code OPERATION_NOT_SUPPORTED}, a bare 501, and an empty
-     * response body. Keyed on status because connectors are polyglot and a problem body is not guaranteed.
+     * response body. Keyed on status because connectors are polyglot and a problem body is not guaranteed. A 404 that
+     * does carry a problem body counts only with no error code or {@code RESOURCE_NOT_FOUND} — what a connector's
+     * catch-all route answers; a more specific 404 code means the connector served the endpoint.
      * <p>
      * <b>Everything else propagates</b> — auth failures, other 5xx, communication failures, malformed bodies. Silently
      * emptying a schema the connector does have would drop attributes the CA requires.
@@ -488,10 +490,21 @@ public class AuthorityProviderV3Adapter extends AbstractAuthorityProviderAdapter
                             operation);
             return List.of();
         } catch (ConnectorProblemException e) {
-            if (e.getProblemDetail().getErrorCode() == ErrorCode.OPERATION_NOT_SUPPORTED) {
+            ErrorCode code = e.getProblemDetail().getErrorCode();
+            if (code == ErrorCode.OPERATION_NOT_SUPPORTED) {
                 log
                         .debug("Connector declines to offer the {} attribute schema (OPERATION_NOT_SUPPORTED); "
                                 + "resolving empty schema", operation);
+                return List.of();
+            }
+            if (e.getProblemDetail().getStatus() == HttpStatus.NOT_FOUND.value()
+                    && (code == null || code == ErrorCode.RESOURCE_NOT_FOUND)) {
+                // Logs what the connector said rather than asserting the endpoint is absent: a connector that serves
+                // the endpoint but reports a missing resource the same way lands here too.
+                log
+                        .debug("Connector answered 404 {} (\"{}\") for the {} attribute schema; treating the schema as "
+                                + "not offered and resolving it empty", code == null ? "with no error code" : code,
+                                e.getMessage(), operation);
                 return List.of();
             }
             throw e;

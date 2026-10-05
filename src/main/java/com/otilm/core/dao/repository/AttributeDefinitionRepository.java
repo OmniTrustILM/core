@@ -4,6 +4,7 @@ import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.dao.entity.AttributeDefinition;
+import com.otilm.core.model.AttributeDefinitionIdentity;
 import com.otilm.core.model.SearchFieldObject;
 import java.util.Collection;
 import java.util.List;
@@ -51,6 +52,33 @@ public interface AttributeDefinitionRepository extends SecurityFilterRepository<
 
     Boolean existsByTypeAndName(AttributeType type, String attributeName);
 
+    /**
+     * The definitions of these types and names that belong to the resource's catalogue: related to the resource, or
+     * holding content on one of its objects, the same membership the searchable-fields queries below apply. Each half
+     * probes per definition: uncorrelated IN subqueries over the two tables would make the planner read every content
+     * mapping of the resource.
+     */
+    @Query("""
+            SELECT new com.otilm.core.model.AttributeDefinitionIdentity(ad.uuid, ad.type, ad.name, ad.contentType)
+                FROM AttributeDefinition ad
+                WHERE ad.type IN ?2 AND ad.name IN ?3 AND EXISTS (
+                    SELECT 1 FROM AttributeRelation ar
+                        WHERE ar.attributeDefinitionUuid = ad.uuid AND ar.resource = ?1
+                )
+            UNION
+            SELECT new com.otilm.core.model.AttributeDefinitionIdentity(ad.uuid, ad.type, ad.name, ad.contentType)
+                FROM AttributeDefinition ad
+                WHERE ad.type IN ?2 AND ad.name IN ?3 AND EXISTS (
+                    SELECT 1 FROM AttributeContentItem aci
+                        WHERE aci.attributeDefinitionUuid = ad.uuid AND EXISTS (
+                            SELECT 1 FROM AttributeContent2Object aco
+                                WHERE aco.attributeContentItemUuid = aci.uuid AND aco.objectType = ?1
+                        )
+                )
+            """)
+    List<AttributeDefinitionIdentity> findIdentitiesOfResource(Resource resource, Collection<AttributeType> types,
+            Collection<String> names);
+
     Boolean existsByTypeAndNameAndGlobalTrue(AttributeType type, String attributeName);
 
     @Modifying
@@ -73,13 +101,13 @@ public interface AttributeDefinitionRepository extends SecurityFilterRepository<
      */
     @Query("""
             SELECT DISTINCT new com.otilm.core.model.SearchFieldObject(
-                ad.name, ad.contentType, ad.type, ad.label, ad.visible, ad.definition)
+                ad.uuid, ad.name, ad.contentType, ad.type, ad.label, ad.visible, ad.definition)
                 FROM AttributeDefinition ad
                 LEFT JOIN AttributeRelation ar ON ar.attributeDefinitionUuid = ad.uuid
                 WHERE ad.type IN ?2 AND ar.resource = ?1
             UNION
             SELECT DISTINCT new com.otilm.core.model.SearchFieldObject(
-                ad.name, ad.contentType, ad.type, ad.label, ad.visible, ad.definition)
+                ad.uuid, ad.name, ad.contentType, ad.type, ad.label, ad.visible, ad.definition)
                 FROM AttributeDefinition ad
                 WHERE ad.type IN ?2 AND ad.uuid IN (
                     SELECT aci.attributeDefinitionUuid
@@ -100,13 +128,13 @@ public interface AttributeDefinitionRepository extends SecurityFilterRepository<
      */
     @Query("""
             SELECT DISTINCT new com.otilm.core.model.SearchFieldObject(
-                ad.name, ad.contentType, ad.type, ad.label, ad.visible, ad.definition)
+                ad.uuid, ad.name, ad.contentType, ad.type, ad.label, ad.visible, ad.definition)
                 FROM AttributeDefinition ad
                 LEFT JOIN AttributeRelation ar ON ar.attributeDefinitionUuid = ad.uuid
                 WHERE ad.type IN ?2 AND ar.resource = ?1 AND ad.contentType IN ?3
             UNION
             SELECT DISTINCT new com.otilm.core.model.SearchFieldObject(
-                ad.name, ad.contentType, ad.type, ad.label, ad.visible, ad.definition)
+                ad.uuid, ad.name, ad.contentType, ad.type, ad.label, ad.visible, ad.definition)
                 FROM AttributeDefinition ad
                 WHERE ad.type IN ?2 AND ad.contentType IN ?3 AND ad.uuid IN (
                     SELECT aci.attributeDefinitionUuid

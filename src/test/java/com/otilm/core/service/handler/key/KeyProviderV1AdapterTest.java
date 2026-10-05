@@ -48,6 +48,7 @@ import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
 import com.otilm.core.model.crypto.ImmutableTokenInstanceFullModel;
 import com.otilm.core.model.crypto.ImmutableTokenProfileFullModel;
+import com.otilm.core.model.crypto.OperationAttributeSchema;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TransferableKeyType;
@@ -658,6 +659,42 @@ class KeyProviderV1AdapterTest {
     }
 
     @Test
+    void signData_reportsAnEmptyConnectorAnswer_asAConnectorFailure() throws Exception {
+        // given
+        OperationKeyContext context = OperationKeyContext
+                .legacy(keyItem(KeyAlgorithm.MLDSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
+                        UUID.randomUUID()));
+        SignDataRequestDto request = new SignDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        request.setData(List.of());
+        when(operationsClient.signData(any(), any(), any(), any())).thenReturn(null);
+
+        // when
+        Executable sign = () -> adapter.signData(context, request);
+
+        // then
+        assertThrows(ConnectorException.class, sign);
+    }
+
+    @Test
+    void verifyData_reportsAnEmptyConnectorAnswer_asAConnectorFailure() throws Exception {
+        // given
+        OperationKeyContext context = OperationKeyContext
+                .legacy(keyItem(KeyAlgorithm.MLDSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
+                        UUID.randomUUID()));
+        VerifyDataRequestDto request = new VerifyDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        request.setSignatures(List.of());
+        when(operationsClient.verifyData(any(), any(), any(), any())).thenReturn(null);
+
+        // when
+        Executable verify = () -> adapter.verifyData(context, request);
+
+        // then
+        assertThrows(ConnectorException.class, verify);
+    }
+
+    @Test
     void listSignAttributes_returnsCoreSchema_byAlgorithm() {
         // given
         OperationKeyContext rsa = OperationKeyContext
@@ -678,6 +715,22 @@ class KeyProviderV1AdapterTest {
         assertEquals(RsaSignatureAttributes.getRsaSignatureAttributes().toString(), rsaSchema.toString());
         assertTrue(mldsaSchema.isEmpty());
         verifyNoInteractions(operationsClient);
+    }
+
+    @Test
+    void signAttributeSchema_servesCoresRegistry_underNoConnector() throws Exception {
+        // given
+        OperationKeyContext rsa = OperationKeyContext
+                .legacy(keyItem(KeyAlgorithm.RSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
+                        UUID.randomUUID()));
+
+        // when
+        OperationAttributeSchema schema = adapter.signAttributeSchema(rsa);
+
+        // then
+        assertNull(schema.ownerConnectorUuid());
+        assertEquals(RsaSignatureAttributes.getRsaSignatureAttributes().toString(), schema.definitions().toString());
+        assertTrue(schema.connectorDefinitions().isEmpty());
     }
 
     @Test

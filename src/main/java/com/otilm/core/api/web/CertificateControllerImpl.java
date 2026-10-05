@@ -37,6 +37,7 @@ import com.otilm.api.model.core.certificate.CertificateRelationsDto;
 import com.otilm.api.model.core.certificate.CertificateValidationResultDto;
 import com.otilm.api.model.core.certificate.FingerprintDto;
 import com.otilm.api.model.core.location.LocationDto;
+import com.otilm.api.model.core.logging.Sensitive;
 import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
@@ -44,11 +45,14 @@ import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.v2.ClientCertificateRequestDto;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.logging.LogResource;
+import com.otilm.core.model.certificate.DownloadedKeystore;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.ApprovalExternalService;
 import com.otilm.core.service.CertificateEventHistoryExternalService;
 import com.otilm.core.service.CertificateExternalService;
+import com.otilm.core.service.CertificateImportExternalService;
+import com.otilm.core.service.CertificateKeystoreExternalService;
 import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.util.converter.CertificateFormatConverter;
 import com.otilm.core.util.converter.CertificateFormatEncodingConverter;
@@ -79,6 +83,10 @@ public class CertificateControllerImpl implements CertificateController {
 
     private ApprovalExternalService approvalService;
 
+    private CertificateImportExternalService certificateImportService;
+
+    private CertificateKeystoreExternalService certificateKeystoreService;
+
     @InitBinder
     public void initBinder(final WebDataBinder webdataBinder) {
         webdataBinder.registerCustomEditor(CertificateFormat.class, new CertificateFormatConverter());
@@ -103,7 +111,7 @@ public class CertificateControllerImpl implements CertificateController {
     public CertificateDownloadResponseDto downloadCertificate(@LogResource(uuid = true) UUID uuid,
             CertificateFormat certificateFormat, CertificateFormatEncoding encoding)
             throws CertificateException, NotFoundException, IOException {
-        return certificateService.downloadCertificate(uuid, certificateFormat, encoding);
+        return certificateService.downloadCertificate(SecuredUUID.fromUUID(uuid), certificateFormat, encoding);
     }
 
     @Override
@@ -154,17 +162,33 @@ public class CertificateControllerImpl implements CertificateController {
     }
 
     @Override
-    public CertificateImportResponseDto importCertificates(@Valid CertificateImportRequestDto request)
-            throws ValidationException, NotFoundException, ConnectorException, AttributeException, CertificateException,
-            IOException {
-        return null;
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.IMPORT,
+            synchronous = true)
+    public CertificateImportResponseDto importCertificates(@Sensitive @Valid CertificateImportRequestDto request)
+            throws NotFoundException {
+        try {
+            return certificateImportService.importCertificates(request);
+        } finally {
+            request.getFile().clear();
+            if (request.getPassphrase() != null) {
+                request.getPassphrase().clear();
+            }
+        }
     }
 
     @Override
-    public ResponseEntity<org.springframework.core.io.Resource> downloadKeystore(UUID uuid,
-            @Valid CertificateKeystoreRequestDto request) throws NotFoundException, ValidationException,
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE,
+            affiliatedResource = Resource.CRYPTOGRAPHIC_KEY_ITEM, operation = Operation.EXPORT, synchronous = true)
+    public ResponseEntity<org.springframework.core.io.Resource> downloadKeystore(@LogResource(uuid = true) UUID uuid,
+            @Sensitive @Valid CertificateKeystoreRequestDto request) throws NotFoundException, ValidationException,
             ConnectorException, AttributeException, CertificateException, IOException {
-        return null;
+        try {
+            DownloadedKeystore keystore = certificateKeystoreService
+                    .downloadKeystore(SecuredUUID.fromUUID(uuid), request);
+            return KeyMaterialDownload.pkcs12(keystore.name(), keystore.content());
+        } finally {
+            request.getPassphrase().clear();
+        }
     }
 
     @Override
@@ -193,7 +217,7 @@ public class CertificateControllerImpl implements CertificateController {
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.HISTORY)
     public List<CertificateEventHistoryDto> getCertificateEventHistory(@LogResource(uuid = true) UUID uuid)
             throws NotFoundException {
-        return certificateEventHistoryService.getCertificateEventHistory(uuid);
+        return certificateEventHistoryService.getCertificateEventHistory(SecuredUUID.fromUUID(uuid));
     }
 
     @Override
@@ -231,7 +255,7 @@ public class CertificateControllerImpl implements CertificateController {
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.GET_CONTENT)
     public List<CertificateContentDto> getCertificateContent(@LogResource(uuid = true) List<UUID> uuids) {
-        return certificateService.getCertificateContent(uuids);
+        return certificateService.getCertificateContent(SecuredUUID.fromUuidList(uuids));
     }
 
     @Override
@@ -270,32 +294,32 @@ public class CertificateControllerImpl implements CertificateController {
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.ARCHIVE)
     public void archiveCertificate(@LogResource(uuid = true) UUID uuid) throws NotFoundException {
-        certificateService.archiveCertificate(uuid);
+        certificateService.archiveCertificate(SecuredUUID.fromUUID(uuid));
     }
 
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.UNARCHIVE)
     public void unarchiveCertificate(@LogResource(uuid = true) UUID uuid) throws NotFoundException {
-        certificateService.unarchiveCertificate(uuid);
+        certificateService.unarchiveCertificate(SecuredUUID.fromUUID(uuid));
     }
 
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.ARCHIVE)
     public void bulkArchiveCertificate(List<UUID> uuids) {
-        certificateService.bulkArchiveCertificates(uuids);
+        certificateService.bulkArchiveCertificates(SecuredUUID.fromUuidList(uuids));
     }
 
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.UNARCHIVE)
     public void bulkUnarchiveCertificate(List<UUID> uuids) {
-        certificateService.bulkUnarchiveCertificates(uuids);
+        certificateService.bulkUnarchiveCertificates(SecuredUUID.fromUuidList(uuids));
     }
 
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.GET_ASSOCIATIONS)
     public CertificateRelationsDto getCertificateRelations(@LogResource(uuid = true) UUID uuid)
             throws NotFoundException {
-        return certificateService.getCertificateRelations(uuid);
+        return certificateService.getCertificateRelations(SecuredUUID.fromUUID(uuid));
     }
 
     @Override
@@ -303,7 +327,7 @@ public class CertificateControllerImpl implements CertificateController {
             affiliatedResource = Resource.CERTIFICATE)
     public void associateCertificates(@LogResource(uuid = true) UUID uuid,
             @LogResource(uuid = true, affiliated = true) UUID certificateUuid) throws NotFoundException {
-        certificateService.associateCertificates(uuid, certificateUuid);
+        certificateService.associateCertificates(SecuredUUID.fromUUID(uuid), SecuredUUID.fromUUID(certificateUuid));
     }
 
     @Override
@@ -311,7 +335,8 @@ public class CertificateControllerImpl implements CertificateController {
             affiliatedResource = Resource.CERTIFICATE)
     public void removeCertificateAssociation(@LogResource(uuid = true) UUID uuid,
             @LogResource(uuid = true, affiliated = true) UUID certificateUuid) throws NotFoundException {
-        certificateService.removeCertificateAssociation(uuid, certificateUuid);
+        certificateService
+                .removeCertificateAssociation(SecuredUUID.fromUUID(uuid), SecuredUUID.fromUUID(certificateUuid));
     }
 
     // SETTERs
@@ -335,5 +360,15 @@ public class CertificateControllerImpl implements CertificateController {
     @Autowired
     public void setApprovalService(ApprovalExternalService approvalService) {
         this.approvalService = approvalService;
+    }
+
+    @Autowired
+    public void setCertificateImportService(CertificateImportExternalService certificateImportService) {
+        this.certificateImportService = certificateImportService;
+    }
+
+    @Autowired
+    public void setCertificateKeystoreService(CertificateKeystoreExternalService certificateKeystoreService) {
+        this.certificateKeystoreService = certificateKeystoreService;
     }
 }

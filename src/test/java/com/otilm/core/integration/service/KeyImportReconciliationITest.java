@@ -1,11 +1,20 @@
 package com.otilm.core.integration.service;
 
+import com.github.tomakehurst.wiremock.WireMockServer;
+import com.otilm.api.model.client.attribute.RequestAttributeV3;
+import com.otilm.api.model.client.attribute.ResponseAttributeV3;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.properties.CustomAttributeProperties;
+import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
+import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.connector.common.v2.OperationStatus;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
@@ -14,10 +23,12 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
+import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.CryptographicKey;
+import com.otilm.core.dao.entity.Group;
 import com.otilm.core.dao.entity.KeyImport;
 import com.otilm.core.dao.entity.KeyImportState;
 import com.otilm.core.dao.entity.TokenInstanceReference;
@@ -26,9 +37,11 @@ import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
+import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.KeyImportRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
+import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.crypto.KeyImportAttempt;
 import com.otilm.core.model.crypto.KeyImportCheck;
 import com.otilm.core.model.crypto.KeyImportTerms;
@@ -39,7 +52,9 @@ import com.otilm.core.service.handler.KeyImportReconciler;
 import com.otilm.core.service.handler.KeyImportSaga;
 import com.otilm.core.service.handler.KeyImportSweeper;
 import com.otilm.core.service.writer.CertificateKeyWriter;
+import com.otilm.core.service.writer.KeyImportRetentionWriter;
 import com.otilm.core.service.writer.KeyImportWriter;
+import com.otilm.core.util.AuthServiceWireMockStubs;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.mocks.ConnectorMockFactory;
 import com.otilm.core.util.mocks.CryptographyProviderV2ConnectorMock;
@@ -72,6 +87,8 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
 
     private static final List<String> SENT = List.of("sent-secret-digest");
 
+    private static final UUID RECORD_OWNER = UUID.randomUUID();
+
     @Autowired
     private KeyImportSweeper sweeper;
     @Autowired
@@ -80,6 +97,8 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
     private KeyImportReconciler reconciler;
     @Autowired
     private KeyImportWriter keyImportWriter;
+    @Autowired
+    private KeyImportRetentionWriter retentionWriter;
     @Autowired
     private KeyImportRepository keyImportRepository;
     @Autowired
@@ -106,10 +125,16 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
     private TokenProfileRepository tokenProfileRepository;
     @Autowired
     private CertificateKeyWriter certificateKeyWriter;
+    @Autowired
+    private GroupRepository groupRepository;
+    @Autowired
+    private AttributeEngine attributeEngine;
 
     private CryptographyProviderV2ConnectorMock connectorMock;
     private TokenProfileFullModel profile;
     private KeyPair pair;
+    private WireMockServer authService;
+    private Group recordGroup;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -121,6 +146,9 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
     @AfterEach
     void tearDown() {
         connectorMock.stop();
+        if (authService != null) {
+            authService.stop();
+        }
     }
 
     @Test
@@ -211,6 +239,60 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
         assertThat(objectAssociationService.getOwner(Resource.CRYPTOGRAPHIC_KEY, key.getUuid()).getName())
                 .isEqualTo("requester");
         connectorMock.verifyDestroyKeyRequests(1);
+    }
+
+    @Test
+    void sweep_compensatesAnUnansweredSecretKeyImport() throws Exception {
+        // given
+        KeyImportAttempt attempt = dueSecretKeyAttempt();
+        connectorMock.stubImportKeyResult(CryptographicKeyImportV2ITest.completedSecretKeyImport());
+        connectorMock.stubDestroyKey();
+
+        // when
+        sweep();
+
+        // then
+        assertThat(keyImportRepository.findById(attempt.uuid()).orElseThrow().getState())
+                .isEqualTo(KeyImportState.COMPENSATED);
+        assertThat(connectorMock.destroyKeyRequestBodies())
+                .extracting(body -> body.at("/keyMeta/0/name").asText())
+                .containsExactly("secret-handle");
+        assertThat(cryptographicKeyRepository.count()).isZero();
+    }
+
+    /**
+     * A secret key has no public key, so the key the connector would not destroy is registered as a key of its own,
+     * whatever other keys hold items without a fingerprint.
+     */
+    @Test
+    void sweep_registersASecretKeyTheConnectorWouldNotDestroyDeactivated() throws Exception {
+        // given
+        KeyImportAttempt keyPairImport = keyImportWriter.open(terms(), "retry-key-pair", "imported key", SENT);
+        UUID keyPairUuid = keyImportWriter
+                .complete(keyPairImport.uuid(),
+                        KeyImportWriterITest.registration(profile, pair, keyPairImport, Set.of()))
+                .orElseThrow()
+                .key()
+                .uuid();
+        KeyImportAttempt attempt = dueSecretKeyAttempt();
+        connectorMock.stubImportKeyResult(CryptographicKeyImportV2ITest.completedSecretKeyImport());
+        connectorMock.stubDestroyKeyProblem(ErrorCode.VALIDATION_FAILED);
+
+        // when
+        sweep();
+
+        // then
+        KeyImport quarantined = keyImportRepository.findById(attempt.uuid()).orElseThrow();
+        assertThat(quarantined.getState()).isEqualTo(KeyImportState.QUARANTINED);
+        assertThat(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(quarantined.getKeyUuid())))
+                .singleElement()
+                .satisfies(item -> {
+                    assertThat(item.getType()).isEqualTo(KeyType.SECRET_KEY);
+                    assertThat(item.getFingerprint()).isNull();
+                    assertThat(item.getState()).isEqualTo(KeyState.DEACTIVATED);
+                    assertThat(item.isEnabled()).isFalse();
+                });
+        assertThat(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(keyPairUuid))).hasSize(2);
     }
 
     @Test
@@ -306,6 +388,37 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
         assertThat(keyImportRepository.findById(attempt.uuid()).orElseThrow().getState())
                 .isEqualTo(KeyImportState.COMPENSATED);
         connectorMock.verifyDestroyKeyRequests(2);
+    }
+
+    /**
+     * The compensation is recorded once the connector destroyed the private key, before the public key is destroyed, so
+     * a node that stops while that destroy is on its way leaves no compensation a later look could not finish.
+     */
+    @Test
+    void sweep_recordsTheCompensationBeforeTheBestEffortPublicKeyDestroy() throws Exception {
+        // given
+        KeyImportAttempt attempt = dueAttempt();
+        connectorMock.stubImportKeyResult(status(OperationStatus.COMPLETED));
+        connectorMock.stubDestroyKey();
+        connectorMock.stubDestroyKeyAfter("public-handle", 3000);
+        try (ExecutorService node = Executors.newSingleThreadExecutor()) {
+            Future<?> sweeping = node.submit(this::sweep);
+
+            // when
+            Awaitility
+                    .await("the public key's destroy is on its way")
+                    .atMost(Duration.ofSeconds(10))
+                    .pollInterval(Duration.ofMillis(10))
+                    .until(() -> connectorMock
+                            .destroyKeyRequestBodies()
+                            .stream()
+                            .anyMatch(body -> "public-handle".equals(body.at("/keyMeta/0/name").asText())));
+
+            // then
+            assertThat(keyImportRepository.findById(attempt.uuid()).orElseThrow().getState())
+                    .isEqualTo(KeyImportState.COMPENSATED);
+            sweeping.get(10, TimeUnit.SECONDS);
+        }
     }
 
     @Test
@@ -498,6 +611,60 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
         assertThat(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(holderUuid))).hasSize(1);
     }
 
+    /**
+     * The connector would not destroy the key of an import whose requester was never answered, and a record another
+     * user owns holds its public key. The key is registered into the record once its requester is shown, as the
+     * requester, to be allowed to update it, and the record keeps whose it is, its groups, its custom attributes, its
+     * name and its description.
+     */
+    @Test
+    void sweep_registersAKeyTheConnectorWouldNotDestroyIntoARecordItsRequesterMayUpdate() throws Exception {
+        // given
+        KeyImportAttempt attempt = dueAttempt();
+        UUID recordUuid = ownedRecord();
+        requesterResolvable(attempt);
+        connectorMock.stubImportKeyResult(status(OperationStatus.COMPLETED));
+        connectorMock.stubDestroyKeyProblem(ErrorCode.VALIDATION_FAILED);
+
+        // when
+        sweep();
+
+        // then
+        KeyImport quarantined = keyImportRepository.findById(attempt.uuid()).orElseThrow();
+        assertThat(quarantined.getState()).isEqualTo(KeyImportState.QUARANTINED);
+        assertThat(quarantined.getKeyUuid()).isEqualTo(recordUuid);
+        assertTheRecordIsAsItWas(recordUuid);
+        assertThat(cryptographicKeyRepository.findById(recordUuid).orElseThrow().getTokenProfileUuid())
+                .isEqualTo(profile.uuid());
+        assertThat(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(recordUuid)))
+                .filteredOn(item -> item.getType() == KeyType.PRIVATE_KEY)
+                .singleElement()
+                .satisfies(privateKey -> assertThat(privateKey.getState()).isEqualTo(KeyState.DEACTIVATED));
+    }
+
+    /** The requester may not update the record, so the key cannot be registered, and the attempt ends unresolved. */
+    @Test
+    void sweep_leavesUnresolvedAKeyTheConnectorWouldNotDestroyWhoseRecordItsRequesterMayNotUpdate() throws Exception {
+        // given
+        KeyImportAttempt attempt = dueAttempt();
+        UUID recordUuid = ownedRecord();
+        requesterResolvable(attempt);
+        denyResourceAccess(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.UPDATE);
+        connectorMock.stubImportKeyResult(status(OperationStatus.COMPLETED));
+        connectorMock.stubDestroyKeyProblem(ErrorCode.VALIDATION_FAILED);
+
+        // when
+        sweep();
+
+        // then
+        KeyImport unresolved = keyImportRepository.findById(attempt.uuid()).orElseThrow();
+        assertThat(unresolved.getState()).isEqualTo(KeyImportState.UNRESOLVED);
+        assertThat(unresolved.getErrorMessage()).isEqualTo(KeyImportReconciler.NOT_REGISTERED);
+        assertTheRecordIsAsItWas(recordUuid);
+        assertThat(cryptographicKeyRepository.findById(recordUuid).orElseThrow().getTokenProfileUuid()).isNull();
+        assertThat(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(recordUuid))).hasSize(1);
+    }
+
     /** A retry registered the key between the claim and the connector's answer, so there is nothing to undo. */
     @Test
     void reconcile_leavesAnImportARetryRegisteredMeanwhile() throws Exception {
@@ -680,6 +847,56 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
         }
     }
 
+    /**
+     * The attempts that completed, failed or were compensated longer than the retention ago are deleted, while open
+     * attempts, those that ended quarantined or unresolved and recent ones stay.
+     */
+    @Test
+    void sweep_deletesTheFinishedAttemptsPastTheirRetention() {
+        // given
+        List<UUID> kept = List
+                .of(lastChanged(KeyImportState.REQUESTED, 8), lastChanged(KeyImportState.ACCEPTED, 8),
+                        lastChanged(KeyImportState.COMPENSATING, 8), lastChanged(KeyImportState.QUARANTINED, 8),
+                        lastChanged(KeyImportState.UNRESOLVED, 8), lastChanged(KeyImportState.COMPLETED, 6),
+                        lastChanged(KeyImportState.FAILED, 6), lastChanged(KeyImportState.COMPENSATED, 6));
+        lastChanged(KeyImportState.COMPLETED, 8);
+        lastChanged(KeyImportState.FAILED, 8);
+        lastChanged(KeyImportState.COMPENSATED, 8);
+
+        // when
+        sweep();
+
+        // then
+        assertThat(keyImportRepository.findAll())
+                .extracting(KeyImport::getUuid)
+                .containsExactlyInAnyOrderElementsOf(kept);
+    }
+
+    /**
+     * Every node deletes on its own timer, so a node deleting while another node's delete is under way skips the
+     * attempts that delete holds rather than wait for it, and neither fails.
+     */
+    @Test
+    void deleteFinishedBefore_skipsTheAttemptsAnotherNodeIsDeleting() {
+        // given
+        UUID oldest = lastChanged(KeyImportState.COMPLETED, 9);
+        UUID older = lastChanged(KeyImportState.FAILED, 8);
+        OffsetDateTime cutoff = OffsetDateTime.now().minusDays(7);
+        TransactionTemplate otherNode = new TransactionTemplate(transactionManager);
+        Integer deletedMeanwhile;
+        try (ExecutorService node = Executors.newSingleThreadExecutor()) {
+            // when
+            deletedMeanwhile = otherNode.execute(status -> {
+                assertThat(keyImportRepository.deleteFinishedBefore(cutoff, 1)).isEqualTo(1);
+                return answer(node.submit(() -> retentionWriter.deleteFinishedBefore(cutoff, 10)));
+            });
+        }
+
+        // then
+        assertThat(deletedMeanwhile).isEqualTo(1);
+        assertThat(keyImportRepository.findAllById(List.of(oldest, older))).isEmpty();
+    }
+
     private KeyImportCheck claimed() {
         return claimer.claimNext().orElseThrow();
     }
@@ -695,6 +912,59 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
                 .update("UPDATE key_import SET created_at = now() - interval '21 hours', "
                         + "last_sent_at = now() - interval '21 hours' WHERE uuid = ?", attempt.uuid());
         return attempt;
+    }
+
+    /** The public key of the pair as a certificate brought it in, described, owned and grouped by another user. */
+    private UUID ownedRecord() throws Exception {
+        UUID recordUuid = certificateKeyWriter
+                .uploadCertificatePublicKey("certKey_imported", pair.getPublic(), 2048,
+                        KeyImportWriterITest.fingerprintOf(pair));
+        CryptographicKey described = cryptographicKeyRepository.findById(recordUuid).orElseThrow();
+        described.setDescription("the certificate's key");
+        cryptographicKeyRepository.saveAndFlush(described);
+        objectAssociationService.setOwner(Resource.CRYPTOGRAPHIC_KEY, recordUuid, RECORD_OWNER, "owner");
+        Group group = new Group();
+        group.setName("record group");
+        recordGroup = groupRepository.save(group);
+        objectAssociationService.addGroup(Resource.CRYPTOGRAPHIC_KEY, recordUuid, recordGroup.getUuid());
+        CustomAttributeV3 department = new CustomAttributeV3();
+        department.setUuid(UUID.randomUUID().toString());
+        department.setName("department");
+        department.setType(AttributeType.CUSTOM);
+        department.setContentType(AttributeContentType.STRING);
+        CustomAttributeProperties properties = new CustomAttributeProperties();
+        properties.setLabel("Department");
+        department.setProperties(properties);
+        attributeEngine.updateCustomAttributeDefinition(department, List.of(Resource.CRYPTOGRAPHIC_KEY));
+        RequestAttributeV3 sales = new RequestAttributeV3();
+        sales.setUuid(UUID.fromString(department.getUuid()));
+        sales.setName(department.getName());
+        sales.setContentType(AttributeContentType.STRING);
+        sales.setContent(List.of(new StringAttributeContentV3("Sales")));
+        attributeEngine.updateObjectCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, recordUuid, List.of(sales));
+        return recordUuid;
+    }
+
+    private void assertTheRecordIsAsItWas(UUID recordUuid) {
+        CryptographicKey kept = cryptographicKeyRepository.findWithGroupsByUuid(recordUuid).orElseThrow();
+        assertThat(kept.getName()).isEqualTo("certKey_imported");
+        assertThat(kept.getDescription()).isEqualTo("the certificate's key");
+        assertThat(kept.getGroups()).extracting(Group::getUuid).containsExactly(recordGroup.getUuid());
+        assertThat(objectAssociationService.getOwner(Resource.CRYPTOGRAPHIC_KEY, recordUuid).getUuid())
+                .isEqualTo(RECORD_OWNER.toString());
+        assertThat(attributeEngine
+                .getObjectCustomAttributesContentForSystemContext(Resource.CRYPTOGRAPHIC_KEY, recordUuid))
+                .singleElement()
+                .satisfies(attribute -> assertThat(((ResponseAttributeV3) attribute).getContent())
+                        .extracting(content -> content.getData().toString())
+                        .containsExactly("Sales"));
+    }
+
+    /** The auth service answers for the attempt's requester, so the reconciliation can check as the requester. */
+    private void requesterResolvable(KeyImportAttempt attempt) {
+        KeyImport recorded = keyImportRepository.findById(attempt.uuid()).orElseThrow();
+        authService = AuthServiceWireMockStubs
+                .startImpersonating(recorded.getRequesterUuid(), recorded.getRequesterName());
     }
 
     /** Sweeps as the scheduler does, with no user signed in. */
@@ -714,10 +984,30 @@ class KeyImportReconciliationITest extends BaseSpringBootTest {
         return attempt;
     }
 
+    /** An AES key import, which is recorded without a fingerprint, due for its next look. */
+    private KeyImportAttempt dueSecretKeyAttempt() {
+        KeyImportTerms secretKey = new KeyImportTerms(profile, KeyRequestType.SECRET, KeyAlgorithm.AES, null, true,
+                List.of(), new NameAndUuidDto(UUID.randomUUID().toString(), "requester"));
+        KeyImportAttempt attempt = keyImportWriter
+                .open(secretKey, "retry-" + UUID.randomUUID(), "imported secret key", SENT);
+        makeDue(attempt);
+        return attempt;
+    }
+
     private void makeDue(KeyImportAttempt attempt) {
         jdbcTemplate
                 .update("UPDATE key_import SET next_check_at = now() - interval '1 minute' WHERE uuid = ?",
                         attempt.uuid());
+    }
+
+    /** An attempt in the given state that last changed the given number of days ago, not due for a look. */
+    private UUID lastChanged(KeyImportState state, int daysAgo) {
+        KeyImportAttempt attempt = keyImportWriter
+                .open(terms("fingerprint-" + UUID.randomUUID()), "retry-" + UUID.randomUUID(), "imported key", SENT);
+        jdbcTemplate
+                .update("UPDATE key_import SET state = ?, updated_at = ? WHERE uuid = ?", state.name(),
+                        OffsetDateTime.now().minusDays(daysAgo), attempt.uuid());
+        return attempt.uuid();
     }
 
     private KeyImportTerms terms() {

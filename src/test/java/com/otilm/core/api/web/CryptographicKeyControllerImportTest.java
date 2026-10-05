@@ -1,12 +1,14 @@
 package com.otilm.core.api.web;
 
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.certificate.ImportOutcome;
 import com.otilm.api.model.client.cryptography.key.KeyImportRequestDto;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.core.cryptography.key.KeyDetailDto;
 import com.otilm.api.model.core.secret.Passphrase;
 import com.otilm.api.model.core.secret.UploadedFile;
 import com.otilm.core.api.ExceptionHandlingAdvice;
+import com.otilm.core.model.crypto.ImportedKeyDetail;
 import com.otilm.core.service.CryptographicKeyImportExternalService;
 import java.util.Base64;
 import java.util.UUID;
@@ -51,7 +53,7 @@ class CryptographicKeyControllerImportTest {
         KeyDetailDto detail = new KeyDetailDto();
         detail.setName("imported key");
         when(importService.importKey(eq(token), eq(profile), eq(KeyRequestType.KEY_PAIR), sent.capture()))
-                .thenReturn(detail);
+                .thenReturn(new ImportedKeyDetail(detail, ImportOutcome.CREATED));
         String file = Base64.getEncoder().encodeToString(new byte[]{1, 2, 3});
 
         // when
@@ -69,6 +71,31 @@ class CryptographicKeyControllerImportTest {
         assertThat(response.getContentAsString()).contains("imported key").doesNotContain(PASSPHRASE, file);
         assertThat(sent.getValue().getFile().length()).isZero();
         assertThat(sent.getValue().getInputPassphrase().codePointLength()).isZero();
+    }
+
+    @Test
+    void importKey_answersOkForAKeyThePlatformAlreadyHolds() throws Exception {
+        // given
+        UUID token = UUID.randomUUID();
+        UUID profile = UUID.randomUUID();
+        KeyDetailDto detail = new KeyDetailDto();
+        detail.setName("held key");
+        when(importService.importKey(eq(token), eq(profile), eq(KeyRequestType.KEY_PAIR), any()))
+                .thenReturn(new ImportedKeyDetail(detail, ImportOutcome.EXISTING));
+        String file = Base64.getEncoder().encodeToString(new byte[]{1, 2, 3});
+
+        // when
+        MockHttpServletResponse response = mvc
+                .perform(post("/v1/tokens/{token}/tokenProfiles/{profile}/keys/{type}/import", token, profile,
+                        KeyRequestType.KEY_PAIR.getCode())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"held key\",\"file\":\"" + file + "\"}"))
+                .andReturn()
+                .getResponse();
+
+        // then
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(response.getContentAsString()).contains("held key");
     }
 
     @Test

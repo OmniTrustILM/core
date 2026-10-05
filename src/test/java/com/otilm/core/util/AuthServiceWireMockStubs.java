@@ -13,6 +13,14 @@ public final class AuthServiceWireMockStubs {
     private AuthServiceWireMockStubs() {
     }
 
+    /** Starts the auth-service stub on its port, answering for the user as impersonation needs it. */
+    public static WireMockServer startImpersonating(UUID userUuid, String username) {
+        WireMockServer mockServer = new WireMockServer(WireMockPorts.AUTH_SERVICE);
+        mockServer.start();
+        stubImpersonation(mockServer, userUuid, username);
+        return mockServer;
+    }
+
     public static void stubImpersonation(WireMockServer mockServer, UUID userUuid, String username) {
         mockServer.stubFor(WireMock.get(WireMock.urlPathMatching("/auth/users/[^/]+")).willReturn(WireMock.okJson("""
                 {

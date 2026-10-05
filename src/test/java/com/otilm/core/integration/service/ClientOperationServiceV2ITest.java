@@ -1,7 +1,16 @@
 package com.otilm.core.integration.service;
 
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.spi.ThrowableProxyUtil;
+import ch.qos.logback.core.read.ListAppender;
 import com.github.tomakehurst.wiremock.WireMockServer;
+import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder;
 import com.github.tomakehurst.wiremock.client.WireMock;
+import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
+import com.github.tomakehurst.wiremock.extension.Parameters;
+import com.github.tomakehurst.wiremock.extension.ServeEventListener;
+import com.github.tomakehurst.wiremock.http.Fault;
+import com.github.tomakehurst.wiremock.stubbing.ServeEvent;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.CertificateOperationException;
 import com.otilm.api.exception.ConnectorException;
@@ -10,46 +19,70 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
+import com.otilm.api.model.client.attribute.ResponseAttribute;
 import com.otilm.api.model.client.certificate.CancelPendingCertificateRequestDto;
 import com.otilm.api.model.client.certificate.ManuallyIssueCertificateRequestDto;
+import com.otilm.api.model.client.connector.v2.ConnectorInterface;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.common.NameAndIdDto;
+import com.otilm.api.model.common.attribute.common.AttributeContent;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.content.ObjectAttributeContentV2;
+import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
+import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.common.enums.cryptography.RsaSignatureScheme;
+import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
+import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
+import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorithmAttribute;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.compliance.ComplianceStatus;
+import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.cryptography.key.KeyState;
+import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRekeyRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
+import com.otilm.api.model.core.v2.ClientCertificateRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
 import com.otilm.core.attribute.CsrAttributes;
+import com.otilm.core.attribute.RsaSignatureAttributes;
+import com.otilm.core.attribute.SignatureAlgorithmFields;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
+import com.otilm.core.config.CustomAuditAware;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
+import com.otilm.core.dao.entity.CertificateEventHistory;
 import com.otilm.core.dao.entity.CertificateLocation;
 import com.otilm.core.dao.entity.CertificateRelation;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.Connector;
+import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.EntityInstanceReference;
 import com.otilm.core.dao.entity.Location;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
@@ -66,17 +99,25 @@ import com.otilm.core.dao.repository.EntityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.FunctionGroupRepository;
 import com.otilm.core.dao.repository.LocationRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
+import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.model.compliance.ComplianceResultDto;
+import com.otilm.core.model.crypto.OperationAttributeSchema;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
+import com.otilm.core.service.CertificateEventHistoryInternalService;
+import com.otilm.core.service.CertificateExternalService;
 import com.otilm.core.service.CertificateInternalService;
+import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.service.CryptographicOperationExternalService;
 import com.otilm.core.service.CryptographicOperationInternalService;
 import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
+import com.otilm.core.service.v2.impl.ClientOperationServiceImpl;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.CertificateRequestUtils;
 import com.otilm.core.util.CertificateTestUtil;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.builders.AuthorityFixtures;
@@ -84,6 +125,7 @@ import com.otilm.core.util.builders.CertificateRequestEntityBuilder;
 import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
@@ -91,6 +133,7 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.KeyStore;
 import java.security.NoSuchAlgorithmException;
+import java.security.PublicKey;
 import java.security.SignatureException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
@@ -101,7 +144,14 @@ import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.sql.DataSource;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.asn1.x509.Extensions;
@@ -119,15 +169,25 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.concurrent.DelegatingSecurityContextExecutorService;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
@@ -138,6 +198,10 @@ import static org.mockito.Mockito.when;
 
 @SpringBootTest
 class ClientOperationServiceV2ITest extends BaseSpringBootTest {
+
+    /** SHA256withRSA in the fields, sorted: stored attributes come back ordered by their definitions' random UUIDs. */
+    private static final List<String> SHA256_WITH_RSA_FIELDS = List
+            .of("data_rsaSigScheme=PKCS1-v1_5", "data_sigDigest=SHA-256");
 
     private static final String SAMPLE_PKCS10 = """
             -----BEGIN CERTIFICATE REQUEST-----
@@ -165,8 +229,14 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     @Autowired
     private ClientOperationInternalService clientOperationInternalService;
 
-    @Autowired
+    @MockitoSpyBean
     private CertificateInternalService certificateService;
+
+    @MockitoSpyBean
+    private CertificateEventHistoryInternalService certificateEventHistoryService;
+
+    @Autowired
+    private CertificateExternalService certificateExternalService;
 
     @MockitoBean
     private CryptographicOperationInternalService cryptographicOperationService;
@@ -200,12 +270,20 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     private CertificateEventHistoryRepository certificateEventHistoryRepository;
     @Autowired
     private CertificateContentRepository certificateContentRepository;
-    @Autowired
+    @MockitoSpyBean
     private CryptographicKeyRepository cryptographicKeyRepository;
+    @Autowired
+    private CryptographicKeyInternalService keyInternalService;
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+    @Autowired
+    private DataSource dataSource;
     @Autowired
     private CryptographicKeyItemRepository cryptographicKeyItemRepository;
     @Autowired
     private TokenProfileRepository tokenProfileRepository;
+    @Autowired
+    private TokenInstanceReferenceRepository tokenInstanceReferenceRepository;
     @Autowired
     private CertificateRelationRepository certificateRelationRepository;
     @Autowired
@@ -218,18 +296,15 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     private CertificateContent certificateContent;
 
     private WireMockServer mockServer;
+    private final ResponseGate responseGate = new ResponseGate();
 
     private X509Certificate x509Cert;
+    @MockitoSpyBean
     private AttributeEngine attributeEngine;
-
-    @Autowired
-    void setAttributeEngine(AttributeEngine attributeEngine) {
-        this.attributeEngine = attributeEngine;
-    }
 
     @BeforeEach
     void setUp() throws GeneralSecurityException, IOException, NotFoundException, AttributeException {
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(WireMockConfiguration.wireMockConfig().dynamicPort().extensions(responseGate));
         mockServer.start();
 
         WireMock.configureFor("localhost", mockServer.port());
@@ -1233,6 +1308,549 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                         .renewCertificate(authorityUuid, raProfileUuid, certificateUuid, renewRequest));
     }
 
+    @Test
+    void submitCertificateRequest_storesAV2KeysSignatureAttributesUnderItsConnector() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        TokenInstanceReference token = persistV2Token();
+        CryptographicKey key = persistV2Key(token);
+        when(cryptographicOperationService.listSignAttributeSchema(key.getUuid()))
+                .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
+        when(cryptographicOperationService
+                .generateCsr(eq(key.getUuid()), eq(key.getTokenProfileUuid()), any(), any(), anyList(), any(), any(),
+                        any()))
+                .thenReturn(SAMPLE_PKCS10);
+        ClientCertificateRequestDto request = new ClientCertificateRequestDto();
+        request.setRaProfileUuid(raProfile.getUuid());
+        request.setFormat(CertificateRequestFormat.PKCS10);
+        request.setKeyUuid(key.getUuid());
+        request.setTokenProfileUuid(key.getTokenProfileUuid());
+        request.setCsrAttributes(commonName("v2-signed"));
+        request.setSignatureAttributes(sha256WithRsa());
+        request.setIssueAttributes(List.of());
+
+        // when
+        CertificateDetailDto submitted = clientOperationService.submitCertificateRequest(request, null);
+
+        // then
+        CertificateDetailDto detail = certificateExternalService
+                .getCertificate(SecuredUUID.fromString(submitted.getUuid()));
+        Assertions
+                .assertEquals(SHA256_WITH_RSA_FIELDS,
+                        describe(detail.getCertificateRequest().getSignatureAttributes()));
+    }
+
+    @Test
+    void submitCertificateRequest_storesTheSignatureAttributesAnUploadedCsrNamesForAV2Key() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        TokenInstanceReference token = persistV2Token();
+        CryptographicKey key = persistV2Key(token);
+        when(cryptographicOperationService.listSignAttributeSchema(key.getUuid()))
+                .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
+        ClientCertificateRequestDto request = uploadedRequest(key.getUuid(), sha256WithRsa());
+
+        // when
+        CertificateDetailDto submitted = clientOperationService.submitCertificateRequest(request, null);
+
+        // then
+        CertificateDetailDto detail = certificateExternalService
+                .getCertificate(SecuredUUID.fromString(submitted.getUuid()));
+        Assertions
+                .assertEquals(SHA256_WITH_RSA_FIELDS,
+                        describe(detail.getCertificateRequest().getSignatureAttributes()));
+    }
+
+    @Test
+    void submitCertificateRequest_refusesASchemeAndDigestTheV2KeyDoesNotOfferTogether() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        TokenInstanceReference token = persistV2Token();
+        CryptographicKey key = persistV2Key(token);
+        List<BaseAttribute> published = List
+                .of(SignatureAlgorithmAttribute
+                        .definition(
+                                List.of(SignatureAlgorithm.SHA256_WITH_RSA, SignatureAlgorithm.SHA384_WITH_RSA_PSS)));
+        when(cryptographicOperationService.listSignAttributeSchema(key.getUuid()))
+                .thenReturn(new OperationAttributeSchema(token.getConnectorUuid(),
+                        SignatureAlgorithmFields.form(published), published));
+        ClientCertificateRequestDto request = uploadedRequest(key.getUuid(),
+                List
+                        .of(RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PSS),
+                                RsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_256)));
+
+        // when
+        Executable submit = () -> clientOperationService.submitCertificateRequest(request, null);
+
+        // then
+        ValidationException failure = Assertions.assertThrows(ValidationException.class, submit);
+        Assertions.assertTrue(failure.getMessage().contains("PSS with SHA-256"), failure.getMessage());
+    }
+
+    @Test
+    void submitCertificateRequest_refusesASignatureAlgorithmStatedBesideTheFieldsOfAV2Key() throws Exception {
+        // given: a definition of the connector's attribute stored before Core presented the fields
+        stubAuthorityProviderAttributesEndpoints();
+        TokenInstanceReference token = persistV2Token();
+        CryptographicKey key = persistV2Key(token);
+        attributeEngine
+                .updateDataAttributeDefinitions(token.getConnectorUuid(), AttributeOperation.SIGN,
+                        List.of(SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA))));
+        when(cryptographicOperationService.listSignAttributeSchema(key.getUuid()))
+                .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
+        List<RequestAttribute> attributes = new ArrayList<>(sha256WithRsa());
+        attributes.add(SignatureAlgorithmAttribute.request(SignatureAlgorithm.SHA256_WITH_RSA));
+        ClientCertificateRequestDto request = uploadedRequest(key.getUuid(), attributes);
+
+        // when
+        Executable submit = () -> clientOperationService.submitCertificateRequest(request, null);
+
+        // then
+        ValidationException failure = Assertions.assertThrows(ValidationException.class, submit);
+        Assertions
+                .assertTrue(failure.getMessage().contains("attributes the signing key presents"), failure.getMessage());
+    }
+
+    @Test
+    void submitCertificateRequest_readsAResubmittedCsrsAttributesUnderItsRecordedKey() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        TokenInstanceReference token = persistV2Token();
+        CryptographicKey key = persistV2Key(token);
+        when(cryptographicOperationService.listSignAttributeSchema(key.getUuid()))
+                .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
+        clientOperationService.submitCertificateRequest(uploadedRequest(key.getUuid(), sha256WithRsa()), null);
+
+        // when
+        CertificateDetailDto resubmitted = clientOperationService
+                .submitCertificateRequest(uploadedRequest(null, null), null);
+
+        // then
+        Assertions
+                .assertEquals(SHA256_WITH_RSA_FIELDS,
+                        describe(resubmitted.getCertificateRequest().getSignatureAttributes()));
+    }
+
+    @Test
+    void submitCertificateRequest_claimsTheSchemaOfTheKeyAResubmittedCsrWasStoredWith() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        TokenInstanceReference token = persistV2Token();
+        CryptographicKey key = persistV2Key(token);
+        when(cryptographicOperationService.listSignAttributeSchema(key.getUuid()))
+                .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
+        clientOperationService.submitCertificateRequest(uploadedRequest(key.getUuid(), null), null);
+
+        // when
+        CertificateDetailDto resubmitted = clientOperationService
+                .submitCertificateRequest(uploadedRequest(null, sha256WithRsa()), null);
+
+        // then
+        Assertions
+                .assertEquals(SHA256_WITH_RSA_FIELDS,
+                        describe(resubmitted.getCertificateRequest().getSignatureAttributes()));
+        verify(cryptographicOperationService).listSignAttributeSchema(key.getUuid());
+    }
+
+    @Test
+    void submitCertificateRequest_storesAnUploadedCsrsAttributesUnderTheV2KeyItsPublicKeyMatches() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        TokenInstanceReference token = persistV2Token();
+        CryptographicKey key = persistV2Key(token);
+        holdPublicKeyOf(key, SAMPLE_PKCS10);
+        when(cryptographicOperationService.listSignAttributeSchema(key.getUuid()))
+                .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
+
+        // when
+        CertificateDetailDto submitted = clientOperationService
+                .submitCertificateRequest(uploadedRequest(null, sha256WithRsa()), null);
+
+        // then
+        Assertions
+                .assertEquals(SHA256_WITH_RSA_FIELDS,
+                        describe(submitted.getCertificateRequest().getSignatureAttributes()));
+        verify(cryptographicOperationService).listSignAttributeSchema(key.getUuid());
+    }
+
+    @Test
+    void getCertificate_readsAV2KeysSignatureAttributesAfterItsPrivateItemIsDeleted() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        TokenInstanceReference token = persistV2Token();
+        CryptographicKey key = persistV2Key(token);
+        when(cryptographicOperationService.listSignAttributeSchema(key.getUuid()))
+                .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
+        CertificateDetailDto submitted = clientOperationService
+                .submitCertificateRequest(uploadedRequest(key.getUuid(), sha256WithRsa()), null);
+        cryptographicKeyItemRepository
+                .deleteAll(cryptographicKeyItemRepository
+                        .findByKeyUuidIn(List.of(key.getUuid()))
+                        .stream()
+                        .filter(item -> item.getType() == KeyType.PRIVATE_KEY)
+                        .toList());
+
+        // when
+        CertificateDetailDto detail = certificateExternalService
+                .getCertificate(SecuredUUID.fromString(submitted.getUuid()));
+
+        // then
+        Assertions
+                .assertEquals(SHA256_WITH_RSA_FIELDS,
+                        describe(detail.getCertificateRequest().getSignatureAttributes()));
+    }
+
+    @Test
+    void submitCertificateRequest_claimsAV2KeysSignSchemaOutsideATransaction() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        TokenInstanceReference token = persistV2Token();
+        CryptographicKey key = persistV2Key(token);
+        AtomicReference<Boolean> transactionActive = new AtomicReference<>();
+        when(cryptographicOperationService.listSignAttributeSchema(key.getUuid())).thenAnswer(invocation -> {
+            transactionActive.set(TransactionSynchronizationManager.isActualTransactionActive());
+            return signatureAlgorithmSchema(token.getConnectorUuid());
+        });
+
+        // when
+        clientOperationService.submitCertificateRequest(uploadedRequest(key.getUuid(), sha256WithRsa()), null);
+
+        // then
+        Assertions
+                .assertFalse(transactionActive.get(),
+                        "a submit with no transaction of its own must not open one around the connector's schema call");
+    }
+
+    @Test
+    void submitCertificateRequest_joinsTheCallersTransaction() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        AtomicReference<Boolean> transactionActive = new AtomicReference<>();
+        doAnswer(invocation -> {
+            transactionActive.set(TransactionSynchronizationManager.isActualTransactionActive());
+            return invocation.callRealMethod();
+        }).when(extendedAttributeService).mergeAndValidateIssueAttributes(any(), any());
+        long requests = certificateRequestRepository.count();
+
+        // when
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            submit(uploadedRequest(null, null));
+            status.setRollbackOnly();
+        });
+
+        // then
+        Assertions.assertTrue(transactionActive.get(), "a caller's transaction must be joined, as SCEP relies on");
+        Assertions
+                .assertEquals(requests, certificateRequestRepository.count(),
+                        "the caller's rollback must take the submitted request with it");
+    }
+
+    @Test
+    void submitCertificateRequest_marksTheCallersTransactionRollbackOnlyOnACheckedFailure() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        doThrow(new ConnectorException("authority unavailable"))
+                .when(extendedAttributeService)
+                .mergeAndValidateIssueAttributes(any(), any());
+        AtomicReference<Boolean> rollbackOnly = new AtomicReference<>();
+        ClientCertificateRequestDto request = uploadedRequest(null, null);
+
+        // when
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            Assertions
+                    .assertThrows(ConnectorException.class,
+                            () -> clientOperationService.submitCertificateRequest(request, null));
+            rollbackOnly.set(status.isRollbackOnly());
+            status.setRollbackOnly();
+        });
+
+        // then
+        Assertions.assertTrue(rollbackOnly.get(), "a checked failure must still mark the caller's transaction");
+    }
+
+    @Test
+    void submitCertificateRequest_leavesNoRequestBehindWhenPersistenceFails() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        doThrow(new RuntimeException("persistence failed")).when(certificateRepository).save(any());
+        long requests = certificateRequestRepository.count();
+        ClientCertificateRequestDto request = uploadedRequest(null, null);
+
+        // when
+        Executable submit = () -> clientOperationService.submitCertificateRequest(request, null);
+
+        // then
+        Assertions.assertThrows(RuntimeException.class, submit);
+        Assertions.assertEquals(requests, certificateRequestRepository.count());
+    }
+
+    @Test
+    void getSignAttributeOwner_joinsTheCallersTransaction() {
+        // given
+        AtomicReference<Boolean> transactionActive = new AtomicReference<>();
+        doAnswer(invocation -> {
+            transactionActive.set(TransactionSynchronizationManager.isActualTransactionActive());
+            return Optional.empty();
+        }).when(cryptographicKeyRepository).findV2ConnectorUuidByUuid(any());
+        UUID keyUuid = UUID.randomUUID();
+
+        // when
+        new TransactionTemplate(transactionManager)
+                .executeWithoutResult(status -> keyInternalService.getSignAttributeOwner(keyUuid));
+
+        // then
+        Assertions
+                .assertTrue(transactionActive.get(),
+                        "the owner lookup must not suspend its caller's transaction onto a second connection");
+    }
+
+    @Test
+    void rekeyCertificate_reusesTheSignatureAttributesItsV2KeySignedWith() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        TokenInstanceReference token = persistV2Token();
+        CryptographicKey oldKey = persistV2Key(token);
+        CryptographicKey newKey = persistV2Key(token);
+        signCertificateRequestWith(oldKey, token);
+
+        // when
+        ClientCertificateDataResponseDto rekeyed = rekeyWith(newKey);
+
+        // then
+        Assertions.assertEquals(SHA256_WITH_RSA_FIELDS, describeRequested(signatureAttributesGeneratedWith(newKey)));
+        CertificateDetailDto detail = certificateExternalService
+                .getCertificate(SecuredUUID.fromString(rekeyed.getUuid()));
+        Assertions
+                .assertEquals(SHA256_WITH_RSA_FIELDS,
+                        describe(detail.getCertificateRequest().getSignatureAttributes()));
+    }
+
+    @Test
+    void rekeyCertificate_reusesTheSignatureAttributesOfADeletedV2Key() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        TokenInstanceReference token = persistV2Token();
+        CryptographicKey oldKey = persistV2Key(token);
+        CryptographicKey newKey = persistV2Key(token);
+        signCertificateRequestWith(oldKey, token);
+        deleteKey(oldKey);
+
+        // when
+        rekeyWith(newKey);
+
+        // then
+        Assertions.assertEquals(SHA256_WITH_RSA_FIELDS, describeRequested(signatureAttributesGeneratedWith(newKey)));
+    }
+
+    @Test
+    void getCertificate_readsAV2KeysSignatureAttributesAfterTheKeyIsDeleted() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        TokenInstanceReference token = persistV2Token();
+        CryptographicKey key = persistV2Key(token);
+        when(cryptographicOperationService.listSignAttributeSchema(key.getUuid()))
+                .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
+        CertificateDetailDto submitted = clientOperationService
+                .submitCertificateRequest(uploadedRequest(key.getUuid(), sha256WithRsa()), null);
+        deleteKey(key);
+
+        // when
+        CertificateDetailDto detail = certificateExternalService
+                .getCertificate(SecuredUUID.fromString(submitted.getUuid()));
+
+        // then
+        Assertions
+                .assertEquals(SHA256_WITH_RSA_FIELDS,
+                        describe(detail.getCertificateRequest().getSignatureAttributes()));
+    }
+
+    /** Stores a request the key signed with SHA256withRSA as the fixture certificate's, as a v2 issuance leaves it. */
+    private void signCertificateRequestWith(CryptographicKey key, TokenInstanceReference token) throws Exception {
+        when(cryptographicOperationService.listSignAttributeSchema(any()))
+                .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
+        X509Certificate predecessor = CertificateTestUtil
+                .createCertificateWithSubjectAndSans("CN=rekey.example.com",
+                        new GeneralName(GeneralName.dNSName, "rekey.example.com"));
+        CertificateContent content = new CertificateContent();
+        content.setContent(Base64.getEncoder().encodeToString(predecessor.getEncoded()));
+        certificateContentRepository.save(content);
+        CertificateRequestEntity signedRequest = CertificateRequestEntityBuilder
+                .aCertificateRequest()
+                .withContent("content")
+                .build();
+        signedRequest.setKeyUuid(key.getUuid());
+        certificateRequestRepository.save(signedRequest);
+        attributeEngine
+                .validateUpdateDataAttributes(token.getConnectorUuid(), AttributeOperation.SIGN,
+                        signatureAlgorithmSchema(token.getConnectorUuid()).definitions(), sha256WithRsa());
+        attributeEngine
+                .updateObjectDataAttributesContent(ObjectAttributeContentInfo
+                        .builder(Resource.CERTIFICATE_REQUEST, signedRequest.getUuid())
+                        .connector(token.getConnectorUuid())
+                        .operation(AttributeOperation.SIGN)
+                        .build(), sha256WithRsa());
+        certificate.setCertificateContent(content);
+        certificate.setHybridCertificate(false);
+        certificate.setAltKeyUuid(null);
+        certificate.setKeyUuid(key.getUuid());
+        certificate.setCertificateRequest(signedRequest);
+        certificate.setCertificateRequestUuid(signedRequest.getUuid());
+        certificateRepository.save(certificate);
+    }
+
+    private ClientCertificateDataResponseDto rekeyWith(CryptographicKey key) throws Exception {
+        ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
+        request.setFormat(CertificateRequestFormat.PKCS10);
+        request.setKeyUuid(key.getUuid());
+        request.setTokenProfileUuid(key.getTokenProfileUuid());
+        when(cryptographicOperationService
+                .generateCsr(eq(key.getUuid()), eq(key.getTokenProfileUuid()), any(), any(), anyList(), any(), any(),
+                        any()))
+                .thenReturn(SAMPLE_PKCS10);
+        return clientOperationService
+                .rekeyCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                        String.valueOf(certificate.getUuid()), request);
+    }
+
+    private List<RequestAttribute> signatureAttributesGeneratedWith(CryptographicKey key) throws Exception {
+        ArgumentCaptor<List<RequestAttribute>> signatureAttributes = ArgumentCaptor.captor();
+        verify(cryptographicOperationService)
+                .generateCsr(eq(key.getUuid()), eq(key.getTokenProfileUuid()), any(), any(),
+                        signatureAttributes.capture(), any(), any(), any());
+        return signatureAttributes.getValue();
+    }
+
+    /** Deletes the key as CryptographicKeyWriter.deleteKeyWithAssociations does; its certificate requests stay. */
+    private void deleteKey(CryptographicKey key) {
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            certificateRepository.clearKeyAssociations(key.getUuid());
+            cryptographicKeyItemRepository
+                    .deleteAll(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(key.getUuid())));
+            cryptographicKeyRepository.deleteById(key.getUuid());
+        });
+    }
+
+    private TokenInstanceReference persistV2Token() {
+        Connector cryptographyConnector = new Connector();
+        cryptographyConnector.setName("cryptography-provider-v2");
+        cryptographyConnector.setUrl("http://localhost:1");
+        cryptographyConnector.setVersion(ConnectorVersion.V2);
+        cryptographyConnector.setStatus(ConnectorStatus.CONNECTED);
+        cryptographyConnector = connectorRepository.save(cryptographyConnector);
+        ConnectorInterfaceEntity cryptography = new ConnectorInterfaceEntity();
+        cryptography.setConnector(cryptographyConnector);
+        cryptography.setConnectorUuid(cryptographyConnector.getUuid());
+        cryptography.setInterfaceCode(ConnectorInterface.CRYPTOGRAPHY);
+        cryptography.setVersion("v2");
+        cryptography.setFeatures(List.of(FeatureFlag.STATELESS));
+        cryptography = connectorInterfaceRepository.save(cryptography);
+        TokenInstanceReference token = new TokenInstanceReference();
+        token.setName("v2-token");
+        token.setConnector(cryptographyConnector);
+        token.setConnectorUuid(cryptographyConnector.getUuid());
+        token.setConnectorInterface(cryptography);
+        token.setKind("HSM");
+        token.setStatus(TokenInstanceStatus.ACTIVATED);
+        return tokenInstanceReferenceRepository.save(token);
+    }
+
+    /** Gives the key's public item the fingerprint of the request's public key, as the key that signed it holds. */
+    private void holdPublicKeyOf(CryptographicKey key, String certificateRequest) throws Exception {
+        PublicKey publicKey = CertificateRequestUtils
+                .createCertificateRequest(certificateRequest, CertificateRequestFormat.PKCS10)
+                .getPublicKey();
+        String fingerprint = CertificateUtil
+                .getThumbprint(
+                        Base64.getEncoder().encodeToString(publicKey.getEncoded()).getBytes(StandardCharsets.UTF_8));
+        CryptographicKeyItem publicItem = cryptographicKeyItemRepository
+                .findByKeyUuidIn(List.of(key.getUuid()))
+                .stream()
+                .filter(item -> item.getType() == KeyType.PUBLIC_KEY)
+                .findFirst()
+                .orElseThrow();
+        publicItem.setFingerprint(fingerprint);
+        cryptographicKeyItemRepository.save(publicItem);
+    }
+
+    private CryptographicKey persistV2Key(TokenInstanceReference token) {
+        TokenProfile profile = new TokenProfile();
+        profile.setName("v2-profile-" + UUID.randomUUID());
+        profile.setTokenInstanceReference(token);
+        profile.setTokenInstanceName(token.getName());
+        profile.setEnabled(true);
+        profile.setUsage(List.of(KeyUsage.SIGN, KeyUsage.VERIFY));
+        profile = tokenProfileRepository.save(profile);
+        CryptographicKey key = new CryptographicKey();
+        key.setName("v2-key-" + UUID.randomUUID());
+        key.setTokenProfile(profile);
+        key.setTokenInstanceReference(token);
+        key = cryptographicKeyRepository.save(key);
+        for (KeyType type : List.of(KeyType.PRIVATE_KEY, KeyType.PUBLIC_KEY)) {
+            CryptographicKeyItem item = new CryptographicKeyItem();
+            item.setKey(key);
+            item.setKeyUuid(key.getUuid());
+            item.setType(type);
+            item.setKeyAlgorithm(KeyAlgorithm.RSA);
+            item.setState(KeyState.ACTIVE);
+            item.setEnabled(true);
+            cryptographicKeyItemRepository.save(item);
+        }
+        return key;
+    }
+
+    /** The schema Core presents for a v2 key whose connector offers SHA256withRSA. */
+    private static OperationAttributeSchema signatureAlgorithmSchema(UUID connectorUuid) {
+        List<BaseAttribute> published = List
+                .of(SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA)));
+        return new OperationAttributeSchema(connectorUuid, SignatureAlgorithmFields.form(published), published);
+    }
+
+    private static List<RequestAttribute> sha256WithRsa() {
+        return List
+                .of(RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PKCS1_v1_5),
+                        RsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_256));
+    }
+
+    private static List<RequestAttribute> commonName(String value) {
+        return List
+                .of(new RequestAttributeV3(UUID.fromString(CsrAttributes.COMMON_NAME_UUID),
+                        CsrAttributes.COMMON_NAME_ATTRIBUTE_NAME, AttributeContentType.STRING,
+                        List.of(new StringAttributeContentV3(value))));
+    }
+
+    private CertificateDetailDto submit(ClientCertificateRequestDto request) {
+        try {
+            return clientOperationService.submitCertificateRequest(request, null);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private ClientCertificateRequestDto uploadedRequest(UUID keyUuid, List<RequestAttribute> signatureAttributes) {
+        ClientCertificateRequestDto request = new ClientCertificateRequestDto();
+        request.setRaProfileUuid(raProfile.getUuid());
+        request.setFormat(CertificateRequestFormat.PKCS10);
+        request.setRequest(SAMPLE_PKCS10);
+        request.setKeyUuid(keyUuid);
+        request.setSignatureAttributes(signatureAttributes);
+        request.setIssueAttributes(List.of());
+        return request;
+    }
+
+    private static List<String> describeRequested(List<RequestAttribute> attributes) {
+        return attributes.stream().map(attribute -> {
+            List<? extends AttributeContent> content = attribute.getContent();
+            return attribute.getName() + "=" + content.getFirst().getData();
+        }).sorted().toList();
+    }
+
+    private static List<String> describe(List<ResponseAttribute> attributes) {
+        return attributes.stream().map(attribute -> {
+            List<? extends AttributeContent> content = attribute.getContent();
+            return attribute.getName() + "=" + content.getFirst().getData();
+        }).sorted().toList();
+    }
+
     private CryptographicKey createCryptographicKey(String fingerprint) {
         CryptographicKey cryptographicKey = new CryptographicKey();
         TokenProfile tokenProfile = new TokenProfile();
@@ -1465,7 +2083,47 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     @Test
     void issueCertificateAction_persistsMeta_when202CarriesMetadata() throws Exception {
         UUID certUuid = prepareCertificateForIssuance();
-        // 202 with a meta entry the connector wants to track against the certificate
+        stubIssueAcceptedWithMetadata();
+
+        clientOperationInternalService.issueCertificateAction(certUuid, true);
+
+        Certificate fetched = certificateRepository.findByUuid(certUuid).orElseThrow();
+        Assertions.assertEquals(CertificateState.PENDING_ISSUE, fetched.getState());
+        // Meta should be persisted against the certificate via the standard attribute pipeline
+        var storedMeta = attributeEngine
+                .getMetadataAttributesDefinitionContent(ObjectAttributeContentInfo
+                        .builder(Resource.CERTIFICATE, fetched.getUuid())
+                        .connector(connector.getUuid())
+                        .build());
+        Assertions.assertNotNull(storedMeta);
+        Assertions
+                .assertFalse(storedMeta.isEmpty(),
+                        "expected the connector's meta to be persisted against the certificate");
+        Assertions.assertEquals("orderId", storedMeta.getFirst().getName());
+    }
+
+    @Test
+    void issueCertificateAction_keepsRuntimeCauseOutOfHistory_when202MetadataPersistenceFails() throws Exception {
+        // given - the connector accepts asynchronously, then persisting its metadata fails
+        UUID certUuid = prepareCertificateForIssuance();
+        stubIssueAcceptedWithMetadata();
+        doThrow(new RuntimeException("internal db detail"))
+                .when(attributeEngine)
+                .updateMetadataAttributes(anyList(), any());
+
+        // when
+        clientOperationInternalService.issueCertificateAction(certUuid, true);
+
+        // then - the accepted operation stays pending and the failure is recorded without the runtime detail
+        Certificate fetched = certificateRepository.findByUuid(certUuid).orElseThrow();
+        Assertions.assertEquals(CertificateState.PENDING_ISSUE, fetched.getState());
+        assertFailedHistory(CertificateEvent.ISSUE, "Failed to persist connector metadata returned with HTTP 202; "
+                + "cancellation of this pending operation may be limited if the connector requires the original "
+                + "metadata. Cause: internal error");
+    }
+
+    /** A 202 carrying one meta entry the connector wants tracked against the certificate. */
+    private void stubIssueAcceptedWithMetadata() {
         mockServer
                 .stubFor(WireMock
                         .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue"))
@@ -1489,22 +2147,6 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                                           ]
                                         }
                                         """)));
-
-        clientOperationInternalService.issueCertificateAction(certUuid, true);
-
-        Certificate fetched = certificateRepository.findByUuid(certUuid).orElseThrow();
-        Assertions.assertEquals(CertificateState.PENDING_ISSUE, fetched.getState());
-        // Meta should be persisted against the certificate via the standard attribute pipeline
-        var storedMeta = attributeEngine
-                .getMetadataAttributesDefinitionContent(ObjectAttributeContentInfo
-                        .builder(Resource.CERTIFICATE, fetched.getUuid())
-                        .connector(connector.getUuid())
-                        .build());
-        Assertions.assertNotNull(storedMeta);
-        Assertions
-                .assertFalse(storedMeta.isEmpty(),
-                        "expected the connector's meta to be persisted against the certificate");
-        Assertions.assertEquals("orderId", storedMeta.getFirst().getName());
     }
 
     @Test
@@ -1785,6 +2427,425 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
+    void revokeCertificateAction_revocationSurvivesACopyReadBeforeItAndSavedAfterIt() throws Exception {
+        stubRevokeResponse(WireMock.aResponse().withStatus(204));
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+
+        try (ExecutorService revoker = new DelegatingSecurityContextExecutorService(
+                Executors.newSingleThreadExecutor())) {
+            new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                Certificate readBeforeRevoke = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+                try {
+                    revoker.submit(() -> {
+                        clientOperationInternalService.revokeCertificateAction(certificate.getUuid(), request, true);
+                        return null;
+                    }).get(30, TimeUnit.SECONDS);
+                } catch (Exception e) {
+                    throw new IllegalStateException(e);
+                }
+                readBeforeRevoke.setValidationStatus(CertificateValidationStatus.INVALID);
+            });
+        }
+
+        Certificate fetched = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        Assertions
+                .assertEquals(CertificateState.REVOKED, fetched.getState(),
+                        "a copy that did not change the state must not write it back");
+        Assertions.assertEquals(CertificateValidationStatus.INVALID, fetched.getValidationStatus());
+    }
+
+    @Test
+    void revokeCertificateAction_rejectsARevokedCertificateAsAlreadyRevoked() {
+        certificate.setState(CertificateState.REVOKED);
+        certificateRepository.save(certificate);
+        UUID certificateUuid = certificate.getUuid();
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+
+        ValidationException ex = Assertions
+                .assertThrows(ValidationException.class,
+                        () -> clientOperationInternalService.revokeCertificateAction(certificateUuid, request, true));
+        Assertions
+                .assertEquals("Certificate is already revoked. Certificate: " + certificate.toStringShort(),
+                        ex.getMessage());
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|',
+            value = {
+                    "500 | the authority reported an error",
+                    "503 | the authority could not be reached",
+                    "401 | the authority refused Core's credentials",
+                    "400 | the authority rejected the revocation"})
+    void revokeCertificateAction_describesTheAuthoritysAnswerInItsOwnWords(int status, String reason) {
+        stubRevokeResponse(WireMock
+                .jsonResponse(
+                        """
+                                {"message": "java.lang.IllegalStateException: com.otilm.ca.connector.ejbca.ws.AlreadyRevokedException_Exception: Certificate has previously been revoked."}
+                                """,
+                        status));
+
+        assertRevokeFailsWith("Failed to revoke certificate: " + reason);
+    }
+
+    @Test
+    void revokeCertificateAction_describesAProblemDetailByItsErrorCode() {
+        stubRevokeResponse(
+                WireMock.aResponse().withStatus(502).withHeader("Content-Type", "application/problem+json").withBody("""
+                        {"type": "about:blank", "title": "Upstream error", "status": 502,
+                         "errorCode": "UPSTREAM_ERROR", "detail": "EJBCA at 10.0.0.5:8443 answered SOAP fault"}
+                        """));
+
+        assertRevokeFailsWith("Failed to revoke certificate: the authority reported an error");
+    }
+
+    @Test
+    void revokeCertificateAction_failedApprovedRevokeReturnsTheCertificateToIssued() {
+        certificate.setState(CertificateState.PENDING_APPROVAL);
+        certificateRepository.save(certificate);
+        stubRevokeResponse(WireMock.jsonResponse("{\"message\": \"refused\"}", 400));
+        UUID certificateUuid = certificate.getUuid();
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+
+        Assertions
+                .assertThrows(CertificateOperationException.class,
+                        () -> clientOperationInternalService.revokeCertificateAction(certificateUuid, request, true));
+
+        Assertions
+                .assertEquals(CertificateState.ISSUED,
+                        certificateRepository.findByUuid(certificateUuid).orElseThrow().getState(),
+                        "the approval is closed, so a failed revoke must leave the certificate revocable again");
+        Certificate fetched = certificateRepository.findByUuid(certificateUuid).orElseThrow();
+        Assertions
+                .assertEquals(List.of("Failed to revoke certificate: the authority rejected the revocation"),
+                        certificateEventHistoryRepository
+                                .findByCertificateOrderByCreatedDesc(fetched)
+                                .stream()
+                                .filter(h -> h.getEvent() == CertificateEvent.REVOKE
+                                        && h.getStatus() == CertificateEventStatus.FAILED)
+                                .map(CertificateEventHistory::getMessage)
+                                .toList(),
+                        "the restore must not record the failure a second time");
+    }
+
+    @Test
+    void revokeCertificateAction_failedApprovedRevokeKeepsItsOwnErrorWhenTheRestoreFails() {
+        certificate.setState(CertificateState.PENDING_APPROVAL);
+        certificateRepository.save(certificate);
+        stubRevokeResponse(WireMock.jsonResponse("{\"message\": \"refused\"}", 400));
+        UUID certificateUuid = certificate.getUuid();
+        doThrow(new IllegalStateException("lock wait timeout"))
+                .when(certificateRepository)
+                .findAndLockWithAssociationsByUuid(certificateUuid);
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+
+        CertificateOperationException ex = Assertions
+                .assertThrows(CertificateOperationException.class,
+                        () -> clientOperationInternalService.revokeCertificateAction(certificateUuid, request, true));
+
+        Assertions.assertEquals("Failed to revoke certificate: the authority rejected the revocation", ex.getMessage());
+        Assertions
+                .assertEquals(CertificateState.PENDING_APPROVAL,
+                        certificateRepository.findByUuid(certificateUuid).orElseThrow().getState());
+    }
+
+    @Test
+    void revokeCertificateAction_keepsAComplianceResultStoredWhileTheConnectorWasCalled() throws Exception {
+        String revokePath = "/v2/authorityProvider/authorities/[^/]+/certificates/revoke";
+        stubRevokeResponse(WireMock.aResponse().withStatus(204));
+        CountDownLatch release = responseGate.hold();
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+
+        try (ExecutorService revoker = new DelegatingSecurityContextExecutorService(
+                Executors.newSingleThreadExecutor())) {
+            Future<?> revoke = revoker.submit(() -> {
+                clientOperationInternalService.revokeCertificateAction(certificate.getUuid(), request, true);
+                return null;
+            });
+            await()
+                    .atMost(5, TimeUnit.SECONDS)
+                    .until(() -> mockServer
+                            .countRequestsMatching(
+                                    WireMock.postRequestedFor(WireMock.urlPathMatching(revokePath)).build())
+                            .getCount() == 1);
+            storeComplianceResult(ComplianceStatus.OK);
+            release.countDown();
+            revoke.get(10, TimeUnit.SECONDS);
+        }
+
+        Certificate fetched = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        Assertions.assertEquals(CertificateState.REVOKED, fetched.getState());
+        Assertions.assertNotNull(fetched.getComplianceResult(), "the revoke must not write its stale copy back");
+        Assertions.assertEquals(ComplianceStatus.OK, fetched.getComplianceResult().getStatus());
+    }
+
+    @Test
+    void pendingRevokeAttributesSurviveADetachedCopySavedAfterThem() {
+        Certificate readBefore = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        RequestAttributeV2 revokeAttribute = new RequestAttributeV2(UUID.randomUUID(), "reasonDetail",
+                AttributeContentType.STRING, List.of(new StringAttributeContentV2("key compromise")));
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            Certificate pending = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+            pending.setPendingRevokeAttributes(List.of(revokeAttribute));
+        });
+
+        readBefore.setValidationStatus(CertificateValidationStatus.INVALID);
+        certificateRepository.save(readBefore);
+
+        Certificate fetched = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        Assertions.assertNotNull(fetched.getPendingRevokeAttributes(), "a stale copy must not clear them");
+        Assertions.assertEquals(1, fetched.getPendingRevokeAttributes().size());
+        Assertions.assertEquals(CertificateValidationStatus.INVALID, fetched.getValidationStatus());
+    }
+
+    private void storeComplianceResult(ComplianceStatus status) {
+        ComplianceResultDto complianceResult = new ComplianceResultDto();
+        complianceResult.setStatus(status);
+        new TransactionTemplate(transactionManager).executeWithoutResult(tx -> {
+            Certificate checked = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+            checked.setComplianceResult(complianceResult);
+            checked.setComplianceStatus(status);
+        });
+    }
+
+    @Test
+    void revokeCertificateAction_recordsWhoLastModifiedTheCertificate() throws Exception {
+        stubRevokeResponse(WireMock.aResponse().withStatus(204));
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        jdbc.update("UPDATE core.certificate SET i_author = 'someone-else' WHERE uuid = ?", certificate.getUuid());
+
+        clientOperationInternalService.revokeCertificateAction(certificate.getUuid(), request, true);
+
+        String author = jdbc
+                .queryForObject("SELECT i_author FROM core.certificate WHERE uuid = ?", String.class,
+                        certificate.getUuid());
+        Assertions.assertEquals(new CustomAuditAware().getCurrentAuditor().orElseThrow(), author);
+    }
+
+    @Test
+    void revokeCertificateAction_revocationSurvivesADetachedCopySavedAfterIt() throws Exception {
+        stubRevokeResponse(WireMock.aResponse().withStatus(204));
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+
+        Certificate readBeforeRevoke = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        clientOperationInternalService.revokeCertificateAction(certificate.getUuid(), request, true);
+        readBeforeRevoke.setValidationStatus(CertificateValidationStatus.INVALID);
+        certificateRepository.save(readBeforeRevoke);
+
+        Certificate fetched = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        Assertions
+                .assertEquals(CertificateState.REVOKED, fetched.getState(),
+                        "a copy that did not change the state must not write it back");
+        Assertions.assertEquals(CertificateValidationStatus.INVALID, fetched.getValidationStatus());
+    }
+
+    @Test
+    void revokeCertificateAction_failedRevokeKeepsWhatWasCommittedWhileItWaited() throws Exception {
+        String revokePath = "/v2/authorityProvider/authorities/[^/]+/certificates/revoke";
+        stubRevokeResponse(WireMock.jsonResponse("{\"message\": \"already revoked\"}", 500));
+        CountDownLatch release = responseGate.hold();
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+
+        try (ExecutorService revoker = new DelegatingSecurityContextExecutorService(
+                Executors.newSingleThreadExecutor())) {
+            Future<?> failing = revoker.submit(() -> {
+                clientOperationInternalService.revokeCertificateAction(certificate.getUuid(), request, true);
+                return null;
+            });
+            await()
+                    .atMost(5, TimeUnit.SECONDS)
+                    .until(() -> mockServer
+                            .countRequestsMatching(
+                                    WireMock.postRequestedFor(WireMock.urlPathMatching(revokePath)).build())
+                            .getCount() == 1);
+            ComplianceResultDto complianceResult = new ComplianceResultDto();
+            complianceResult.setStatus(ComplianceStatus.OK);
+            new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                Certificate concurrent = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+                concurrent.setState(CertificateState.REVOKED);
+                concurrent.setComplianceResult(complianceResult);
+                concurrent.setComplianceStatus(ComplianceStatus.OK);
+            });
+
+            release.countDown();
+            ExecutionException failure = Assertions
+                    .assertThrows(ExecutionException.class, () -> failing.get(10, TimeUnit.SECONDS));
+            Assertions.assertInstanceOf(CertificateOperationException.class, failure.getCause());
+        }
+
+        Certificate fetched = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        Assertions.assertEquals(CertificateState.REVOKED, fetched.getState());
+        Assertions.assertNotNull(fetched.getComplianceResult(), "the failed revoke must not write its stale copy back");
+        Assertions.assertEquals(ComplianceStatus.OK, fetched.getComplianceResult().getStatus());
+    }
+
+    @Test
+    void revokeCertificateAction_reportsAnUnreachableAuthority() {
+        stubRevokeResponse(WireMock.aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER));
+
+        assertRevokeFailsWith("Failed to revoke certificate: the authority could not be reached");
+    }
+
+    @Test
+    void revokeCertificateAction_keepsTheConnectorsAnswerOutOfTheLog() {
+        String sentinel = "SENTINEL-SECRET-2410";
+        stubRevokeResponse(WireMock.jsonResponse("{\"message\": \"credential " + sentinel + " was refused\"}", 500));
+        UUID certificateUuid = certificate.getUuid();
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+        ListAppender<ILoggingEvent> logged = new ListAppender<>();
+        logged.start();
+        ch.qos.logback.classic.Logger serviceLogger = (ch.qos.logback.classic.Logger) LoggerFactory
+                .getLogger(ClientOperationServiceImpl.class);
+        serviceLogger.addAppender(logged);
+        try {
+            Assertions
+                    .assertThrows(CertificateOperationException.class, () -> clientOperationInternalService
+                            .revokeCertificateAction(certificateUuid, request, true));
+        } finally {
+            serviceLogger.detachAppender(logged);
+        }
+
+        List<String> events = logged.list
+                .stream()
+                .map(event -> event.getFormattedMessage() + (event.getThrowableProxy() == null
+                        ? ""
+                        : ThrowableProxyUtil.asString(event.getThrowableProxy())))
+                .toList();
+        Assertions
+                .assertTrue(events.stream().anyMatch(event -> event.contains("the authority reported an error")),
+                        "the failure is still logged: " + events);
+        Assertions
+                .assertTrue(events.stream().noneMatch(event -> event.contains(sentinel)),
+                        "the connector's answer must not reach the log: " + events);
+    }
+
+    /**
+     * Holds the connector's answer until the test releases it, so a competing write provably commits while the
+     * operation waits on the authority.
+     */
+    private static final class ResponseGate implements ServeEventListener {
+
+        private volatile CountDownLatch release;
+
+        CountDownLatch hold() {
+            release = new CountDownLatch(1);
+            return release;
+        }
+
+        @Override
+        public void beforeResponseSent(ServeEvent serveEvent, Parameters parameters) {
+            CountDownLatch gate = release;
+            if (gate == null) {
+                return;
+            }
+            try {
+                gate.await(10, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        @Override
+        public String getName() {
+            return "responseGate";
+        }
+    }
+
+    private void stubRevokeResponse(ResponseDefinitionBuilder response) {
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/revoke"))
+                        .willReturn(response));
+    }
+
+    /** The failure the operator reads, in both the thrown error and the certificate history, and the state kept. */
+    private void assertRevokeFailsWith(String expectedMessage) {
+        UUID certificateUuid = certificate.getUuid();
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+
+        CertificateOperationException ex = Assertions
+                .assertThrows(CertificateOperationException.class,
+                        () -> clientOperationInternalService.revokeCertificateAction(certificateUuid, request, true));
+
+        Assertions.assertEquals(expectedMessage, ex.getMessage());
+        Certificate fetched = certificateRepository.findByUuid(certificateUuid).orElseThrow();
+        Assertions.assertEquals(CertificateState.ISSUED, fetched.getState());
+        List<String> revokeFailures = certificateEventHistoryRepository
+                .findByCertificateOrderByCreatedDesc(fetched)
+                .stream()
+                .filter(h -> h.getEvent() == CertificateEvent.REVOKE && h.getStatus() == CertificateEventStatus.FAILED)
+                .map(CertificateEventHistory::getMessage)
+                .toList();
+        Assertions.assertEquals(List.of(expectedMessage), revokeFailures);
+    }
+
+    @Test
+    void revokeCertificateAction_keepsRuntimeCauseOutOfHistoryAndError_whenLocalStepFailsAfterAcceptance()
+            throws Exception {
+        // given - the connector revokes synchronously, then the local attribute write fails
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/revoke"))
+                        .willReturn(WireMock.aResponse().withStatus(204)));
+        doThrow(new RuntimeException("internal db detail"))
+                .when(attributeEngine)
+                .updateObjectDataAttributesContent(any(), anyList());
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+
+        // when
+        CertificateOperationException ex = Assertions
+                .assertThrows(CertificateOperationException.class, () -> clientOperationInternalService
+                        .revokeCertificateAction(certificate.getUuid(), request, true));
+
+        // then
+        Assertions
+                .assertEquals("Connector accepted revoke but local state update failed: internal error",
+                        ex.getMessage());
+        assertFailedHistory(CertificateEvent.REVOKE,
+                "Connector accepted revoke but local state update failed: internal error");
+    }
+
+    @Test
+    void revokeCertificateAction_keepsRuntimeCauseOutOfHistoryAndError_whenFailingBeforeTheConnector() {
+        // given - assembling the connector request fails before anything is sent
+        doThrow(new RuntimeException("internal db detail"))
+                .when(attributeEngine)
+                .getRequestObjectDataAttributesContent(any());
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+
+        // when
+        CertificateOperationException ex = Assertions
+                .assertThrows(CertificateOperationException.class, () -> clientOperationInternalService
+                        .revokeCertificateAction(certificate.getUuid(), request, true));
+
+        // then
+        Assertions.assertEquals("Failed to revoke certificate: internal error", ex.getMessage());
+        assertFailedHistory(CertificateEvent.REVOKE, "Failed to revoke certificate: internal error");
+    }
+
+    private void assertFailedHistory(CertificateEvent event, String expectedMessage) {
+        List<String> failures = certificateEventHistoryRepository
+                .findAll()
+                .stream()
+                .filter(h -> h.getEvent() == event && h.getStatus() == CertificateEventStatus.FAILED)
+                .map(CertificateEventHistory::getMessage)
+                .toList();
+        Assertions.assertEquals(List.of(expectedMessage), failures);
+    }
+
+    @Test
     void revokeCertificateAction_recordsEventHistoryEntry_on202() throws Exception {
         mockServer
                 .stubFor(WireMock
@@ -1994,6 +3055,35 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                                 + "to precede ISSUED on the sync renew path");
     }
 
+    @Test
+    void renewCertificateAction_keepsRuntimeCauseOutOfHistoryAndError_whenLocalUpdateFailsAfterAcceptance()
+            throws Exception {
+        // given - the connector renews synchronously, then recording the issued successor fails
+        prepareCertificateForRenewal();
+        String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/renew"))
+                        .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
+        doThrow(new RuntimeException("internal db detail"))
+                .when(certificateService)
+                .issueRequestedCertificate(any(), any(), any());
+        ClientCertificateRenewRequestDto request = ClientCertificateRenewRequestDto.builder().build();
+        UUID successorUuid = certificate.getUuid();
+
+        // when
+        CertificateOperationException ex = Assertions
+                .assertThrows(CertificateOperationException.class,
+                        () -> clientOperationInternalService.renewCertificateAction(successorUuid, request, true));
+
+        // then
+        Assertions
+                .assertEquals("Connector accepted renewal but local update failed for certificate %s: internal error"
+                        .formatted(successorUuid), ex.getMessage());
+        assertFailedHistory(CertificateEvent.RENEW,
+                "Connector accepted renewal but local update failed: internal error");
+    }
+
     /**
      * The synchronous (HTTP 200) rekey path moves the new certificate to PENDING_ISSUE via the state machine BEFORE the
      * connector call, then finishes in ISSUED — mirroring the renew path.
@@ -2023,6 +3113,124 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                                         && "Certificate requested".equals(h.getMessage())),
                         "expected the PENDING_ISSUE audit row (ISSUE/SUCCESS, \"Certificate requested\") "
                                 + "to precede ISSUED on the sync rekey path");
+    }
+
+    @Test
+    void rekeyCertificateAction_keepsRuntimeCauseOutOfHistoryAndError_whenLocalUpdateFailsAfterAcceptance()
+            throws Exception {
+        // given - the connector rekeys synchronously, then recording the issued successor fails
+        prepareCertificateForRenewal();
+        String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/renew"))
+                        .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
+        doThrow(new RuntimeException("internal db detail"))
+                .when(certificateService)
+                .issueRequestedCertificate(any(), any(), any());
+        ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
+        UUID successorUuid = certificate.getUuid();
+
+        // when
+        CertificateOperationException ex = Assertions
+                .assertThrows(CertificateOperationException.class,
+                        () -> clientOperationInternalService.rekeyCertificateAction(successorUuid, request, true));
+
+        // then
+        Assertions
+                .assertEquals("Connector accepted rekey but local update failed for certificate %s: internal error"
+                        .formatted(successorUuid), ex.getMessage());
+        assertFailedHistory(CertificateEvent.REKEY, "Connector accepted rekey but local update failed: internal error");
+    }
+
+    @Test
+    void renewCertificateAction_keepsRuntimeCauseOutOfHistoryAndError_whenReplacingInLocationFails() throws Exception {
+        // given - the predecessor sits on a location, and recording its removal from there fails after the renewal
+        UUID predecessorUuid = prepareCertificateForRenewal();
+        placeOnLocation(predecessorUuid, "renew-location");
+        String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/renew"))
+                        .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/remove"))
+                        .willReturn(WireMock.okJson("{}")));
+        doThrow(new RuntimeException("internal db detail"))
+                .when(certificateEventHistoryService)
+                .addEventHistory(any(UUID.class), eq(CertificateEvent.UPDATE_LOCATION),
+                        eq(CertificateEventStatus.SUCCESS), anyString(), anyString());
+        ClientCertificateRenewRequestDto request = ClientCertificateRenewRequestDto.builder().build();
+        request.setReplaceInLocations(true);
+        UUID successorUuid = certificate.getUuid();
+
+        // when
+        CertificateOperationException ex = Assertions
+                .assertThrows(CertificateOperationException.class,
+                        () -> clientOperationInternalService.renewCertificateAction(successorUuid, request, true));
+
+        // then
+        Assertions
+                .assertEquals("Failed to replace certificate in all locations during renew operation: internal error",
+                        ex.getMessage());
+        assertFailedHistory(CertificateEvent.UPDATE_LOCATION,
+                "Failed to replace certificate in location renew-location: internal error");
+    }
+
+    @Test
+    void rekeyCertificateAction_keepsRuntimeCauseOutOfHistoryAndError_whenReplacingInLocationFails() throws Exception {
+        // given - the predecessor sits on a location, and recording its removal from there fails after the rekey
+        UUID predecessorUuid = prepareCertificateForRenewal();
+        placeOnLocation(predecessorUuid, "rekey-location");
+        String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/renew"))
+                        .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/remove"))
+                        .willReturn(WireMock.okJson("{}")));
+        doThrow(new RuntimeException("internal db detail"))
+                .when(certificateEventHistoryService)
+                .addEventHistory(any(UUID.class), eq(CertificateEvent.UPDATE_LOCATION),
+                        eq(CertificateEventStatus.SUCCESS), anyString(), anyString());
+        ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
+        request.setReplaceInLocations(true);
+        UUID successorUuid = certificate.getUuid();
+
+        // when
+        CertificateOperationException ex = Assertions
+                .assertThrows(CertificateOperationException.class,
+                        () -> clientOperationInternalService.rekeyCertificateAction(successorUuid, request, true));
+
+        // then
+        Assertions
+                .assertEquals("Failed to replace certificate in all locations during rekey operation: internal error",
+                        ex.getMessage());
+        assertFailedHistory(CertificateEvent.UPDATE_LOCATION,
+                "Failed to replace certificate in location rekey-location: internal error");
+    }
+
+    private void placeOnLocation(UUID certificateUuid, String locationName) {
+        EntityInstanceReference entityInstanceReference = new EntityInstanceReference();
+        entityInstanceReference.setEntityInstanceUuid(UUID.randomUUID().toString());
+        entityInstanceReference.setConnector(connector);
+        entityInstanceReference = entityInstanceReferenceRepository.save(entityInstanceReference);
+
+        Location location = new Location();
+        location.setUuid(UUID.randomUUID());
+        location.setName(locationName);
+        location.setEnabled(true);
+        location.setEntityInstanceReference(entityInstanceReference);
+        location.setEntityInstanceReferenceUuid(entityInstanceReference.getUuid());
+
+        CertificateLocation certificateLocation = new CertificateLocation();
+        certificateLocation.setCertificate(certificateRepository.findByUuid(certificateUuid).orElseThrow());
+        certificateLocation.setLocation(location);
+        location.getCertificates().add(certificateLocation);
+        locationRepository.save(location);
     }
 
     @Test
@@ -2075,6 +3283,24 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         Assertions
                 .assertTrue(ex.getMessage().toLowerCase().contains("pending"),
                         "expected error message to mention pending state, got: " + ex.getMessage());
+    }
+
+    @Test
+    void revokeCertificate_rejectsARevokedCertificateAsAlreadyRevoked() {
+        certificate.setState(CertificateState.REVOKED);
+        certificateRepository.save(certificate);
+
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of());
+        SecuredParentUUID authorityUuid = SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid());
+        SecuredUUID raProfileSecuredUuid = raProfile.getSecuredUuid();
+        String certUuidString = certificate.getUuid().toString();
+        ValidationException ex = Assertions
+                .assertThrows(ValidationException.class, () -> clientOperationService
+                        .revokeCertificate(authorityUuid, raProfileSecuredUuid, certUuidString, request));
+        Assertions
+                .assertEquals("Certificate is already revoked. Certificate: " + certificate.toStringShort(),
+                        ex.getMessage());
     }
 
     @Test
@@ -2439,6 +3665,38 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                                 .anyMatch(h -> h.getEvent() == CertificateEvent.REVOKE
                                         && h.getStatus() == CertificateEventStatus.FAILED),
                         "cancelling a pending revoke must record REVOKE/FAILED for the restored cert");
+    }
+
+    @Test
+    void cancelPendingCertificateOperation_keepsRuntimeCauseOutOfHistory_whenTheConnectorCallFailsUnexpectedly() {
+        // given - reloading the certificate for the connector call fails with an unchecked exception
+        certificate.setState(CertificateState.PENDING_REVOKE);
+        certificateRepository.save(certificate);
+        doThrow(new RuntimeException("internal db detail"))
+                .when(certificateRepository)
+                .findForPollingByUuid(certificate.getUuid());
+        CancelPendingCertificateRequestDto req = new CancelPendingCertificateRequestDto();
+
+        // when - the cancel still completes locally
+        Assertions
+                .assertDoesNotThrow(() -> clientOperationService
+                        .cancelPendingCertificateOperation(
+                                SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
+                                raProfile.getSecuredUuid(), certificate.getUuid().toString(), req));
+
+        // then
+        Certificate after = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        Assertions.assertEquals(CertificateState.ISSUED, after.getState());
+        List<String> failures = certificateEventHistoryRepository
+                .findByCertificateOrderByCreatedDesc(after)
+                .stream()
+                .filter(h -> h.getStatus() == CertificateEventStatus.FAILED)
+                .map(CertificateEventHistory::getMessage)
+                .filter(message -> message.startsWith("Connector cancel call failed"))
+                .toList();
+        Assertions
+                .assertEquals(List.of("Connector cancel call failed (proceeding with local cancel): internal error"),
+                        failures);
     }
 
     @Test

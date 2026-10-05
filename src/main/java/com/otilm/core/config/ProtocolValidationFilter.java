@@ -39,28 +39,26 @@ public class ProtocolValidationFilter extends OncePerRequestFilter {
     protected void doFilterInternal(@NonNull HttpServletRequest request, @NonNull HttpServletResponse response,
             @NonNull FilterChain filterChain) throws ServletException, IOException {
 
-        CustomHttpServletRequestWrapper requestWrapper = new CustomHttpServletRequestWrapper(request);
-        CustomHttpServletResponseWrapper responseWrapper = new CustomHttpServletResponseWrapper(response);
         String requestUri = request.getRequestURI();
         String prefixRegex = "^%s/v\\d*/protocols/".formatted(context);
 
         if (!requestUri.matches(prefixRegex + ".*$")) {
-            filterChain.doFilter(requestWrapper, responseWrapper);
+            filterChain.doFilter(request, response);
         } else if (requestUri.matches(prefixRegex + "scep/.*$")) {
             logger.info("SCEP Request from " + request.getRemoteAddr() + " for " + requestUri);
             authHelper.authenticateAsSystemUser(AuthHelper.SCEP_USERNAME);
-            filterChain.doFilter(requestWrapper, responseWrapper);
+            filterChain.doFilter(request, response);
         } else if (requestUri.matches(prefixRegex + "acme/.*$")) {
             logger.info("ACME Request from " + request.getRemoteAddr() + " for " + requestUri);
             authHelper.authenticateAsSystemUser(AuthHelper.ACME_USERNAME);
-            filterChain.doFilter(requestWrapper, responseWrapper);
+            filterChain.doFilter(request, response);
         } else if (requestUri.matches(prefixRegex + "cmp/.*$")) {
             logger.info("CMPv2 Request from " + request.getRemoteAddr() + " for " + requestUri);
             authHelper.authenticateAsSystemUser(AuthHelper.CMP_USERNAME);
-            filterChain.doFilter(requestWrapper, responseWrapper);
+            filterChain.doFilter(request, response);
         } else if (requestUri.matches(prefixRegex + "tsp/.*$")) {
             // TSP requests are authenticated by the dedicated TSP security chain.
-            filterChain.doFilter(requestWrapper, responseWrapper);
+            filterChain.doFilter(request, response);
         } else {
             resolver.resolveException(request, response, null, new ValidationException("Invalid protocol request"));
         }

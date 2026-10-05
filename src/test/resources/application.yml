@@ -31,6 +31,9 @@ caching:
   time-quality-configs:
     ttl-minutes: 5
     max-size: 100
+  attribute-search-fields:
+    ttl-minutes: 5
+    max-size: 200
 
 connector:
   api-client:
@@ -151,9 +154,13 @@ spring:
       hibernate:
         jdbc:
           batch_size: 50
+        order_inserts: true
+        order_updates: true
         type:
           preferred_duration_jdbc_type: INTERVAL_SECOND
         default_schema: core
+        session_factory:
+          statement_inspector: com.otilm.core.util.SqlCapture
   profiles:
     active: test
   session:

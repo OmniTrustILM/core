@@ -190,6 +190,22 @@ public interface AttributeContent2ObjectRepository extends SecurityFilterReposit
                 FROM AttributeContent2Object aco
                 JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid
                 JOIN AttributeDefinition ad ON ad.uuid = aci.attributeDefinitionUuid
+                WHERE ad.type = :attributeType AND ad.operation = :operation AND ((:purpose IS NULL AND aco.purpose IS NULL) OR aco.purpose = :purpose)
+                    AND aco.objectType = :objectType AND aco.objectUuid = :objectUuid
+                    AND ((:objectVersion IS NULL AND aco.objectVersion IS NULL) OR aco.objectVersion = :objectVersion)
+                ORDER BY aci.attributeDefinitionUuid, aco.order
+            """)
+    List<ObjectAttributeContent> getObjectDataAttributesContentAnyConnector(
+            @Param("attributeType") AttributeType attributeType, @Param("operation") String operation,
+            @Param("purpose") String purpose, @Param("objectType") Resource objectType,
+            @Param("objectUuid") UUID objectUuid, @Param("objectVersion") Integer objectVersion);
+
+    @Query("""
+            SELECT new com.otilm.core.attribute.engine.records.ObjectAttributeContent(
+                ad.attributeUuid, ad.name, ad.label, ad.type, ad.contentType, aci.json, ad.version, aci.encryptedData)
+                FROM AttributeContent2Object aco
+                JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid
+                JOIN AttributeDefinition ad ON ad.uuid = aci.attributeDefinitionUuid
                 WHERE ad.type = :attributeType AND ad.operation IS NULL
                     AND aco.connectorUuid IS NULL AND aco.objectType = :objectType AND aco.objectUuid = :objectUuid
                     AND ((:objectVersion IS NULL AND aco.objectVersion IS NULL) OR aco.objectVersion = :objectVersion)

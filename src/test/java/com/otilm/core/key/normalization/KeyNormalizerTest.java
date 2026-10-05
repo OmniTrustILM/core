@@ -11,7 +11,11 @@ import java.io.IOException;
 import java.math.BigInteger;
 import java.security.GeneralSecurityException;
 import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.spec.ECGenParameterSpec;
+import java.time.Duration;
 import java.util.stream.Stream;
+import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.DERNull;
 import org.bouncycastle.asn1.DEROctetString;
 import org.bouncycastle.asn1.DERSet;
@@ -27,6 +31,7 @@ import org.bouncycastle.asn1.pkcs.PBKDF2Params;
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
 import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
+import org.bouncycastle.asn1.x9.X9ObjectIdentifiers;
 import org.bouncycastle.jcajce.spec.MLDSAParameterSpec;
 import org.bouncycastle.jcajce.spec.MLKEMParameterSpec;
 import org.bouncycastle.jcajce.spec.SLHDSAParameterSpec;
@@ -45,6 +50,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Named.named;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
 
@@ -69,7 +75,8 @@ class KeyNormalizerTest {
     @MethodSource("acceptedFiles")
     void normalize_protectsTheKeyOfEveryAcceptedFileForTheConnector(byte[] file, KeyPair keyPair) throws Exception {
         // when
-        NormalizedKey key = NORMALIZER.normalize(file, KeyFiles.passphrase(), KeyRequestType.KEY_PAIR);
+        NormalizedKey key = NORMALIZER
+                .normalize(file, KeyFiles.passphrase(), KeyRequestType.KEY_PAIR, DerivationBudget.forFile());
 
         // then
         assertThat(key.subjectPublicKeyInfo()).isEqualTo(keyPair.getPublic().getEncoded());
@@ -80,7 +87,8 @@ class KeyNormalizerTest {
     @MethodSource("platformKeys")
     void normalize_namesTheAlgorithmOfEveryPlatformKey(KeyPair keyPair, KeyAlgorithm algorithm) throws Exception {
         // when
-        NormalizedKey key = NORMALIZER.normalize(KeyFiles.pkcs8(keyPair), null, KeyRequestType.KEY_PAIR);
+        NormalizedKey key = NORMALIZER
+                .normalize(KeyFiles.pkcs8(keyPair), null, KeyRequestType.KEY_PAIR, DerivationBudget.forFile());
 
         // then
         assertThat(key.algorithm()).isEqualTo(algorithm);
@@ -91,7 +99,8 @@ class KeyNormalizerTest {
     @Test
     void normalize_opensAFileWithoutProtectionWithoutAPassphrase() {
         // when
-        NormalizedKey key = NORMALIZER.normalize(KeyFiles.pkcs8(ec), null, KeyRequestType.KEY_PAIR);
+        NormalizedKey key = NORMALIZER
+                .normalize(KeyFiles.pkcs8(ec), null, KeyRequestType.KEY_PAIR, DerivationBudget.forFile());
 
         // then
         assertThat(key.subjectPublicKeyInfo()).isEqualTo(ec.getPublic().getEncoded());
@@ -100,7 +109,8 @@ class KeyNormalizerTest {
     @Test
     void normalize_protectsTheKeyInThePinnedProfileWithTheRecommendedIterations() {
         // when
-        NormalizedKey key = NORMALIZER.normalize(KeyFiles.pkcs8(ec), null, KeyRequestType.KEY_PAIR);
+        NormalizedKey key = NORMALIZER
+                .normalize(KeyFiles.pkcs8(ec), null, KeyRequestType.KEY_PAIR, DerivationBudget.forFile());
 
         // then
         EncryptedKeyMaterialV2Dto material = new EncryptedKeyMaterialV2Dto();
@@ -120,8 +130,10 @@ class KeyNormalizerTest {
     @Test
     void normalize_generatesAFreshTransportPassphraseForEveryKey() {
         // when
-        NormalizedKey first = NORMALIZER.normalize(KeyFiles.pkcs8(ec), null, KeyRequestType.KEY_PAIR);
-        NormalizedKey second = NORMALIZER.normalize(KeyFiles.pkcs8(ec), null, KeyRequestType.KEY_PAIR);
+        NormalizedKey first = NORMALIZER
+                .normalize(KeyFiles.pkcs8(ec), null, KeyRequestType.KEY_PAIR, DerivationBudget.forFile());
+        NormalizedKey second = NORMALIZER
+                .normalize(KeyFiles.pkcs8(ec), null, KeyRequestType.KEY_PAIR, DerivationBudget.forFile());
 
         // then
         assertThat(new String(first.transportPassphrase().characters())).matches("[A-Za-z0-9_-]{43}");
@@ -133,10 +145,11 @@ class KeyNormalizerTest {
     void normalize_refusesAWrongPassphraseTheSameWayInEveryScheme(byte[] file) {
         // given
         Passphrase wrong = new Passphrase("not the passphrase".toCharArray());
+        DerivationBudget budget = DerivationBudget.forFile();
 
         // when
         ValidationException refusal = assertThrows(ValidationException.class,
-                () -> NORMALIZER.normalize(file, wrong, KeyRequestType.KEY_PAIR));
+                () -> NORMALIZER.normalize(file, wrong, KeyRequestType.KEY_PAIR, budget));
 
         // then
         assertThat(refusal.getMessage()).isEqualTo(KeyFileRefusal.UNREADABLE);
@@ -147,10 +160,11 @@ class KeyNormalizerTest {
     void normalize_refusesAProtectedFileWithoutItsPassphrase(Passphrase passphrase) throws Exception {
         // given
         byte[] file = KeyFiles.encrypted(ec, PKCS8Generator.AES_256_CBC, PKCS8Generator.PRF_HMACSHA256);
+        DerivationBudget budget = DerivationBudget.forFile();
 
         // when
         ValidationException refusal = assertThrows(ValidationException.class,
-                () -> NORMALIZER.normalize(file, passphrase, KeyRequestType.KEY_PAIR));
+                () -> NORMALIZER.normalize(file, passphrase, KeyRequestType.KEY_PAIR, budget));
 
         // then
         assertThat(refusal.getMessage()).isEqualTo(KeyFileRefusal.UNREADABLE);
@@ -162,10 +176,11 @@ class KeyNormalizerTest {
         byte[] file = KeyFiles.encrypted(ec, PKCS8Generator.AES_256_CBC, PKCS8Generator.PRF_HMACSHA256);
         file[file.length - 1] ^= 0x01;
         Passphrase passphrase = KeyFiles.passphrase();
+        DerivationBudget budget = DerivationBudget.forFile();
 
         // when
         ValidationException refusal = assertThrows(ValidationException.class,
-                () -> NORMALIZER.normalize(file, passphrase, KeyRequestType.KEY_PAIR));
+                () -> NORMALIZER.normalize(file, passphrase, KeyRequestType.KEY_PAIR, budget));
 
         // then
         assertThat(refusal.getMessage()).isEqualTo(KeyFileRefusal.UNREADABLE);
@@ -174,12 +189,13 @@ class KeyNormalizerTest {
     @Test
     void normalize_refusesDecryptedContentNestedTooDeeplyAsUnreadable() throws Exception {
         // given
-        byte[] file = KeyFiles.encryptedContent(KeyFiles.nested(KeyFileReader.MAXIMUM_NESTING_DEPTH + 1));
+        byte[] file = KeyFiles.encryptedContent(KeyFiles.nested(KeyNormalizer.MAXIMUM_NESTING_DEPTH + 1));
         Passphrase passphrase = KeyFiles.passphrase();
+        DerivationBudget budget = DerivationBudget.forFile();
 
         // when
         ValidationException refusal = assertThrows(ValidationException.class,
-                () -> NORMALIZER.normalize(file, passphrase, KeyRequestType.KEY_PAIR));
+                () -> NORMALIZER.normalize(file, passphrase, KeyRequestType.KEY_PAIR, budget));
 
         // then
         assertThat(refusal.getMessage()).isEqualTo(KeyFileRefusal.UNREADABLE);
@@ -192,7 +208,8 @@ class KeyNormalizerTest {
         byte[] file = KeyFiles.encrypted(ec, PKCS8Generator.AES_256_CBC, PKCS8Generator.PRF_HMACSHA256, passphrase);
 
         // when
-        NormalizedKey key = NORMALIZER.normalize(file, new Passphrase(passphrase), KeyRequestType.KEY_PAIR);
+        NormalizedKey key = NORMALIZER
+                .normalize(file, new Passphrase(passphrase), KeyRequestType.KEY_PAIR, DerivationBudget.forFile());
 
         // then
         assertThat(key.subjectPublicKeyInfo()).isEqualTo(ec.getPublic().getEncoded());
@@ -202,13 +219,14 @@ class KeyNormalizerTest {
     void normalize_refusesToImportAKeyFileAsASecretKey() {
         // given
         byte[] file = KeyFiles.pkcs8(ec);
+        DerivationBudget budget = DerivationBudget.forFile();
 
         // when
         ValidationException refusal = assertThrows(ValidationException.class,
-                () -> NORMALIZER.normalize(file, null, KeyRequestType.SECRET));
+                () -> NORMALIZER.normalize(file, null, KeyRequestType.SECRET, budget));
 
         // then
-        assertThat(refusal.getMessage()).isEqualTo(KeyFileRefusal.NOT_OF_TYPE.formatted("secret key"));
+        assertThat(refusal.getMessage()).isEqualTo(KeyFileRefusal.NOT_OF_TYPE.formatted("key pair", "secret key"));
     }
 
     @ParameterizedTest
@@ -217,10 +235,11 @@ class KeyNormalizerTest {
     void normalize_refusesCostlyProtectionBeforeDerivingAnyKey(byte[] file, String limit) {
         // given
         Passphrase passphrase = KeyFiles.passphrase();
+        DerivationBudget budget = DerivationBudget.forFile();
 
         // when
         ValidationException refusal = assertThrows(ValidationException.class,
-                () -> NORMALIZER.normalize(file, passphrase, KeyRequestType.KEY_PAIR));
+                () -> NORMALIZER.normalize(file, passphrase, KeyRequestType.KEY_PAIR, budget));
 
         // then
         assertThat(refusal.getMessage()).isEqualTo(limit);
@@ -234,7 +253,8 @@ class KeyNormalizerTest {
 
         // when
         NormalizedKey key = NORMALIZER
-                .normalize(file, new Passphrase(passphrase.toCharArray()), KeyRequestType.KEY_PAIR);
+                .normalize(file, new Passphrase(passphrase.toCharArray()), KeyRequestType.KEY_PAIR,
+                        DerivationBudget.forFile());
 
         // then
         assertThat(key.subjectPublicKeyInfo()).isEqualTo(ec.getPublic().getEncoded());
@@ -244,14 +264,209 @@ class KeyNormalizerTest {
     void normalize_refusesAKeyTooLargeForItsEnvelope() throws Exception {
         // given
         byte[] file = oversized().getEncoded();
+        DerivationBudget budget = DerivationBudget.forFile();
 
         // when
         ValidationException refusal = assertThrows(ValidationException.class,
-                () -> NORMALIZER.normalize(file, null, KeyRequestType.KEY_PAIR));
+                () -> NORMALIZER.normalize(file, null, KeyRequestType.KEY_PAIR, budget));
 
         // then
         assertThat(refusal.getMessage())
                 .isEqualTo(KeyFileRefusal.LIMIT_EXCEEDED.formatted("protected key size", "65536 bytes"));
+    }
+
+    @Test
+    void normalize_reportsTheKeysLength() throws Exception {
+        // given
+        KeyPair p384 = KeyFiles.keyPair("EC", new ECGenParameterSpec("secp384r1"), BC);
+
+        // when
+        NormalizedKey key = NORMALIZER
+                .normalize(KeyFiles.pkcs8(p384), null, KeyRequestType.KEY_PAIR, DerivationBudget.forFile());
+
+        // then
+        assertThat(key.type()).isEqualTo(KeyRequestType.KEY_PAIR);
+        assertThat(key.algorithm()).isEqualTo(KeyAlgorithm.ECDSA);
+        assertThat(key.length()).isEqualTo(384);
+    }
+
+    @Test
+    void normalize_chargesTheFilesBudget() throws Exception {
+        // given
+        DerivationBudget budget = DerivationBudget.forFile();
+        byte[] first = KeyFiles.encrypted(ec, 6_000_000);
+        // refused before its key is derived, so the second key needs the protection alone
+        byte[] second = KeyFiles
+                .envelope(EncryptedPrivateKeyInfo.getInstance(first).getEncryptionAlgorithm(), new byte[32]);
+        Passphrase passphrase = KeyFiles.passphrase();
+        NORMALIZER.normalize(first, passphrase, KeyRequestType.KEY_PAIR, budget);
+
+        // when
+        ValidationException refusal = assertThrows(ValidationException.class,
+                () -> NORMALIZER.normalize(second, passphrase, KeyRequestType.KEY_PAIR, budget));
+
+        // then
+        assertThat(refusal.getMessage())
+                .isEqualTo(KeyFileRefusal.LIMIT_EXCEEDED.formatted("key derivation iteration", 10_000_000));
+    }
+
+    @Test
+    void describe_readsAKeyWithoutProtectingIt() throws Exception {
+        // given
+        byte[] file = KeyFiles.encrypted(rsa, PKCS8Generator.AES_256_CBC, PKCS8Generator.PRF_HMACSHA256);
+
+        // when
+        KeyDescription description = NORMALIZER.describe(file, KeyFiles.passphrase(), DerivationBudget.forFile());
+
+        // then
+        assertThat(description.supported()).isTrue();
+        assertThat(description.type()).isEqualTo(KeyRequestType.KEY_PAIR);
+        assertThat(description.algorithm()).isEqualTo(KeyAlgorithm.RSA);
+        assertThat(description.length()).isEqualTo(2048);
+        assertThat(description.subjectPublicKeyInfo()).isEqualTo(rsa.getPublic().getEncoded());
+        assertThat(description.unsupportedAlgorithm()).isNull();
+    }
+
+    @Test
+    void describe_namesAnAlgorithmThePlatformDoesNotSupport() throws Exception {
+        // given
+        byte[] file = KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPrivate().getEncoded();
+        DerivationBudget budget = DerivationBudget.forFile();
+
+        // when
+        KeyDescription description = NORMALIZER.describe(file, null, budget);
+        ValidationException refusal = assertThrows(ValidationException.class,
+                () -> NORMALIZER.normalize(file, null, KeyRequestType.KEY_PAIR, budget));
+
+        // then
+        assertThat(description.supported()).isFalse();
+        assertThat(description.unsupportedAlgorithm()).isEqualTo("1.3.101.112");
+        assertThat(description)
+                .extracting(KeyDescription::type, KeyDescription::algorithm, KeyDescription::length,
+                        KeyDescription::subjectPublicKeyInfo)
+                .containsExactly(null, null, 0, null);
+        assertThat(refusal.getMessage())
+                .isEqualTo("The file holds a key of algorithm 1.3.101.112 that cannot be imported.");
+    }
+
+    @Test
+    void describe_leavesUnnamedAnAlgorithmTooLongToRepeat() throws Exception {
+        // given
+        byte[] file = KeyFiles
+                .privateKeyInfo(new AlgorithmIdentifier(KeyFiles.identifierOfLength(65)), new byte[]{1, 2, 3})
+                .getEncoded();
+        DerivationBudget budget = DerivationBudget.forFile();
+
+        // when
+        KeyDescription description = NORMALIZER.describe(file, null, budget);
+        ValidationException refusal = assertThrows(ValidationException.class,
+                () -> NORMALIZER.normalize(file, null, KeyRequestType.KEY_PAIR, budget));
+
+        // then
+        assertThat(description.supported()).isFalse();
+        assertThat(description.unsupportedAlgorithm()).isEqualTo("unrecognized");
+        assertThat(refusal.getMessage())
+                .isEqualTo("The file holds a key of an unrecognized algorithm that cannot be imported.");
+    }
+
+    @Test
+    void describe_namesAnAlgorithmThePlatformDoesNotSupportBehindAPassphrase() throws Exception {
+        // given
+        byte[] file = KeyFiles
+                .encrypted(KeyFiles.keyPair("Ed25519", null, BC), PKCS8Generator.AES_256_CBC,
+                        PKCS8Generator.PRF_HMACSHA256);
+
+        // when
+        KeyDescription description = NORMALIZER.describe(file, KeyFiles.passphrase(), DerivationBudget.forFile());
+
+        // then
+        assertThat(description.supported()).isFalse();
+        assertThat(description.unsupportedAlgorithm()).isEqualTo("1.3.101.112");
+    }
+
+    /**
+     * A key over a field larger than any curve the platform holds by name is not derived, which nothing would charge.
+     */
+    @Test
+    void describe_describesAKeyOverAFieldLargerThanAnyNamedCurveAsUnsupported() throws Exception {
+        // given
+        byte[] withinTheBound = KeyFiles.explicitCurvePkcs8(ExplicitCurve.MAXIMUM_FIELD_BITS);
+        byte[] overTheBound = KeyFiles.explicitCurvePkcs8(ExplicitCurve.MAXIMUM_FIELD_BITS + 1);
+        DerivationBudget budget = DerivationBudget.forFile();
+
+        // when
+        KeyDescription within = NORMALIZER.describe(withinTheBound, null, budget);
+        KeyDescription over = NORMALIZER.describe(overTheBound, null, budget);
+
+        // then
+        assertThat(within.algorithm()).isEqualTo(KeyAlgorithm.ECDSA);
+        assertThat(over.supported()).isFalse();
+        assertThat(over.unsupportedAlgorithm()).isEqualTo(X9ObjectIdentifiers.id_ecPublicKey.getId());
+    }
+
+    /**
+     * A key stating an order longer than any curve over its field has is not derived either: with a cofactor other than
+     * 1 the reader would multiply the generator by that order, and the private value it bounds would be multiplied.
+     */
+    @ParameterizedTest
+    @MethodSource("curvesOfAnOrderLongerThanTheirField")
+    void describe_describesAKeyStatingAnOrderLongerThanItsFieldAllowsAsUnsupported(byte[] file) {
+        // given
+        DerivationBudget budget = DerivationBudget.forFile();
+
+        // when
+        KeyDescription description = assertTimeoutPreemptively(Duration.ofMillis(200),
+                () -> NORMALIZER.describe(file, null, budget));
+
+        // then
+        assertThat(description.supported()).isFalse();
+        assertThat(description.unsupportedAlgorithm()).isEqualTo(X9ObjectIdentifiers.id_ecPublicKey.getId());
+    }
+
+    @Test
+    void describe_reportsALengthThePlatformCannotTellAsZero() throws Exception {
+        // given
+        byte[] file = KeyFiles.pkcs8(KeyFiles.keyPair("ML-KEM", MLKEMParameterSpec.ml_kem_512, BC));
+
+        // when
+        KeyDescription description = NORMALIZER.describe(file, null, DerivationBudget.forFile());
+
+        // then
+        assertThat(description.algorithm()).isEqualTo(KeyAlgorithm.MLKEM);
+        assertThat(description.length()).isZero();
+    }
+
+    @ParameterizedTest
+    @MethodSource("filesUnderAnEmptyPassphrase")
+    void describe_opensAKeyProtectedWithAnEmptyPassphrase(byte[] file) {
+        // given
+        Passphrase passphrase = new Passphrase(new char[0]);
+        DerivationBudget budget = DerivationBudget.forFile();
+
+        // when
+        KeyDescription description = NORMALIZER.describe(file, passphrase, budget);
+
+        // then
+        assertThat(description.algorithm()).isEqualTo(KeyAlgorithm.ECDSA);
+        assertThat(description.subjectPublicKeyInfo()).isEqualTo(ec.getPublic().getEncoded());
+    }
+
+    @Test
+    void describe_chargesTheSecondDerivationOfAnEmptyPassphraseBeforeItRuns() throws Exception {
+        // given
+        byte[] file = KeyFiles.encrypted(ec, PKCS8Generator.PBE_SHA1_3DES, null);
+        Passphrase passphrase = new Passphrase(new char[0]);
+        DerivationBudget budget = DerivationBudget.forFile();
+        budget.charge(BigInteger.valueOf(DerivationBudget.FILE_ITERATIONS - KeyFiles.ITERATIONS * 3L / 2));
+
+        // when
+        ValidationException refusal = assertThrows(ValidationException.class,
+                () -> NORMALIZER.describe(file, passphrase, budget));
+
+        // then
+        assertThat(refusal.getMessage())
+                .isEqualTo(KeyFileRefusal.LIMIT_EXCEEDED
+                        .formatted("key derivation iteration", DerivationBudget.FILE_ITERATIONS));
     }
 
     @ParameterizedTest
@@ -259,10 +474,11 @@ class KeyNormalizerTest {
     void normalize_namesNothingThatOnlyTheRightPassphraseReveals(byte[] file) {
         // given
         Passphrase passphrase = KeyFiles.passphrase();
+        DerivationBudget budget = DerivationBudget.forFile();
 
         // when
         ValidationException refusal = assertThrows(ValidationException.class,
-                () -> NORMALIZER.normalize(file, passphrase, KeyRequestType.KEY_PAIR));
+                () -> NORMALIZER.normalize(file, passphrase, KeyRequestType.KEY_PAIR, budget));
 
         // then
         assertThat(refusal.getMessage()).isEqualTo(KeyFileRefusal.UNREADABLE);
@@ -271,7 +487,8 @@ class KeyNormalizerTest {
     @Test
     void clear_overwritesTheEnvelopeAndTheTransportPassphrase() {
         // given
-        NormalizedKey key = NORMALIZER.normalize(KeyFiles.pkcs8(ec), null, KeyRequestType.KEY_PAIR);
+        NormalizedKey key = NORMALIZER
+                .normalize(KeyFiles.pkcs8(ec), null, KeyRequestType.KEY_PAIR, DerivationBudget.forFile());
 
         // when
         key.clear();
@@ -376,6 +593,32 @@ class KeyNormalizerTest {
                         named("traditional PEM", KeyFiles.traditional(rsa, "AES-256-CBC")));
     }
 
+    static Stream<Named<byte[]>> filesUnderAnEmptyPassphrase() throws Exception {
+        return Stream
+                .of(named("PBES2, which Bouncy Castle's JCA provider derives no key for",
+                        KeyFiles
+                                .underAnEmptyPassphrase(KeyFiles.pkcs8(ec), PKCSObjectIdentifiers.id_hmacWithSHA256,
+                                        NISTObjectIdentifiers.id_aes256_CBC)
+                                .getEncoded()),
+                        named("a PKCS#12 scheme as Bouncy Castle writes it",
+                                KeyFiles.encrypted(ec, PKCS8Generator.PBE_SHA1_3DES, null, new char[0])),
+                        named("3DES as the JDK and OpenSSL write it",
+                                jdkPkcs12("PBEWithSHA1AndDESede",
+                                        PKCSObjectIdentifiers.pbeWithSHAAnd3_KeyTripleDES_CBC)),
+                        named("40-bit RC2 as the JDK and OpenSSL write it",
+                                jdkPkcs12("PBEWithSHA1AndRC2_40", PKCSObjectIdentifiers.pbeWithSHAAnd40BitRC2_CBC)),
+                        named("128-bit RC2 as the JDK and OpenSSL write it",
+                                jdkPkcs12("PBEWithSHA1AndRC2_128", PKCSObjectIdentifiers.pbeWithSHAAnd128BitRC2_CBC)),
+                        named("40-bit RC4 as the JDK and OpenSSL write it",
+                                jdkPkcs12("PBEWithSHA1AndRC4_40", PKCSObjectIdentifiers.pbeWithSHAAnd40BitRC4)),
+                        named("128-bit RC4 as the JDK and OpenSSL write it",
+                                jdkPkcs12("PBEWithSHA1AndRC4_128", PKCSObjectIdentifiers.pbeWithSHAAnd128BitRC4)));
+    }
+
+    private static byte[] jdkPkcs12(String cipher, ASN1ObjectIdentifier scheme) throws Exception {
+        return KeyFiles.jdkPkcs12UnderAnEmptyPassphrase(KeyFiles.pkcs8(ec), cipher, scheme).getEncoded();
+    }
+
     static Stream<Named<Passphrase>> missingPassphrases() {
         return Stream.of(named("none", null), named("an empty one", new Passphrase(new char[0])));
     }
@@ -397,6 +640,15 @@ class KeyNormalizerTest {
                                 KeyFileRefusal.LIMIT_EXCEEDED.formatted("scrypt memory", "32 MiB")));
     }
 
+    static Stream<Named<byte[]>> curvesOfAnOrderLongerThanTheirField() throws IOException {
+        int fieldBits = ExplicitCurve.MAXIMUM_FIELD_BITS;
+        return Stream
+                .of(named("a 400,000-bit order and a cofactor of 2",
+                        KeyFiles.explicitCurvePkcs8(fieldBits, 400_000, BigInteger.TWO)),
+                        named("a 65,000-bit order and private value and a cofactor of 1",
+                                KeyFiles.explicitCurvePkcs8(fieldBits, 65_000, BigInteger.ONE)));
+    }
+
     static Stream<Named<byte[]>> refusalsBehindAPassphrase() throws Exception {
         AlgorithmIdentifier rsaEncryption = new AlgorithmIdentifier(PKCSObjectIdentifiers.rsaEncryption,
                 DERNull.INSTANCE);
@@ -409,7 +661,7 @@ class KeyNormalizerTest {
                                 KeyFiles
                                         .encryptedContent(KeyFiles
                                                 .privateKeyInfo(rsaEncryption,
-                                                        KeyFiles.nested(KeyFileReader.MAXIMUM_NESTING_DEPTH + 1))
+                                                        KeyFiles.nested(KeyNormalizer.MAXIMUM_NESTING_DEPTH + 1))
                                                 .getEncoded())),
                         named("a key too large for its envelope", KeyFiles.encryptedContent(oversized().getEncoded())));
     }

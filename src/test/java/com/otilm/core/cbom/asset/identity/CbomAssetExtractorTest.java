@@ -5,7 +5,9 @@ import com.fasterxml.jackson.core.StreamReadFeature;
 import com.fasterxml.jackson.core.exc.StreamConstraintsException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.otilm.core.cbom.asset.CryptoPropertiesDigest;
 import com.otilm.core.cbom.asset.OccurrenceEvidenceCapper;
+import com.otilm.core.model.cbom.CbomHeaderCounts;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -136,6 +138,58 @@ class CbomAssetExtractorTest {
 
         assertThat(extraction.assets()).isEmpty();
         assertThat(extraction.skips()).describedAs("a library is not a skip; it was never a candidate").isEmpty();
+    }
+
+    // ---------------------------------------------------------------- header counts
+
+    /**
+     * The recount agrees with the repository's version-2 count: the whole {@code components} tree to any depth, one per
+     * component rather than per distinct asset, and nothing outside that tree -- a cryptographic asset under
+     * {@code metadata.component}, {@code metadata.tools}, {@code services} or {@code formulation} is not inventory.
+     */
+    @Test
+    void theHeaderCountsEveryCryptographicComponentOfTheComponentsTreeAndNothingOutsideIt() {
+        String outOfScope = "[" + algorithm("OUT-OF-SCOPE") + "]";
+        JsonNode document = read("{\"metadata\":{\"component\":{\"type\":\"application\",\"name\":\"app\","
+                + "\"components\":" + outOfScope + "},\"tools\":{\"components\":" + outOfScope + "}},"
+                + "\"services\":[{\"name\":\"svc\",\"components\":" + outOfScope + "}],"
+                + "\"formulation\":[{\"components\":" + outOfScope + "}],\"components\":[" + algorithm("AES-256")
+                + ",{\"type\":\"library\",\"name\":\"lib\",\"components\":[" + algorithm("AES-256") + ","
+                + certificate("a") + "," + cryptographic("tls", "protocol") + ","
+                + cryptographic("key", "related-crypto-material") + "]}]}");
+
+        assertThat(EXTRACTOR.extract(document).headerCounts()).isEqualTo(new CbomHeaderCounts(2, 1, 1, 1, 5));
+    }
+
+    /**
+     * The count wants the type <em>and</em> the properties; extraction takes either. Both halves are pinned, because
+     * unifying the predicates would move one of them: the header would stop agreeing with the repository, or extraction
+     * would start dropping assets.
+     */
+    @Test
+    void theHeaderCountsOnlyTypedComponentsCarryingCryptoPropertiesWhileExtractionTakesEither() {
+        JsonNode document = read("{\"components\":[{\"type\":\"cryptographic-asset\",\"name\":\"untyped\"},"
+                + "{\"type\":\"cryptographic-asset\",\"name\":\"nulled\",\"cryptoProperties\":null},"
+                + "{\"type\":\"library\",\"name\":\"x\",\"cryptoProperties\":{\"assetType\":\"algorithm\"}}]}");
+
+        CbomAssetExtractor.Extraction extraction = EXTRACTOR.extract(document);
+
+        assertThat(extraction.headerCounts()).isEqualTo(CbomHeaderCounts.ZERO);
+        assertThat(extraction.assets()).hasSize(3);
+    }
+
+    @Test
+    void anUnbucketedAssetTypeCountsTowardsTheTotalOnly() {
+        JsonNode document = read("{\"components\":[" + cryptographic("k", "relatedCryptoMaterial") + ","
+                + "{\"type\":\"cryptographic-asset\",\"name\":\"none\",\"cryptoProperties\":{}}]}");
+
+        assertThat(EXTRACTOR.extract(document).headerCounts()).isEqualTo(new CbomHeaderCounts(0, 0, 0, 0, 2));
+    }
+
+    @Test
+    void theHeaderCountReachesTheBottomOfADeeplyNestedDocument() {
+        assertThat(EXTRACTOR.extract(read(nestedDocument(400))).headerCounts())
+                .isEqualTo(new CbomHeaderCounts(1, 0, 0, 0, 1));
     }
 
     // ---------------------------------------------------------------- determinism
@@ -693,6 +747,227 @@ class CbomAssetExtractorTest {
         assertThatParsingFails(malformed, secret);
     }
 
+    // ---------------------------------------------------------------- bom-ref navigation data
+
+    private static String algorithmWithRef(String name, String ref) {
+        return "{\"type\":\"cryptographic-asset\",\"bom-ref\":\"" + ref + "\",\"name\":\"" + name + "\","
+                + "\"cryptoProperties\":{\"assetType\":\"algorithm\",\"algorithmProperties\":{}}}";
+    }
+
+    private static CbomAssetExtractor.ExtractedAsset onlyAssetOf(String component) {
+        return EXTRACTOR.extract(read("{\"components\":[" + component + "]}")).assets().get(0);
+    }
+
+    /** The hash the merge keeps for the stored payload, taken from the map the ingest hands the writer. */
+    @SuppressWarnings("unchecked")
+    private static String propertiesHashOf(CbomAssetExtractor.ExtractedAsset asset) {
+        Map<String, Object> properties = ObjectMapperFactory
+                .jsonColumn()
+                .convertValue(asset.retainedProperties(), Map.class);
+        return CryptoPropertiesDigest.of(properties).hash();
+    }
+
+    /** An asset carrying exactly these refs, as a fold leaves them; nothing else of the record is read. */
+    private static CbomAssetExtractor.ExtractedAsset assetWithRefs(List<String> bomRefs) {
+        return new CbomAssetExtractor.ExtractedAsset(null, null, null, "AES-256", null, null, 0, null, List.of(),
+                bomRefs, List.of());
+    }
+
+    /**
+     * Navigation data only: a ref present, absent or renamed leaves the key, the stored payload and its hash where they
+     * were, so no spelling of the ref can split an asset or merge two.
+     */
+    @Test
+    void aBomRefNeverEntersTheKeyThePayloadOrItsHash() {
+        CbomAssetExtractor.ExtractedAsset withRef = onlyAssetOf(algorithmWithRef("AES-256", "crypto/aes"));
+        CbomAssetExtractor.ExtractedAsset renamed = onlyAssetOf(algorithmWithRef("AES-256", "renamed/aes"));
+        CbomAssetExtractor.ExtractedAsset without = onlyAssetOf(algorithm("AES-256"));
+
+        assertThat(List.of(renamed.identityKey(), without.identityKey())).containsOnly(withRef.identityKey());
+        assertThat(List.of(renamed.retainedProperties(), without.retainedProperties()))
+                .containsOnly(withRef.retainedProperties());
+        assertThat(List.of(propertiesHashOf(renamed), propertiesHashOf(without)))
+                .containsOnly(propertiesHashOf(withRef));
+        assertThat(withRef.storedBomRefs()).containsExactly("crypto/aes");
+        assertThat(renamed.storedBomRefs()).containsExactly("renamed/aes");
+        assertThat(without.storedBomRefs()).isEmpty();
+    }
+
+    @Test
+    void aComponentsUniqueBomRefIsCarriedAsItsLink() {
+        CbomAssetExtractor.Extraction extraction = EXTRACTOR
+                .extract(read("{\"components\":[" + algorithmWithRef("AES-256", "crypto/aes") + "]}"));
+
+        assertThat(extraction.assets())
+                .singleElement()
+                .satisfies(asset -> assertThat(asset.storedBomRefs()).containsExactly("crypto/aes"));
+    }
+
+    @Test
+    void aComponentWithoutABomRefCarriesNoLink() {
+        CbomAssetExtractor.Extraction extraction = EXTRACTOR
+                .extract(read("{\"components\":[" + algorithm("AES-256") + "]}"));
+
+        assertThat(extraction.assets()).singleElement().satisfies(asset -> assertThat(asset.storedBomRefs()).isEmpty());
+    }
+
+    /**
+     * Neither a number nor the empty string names a component, so neither is a link a client could follow. The stored
+     * rule refuses the empty ref itself, not only through the reader that fills {@code bomRefs}.
+     */
+    @Test
+    void aBomRefThatIsNotANonEmptyStringLinksNothing() {
+        CbomAssetExtractor.Extraction extraction = EXTRACTOR
+                .extract(read("{\"components\":[" + algorithmWithRef("AES-256", "") + ","
+                        + "{\"type\":\"cryptographic-asset\",\"bom-ref\":7,\"name\":\"RSA-2048\","
+                        + "\"cryptoProperties\":{\"assetType\":\"algorithm\",\"algorithmProperties\":{}}}]}"));
+
+        assertThat(extraction.assets()).hasSize(2).allSatisfy(asset -> {
+            assertThat(asset.bomRefs()).isEmpty();
+            assertThat(asset.storedBomRefs()).isEmpty();
+        });
+        assertThat(assetWithRefs(List.of("", "crypto/aes")).storedBomRefs()).containsExactly("crypto/aes");
+    }
+
+    /**
+     * Unlike every other string headed for storage, a ref with no encoding does not cost the component its row: the ref
+     * is not part of the asset, so the asset is kept and only the link is absent. The ref itself stays in
+     * {@code bomRefs}, which resolves references and is not filtered by the storage rules.
+     */
+    @Test
+    void aBomRefWithNoEncodingLinksNothingButTheAssetIsStillExtracted() {
+        CbomAssetExtractor.Extraction extraction = EXTRACTOR
+                .extract(read("{\"components\":[" + algorithmWithRef("AES-256", "\\ud800") + "]}"));
+
+        assertThat(extraction.skips()).isEmpty();
+        assertThat(extraction.assets()).singleElement().satisfies(asset -> {
+            assertThat(asset.storedBomRefs()).isEmpty();
+            assertThat(asset.bomRefs()).containsExactly("\ud800");
+        });
+    }
+
+    /**
+     * PostgreSQL stores no NUL character in any text column, so a ref carrying one could not be written, and a failed
+     * write costs the whole document. It links nothing instead, and the asset is kept.
+     */
+    @Test
+    void aBomRefCarryingANulCharacterLinksNothingButTheAssetIsStillExtracted() {
+        CbomAssetExtractor.Extraction extraction = EXTRACTOR
+                .extract(read("{\"components\":[" + algorithmWithRef("AES-256", "aes\\u0000x") + "]}"));
+
+        assertThat(extraction.skips()).isEmpty();
+        assertThat(extraction.assets()).singleElement().satisfies(asset -> {
+            assertThat(asset.storedBomRefs()).isEmpty();
+            assertThat(asset.bomRefs()).containsExactly("aes\u0000x");
+        });
+    }
+
+    @Test
+    void aBomRefLongerThanAStoredRefLinksNothing() {
+        String longest = "r".repeat(CbomAssetExtractor.ExtractedAsset.MAX_BOM_REF_LENGTH);
+        String tooLong = "r".repeat(CbomAssetExtractor.ExtractedAsset.MAX_BOM_REF_LENGTH + 1);
+        CbomAssetExtractor.Extraction extraction = EXTRACTOR
+                .extract(read("{\"components\":[" + algorithmWithRef("AES-256", longest) + ","
+                        + algorithmWithRef("RSA-2048", tooLong) + "]}"));
+
+        assertThat(extraction.assets()).hasSize(2);
+        assertThat(extraction.assets().get(0).storedBomRefs()).containsExactly(longest);
+        assertThat(extraction.assets().get(1).storedBomRefs()).isEmpty();
+        assertThat(extraction.assets().get(1).bomRefs()).containsExactly(tooLong);
+    }
+
+    /**
+     * The bound is in code points, as PostgreSQL counts a text value. Each lock character is two UTF-16 units, so a
+     * count of units would drop the longest ref here at half its length.
+     */
+    @Test
+    void aBomRefIsMeasuredInCodePoints() {
+        String lock = new String(Character.toChars(0x1F510));
+        String longest = lock.repeat(CbomAssetExtractor.ExtractedAsset.MAX_BOM_REF_LENGTH);
+        String tooLong = lock.repeat(CbomAssetExtractor.ExtractedAsset.MAX_BOM_REF_LENGTH + 1);
+        CbomAssetExtractor.Extraction extraction = EXTRACTOR
+                .extract(read("{\"components\":[" + algorithmWithRef("AES-256", longest) + ","
+                        + algorithmWithRef("RSA-2048", tooLong) + "]}"));
+
+        assertThat(extraction.assets()).hasSize(2);
+        assertThat(extraction.assets().get(0).storedBomRefs()).containsExactly(longest);
+        assertThat(extraction.assets().get(1).storedBomRefs()).isEmpty();
+    }
+
+    @Test
+    void foldingKeepsEveryComponentsRefInDocumentOrder() {
+        JsonNode document = read("{\"components\":[" + algorithmWithRef("AES-256", "a1") + ","
+                + algorithmWithRef("RSA-2048", "b") + "," + algorithmWithRef("AES-256", "a2") + "]}");
+
+        List<CbomAssetExtractor.ExtractedAsset> folded = CbomAssetExtractor.ExtractedAsset
+                .coalesceByIdentity(EXTRACTOR.extract(document).assets(), CbomAssetExtractorTest::leafCount);
+
+        assertThat(folded).hasSize(2);
+        assertThat(folded.get(0).storedBomRefs()).containsExactly("a1", "a2");
+        assertThat(folded.get(1).storedBomRefs()).containsExactly("b");
+    }
+
+    /**
+     * Document order is the walk's: depth first, so the components nested in one come before its next sibling. The refs
+     * keep that order, where the payload election picks the richest payload wherever it sits.
+     */
+    @Test
+    void foldingKeepsNestedComponentsRefsInDepthFirstDocumentOrder() {
+        JsonNode document = read("{\"components\":[" + algorithmWithRef("AES-256", "t0") + ","
+                + library("lib", algorithmWithRef("AES-256", "n1"), algorithmWithRef("AES-256", "n2")) + ","
+                + algorithmWithRef("AES-256", "t1") + "]}");
+
+        List<CbomAssetExtractor.ExtractedAsset> folded = CbomAssetExtractor.ExtractedAsset
+                .coalesceByIdentity(EXTRACTOR.extract(document).assets(), CbomAssetExtractorTest::leafCount);
+
+        assertThat(folded)
+                .singleElement()
+                .satisfies(asset -> assertThat(asset.storedBomRefs()).containsExactly("t0", "n1", "n2", "t1"));
+    }
+
+    /**
+     * One row, and every page that serves it, stays bounded however many components name one algorithm. The cap is on
+     * what the row stores, not on {@code bomRefs}: a reference to a component past the cap must still resolve.
+     */
+    @Test
+    void foldingCapsTheRefsAtTheDocumentedBound() {
+        int components = CbomAssetExtractor.ExtractedAsset.MAX_BOM_REFS + 44;
+        StringBuilder document = new StringBuilder("{\"components\":[");
+        for (int index = 0; index < components; index++) {
+            document.append(index == 0 ? "" : ",").append(algorithmWithRef("AES-256", "r" + index));
+        }
+        document.append("]}");
+
+        List<CbomAssetExtractor.ExtractedAsset> folded = CbomAssetExtractor.ExtractedAsset
+                .coalesceByIdentity(EXTRACTOR.extract(read(document.toString())).assets(),
+                        CbomAssetExtractorTest::leafCount);
+
+        assertThat(folded).singleElement().satisfies(asset -> {
+            assertThat(asset.storedBomRefs()).hasSize(CbomAssetExtractor.ExtractedAsset.MAX_BOM_REFS);
+            assertThat(asset.storedBomRefs().get(0)).isEqualTo("r0");
+            assertThat(asset.storedBomRefs().get(CbomAssetExtractor.ExtractedAsset.MAX_BOM_REFS - 1))
+                    .isEqualTo("r" + (CbomAssetExtractor.ExtractedAsset.MAX_BOM_REFS - 1));
+            assertThat(asset.bomRefs()).hasSize(components);
+            assertThat(asset.reportedOccurrences()).isZero();
+        });
+    }
+
+    @Test
+    void theCapCountsOnlyStorableRefsAndEachRefOnce() {
+        List<String> refs = new ArrayList<>();
+        refs.add("bad\u0000");
+        for (int index = 0; index <= CbomAssetExtractor.ExtractedAsset.MAX_BOM_REFS; index++) {
+            refs.add("r" + index);
+            refs.add("r0");
+        }
+
+        List<String> stored = assetWithRefs(refs).storedBomRefs();
+
+        assertThat(stored).hasSize(CbomAssetExtractor.ExtractedAsset.MAX_BOM_REFS).doesNotHaveDuplicates();
+        assertThat(stored.get(0)).isEqualTo("r0");
+        assertThat(stored.get(stored.size() - 1)).isEqualTo("r" + (CbomAssetExtractor.ExtractedAsset.MAX_BOM_REFS - 1));
+    }
+
     // ---------------------------------------------------------------- helpers
 
     private static void assertThatParsingFails(String malformed, String secret) {
@@ -736,6 +1011,11 @@ class CbomAssetExtractorTest {
     private static String algorithm(String name) {
         return "{\"type\":\"cryptographic-asset\",\"name\":\"" + name + "\",\"cryptoProperties\":"
                 + "{\"assetType\":\"algorithm\",\"algorithmProperties\":{}}}";
+    }
+
+    private static String cryptographic(String name, String assetType) {
+        return "{\"type\":\"cryptographic-asset\",\"name\":\"" + name + "\",\"cryptoProperties\":{\"assetType\":\""
+                + assetType + "\"}}";
     }
 
     private static String certificate(String subject) {

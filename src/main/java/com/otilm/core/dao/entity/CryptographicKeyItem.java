@@ -103,6 +103,7 @@ public class CryptographicKeyItem extends UniquelyIdentified
     @Enumerated(EnumType.STRING)
     private KeyFormat format;
 
+    @ToString.Exclude
     @Column(name = "keyData", length = Integer.MAX_VALUE)
     private String keyData;
 

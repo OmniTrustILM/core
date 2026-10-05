@@ -7,10 +7,12 @@ import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.core.model.compliance.ComplianceResultDto;
 import com.otilm.core.util.CertificateUtil;
 import jakarta.persistence.Column;
+import jakarta.persistence.ConstraintMode;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
+import jakarta.persistence.ForeignKey;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
@@ -80,8 +82,10 @@ public class CertificateRequestEntity extends UniquelyIdentifiedAndAudited imple
     @Enumerated(EnumType.STRING)
     private ComplianceStatus complianceStatus = ComplianceStatus.NOT_CHECKED;
 
+    // The migrated schema carries no foreign key on either key column: deleting a key leaves its requests in place.
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "key_uuid", insertable = false, updatable = false)
+    @JoinColumn(name = "key_uuid", insertable = false, updatable = false,
+            foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))
     @ToString.Exclude
     private CryptographicKey key;
 
@@ -89,7 +93,8 @@ public class CertificateRequestEntity extends UniquelyIdentifiedAndAudited imple
     private UUID keyUuid;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "alt_key_uuid", insertable = false, updatable = false)
+    @JoinColumn(name = "alt_key_uuid", insertable = false, updatable = false,
+            foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))
     @ToString.Exclude
     private CryptographicKey altKey;
 

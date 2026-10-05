@@ -34,13 +34,14 @@ public interface AuthorizationEnforcer {
     void enforce(Resource resource, ResourceAction action, List<SecuredUUID> objectUuids) throws AccessDeniedException;
 
     /**
-     * Whether {@code userUuid} -- somebody other than the current principal -- may perform {@code action} on the
-     * object. A user the auth service can no longer resolve is denied.
+     * Whether {@code userUuid} may perform {@code action} on the object. For the current principal the decision is made
+     * against its own authentication; for anybody else, against a principal resolved for them, and a user the auth
+     * service can no longer resolve is denied.
      *
      * <p>
-     * The decision is made against a principal resolved for that user, leaving the current security context and the
-     * actor MDC untouched, so this is safe to call while acting as somebody else. On top of the cost noted above, each
-     * call resolves the user against the auth service (cached).
+     * A principal resolved for somebody else leaves the current security context and the actor MDC untouched, so this
+     * is safe to call while acting as somebody else. On top of the cost noted above, resolving a user asks the auth
+     * service (cached).
      */
     boolean isAuthorizedAs(UUID userUuid, Resource resource, ResourceAction action, SecuredUUID objectUuid);
 }
