@@ -784,12 +784,25 @@ public class AttributeEngine {
                 List<AttributeContentItem> contents = attributeContentItemRepository
                         .findByAttributeDefinitionUuid(attributeDefinition.getUuid());
                 for (AttributeContentItem contentItem : contents) {
-                    contentItem
-                            .setJson(AttributeVersionHelper
-                                    .decryptContent(contentItem.getJson(), attributeDefinition.getVersion(),
-                                            attributeDefinition.getContentType(), contentItem.getEncryptedData()));
+                    if (contentItem.getEncryptedData() == null) {
+                        continue;
+                    }
+                    AttributeContent plaintext = AttributeVersionHelper
+                            .decryptContent(contentItem.getJson(), attributeDefinition.getVersion(),
+                                    attributeDefinition.getContentType(), contentItem.getEncryptedData());
+                    // Encrypted values are stored once per object, so objects sharing a value decrypt to the same
+                    // content. A plaintext value has one row per definition: fold this one onto it.
+                    AttributeContentItem existing = attributeContentItemRepository
+                            .findByJsonAndAttributeDefinitionUuid(plaintext, attributeDefinition.getUuid());
+                    if (existing != null) {
+                        attributeContentItemWriter.moveMappings(contentItem.getUuid(), existing.getUuid());
+                        attributeContentItemRepository.delete(contentItem);
+                        continue;
+                    }
+                    contentItem.setJson(plaintext);
                     contentItem.setEncryptedData(null);
-                    attributeContentItemRepository.save(contentItem);
+                    // Flushed now, so the next row decrypting to this value finds it.
+                    attributeContentItemRepository.saveAndFlush(contentItem);
                 }
             }
         }

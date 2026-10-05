@@ -3,6 +3,7 @@ package com.otilm.core.service.writer;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectWriter;
 import com.otilm.api.model.common.attribute.common.AttributeContent;
+import com.otilm.core.dao.repository.AttributeContent2ObjectRepository;
 import com.otilm.core.dao.repository.AttributeContentItemRepository;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import java.util.UUID;
@@ -27,10 +28,13 @@ public class AttributeContentItemWriter {
             .writerFor(AttributeContent.class);
 
     private final AttributeContentItemRepository contentItemRepository;
+    private final AttributeContent2ObjectRepository contentMappingRepository;
 
     @Autowired
-    public AttributeContentItemWriter(AttributeContentItemRepository contentItemRepository) {
+    public AttributeContentItemWriter(AttributeContentItemRepository contentItemRepository,
+            AttributeContent2ObjectRepository contentMappingRepository) {
         this.contentItemRepository = contentItemRepository;
+        this.contentMappingRepository = contentMappingRepository;
     }
 
     /**
@@ -41,6 +45,16 @@ public class AttributeContentItemWriter {
     @Transactional
     public boolean insertIfAbsent(UUID definitionUuid, AttributeContent content) {
         return contentItemRepository.insertIfAbsent(UUID.randomUUID(), definitionUuid, render(content)) == 1;
+    }
+
+    /**
+     * Moves every mapping of one content item onto another, so the first can be deleted. A mapping the target already
+     * has for the same object is dropped rather than duplicated.
+     */
+    @Transactional
+    public void moveMappings(UUID fromItemUuid, UUID toItemUuid) {
+        contentMappingRepository.moveMappings(fromItemUuid, toItemUuid);
+        contentMappingRepository.deleteRepeatedMappings(toItemUuid);
     }
 
     private static String render(AttributeContent content) {

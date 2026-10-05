@@ -164,6 +164,35 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
                         "encrypted values are never shared, so the constraint must not fold them");
     }
 
+    /**
+     * Encrypted values are stored once per object, so objects sharing a value used to decrypt into identical rows, the
+     * same state concurrent writers produced; with the unique constraint the switch itself would fail instead.
+     */
+    @Test
+    void turningEncryptionOffLeavesOneRowPerValue() throws Exception {
+        CustomAttributeV3 attribute = customAttribute("secretProfile", AttributeContentType.STRING,
+                ProtectionLevel.ENCRYPTED);
+        UUID definitionUuid = attributeEngine
+                .updateCustomAttributeDefinition(attribute, List.of(Resource.CERTIFICATE))
+                .getUuid();
+        UUID first = newCertificate();
+        UUID second = newCertificate();
+        write(first, definitionUuid, SHARED_VALUE);
+        write(second, definitionUuid, SHARED_VALUE);
+        Assertions.assertEquals(2, attributeContentItemRepository.count());
+
+        attribute.getProperties().setProtectionLevel(ProtectionLevel.NONE);
+        attributeEngine.updateCustomAttributeDefinition(attribute, List.of(Resource.CERTIFICATE));
+
+        Assertions.assertEquals(1, attributeContentItemRepository.count(), "rows decrypting alike fold onto one");
+        Assertions.assertEquals(List.of(SHARED_VALUE), storedValues(first, "secretProfile"));
+        Assertions.assertEquals(List.of(SHARED_VALUE), storedValues(second, "secretProfile"));
+        // The write the duplicate rows used to break.
+        UUID third = newCertificate();
+        write(third, definitionUuid, SHARED_VALUE);
+        Assertions.assertEquals(List.of(SHARED_VALUE), storedValues(third, "secretProfile"));
+    }
+
     private boolean aWriterWaitsOnALock() throws SQLException {
         try (Connection connection = dataSource.getConnection();
                 Statement statement = connection.createStatement();
