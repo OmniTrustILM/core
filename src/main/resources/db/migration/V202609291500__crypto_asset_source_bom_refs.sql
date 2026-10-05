@@ -1,4 +1,4 @@
--- The bom-ref values each source row was folded from (core#2316). The components of one document that normalize to
+-- The bom-ref values each source row was folded from. The components of one document that normalize to
 -- the same asset share one crypto_asset_source row -- uq_crypto_asset_source is (asset_uuid, cbom_uuid) -- so a
 -- per-component pointer has to be array-valued. Navigation data only: a client holding the document maps a component
 -- row to its inventory asset through it. It is never an input to the key the asset is deduplicated by, to the

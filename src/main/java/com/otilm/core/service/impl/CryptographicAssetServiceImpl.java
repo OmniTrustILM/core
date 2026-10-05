@@ -251,7 +251,6 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
         return cb.exists(contributed);
     }
 
-    /** The page's rows as this CBOM contributed them: each inventory row with this document's refs on it. */
     private List<CbomContributedAssetDto> loadContributedRows(UUID cbomUuid, List<UUID> pageUuids) {
         Map<UUID, List<String>> bomRefsByAsset = bomRefsByAsset(cbomUuid, pageUuids);
         return contributedRows(loadRows(pageUuids), bomRefsByAsset);
@@ -760,7 +759,6 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
         return dto;
     }
 
-    /** The inventory row's served members, on whichever row shape the operation returns. */
     private static <T extends CryptographicAssetDto> T fill(T dto, CryptoAssetListRow row) {
         dto.setUuid(row.uuid());
         // The contract marks name REQUIRED and the wire mapper drops nulls, so a nameless producer row serves its

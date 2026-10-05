@@ -112,7 +112,6 @@ class CbomContributedAssetsITest extends BaseSpringBootTest {
         assertThat(page.getPageNumber()).isEqualTo(1);
     }
 
-    /** A repeated bom-ref refuses the document whole, so nothing of it is listed -- no component links to anything. */
     @Test
     void aDocumentThatRepeatsABomRefIsRefusedAndListsNothing() throws NotFoundException {
         seedAnotherDocumentsContribution();

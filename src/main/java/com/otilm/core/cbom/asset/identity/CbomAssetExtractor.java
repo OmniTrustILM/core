@@ -462,10 +462,11 @@ public final class CbomAssetExtractor {
      * a keyed slot was already a reported skip. A string that reaches storage without reaching a pre-image was not: a
      * cipher-suite name on a version-less protocol row, or an unread member of {@code algorithmProperties} on a row
      * keyed by family, was retained in a payload that has no valid encoding for the {@code jsonb} column -- so whether
-     * the row survived was decided by the database, on a path that once rolled back a whole source upsert. Five
-     * surfaces are what persistence receives, and each is checked: the component name, the stored payload, the
-     * sanitized evidence, the provenance notes, and the findings -- which echo producer member names, so a surrogate in
-     * a member the redaction dropped reached them on a tier whose pre-image never read that member.
+     * the row survived was decided by the database, on a path that once rolled back a whole source upsert. Each surface
+     * checked here is refused: the component name, the stored payload, the sanitized evidence, the provenance notes,
+     * and the findings -- which echo producer member names, so a surrogate in a member the redaction dropped reached
+     * them on a tier whose pre-image never read that member. The navigation refs are persisted too but filtered rather
+     * than refused, by {@link ExtractedAsset#storedBomRefs}, so an unstorable ref costs only its link.
      *
      * <p>
      * The one exemption is the occurrence {@code location}: {@link Occurrences} scrubs a surrogate there rather than

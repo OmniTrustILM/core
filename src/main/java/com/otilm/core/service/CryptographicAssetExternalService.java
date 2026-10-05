@@ -38,12 +38,20 @@ public interface CryptographicAssetExternalService {
             SearchRequestDto request);
 
     /**
-     * One page of the assets one CBOM record contributed, each with the {@code bom-ref} values of that document's
-     * components that were folded into it -- the inventory listing scoped to one source document and one version of it,
-     * taking the same filters, sort and columns, each row still the inventory row with its inventory-wide counts and
-     * its projected attribute values. Gated as a {@code CRYPTO_ASSET/LIST} operation of its own, so the caller's asset
-     * scope applies exactly as on {@link #listCryptographicAssets}; whether the caller may see the CBOM is decided by
-     * the caller of this method, {@code CbomExternalService#listCbomAssets}.
+     * One page of the assets one CBOM record contributed.
+     *
+     * <p>
+     * <b>Scope:</b> the inventory listing narrowed to one source document and one version of it. It takes the same
+     * filters, sort and columns as {@link #listCryptographicAssets}.
+     *
+     * <p>
+     * <b>Rows:</b> each row is the inventory row, with its inventory-wide counts and projected attribute values, plus
+     * the {@code bom-ref} values of this document's components folded into it.
+     *
+     * <p>
+     * <b>Authorization:</b> gated as {@code CRYPTO_ASSET/LIST}, so the caller's asset scope applies as on the inventory
+     * listing. This method does not check access to the CBOM: its caller, {@code
+     * CbomExternalService#listCbomAssets}, must.
      *
      * @param cbomUuid the CBOM record whose contributions are listed; a record with none yields an empty page
      */

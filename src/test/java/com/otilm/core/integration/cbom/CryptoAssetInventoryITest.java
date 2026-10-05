@@ -1299,7 +1299,6 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
         assertThat(storedRefs(assetNamed("rsa-2048"), leanCbom.getUuid())).containsExactly("b");
     }
 
-    /** A ref the document cannot encode links nothing, and the asset is still ingested. */
     @Test
     void anUnencodableRefIsNotStoredButItsAssetIs() {
         JsonNode document = CbomIngestTestFixtures
@@ -1354,7 +1353,6 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
         assertThat(storedRefs(assetUuid, leanCbom.getUuid())).isNotNull().isEmpty();
     }
 
-    /** The short form is an answer of no refs: an equal or newer call empties the refs a fuller write stored. */
     @Test
     void theShortFormClearsStoredRefsOnAnEqualOrNewerObservation() {
         UUID assetUuid = upsert(rsa2048(), null);

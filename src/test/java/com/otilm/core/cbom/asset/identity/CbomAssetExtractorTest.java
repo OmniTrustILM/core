@@ -894,7 +894,6 @@ class CbomAssetExtractorTest {
         assertThat(extraction.assets().get(1).storedBomRefs()).isEmpty();
     }
 
-    /** Every component folded into one asset contributes its ref, in the order the document lists them. */
     @Test
     void foldingKeepsEveryComponentsRefInDocumentOrder() {
         JsonNode document = read("{\"components\":[" + algorithmWithRef("AES-256", "a1") + ","
@@ -953,7 +952,6 @@ class CbomAssetExtractorTest {
         });
     }
 
-    /** A ref the row cannot hold takes no place under the cap, and a ref is stored once however often it is folded. */
     @Test
     void theCapCountsOnlyStorableRefsAndEachRefOnce() {
         List<String> refs = new ArrayList<>();
