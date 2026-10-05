@@ -68,6 +68,11 @@ public class CryptoAssetSourceWriter {
      * alone. Without that, a delayed retry would leave the row attesting a state it never held. A call at the same
      * instant does refresh, so a re-extraction under upgraded code is not locked out.
      *
+     * <p>
+     * This form carries no {@code bom-ref} values, so it stores an empty ref list, and on an equal or newer observation
+     * that empty list replaces the refs already stored for the pair, as the rest of the content is replaced. The ingest
+     * writes through the form that takes the refs.
+     *
      * @param seenAt when this CBOM was observed to say it -- the observation time, which must be monotone per CBOM
      * across re-syncs for the recency rule to bite; a per-document constant makes every re-ingest a tie
      * @param occurrences every occurrence the CBOM reported; the unclipped count is stored, so the gap against the
@@ -76,7 +81,8 @@ public class CryptoAssetSourceWriter {
     @Transactional
     public void upsertSource(UUID assetUuid, UUID cbomUuid, Map<String, Object> cryptoProperties,
             List<Map<String, Object>> occurrences, OffsetDateTime seenAt) {
-        upsertSource(assetUuid, cbomUuid, cryptoProperties, occurrences, occurrenceCount(occurrences), seenAt);
+        writeSource(assetUuid, cbomUuid, cryptoProperties, occurrences, occurrenceCount(occurrences), List.of(),
+                seenAt);
     }
 
     /**
@@ -86,16 +92,31 @@ public class CryptoAssetSourceWriter {
      * Deriving the count from it would erase exactly the gap {@code occurrence_count} exists to record.
      *
      * @param reportedOccurrences how many occurrences the CBOM reported, before any capping
+     * @param bomRefs the {@code bom-ref} values of the components this CBOM folded into the asset, already each once,
+     * storable and capped ({@code ExtractedAsset.storedBomRefs}); stored whole under the same recency rule as the
+     * payload, so a re-sync of an unchanged document rewrites rather than accumulates them
      */
     @Transactional
     public void upsertSource(UUID assetUuid, UUID cbomUuid, Map<String, Object> cryptoProperties,
-            List<Map<String, Object>> occurrences, int reportedOccurrences, OffsetDateTime seenAt) {
+            List<Map<String, Object>> occurrences, int reportedOccurrences, List<String> bomRefs,
+            OffsetDateTime seenAt) {
+        writeSource(assetUuid, cbomUuid, cryptoProperties, occurrences, reportedOccurrences, bomRefs, seenAt);
+    }
+
+    /**
+     * The one body both forms run, so neither calls the other through this bean: a call through {@code this} skips the
+     * proxy, and the callee's {@code @Transactional} would be a declaration nothing enforces.
+     */
+    private void writeSource(UUID assetUuid, UUID cbomUuid, Map<String, Object> cryptoProperties,
+            List<Map<String, Object>> occurrences, int reportedOccurrences, List<String> bomRefs,
+            OffsetDateTime seenAt) {
         assetRepository.lockForSourceChange(assetUuid);
         CryptoPropertiesDigest digest = CryptoPropertiesDigest.of(cryptoProperties);
         sourceRepository
                 .upsertSource(UUID.randomUUID(), assetUuid, cbomUuid, JsonColumnText.render(cryptoProperties),
                         digest.leafCount(), digest.hash(),
-                        JsonColumnText.render(OccurrenceEvidenceCapper.cap(occurrences)), reportedOccurrences, seenAt);
+                        JsonColumnText.render(OccurrenceEvidenceCapper.cap(occurrences)), reportedOccurrences,
+                        bomRefs == null ? new String[0] : bomRefs.toArray(String[]::new), seenAt);
         assetRepository.recomputeMergeFromSources(assetUuid);
     }
 
