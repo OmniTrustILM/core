@@ -4,6 +4,7 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.common.attribute.common.AttributeContent;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.enums.cryptography.EncryptionAlgorithm;
@@ -45,7 +46,10 @@ class EncryptionAlgorithmUtilsTest {
         assertEquals(List.of(true), values(presented.get(3)));
         assertEquals(AttributeContentType.BOOLEAN, ((DataAttributeV3) presented.get(3)).getContentType());
         assertEquals(RsaEncryptionAttributes.ATTRIBUTE_DATA_RSA_OAEP_USE_MGF_NAME, presented.get(3).getName());
+        assertTrue(((DataAttributeV3) presented.get(1)).getProperties().isRequired());
         assertFalse(((DataAttributeV3) presented.get(2)).getProperties().isRequired());
+        assertFalse(((DataAttributeV3) presented.get(3)).getProperties().isRequired());
+        assertTrue(((DataAttributeV3) presented.get(3)).getProperties().isReadOnly());
         assertSame(originalContent, original.getContent());
     }
 
@@ -62,10 +66,11 @@ class EncryptionAlgorithmUtilsTest {
         assertEquals(1, presented.size());
         assertEquals(RsaEncryptionAttributes.ATTRIBUTE_DATA_RSA_ENC_SCHEME_NAME, presented.getFirst().getName());
         assertEquals(List.of("PKCS1-v1_5"), values(presented.getFirst()));
+        assertTrue(((DataAttributeV3) presented.getFirst()).getProperties().isRequired());
     }
 
     @Test
-    void expandEncryptionAlgorithmDefinition_requiresHash_forOaepOnly() {
+    void expandEncryptionAlgorithmDefinition_requiresAllFieldsAndFixesMgf_forOaepOnly() {
         // given
         List<BaseAttribute> schema = List
                 .of(EncryptionAlgorithmAttribute.definition(List.of(EncryptionAlgorithm.RSA_OAEP_SHA256)));
@@ -75,8 +80,30 @@ class EncryptionAlgorithmUtilsTest {
 
         // then
         assertEquals(3, presented.size());
+        assertTrue(((DataAttributeV3) presented.get(0)).getProperties().isRequired());
         assertTrue(((DataAttributeV3) presented.get(1)).getProperties().isRequired());
+        assertTrue(((DataAttributeV3) presented.get(2)).getProperties().isRequired());
+        assertTrue(((DataAttributeV3) presented.get(2)).getProperties().isReadOnly());
         assertEquals(List.of(true), values(presented.getLast()));
+    }
+
+    @Test
+    void expandEncryptionAlgorithmDefinition_preservesLegacyTemplateRequirements() {
+        // given
+        List<BaseAttribute> schema = List
+                .of(EncryptionAlgorithmAttribute.definition(List.of(EncryptionAlgorithm.RSA_OAEP_SHA256)));
+
+        // when
+        EncryptionAlgorithmUtils.expandEncryptionAlgorithmDefinition(schema);
+
+        // then
+        DataAttributeV2 legacyScheme = (DataAttributeV2) RsaEncryptionAttributes.buildDataEncryptionScheme();
+        DataAttributeV2 legacyHash = (DataAttributeV2) RsaEncryptionAttributes.buildDataOaepHash();
+        DataAttributeV2 legacyMgf = (DataAttributeV2) RsaEncryptionAttributes.buildDataOaepMgf();
+        assertFalse(legacyScheme.getProperties().isRequired());
+        assertTrue(legacyHash.getProperties().isRequired());
+        assertFalse(legacyMgf.getProperties().isRequired());
+        assertFalse(legacyMgf.getProperties().isReadOnly());
     }
 
     @Test

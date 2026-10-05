@@ -78,9 +78,9 @@ final class AlgorithmDefinitionMapping {
 
     /**
      * Merges {@link SignatureAlgorithmMapping#toAttributes} or {@link EncryptionAlgorithmMapping#toAttributes} results
-     * by UUID. Deduplicates content by data value; retains first-seen field and value order. Fields absent from any
-     * choice become optional: {@code RSA_PKCS1_V1_5} supplies neither {@code data_rsaOaepHash} nor
-     * {@code data_rsaOaepMgf}.
+     * by UUID. Deduplicates content by data value; retains first-seen field and value order. A field is required only
+     * when every choice supplies it, regardless of its template's required flag. For mixed PKCS1/OAEP offers, hash and
+     * MGF remain optional globally; exact algorithm matching enforces their presence for an OAEP selection.
      */
     static List<BaseAttribute> merge(List<List<RequestAttribute>> choices,
             Function<RequestAttribute, DataAttribute> templateProvider) {
@@ -106,9 +106,7 @@ final class AlgorithmDefinitionMapping {
             boolean presentInEveryChoice = choices
                     .stream()
                     .allMatch(choice -> choice.stream().anyMatch(attribute -> uuid.equals(attribute.getUuid())));
-            if (!presentInEveryChoice) {
-                definition.getProperties().setRequired(false);
-            }
+            definition.getProperties().setRequired(presentInEveryChoice);
         });
         return new ArrayList<>(definitions.values());
     }

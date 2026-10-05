@@ -22,8 +22,9 @@ public final class EncryptionAlgorithmUtils {
     /**
      * Replaces {@code encryptionAlgorithm} with advertised {@code data_rsaEncScheme}, {@code data_rsaOaepHash} and
      * BOOLEAN {@code data_rsaOaepMgf} choices. PKCS1-only definitions expose scheme alone. Mixed PKCS1/OAEP definitions
-     * keep OAEP fields optional. Retains unrelated definitions and input. Caller checks connector response for secret
-     * echoes before expansion.
+     * require the scheme and keep OAEP fields optional globally; OAEP-only definitions require all three fields. The
+     * MGF field is read-only with the mapped value true. Retains unrelated definitions and input. Caller checks
+     * connector response for secret echoes before expansion.
      *
      * @throws ValidationException for duplicate selectors, malformed choices, mixed split/original representations or
      * replacement UUID/name collisions
@@ -75,7 +76,7 @@ public final class EncryptionAlgorithmUtils {
 
     /** Selects {@link RsaEncryptionAttributes} template by split field name. */
     private static DataAttribute fieldTemplate(RequestAttribute attribute) {
-        return (DataAttribute) switch (attribute.getName()) {
+        DataAttribute template = (DataAttribute) switch (attribute.getName()) {
             case RsaEncryptionAttributes.ATTRIBUTE_DATA_RSA_ENC_SCHEME_NAME ->
                 RsaEncryptionAttributes.buildDataEncryptionScheme();
             case RsaEncryptionAttributes.ATTRIBUTE_DATA_RSA_OAEP_HASH_NAME ->
@@ -84,5 +85,9 @@ public final class EncryptionAlgorithmUtils {
                 RsaEncryptionAttributes.buildDataOaepMgf();
             default -> throw new IllegalArgumentException("Unknown RSA encryption field.");
         };
+        if (RsaEncryptionAttributes.ATTRIBUTE_DATA_RSA_OAEP_USE_MGF_NAME.equals(attribute.getName())) {
+            template.getProperties().setReadOnly(true);
+        }
+        return template;
     }
 }
