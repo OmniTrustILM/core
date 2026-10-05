@@ -58,6 +58,9 @@ class ConsoleLogFormatEnvironmentPostProcessorTest {
 
         assertThat(environment.getProperty(STRUCTURED_FORMAT_PROPERTY))
                 .isEqualTo(format.trim().toLowerCase(Locale.ROOT));
+        assertThat(environment
+                .getPropertySources()
+                .contains(ConsoleLogFormatEnvironmentPostProcessor.class.getSimpleName())).isTrue();
     }
 
     @ParameterizedTest
@@ -68,6 +71,8 @@ class ConsoleLogFormatEnvironmentPostProcessorTest {
         assertThatIllegalStateException()
                 .isThrownBy(() -> postProcessor.postProcessEnvironment(environment, new SpringApplication()))
                 .withMessageContaining("'" + format + "'")
+                .withMessageContaining("PLATFORM_LOG_FORMAT")
+                .withMessageContaining(CONSOLE_FORMAT_PROPERTY)
                 .withMessageContaining("text, ecs or logstash");
         assertThat(environment.containsProperty(STRUCTURED_FORMAT_PROPERTY)).isFalse();
     }

@@ -39,12 +39,13 @@ public class ConsoleLogFormatEnvironmentPostProcessor implements EnvironmentPost
         }
         if (!JSON_FORMATS.contains(format)) {
             throw new IllegalStateException(
-                    "Console log format '%s' is not supported: set PLATFORM_LOG_FORMAT to text, ecs or logstash"
-                            .formatted(configured));
+                    "Console log format '%s' is not supported: set PLATFORM_LOG_FORMAT (%s) to text, ecs or logstash"
+                            .formatted(configured, CONSOLE_FORMAT_PROPERTY));
         }
         environment
                 .getPropertySources()
-                .addLast(new MapPropertySource(CONSOLE_FORMAT_PROPERTY, Map.of(STRUCTURED_FORMAT_PROPERTY, format)));
+                .addLast(new MapPropertySource(ConsoleLogFormatEnvironmentPostProcessor.class.getSimpleName(),
+                        Map.of(STRUCTURED_FORMAT_PROPERTY, format)));
     }
 
     /** After the configuration files are loaded, so a default declared in application.yml is seen. */
