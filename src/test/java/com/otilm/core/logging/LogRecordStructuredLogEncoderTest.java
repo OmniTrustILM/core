@@ -89,7 +89,7 @@ class LogRecordStructuredLogEncoderTest {
 
         assertThat(line.get("log_record").isObject()).isTrue();
         assertThat(line.get("log_record")).isEqualTo(JSON.readTree(event.getFormattedMessage()));
-        assertThat(line.get("message").asText()).doesNotContain("{");
+        assertThat(line.get("message").asText()).isEqualTo("export keyItems success");
     }
 
     @Test
