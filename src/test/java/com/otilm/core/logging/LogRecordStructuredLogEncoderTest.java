@@ -128,7 +128,7 @@ class LogRecordStructuredLogEncoderTest {
                 Level.ERROR, "{\"version\":\"1.1\"}", new IllegalStateException("refused"), null);
         event.addMarker(MarkerFactory.getMarker("AUDIT"));
         event.setMDCPropertyMap(Map.of("log_actor_type", "USER"));
-        event.addKeyValuePair(new KeyValuePair(SerializedLogRecord.KEY, new SerializedLogRecord("{}", "summary")));
+        event.addKeyValuePair(new KeyValuePair(SerializedLogRecord.KEY, new SerializedLogRecord(auditRecord(), "{}")));
         event.setCallerData(new StackTraceElement[]{new StackTraceElement("Probe", "run", "Probe.java", 7)});
 
         ILoggingEvent summarized = new LogRecordStructuredLogEncoder.SummarizedEvent(event, "summary");

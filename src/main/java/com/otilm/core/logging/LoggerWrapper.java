@@ -88,7 +88,7 @@ public class LoggerWrapper {
      * the OpenTelemetry appender record that frame as the event's caller.
      */
     private LoggingEventBuilder withLogRecord(Level level, LogRecord logRecord, String json) {
-        return logger.atLevel(level).addKeyValue(SerializedLogRecord.KEY, SerializedLogRecord.of(logRecord, json));
+        return logger.atLevel(level).addKeyValue(SerializedLogRecord.KEY, new SerializedLogRecord(logRecord, json));
     }
 
     public boolean isLogFiltered(boolean audited, Module module, Resource resource, OperationResult result) {
