@@ -16,7 +16,10 @@ import com.otilm.core.dao.entity.ComplianceProfileAssociation;
 import com.otilm.core.dao.entity.ComplianceSubject;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
+import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.Secret;
+import com.otilm.core.dao.entity.TokenProfile;
+import com.otilm.core.dao.entity.VaultProfile;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CertificateRequestRepository;
 import com.otilm.core.dao.repository.ComplianceInternalRuleRepository;
@@ -24,7 +27,10 @@ import com.otilm.core.dao.repository.ComplianceProfileAssociationRepository;
 import com.otilm.core.dao.repository.ComplianceProfileRepository;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
+import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.SecretRepository;
+import com.otilm.core.dao.repository.TokenProfileRepository;
+import com.otilm.core.dao.repository.VaultProfileRepository;
 import com.otilm.core.evaluator.TriggerEvaluator;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.model.auth.ResourceAction;
@@ -53,6 +59,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -80,6 +87,9 @@ public class ComplianceServiceImpl implements ComplianceExternalService, Complia
     private CryptographicKeyRepository cryptographicKeyRepository;
     private CryptographicKeyItemRepository cryptographicKeyItemRepository;
     private SecretRepository secretRepository;
+    private RaProfileRepository raProfileRepository;
+    private TokenProfileRepository tokenProfileRepository;
+    private VaultProfileRepository vaultProfileRepository;
 
     // since only checking condition items, not necessary CertificateTriggerEvaluator that implements special logic for
     // setting properties
@@ -155,6 +165,21 @@ public class ComplianceServiceImpl implements ComplianceExternalService, Complia
     @Autowired
     public void setCryptographicKeyItemRepository(CryptographicKeyItemRepository cryptographicKeyItemRepository) {
         this.cryptographicKeyItemRepository = cryptographicKeyItemRepository;
+    }
+
+    @Autowired
+    public void setRaProfileRepository(RaProfileRepository raProfileRepository) {
+        this.raProfileRepository = raProfileRepository;
+    }
+
+    @Autowired
+    public void setTokenProfileRepository(TokenProfileRepository tokenProfileRepository) {
+        this.tokenProfileRepository = tokenProfileRepository;
+    }
+
+    @Autowired
+    public void setVaultProfileRepository(VaultProfileRepository vaultProfileRepository) {
+        this.vaultProfileRepository = vaultProfileRepository;
     }
 
     @Lazy
@@ -436,12 +461,9 @@ public class ComplianceServiceImpl implements ComplianceExternalService, Complia
                 case CRYPTOGRAPHIC_KEY -> cryptographicKeyRepository.existsById(objectUuid);
                 case CRYPTOGRAPHIC_KEY_ITEM -> cryptographicKeyItemRepository.existsById(objectUuid);
                 case SECRET -> secretRepository.existsById(objectUuid);
-                case RA_PROFILE -> complianceProfileAssociationRepository
-                        .countByResourceAndObjectUuid(Resource.RA_PROFILE, objectUuid) > 0;
-                case TOKEN_PROFILE -> complianceProfileAssociationRepository
-                        .countByResourceAndObjectUuid(Resource.TOKEN_PROFILE, objectUuid) > 0;
-                case VAULT_PROFILE -> complianceProfileAssociationRepository
-                        .countByResourceAndObjectUuid(Resource.VAULT_PROFILE, objectUuid) > 0;
+                case RA_PROFILE -> raProfileRepository.existsById(objectUuid);
+                case TOKEN_PROFILE -> tokenProfileRepository.existsById(objectUuid);
+                case VAULT_PROFILE -> vaultProfileRepository.existsById(objectUuid);
                 default -> throw new ValidationException(
                         COMPLIANCE_CHECK_VALIDATION_INVALID_RESOURCE_MESSAGE.formatted(resource.getLabel()));
             };
@@ -450,6 +472,25 @@ public class ComplianceServiceImpl implements ComplianceExternalService, Complia
                         .formatted(resource.getLabel(), objectUuid));
             }
         }
+
+        // The check skips profiles without a compliance profile, so a selection is refused only when none has one.
+        if (resource.hasComplianceProfiles() && !objectUuids.isEmpty()
+                && !complianceProfileAssociationRepository.existsByResourceAndObjectUuidIn(resource, objectUuids)) {
+            String profileNames = String.join(", ", findProfileNames(resource, objectUuids));
+            throw new ValidationException(
+                    "Cannot check compliance. No compliance profile is associated with requested %s(s): %s"
+                            .formatted(resource.getLabel(), profileNames));
+        }
+    }
+
+    private List<String> findProfileNames(Resource resource, List<UUID> profileUuids) {
+        Stream<String> profileNames = switch (resource) {
+            case RA_PROFILE -> raProfileRepository.findAllById(profileUuids).stream().map(RaProfile::getName);
+            case TOKEN_PROFILE -> tokenProfileRepository.findAllById(profileUuids).stream().map(TokenProfile::getName);
+            case VAULT_PROFILE -> vaultProfileRepository.findAllById(profileUuids).stream().map(VaultProfile::getName);
+            default -> Stream.empty();
+        };
+        return profileNames.sorted().toList();
     }
 
     @Override
