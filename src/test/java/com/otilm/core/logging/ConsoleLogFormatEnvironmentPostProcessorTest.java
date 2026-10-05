@@ -1,6 +1,7 @@
 package com.otilm.core.logging;
 
 import java.util.List;
+import java.util.Locale;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -13,6 +14,7 @@ import org.springframework.mock.env.MockEnvironment;
 import static com.otilm.core.logging.ConsoleLogFormatEnvironmentPostProcessor.CONSOLE_FORMAT_PROPERTY;
 import static com.otilm.core.logging.ConsoleLogFormatEnvironmentPostProcessor.STRUCTURED_FORMAT_PROPERTY;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 
 class ConsoleLogFormatEnvironmentPostProcessorTest {
 
@@ -48,13 +50,26 @@ class ConsoleLogFormatEnvironmentPostProcessorTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"ecs", " logstash "})
+    @ValueSource(strings = {"ecs", " logstash ", "ECS"})
     void aJsonFormatBecomesTheStructuredFormat(String format) {
         MockEnvironment environment = new MockEnvironment().withProperty(CONSOLE_FORMAT_PROPERTY, format);
 
         postProcessor.postProcessEnvironment(environment, new SpringApplication());
 
-        assertThat(environment.getProperty(STRUCTURED_FORMAT_PROPERTY)).isEqualTo(format.trim());
+        assertThat(environment.getProperty(STRUCTURED_FORMAT_PROPERTY))
+                .isEqualTo(format.trim().toLowerCase(Locale.ROOT));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"gelf", "json"})
+    void anUnsupportedFormatStopsStartup(String format) {
+        MockEnvironment environment = new MockEnvironment().withProperty(CONSOLE_FORMAT_PROPERTY, format);
+
+        assertThatIllegalStateException()
+                .isThrownBy(() -> postProcessor.postProcessEnvironment(environment, new SpringApplication()))
+                .withMessageContaining("'" + format + "'")
+                .withMessageContaining("text, ecs or logstash");
+        assertThat(environment.containsProperty(STRUCTURED_FORMAT_PROPERTY)).isFalse();
     }
 
     @Test

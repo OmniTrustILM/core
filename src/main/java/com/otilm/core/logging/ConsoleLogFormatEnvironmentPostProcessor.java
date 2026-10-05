@@ -1,13 +1,14 @@
 package com.otilm.core.logging;
 
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.context.config.ConfigDataEnvironmentPostProcessor;
 import org.springframework.boot.env.EnvironmentPostProcessor;
 import org.springframework.core.Ordered;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MapPropertySource;
-import org.springframework.util.StringUtils;
 
 /**
  * Turns {@code logging.console-format} into Spring Boot's structured console format, and leaves the Boot property out
@@ -23,15 +24,27 @@ public class ConsoleLogFormatEnvironmentPostProcessor implements EnvironmentPost
 
     private static final String TEXT = "text";
 
+    private static final Set<String> JSON_FORMATS = Set.of("ecs", "logstash");
+
+    /**
+     * Refuses anything but text, ecs and logstash with one message naming them; Boot's own error for an unknown format
+     * would also offer gelf, which LogRecordStructuredLogEncoder refuses.
+     */
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
-        String format = environment.getProperty(CONSOLE_FORMAT_PROPERTY, TEXT).trim();
-        if (StringUtils.hasText(format) && !TEXT.equalsIgnoreCase(format)) {
-            environment
-                    .getPropertySources()
-                    .addLast(
-                            new MapPropertySource(CONSOLE_FORMAT_PROPERTY, Map.of(STRUCTURED_FORMAT_PROPERTY, format)));
+        String configured = environment.getProperty(CONSOLE_FORMAT_PROPERTY, TEXT);
+        String format = configured.trim().toLowerCase(Locale.ROOT);
+        if (format.isEmpty() || TEXT.equals(format)) {
+            return;
         }
+        if (!JSON_FORMATS.contains(format)) {
+            throw new IllegalStateException(
+                    "Console log format '%s' is not supported: set PLATFORM_LOG_FORMAT to text, ecs or logstash"
+                            .formatted(configured));
+        }
+        environment
+                .getPropertySources()
+                .addLast(new MapPropertySource(CONSOLE_FORMAT_PROPERTY, Map.of(STRUCTURED_FORMAT_PROPERTY, format)));
     }
 
     /** After the configuration files are loaded, so a default declared in application.yml is seen. */
