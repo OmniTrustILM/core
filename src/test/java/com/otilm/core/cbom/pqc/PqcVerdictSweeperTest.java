@@ -49,6 +49,7 @@ class PqcVerdictSweeperTest {
         PqcVerdictSweeper.SweepOutcome outcome = sweeper.sweep();
 
         assertThat(outcome.ran()).isFalse();
+        assertThat(outcome.status()).isEqualTo(PqcVerdictSweeper.SweepOutcome.Status.DISABLED);
         verify(synchronizer, never()).tryLock(any(ClusterOperationSynchronizer.Operation.class));
     }
 
@@ -57,7 +58,10 @@ class PqcVerdictSweeperTest {
         when(synchronizer.tryLock(ClusterOperationSynchronizer.Operation.CRYPTO_ASSET_PQC_SWEEP)).thenReturn(false);
         PqcVerdictSweeper sweeper = sweeper(5, 10);
 
-        assertThat(sweeper.sweep().ran()).isFalse();
+        PqcVerdictSweeper.SweepOutcome outcome = sweeper.sweep();
+
+        assertThat(outcome.ran()).isFalse();
+        assertThat(outcome.status()).isEqualTo(PqcVerdictSweeper.SweepOutcome.Status.CONTENDED);
         verify(repository, never()).staleVerdictRows(any(), anyInt());
     }
 

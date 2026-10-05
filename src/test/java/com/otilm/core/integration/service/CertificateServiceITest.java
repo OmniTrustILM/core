@@ -2221,8 +2221,14 @@ class CertificateServiceITest extends BaseSpringBootTest {
             // given — re-issue after the chain can no longer be rebuilt (no content, null issuer serial)
             Certificate notIssued = setUpRequestedIssueChain();
             certificateService.issueRequestedCertificate(notIssued.getUuid(), EE_BASE64_CONTENT, null);
-            notIssued.setCertificateContent(null);
-            certificateRepository.save(notIssued);
+            Certificate issued = certificateRepository.findByUuid(notIssued.getUuid()).orElseThrow();
+            issued.setState(CertificateState.PENDING_ISSUE);
+            issued.setFingerprint(null);
+            issued.setCertificateContent(null);
+            issued.setCertificateContentId(null);
+            issued.setIssuerSerialNumber(null);
+            issued.setIssuerCertificateUuid(null);
+            certificateRepository.save(issued);
             certificate.setIssuerSerialNumber(null);
             certificateRepository.save(certificate);
             CertificateRelation relation = certificateRelationRepository

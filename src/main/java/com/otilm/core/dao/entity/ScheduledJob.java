@@ -2,15 +2,14 @@ package com.otilm.core.dao.entity;
 
 import com.otilm.api.model.core.scheduler.ScheduledJobDetailDto;
 import com.otilm.api.model.core.scheduler.ScheduledJobDto;
-import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
 import com.otilm.core.dao.converter.ObjectToJsonConverter;
-import com.otilm.core.util.CronExpressionUtil;
+import com.otilm.core.model.scheduler.ObservedSchedule;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
-import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.Objects;
 import java.util.UUID;
 import lombok.Getter;
@@ -58,30 +57,38 @@ public class ScheduledJob extends UniquelyIdentified {
     @Column(name = "job_class_name")
     private String jobClassName;
 
-    public ScheduledJobDetailDto mapToDetailDto(ScheduledJobHistory latestHistory) {
-        String jobType = this.jobClassName.lastIndexOf(".") == -1
-                ? this.jobClassName
-                : this.jobClassName.substring(this.jobClassName.lastIndexOf(".") + 1);
+    /**
+     * When the job last declined a run; the run's history row is removed, this is what remains of it.
+     *
+     * <p>
+     * Written only by {@code ScheduledJobWriter}'s statement, never by a save: enable, disable and update save a copy
+     * read before their call to the scheduler, which would put back whatever skip that copy held.
+     */
+    @Column(name = "last_skipped_at", insertable = false, updatable = false)
+    private OffsetDateTime lastSkippedAt;
 
+    /** The task's own fixed text for that skip, served to the operator; written like {@link #lastSkippedAt}. */
+    @Column(name = "last_skip_reason", insertable = false, updatable = false)
+    private String lastSkipReason;
+
+    public ScheduledJobDetailDto mapToDetailDto(ScheduledJobHistory latestHistory, ObservedSchedule observed) {
         final ScheduledJobDetailDto dto = new ScheduledJobDetailDto();
-        dto.setUuid(this.uuid);
-        dto.setJobName(this.jobName);
-        dto.setJobType(jobType);
-        dto.setCronExpression(this.cronExpression);
+        fill(dto, latestHistory, observed);
         dto.setUserUuid(this.userUuid);
-        dto.setEnabled(this.enabled);
-        dto.setSystem(this.system);
-        dto.setOneTime(this.oneTime);
-        dto.setNextFireTime(nextFireTime(latestHistory));
-        if (latestHistory != null) {
-            dto.setLastExecutionStatus(latestHistory.getSchedulerExecutionStatus());
-        }
-
         return dto;
     }
 
-    public ScheduledJobDto mapToDto(ScheduledJobHistory latestHistory) {
+    public ScheduledJobDto mapToDto(ScheduledJobHistory latestHistory, ObservedSchedule observed) {
         final ScheduledJobDto dto = new ScheduledJobDto();
+        fill(dto, latestHistory, observed);
+        return dto;
+    }
+
+    /**
+     * The three sources an operator reads the job's liveness from: what the scheduler observes of the trigger, the
+     * latest history row, and the skip recorded on the row itself.
+     */
+    private void fill(ScheduledJobDto dto, ScheduledJobHistory latestHistory, ObservedSchedule observed) {
         dto.setUuid(this.uuid);
         dto.setJobName(this.jobName);
         dto.setJobType(getJobType());
@@ -89,35 +96,18 @@ public class ScheduledJob extends UniquelyIdentified {
         dto.setEnabled(this.enabled);
         dto.setOneTime(this.oneTime);
         dto.setSystem(this.system);
-        dto.setNextFireTime(nextFireTime(latestHistory));
+        dto.setScheduleState(observed.state());
+        dto.setNextFireTime(observed.nextFireTime());
+        dto.setPreviousFireTime(observed.previousFireTime());
+        dto.setLastSkippedAt(this.lastSkippedAt == null ? null : this.lastSkippedAt.toInstant());
+        dto.setLastSkipReason(this.lastSkipReason);
         if (latestHistory != null) {
             dto.setLastExecutionStatus(latestHistory.getSchedulerExecutionStatus());
+            dto
+                    .setLastExecutionStartTime(latestHistory.getJobExecution() == null
+                            ? null
+                            : latestHistory.getJobExecution().toInstant());
         }
-
-        return dto;
-    }
-
-    /**
-     * A one-time job is unscheduled once it has succeeded ({@code SchedulerServiceImpl.finalizeFinishedScheduledJob}),
-     * while its row stays; its expression would still yield a date, but no trigger is left to fire on it.
-     *
-     * <p>
-     * Known gap: {@code finalizeFinishedScheduledJob} writes the SUCCESS status before attempting deregistration, and
-     * only logs a deregistration failure rather than recording it -- so on that rare failure this returns {@code null}
-     * for a trigger that is, in fact, still live. Closing it needs state persisted only on confirmed deregistration
-     * (e.g. an {@code unregisteredAt} column), which is a bigger change than this method; tracked as a follow-up rather
-     * than fixed here.
-     */
-    private Instant nextFireTime(ScheduledJobHistory latestHistory) {
-        if (!this.enabled) {
-            return null;
-        }
-        final boolean succeededOneTime = this.oneTime && latestHistory != null
-                && latestHistory.getSchedulerExecutionStatus() == SchedulerJobExecutionStatus.SUCCESS;
-        if (succeededOneTime) {
-            return null;
-        }
-        return CronExpressionUtil.nextFireTime(this.jobName, this.cronExpression, Instant.now());
     }
 
     public String getJobType() {

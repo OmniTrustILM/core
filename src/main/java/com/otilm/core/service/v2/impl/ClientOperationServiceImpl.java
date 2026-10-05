@@ -110,6 +110,7 @@ import com.otilm.core.service.handler.authority.AdapterOperationResult;
 import com.otilm.core.service.handler.authority.AsyncOperationCapability;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
+import com.otilm.core.service.handler.authority.AuthorityRevokeFailures;
 import com.otilm.core.service.handler.authority.CancelOutcome;
 import com.otilm.core.service.handler.authority.CertificateOperation;
 import com.otilm.core.service.handler.authority.RegisterCapability;
@@ -1668,6 +1669,10 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 || e instanceof ValidationException) && e.getMessage() != null ? e.getMessage() : fallback;
     }
 
+    private static ValidationException alreadyRevoked(Certificate certificate) {
+        return new ValidationException("Certificate is already revoked. Certificate: " + certificate.toStringShort());
+    }
+
     /** Delegates with the metadata from the connector's {@code 202 Accepted} response body. */
     private void onAsyncAccepted(Certificate certificate, AdapterOperationResult result,
             ResourceAction originatingAction) {
@@ -2511,6 +2516,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         final Certificate certificate = certificateRepository
                 .findWithAssociationsByUuid(certificateUuid)
                 .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
+        if (certificate.getState() == CertificateState.REVOKED) {
+            throw alreadyRevoked(certificate);
+        }
         if (certificate.getState() != CertificateState.ISSUED
                 && certificate.getState() != CertificateState.PENDING_APPROVAL) {
             throw new ValidationException(ValidationError
@@ -2518,7 +2526,6 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                             .format("Cannot revoke certificate in state %s. Certificate: %s",
                                     certificate.getState().getLabel(), certificate.toStringShort())));
         }
-        final CertificateState entryState = certificate.getState();
 
         RaProfile raProfile = certificate.getRaProfile();
 
@@ -2588,18 +2595,25 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                                 certificate.getUuid(), e.getMessage(), e);
                 throw new CertificateOperationException(msg);
             }
-            // Connector itself failed. Nothing transitioned the cert before the connector call, so
-            // this restores it to its entry state — a defensive no-op, not a real transition, and so
-            // intentionally not routed through the SM (there is no self-transition row, and the SM
-            // governs state changes rather than idempotent restores). The FAILED audit below is the
-            // meaningful record of the failed revoke attempt.
-            certificate.setState(entryState);
-            certificateRepository.save(certificate);
+            // Connector itself failed. This action changed no state before the connector call, so it writes none
+            // back: the entry state would undo a revocation a concurrent action has committed since this one read
+            // the certificate.
+            String reason = AuthorityRevokeFailures.describe(e);
+            String msg = "Failed to revoke certificate: " + reason;
             certificateEventHistoryService
-                    .addEventHistory(certificate.getUuid(), CertificateEvent.REVOKE, CertificateEventStatus.FAILED,
-                            safeMessage(e, "Revocation failed"), "");
-            logger.error("Failed to revoke Certificate: {}", e.getMessage(), e);
-            throw new CertificateOperationException("Failed to revoke certificate: " + safeMessage(e, INTERNAL_ERROR));
+                    .addEventHistory(certificate.getUuid(), CertificateEvent.REVOKE, CertificateEventStatus.FAILED, msg,
+                            "");
+            if (e instanceof ConnectorException connectorFailure) {
+                logger
+                        .error("Failed to revoke certificate {}: {} ({})", certificate.getUuid(), reason,
+                                AuthorityRevokeFailures.logDetail(connectorFailure));
+            } else {
+                logger.error("Failed to revoke certificate {}: {}", certificate.getUuid(), reason, e);
+            }
+            if (certificate.getState() == CertificateState.PENDING_APPROVAL) {
+                returnFailedApprovedRevokeToIssued(certificate.getUuid());
+            }
+            throw new CertificateOperationException(msg);
         }
 
         if (certificate.getKey() != null && request.isDestroyKey()) {
@@ -2617,6 +2631,35 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                         .constructEventMessage(certificate.getUuid(), ResourceAction.REVOKE));
 
         logger.debug("Certificate revoked: {}", certificate);
+    }
+
+    /**
+     * The approval of a revocation the authority did not carry out is already closed, so nothing would ever move the
+     * certificate out of {@code PENDING_APPROVAL}. Returns it to {@code ISSUED} under a row lock, unless a concurrent
+     * action has moved it on since. The failed revoke is already in the history, so the restore records nothing more.
+     */
+    private void returnFailedApprovedRevokeToIssued(UUID certificateUuid) {
+        // Nothing here may escape: the caller's sanitized failure is what reaches the requester's notification.
+        TransactionStatus tx = null;
+        try {
+            tx = transactionManager.getTransaction(new DefaultTransactionDefinition());
+            certificateRepository
+                    .findAndLockWithAssociationsByUuid(certificateUuid)
+                    .filter(locked -> locked.getState() == CertificateState.PENDING_APPROVAL)
+                    .ifPresent(locked -> stateMachine.transitionAuditedExternally(locked, CertificateState.ISSUED));
+            transactionManager.commit(tx);
+        } catch (RuntimeException e) {
+            if (tx != null && !tx.isCompleted()) {
+                try {
+                    transactionManager.rollback(tx);
+                } catch (RuntimeException rollbackFailure) {
+                    e.addSuppressed(rollbackFailure);
+                }
+            }
+            logger
+                    .error("Failed to restore certificate {} to {} after a failed approved revocation: {}",
+                            certificateUuid, CertificateState.ISSUED.getLabel(), e.getMessage(), e);
+        }
     }
 
     @Override
@@ -2754,6 +2797,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             throw new ValidationException(
                     "Cannot perform operation %s on certificate with a pending operation. Finalize or cancel the pending operation first. Certificate: %s"
                             .formatted(action.getCode(), oldCertificate.toStringShort()));
+        }
+        if (action == ResourceAction.REVOKE && oldCertificate.getState() == CertificateState.REVOKED) {
+            throw alreadyRevoked(oldCertificate);
         }
         if (!oldCertificate.getState().equals(CertificateState.ISSUED)) {
             throw new ValidationException(String
