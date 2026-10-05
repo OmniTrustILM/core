@@ -42,6 +42,24 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
             + "AND EXISTS (SELECT s FROM CryptoAssetSource s WHERE s.assetUuid = a.uuid)")
     List<CryptoAsset> findSourcedAssets(@Param("uuids") Collection<UUID> uuids);
 
+    /** The same verdict freshness condition as the sweep, scoped to assets awaiting event dispatch. */
+    @Query(value = """
+            SELECT crypto_asset.uuid
+            FROM {h-schema}crypto_asset
+            WHERE crypto_asset.uuid IN (:uuids)
+              AND (crypto_asset.pqc_evaluated_revision IS DISTINCT FROM crypto_asset.input_revision
+                   OR (crypto_asset.asset_type IN ('CERTIFICATE', 'PROTOCOL')
+                       AND crypto_asset.pqc_reference_basis IS DISTINCT FROM (
+                           SELECT string_agg(COALESCE(CAST(r.target_asset_uuid AS TEXT), '') || ':'
+                                   || COALESCE(t.pqc_verdict, '') || ':' || COALESCE(t.pqc_rule_id, '') || ':'
+                                   || COALESCE(t.primitive, ''), ','
+                                   ORDER BY r.kind, r.ordinal)
+                           FROM {h-schema}crypto_asset_reference r
+                           LEFT JOIN {h-schema}crypto_asset t ON t.uuid = r.target_asset_uuid
+                           WHERE r.source_uuid = crypto_asset.properties_source_uuid)))
+            """, nativeQuery = true)
+    List<UUID> findStaleVerdictUuids(@Param("uuids") Collection<UUID> uuids);
+
     @Query(value = """
             SELECT EXISTS (
                 SELECT 1 FROM {h-schema}crypto_asset a

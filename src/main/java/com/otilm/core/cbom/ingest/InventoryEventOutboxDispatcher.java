@@ -137,6 +137,9 @@ public class InventoryEventOutboxDispatcher {
         if (assets.values().stream().anyMatch(asset -> !hasCurrentVerdict(asset))) {
             return Optional.empty();
         }
+        if (!assets.isEmpty() && !assetRepository.findStaleVerdictUuids(assetUuids).isEmpty()) {
+            return Optional.empty();
+        }
         return Optional
                 .of(assetUuids
                         .stream()

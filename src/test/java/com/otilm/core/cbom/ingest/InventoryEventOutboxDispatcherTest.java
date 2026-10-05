@@ -137,6 +137,20 @@ class InventoryEventOutboxDispatcherTest {
     }
 
     @Test
+    void aVerdictWithChangedReferencedAssetKeepsTheEventPending() {
+        UUID newAsset = UUID.randomUUID();
+        givenRow(true, List.of(newAsset));
+        givenCbom();
+        when(assets.findSourcedAssets(List.of(newAsset))).thenReturn(List.of(asset(newAsset)));
+        when(assets.findStaleVerdictUuids(List.of(newAsset))).thenReturn(List.of(newAsset));
+
+        dispatcher.dispatchCbom(cbomUuid);
+
+        verify(producer, never()).produceMessage(any());
+        verify(writer).release(eq(cbomUuid), any());
+    }
+
+    @Test
     void aFailedCbomPublishesOnlyNewAssetsThatRemainInInventory() {
         UUID surviving = UUID.randomUUID();
         UUID removed = UUID.randomUUID();

@@ -152,10 +152,12 @@ class CryptoAssetReferenceIngestITest extends BaseSpringBootTest {
         UUID certificate = only(CryptographicAssetType.CERTIFICATE).getUuid();
         UUID key = named("rsa-2048 public key");
         assertThat(workList()).doesNotContain(certificate, key);
+        assertThat(assetRepository.findStaleVerdictUuids(List.of(certificate, key))).isEmpty();
 
         assetWriter.applyPqcVerdict(key, PqcVerdict.READY, "LATER-RULE", "re-evaluated", Map.of());
 
         assertThat(workList()).contains(certificate);
+        assertThat(assetRepository.findStaleVerdictUuids(List.of(certificate, key))).containsExactly(certificate);
     }
 
     /**
