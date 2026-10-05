@@ -127,7 +127,7 @@ public class LogRecordStructuredLogEncoder extends StructuredLogEncoder {
         }
 
         @Override
-        @Deprecated
+        @SuppressWarnings("deprecation")
         public Map<String, String> getMdc() {
             return event.getMDCPropertyMap();
         }
