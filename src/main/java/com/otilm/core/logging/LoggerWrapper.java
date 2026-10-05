@@ -18,6 +18,7 @@ import lombok.Getter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.event.Level;
+import org.slf4j.spi.LoggingEventBuilder;
 
 @Getter
 public class LoggerWrapper {
@@ -41,7 +42,8 @@ public class LoggerWrapper {
         }
 
         try {
-            log(Level.INFO, logRecord);
+            String json = OBJECT_MAPPER.writeValueAsString(logRecord);
+            withLogRecord(Level.INFO, logRecord, json).log(json);
         } catch (JsonProcessingException e) {
             logger.warn("Cannot serialize audit LogRecord to JSON: {}", e.getMessage());
         }
@@ -56,7 +58,9 @@ public class LoggerWrapper {
         try {
             LogRecord logRecord = buildLogRecord(false, this.module, this.resource, resourceObjects, operation,
                     operationResult, operationData, message, null);
-            log(operationResult == OperationResult.SUCCESS ? Level.INFO : Level.ERROR, logRecord);
+            String json = OBJECT_MAPPER.writeValueAsString(logRecord);
+            withLogRecord(operationResult == OperationResult.SUCCESS ? Level.INFO : Level.ERROR, logRecord, json)
+                    .log(json);
 
         } catch (JsonProcessingException e) {
             logger.warn("Cannot serialize event LogRecord to JSON: {}", e.getMessage());
@@ -72,15 +76,19 @@ public class LoggerWrapper {
         try {
             LogRecord logRecord = buildLogRecord(false, this.module, this.resource, resourceObjects, operation,
                     operationResult, operationData, message, null);
-            log(Level.DEBUG, logRecord);
+            String json = OBJECT_MAPPER.writeValueAsString(logRecord);
+            withLogRecord(Level.DEBUG, logRecord, json).log(json);
         } catch (JsonProcessingException e) {
             logger.warn("Cannot serialize debug event LogRecord to JSON: {}", e.getMessage());
         }
     }
 
-    private void log(Level level, LogRecord logRecord) throws JsonProcessingException {
-        String json = OBJECT_MAPPER.writeValueAsString(logRecord);
-        logger.atLevel(level).addKeyValue(SerializedLogRecord.KEY, SerializedLogRecord.of(logRecord, json)).log(json);
+    /**
+     * Returns the builder rather than logging, so the frame that calls {@code log} stays the public method: Logback and
+     * the OpenTelemetry appender record that frame as the event's caller.
+     */
+    private LoggingEventBuilder withLogRecord(Level level, LogRecord logRecord, String json) {
+        return logger.atLevel(level).addKeyValue(SerializedLogRecord.KEY, SerializedLogRecord.of(logRecord, json));
     }
 
     public boolean isLogFiltered(boolean audited, Module module, Resource resource, OperationResult result) {
