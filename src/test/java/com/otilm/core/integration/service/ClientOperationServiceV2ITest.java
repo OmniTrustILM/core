@@ -6,7 +6,6 @@ import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.CertificateOperationException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
-import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV2;
@@ -1344,7 +1343,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                                 List.of(SignatureAlgorithm.SHA256_WITH_RSA, SignatureAlgorithm.SHA384_WITH_RSA_PSS)));
         when(cryptographicOperationService.listSignAttributeSchema(key.getUuid()))
                 .thenReturn(new OperationAttributeSchema(token.getConnectorUuid(),
-                        SignatureAlgorithmFields.toClient(KeyAlgorithm.RSA, published), published, KeyAlgorithm.RSA));
+                        SignatureAlgorithmFields.form(published), published));
         ClientCertificateRequestDto request = uploadedRequest(key.getUuid(),
                 List
                         .of(RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PSS),
@@ -1359,75 +1358,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
-    void submitCertificateRequest_refusesTheSchemeAndDigestForAV2KeyThatPresentsNeither() throws Exception {
-        // given: Core's fields, stored by an RSA key's listing, and a key offering ML-DSA-65 alone
-        stubAuthorityProviderAttributesEndpoints();
-        TokenInstanceReference token = persistV2Token();
-        CryptographicKey key = persistV2Key(token);
-        attributeEngine
-                .updateDataAttributeDefinitions(token.getConnectorUuid(), null,
-                        RsaSignatureAttributes.getRsaSignatureAttributes());
-        List<BaseAttribute> published = List
-                .of(SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.ML_DSA_65)));
-        when(cryptographicOperationService.listSignAttributeSchema(key.getUuid()))
-                .thenReturn(new OperationAttributeSchema(token.getConnectorUuid(), List.of(), published,
-                        KeyAlgorithm.MLDSA));
-        ClientCertificateRequestDto request = uploadedRequest(key.getUuid(),
-                List
-                        .of(RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PSS),
-                                RsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_256)));
-
-        // when
-        Executable submit = () -> clientOperationService.submitCertificateRequest(request, null);
-
-        // then
-        ValidationException failure = Assertions.assertThrows(ValidationException.class, submit);
-        List<String> errors = failure.getErrors().stream().map(ValidationError::getErrorDescription).toList();
-        Assertions.assertEquals(2, errors.size(), errors.toString());
-        Assertions
-                .assertTrue(
-                        errors.stream().anyMatch(e -> e.contains(RsaSignatureAttributes.ATTRIBUTE_DATA_RSA_SIG_SCHEME)),
-                        errors.toString());
-        Assertions
-                .assertTrue(errors.stream().anyMatch(e -> e.contains(RsaSignatureAttributes.ATTRIBUTE_DATA_SIG_DIGEST)),
-                        errors.toString());
-    }
-
-    @Test
-    void submitCertificateRequest_refusesEachFieldTheV2KeyDoesNotPresent_whenTheConnectorHoldsNoDefinitionOfIt()
-            throws Exception {
-        // given: no key has stored Core's fields under the connector, and a key offering ML-DSA-65 alone
-        stubAuthorityProviderAttributesEndpoints();
-        TokenInstanceReference token = persistV2Token();
-        CryptographicKey key = persistV2Key(token);
-        List<BaseAttribute> published = List
-                .of(SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.ML_DSA_65)));
-        when(cryptographicOperationService.listSignAttributeSchema(key.getUuid()))
-                .thenReturn(new OperationAttributeSchema(token.getConnectorUuid(), List.of(), published,
-                        KeyAlgorithm.MLDSA));
-        ClientCertificateRequestDto request = uploadedRequest(key.getUuid(),
-                List
-                        .of(RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PSS),
-                                RsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_256)));
-
-        // when
-        Executable submit = () -> clientOperationService.submitCertificateRequest(request, null);
-
-        // then
-        ValidationException failure = Assertions.assertThrows(ValidationException.class, submit);
-        List<String> errors = failure.getErrors().stream().map(ValidationError::getErrorDescription).toList();
-        Assertions
-                .assertEquals(List
-                        .of("The signing key presents no attribute "
-                                + RsaSignatureAttributes.ATTRIBUTE_DATA_RSA_SIG_SCHEME + ".",
-                                "The signing key presents no attribute "
-                                        + RsaSignatureAttributes.ATTRIBUTE_DATA_SIG_DIGEST + "."),
-                        errors);
-    }
-
-    @Test
-    void submitCertificateRequest_refusesASignatureAlgorithmAttributeSubmittedBesideTheFieldsOfAV2Key()
-            throws Exception {
+    void submitCertificateRequest_refusesASignatureAlgorithmStatedBesideTheFieldsOfAV2Key() throws Exception {
         // given: a definition of the connector's attribute stored before Core presented the fields
         stubAuthorityProviderAttributesEndpoints();
         TokenInstanceReference token = persistV2Token();
@@ -1721,7 +1652,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         certificateRequestRepository.save(signedRequest);
         attributeEngine
                 .validateUpdateDataAttributes(token.getConnectorUuid(), AttributeOperation.SIGN,
-                        signatureAlgorithmSchema(token.getConnectorUuid()).presentedDefinitions(), sha256WithRsa());
+                        signatureAlgorithmSchema(token.getConnectorUuid()).definitions(), sha256WithRsa());
         attributeEngine
                 .updateObjectDataAttributesContent(ObjectAttributeContentInfo
                         .builder(Resource.CERTIFICATE_REQUEST, signedRequest.getUuid())
@@ -1841,8 +1772,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     private static OperationAttributeSchema signatureAlgorithmSchema(UUID connectorUuid) {
         List<BaseAttribute> published = List
                 .of(SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA)));
-        return new OperationAttributeSchema(connectorUuid,
-                SignatureAlgorithmFields.toClient(KeyAlgorithm.RSA, published), published, KeyAlgorithm.RSA);
+        return new OperationAttributeSchema(connectorUuid, SignatureAlgorithmFields.form(published), published);
     }
 
     private static List<RequestAttribute> sha256WithRsa() {

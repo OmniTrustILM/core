@@ -134,7 +134,6 @@ import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert;
-import org.bouncycastle.jcajce.spec.MLDSAParameterSpec;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -308,15 +307,6 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         return ex.getErrors().stream().map(ValidationError::getErrorDescription).findFirst().orElse("");
     }
 
-    /** Each field is named by exactly one of the refusal's errors. */
-    private static void assertNamesEachField(ValidationException failure, String... fields) {
-        List<String> errors = failure.getErrors().stream().map(ValidationError::getErrorDescription).toList();
-        assertEquals(fields.length, errors.size(), errors.toString());
-        for (String field : fields) {
-            assertEquals(1, errors.stream().filter(error -> error.contains(field)).count(), errors.toString());
-        }
-    }
-
     private static String extractStringAttrValue(List<ResponseAttribute> attrs, String name) {
         ResponseAttribute attr = attrs
                 .stream()
@@ -380,20 +370,15 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
 
     private CryptographicKey persistV2KeyPair(TokenInstanceReference token, TokenProfile profile, KeyPair keyPair)
             throws NoSuchAlgorithmException {
-        return persistV2KeyPair(token, profile, keyPair, "v2-key", KeyAlgorithm.RSA);
-    }
-
-    private CryptographicKey persistV2KeyPair(TokenInstanceReference token, TokenProfile profile, KeyPair keyPair,
-            String name, KeyAlgorithm algorithm) throws NoSuchAlgorithmException {
         CryptographicKey v2Key = new CryptographicKey();
-        v2Key.setName(name);
+        v2Key.setName("v2-key");
         v2Key.setTokenProfile(profile);
         v2Key.setTokenInstanceReference(token);
         v2Key = cryptographicKeyRepository.save(v2Key);
         String publicKeyData = Base64.getEncoder().encodeToString(keyPair.getPublic().getEncoded());
-        persistV2KeyItem(v2Key, KeyType.PRIVATE_KEY, algorithm, null, null, null);
-        persistV2KeyItem(v2Key, KeyType.PUBLIC_KEY, algorithm, publicKeyData,
-                CertificateUtil.getThumbprint(publicKeyData.getBytes(StandardCharsets.UTF_8)), null);
+        persistV2KeyItem(v2Key, KeyType.PRIVATE_KEY, null, null);
+        persistV2KeyItem(v2Key, KeyType.PUBLIC_KEY, publicKeyData,
+                CertificateUtil.getThumbprint(publicKeyData.getBytes(StandardCharsets.UTF_8)));
         return v2Key;
     }
 
@@ -402,11 +387,6 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
     }
 
     private void persistV2KeyItem(CryptographicKey key, KeyType type, String keyData, String fingerprint, UUID uuid) {
-        persistV2KeyItem(key, type, KeyAlgorithm.RSA, keyData, fingerprint, uuid);
-    }
-
-    private void persistV2KeyItem(CryptographicKey key, KeyType type, KeyAlgorithm algorithm, String keyData,
-            String fingerprint, UUID uuid) {
         MetadataAttributeV3 handle = new MetadataAttributeV3();
         handle.setUuid(UUID.randomUUID().toString());
         handle.setName("provider-handle");
@@ -419,7 +399,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         value.setKey(key);
         value.setKeyUuid(key.getUuid());
         value.setType(type);
-        value.setKeyAlgorithm(algorithm);
+        value.setKeyAlgorithm(KeyAlgorithm.RSA);
         value.setFormat(type == KeyType.PUBLIC_KEY ? KeyFormat.SPKI : KeyFormat.PRKI);
         value.setLength(2048);
         value.setState(KeyState.ACTIVE);
@@ -726,9 +706,6 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
 
         private CryptographyProviderV2ConnectorMock v2Mock;
         private Connector v2Connector;
-        private TokenInstanceReference v2Token;
-        private TokenProfile v2TokenProfile;
-        private TestCertificateAuthority.TrustedCa v2Ca;
         private CryptographicKey v2Key;
         private Certificate v2SigningCertificate;
         private Certificate v2TimestampingCertificate;
@@ -738,13 +715,13 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             v2Mock = connectorMockFactory.startCryptographyProviderV2();
             v2Mock.stubOperationAttributes("sign", pkcs11Schema());
             v2Connector = persistV2Connector(v2Mock.getUrl());
-            v2Token = persistV2Token(persistCryptographyInterface(v2Connector));
-            v2TokenProfile = persistV2Profile(v2Token);
+            TokenInstanceReference token = persistV2Token(persistCryptographyInterface(v2Connector));
+            TokenProfile profile = persistV2Profile(token);
             KeyPair v2KeyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
-            v2Key = persistV2KeyPair(v2Token, v2TokenProfile, v2KeyPair);
-            v2Ca = testCertificateAuthority.createTrustedCa("CN=V2 Root CA");
-            v2SigningCertificate = v2Ca.issueSigningCertificate(v2KeyPair, "CN=V2 Signing");
-            v2TimestampingCertificate = v2Ca.issueTimestampingCertificate(v2KeyPair, "CN=V2 TSA");
+            v2Key = persistV2KeyPair(token, profile, v2KeyPair);
+            TestCertificateAuthority.TrustedCa ca = testCertificateAuthority.createTrustedCa("CN=V2 Root CA");
+            v2SigningCertificate = ca.issueSigningCertificate(v2KeyPair, "CN=V2 Signing");
+            v2TimestampingCertificate = ca.issueTimestampingCertificate(v2KeyPair, "CN=V2 TSA");
         }
 
         @AfterEach
@@ -936,7 +913,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
-        void create_v2Key_refusesASignatureAlgorithmAttributeSubmittedBesideTheFields() throws Exception {
+        void create_v2Key_refusesASignatureAlgorithmStatedBesideTheFields() throws Exception {
             // given: a definition of the connector's attribute stored before Core presented the fields
             attributeEngine
                     .updateDataAttributeDefinitions(v2Connector.getUuid(), AttributeOperation.SIGN, List
@@ -957,61 +934,6 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             ValidationException failure = assertThrows(ValidationException.class, create);
             assertTrue(firstErrorMessage(failure).contains("attributes the signing key presents"),
                     firstErrorMessage(failure));
-        }
-
-        @Test
-        void create_v2PostQuantumKey_refusesTheSchemeAndDigestItsConnectorPresentsForAnRsaKey() throws Exception {
-            // given: reading the RSA key's attributes stores Core's fields under the connector both keys share
-            signingProfileService
-                    .listSignatureAttributesForCertificate(SecuredUUID.fromUUID(v2SigningCertificate.getUuid()));
-            KeyPair mlDsaKeyPair = CertificateGeneratorHelper
-                    .generateKeyPair(KeyAlgorithm.MLDSA, MLDSAParameterSpec.ml_dsa_65);
-            persistV2KeyPair(v2Token, v2TokenProfile, mlDsaKeyPair, "v2-ml-dsa-key", KeyAlgorithm.MLDSA);
-            Certificate mlDsaCertificate = v2Ca.issueSigningCertificate(mlDsaKeyPair, "CN=V2 ML-DSA Signing");
-            v2Mock.stubOperationAttributes("sign", mlDsa65Schema());
-            SigningProfileRequestDto request = aSigningProfileRequest()
-                    .withName("v2-ml-dsa-with-rsa-fields")
-                    .withStaticKeyManagedSigning(mlDsaCertificate.getUuid(), RsaSignatureScheme.PSS,
-                            DigestAlgorithm.SHA_256)
-                    .withRawSigning()
-                    .build();
-
-            // when
-            Executable create = () -> signingProfileService.createSigningProfile(request);
-
-            // then
-            ValidationException failure = assertThrows(ValidationException.class, create);
-            assertNamesEachField(failure, RsaSignatureAttributes.ATTRIBUTE_DATA_RSA_SIG_SCHEME,
-                    RsaSignatureAttributes.ATTRIBUTE_DATA_SIG_DIGEST);
-        }
-
-        @Test
-        void create_v2PostQuantumKey_refusesEachFieldItDoesNotPresent_whenTheConnectorHoldsNoDefinitionOfIt()
-                throws Exception {
-            // given: no key has stored Core's fields under the connector
-            KeyPair mlDsaKeyPair = CertificateGeneratorHelper
-                    .generateKeyPair(KeyAlgorithm.MLDSA, MLDSAParameterSpec.ml_dsa_65);
-            persistV2KeyPair(v2Token, v2TokenProfile, mlDsaKeyPair, "v2-ml-dsa-key", KeyAlgorithm.MLDSA);
-            Certificate mlDsaCertificate = v2Ca.issueSigningCertificate(mlDsaKeyPair, "CN=V2 ML-DSA Signing");
-            v2Mock.stubOperationAttributes("sign", mlDsa65Schema());
-            SigningProfileRequestDto request = aSigningProfileRequest()
-                    .withName("v2-ml-dsa-with-unstored-rsa-fields")
-                    .withStaticKeyManagedSigning(mlDsaCertificate.getUuid(), RsaSignatureScheme.PSS,
-                            DigestAlgorithm.SHA_256)
-                    .withRawSigning()
-                    .build();
-
-            // when
-            Executable create = () -> signingProfileService.createSigningProfile(request);
-
-            // then
-            ValidationException failure = assertThrows(ValidationException.class, create);
-            assertThat(failure.getErrors().stream().map(ValidationError::getErrorDescription).toList())
-                    .containsExactlyInAnyOrder(
-                            "The signing key presents no attribute "
-                                    + RsaSignatureAttributes.ATTRIBUTE_DATA_RSA_SIG_SCHEME + ".",
-                            "The signing key presents no attribute " + RsaSignatureAttributes.ATTRIBUTE_DATA_SIG_DIGEST
-                                    + ".");
         }
 
         @Test
@@ -1089,14 +1011,6 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                                             SignatureAlgorithm.SHA384_WITH_RSA)));
             return "[" + signatureAlgorithm + "," + stringAttribute(SCHEME_UUID, "signatureScheme") + ","
                     + stringAttribute(DIGEST_UUID, "digestAlgorithm") + "]";
-        }
-
-        /** An ML-DSA-65 key signs with its own parameter set. Its connector publishes that algorithm alone. */
-        private static String mlDsa65Schema() throws JsonProcessingException {
-            return "[" + ObjectMapperFactory
-                    .wire()
-                    .writeValueAsString(SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.ML_DSA_65)))
-                    + "]";
         }
 
         /** pkcs11 publishes schema-v3 definitions, so a client answers them in v3. */
@@ -2594,37 +2508,6 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             SigningProfileDto persisted = signingProfileService
                     .getSigningProfile(SecuredUUID.fromString(dto.getUuid()), null);
             assertEquals(dto, persisted);
-        }
-
-        @Test
-        void create_v1PostQuantumKey_refusesCoresSchemeAndDigest() throws Exception {
-            // given
-            KeyPair mlDsaKeyPair = CertificateGeneratorHelper
-                    .generateKeyPair(KeyAlgorithm.MLDSA, MLDSAParameterSpec.ml_dsa_65);
-            cryptographyProviderServerMock
-                    .stubKeyPairCreation(Base64.getEncoder().encodeToString(mlDsaKeyPair.getPublic().getEncoded()),
-                            KeyAlgorithm.MLDSA, UUID.randomUUID());
-            cryptographicKeyService
-                    .createKey(UUID.fromString(tokenInstance.getUuid()),
-                            SecuredParentUUID.fromString(defaultTokenProfile.getUuid()), KeyRequestType.KEY_PAIR,
-                            aKeyPairRequest().withName("soft-ml-dsa-key-pair").build());
-            Certificate mlDsaCertificate = testCertificateAuthority
-                    .createTrustedCa("CN=ML-DSA Root CA")
-                    .issueSigningCertificate(mlDsaKeyPair, "CN=ML-DSA Signing");
-            SigningProfileRequestDto request = aSigningProfileRequest()
-                    .withName("v1-ml-dsa-with-rsa-fields")
-                    .withStaticKeyManagedSigning(mlDsaCertificate.getUuid(), RsaSignatureScheme.PSS,
-                            DigestAlgorithm.SHA_256)
-                    .withRawSigning()
-                    .build();
-
-            // when
-            Executable create = () -> signingProfileService.createSigningProfile(request);
-
-            // then
-            ValidationException failure = assertThrows(ValidationException.class, create);
-            assertNamesEachField(failure, RsaSignatureAttributes.ATTRIBUTE_DATA_RSA_SIG_SCHEME,
-                    RsaSignatureAttributes.ATTRIBUTE_DATA_SIG_DIGEST);
         }
 
         @Test

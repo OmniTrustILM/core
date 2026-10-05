@@ -81,13 +81,13 @@ public interface KeyProviderAdapter {
     SignDataResponseDto signData(OperationKeyContext context, SignDataRequestDto request) throws ConnectorException;
 
     /**
-     * The signature algorithm the signing attributes choose. It is read from the attributes, so it is known before
+     * The signature algorithm the signing attributes select, read from the selection itself so it is known before
      * anything is signed.
      *
      * @param privateKeyItem the signing key item
      * @param publicKeyItem the matching public key item, which carries the parameter set of a PQC key
      * @param signatureAttributes the attributes the caller intends to sign with
-     * @throws ValidationException when the signing attributes choose no algorithm the key can sign with
+     * @throws ValidationException when the signing attributes select no algorithm the key can sign with
      */
     ResolvedSignatureAlgorithm resolveSignatureAlgorithm(CryptographicKeyItemOperationModel privateKeyItem,
             CryptographicKeyItemOperationModel publicKeyItem, List<RequestAttribute> signatureAttributes);
@@ -101,12 +101,9 @@ public interface KeyProviderAdapter {
 
     List<BaseAttribute> listSignAttributes(OperationKeyContext context) throws ConnectorException;
 
-    /**
-     * The sign attributes of Core's own registry, which a v1 provider signs with. Only the presence check applies to
-     * them.
-     */
+    /** Returns the signing schema, with the owner set. */
     default OperationAttributeSchema signAttributeSchema(OperationKeyContext context) throws ConnectorException {
-        return OperationAttributeSchema.ofCoreRegistry(listSignAttributes(context));
+        return new OperationAttributeSchema(context.keyItem().operationAttributeOwner(), listSignAttributes(context));
     }
 
     List<BaseAttribute> listVerifyAttributes(OperationKeyContext context) throws ConnectorException;

@@ -729,8 +729,7 @@ class KeyProviderV1AdapterTest {
 
         // then
         assertNull(schema.ownerConnectorUuid());
-        assertEquals(RsaSignatureAttributes.getRsaSignatureAttributes().toString(),
-                schema.presentedDefinitions().toString());
+        assertEquals(RsaSignatureAttributes.getRsaSignatureAttributes().toString(), schema.definitions().toString());
         assertTrue(schema.connectorDefinitions().isEmpty());
     }
 

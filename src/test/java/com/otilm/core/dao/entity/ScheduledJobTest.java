@@ -2,76 +2,97 @@ package com.otilm.core.dao.entity;
 
 import com.otilm.api.model.core.scheduler.ScheduledJobDetailDto;
 import com.otilm.api.model.core.scheduler.ScheduledJobDto;
+import com.otilm.api.model.core.scheduler.ScheduledJobScheduleState;
 import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
+import com.otilm.core.model.scheduler.ObservedSchedule;
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.Date;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/**
+ * The DTO is the operator's only view of the job; each of its three sources -- scheduler, history, the job row --
+ * lands.
+ */
 class ScheduledJobTest {
 
+    private static final Instant NEXT = Instant.parse("2026-09-29T12:30:00Z");
+    private static final Instant PREVIOUS = Instant.parse("2026-09-29T11:30:00Z");
+    private static final Instant STARTED = Instant.parse("2026-09-29T10:30:00Z");
+    private static final Instant SKIPPED = Instant.parse("2026-09-29T11:30:07Z");
+    private static final ObservedSchedule LIVE = new ObservedSchedule(ScheduledJobScheduleState.SCHEDULED, NEXT,
+            PREVIOUS);
+
     @Test
-    void mapToDto_carriesTheNextFireTime_forAnEnabledJob() {
-        // given
-        Instant before = Instant.now();
-        ScheduledJob job = anHourlyJob();
+    void mapToDto_carriesTheObservedSchedule() {
+        ScheduledJobDto dto = anHourlyJob().mapToDto(null, LIVE);
 
-        // when
-        ScheduledJobDto dto = job.mapToDto(null);
-
-        // then
-        assertNotNull(dto.getNextFireTime());
-        assertTrue(dto.getNextFireTime().isAfter(before));
+        assertEquals(ScheduledJobScheduleState.SCHEDULED, dto.getScheduleState());
+        assertEquals(NEXT, dto.getNextFireTime());
+        assertEquals(PREVIOUS, dto.getPreviousFireTime());
     }
 
     @Test
-    void mapToDetailDto_carriesTheNextFireTime_forAnEnabledJob() {
-        // given
-        Instant before = Instant.now();
-        ScheduledJob job = anHourlyJob();
+    void mapToDto_carriesAnUnreadSchedulerAsUnknownWithoutFireTimes() {
+        ScheduledJobDto dto = anHourlyJob().mapToDto(null, ObservedSchedule.UNKNOWN);
 
-        // when
-        ScheduledJobDetailDto dto = job.mapToDetailDto(null);
-
-        // then
-        assertNotNull(dto.getNextFireTime());
-        assertTrue(dto.getNextFireTime().isAfter(before));
+        assertEquals(ScheduledJobScheduleState.UNKNOWN, dto.getScheduleState());
+        assertNull(dto.getNextFireTime());
+        assertNull(dto.getPreviousFireTime());
     }
 
     @Test
-    void mapping_carriesNoNextFireTime_forADisabledJob() {
-        // given
+    void mapToDto_carriesTheLastDeclinedRun() {
         ScheduledJob job = anHourlyJob();
-        job.setEnabled(false);
+        job.setLastSkippedAt(SKIPPED.atOffset(ZoneOffset.UTC));
+        job.setLastSkipReason("No stale cryptographic asset to re-evaluate");
 
-        // then
-        assertNull(job.mapToDto(null).getNextFireTime());
-        assertNull(job.mapToDetailDto(null).getNextFireTime());
+        ScheduledJobDto dto = job.mapToDto(null, LIVE);
+
+        assertEquals(SKIPPED, dto.getLastSkippedAt());
+        assertEquals(PREVIOUS, dto.getPreviousFireTime());
+        assertEquals("No stale cryptographic asset to re-evaluate", dto.getLastSkipReason());
     }
 
     @Test
-    void mapping_carriesNoNextFireTime_forAOneTimeJobThatHasSucceeded() {
-        // given a one-time job whose trigger the scheduler has already dropped
-        ScheduledJob job = anHourlyJob();
-        job.setOneTime(true);
-        ScheduledJobHistory lastRun = aRunWith(SchedulerJobExecutionStatus.SUCCESS);
+    void mapToDto_carriesTheLastRunFromTheHistory() {
+        ScheduledJobDto dto = anHourlyJob().mapToDto(aRun(SchedulerJobExecutionStatus.FAILED, STARTED), LIVE);
 
-        // then
-        assertNull(job.mapToDto(lastRun).getNextFireTime());
-        assertNull(job.mapToDetailDto(lastRun).getNextFireTime());
+        assertEquals(SchedulerJobExecutionStatus.FAILED, dto.getLastExecutionStatus());
+        assertEquals(STARTED, dto.getLastExecutionStartTime());
     }
 
     @Test
-    void mapping_keepsTheNextFireTime_forAOneTimeJobWhoseLastRunFailed() {
-        // given: the trigger is only removed on SUCCESS; after a failure it is still registered and fires again
-        ScheduledJob job = anHourlyJob();
-        job.setOneTime(true);
+    void mapToDto_leavesTheLastRunAbsentWithoutHistory() {
+        ScheduledJobDto dto = anHourlyJob().mapToDto(null, LIVE);
 
-        // then
-        assertNotNull(job.mapToDto(aRunWith(SchedulerJobExecutionStatus.FAILED)).getNextFireTime());
+        assertNull(dto.getLastExecutionStatus());
+        assertNull(dto.getLastExecutionStartTime());
+        assertNull(dto.getLastSkippedAt());
+        assertNull(dto.getLastSkipReason());
+    }
+
+    @Test
+    void mapToDetailDto_carriesTheSameFieldsAndTheUser() {
+        ScheduledJob job = anHourlyJob();
+        UUID user = UUID.randomUUID();
+        job.setUserUuid(user);
+        job.setLastSkippedAt(SKIPPED.atOffset(ZoneOffset.UTC));
+        job.setLastSkipReason("Nothing past the retention window");
+
+        ScheduledJobDetailDto dto = job.mapToDetailDto(aRun(SchedulerJobExecutionStatus.SUCCESS, STARTED), LIVE);
+
+        assertEquals(user, dto.getUserUuid());
+        assertEquals("CryptoAssetPqcSweepTask", dto.getJobType());
+        assertEquals(ScheduledJobScheduleState.SCHEDULED, dto.getScheduleState());
+        assertEquals(NEXT, dto.getNextFireTime());
+        assertEquals(STARTED, dto.getLastExecutionStartTime());
+        assertEquals(SKIPPED, dto.getLastSkippedAt());
+        assertEquals("Nothing past the retention window", dto.getLastSkipReason());
     }
 
     private static ScheduledJob anHourlyJob() {
@@ -84,9 +105,10 @@ class ScheduledJobTest {
         return job;
     }
 
-    private static ScheduledJobHistory aRunWith(SchedulerJobExecutionStatus status) {
+    private static ScheduledJobHistory aRun(SchedulerJobExecutionStatus status, Instant startedAt) {
         ScheduledJobHistory history = new ScheduledJobHistory();
         history.setSchedulerExecutionStatus(status);
+        history.setJobExecution(Date.from(startedAt));
         return history;
     }
 }

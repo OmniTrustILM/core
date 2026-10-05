@@ -78,8 +78,11 @@ public class CbomSyncSkipRetentionTask implements ScheduledJobTask {
                     "The sweep failed before it could report its outcome; see the application log", Resource.CBOM,
                     null);
         }
-        if (!outcome.ran() || (outcome.deleted() == 0 && !outcome.aborted())) {
-            throw new ScheduledJobSkippedException();
+        if (!outcome.ran()) {
+            throw new ScheduledJobSkippedException("Another sweep is already running");
+        }
+        if (outcome.deleted() == 0 && !outcome.aborted()) {
+            throw new ScheduledJobSkippedException("Nothing past the retention window");
         }
         String message = "Removed %d record(s) of documents the sync gave up on more than %d day(s) ago, in %d batch(es)"
                 .formatted(outcome.deleted(), retentionDays, outcome.batches());

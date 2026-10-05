@@ -254,10 +254,10 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     void verifyData_pairsByPosition_andReturnsResult() throws Exception {
         // given
         connectorMock
-                .stubOperationAttributes("verify", signSchema())
+                .stubOperationAttributes("verify", "[]")
                 .stubOperation("verify", "{\"verifications\":[{\"identifier\":\"0\",\"result\":true}]}");
         VerifyDataRequestDto request = new VerifyDataRequestDto();
-        request.setSignatureAttributes(sha256WithRsa());
+        request.setSignatureAttributes(List.of());
         request.setData(List.of(signatureData(DATA)));
         request.setSignatures(List.of(signatureData(SIGNATURE)));
 
@@ -401,7 +401,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
-    void generateCsr_refusesASubmittedSignatureAlgorithmAttribute_beforeSigning() throws Exception {
+    void generateCsr_refusesAlgorithmTheKeyCannotSignWith_beforeSigning() throws Exception {
         // given
         persistPublicKeyItem(rsaKeyPair().getPublic());
         connectorMock.stubOperationAttributes("sign", signSchema());

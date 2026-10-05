@@ -11,15 +11,12 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.RsaSignatureScheme;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorithmAttribute;
-import com.otilm.core.util.AttributeDefinitionUtils;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.EnumMap;
-import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
@@ -27,134 +24,104 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
- * Presents a cryptography provider v2 key's signature algorithms as the scheme and digest fields a v1 key uses. The
- * key's algorithm picks the fields, and the codes in the connector's {@link SignatureAlgorithmAttribute} narrow them.
+ * Presents the signature algorithms a cryptography provider v2 key offers through the Core-driven scheme and digest
+ * fields, so a signature is chosen the same way for connectors implementing cryptography provider v1 or v2. The
+ * connector reads the reserved {@link SignatureAlgorithmAttribute}, so a choice made in the fields is translated into
+ * it.
  */
 public final class SignatureAlgorithmFields {
 
-    private static final Field SCHEME = new Field(RsaSignatureAttributes.ATTRIBUTE_DATA_RSA_SIG_SCHEME,
+    private static final Field RSA_SCHEME = new Field(RsaSignatureAttributes.ATTRIBUTE_DATA_RSA_SIG_SCHEME,
             RsaSignatureAttributes::buildDataRsaSigScheme);
-    /** The digest field of both families: RSA and ECDSA share its name and UUID. */
-    private static final Field DIGEST = new Field(RsaSignatureAttributes.ATTRIBUTE_DATA_SIG_DIGEST,
+    private static final Field RSA_DIGEST = new Field(RsaSignatureAttributes.ATTRIBUTE_DATA_SIG_DIGEST,
             RsaSignatureAttributes::buildDataDigest);
-    private static final List<Field> FIELDS = List.of(SCHEME, DIGEST);
+    private static final Field ECDSA_DIGEST = new Field(EcdsaSignatureAttributes.ATTRIBUTE_DATA_SIG_DIGEST,
+            EcdsaSignatureAttributes::buildDataDigest);
+    private static final List<Field> FIELDS = List.of(RSA_SCHEME, RSA_DIGEST, ECDSA_DIGEST);
 
-    private static final Family RSA = new Family(List.of(SCHEME, DIGEST), Map
+    private static final Offer RSA = new Offer(List.of(RSA_SCHEME, RSA_DIGEST), Map
             .of(SignatureAlgorithm.SHA256_WITH_RSA, rsa(RsaSignatureScheme.PKCS1_v1_5, DigestAlgorithm.SHA_256),
                     SignatureAlgorithm.SHA384_WITH_RSA, rsa(RsaSignatureScheme.PKCS1_v1_5, DigestAlgorithm.SHA_384),
                     SignatureAlgorithm.SHA512_WITH_RSA, rsa(RsaSignatureScheme.PKCS1_v1_5, DigestAlgorithm.SHA_512),
                     SignatureAlgorithm.SHA256_WITH_RSA_PSS, rsa(RsaSignatureScheme.PSS, DigestAlgorithm.SHA_256),
                     SignatureAlgorithm.SHA384_WITH_RSA_PSS, rsa(RsaSignatureScheme.PSS, DigestAlgorithm.SHA_384),
                     SignatureAlgorithm.SHA512_WITH_RSA_PSS, rsa(RsaSignatureScheme.PSS, DigestAlgorithm.SHA_512)));
-    private static final Family ECDSA = new Family(List.of(DIGEST),
+    private static final Offer ECDSA = new Offer(List.of(ECDSA_DIGEST),
             Map
                     .of(SignatureAlgorithm.SHA256_WITH_ECDSA, ecdsa(DigestAlgorithm.SHA_256),
                             SignatureAlgorithm.SHA384_WITH_ECDSA, ecdsa(DigestAlgorithm.SHA_384),
                             SignatureAlgorithm.SHA512_WITH_ECDSA, ecdsa(DigestAlgorithm.SHA_512)));
 
-    /** The parameter sets of each post-quantum key algorithm. A key signs with one of them. */
-    private static final Map<KeyAlgorithm, Set<SignatureAlgorithm>> PARAMETER_SETS = Map
-            .of(KeyAlgorithm.FALCON, EnumSet.of(SignatureAlgorithm.FALCON_1024), KeyAlgorithm.MLDSA, EnumSet
-                    .of(SignatureAlgorithm.ML_DSA_44, SignatureAlgorithm.ML_DSA_65, SignatureAlgorithm.ML_DSA_87),
-                    KeyAlgorithm.SLHDSA,
-                    EnumSet
-                            .of(SignatureAlgorithm.SLH_DSA_SHA2_128S, SignatureAlgorithm.SLH_DSA_SHA2_128F,
-                                    SignatureAlgorithm.SLH_DSA_SHA2_192S, SignatureAlgorithm.SLH_DSA_SHA2_192F,
-                                    SignatureAlgorithm.SLH_DSA_SHA2_256S, SignatureAlgorithm.SLH_DSA_SHA2_256F));
-
     private SignatureAlgorithmFields() {
     }
 
     /**
-     * Replaces the connector's {@code signatureAlgorithm} with the fields of the key's algorithm. The presented fields
-     * offer the listed codes the key signs with.
-     *
-     * <pre>
-     * key     signatureAlgorithm                     presented as
-     * -------|--------------------------------------|-----------------------------------------------------------
-     * RSA     SHA256withRSA, SHA256withRSAandMGF1    data_rsaSigScheme: PKCS1-v1_5, PSS; data_sigDigest: SHA-256
-     * ECDSA   SHA384withECDSA, SHA256withRSA         data_sigDigest: SHA-384
-     * RSA     SHA256withECDSA                        no field
-     * ML-DSA  ML-DSA-65                              no field
-     * </pre>
+     * Replaces the connector's {@code signatureAlgorithm} with the fields that express what it offers. A key that
+     * offers algorithms the fields cannot express keeps the connector's definitions as they are.
      */
-    public static List<BaseAttribute> toClient(KeyAlgorithm keyAlgorithm, List<BaseAttribute> connectorDefinitions) {
-        List<BaseAttribute> fields = offerOf(keyAlgorithm, connectorDefinitions).definitions();
-        return connectorDefinitions
-                .stream()
-                .flatMap(definition -> isSignatureAlgorithmAttribute(definition)
-                        ? fields.stream()
-                        : Stream.of(definition))
-                .toList();
+    public static List<BaseAttribute> form(List<BaseAttribute> connectorDefinitions) {
+        Optional<Offer> offer = offerOf(connectorDefinitions);
+        if (offer.isEmpty()) {
+            return connectorDefinitions;
+        }
+        List<BaseAttribute> form = new ArrayList<>();
+        for (BaseAttribute definition : connectorDefinitions) {
+            if (isSelection(definition)) {
+                form.addAll(offer.get().definitions());
+            } else {
+                form.add(definition);
+            }
+        }
+        return form;
     }
 
     /**
      * Turns a choice made in the fields into the {@code signatureAlgorithm} the connector reads.
      *
-     * @throws ValidationException when the fields choose no algorithm the key offers, or the client submits
-     * {@code signatureAlgorithm} itself
+     * @throws ValidationException when the fields choose no algorithm the key offers, or the attributes state
+     * {@code signatureAlgorithm} themselves
      */
-    public static List<RequestAttribute> toConnector(KeyAlgorithm keyAlgorithm,
-            List<BaseAttribute> connectorDefinitions, List<RequestAttribute> attributes) {
-        List<RequestAttribute> submitted = withoutNulls(attributes);
-        refuseSignatureAlgorithmAttribute(submitted);
-        SignatureAlgorithm chosen = offerOf(keyAlgorithm, connectorDefinitions).chosenBy(submitted);
-        List<RequestAttribute> translated = new ArrayList<>(withoutFields(submitted));
+    public static List<RequestAttribute> selection(List<BaseAttribute> connectorDefinitions,
+            List<RequestAttribute> attributes) {
+        List<RequestAttribute> submitted = orEmpty(attributes);
+        Optional<Offer> offer = offerOf(connectorDefinitions);
+        if (offer.isEmpty()) {
+            return submitted;
+        }
+        if (selectsDirectly(submitted)) {
+            throw new ValidationException(ValidationError
+                    .create("Signature attributes must select the signature algorithm through the attributes the "
+                            + "signing key presents."));
+        }
+        SignatureAlgorithm chosen = offer.get().chosen(submitted);
+        List<RequestAttribute> translated = new ArrayList<>(
+                submitted.stream().filter(attribute -> !isField(attribute)).toList());
         translated.add(SignatureAlgorithmAttribute.request(chosen));
         return translated;
     }
 
-    public static List<String> fieldNamesIn(List<BaseAttribute> definitions) {
-        return definitions
-                .stream()
-                .map(BaseAttribute::getName)
-                .filter(SignatureAlgorithmFields::isFieldName)
-                .distinct()
-                .toList();
-    }
-
     /**
-     * Refuses a field the key does not present. Content validation alone would accept it on a definition another key
-     * stored.
+     * Resolves the algorithm without the connector's offer, so a stated {@code signatureAlgorithm} is read as it is: a
+     * key the fields cannot express keeps it. A post-quantum key signs with its own parameter set, so its algorithm
+     * needs no choice.
      *
-     * @throws ValidationException naming each such field
+     * @throws ValidationException when the attributes choose no platform algorithm for the key, or the key records no
+     * parameter set to sign with
      */
-    public static void requirePresented(List<BaseAttribute> presentedDefinitions, List<RequestAttribute> attributes) {
-        Set<String> presented = presentedDefinitions.stream().map(BaseAttribute::getName).collect(Collectors.toSet());
-        List<ValidationError> errors = withoutNulls(attributes)
-                .stream()
-                .filter(SignatureAlgorithmFields::isField)
-                .map(RequestAttribute::getName)
-                .filter(name -> !presented.contains(name))
-                .distinct()
-                .map(name -> ValidationError.create("The signing key presents no attribute {}.", name))
-                .toList();
-        if (!errors.isEmpty()) {
-            throw new ValidationException(errors);
-        }
-    }
-
-    /**
-     * Reads the algorithm from the key and the fields, without the connector's offer. A post-quantum key's parameter
-     * set names its algorithm.
-     *
-     * @throws ValidationException when the attributes choose no platform algorithm for the key, the client submits
-     * {@code signatureAlgorithm} itself, the key records no parameter set to sign with, or its algorithm cannot sign
-     */
-    public static SignatureAlgorithm resolve(KeyAlgorithm keyAlgorithm, String pqcParameterSpecName,
+    public static SignatureAlgorithm chosen(KeyAlgorithm keyAlgorithm, String pqcParameterSpecName,
             List<RequestAttribute> attributes) {
-        List<RequestAttribute> submitted = withoutNulls(attributes);
-        refuseSignatureAlgorithmAttribute(submitted);
+        List<RequestAttribute> submitted = orEmpty(attributes);
+        if (selectsDirectly(submitted)) {
+            return SignatureAlgorithmAttribute.selectedAlgorithm(submitted);
+        }
         return switch (keyAlgorithm) {
-            case RSA -> RSA.offer().chosenBy(submitted);
-            case ECDSA -> ECDSA.offer().chosenBy(submitted);
-            case FALCON, MLDSA, SLHDSA -> recordedParameterSet(keyAlgorithm, pqcParameterSpecName);
-            default -> throw new ValidationException(
-                    ValidationError.create("The {} key cannot sign.", keyAlgorithm.getCode()));
+            case RSA -> RSA.chosen(submitted);
+            case ECDSA -> ECDSA.chosen(submitted);
+            default -> keyNamed(keyAlgorithm, pqcParameterSpecName);
         };
     }
 
-    private static SignatureAlgorithm recordedParameterSet(KeyAlgorithm keyAlgorithm, String pqcParameterSpecName) {
+    private static SignatureAlgorithm keyNamed(KeyAlgorithm keyAlgorithm, String pqcParameterSpecName) {
         if (pqcParameterSpecName == null) {
             throw new ValidationException(ValidationError
                     .create("The {} signing key records no parameter set to sign with.", keyAlgorithm.getCode()));
@@ -162,86 +129,80 @@ public final class SignatureAlgorithmFields {
         return SignatureAlgorithm.findByCode(pqcParameterSpecName);
     }
 
-    /** The fields are the only way to choose an algorithm. */
-    private static void refuseSignatureAlgorithmAttribute(List<RequestAttribute> submitted) {
-        if (carriesSignatureAlgorithmAttribute(submitted)) {
-            throw new ValidationException(ValidationError
-                    .create("Signature attributes must choose the signature algorithm through the attributes the "
-                            + "signing key presents."));
-        }
-    }
-
-    private static boolean carriesSignatureAlgorithmAttribute(List<RequestAttribute> attributes) {
-        return attributes.stream().anyMatch(attribute -> SignatureAlgorithmAttribute.NAME.equals(attribute.getName()));
-    }
-
-    /** The algorithms the key signs with among the ones the connector lists, with the field values that choose them. */
-    private static Offer offerOf(KeyAlgorithm keyAlgorithm, List<BaseAttribute> connectorDefinitions) {
-        List<SignatureAlgorithm> listed = listedAlgorithms(connectorDefinitions);
-        return switch (keyAlgorithm) {
-            case RSA -> RSA.narrowedTo(listed);
-            case ECDSA -> ECDSA.narrowedTo(listed);
-            case FALCON, MLDSA, SLHDSA ->
-                Offer.withoutFields(listed.stream().filter(PARAMETER_SETS.get(keyAlgorithm)::contains).toList());
-            default -> Offer.NONE;
-        };
-    }
-
-    /** The platform algorithms among the codes of the connector's sole {@code signatureAlgorithm}. */
-    private static List<SignatureAlgorithm> listedAlgorithms(List<BaseAttribute> connectorDefinitions) {
-        long listings = connectorDefinitions
+    private static boolean selectsDirectly(List<RequestAttribute> attributes) {
+        return attributes
                 .stream()
-                .filter(SignatureAlgorithmFields::isSignatureAlgorithmAttribute)
-                .count();
-        if (listings != 1) {
-            return List.of();
-        }
-        List<?> items = AttributeDefinitionUtils
-                .getAttributeContent(SignatureAlgorithmAttribute.NAME, connectorDefinitions, false);
-        return items == null
-                ? List.of()
-                : items
-                        .stream()
-                        .map(SignatureAlgorithmFields::stringData)
-                        .flatMap(Optional::stream)
-                        .map(SignatureAlgorithm::lookupByCode)
-                        .flatMap(Optional::stream)
-                        .toList();
+                .anyMatch(
+                        attribute -> attribute != null && SignatureAlgorithmAttribute.NAME.equals(attribute.getName()));
     }
 
-    private static Optional<String> stringData(Object item) {
-        return item instanceof AttributeContent content && content.getData() instanceof String data
-                ? Optional.of(data)
+    private static Optional<Offer> offerOf(List<BaseAttribute> connectorDefinitions) {
+        if (connectorDefinitions.stream().anyMatch(definition -> isFieldName(definition.getName()))) {
+            return Optional.empty();
+        }
+        List<BaseAttribute> selections = connectorDefinitions
+                .stream()
+                .filter(SignatureAlgorithmFields::isSelection)
+                .toList();
+        return selections.size() == 1
+                ? offeredAlgorithms(selections.get(0)).flatMap(SignatureAlgorithmFields::offerFor)
                 : Optional.empty();
     }
 
-    private static boolean isSignatureAlgorithmAttribute(BaseAttribute definition) {
+    /** The algorithms a definition offers, when every value it lists names one. */
+    private static Optional<List<SignatureAlgorithm>> offeredAlgorithms(BaseAttribute definition) {
+        Object content = definition.getContent();
+        if (!(content instanceof List<?> items) || items.isEmpty()) {
+            return Optional.empty();
+        }
+        List<SignatureAlgorithm> offered = new ArrayList<>();
+        for (Object item : items) {
+            Optional<SignatureAlgorithm> algorithm = item instanceof AttributeContent value
+                    && value.getData() instanceof String code
+                            ? SignatureAlgorithm.lookupByCode(code)
+                            : Optional.empty();
+            if (algorithm.isEmpty()) {
+                return Optional.empty();
+            }
+            offered.add(algorithm.get());
+        }
+        return Optional.of(offered);
+    }
+
+    /** A key offering one algorithm outside both tables signs with it, so its choice asks for nothing. */
+    private static Optional<Offer> offerFor(List<SignatureAlgorithm> offered) {
+        return Stream
+                .of(RSA, ECDSA)
+                .map(family -> family.narrowedTo(offered))
+                .flatMap(Optional::stream)
+                .findFirst()
+                .or(() -> offered.size() == 1
+                        ? Optional.of(new Offer(List.of(), Map.of(offered.get(0), Map.of())))
+                        : Optional.empty());
+    }
+
+    private static boolean isSelection(BaseAttribute definition) {
         return SignatureAlgorithmAttribute.NAME.equals(definition.getName());
     }
 
     private static boolean isField(RequestAttribute attribute) {
-        return isFieldName(attribute.getName());
+        return attribute != null && isFieldName(attribute.getName());
     }
 
     private static boolean isFieldName(String name) {
         return FIELDS.stream().anyMatch(field -> field.name().equals(name));
     }
 
-    private static List<RequestAttribute> withoutFields(List<RequestAttribute> attributes) {
-        return attributes.stream().filter(attribute -> !isField(attribute)).toList();
-    }
-
-    /** A client's request can carry null entries. */
-    private static List<RequestAttribute> withoutNulls(List<RequestAttribute> attributes) {
-        return attributes == null ? List.of() : attributes.stream().filter(Objects::nonNull).toList();
+    private static List<RequestAttribute> orEmpty(List<RequestAttribute> attributes) {
+        return attributes == null ? List.of() : attributes;
     }
 
     private static Map<Field, String> rsa(RsaSignatureScheme scheme, DigestAlgorithm digest) {
-        return Map.of(SCHEME, scheme.getCode(), DIGEST, digest.getCode());
+        return Map.of(RSA_SCHEME, scheme.getCode(), RSA_DIGEST, digest.getCode());
     }
 
     private static Map<Field, String> ecdsa(DigestAlgorithm digest) {
-        return Map.of(DIGEST, digest.getCode());
+        return Map.of(ECDSA_DIGEST, digest.getCode());
     }
 
     /** A v1 field, built afresh because offering values narrows the definition. */
@@ -254,51 +215,30 @@ public final class SignatureAlgorithmFields {
             return field;
         }
 
-        String chosenValue(List<RequestAttribute> attributes) {
+        String selectedValue(List<RequestAttribute> attributes) {
             List<RequestAttribute> named = attributes
                     .stream()
-                    .filter(attribute -> name.equals(attribute.getName()))
+                    .filter(attribute -> attribute != null && name.equals(attribute.getName()))
                     .toList();
             Object content = named.size() == 1 ? named.get(0).getContent() : null;
-            Optional<String> value = content instanceof List<?> values && values.size() == 1
-                    ? stringData(values.get(0))
-                    : Optional.empty();
-            return value
-                    .orElseThrow(() -> new ValidationException(
-                            ValidationError.create("Signature attributes must choose one value of {}.", name)));
+            if (content instanceof List<?> values && values.size() == 1
+                    && values.get(0) instanceof AttributeContent value && value.getData() instanceof String data) {
+                return data;
+            }
+            throw new ValidationException(
+                    ValidationError.create("Signature attributes must select one value of {}.", name));
         }
     }
 
-    /** The algorithms of one key family, each with the field values that choose it. */
-    private record Family(List<Field> fields, Map<SignatureAlgorithm, Map<Field, String>> choices) {
-
-        /** The offer of a key that signs with every algorithm of the family. */
-        Offer offer() {
-            return new Offer(fields, choices);
-        }
-
-        /** The offer of a key of the family that signs with the listed algorithms the family holds. */
-        Offer narrowedTo(Collection<SignatureAlgorithm> listed) {
-            Map<SignatureAlgorithm, Map<Field, String>> offered = new EnumMap<>(SignatureAlgorithm.class);
-            listed
-                    .stream()
-                    .filter(choices::containsKey)
-                    .forEach(algorithm -> offered.put(algorithm, choices.get(algorithm)));
-            return offered.isEmpty() ? Offer.NONE : new Offer(fields, offered);
-        }
-    }
-
-    /** The algorithms one key offers, each with the field values that choose it. */
     private record Offer(List<Field> fields, Map<SignatureAlgorithm, Map<Field, String>> choices) {
 
-        /** The offer of a key that signs with nothing the fields can choose. */
-        static final Offer NONE = new Offer(List.of(), Map.of());
-
-        /** The offer of a key whose parameter set names its algorithm. No field value chooses it. */
-        static Offer withoutFields(Collection<SignatureAlgorithm> algorithms) {
-            Map<SignatureAlgorithm, Map<Field, String>> choices = new EnumMap<>(SignatureAlgorithm.class);
-            algorithms.forEach(algorithm -> choices.put(algorithm, Map.of()));
-            return new Offer(List.of(), choices);
+        Optional<Offer> narrowedTo(Collection<SignatureAlgorithm> offered) {
+            if (!choices.keySet().containsAll(offered)) {
+                return Optional.empty();
+            }
+            Map<SignatureAlgorithm, Map<Field, String>> offeredChoices = new EnumMap<>(SignatureAlgorithm.class);
+            offered.forEach(algorithm -> offeredChoices.put(algorithm, choices.get(algorithm)));
+            return Optional.of(new Offer(fields, offeredChoices));
         }
 
         List<BaseAttribute> definitions() {
@@ -309,37 +249,18 @@ public final class SignatureAlgorithmFields {
             return choices.values().stream().map(choice -> choice.get(field)).collect(Collectors.toSet());
         }
 
-        SignatureAlgorithm chosenBy(List<RequestAttribute> attributes) {
-            if (choices.isEmpty()) {
-                throw new ValidationException(ValidationError.create("The signing key offers no signature algorithm."));
-            }
-            if (fields.isEmpty()) {
-                return soleOfferedAlgorithm();
-            }
-            Map<Field, String> chosenValues = new LinkedHashMap<>();
-            fields.forEach(field -> chosenValues.put(field, field.chosenValue(attributes)));
+        SignatureAlgorithm chosen(List<RequestAttribute> attributes) {
+            Map<Field, String> selected = new LinkedHashMap<>();
+            fields.forEach(field -> selected.put(field, field.selectedValue(attributes)));
             return choices
                     .entrySet()
                     .stream()
-                    .filter(choice -> choice.getValue().equals(chosenValues))
+                    .filter(choice -> choice.getValue().equals(selected))
                     .map(Map.Entry::getKey)
                     .findFirst()
                     .orElseThrow(() -> new ValidationException(ValidationError
                             .create("The signing key offers no signature algorithm for {}.",
-                                    String.join(" with ", chosenValues.values()))));
-        }
-
-        private SignatureAlgorithm soleOfferedAlgorithm() {
-            if (choices.size() > 1) {
-                throw new ValidationException(ValidationError
-                        .create("The signing key offers more than one signature algorithm: {}.",
-                                choices
-                                        .keySet()
-                                        .stream()
-                                        .map(SignatureAlgorithm::getCode)
-                                        .collect(Collectors.joining(", "))));
-            }
-            return choices.keySet().iterator().next();
+                                    String.join(" with ", selected.values()))));
         }
     }
 }

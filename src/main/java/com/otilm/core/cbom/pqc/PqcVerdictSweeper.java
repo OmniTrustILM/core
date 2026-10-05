@@ -79,11 +79,11 @@ public class PqcVerdictSweeper {
     public SweepOutcome sweep() {
         if (maxBatchesPerSweep <= 0) {
             log.debug("PQC verdict sweep disabled: max-batches-per-sweep is {}", maxBatchesPerSweep);
-            return SweepOutcome.skipped();
+            return SweepOutcome.disabled();
         }
         if (!clusterSynchronizer.tryLock(ClusterOperationSynchronizer.Operation.CRYPTO_ASSET_PQC_SWEEP)) {
             log.debug("PQC verdict sweep skipped: another instance holds the lock");
-            return SweepOutcome.skipped();
+            return SweepOutcome.contended();
         }
         meterRegistry.counter("crypto_asset.pqc_sweep").increment();
 
@@ -236,23 +236,42 @@ public class PqcVerdictSweeper {
         private boolean aborted;
 
         private SweepOutcome outcome() {
-            return new SweepOutcome(true, aborted, read, written, unevaluated, writeFailures, batches);
+            return new SweepOutcome(SweepOutcome.Status.SWEPT, aborted, read, written, unevaluated, writeFailures,
+                    batches);
         }
     }
 
     /**
-     * @param ran false when disabled or another node held the lock, which is a skip rather than an empty success
+     * @param status whether the sweep ran and, when it did not, why; either way of not running is a skip rather than an
+     * empty success
      * @param read rows taken off the work list, whatever became of them
      * @param written rows whose verdict landed
      * @param unevaluated rows the rule set threw on <em>and</em> whose {@code EVALUATION-FAILED} stamp landed, so
      * saying they were recorded is true of exactly these
      * @param writeFailures rows whose own write transaction failed; they stay on the work list
      */
-    public record SweepOutcome(boolean ran, boolean aborted, int read, int written, int unevaluated, int writeFailures,
-            int batches) {
+    public record SweepOutcome(Status status, boolean aborted, int read, int written, int unevaluated,
+            int writeFailures, int batches) {
 
-        static SweepOutcome skipped() {
-            return new SweepOutcome(false, false, 0, 0, 0, 0, 0);
+        /** Whether the sweep ran. It can decline in two ways, and they ask different things of an operator. */
+        public enum Status {
+            SWEPT,
+            /** {@code max-batches-per-sweep} is 0 or less: the sweep's off switch. */
+            DISABLED,
+            /** Another node holds the sweep's lock and is sweeping. */
+            CONTENDED
+        }
+
+        public static SweepOutcome disabled() {
+            return new SweepOutcome(Status.DISABLED, false, 0, 0, 0, 0, 0);
+        }
+
+        public static SweepOutcome contended() {
+            return new SweepOutcome(Status.CONTENDED, false, 0, 0, 0, 0, 0);
+        }
+
+        public boolean ran() {
+            return status == Status.SWEPT;
         }
 
         /** Rows the guard refused: someone else wrote them first, or they are no longer stale. Retried next sweep. */
