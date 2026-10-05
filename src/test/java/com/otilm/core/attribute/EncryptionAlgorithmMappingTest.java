@@ -34,6 +34,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Named.named;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
 
+/**
+ * Verifies encryption field round-trips and rejection of missing, malformed or unsupported selections.
+ */
 class EncryptionAlgorithmMappingTest {
 
     @ParameterizedTest
@@ -111,6 +114,20 @@ class EncryptionAlgorithmMappingTest {
 
         // then
         assertEquals(expectedAlgorithm, algorithm);
+    }
+
+    @Test
+    void toAlgorithm_reportsMissingSelection_withoutAssumingAnAlgorithmOrRepresentation() {
+        // given
+        List<RequestAttribute> emptySelection = List.of();
+        String expectedMessage = "No encryption algorithm selection was supplied.";
+
+        // when
+        Executable convert = () -> EncryptionAlgorithmMapping.toAlgorithm(emptySelection);
+
+        // then
+        ValidationException failure = assertThrows(ValidationException.class, convert);
+        assertEquals(expectedMessage, failure.getMessage());
     }
 
     @ParameterizedTest(name = "{0}")
@@ -214,8 +231,7 @@ class EncryptionAlgorithmMappingTest {
                 List.of(new BooleanAttributeContentV3(true)));
         String noMatch = "do not match a known RSA field combination";
         return Stream
-                .of(arguments(named("no attributes", List.of()), "must contain"),
-                        arguments(named("too many attributes", List.of(scheme, hash, mgf, original)), "must contain"),
+                .of(arguments(named("too many attributes", List.of(scheme, hash, mgf, original)), "must contain"),
                         arguments(named("duplicate field", List.of(scheme, mgf, mgf)), "repeats an attribute UUID"),
                         arguments(named("duplicate selector", List.of(original, original)),
                                 "repeats an attribute UUID"),

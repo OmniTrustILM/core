@@ -51,6 +51,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Named.named;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
 
+/**
+ * Verifies exact signature selection, validation messages and diagnostic logging.
+ */
 class SignatureAlgorithmMappingTest {
 
     private final Logger mappingLogger = (Logger) LoggerFactory.getLogger(SignatureAlgorithmMapping.class);
@@ -199,6 +202,20 @@ class SignatureAlgorithmMappingTest {
 
         // then
         assertEquals(SignatureAlgorithm.SHA256_WITH_RSA_PSS, algorithm);
+    }
+
+    @Test
+    void toAlgorithm_reportsMissingSelection_withoutAssumingAnAlgorithmOrRepresentation() {
+        // given
+        List<RequestAttribute> emptySelection = List.of();
+        String expectedMessage = "No signature algorithm selection was supplied.";
+
+        // when
+        Executable convert = () -> SignatureAlgorithmMapping.toAlgorithm(emptySelection);
+
+        // then
+        ValidationException failure = assertThrows(ValidationException.class, convert);
+        assertEquals(expectedMessage, failure.getMessage());
     }
 
     @ParameterizedTest(name = "{0}")
@@ -363,8 +380,7 @@ class SignatureAlgorithmMappingTest {
         String originalMustBeAlone = "The signatureAlgorithm attribute must be supplied alone.";
         String singleValue = "Signature attribute at position 1 must contain exactly one value.";
         return Stream
-                .of(arguments(named("no attributes", List.of()), invalidCount),
-                        arguments(named("only the RSA scheme", List.of(scheme)), noCombination),
+                .of(arguments(named("only the RSA scheme", List.of(scheme)), noCombination),
                         arguments(named("no supported combination",
                                 splitAttributes(RsaSignatureScheme.PSS, DigestAlgorithm.MD5)), noCombination),
                         arguments(named("digest outside the split table", List.of(digestWithValues("SHA-1"))),

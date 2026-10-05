@@ -85,7 +85,10 @@ final class AlgorithmMapping<A> {
     }
 
     private A matchAlgorithm(List<RequestAttribute> attributes) {
-        if (attributes.isEmpty() || attributes.size() > maximumAttributes) {
+        if (attributes.isEmpty()) {
+            throw validationError("No {} algorithm selection was supplied.", kind.toLowerCase());
+        }
+        if (attributes.size() > maximumAttributes) {
             String count = maximumAttributes == 2 ? "one or two" : "one to " + maximumAttributes;
             throw validationError(kind + " attributes must contain " + count + " attributes.");
         }
