@@ -16,7 +16,10 @@ import com.otilm.core.dao.entity.ComplianceProfileAssociation;
 import com.otilm.core.dao.entity.ComplianceSubject;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
+import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.Secret;
+import com.otilm.core.dao.entity.TokenProfile;
+import com.otilm.core.dao.entity.VaultProfile;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CertificateRequestRepository;
 import com.otilm.core.dao.repository.ComplianceInternalRuleRepository;
@@ -56,6 +59,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -472,10 +476,21 @@ public class ComplianceServiceImpl implements ComplianceExternalService, Complia
         // The check skips profiles without a compliance profile, so a selection is refused only when none has one.
         if (resource.hasComplianceProfiles() && !objectUuids.isEmpty()
                 && !complianceProfileAssociationRepository.existsByResourceAndObjectUuidIn(resource, objectUuids)) {
+            String profileNames = String.join(", ", findProfileNames(resource, objectUuids));
             throw new ValidationException(
-                    "Cannot check compliance. No compliance profile is associated with the requested %s"
-                            .formatted(resource.getLabel()));
+                    "Cannot check compliance. No compliance profile is associated with requested %s(s): %s"
+                            .formatted(resource.getLabel(), profileNames));
         }
+    }
+
+    private List<String> findProfileNames(Resource resource, List<UUID> profileUuids) {
+        Stream<String> profileNames = switch (resource) {
+            case RA_PROFILE -> raProfileRepository.findAllById(profileUuids).stream().map(RaProfile::getName);
+            case TOKEN_PROFILE -> tokenProfileRepository.findAllById(profileUuids).stream().map(TokenProfile::getName);
+            case VAULT_PROFILE -> vaultProfileRepository.findAllById(profileUuids).stream().map(VaultProfile::getName);
+            default -> Stream.empty();
+        };
+        return profileNames.sorted().toList();
     }
 
     @Override

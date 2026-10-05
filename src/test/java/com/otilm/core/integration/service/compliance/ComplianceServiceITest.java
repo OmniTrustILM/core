@@ -753,21 +753,34 @@ class ComplianceServiceITest extends BaseComplianceTest {
         vaultProfile.setVaultInstance(vaultInstanceRepository.findById(vaultInstanceUuid).orElseThrow());
         vaultProfileRepository.save(vaultProfile);
 
-        assertRefusedForMissingComplianceProfile(Resource.RA_PROFILE, List.of(unassociatedRaProfileUuid));
-        assertRefusedForMissingComplianceProfile(Resource.TOKEN_PROFILE, List.of(tokenProfile.getUuid()));
-        assertRefusedForMissingComplianceProfile(Resource.VAULT_PROFILE, List.of(vaultProfile.getUuid()));
+        assertRefusedNamingProfiles(Resource.RA_PROFILE, List.of(unassociatedRaProfileUuid), "TestProfile2");
+        assertRefusedNamingProfiles(Resource.TOKEN_PROFILE, List.of(tokenProfile.getUuid()),
+                "Unassociated Token Profile");
+        assertRefusedNamingProfiles(Resource.VAULT_PROFILE, List.of(vaultProfile.getUuid()),
+                "UnassociatedVaultProfile");
     }
 
-    private void assertRefusedForMissingComplianceProfile(Resource resource, List<UUID> objectUuids) {
+    @Test
+    void checkResourceObjectsComplianceValidationNamesEverySelectedProfileWithoutComplianceProfile() {
+        TokenProfile firstTokenProfile = saveTokenProfile("First Unassociated Token Profile");
+        TokenProfile secondTokenProfile = saveTokenProfile("Second Unassociated Token Profile");
+
+        assertRefusedNamingProfiles(Resource.TOKEN_PROFILE,
+                List.of(firstTokenProfile.getUuid(), secondTokenProfile.getUuid()), "First Unassociated Token Profile",
+                "Second Unassociated Token Profile");
+    }
+
+    private void assertRefusedNamingProfiles(Resource resource, List<UUID> objectUuids, String... profileNames) {
         ValidationException exception = Assertions
                 .assertThrows(ValidationException.class,
                         () -> complianceExternalService.checkResourceObjectsComplianceValidation(resource, objectUuids),
                         "An existing %s without a compliance profile is not a missing %s"
                                 .formatted(resource.getLabel(), resource.getLabel()));
-        Assertions
-                .assertTrue(exception.getMessage().contains("No compliance profile is associated"),
-                        "The refusal comes from the missing compliance profile, not another validation: "
-                                + exception.getMessage());
+        for (String profileName : profileNames) {
+            Assertions
+                    .assertTrue(exception.getMessage().contains(profileName),
+                            "The refusal names %s: %s".formatted(profileName, exception.getMessage()));
+        }
     }
 
     @Test
