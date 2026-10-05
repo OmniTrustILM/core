@@ -120,7 +120,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
-/** Synchronous stateless cryptography-provider v2 key management. */
+/**
+ * Synchronous stateless cryptography-provider v2 key management.
+ */
 @Slf4j
 public class KeyProviderV2Adapter implements KeyProviderAdapter {
 
@@ -411,14 +413,18 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         return isSignatureAlgorithmSupported(connectorDefinitions, selectedAlgorithm);
     }
 
+    /**
+     * Checks the advertised offer and identifies the connector responsible for a malformed schema.
+     */
     private boolean isSignatureAlgorithmSupported(List<BaseAttribute> connectorDefinitions,
             SignatureAlgorithm selectedAlgorithm) throws ConnectorException {
         try {
             List<SignatureAlgorithm> supportedAlgorithms = SignatureAlgorithmUtils
                     .extractSupportedSignatureAlgorithms(connectorDefinitions);
             return supportedAlgorithms.contains(selectedAlgorithm);
-        } catch (ValidationException e) {
-            throw new ConnectorException(e.getMessage(), e, connectorInfo);
+        } catch (ConnectorException e) {
+            e.setConnector(connectorInfo);
+            throw e;
         }
     }
 
@@ -615,8 +621,8 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
             throw new ValidationException(
                     "The signature attribute values or their combination are not supported by the key.");
         }
-        List<BaseAttribute> presentedDefinitions = SignatureAlgorithmUtils
-                .expandSignatureAlgorithmDefinition(connectorDefinitions);
+        List<BaseAttribute> presentedDefinitions = expandOperationDefinitions(connectorDefinitions,
+                SignatureAlgorithmUtils::expandSignatureAlgorithmDefinition);
         return publishDefinitions(request, presentedDefinitions);
     }
 
@@ -922,13 +928,26 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
      */
     private List<BaseAttribute> listOperationAttributes(CryptographicKeyItemOperationModel keyItem,
             ConnectorCall<KeyScopedRequestV2Dto, List<BaseAttribute>> schemaCall,
-            Function<List<BaseAttribute>, List<BaseAttribute>> presentation)
+            ConnectorCall<List<BaseAttribute>, List<BaseAttribute>> presentation)
             throws ConnectorException, NotFoundException {
         KeyScopedRequestV2Dto request = keyScoped(new KeyScopedRequestV2Dto(), keyItem, keyOperationScoped(keyItem));
         List<BaseAttribute> connectorDefinitions = fetchSchema(schemaCall, request);
         assertNoExpandedSecretEchoed(request, connectorDefinitions);
-        List<BaseAttribute> presentedDefinitions = presentation.apply(connectorDefinitions);
+        List<BaseAttribute> presentedDefinitions = expandOperationDefinitions(connectorDefinitions, presentation);
         return publishDefinitions(request, presentedDefinitions);
+    }
+
+    /**
+     * Adds connector identity to faults classified by the schema mapper without changing their type or cause.
+     */
+    private List<BaseAttribute> expandOperationDefinitions(List<BaseAttribute> connectorDefinitions,
+            ConnectorCall<List<BaseAttribute>, List<BaseAttribute>> presentation) throws ConnectorException {
+        try {
+            return presentation.call(connectorDefinitions);
+        } catch (ConnectorException e) {
+            e.setConnector(connectorInfo);
+            throw e;
+        }
     }
 
     private <T extends KeyScopedRequestV2Dto> T keyScoped(T request, CryptographicKeyItemOperationModel keyItem,

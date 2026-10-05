@@ -169,6 +169,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * Exercises certificate lifecycle operations with persisted state and mocked connector boundaries.
+ */
 @SpringBootTest
 class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
@@ -1765,8 +1768,10 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         return key;
     }
 
-    /** The schema Core presents for a v2 key whose connector offers SHA256withRSA. */
-    private static AttributesWithOwner signatureAlgorithmSchema(UUID connectorUuid) {
+    /**
+     * The schema Core presents for a v2 key whose connector offers SHA256withRSA.
+     */
+    private static AttributesWithOwner signatureAlgorithmSchema(UUID connectorUuid) throws ConnectorException {
         List<BaseAttribute> published = List
                 .of(SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA)));
         List<BaseAttribute> definitions = SignatureAlgorithmUtils.expandSignatureAlgorithmDefinition(published);

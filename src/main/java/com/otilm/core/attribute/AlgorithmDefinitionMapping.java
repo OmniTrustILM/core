@@ -1,6 +1,6 @@
 package com.otilm.core.attribute;
 
-import com.otilm.api.exception.ValidationException;
+import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
@@ -28,10 +28,10 @@ final class AlgorithmDefinitionMapping {
      * Replaces definition matching both UUID and name at its original position. Retains unrelated {@link BaseAttribute}
      * instances. Returns input when no replacement is needed.
      *
-     * @throws ValidationException for duplicate selectors or replacement UUID/name collisions
+     * @throws ConnectorException for duplicate selectors or replacement UUID/name collisions
      */
-    static List<BaseAttribute> expand(List<BaseAttribute> definitions, UUID uuid, String name,
-            Function<BaseAttribute, List<BaseAttribute>> mapping) {
+    static List<BaseAttribute> expand(List<BaseAttribute> definitions, UUID uuid, String name, DefinitionMapper mapping)
+            throws ConnectorException {
         Objects.requireNonNull(definitions, "definitions must not be null");
         Objects.requireNonNull(uuid, "uuid must not be null");
         Objects.requireNonNull(name, "name must not be null");
@@ -42,13 +42,13 @@ final class AlgorithmDefinitionMapping {
                         && uuid.toString().equals(definition.getUuid()))
                 .toList();
         if (matches.size() > 1) {
-            throw new ValidationException("Connector publishes more than one " + name + " attribute definition.");
+            throw new ConnectorException("Connector publishes more than one " + name + " attribute definition.");
         }
         if (matches.isEmpty()) {
             return definitions;
         }
         BaseAttribute original = matches.getFirst();
-        List<BaseAttribute> replacements = mapping.apply(original);
+        List<BaseAttribute> replacements = mapping.map(original);
         for (BaseAttribute definition : definitions) {
             if (definition == null || definition == original) {
                 continue;
@@ -57,7 +57,7 @@ final class AlgorithmDefinitionMapping {
                 if (replacement.getUuid().equals(definition.getUuid())
                         || replacement.getName().equals(definition.getName())) {
                     String algorithmKind = name.replace("Algorithm", "");
-                    throw new ValidationException(
+                    throw new ConnectorException(
                             "Connector publishes conflicting " + algorithmKind + " attribute UUIDs or names.");
                 }
             }
@@ -74,6 +74,14 @@ final class AlgorithmDefinitionMapping {
             }
         }
         return result;
+    }
+
+    /**
+     * A connector-definition transformation that can report malformed schema as a checked connector fault.
+     */
+    @FunctionalInterface
+    interface DefinitionMapper {
+        List<BaseAttribute> map(BaseAttribute definition) throws ConnectorException;
     }
 
     /**

@@ -1,6 +1,6 @@
 package com.otilm.core.attribute;
 
-import com.otilm.api.exception.ValidationException;
+import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.model.common.attribute.common.AttributeContent;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
@@ -29,10 +29,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Named.named;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
 
+/**
+ * Verifies connector signature schemas are expanded without misclassifying schema faults as caller errors.
+ */
 class SignatureAlgorithmUtilsTest {
 
     @Test
-    void expandSignatureAlgorithmDefinition_mergesRsaChoices_inTheOriginalPosition_withoutMutatingConnectorDefinitions() {
+    void expandSignatureAlgorithmDefinition_mergesRsaChoices_inTheOriginalPosition_withoutMutatingConnectorDefinitions()
+            throws ConnectorException {
         // given
         BaseAttribute before = unrelatedDefinition("before");
         BaseAttribute after = unrelatedDefinition("after");
@@ -62,7 +66,7 @@ class SignatureAlgorithmUtilsTest {
     }
 
     @Test
-    void expandSignatureAlgorithmDefinition_presentsOnlyDigestChoices_forEcdsa() {
+    void expandSignatureAlgorithmDefinition_presentsOnlyDigestChoices_forEcdsa() throws ConnectorException {
         // given
         List<BaseAttribute> schema = List
                 .of(SignatureAlgorithmAttribute
@@ -79,7 +83,7 @@ class SignatureAlgorithmUtilsTest {
     }
 
     @Test
-    void expandSignatureAlgorithmDefinition_deduplicatesRepeatedAlgorithmsAndFieldValues() {
+    void expandSignatureAlgorithmDefinition_deduplicatesRepeatedAlgorithmsAndFieldValues() throws ConnectorException {
         // given
         List<BaseAttribute> schema = List
                 .of(SignatureAlgorithmAttribute
@@ -98,7 +102,7 @@ class SignatureAlgorithmUtilsTest {
     @ParameterizedTest
     @EnumSource(value = SignatureAlgorithm.class, names = {"ML_DSA_65", "FALCON_1024", "ED25519"})
     void expandSignatureAlgorithmDefinition_keepsOriginalDefinition_forAlgorithmsWithoutSplitFields(
-            SignatureAlgorithm algorithm) {
+            SignatureAlgorithm algorithm) throws ConnectorException {
         // given
         DataAttributeV3 original = SignatureAlgorithmAttribute.definition(List.of(algorithm));
         List<BaseAttribute> schema = List.of(original);
@@ -115,7 +119,7 @@ class SignatureAlgorithmUtilsTest {
     @ParameterizedTest(name = "{0}")
     @MethodSource("schemasWithNoSplitConversion")
     void expandSignatureAlgorithmDefinition_keepsOriginalSchema_whenNoSplitConversionIsNeeded(
-            List<BaseAttribute> schema) {
+            List<BaseAttribute> schema) throws ConnectorException {
         // given
         List<BaseAttribute> originalSchema = schema;
 
@@ -140,7 +144,7 @@ class SignatureAlgorithmUtilsTest {
     @ParameterizedTest(name = "{0}")
     @MethodSource("invalidSchemas")
     void expandSignatureAlgorithmDefinition_refusesInvalidOrConflictingDefinitions(List<BaseAttribute> schema,
-            String expectedMessage) {
+            String expectedMessage) throws ConnectorException {
         // given
         List<BaseAttribute> connectorSchema = schema;
 
@@ -148,7 +152,7 @@ class SignatureAlgorithmUtilsTest {
         Executable convert = () -> SignatureAlgorithmUtils.expandSignatureAlgorithmDefinition(connectorSchema);
 
         // then
-        ValidationException failure = assertThrows(ValidationException.class, convert);
+        ConnectorException failure = assertThrows(ConnectorException.class, convert);
         assertEquals(expectedMessage, failure.getMessage());
     }
 
@@ -208,7 +212,7 @@ class SignatureAlgorithmUtilsTest {
     }
 
     @Test
-    void expandSignatureAlgorithmDefinition_refusesDuplicateSignatureAlgorithmDefinitions() {
+    void expandSignatureAlgorithmDefinition_refusesDuplicateSignatureAlgorithmDefinitions() throws ConnectorException {
         // given
         List<BaseAttribute> schema = List
                 .of(SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA)),
@@ -219,12 +223,12 @@ class SignatureAlgorithmUtilsTest {
         Executable convert = () -> SignatureAlgorithmUtils.expandSignatureAlgorithmDefinition(schema);
 
         // then
-        ValidationException failure = assertThrows(ValidationException.class, convert);
+        ConnectorException failure = assertThrows(ConnectorException.class, convert);
         assertEquals(expectedMessage, failure.getMessage());
     }
 
     @Test
-    void supportedAlgorithms_readsAllChoicesFromTheReservedDefinition_inOrder() {
+    void supportedAlgorithms_readsAllChoicesFromTheReservedDefinition_inOrder() throws ConnectorException {
         // given
         List<SignatureAlgorithm> expectedAlgorithms = List
                 .of(SignatureAlgorithm.SHA256_WITH_RSA, SignatureAlgorithm.SHA384_WITH_RSA_PSS,
@@ -241,7 +245,8 @@ class SignatureAlgorithmUtilsTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("schemasOfferingNoAlgorithm")
-    void supportedAlgorithms_returnsEmpty_whenThereAreNoOfferedAlgorithms(List<BaseAttribute> schema) {
+    void supportedAlgorithms_returnsEmpty_whenThereAreNoOfferedAlgorithms(List<BaseAttribute> schema)
+            throws ConnectorException {
         // given
         List<SignatureAlgorithm> expectedAlgorithms = List.of();
 
@@ -265,7 +270,7 @@ class SignatureAlgorithmUtilsTest {
     @ParameterizedTest(name = "{0}")
     @MethodSource("invalidAlgorithmSchemas")
     void supportedAlgorithms_rejectsMalformedDefinitions_beforeReturningAnyChoices(List<BaseAttribute> schema,
-            String expectedMessage) {
+            String expectedMessage) throws ConnectorException {
         // given
         List<BaseAttribute> connectorSchema = schema;
 
@@ -273,7 +278,7 @@ class SignatureAlgorithmUtilsTest {
         Executable read = () -> SignatureAlgorithmUtils.extractSupportedSignatureAlgorithms(connectorSchema);
 
         // then
-        ValidationException failure = assertThrows(ValidationException.class, read);
+        ConnectorException failure = assertThrows(ConnectorException.class, read);
         assertEquals(expectedMessage, failure.getMessage());
     }
 
@@ -304,7 +309,7 @@ class SignatureAlgorithmUtilsTest {
     }
 
     @Test
-    void expandSignatureAlgorithmDefinition_returnsFreshDefinitionsAndOptions_onEachCall() {
+    void expandSignatureAlgorithmDefinition_returnsFreshDefinitionsAndOptions_onEachCall() throws ConnectorException {
         // given
         List<BaseAttribute> schema = List
                 .of(SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA_PSS)));
@@ -324,7 +329,7 @@ class SignatureAlgorithmUtilsTest {
         assertEquals(List.of("PSS"), values(next.getFirst()));
     }
 
-    private static void assertSplitDefinition(BaseAttribute attribute, String expectedUuid) {
+    private static void assertSplitDefinition(BaseAttribute attribute, String expectedUuid) throws ConnectorException {
         DataAttributeV3 definition = assertInstanceOf(DataAttributeV3.class, attribute);
         assertEquals(expectedUuid, definition.getUuid());
         assertEquals(3, definition.getVersion());

@@ -1,12 +1,13 @@
 package com.otilm.core.attribute;
 
-import com.otilm.api.exception.ValidationException;
+import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.attribute.common.AttributeContent;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.DataAttribute;
 import com.otilm.api.model.common.enums.cryptography.EncryptionAlgorithm;
 import com.otilm.api.model.connector.cryptography.v2.operations.EncryptionAlgorithmAttribute;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -26,10 +27,11 @@ public final class EncryptionAlgorithmUtils {
      * MGF field is read-only with the mapped value true. Retains unrelated definitions and input. Caller checks
      * connector response for secret echoes before expansion.
      *
-     * @throws ValidationException for duplicate selectors, malformed choices, mixed split/original representations or
+     * @throws ConnectorException for duplicate selectors, malformed choices, mixed split/original representations or
      * replacement UUID/name collisions
      */
-    public static List<BaseAttribute> expandEncryptionAlgorithmDefinition(List<BaseAttribute> connectorDefinitions) {
+    public static List<BaseAttribute> expandEncryptionAlgorithmDefinition(List<BaseAttribute> connectorDefinitions)
+            throws ConnectorException {
         return AlgorithmDefinitionMapping
                 .expand(connectorDefinitions, EncryptionAlgorithmAttribute.ATTRIBUTE_UUID,
                         EncryptionAlgorithmAttribute.NAME, EncryptionAlgorithmUtils::mapDefinition);
@@ -38,15 +40,15 @@ public final class EncryptionAlgorithmUtils {
     /**
      * Merges {@link EncryptionAlgorithmMapping#toAttributes} results; retains selector when every choice stays joint.
      */
-    private static List<BaseAttribute> mapDefinition(BaseAttribute definition) {
+    private static List<BaseAttribute> mapDefinition(BaseAttribute definition) throws ConnectorException {
         if (!(definition.getContent() instanceof List<?> choices) || choices.isEmpty()) {
-            throw new ValidationException("Connector encryptionAlgorithm definition must contain algorithm codes.");
+            throw new ConnectorException("Connector encryptionAlgorithm definition must contain algorithm codes.");
         }
-        List<List<RequestAttribute>> mappedChoices = choices
-                .stream()
-                .map(EncryptionAlgorithmUtils::parseChoice)
-                .map(EncryptionAlgorithmMapping::toAttributes)
-                .toList();
+        List<List<RequestAttribute>> mappedChoices = new ArrayList<>();
+        for (Object choice : choices) {
+            EncryptionAlgorithm algorithm = parseChoice(choice);
+            mappedChoices.add(EncryptionAlgorithmMapping.toAttributes(algorithm));
+        }
         long originalChoices = mappedChoices
                 .stream()
                 .filter(attributes -> attributes
@@ -57,20 +59,22 @@ public final class EncryptionAlgorithmUtils {
             return List.of(definition);
         }
         if (originalChoices != 0) {
-            throw new ValidationException(
+            throw new ConnectorException(
                     "Connector encryption algorithms do not share a common attribute representation.");
         }
         return AlgorithmDefinitionMapping.merge(mappedChoices, EncryptionAlgorithmUtils::fieldTemplate);
     }
 
-    /** Reads string {@link AttributeContent#getData()} through {@link EncryptionAlgorithm#lookupByCode}. */
-    private static EncryptionAlgorithm parseChoice(Object choice) {
+    /**
+     * Reads string {@link AttributeContent#getData()} through {@link EncryptionAlgorithm#lookupByCode}.
+     */
+    private static EncryptionAlgorithm parseChoice(Object choice) throws ConnectorException {
         if (!(choice instanceof AttributeContent value) || !(value.getData() instanceof String code)) {
-            throw new ValidationException("Connector encryptionAlgorithm choices must contain string algorithm codes.");
+            throw new ConnectorException("Connector encryptionAlgorithm choices must contain string algorithm codes.");
         }
         return EncryptionAlgorithm
                 .lookupByCode(code)
-                .orElseThrow(() -> new ValidationException(
+                .orElseThrow(() -> new ConnectorException(
                         "Connector encryptionAlgorithm definition contains an unknown algorithm code."));
     }
 

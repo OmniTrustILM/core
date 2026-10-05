@@ -1,6 +1,6 @@
 package com.otilm.core.attribute;
 
-import com.otilm.api.exception.ValidationException;
+import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.model.common.attribute.common.AttributeContent;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
@@ -23,10 +23,14 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/**
+ * Verifies encryption offers retain their presentation contract and classify malformed schemas as connector faults.
+ */
 class EncryptionAlgorithmUtilsTest {
 
     @Test
-    void expandEncryptionAlgorithmDefinition_mergesChoices_preservingOrderAndOriginalDefinitions() {
+    void expandEncryptionAlgorithmDefinition_mergesChoices_preservingOrderAndOriginalDefinitions()
+            throws ConnectorException {
         // given
         DataAttributeV3 original = EncryptionAlgorithmAttribute
                 .definition(List
@@ -54,7 +58,7 @@ class EncryptionAlgorithmUtilsTest {
     }
 
     @Test
-    void expandEncryptionAlgorithmDefinition_keepsOnlyScheme_forPkcs1() {
+    void expandEncryptionAlgorithmDefinition_keepsOnlyScheme_forPkcs1() throws ConnectorException {
         // given
         List<BaseAttribute> schema = List
                 .of(EncryptionAlgorithmAttribute.definition(List.of(EncryptionAlgorithm.RSA_PKCS1_V1_5)));
@@ -70,7 +74,7 @@ class EncryptionAlgorithmUtilsTest {
     }
 
     @Test
-    void expandEncryptionAlgorithmDefinition_requiresAllFieldsAndFixesMgf_forOaepOnly() {
+    void expandEncryptionAlgorithmDefinition_requiresAllFieldsAndFixesMgf_forOaepOnly() throws ConnectorException {
         // given
         List<BaseAttribute> schema = List
                 .of(EncryptionAlgorithmAttribute.definition(List.of(EncryptionAlgorithm.RSA_OAEP_SHA256)));
@@ -88,7 +92,7 @@ class EncryptionAlgorithmUtilsTest {
     }
 
     @Test
-    void expandEncryptionAlgorithmDefinition_preservesLegacyTemplateRequirements() {
+    void expandEncryptionAlgorithmDefinition_preservesLegacyTemplateRequirements() throws ConnectorException {
         // given
         List<BaseAttribute> schema = List
                 .of(EncryptionAlgorithmAttribute.definition(List.of(EncryptionAlgorithm.RSA_OAEP_SHA256)));
@@ -107,7 +111,7 @@ class EncryptionAlgorithmUtilsTest {
     }
 
     @Test
-    void expandEncryptionAlgorithmDefinition_keepsSchema_withoutAlgorithmDefinition() {
+    void expandEncryptionAlgorithmDefinition_keepsSchema_withoutAlgorithmDefinition() throws ConnectorException {
         // given
         List<BaseAttribute> schema = List.of(unrelatedDefinition());
 
@@ -120,7 +124,8 @@ class EncryptionAlgorithmUtilsTest {
 
     @ParameterizedTest
     @MethodSource("invalidSchemas")
-    void expandEncryptionAlgorithmDefinition_rejectsMalformedOrConflictingDefinitions(List<BaseAttribute> schema) {
+    void expandEncryptionAlgorithmDefinition_rejectsMalformedOrConflictingDefinitions(List<BaseAttribute> schema)
+            throws ConnectorException {
         // given
         String expectedMessagePrefix = "Connector ";
 
@@ -128,7 +133,7 @@ class EncryptionAlgorithmUtilsTest {
         Executable expand = () -> EncryptionAlgorithmUtils.expandEncryptionAlgorithmDefinition(schema);
 
         // then
-        ValidationException failure = assertThrows(ValidationException.class, expand);
+        ConnectorException failure = assertThrows(ConnectorException.class, expand);
         assertTrue(failure.getMessage().contains(expectedMessagePrefix));
     }
 

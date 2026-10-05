@@ -161,6 +161,9 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
+/**
+ * Verifies scoped V2 key operations and containment of malformed or secret-bearing connector responses.
+ */
 class KeyProviderV2AdapterTest {
 
     private final Consumer<KeyOperationScope> scopeValidator = mock();
@@ -696,6 +699,7 @@ class KeyProviderV2AdapterTest {
         // then
         ConnectorException failure = assertThrows(ConnectorException.class, list);
         assertEquals(expectedMessage, failure.getMessage());
+        assertEquals(profile.connectorUuid().toString(), failure.getConnector().getUuid());
         verify(attributes, never()).updateDataAttributeDefinitions(any(), any(), any());
     }
 
@@ -772,6 +776,7 @@ class KeyProviderV2AdapterTest {
         // then
         ConnectorException failure = assertThrows(ConnectorException.class, check);
         assertEquals(expectedMessage, failure.getMessage());
+        assertEquals(profile.connectorUuid().toString(), failure.getConnector().getUuid());
     }
 
     private static Stream<Arguments> invalidSignatureOffers() {
@@ -1389,6 +1394,50 @@ class KeyProviderV2AdapterTest {
         // then
         assertSame(schema, result);
         verify(attributes).updateDataAttributeDefinitions(profile.connectorUuid(), null, schema);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("operationAttributeListings")
+    void listOperationAttributes_classifiesDuplicateSelectorsAsConnectorFaults(String operation,
+            ClientListing clientListing, AdapterListing adapterListing) throws Exception {
+        // given
+        boolean encryption = operation.equals("encrypt") || operation.equals("decrypt");
+        BaseAttribute selector = encryption
+                ? EncryptionAlgorithmAttribute.definition(List.of(EncryptionAlgorithm.RSA_OAEP_SHA256))
+                : SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA));
+        String selectorName = selector.getName();
+        String expectedMessage = "Connector publishes more than one " + selectorName + " attribute definition.";
+        when(clientListing.list(operationsClient)).thenReturn(List.of(selector, selector));
+
+        // when
+        Executable list = () -> adapterListing.list(adapter, v2KeyItem(metadata("handle")));
+
+        // then
+        ConnectorException failure = assertThrows(ConnectorException.class, list);
+        assertEquals(expectedMessage, failure.getMessage());
+        assertEquals(profile.connectorUuid().toString(), failure.getConnector().getUuid());
+        verify(attributes, never()).updateDataAttributeDefinitions(any(), any(), any());
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("signatureAttributeListings")
+    void listSignatureAttributes_classifiesExpansionCollisionAsConnectorFault(ClientListing clientListing,
+            AdapterListing adapterListing) throws Exception {
+        // given
+        String expectedMessage = "Connector publishes conflicting signature attribute UUIDs or names.";
+        BaseAttribute selector = SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA));
+        DataAttributeV2 conflictingDefinition = dataAttributeDefinition(
+                RsaSignatureAttributes.ATTRIBUTE_DATA_SIG_DIGEST, false);
+        when(clientListing.list(operationsClient)).thenReturn(List.of(selector, conflictingDefinition));
+
+        // when
+        Executable list = () -> adapterListing.list(adapter, v2KeyItem(metadata("handle")));
+
+        // then
+        ConnectorException failure = assertThrows(ConnectorException.class, list);
+        assertEquals(expectedMessage, failure.getMessage());
+        assertEquals(profile.connectorUuid().toString(), failure.getConnector().getUuid());
+        verify(attributes, never()).updateDataAttributeDefinitions(any(), any(), any());
     }
 
     @ParameterizedTest(name = "{0}")

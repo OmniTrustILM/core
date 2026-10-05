@@ -1,7 +1,6 @@
 package com.otilm.core.attribute;
 
-import com.otilm.api.exception.ValidationError;
-import com.otilm.api.exception.ValidationException;
+import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.attribute.common.AttributeContent;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
@@ -31,9 +30,10 @@ public final class SignatureAlgorithmUtils {
      * Rejects malformed definitions, incompatible representations and field collisions. Caller checks raw connector
      * response for secret echoes before expansion.
      *
-     * @throws ValidationException when the connector's signature definitions are duplicated, malformed or conflicting
+     * @throws ConnectorException when the connector's signature definitions are duplicated, malformed or conflicting
      */
-    public static List<BaseAttribute> expandSignatureAlgorithmDefinition(List<BaseAttribute> connectorDefinitions) {
+    public static List<BaseAttribute> expandSignatureAlgorithmDefinition(List<BaseAttribute> connectorDefinitions)
+            throws ConnectorException {
         return AlgorithmDefinitionMapping
                 .expand(connectorDefinitions, SignatureAlgorithmAttribute.ATTRIBUTE_UUID,
                         SignatureAlgorithmAttribute.NAME, SignatureAlgorithmUtils::mapAlgorithmDefinition);
@@ -44,24 +44,26 @@ public final class SignatureAlgorithmUtils {
      * and empty choice lists return an empty list. Every choice is validated before returning, even after a match could
      * have been found, so callers cannot overlook malformed trailing values.
      *
-     * @throws ValidationException when definitions are duplicated or their content contains invalid algorithm codes
+     * @throws ConnectorException when definitions are duplicated or their content contains invalid algorithm codes
      */
-    public static List<SignatureAlgorithm> extractSupportedSignatureAlgorithms(
-            List<BaseAttribute> connectorDefinitions) {
+    public static List<SignatureAlgorithm> extractSupportedSignatureAlgorithms(List<BaseAttribute> connectorDefinitions)
+            throws ConnectorException {
         Objects.requireNonNull(connectorDefinitions, "connectorDefinitions must not be null");
-        return findAlgorithmDefinition(connectorDefinitions)
-                .map(SignatureAlgorithmUtils::readSupportedAlgorithms)
-                .orElseGet(List::of);
+        Optional<BaseAttribute> definition = findAlgorithmDefinition(connectorDefinitions);
+        return definition.isPresent() ? readSupportedAlgorithms(definition.get()) : List.of();
     }
 
-    private static Optional<BaseAttribute> findAlgorithmDefinition(List<BaseAttribute> connectorDefinitions) {
+    /**
+     * Finds the reserved selector, rejecting duplicate definitions from the connector.
+     */
+    private static Optional<BaseAttribute> findAlgorithmDefinition(List<BaseAttribute> connectorDefinitions)
+            throws ConnectorException {
         List<BaseAttribute> algorithmDefinitions = connectorDefinitions
                 .stream()
                 .filter(SignatureAlgorithmUtils::isSignatureAlgorithm)
                 .toList();
         if (algorithmDefinitions.size() > 1) {
-            throw new ValidationException(ValidationError
-                    .create("Connector publishes more than one signatureAlgorithm attribute definition."));
+            throw new ConnectorException("Connector publishes more than one signatureAlgorithm attribute definition.");
         }
         return algorithmDefinitions.stream().findFirst();
     }
@@ -71,11 +73,15 @@ public final class SignatureAlgorithmUtils {
                 && SignatureAlgorithmAttribute.ATTRIBUTE_UUID.toString().equals(definition.getUuid());
     }
 
-    private static List<BaseAttribute> mapAlgorithmDefinition(BaseAttribute originalDefinition) {
+    /**
+     * Presents a non-empty offer using one common attribute representation.
+     */
+    private static List<BaseAttribute> mapAlgorithmDefinition(BaseAttribute originalDefinition)
+            throws ConnectorException {
         List<SignatureAlgorithm> algorithmChoices = readSupportedAlgorithms(originalDefinition);
         if (algorithmChoices.isEmpty()) {
-            throw new ValidationException(ValidationError
-                    .create("Connector signatureAlgorithm definition must contain at least one algorithm code."));
+            throw new ConnectorException(
+                    "Connector signatureAlgorithm definition must contain at least one algorithm code.");
         }
         List<List<RequestAttribute>> mappedChoices = mapAndValidateChoices(algorithmChoices);
         if (usesOriginalAlgorithmAttribute(mappedChoices.getFirst())) {
@@ -84,16 +90,28 @@ public final class SignatureAlgorithmUtils {
         return AlgorithmDefinitionMapping.merge(mappedChoices, SignatureAlgorithmUtils::coreFieldTemplate);
     }
 
-    private static List<SignatureAlgorithm> readSupportedAlgorithms(BaseAttribute originalDefinition) {
+    /**
+     * Validates every advertised choice before returning the connector's offer.
+     */
+    private static List<SignatureAlgorithm> readSupportedAlgorithms(BaseAttribute originalDefinition)
+            throws ConnectorException {
         Object content = originalDefinition.getContent();
         if (!(content instanceof List<?> choices)) {
-            throw new ValidationException(ValidationError
-                    .create("Connector signatureAlgorithm definition must contain a list of algorithm codes."));
+            throw new ConnectorException(
+                    "Connector signatureAlgorithm definition must contain a list of algorithm codes.");
         }
-        return choices.stream().map(SignatureAlgorithmUtils::parseAlgorithmChoice).toList();
+        List<SignatureAlgorithm> algorithms = new ArrayList<>();
+        for (Object choice : choices) {
+            algorithms.add(parseAlgorithmChoice(choice));
+        }
+        return List.copyOf(algorithms);
     }
 
-    private static List<List<RequestAttribute>> mapAndValidateChoices(List<SignatureAlgorithm> algorithmChoices) {
+    /**
+     * Requires every algorithm to use the same field identities so one flat definition can represent the offer.
+     */
+    private static List<List<RequestAttribute>> mapAndValidateChoices(List<SignatureAlgorithm> algorithmChoices)
+            throws ConnectorException {
         SignatureAlgorithm firstAlgorithm = algorithmChoices.getFirst();
         List<RequestAttribute> firstMappedChoice = SignatureAlgorithmMapping.toAttributes(firstAlgorithm);
         Set<UUID> expectedAttributeUuids = attributeUuids(firstMappedChoice);
@@ -110,25 +128,31 @@ public final class SignatureAlgorithmUtils {
         return mappedChoices;
     }
 
-    private static SignatureAlgorithm parseAlgorithmChoice(Object choice) {
+    /**
+     * Reads a known algorithm code without including connector-controlled values in failure messages.
+     */
+    private static SignatureAlgorithm parseAlgorithmChoice(Object choice) throws ConnectorException {
         if (!(choice instanceof AttributeContent value) || !(value.getData() instanceof String code)) {
-            throw new ValidationException(ValidationError
-                    .create("Connector signatureAlgorithm choices must contain string algorithm codes."));
+            throw new ConnectorException("Connector signatureAlgorithm choices must contain string algorithm codes.");
         }
         return SignatureAlgorithm
                 .lookupByCode(code)
-                .orElseThrow(() -> new ValidationException(ValidationError
-                        .create("Connector signatureAlgorithm definition contains an unknown algorithm code.")));
+                .orElseThrow(() -> new ConnectorException(
+                        "Connector signatureAlgorithm definition contains an unknown algorithm code."));
     }
 
     private static Set<UUID> attributeUuids(List<RequestAttribute> attributes) {
         return attributes.stream().map(RequestAttribute::getUuid).collect(Collectors.toSet());
     }
 
-    private static void requireSameAttributeUuids(Set<UUID> expectedAttributeUuids, Set<UUID> actualAttributeUuids) {
+    /**
+     * Refuses offers whose choices cannot share one set of field definitions.
+     */
+    private static void requireSameAttributeUuids(Set<UUID> expectedAttributeUuids, Set<UUID> actualAttributeUuids)
+            throws ConnectorException {
         if (!expectedAttributeUuids.equals(actualAttributeUuids)) {
-            throw new ValidationException(ValidationError
-                    .create("Connector signature algorithms do not share a common attribute representation."));
+            throw new ConnectorException(
+                    "Connector signature algorithms do not share a common attribute representation.");
         }
     }
 
