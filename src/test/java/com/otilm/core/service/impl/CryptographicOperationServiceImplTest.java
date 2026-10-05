@@ -16,7 +16,6 @@ import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.MetadataAttributeV3;
-import com.otilm.api.model.common.enums.BitMaskEnum;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
@@ -35,7 +34,6 @@ import com.otilm.core.model.crypto.AttributesWithOwner;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.crypto.ImmutableTokenInstanceBasicModel;
 import com.otilm.core.model.crypto.ImmutableTokenProfileBasicModel;
-import com.otilm.core.model.crypto.KeyOperationScope;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
@@ -48,12 +46,10 @@ import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import com.otilm.core.service.handler.key.ResolvedSignatureAlgorithm;
 import com.otilm.core.service.handler.token.TokenProviderAdapter;
 import com.otilm.core.service.handler.token.TokenProviderAdapterFactory;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.function.Consumer;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -72,6 +68,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Named.named;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -298,14 +295,14 @@ class CryptographicOperationServiceImplTest {
         // given
         CryptographicKeyItemOperationModel key = legacyKey();
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
-        when(keyProviderAdapterFactory.forKeyItem(eq(key), any())).thenReturn(adapter);
+        when(keyProviderAdapterFactory.forKeyItem(key)).thenReturn(adapter);
         SignDataResponseDto expected = new SignDataResponseDto();
         when(adapter.signData(any(), any())).thenReturn(expected);
 
         // when
         SignDataResponseDto response = service
-                .signData(SecuredParentUUID.fromUUID(key.tokenInstanceUuid()), SecuredUUID.fromUUID(UUID.randomUUID()),
-                        UUID.randomUUID(), key.keyItemUuid(), signRequest());
+                .signData(SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()),
+                        SecuredUUID.fromUUID(key.tokenProfileUuid()), key.keyUuid(), key.keyItemUuid(), signRequest());
 
         // then
         assertSame(expected, response);
@@ -319,80 +316,96 @@ class CryptographicOperationServiceImplTest {
     }
 
     @Test
-    void signData_checksTheAdapterResolvedScope_forV2Item() throws Exception {
+    void signData_routesV2ItemThroughDefaultAdapterValidation() throws Exception {
         // given
         CryptographicKeyItemOperationModel key = v2Key();
-        KeyOperationScope scope = scope();
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
-        useResolvedScope(key, scope);
-        when(adapter.signData(any(), any())).thenReturn(new SignDataResponseDto());
+        when(keyProviderAdapterFactory.forKeyItem(key)).thenReturn(adapter);
+        SignDataRequestDto request = signRequest();
+        SignDataResponseDto expected = new SignDataResponseDto();
+        when(adapter.signData(key, request)).thenReturn(expected);
 
         // when
-        service
-                .signData(SecuredParentUUID.fromUUID(scope.tokenInstanceReferenceUuid()),
-                        SecuredUUID.fromUUID(scope.tokenProfileUuid()), key.keyUuid(), key.keyItemUuid(),
-                        signRequest());
+        SignDataResponseDto response = service
+                .signData(SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()),
+                        SecuredUUID.fromUUID(key.tokenProfileUuid()), key.keyUuid(), key.keyItemUuid(), request);
 
         // then
-        ArgumentCaptor<CryptographicKeyItemOperationModel> context = ArgumentCaptor
-                .forClass(CryptographicKeyItemOperationModel.class);
-        verify(adapter).signData(context.capture(), any());
-        assertSame(key, context.getValue());
+        assertSame(expected, response);
+        verify(keyProviderAdapterFactory).forKeyItem(key);
     }
 
-    @Test
-    void signData_rejectsV2Item_whenPathProfileDiffers() throws Exception {
+    @ParameterizedTest(name = "{0}, {1}, v2={2}")
+    @MethodSource("mismatchedOperationPaths")
+    void keyOperation_rejectsMismatchedPath_beforeStateChecksRoutingAndHistory(PathOperation operation,
+            PathMismatch mismatch, boolean v2) throws Exception {
         // given
-        CryptographicKeyItemOperationModel key = v2Key();
-        KeyOperationScope scope = scope();
+        CryptographicKeyItemOperationModel key = withState(v2 ? v2Key() : legacyKey(), KeyState.DEACTIVATED);
+        UUID differentUuid = UUID.randomUUID();
+        UUID tokenUuid = mismatch == PathMismatch.TOKEN ? differentUuid : key.tokenInstanceReferenceUuid();
+        UUID profileUuid = mismatch == PathMismatch.PROFILE ? differentUuid : key.tokenProfileUuid();
+        UUID keyUuid = mismatch == PathMismatch.KEY ? differentUuid : key.keyUuid();
+        String expectedMessage = "Token, token profile, key and key item in the request are not associated.";
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
-        useResolvedScope(key, scope);
 
         // when
-        Executable sign = () -> service
-                .signData(SecuredParentUUID.fromUUID(scope.tokenInstanceReferenceUuid()),
-                        SecuredUUID.fromUUID(UUID.randomUUID()), key.keyUuid(), key.keyItemUuid(), signRequest());
+        Executable execute = () -> invokeOperation(operation, key, tokenUuid, profileUuid, keyUuid);
 
         // then
-        assertThrows(ValidationException.class, sign);
-        verifyNoInteractions(adapter);
+        ValidationException failure = assertThrows(ValidationException.class, execute);
+        assertEquals(expectedMessage, failure.getMessage());
+        verifyNoInteractions(keyProviderAdapterFactory, adapter, eventHistoryService, cryptographicKeyRepository);
+        verify(keyService).getKeyItemModel(key.keyItemUuid());
     }
 
-    @Test
-    void signData_rejectsV2Item_whenPathKeyDiffers() throws Exception {
-        // given
-        CryptographicKeyItemOperationModel key = v2Key();
-        KeyOperationScope scope = scope();
-        when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
-        useResolvedScope(key, scope);
-
-        // when
-        Executable sign = () -> service
-                .signData(SecuredParentUUID.fromUUID(scope.tokenInstanceReferenceUuid()),
-                        SecuredUUID.fromUUID(scope.tokenProfileUuid()), UUID.randomUUID(), key.keyItemUuid(),
-                        signRequest());
-
-        // then
-        assertThrows(ValidationException.class, sign);
-        verifyNoInteractions(adapter);
+    private static Stream<Arguments> mismatchedOperationPaths() {
+        return Stream
+                .of(PathOperation.values())
+                .flatMap(operation -> Stream
+                        .of(PathMismatch.values())
+                        .flatMap(mismatch -> Stream.of(false, true).map(v2 -> Arguments.of(operation, mismatch, v2))));
     }
 
-    @Test
-    void signData_rejectsV2Item_whenPathTokenDiffers() throws Exception {
-        // given
-        CryptographicKeyItemOperationModel key = v2Key();
-        KeyOperationScope scope = scope();
-        when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
-        useResolvedScope(key, scope);
+    private void invokeOperation(PathOperation operation, CryptographicKeyItemOperationModel key, UUID tokenUuid,
+            UUID profileUuid, UUID keyUuid) throws Exception {
+        SecuredParentUUID token = SecuredParentUUID.fromUUID(tokenUuid);
+        SecuredUUID profile = SecuredUUID.fromUUID(profileUuid);
+        switch (operation) {
+            case ENCRYPT -> service.encryptData(token, profile, keyUuid, key.keyItemUuid(), new CipherDataRequestDto());
+            case DECRYPT -> service.decryptData(token, profile, keyUuid, key.keyItemUuid(), new CipherDataRequestDto());
+            case SIGN -> service.signData(token, profile, keyUuid, key.keyItemUuid(), signRequest());
+            case SIGN_WITHOUT_HISTORY ->
+                service.signDataWithoutEventHistory(token, profile, keyUuid, key.keyItemUuid(), signRequest());
+            case VERIFY -> service.verifyData(token, profile, keyUuid, key.keyItemUuid(), new VerifyDataRequestDto());
+            case LIST_ENCRYPT -> service.listEncryptAttributes(token, profile, keyUuid, key.keyItemUuid());
+            case LIST_DECRYPT -> service.listDecryptAttributes(token, profile, keyUuid, key.keyItemUuid());
+            case LIST_SIGN -> service.listSignAttributes(token, profile, keyUuid, key.keyItemUuid());
+            case LIST_VERIFY -> service.listVerifyAttributes(token, profile, keyUuid, key.keyItemUuid());
+            case LIST_CIPHER_LEGACY ->
+                service.listCipherAttributes(token, profile, keyUuid, key.keyItemUuid(), KeyAlgorithm.RSA);
+            case LIST_SIGNATURE_LEGACY ->
+                service.listSignatureAttributes(token, profile, keyUuid, key.keyItemUuid(), KeyAlgorithm.RSA);
+        }
+    }
 
-        // when
-        Executable sign = () -> service
-                .signData(SecuredParentUUID.fromUUID(UUID.randomUUID()), SecuredUUID.fromUUID(scope.tokenProfileUuid()),
-                        key.keyUuid(), key.keyItemUuid(), signRequest());
+    private enum PathOperation {
+        ENCRYPT,
+        DECRYPT,
+        SIGN,
+        SIGN_WITHOUT_HISTORY,
+        VERIFY,
+        LIST_ENCRYPT,
+        LIST_DECRYPT,
+        LIST_SIGN,
+        LIST_VERIFY,
+        LIST_CIPHER_LEGACY,
+        LIST_SIGNATURE_LEGACY
+    }
 
-        // then
-        assertThrows(ValidationException.class, sign);
-        verifyNoInteractions(adapter);
+    private enum PathMismatch {
+        TOKEN,
+        PROFILE,
+        KEY
     }
 
     @Test
@@ -400,14 +413,14 @@ class CryptographicOperationServiceImplTest {
         // given
         CryptographicKeyItemOperationModel key = legacyKey();
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
-        when(keyProviderAdapterFactory.forKeyItem(eq(key), any())).thenReturn(adapter);
+        when(keyProviderAdapterFactory.forKeyItem(key)).thenReturn(adapter);
         ConnectorException failure = new ConnectorException("boom");
         when(adapter.signData(any(), any())).thenThrow(failure);
 
         // when
         Executable sign = () -> service
-                .signData(SecuredParentUUID.fromUUID(key.tokenInstanceUuid()), SecuredUUID.fromUUID(UUID.randomUUID()),
-                        UUID.randomUUID(), key.keyItemUuid(), signRequest());
+                .signData(SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()),
+                        SecuredUUID.fromUUID(key.tokenProfileUuid()), key.keyUuid(), key.keyItemUuid(), signRequest());
 
         // then
         assertSame(failure, assertThrows(ConnectorException.class, sign));
@@ -421,7 +434,7 @@ class CryptographicOperationServiceImplTest {
         // given
         CryptographicKeyItemOperationModel key = legacyKey();
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
-        when(keyProviderAdapterFactory.forKeyItem(eq(key), any())).thenReturn(adapter);
+        when(keyProviderAdapterFactory.forKeyItem(key)).thenReturn(adapter);
         when(adapter.signData(any(), any())).thenReturn(new SignDataResponseDto());
         RuntimeException auditFailure = new RuntimeException("history unavailable");
         doThrow(auditFailure)
@@ -431,8 +444,8 @@ class CryptographicOperationServiceImplTest {
 
         // when
         Executable sign = () -> service
-                .signData(SecuredParentUUID.fromUUID(key.tokenInstanceUuid()), SecuredUUID.fromUUID(UUID.randomUUID()),
-                        UUID.randomUUID(), key.keyItemUuid(), signRequest());
+                .signData(SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()),
+                        SecuredUUID.fromUUID(key.tokenProfileUuid()), key.keyUuid(), key.keyItemUuid(), signRequest());
 
         // then
         assertSame(auditFailure, assertThrows(RuntimeException.class, sign));
@@ -445,13 +458,13 @@ class CryptographicOperationServiceImplTest {
         // given
         CryptographicKeyItemOperationModel key = legacyKey();
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
-        when(keyProviderAdapterFactory.forKeyItem(eq(key), any())).thenReturn(adapter);
+        when(keyProviderAdapterFactory.forKeyItem(key)).thenReturn(adapter);
         when(adapter.signData(any(), any())).thenReturn(new SignDataResponseDto());
 
         // when
         service
-                .signDataWithoutEventHistory(SecuredParentUUID.fromUUID(key.tokenInstanceUuid()),
-                        SecuredUUID.fromUUID(UUID.randomUUID()), UUID.randomUUID(), key.keyItemUuid(), signRequest());
+                .signDataWithoutEventHistory(SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()),
+                        SecuredUUID.fromUUID(key.tokenProfileUuid()), key.keyUuid(), key.keyItemUuid(), signRequest());
 
         // then
         verifyNoInteractions(eventHistoryService);
@@ -471,8 +484,8 @@ class CryptographicOperationServiceImplTest {
 
         // when
         Executable encrypt = () -> service
-                .encryptData(SecuredParentUUID.fromUUID(key.tokenInstanceUuid()),
-                        SecuredUUID.fromUUID(UUID.randomUUID()), UUID.randomUUID(), key.keyItemUuid(), request);
+                .encryptData(SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()),
+                        SecuredUUID.fromUUID(key.tokenProfileUuid()), key.keyUuid(), key.keyItemUuid(), request);
 
         // then
         ValidationException failure = assertThrows(ValidationException.class, encrypt);
@@ -494,8 +507,8 @@ class CryptographicOperationServiceImplTest {
 
         // when
         Executable verifyCall = () -> service
-                .verifyData(SecuredParentUUID.fromUUID(key.tokenInstanceUuid()),
-                        SecuredUUID.fromUUID(UUID.randomUUID()), UUID.randomUUID(), key.keyItemUuid(), request);
+                .verifyData(SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()),
+                        SecuredUUID.fromUUID(key.tokenProfileUuid()), key.keyUuid(), key.keyItemUuid(), request);
 
         // then
         assertThrows(ValidationException.class, verifyCall);
@@ -504,19 +517,19 @@ class CryptographicOperationServiceImplTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("operationAttributeListings")
-    void listOperationAttributes_delegatesToItsOwnAdapterCall(String operation, AdapterListing adapterListing,
+    void listOperationAttributes_delegatesToItsOwnAdapterCall(AdapterListing adapterListing,
             ServiceListing serviceListing) throws Exception {
         // given
         CryptographicKeyItemOperationModel key = legacyKey();
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
-        when(keyProviderAdapterFactory.forKeyItem(eq(key), any())).thenReturn(adapter);
+        when(keyProviderAdapterFactory.forKeyItem(key)).thenReturn(adapter);
         List<BaseAttribute> schema = List.of(new DataAttributeV2());
         when(adapterListing.list(adapter)).thenReturn(schema);
 
         // when
         List<BaseAttribute> result = serviceListing
-                .list(service, SecuredParentUUID.fromUUID(key.tokenInstanceUuid()),
-                        SecuredUUID.fromUUID(UUID.randomUUID()), UUID.randomUUID(), key.keyItemUuid());
+                .list(service, SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()),
+                        SecuredUUID.fromUUID(key.tokenProfileUuid()), key.keyUuid(), key.keyItemUuid());
 
         // then
         assertSame(schema, result);
@@ -526,16 +539,16 @@ class CryptographicOperationServiceImplTest {
     private static Stream<Arguments> operationAttributeListings() {
         return Stream
                 .of(Arguments
-                        .of("encrypt", (AdapterListing) listing -> listing.listEncryptAttributes(any()),
+                        .of(named("encrypt", (AdapterListing) listing -> listing.listEncryptAttributes(any())),
                                 (ServiceListing) CryptographicOperationServiceImpl::listEncryptAttributes),
                         Arguments
-                                .of("decrypt", (AdapterListing) listing -> listing.listDecryptAttributes(any()),
+                                .of(named("decrypt", (AdapterListing) listing -> listing.listDecryptAttributes(any())),
                                         (ServiceListing) CryptographicOperationServiceImpl::listDecryptAttributes),
                         Arguments
-                                .of("sign", (AdapterListing) listing -> listing.listSignAttributes(any()),
+                                .of(named("sign", (AdapterListing) listing -> listing.listSignAttributes(any())),
                                         (ServiceListing) CryptographicOperationServiceImpl::listSignAttributes),
                         Arguments
-                                .of("verify", (AdapterListing) listing -> listing.listVerifyAttributes(any()),
+                                .of(named("verify", (AdapterListing) listing -> listing.listVerifyAttributes(any())),
                                         (ServiceListing) CryptographicOperationServiceImpl::listVerifyAttributes));
     }
 
@@ -559,8 +572,9 @@ class CryptographicOperationServiceImplTest {
 
         // when
         Executable list = () -> service
-                .listSignatureAttributes(SecuredParentUUID.fromUUID(UUID.randomUUID()),
-                        SecuredUUID.fromUUID(UUID.randomUUID()), key.keyUuid(), key.keyItemUuid(), KeyAlgorithm.RSA);
+                .listSignatureAttributes(SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()),
+                        SecuredUUID.fromUUID(key.tokenProfileUuid()), key.keyUuid(), key.keyItemUuid(),
+                        KeyAlgorithm.RSA);
 
         // then
         NotSupportedException failure = assertThrows(NotSupportedException.class, list);
@@ -576,8 +590,9 @@ class CryptographicOperationServiceImplTest {
 
         // when
         List<BaseAttribute> result = service
-                .listCipherAttributes(SecuredParentUUID.fromUUID(key.tokenInstanceUuid()),
-                        SecuredUUID.fromUUID(UUID.randomUUID()), key.keyUuid(), key.keyItemUuid(), KeyAlgorithm.RSA);
+                .listCipherAttributes(SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()),
+                        SecuredUUID.fromUUID(key.tokenProfileUuid()), key.keyUuid(), key.keyItemUuid(),
+                        KeyAlgorithm.RSA);
 
         // then
         // DataAttributeV2.equals() delegates to DataAttributeProperties, which has no equals/hashCode override in
@@ -732,15 +747,6 @@ class CryptographicOperationServiceImplTest {
         assertSame(expectedFailure, assertThrows(ConnectorException.class, check));
     }
 
-    private void useResolvedScope(CryptographicKeyItemOperationModel key, KeyOperationScope scope)
-            throws NotFoundException {
-        when(keyProviderAdapterFactory.forKeyItem(eq(key), any())).thenAnswer(invocation -> {
-            Consumer<KeyOperationScope> validator = invocation.getArgument(1);
-            validator.accept(scope);
-            return adapter;
-        });
-    }
-
     private static CryptographicKeyItemOperationModel legacyKey() {
         return new CryptographicKeyItemOperationModel(UUID.randomUUID(), true, KeyAlgorithm.RSA, KeyState.ACTIVE,
                 KeyType.PRIVATE_KEY, List.of(KeyUsage.ENCRYPT, KeyUsage.DECRYPT, KeyUsage.SIGN, KeyUsage.VERIFY), null,
@@ -765,9 +771,12 @@ class CryptographicOperationServiceImplTest {
                 key.tokenInstanceReferenceUuid(), key.tokenProfileUuid());
     }
 
-    private static KeyOperationScope scope() {
-        return new KeyOperationScope(UUID.randomUUID(), "profile", null, "token", UUID.randomUUID(), true,
-                BitMaskEnum.convertSetToBitMask(EnumSet.of(KeyUsage.SIGN)));
+    private static CryptographicKeyItemOperationModel withState(CryptographicKeyItemOperationModel key,
+            KeyState state) {
+        return new CryptographicKeyItemOperationModel(key.keyItemUuid(), key.enabled(), key.keyAlgorithm(), state,
+                key.keyType(), key.keyUsage(), key.pqcParameterSpecName(), key.reference(), key.connectorUuid(),
+                key.tokenInstanceUuid(), key.keyUuid(), key.connectorInterfaceCode(), key.connectorInterfaceVersion(),
+                key.tokenInstanceReferenceUuid(), key.tokenProfileUuid());
     }
 
     private static SignDataRequestDto signRequest() {
