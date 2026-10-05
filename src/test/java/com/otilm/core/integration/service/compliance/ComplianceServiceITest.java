@@ -279,21 +279,7 @@ class ComplianceServiceITest extends BaseComplianceTest {
         complianceService.checkResourceObjectCompliance(Resource.RA_PROFILE, associatedRaProfileUuid);
 
         // check compliance of cryptographic key
-        TokenInstanceReference token = new TokenInstanceReference();
-        token.setStatus(TokenInstanceStatus.UNKNOWN);
-        token.setName("Token");
-        token.setAuthor("John Doe");
-        token.setCreated(OffsetDateTime.now());
-        token.setUpdated(OffsetDateTime.now());
-        tokenRepository.save(token);
-
-        TokenProfile tokenProfile = new TokenProfile();
-        tokenProfile.setName("Token Profile 1");
-        tokenProfile.setTokenInstanceReferenceUuid(token.getUuid());
-        tokenProfile.setAuthor("John Doe");
-        tokenProfile.setCreated(OffsetDateTime.now());
-        tokenProfile.setUpdated(OffsetDateTime.now());
-        tokenProfileRepository.save(tokenProfile);
+        TokenProfile tokenProfile = saveTokenProfile("Token Profile 1");
 
         ComplianceProfileAssociation complianceProfileAssociation = new ComplianceProfileAssociation();
         complianceProfileAssociation.setComplianceProfileUuid(complianceProfile.getUuid());
@@ -760,45 +746,28 @@ class ComplianceServiceITest extends BaseComplianceTest {
 
     @Test
     void checkResourceObjectsComplianceValidationRejectsExistingProfileWithoutComplianceProfile() {
-        TokenInstanceReference token = new TokenInstanceReference();
-        token.setStatus(TokenInstanceStatus.UNKNOWN);
-        token.setName("Token");
-        token.setAuthor("John Doe");
-        token.setCreated(OffsetDateTime.now());
-        token.setUpdated(OffsetDateTime.now());
-        tokenRepository.save(token);
-
-        TokenProfile tokenProfile = new TokenProfile();
-        tokenProfile.setName("Unassociated Token Profile");
-        tokenProfile.setTokenInstanceReferenceUuid(token.getUuid());
-        tokenProfile.setAuthor("John Doe");
-        tokenProfile.setCreated(OffsetDateTime.now());
-        tokenProfile.setUpdated(OffsetDateTime.now());
-        tokenProfileRepository.save(tokenProfile);
+        TokenProfile tokenProfile = saveTokenProfile("Unassociated Token Profile");
 
         VaultProfile vaultProfile = new VaultProfile();
         vaultProfile.setName("UnassociatedVaultProfile");
         vaultProfile.setVaultInstance(vaultInstanceRepository.findById(vaultInstanceUuid).orElseThrow());
         vaultProfileRepository.save(vaultProfile);
 
-        List<UUID> raProfileUuids = List.of(unassociatedRaProfileUuid);
-        List<UUID> tokenProfileUuids = List.of(tokenProfile.getUuid());
-        List<UUID> vaultProfileUuids = List.of(vaultProfile.getUuid());
-        Assertions
+        assertRefusedForMissingComplianceProfile(Resource.RA_PROFILE, List.of(unassociatedRaProfileUuid));
+        assertRefusedForMissingComplianceProfile(Resource.TOKEN_PROFILE, List.of(tokenProfile.getUuid()));
+        assertRefusedForMissingComplianceProfile(Resource.VAULT_PROFILE, List.of(vaultProfile.getUuid()));
+    }
+
+    private void assertRefusedForMissingComplianceProfile(Resource resource, List<UUID> objectUuids) {
+        ValidationException exception = Assertions
                 .assertThrows(ValidationException.class,
-                        () -> complianceExternalService
-                                .checkResourceObjectsComplianceValidation(Resource.RA_PROFILE, raProfileUuids),
-                        "An existing RA Profile without a compliance profile is not a missing RA Profile");
+                        () -> complianceExternalService.checkResourceObjectsComplianceValidation(resource, objectUuids),
+                        "An existing %s without a compliance profile is not a missing %s"
+                                .formatted(resource.getLabel(), resource.getLabel()));
         Assertions
-                .assertThrows(ValidationException.class,
-                        () -> complianceExternalService
-                                .checkResourceObjectsComplianceValidation(Resource.TOKEN_PROFILE, tokenProfileUuids),
-                        "An existing Token Profile without a compliance profile is not a missing Token Profile");
-        Assertions
-                .assertThrows(ValidationException.class,
-                        () -> complianceExternalService
-                                .checkResourceObjectsComplianceValidation(Resource.VAULT_PROFILE, vaultProfileUuids),
-                        "An existing Vault Profile without a compliance profile is not a missing Vault Profile");
+                .assertTrue(exception.getMessage().contains("No compliance profile is associated"),
+                        "The refusal comes from the missing compliance profile, not another validation: "
+                                + exception.getMessage());
     }
 
     @Test
@@ -809,5 +778,23 @@ class ComplianceServiceITest extends BaseComplianceTest {
                         () -> complianceExternalService
                                 .checkResourceObjectsComplianceValidation(Resource.RA_PROFILE, raProfileUuids),
                         "Profiles without a compliance profile are skipped when another selected profile has one");
+    }
+
+    private TokenProfile saveTokenProfile(String name) {
+        TokenInstanceReference token = new TokenInstanceReference();
+        token.setStatus(TokenInstanceStatus.UNKNOWN);
+        token.setName("Token");
+        token.setAuthor("John Doe");
+        token.setCreated(OffsetDateTime.now());
+        token.setUpdated(OffsetDateTime.now());
+        tokenRepository.save(token);
+
+        TokenProfile tokenProfile = new TokenProfile();
+        tokenProfile.setName(name);
+        tokenProfile.setTokenInstanceReferenceUuid(token.getUuid());
+        tokenProfile.setAuthor("John Doe");
+        tokenProfile.setCreated(OffsetDateTime.now());
+        tokenProfile.setUpdated(OffsetDateTime.now());
+        return tokenProfileRepository.save(tokenProfile);
     }
 }

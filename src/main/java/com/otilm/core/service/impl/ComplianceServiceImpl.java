@@ -457,7 +457,7 @@ public class ComplianceServiceImpl implements ComplianceExternalService, Complia
                 case CRYPTOGRAPHIC_KEY -> cryptographicKeyRepository.existsById(objectUuid);
                 case CRYPTOGRAPHIC_KEY_ITEM -> cryptographicKeyItemRepository.existsById(objectUuid);
                 case SECRET -> secretRepository.existsById(objectUuid);
-                case RA_PROFILE -> raProfileRepository.existsByUuid(objectUuid);
+                case RA_PROFILE -> raProfileRepository.existsById(objectUuid);
                 case TOKEN_PROFILE -> tokenProfileRepository.existsById(objectUuid);
                 case VAULT_PROFILE -> vaultProfileRepository.existsById(objectUuid);
                 default -> throw new ValidationException(
