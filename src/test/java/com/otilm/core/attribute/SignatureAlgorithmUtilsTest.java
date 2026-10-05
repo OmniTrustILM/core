@@ -9,6 +9,8 @@ import com.otilm.api.model.common.attribute.v3.content.IntegerAttributeContentV3
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorithmAttribute;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -287,6 +289,42 @@ class SignatureAlgorithmUtilsTest {
         // then
         ConnectorException failure = assertThrows(ConnectorException.class, extract);
         assertEquals(expectedMessage, failure.getMessage());
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("schemasWithNullDefinitions")
+    void expandSignatureAlgorithmDefinition_rejectsNullDefinitions(List<BaseAttribute> schema) {
+        // given
+        String expectedMessage = "Connector publishes a null attribute definition.";
+
+        // when
+        Executable expand = () -> SignatureAlgorithmUtils.expandSignatureAlgorithmDefinition(schema);
+
+        // then
+        ConnectorException failure = assertThrows(ConnectorException.class, expand);
+        assertEquals(expectedMessage, failure.getMessage());
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("schemasWithNullDefinitions")
+    void supportedAlgorithms_rejectsNullDefinitions(List<BaseAttribute> schema) {
+        // given
+        String expectedMessage = "Connector publishes a null attribute definition.";
+
+        // when
+        Executable extract = () -> SignatureAlgorithmUtils.extractSupportedSignatureAlgorithms(schema);
+
+        // then
+        ConnectorException failure = assertThrows(ConnectorException.class, extract);
+        assertEquals(expectedMessage, failure.getMessage());
+    }
+
+    private static Stream<Named<List<BaseAttribute>>> schemasWithNullDefinitions() {
+        DataAttributeV3 selector = SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA));
+        return Stream
+                .of(named("null before selector", Arrays.asList(null, selector)),
+                        named("null after selector", Arrays.asList(selector, null)),
+                        named("null without selector", Collections.singletonList(null)));
     }
 
     private static Stream<Named<List<BaseAttribute>>> mismatchedIdentitySchemas() {

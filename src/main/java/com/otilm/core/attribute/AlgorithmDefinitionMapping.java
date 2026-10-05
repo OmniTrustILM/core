@@ -29,8 +29,8 @@ final class AlgorithmDefinitionMapping {
      * Replaces definition matching both UUID and name at its original position. Retains unrelated {@link BaseAttribute}
      * instances. Returns input when no replacement is needed.
      *
-     * @throws ConnectorException for mismatched reserved identities, duplicate selectors or replacement UUID/name
-     * collisions
+     * @throws ConnectorException for null definitions, mismatched reserved identities, duplicate selectors or
+     * replacement UUID/name collisions
      */
     static List<BaseAttribute> expand(List<BaseAttribute> definitions, UUID uuid, String name, DefinitionMapper mapping)
             throws ConnectorException {
@@ -45,7 +45,7 @@ final class AlgorithmDefinitionMapping {
         BaseAttribute original = selector.get();
         List<BaseAttribute> replacements = mapping.map(original);
         for (BaseAttribute definition : definitions) {
-            if (definition == null || definition == original) {
+            if (definition == original) {
                 continue;
             }
             for (BaseAttribute replacement : replacements) {
@@ -77,7 +77,7 @@ final class AlgorithmDefinitionMapping {
         BaseAttribute match = null;
         for (BaseAttribute definition : definitions) {
             if (definition == null) {
-                continue;
+                throw new ConnectorException("Connector publishes a null attribute definition.");
             }
             boolean matchesName = name.equals(definition.getName());
             boolean matchesUuid = reservedUuid.equals(definition.getUuid());

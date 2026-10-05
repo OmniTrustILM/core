@@ -9,6 +9,8 @@ import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.enums.cryptography.EncryptionAlgorithm;
 import com.otilm.api.model.connector.cryptography.v2.operations.EncryptionAlgorithmAttribute;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -151,6 +153,29 @@ class EncryptionAlgorithmUtilsTest {
         // then
         ConnectorException failure = assertThrows(ConnectorException.class, expand);
         assertEquals(expectedMessage, failure.getMessage());
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("schemasWithNullDefinitions")
+    void expandEncryptionAlgorithmDefinition_rejectsNullDefinitions(List<BaseAttribute> schema) {
+        // given
+        String expectedMessage = "Connector publishes a null attribute definition.";
+
+        // when
+        Executable expand = () -> EncryptionAlgorithmUtils.expandEncryptionAlgorithmDefinition(schema);
+
+        // then
+        ConnectorException failure = assertThrows(ConnectorException.class, expand);
+        assertEquals(expectedMessage, failure.getMessage());
+    }
+
+    private static Stream<Named<List<BaseAttribute>>> schemasWithNullDefinitions() {
+        DataAttributeV3 selector = EncryptionAlgorithmAttribute
+                .definition(List.of(EncryptionAlgorithm.RSA_OAEP_SHA256));
+        return Stream
+                .of(named("null before selector", Arrays.asList(null, selector)),
+                        named("null after selector", Arrays.asList(selector, null)),
+                        named("null without selector", Collections.singletonList(null)));
     }
 
     private static Stream<Named<List<BaseAttribute>>> mismatchedIdentitySchemas() {
