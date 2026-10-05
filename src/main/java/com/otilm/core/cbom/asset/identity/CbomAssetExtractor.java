@@ -88,9 +88,10 @@ public final class CbomAssetExtractor {
      * {@code cbom_ingest_finding} report the ingest writes for the document.
      *
      * <p>
-     * {@code bomRefs} is the {@code bom-ref} of every component folded into the asset, spelled as the document spells
-     * it and in document order; the ingest resolves other assets' {@code references} against it. A source row stores
-     * only its bounded, storable part, {@link #storedBomRefs}, as navigation data. Neither is an input to the key.
+     * {@code bomRefs} is the {@code bom-ref} of every component folded into the asset that gives one as a non-empty
+     * string, spelled as the document spells it and in document order; the ingest resolves other assets'
+     * {@code references} against it. A source row stores only its bounded, storable part, {@link #storedBomRefs}, as
+     * navigation data. Neither is an input to the key.
      *
      * <p>
      * <b>{@code identityKey}, and this file is allowlisted for that vocabulary.</b> The component was called
@@ -122,9 +123,9 @@ public final class CbomAssetExtractor {
 
         /**
          * The longest {@code bom-ref} a source row stores, in code points -- the unit PostgreSQL's {@code length()}
-         * counts, so a ref of astral characters is not cut at half the length. A longer one links to nothing, like an
-         * unencodable one: the JSON reader bounds a string at megabytes, and a row -- and every page serving it -- must
-         * not carry that.
+         * counts, so a ref of astral characters is measured as the database measures it rather than at twice its
+         * length. A longer one links to nothing, like an unencodable one: the JSON reader bounds a string at megabytes,
+         * and a row -- and every page serving it -- must not carry that.
          */
         public static final int MAX_BOM_REF_LENGTH = 1024;
 
@@ -136,21 +137,23 @@ public final class CbomAssetExtractor {
          * Derived when the row is written rather than filtered into {@code bomRefs}, because that list is also the
          * index the ingest resolves a certificate's and a protocol's references against, and has to stay every ref the
          * document defines: a reference to the 300th component folded into one algorithm, or to a ref too long to
-         * store, still resolves. Each once is insurance: a document that repeats a ref is refused before any write.
+         * store, still resolves. Each once is insurance: a document that repeats a ref is refused before any asset or
+         * source row is written.
          *
          * <p>
          * A ref that cannot be stored is dropped, not refused like every other string headed for storage
          * ({@link CbomAssetExtractor#requireEncodable}): it is not part of the asset, and a component whose ref cannot
          * be stored is still an asset the inventory has to hold. The NUL rule is PostgreSQL's: no text column can hold
          * that character, so a ref carrying one would fail the source write, and with it the document's ingest on every
-         * retry.
+         * retry. The empty ref is excluded here as well as where {@code bomRefs} is read, so the stored rule does not
+         * depend on every producer of this record applying it.
          */
         public List<String> storedBomRefs() {
             return bomRefs.stream().filter(ExtractedAsset::isStorable).distinct().limit(MAX_BOM_REFS).toList();
         }
 
         private static boolean isStorable(String ref) {
-            return ref.codePointCount(0, ref.length()) <= MAX_BOM_REF_LENGTH && ref.indexOf('\0') < 0
+            return !ref.isEmpty() && ref.codePointCount(0, ref.length()) <= MAX_BOM_REF_LENGTH && ref.indexOf('\0') < 0
                     && hasEncoding(ref);
         }
 

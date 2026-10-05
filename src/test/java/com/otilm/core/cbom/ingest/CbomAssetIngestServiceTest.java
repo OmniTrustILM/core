@@ -31,6 +31,7 @@ import com.otilm.core.service.writer.cbom.CryptoAssetSourceWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetWriter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.OffsetDateTime;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -455,32 +456,38 @@ class CbomAssetIngestServiceTest {
 
     /**
      * The row keeps only the refs it can store, and a reference still resolves through every ref the document defines:
-     * a certificate naming its signature algorithm by a ref too long to store finds that algorithm all the same.
+     * a certificate naming its signature algorithm by a ref too long to store finds that algorithm all the same. Each
+     * asset gets its own uuid, so a reference resolved to any other asset fails here.
      */
     @Test
     @SuppressWarnings("unchecked")
     void aRefTooLongToStoreIsLeftOffTheRowAndStillResolvesAReference() {
         when(synchronizer.tryLock(anyString())).thenReturn(true);
-        whenUpsertReturnsAFreshUuid();
-        final UUID keptAsset = UUID.randomUUID();
-        when(assetRepository.findUuidByIdentityKey(anyString())).thenReturn(Optional.of(keptAsset));
+        final Map<String, UUID> uuidByKey = new HashMap<>();
+        when(assetWriter.upsertIdentity(anyString(), any(), any()))
+                .thenAnswer(call -> uuidByKey.computeIfAbsent(call.getArgument(0), key -> UUID.randomUUID()));
+        when(assetRepository.findUuidByIdentityKey(anyString()))
+                .thenAnswer(call -> Optional.ofNullable(uuidByKey.get(call.<String>getArgument(0))));
         final String tooLong = "a".repeat(CbomAssetExtractor.ExtractedAsset.MAX_BOM_REF_LENGTH + 1);
-
-        ingest(CbomIngestTestFixtures
+        final JsonNode document = CbomIngestTestFixtures
                 .documentOf(CbomIngestTestFixtures.algorithmWithRef("SHA256withRSA", tooLong),
-                        certificateSignedWith(tooLong)),
-                100);
+                        certificateSignedWith(tooLong));
 
+        ingest(document, 100);
+
+        final UUID algorithm = uuidByKey.get(keyOfComponentNamed(document, "SHA256withRSA"));
+        final UUID certificate = uuidByKey.get(keyOfComponentNamed(document, "example.com"));
+        assertThat(algorithm).isNotNull().isNotEqualTo(certificate);
         ArgumentCaptor<List<String>> refs = ArgumentCaptor.forClass(List.class);
         verify(sourceWriter, times(2))
                 .upsertSource(any(), eq(CBOM), any(), any(), anyInt(), refs.capture(), eq(SEEN_AT));
         assertThat(refs.getAllValues()).containsExactlyInAnyOrder(List.of(), List.of("cert"));
         ArgumentCaptor<List<ResolvedAssetReference>> resolved = ArgumentCaptor.forClass(List.class);
-        verify(referenceWriter).replaceReferences(any(), eq(CBOM), eq(SEEN_AT), resolved.capture());
+        verify(referenceWriter).replaceReferences(eq(certificate), eq(CBOM), eq(SEEN_AT), resolved.capture());
         assertThat(resolved.getValue())
                 .filteredOn(reference -> reference.kind() == CryptoAssetReferenceKind.SIGNATURE_ALGORITHM)
                 .singleElement()
-                .satisfies(reference -> assertThat(reference.targetAssetUuid()).isEqualTo(keptAsset));
+                .satisfies(reference -> assertThat(reference.targetAssetUuid()).isEqualTo(algorithm));
     }
 
     /**
@@ -797,6 +804,18 @@ class CbomAssetIngestServiceTest {
 
     private static CbomAssetExtractor realExtractor() {
         return new CbomAssetExtractor(new CryptoAssetIdentity(new AssetNormalizer(IdentityTables.load())));
+    }
+
+    /** How the real extractor keys the named component, so a test can tell the document's assets apart. */
+    private static String keyOfComponentNamed(JsonNode document, String componentName) {
+        return realExtractor()
+                .extract(document)
+                .assets()
+                .stream()
+                .filter(asset -> componentName.equals(asset.componentName()))
+                .map(CbomAssetExtractor.ExtractedAsset::identityKey)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("no component named " + componentName));
     }
 
     private void whenUpsertReturnsAFreshUuid() {

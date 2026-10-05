@@ -369,17 +369,22 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      * {@code SigningProfileServiceImpl#listSigningRecordsForSigningProfile} established for a child listing.
      *
      * <p>
-     * {@code NOT_SUPPORTED}, because that second gate asks the authorization service over HTTP, and the class-level
-     * transaction would hold a database connection across the call. Nothing here needs one: the method only reads, the
-     * CBOM lookup is the one {@link #deleteCbom} makes without a transaction, and the inventory service declares none.
+     * That second gate asks the authorization service over HTTP, so nothing here may hold a database connection while
+     * it does. {@code NOT_SUPPORTED} keeps the class-level transaction off, and the CBOM is looked up only after the
+     * listing: under open-in-view the request's EntityManager keeps the connection its first read takes until the
+     * response is written, so a lookup ahead of the gate would hold that connection across the call. An unknown CBOM is
+     * still a 404 -- the listing scoped to it is empty, and the lookup then refuses it -- except to a caller who may
+     * not list assets, whom that gate refuses first.
      */
     @Override
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @ExternalAuthorization(resource = Resource.CBOM, action = ResourceAction.DETAIL)
     public PaginationResponseDto<CbomContributedAssetDto> listCbomAssets(SecuredUUID uuid, SearchRequestDto request,
             SecurityFilter filter) throws NotFoundException {
-        Cbom cbom = getEntity(uuid);
-        return cryptographicAssetService.listCbomContributedAssets(cbom.getUuid(), request, filter);
+        PaginationResponseDto<CbomContributedAssetDto> page = cryptographicAssetService
+                .listCbomContributedAssets(uuid.getValue(), request, filter);
+        getEntity(uuid);
+        return page;
     }
 
     @Override

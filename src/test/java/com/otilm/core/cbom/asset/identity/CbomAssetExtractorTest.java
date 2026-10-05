@@ -811,7 +811,10 @@ class CbomAssetExtractorTest {
         assertThat(extraction.assets()).singleElement().satisfies(asset -> assertThat(asset.storedBomRefs()).isEmpty());
     }
 
-    /** Neither a number nor the empty string names a component, so neither is a link a client could follow. */
+    /**
+     * Neither a number nor the empty string names a component, so neither is a link a client could follow. The stored
+     * rule refuses the empty ref itself, not only through the reader that fills {@code bomRefs}.
+     */
     @Test
     void aBomRefThatIsNotANonEmptyStringLinksNothing() {
         CbomAssetExtractor.Extraction extraction = EXTRACTOR
@@ -823,12 +826,13 @@ class CbomAssetExtractorTest {
             assertThat(asset.bomRefs()).isEmpty();
             assertThat(asset.storedBomRefs()).isEmpty();
         });
+        assertThat(assetWithRefs(List.of("", "crypto/aes")).storedBomRefs()).containsExactly("crypto/aes");
     }
 
     /**
      * Unlike every other string headed for storage, a ref with no encoding does not cost the component its row: the ref
      * is not part of the asset, so the asset is kept and only the link is absent. The ref itself stays in
-     * {@code bomRefs}, which resolves references and is never filtered.
+     * {@code bomRefs}, which resolves references and is not filtered by the storage rules.
      */
     @Test
     void aBomRefWithNoEncodingLinksNothingButTheAssetIsStillExtracted() {

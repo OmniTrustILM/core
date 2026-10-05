@@ -254,9 +254,22 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
     /** The page's rows as this CBOM contributed them: each inventory row with this document's refs on it. */
     private List<CbomContributedAssetDto> loadContributedRows(UUID cbomUuid, List<UUID> pageUuids) {
         Map<UUID, List<String>> bomRefsByAsset = bomRefsByAsset(cbomUuid, pageUuids);
-        return loadRows(pageUuids)
+        return contributedRows(loadRows(pageUuids), bomRefsByAsset);
+    }
+
+    /**
+     * Joins the page's rows to this CBOM's refs, leaving out a row the refs did not come back for: this CBOM's source
+     * row for it was withdrawn after the page was read -- a newer version superseded the CBOM, or it was deleted -- so
+     * the asset is no longer its contribution. Every source row carries its refs, empty or not, so a missing entry
+     * means a missing source row, never an asset without refs. The page's {@code totalItems} was counted earlier, so it
+     * can still include a row left out here.
+     */
+    static List<CbomContributedAssetDto> contributedRows(List<CryptoAssetListRow> rows,
+            Map<UUID, List<String>> bomRefsByAsset) {
+        return rows
                 .stream()
-                .map(row -> toContributedDto(row, bomRefsByAsset.getOrDefault(row.uuid(), List.of())))
+                .filter(row -> bomRefsByAsset.containsKey(row.uuid()))
+                .map(row -> toContributedDto(row, bomRefsByAsset.get(row.uuid())))
                 .toList();
     }
 
@@ -267,8 +280,10 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
         return cryptoAssetSourceRepository
                 .findBomRefsByCbomUuidAndAssetUuids(cbomUuid, assetUuids)
                 .stream()
-                .collect(
-                        Collectors.toMap(CryptoAssetSourceBomRefsRow::assetUuid, CryptoAssetSourceBomRefsRow::bomRefs));
+                // One row per asset while uq_crypto_asset_source stands; a second would otherwise fail the whole page.
+                .collect(Collectors
+                        .toMap(CryptoAssetSourceBomRefsRow::assetUuid, CryptoAssetSourceBomRefsRow::bomRefs,
+                                (first, second) -> first));
     }
 
     @Override

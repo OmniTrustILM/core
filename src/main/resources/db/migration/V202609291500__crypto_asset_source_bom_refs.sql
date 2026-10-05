@@ -2,9 +2,10 @@
 -- the same asset share one crypto_asset_source row -- uq_crypto_asset_source is (asset_uuid, cbom_uuid) -- so a
 -- per-component pointer has to be array-valued. Navigation data only: a client holding the document maps a component
 -- row to its inventory asset through it. It is never an input to the key the asset is deduplicated by, to the
--- canonical projection or to properties_hash, and a ref the document defines more than once, or that has no valid
--- encoding, is not stored at all, so such a component links to nothing. Stored in document order, capped by the
--- extractor, and assigned whole on every re-sync under the same recency rule as the payload.
+-- canonical projection or to properties_hash. Only refs that are non-empty, well-formed, free of NUL and at most 1024
+-- code points are kept, at most 256 per asset and document, in document order and each once; a component whose ref
+-- is not kept links to nothing. A document that defines a ref more than once is refused whole, so no source row is
+-- written for it. Assigned whole on every re-sync under the same recency rule as the payload.
 --
 -- NOT NULL with an empty default rather than nullable: an empty array and "not yet extracted" would otherwise be two
 -- states in one column, and every reader would have to know which it was looking at. A constant DEFAULT on ADD

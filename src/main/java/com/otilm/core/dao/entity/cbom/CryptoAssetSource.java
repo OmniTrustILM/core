@@ -93,11 +93,14 @@ public class CryptoAssetSource extends UniquelyIdentified {
     private int occurrenceCount;
 
     /**
-     * The {@code bom-ref} values of the components this CBOM folded into the asset, in document order and capped
-     * ({@code CbomAssetExtractor.ExtractedAsset#storedBomRefs}). Navigation data only -- never an input to how the
-     * asset is keyed, to the canonical projection or to {@code propertiesHash}. Empty when no component could be
-     * linked: a ref no text column can hold links nothing, and a document that defines a ref more than once is refused
-     * whole. Assigned whole under the same recency rule as the payload, never accumulated.
+     * The {@code bom-ref} values of the components this CBOM folded into the asset, as
+     * {@code CbomAssetExtractor.ExtractedAsset#storedBomRefs} keeps them: only refs that are non-empty, well-formed,
+     * free of NUL and at most 1024 code points, at most 256 per asset and document, in document order and each once.
+     * Navigation data only -- never an input to how the asset is keyed, to the canonical projection or to
+     * {@code propertiesHash}. Empty when no component's ref was kept, on a row written through the writer form that
+     * takes no refs, and on a row written before the column existed. A document that defines a ref more than once is
+     * refused whole, so no source row is written for it. Assigned whole under the same recency rule as the payload,
+     * never accumulated.
      */
     @Column(name = "bom_refs", columnDefinition = "TEXT[]", nullable = false)
     @JdbcTypeCode(SqlTypes.ARRAY)
