@@ -57,7 +57,7 @@ public class LogRecordStructuredLogEncoder extends StructuredLogEncoder {
             return null;
         }
         for (KeyValuePair pair : pairs) {
-            if (pair.value instanceof SerializedLogRecord logRecord) {
+            if (SerializedLogRecord.KEY.equals(pair.key) && pair.value instanceof SerializedLogRecord logRecord) {
                 return logRecord;
             }
         }

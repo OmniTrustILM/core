@@ -113,6 +113,19 @@ class LogRecordStructuredLogEncoderTest {
         assertThat(line.has("log_record")).isFalse();
     }
 
+    @Test
+    void aRecordUnderAnotherKeyLeavesTheMessage() throws Exception {
+        LoggerFactory
+                .getLogger(Probe.class)
+                .atInfo()
+                .addKeyValue("attached", new SerializedLogRecord(auditRecord(), "{}"))
+                .log("Plain line");
+
+        JsonNode line = JSON.readTree(encode("ecs", onlyEvent()));
+
+        assertThat(line.get("message").asText()).isEqualTo("Plain line");
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"gelf", "GELF"})
     void gelfIsRefusedAtStartup(String format) {
