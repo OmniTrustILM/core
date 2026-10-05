@@ -1,9 +1,13 @@
 package com.otilm.core.logging;
 
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.SpringApplication;
+import org.springframework.boot.env.EnvironmentPostProcessor;
+import org.springframework.core.io.support.SpringFactoriesLoader;
+import org.springframework.core.io.support.SpringFactoriesLoader.FailureHandler;
 import org.springframework.mock.env.MockEnvironment;
 
 import static com.otilm.core.logging.ConsoleLogFormatEnvironmentPostProcessor.CONSOLE_FORMAT_PROPERTY;
@@ -13,6 +17,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ConsoleLogFormatEnvironmentPostProcessorTest {
 
     private final ConsoleLogFormatEnvironmentPostProcessor postProcessor = new ConsoleLogFormatEnvironmentPostProcessor();
+
+    @Test
+    void springBootFindsItInSpringFactories() {
+        List<EnvironmentPostProcessor> registered = SpringFactoriesLoader
+                .forDefaultResourceLocation()
+                .load(EnvironmentPostProcessor.class, null, FailureHandler.handleMessage((message, failure) -> {
+                }));
+
+        assertThat(registered).hasAtLeastOneElementOfType(ConsoleLogFormatEnvironmentPostProcessor.class);
+    }
 
     @Test
     void anUnsetFormatLeavesStructuredLoggingOff() {
