@@ -81,7 +81,7 @@ public class CryptoAssetSourceWriter {
     @Transactional
     public void upsertSource(UUID assetUuid, UUID cbomUuid, Map<String, Object> cryptoProperties,
             List<Map<String, Object>> occurrences, OffsetDateTime seenAt) {
-        upsertSource(assetUuid, cbomUuid, cryptoProperties, occurrences, occurrenceCount(occurrences), List.of(),
+        writeSource(assetUuid, cbomUuid, cryptoProperties, occurrences, occurrenceCount(occurrences), List.of(),
                 seenAt);
     }
 
@@ -98,6 +98,16 @@ public class CryptoAssetSourceWriter {
      */
     @Transactional
     public void upsertSource(UUID assetUuid, UUID cbomUuid, Map<String, Object> cryptoProperties,
+            List<Map<String, Object>> occurrences, int reportedOccurrences, List<String> bomRefs,
+            OffsetDateTime seenAt) {
+        writeSource(assetUuid, cbomUuid, cryptoProperties, occurrences, reportedOccurrences, bomRefs, seenAt);
+    }
+
+    /**
+     * The one body both forms run, so neither calls the other through this bean: a call through {@code this} skips the
+     * proxy, and the callee's {@code @Transactional} would be a declaration nothing enforces.
+     */
+    private void writeSource(UUID assetUuid, UUID cbomUuid, Map<String, Object> cryptoProperties,
             List<Map<String, Object>> occurrences, int reportedOccurrences, List<String> bomRefs,
             OffsetDateTime seenAt) {
         assetRepository.lockForSourceChange(assetUuid);

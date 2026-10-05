@@ -36,20 +36,25 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.security.authz.opa.dto.OpaObjectAccessResult;
+import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
+import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
 import com.otilm.core.service.CbomExternalService;
 import com.otilm.core.service.CryptographicAssetExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import java.time.OffsetDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyEqualsFilter;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 
 /**
  * The assets one CBOM record contributed, read through the CBOM gate and the asset gate: what the page carries, which
@@ -194,12 +199,31 @@ class CbomContributedAssetsITest extends BaseSpringBootTest {
     void anAssetTheCallerMayNotListIsLeftOut() throws NotFoundException {
         Cbom cbom = cbom("urn:uuid:scoped", 1);
         ingest(cbom, threeComponentsTwoAssets());
-        forbidCryptoAssetObjects(List.of(assetNamed("aes-256")));
+        forbidObjectAccess(Resource.CRYPTO_ASSET, ResourceAction.LIST, List.of(assetNamed("aes-256")));
 
         PaginationResponseDto<CbomContributedAssetDto> page = list(cbom.getUuid());
 
         assertThat(page.getTotalItems()).isEqualTo(1);
         assertThat(page.getItems()).singleElement().satisfies(row -> assertThat(row.getName()).isEqualTo("rsa-2048"));
+    }
+
+    /**
+     * Neither gate holds a database transaction while it asks the authorization service: both ask over HTTP, and a
+     * connection held across the call would wait as long as the service does.
+     */
+    @Test
+    void neitherGateAsksTheAuthorizationServiceInsideATransaction() throws NotFoundException {
+        Cbom cbom = cbom("urn:uuid:no-transaction", 1);
+        ingest(cbom, threeComponentsTwoAssets());
+        Map<String, Boolean> transactionOpenOnVote = recordWhetherATransactionIsOpenOnEachVote();
+
+        PaginationResponseDto<CbomContributedAssetDto> page = list(cbom.getUuid());
+
+        assertThat(page.getTotalItems()).isEqualTo(2);
+        assertThat(transactionOpenOnVote)
+                .containsKeys(voteOn(Resource.CBOM, ResourceAction.DETAIL),
+                        voteOn(Resource.CRYPTO_ASSET, ResourceAction.LIST))
+                .doesNotContainValue(true);
     }
 
     @Test
@@ -218,7 +242,9 @@ class CbomContributedAssetsITest extends BaseSpringBootTest {
 
     @Test
     void anUnknownCbomIsNotFound() {
-        assertThatThrownBy(() -> list(UUID.randomUUID())).isInstanceOf(NotFoundException.class);
+        UUID unknown = UUID.randomUUID();
+
+        assertThatThrownBy(() -> list(unknown)).isInstanceOf(NotFoundException.class);
     }
 
     /**
@@ -243,10 +269,10 @@ class CbomContributedAssetsITest extends BaseSpringBootTest {
 
     @Test
     void aSortOnAFieldTheInventoryCannotOrderByIsRefusedAsThere() {
-        Cbom cbom = cbom("urn:uuid:unsortable", 1);
+        UUID cbomUuid = cbom("urn:uuid:unsortable", 1).getUuid();
         SearchRequestDto request = sortedBy(FilterField.CBOM_ASSET_OID, SortDirection.ASC);
 
-        assertThatThrownBy(() -> list(cbom.getUuid(), request))
+        assertThatThrownBy(() -> list(cbomUuid, request))
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("cannot be used to order this listing");
     }
@@ -310,6 +336,41 @@ class CbomContributedAssetsITest extends BaseSpringBootTest {
     private PaginationResponseDto<CbomContributedAssetDto> list(UUID cbomUuid, SearchRequestDto request)
             throws NotFoundException {
         return cbomService.listCbomAssets(SecuredUUID.fromUUID(cbomUuid), request, SecurityFilter.create());
+    }
+
+    /**
+     * Grants every authorization vote, as the default stubs do, and notes per resource and action whether a database
+     * transaction was open on any vote asked for it.
+     */
+    private Map<String, Boolean> recordWhetherATransactionIsOpenOnEachVote() {
+        Map<String, Boolean> transactionOpenOnVote = new LinkedHashMap<>();
+        OpaResourceAccessResult granted = new OpaResourceAccessResult();
+        granted.setAuthorized(true);
+        granted.setAllow(List.of());
+        OpaObjectAccessResult everyObject = new OpaObjectAccessResult();
+        everyObject.setActionAllowedForGroupOfObjects(true);
+        everyObject.setAllowedObjects(List.of());
+        everyObject.setForbiddenObjects(List.of());
+        doAnswer(call -> {
+            noteTransactionState(transactionOpenOnVote, call.getArgument(1));
+            return granted;
+        }).when(opaClient).checkResourceAccess(any(), any(), any(), any());
+        doAnswer(call -> {
+            noteTransactionState(transactionOpenOnVote, call.getArgument(1));
+            return everyObject;
+        }).when(opaClient).checkObjectAccess(any(), any(), any(), any());
+        return transactionOpenOnVote;
+    }
+
+    private static void noteTransactionState(Map<String, Boolean> transactionOpenOnVote,
+            OpaRequestedResource resource) {
+        String vote = resource.getProperties().get("name") + "/" + resource.getProperties().get("action");
+        transactionOpenOnVote
+                .merge(vote, TransactionSynchronizationManager.isActualTransactionActive(), Boolean::logicalOr);
+    }
+
+    private static String voteOn(Resource resource, ResourceAction action) {
+        return resource.getCode() + "/" + action.getCode();
     }
 
     private static SearchRequestDto sortedBy(FilterField field, SortDirection direction) {
@@ -406,25 +467,5 @@ class CbomContributedAssetsITest extends BaseSpringBootTest {
                 .map(CryptoAsset::getUuid)
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("no asset named " + name));
-    }
-
-    /**
-     * Stubs the OPA object-access vote for {@code cryptoAssets:list} so every uuid in {@code forbidden} is denied while
-     * the rest stays visible -- a partial restriction, the twin of
-     * {@code CryptographicAssetStatisticsITest#forbidCryptoAssetObjects}.
-     */
-    private void forbidCryptoAssetObjects(List<UUID> forbidden) {
-        OpaObjectAccessResult partial = new OpaObjectAccessResult();
-        partial.setActionAllowedForGroupOfObjects(true);
-        partial.setAllowedObjects(List.of());
-        partial.setForbiddenObjects(forbidden.stream().map(UUID::toString).toList());
-        when(opaClient
-                .checkObjectAccess(Mockito.any(),
-                        Mockito
-                                .argThat(req -> req != null && req.getProperties() != null
-                                        && Resource.CRYPTO_ASSET.getCode().equals(req.getProperties().get("name"))
-                                        && ResourceAction.LIST.getCode().equals(req.getProperties().get("action"))),
-                        Mockito.any(), Mockito.any()))
-                .thenReturn(partial);
     }
 }

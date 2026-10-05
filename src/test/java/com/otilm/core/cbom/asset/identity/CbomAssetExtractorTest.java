@@ -872,6 +872,24 @@ class CbomAssetExtractorTest {
         assertThat(extraction.assets().get(1).bomRefs()).containsExactly(tooLong);
     }
 
+    /**
+     * The bound is in code points, as PostgreSQL counts a text value. Each lock character is two UTF-16 units, so a
+     * count of units would drop the longest ref here at half its length.
+     */
+    @Test
+    void aBomRefIsMeasuredInCodePoints() {
+        String lock = new String(Character.toChars(0x1F510));
+        String longest = lock.repeat(CbomAssetExtractor.ExtractedAsset.MAX_BOM_REF_LENGTH);
+        String tooLong = lock.repeat(CbomAssetExtractor.ExtractedAsset.MAX_BOM_REF_LENGTH + 1);
+        CbomAssetExtractor.Extraction extraction = EXTRACTOR
+                .extract(read("{\"components\":[" + algorithmWithRef("AES-256", longest) + ","
+                        + algorithmWithRef("RSA-2048", tooLong) + "]}"));
+
+        assertThat(extraction.assets()).hasSize(2);
+        assertThat(extraction.assets().get(0).storedBomRefs()).containsExactly(longest);
+        assertThat(extraction.assets().get(1).storedBomRefs()).isEmpty();
+    }
+
     /** Every component folded into one asset contributes its ref, in the order the document lists them. */
     @Test
     void foldingKeepsEveryComponentsRefInDocumentOrder() {

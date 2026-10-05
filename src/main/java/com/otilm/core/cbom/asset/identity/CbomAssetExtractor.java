@@ -121,8 +121,10 @@ public final class CbomAssetExtractor {
         public static final int MAX_BOM_REFS = 256;
 
         /**
-         * The longest {@code bom-ref} a source row stores. A longer one links to nothing, like an unencodable one: the
-         * JSON reader bounds a string at megabytes, and a row -- and every page serving it -- must not carry that.
+         * The longest {@code bom-ref} a source row stores, in code points -- the unit PostgreSQL's {@code length()}
+         * counts, so a ref of astral characters is not cut at half the length. A longer one links to nothing, like an
+         * unencodable one: the JSON reader bounds a string at megabytes, and a row -- and every page serving it -- must
+         * not carry that.
          */
         public static final int MAX_BOM_REF_LENGTH = 1024;
 
@@ -148,7 +150,8 @@ public final class CbomAssetExtractor {
         }
 
         private static boolean isStorable(String ref) {
-            return ref.length() <= MAX_BOM_REF_LENGTH && ref.indexOf('\0') < 0 && hasEncoding(ref);
+            return ref.codePointCount(0, ref.length()) <= MAX_BOM_REF_LENGTH && ref.indexOf('\0') < 0
+                    && hasEncoding(ref);
         }
 
         /**

@@ -367,8 +367,14 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      * Detail access to the CBOM is this method's gate; the assets are listed by the inventory service under its own
      * {@code CRYPTO_ASSET/LIST} gate, which re-scopes the same filter -- the shape
      * {@code SigningProfileServiceImpl#listSigningRecordsForSigningProfile} established for a child listing.
+     *
+     * <p>
+     * {@code NOT_SUPPORTED}, because that second gate asks the authorization service over HTTP, and the class-level
+     * transaction would hold a database connection across the call. Nothing here needs one: the method only reads, the
+     * CBOM lookup is the one {@link #deleteCbom} makes without a transaction, and the inventory service declares none.
      */
     @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @ExternalAuthorization(resource = Resource.CBOM, action = ResourceAction.DETAIL)
     public PaginationResponseDto<CbomContributedAssetDto> listCbomAssets(SecuredUUID uuid, SearchRequestDto request,
             SecurityFilter filter) throws NotFoundException {
