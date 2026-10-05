@@ -136,6 +136,8 @@ class LogbackSpringConfigTest {
                         .build())
                 .build();
         appender.setOpenTelemetry(sdk);
+        // LoggerWrapper logs through the global context, so the appender configured from the shipped file is attached
+        // there; an appender uses its own context only for status messages
         Logger probeLogger = (Logger) LoggerFactory.getLogger(Probe.class);
         probeLogger.addAppender(appender);
         SettingsDto previousSettings = SettingsCache.getSettings(SettingsSection.LOGGING);
