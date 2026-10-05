@@ -11,6 +11,7 @@ import com.otilm.api.model.core.cmp.CmpTransactionState;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.api.model.core.cryptography.key.KeyState;
+import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
@@ -83,6 +84,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 
+/**
+ * Exercises CMP initial requests with persisted signing credentials and mocked issuance polling.
+ */
 @Transactional
 @Import(PollMocks.class)
 class CrmfMessageHandlerITest extends BaseSpringBootTest {
@@ -239,6 +243,11 @@ class CrmfMessageHandlerITest extends BaseSpringBootTest {
 
         // -- create customer/client profile (macpwd-based)
         cmpProfileMacPrt = cmpProfileRepository.save(CmpEntityUtil.createCmpProfile(raProfile, sharedSecret));
+
+        // Signing-key snapshots are loaded outside the test transaction.
+        TestTransaction.flagForCommit();
+        TestTransaction.end();
+        TestTransaction.start();
     }
 
     @AfterEach
@@ -414,7 +423,7 @@ class CrmfMessageHandlerITest extends BaseSpringBootTest {
 
         TokenInstanceReference tokenInstanceReference = new TokenInstanceReference();
         tokenInstanceReference.setStatus(TokenInstanceStatus.CONNECTED);
-        tokenInstanceReference.setTokenInstanceUuid("1l");
+        tokenInstanceReference.setTokenInstanceUuid(UUID.randomUUID().toString());
         tokenInstanceReference.setConnector(connector);
         tokenInstanceReferenceRepository.save(tokenInstanceReference);
 
@@ -431,6 +440,7 @@ class CrmfMessageHandlerITest extends BaseSpringBootTest {
         ckPrivateKey.setType(KeyType.PRIVATE_KEY);
         ckPrivateKey.setFingerprint("7d903217b49fcf947f9b45ba239d4236b99fb75baf7ede08ce53a55c06678f1e");
         ckPrivateKey.setEnabled(true);
+        ckPrivateKey.setUsage(List.of(KeyUsage.SIGN));
         ckPrivateKey.setKey(key);
         ckPrivateKey.setKeyAlgorithm(KeyAlgorithm.ECDSA);
         cryptographicKeyItemRepository.save(ckPrivateKey);

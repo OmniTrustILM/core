@@ -124,7 +124,7 @@ class CryptographicOperationServiceTransactionITest extends BaseSpringBootTest {
         // given
         AtomicBoolean transactionActive = new AtomicBoolean(true);
         KeyProviderAdapter adapter = mock(KeyProviderAdapter.class);
-        when(keyProviderAdapterFactory.forKeyItem(any(), any())).thenReturn(adapter);
+        when(keyProviderAdapterFactory.forKeyItem(any())).thenReturn(adapter);
         when(adapter.signData(any(), any())).thenAnswer(invocation -> {
             transactionActive.set(TransactionSynchronizationManager.isActualTransactionActive());
             return new SignDataResponseDto();

@@ -29,6 +29,7 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Set;
+import java.util.UUID;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.cms.CMSEnvelopedData;
 import org.bouncycastle.cms.RecipientInformation;
@@ -41,9 +42,16 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.Rollback;
+import org.springframework.test.context.transaction.AfterTransaction;
+import org.springframework.test.context.transaction.TestTransaction;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.shaded.org.bouncycastle.jce.provider.BouncyCastleProvider;
 
+/**
+ * Verifies platform-key integration with CMS recipient configuration.
+ */
 @SpringBootTest
 @Transactional
 @Rollback
@@ -73,6 +81,8 @@ class CryptographicProviderITest {
     private KeyProviderAdapterFactory adapterFactory;
     @Autowired
     private CryptographicKeyInternalService keyInternalService;
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @BeforeEach
     void setUp() {
@@ -89,7 +99,7 @@ class CryptographicProviderITest {
 
         tokenInstanceReference = new TokenInstanceReference();
         tokenInstanceReference.setStatus(TokenInstanceStatus.CONNECTED);
-        tokenInstanceReference.setTokenInstanceUuid(java.util.UUID.randomUUID().toString());
+        tokenInstanceReference.setTokenInstanceUuid(UUID.randomUUID().toString());
         tokenInstanceReference.setConnector(connector);
         tokenInstanceReferenceRepository.save(tokenInstanceReference);
 
@@ -142,11 +152,28 @@ class CryptographicProviderITest {
         items.add(content);
         key.setItems(items);
         cryptographicKeyRepository.save(key);
+
+        // The key snapshot is read with the test transaction suspended.
+        TestTransaction.flagForCommit();
+        TestTransaction.end();
+        TestTransaction.start();
     }
 
     @AfterEach
     void tearDown() {
         mockServer.stop();
+    }
+
+    @AfterTransaction
+    void removeCommittedFixtures() {
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            cryptographicKeyItemRepository.deleteById(content.getUuid());
+            cryptographicKeyItemRepository.deleteById(content1.getUuid());
+            cryptographicKeyRepository.deleteById(key.getUuid());
+            tokenProfileRepository.deleteById(tokenProfile.getUuid());
+            tokenInstanceReferenceRepository.deleteById(tokenInstanceReference.getUuid());
+            connectorRepository.delete(connector);
+        });
     }
 
     @Test
