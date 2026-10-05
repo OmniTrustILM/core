@@ -10,6 +10,7 @@ import java.util.Map;
 import org.slf4j.Marker;
 import org.slf4j.event.KeyValuePair;
 import org.springframework.boot.logging.logback.StructuredLogEncoder;
+import org.springframework.util.Assert;
 
 /**
  * Structured encoder that gives an event carrying a {@link SerializedLogRecord} a readable message in place of the
@@ -21,6 +22,28 @@ import org.springframework.boot.logging.logback.StructuredLogEncoder;
  * need the JSON message.
  */
 public class LogRecordStructuredLogEncoder extends StructuredLogEncoder {
+
+    private static final String GELF = "gelf";
+
+    private String format;
+
+    @Override
+    public void setFormat(String format) {
+        this.format = format;
+        super.setFormat(format);
+    }
+
+    /**
+     * Refuses GELF: its additional fields hold only strings and numbers, so the nested {@value SerializedLogRecord#KEY}
+     * object would make every audit and event line invalid GELF.
+     */
+    @Override
+    public void start() {
+        Assert
+                .state(!GELF.equalsIgnoreCase(format),
+                        "Log format 'gelf' cannot carry the nested log_record object; use 'ecs' or 'logstash'");
+        super.start();
+    }
 
     @Override
     public byte[] encode(ILoggingEvent event) {
@@ -41,7 +64,7 @@ public class LogRecordStructuredLogEncoder extends StructuredLogEncoder {
         return null;
     }
 
-    private record SummarizedEvent(ILoggingEvent event, String summary) implements ILoggingEvent {
+    record SummarizedEvent(ILoggingEvent event, String summary) implements ILoggingEvent {
 
         @Override
         public String getFormattedMessage() {

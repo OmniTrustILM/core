@@ -4,6 +4,7 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.spi.LoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -27,11 +28,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MarkerFactory;
+import org.slf4j.event.KeyValuePair;
 import org.springframework.core.env.Environment;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 
 class LogRecordStructuredLogEncoderTest {
 
@@ -109,6 +113,48 @@ class LogRecordStructuredLogEncoderTest {
         assertThat(line.has("log_record")).isFalse();
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"gelf", "GELF"})
+    void gelfIsRefusedAtStartup(String format) {
+        LogRecordStructuredLogEncoder encoder = unstartedEncoder(format);
+
+        assertThatIllegalStateException().isThrownBy(encoder::start).withMessageContaining("'ecs' or 'logstash'");
+    }
+
+    @Test
+    @SuppressWarnings("deprecation")
+    void aSummarizedEventChangesOnlyTheMessage() {
+        LoggingEvent event = new LoggingEvent(Logger.class.getName(), (Logger) LoggerFactory.getLogger(Probe.class),
+                Level.ERROR, "{\"version\":\"1.1\"}", new IllegalStateException("refused"), null);
+        event.addMarker(MarkerFactory.getMarker("AUDIT"));
+        event.setMDCPropertyMap(Map.of("log_actor_type", "USER"));
+        event.addKeyValuePair(new KeyValuePair(SerializedLogRecord.KEY, new SerializedLogRecord("{}", "summary")));
+        event.setCallerData(new StackTraceElement[]{new StackTraceElement("Probe", "run", "Probe.java", 7)});
+
+        ILoggingEvent summarized = new LogRecordStructuredLogEncoder.SummarizedEvent(event, "summary");
+        summarized.prepareForDeferredProcessing();
+
+        assertThat(summarized.getFormattedMessage()).isEqualTo("summary");
+        assertThat(summarized.getMessage()).isEqualTo("summary");
+        assertThat(summarized.getArgumentArray()).isEmpty();
+        assertThat(summarized)
+                .returns(event.getThreadName(), ILoggingEvent::getThreadName)
+                .returns(event.getLevel(), ILoggingEvent::getLevel)
+                .returns(event.getLoggerName(), ILoggingEvent::getLoggerName)
+                .returns(event.getLoggerContextVO(), ILoggingEvent::getLoggerContextVO)
+                .returns(event.getThrowableProxy(), ILoggingEvent::getThrowableProxy)
+                .returns(event.getCallerData(), ILoggingEvent::getCallerData)
+                .returns(event.hasCallerData(), ILoggingEvent::hasCallerData)
+                .returns(event.getMarkerList(), ILoggingEvent::getMarkerList)
+                .returns(event.getMDCPropertyMap(), ILoggingEvent::getMDCPropertyMap)
+                .returns(event.getMDCPropertyMap(), ILoggingEvent::getMdc)
+                .returns(event.getTimeStamp(), ILoggingEvent::getTimeStamp)
+                .returns(event.getNanoseconds(), ILoggingEvent::getNanoseconds)
+                .returns(event.getInstant(), ILoggingEvent::getInstant)
+                .returns(event.getSequenceNumber(), ILoggingEvent::getSequenceNumber)
+                .returns(event.getKeyValuePairs(), ILoggingEvent::getKeyValuePairs);
+    }
+
     private LogRecord auditRecord() {
         return wrapper
                 .buildLogRecord(true, null, null, List.of(), Operation.EXPORT, OperationResult.SUCCESS, null, null,
@@ -121,17 +167,22 @@ class LogRecordStructuredLogEncoderTest {
     }
 
     private static String encode(String format, ILoggingEvent event) {
-        LoggerContext context = new LoggerContext();
-        context.putObject(Environment.class.getName(), new MockEnvironment());
-        LogRecordStructuredLogEncoder encoder = new LogRecordStructuredLogEncoder();
-        encoder.setContext(context);
-        encoder.setFormat(format);
+        LogRecordStructuredLogEncoder encoder = unstartedEncoder(format);
         encoder.start();
         try {
             return new String(encoder.encode(event), StandardCharsets.UTF_8);
         } finally {
             encoder.stop();
         }
+    }
+
+    private static LogRecordStructuredLogEncoder unstartedEncoder(String format) {
+        LoggerContext context = new LoggerContext();
+        context.putObject(Environment.class.getName(), new MockEnvironment());
+        LogRecordStructuredLogEncoder encoder = new LogRecordStructuredLogEncoder();
+        encoder.setContext(context);
+        encoder.setFormat(format);
+        return encoder;
     }
 
     private static LoggingSettingsDto everythingLogged() {
