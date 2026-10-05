@@ -9,6 +9,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.cryptography.key.KeyState;
+import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
@@ -28,6 +29,7 @@ import java.util.Base64;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
@@ -127,6 +129,7 @@ class CryptographicProviderITest {
         content.setFormat(KeyFormat.PRKI);
         content.setState(KeyState.ACTIVE);
         content.setEnabled(true);
+        content.setUsage(List.of(KeyUsage.DECRYPT));
         content.setKeyAlgorithm(KeyAlgorithm.RSA);
         cryptographicKeyItemRepository.save(content);
 
