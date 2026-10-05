@@ -9,6 +9,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -25,7 +26,8 @@ import org.hibernate.type.SqlTypes;
 @ToString
 @RequiredArgsConstructor
 @Entity
-@Table(name = "attribute_content_item")
+@Table(name = "attribute_content_item", uniqueConstraints = @UniqueConstraint(name = "uq_attribute_content_item_value",
+        columnNames = {"attribute_definition_uuid", "json_hash"}))
 public class AttributeContentItem extends UniquelyIdentified {
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -47,6 +49,17 @@ public class AttributeContentItem extends UniquelyIdentified {
 
     @Column(name = "encrypted_data", length = Integer.MAX_VALUE)
     private String encryptedData;
+
+    /**
+     * Computed by the database, and mapped only so the test schema — generated from these annotations — carries the
+     * column the insert's conflict target names. NULL for an encrypted row, whose json is a placeholder shared by every
+     * encrypted value of the definition, so those rows never collide. Hashed to keep the index entry inside the btree
+     * limit.
+     */
+    @Column(name = "json_hash",
+            columnDefinition = "varchar generated always as (case when encrypted_data is null then md5(json::text) end) stored",
+            insertable = false, updatable = false)
+    private String jsonHash;
 
     public void setAttributeDefinition(AttributeDefinition attributeDefinition) {
         this.attributeDefinition = attributeDefinition;

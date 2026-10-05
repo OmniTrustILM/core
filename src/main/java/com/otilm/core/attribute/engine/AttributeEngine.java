@@ -74,6 +74,7 @@ import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
 import com.otilm.core.security.authz.SecurityResourceFilter;
 import com.otilm.core.serialization.ObjectMapperFactory;
+import com.otilm.core.service.writer.AttributeContentItemWriter;
 import com.otilm.core.service.writer.AttributeDefinitionWriter;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.AuthHelper;
@@ -127,6 +128,7 @@ public class AttributeEngine {
     private AttributeContentItemRepository attributeContentItemRepository;
     private AttributeContent2ObjectRepository attributeContent2ObjectRepository;
     private AttributeDefinitionWriter attributeDefinitionWriter;
+    private AttributeContentItemWriter attributeContentItemWriter;
     private AttributeSearchFieldCatalogue attributeSearchFieldCatalogue;
 
     private AuthHelper authHelper;
@@ -144,6 +146,11 @@ public class AttributeEngine {
     @Autowired
     public void setAttributeDefinitionWriter(AttributeDefinitionWriter attributeDefinitionWriter) {
         this.attributeDefinitionWriter = attributeDefinitionWriter;
+    }
+
+    @Autowired
+    public void setAttributeContentItemWriter(AttributeContentItemWriter attributeContentItemWriter) {
+        this.attributeContentItemWriter = attributeContentItemWriter;
     }
 
     @Autowired
@@ -1402,16 +1409,7 @@ public class AttributeEngine {
     public void registerAttributeContentItems(UUID attributeDefinitionUuid,
             Collection<AttributeContent> attributeContentItems) {
         for (AttributeContent attributeContentItem : attributeContentItems) {
-            AttributeContentItem contentItemEntity = attributeContentItemRepository
-                    .findByJsonAndAttributeDefinitionUuid(attributeContentItem, attributeDefinitionUuid);
-
-            // check if content item for this attribute definition exists to don't create duplicate items
-            if (contentItemEntity == null) {
-                contentItemEntity = new AttributeContentItem();
-                contentItemEntity.setJson(attributeContentItem);
-                contentItemEntity.setAttributeDefinitionUuid(attributeDefinitionUuid);
-                attributeContentItemRepository.save(contentItemEntity);
-            }
+            findOrCreateContentItem(attributeDefinitionUuid, attributeContentItem);
         }
     }
 
@@ -2668,13 +2666,11 @@ public class AttributeEngine {
                                     attributeDefinition.getVersion());
                 }
             } else {
-                // For non-encrypted attributes, try to find existing content item, since json will be different for
-                // different content
-                contentItemEntity = attributeContentItemRepository
-                        .findByJsonAndAttributeDefinitionUuid(attributeContentItem, attributeDefinition.getUuid());
+                // A plaintext value has one row per definition, shared by every object holding it.
+                contentItemEntity = findOrCreateContentItem(attributeDefinition.getUuid(), attributeContentItem);
             }
 
-            // check if content item for this attribute definition exists to don't create duplicate items
+            // an existing row may already be mapped to this object; only an encrypted value reaches the insert below
             if (contentItemEntity != null) {
                 // check if that content item is not already assigned to same object+version for meta attribute
                 // TODO: do we need to allow duplicate content items for one attribute definition? Maybe if attribute is
@@ -2713,6 +2709,32 @@ public class AttributeEngine {
             objectContentItem.setAttributeContentItem(contentItemEntity);
             attributeContent2ObjectRepository.save(objectContentItem);
         }
+    }
+
+    /**
+     * The definition's row for a plaintext value, stored first when the definition does not hold it yet. Writers racing
+     * to store the same new value converge on one row: the insert yields to {@code uq_attribute_content_item_value}
+     * instead of failing, and the row is read back.
+     *
+     * <p>
+     * The insert is a native statement without declared query spaces, so it flushes the whole session first. That is
+     * load-bearing: a metadata definition created earlier in the same transaction has to reach the database before a
+     * row referencing it can.
+     */
+    private AttributeContentItem findOrCreateContentItem(UUID definitionUuid, AttributeContent content) {
+        AttributeContentItem existing = attributeContentItemRepository
+                .findByJsonAndAttributeDefinitionUuid(content, definitionUuid);
+        if (existing != null) {
+            return existing;
+        }
+        attributeContentItemWriter.insertIfAbsent(definitionUuid, content);
+        AttributeContentItem stored = attributeContentItemRepository
+                .findByJsonAndAttributeDefinitionUuid(content, definitionUuid);
+        if (stored == null) {
+            throw new IllegalStateException(
+                    "An attribute value of definition %s was stored but cannot be read back".formatted(definitionUuid));
+        }
+        return stored;
     }
 
     /**
