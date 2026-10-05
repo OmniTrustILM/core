@@ -69,7 +69,10 @@ public class ScheduledJobHistoryWriter {
         close(historyUuid, new ScheduledTaskResult(SchedulerJobExecutionStatus.FAILED, operatorSafeMessage));
     }
 
-    /** The task declined the run ({@code ScheduledJobSkippedException}): a skipped run leaves no history. */
+    /**
+     * The task declined the run ({@code ScheduledJobSkippedException}): the row goes; what remains of the run is what
+     * {@code ScheduledJobWriter} recorded on the job, so this is called only once that has committed.
+     */
     @Transactional
     public void removeSkipped(UUID historyUuid) {
         if (repository.removeRun(historyUuid) == 0) {
