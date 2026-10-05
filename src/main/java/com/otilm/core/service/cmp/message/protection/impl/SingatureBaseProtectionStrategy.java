@@ -1,5 +1,6 @@
 package com.otilm.core.service.cmp.message.protection.impl;
 
+import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.interfaces.core.cmp.error.CmpConfigurationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
@@ -88,7 +89,12 @@ public class SingatureBaseProtectionStrategy extends BaseProtectionStrategy impl
             throw new CmpConfigurationException(PKIFailureInfo.systemFailure, "problem to get singerCertificate");
         }
         this.certificateKeyService = certificateKeyServiceImpl;
-        this.privateKey = certificateKeyServiceImpl.getPrivateKey(signingCertificate);
+        try {
+            this.privateKey = certificateKeyServiceImpl.getPrivateKey(signingCertificate);
+        } catch (NotFoundException e) {
+            throw new CmpConfigurationException(PKIFailureInfo.systemFailure,
+                    "The CMP signing certificate's private key or connector was not found.");
+        }
 
         String algorithmName = privateKey.getAlgorithm();// AlgorithmUtil.getSignatureAlgorithmName();
         KeyAlgorithm keyAlgorithm = KeyAlgorithm.findByCode(algorithmName);

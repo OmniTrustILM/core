@@ -8,8 +8,8 @@ import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.cryptography.operations.SignDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.SignDataResponseDto;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
+import com.otilm.core.model.crypto.AttributesWithOwner;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
-import com.otilm.core.model.crypto.OperationAttributeSchema;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import java.io.IOException;
@@ -33,7 +33,32 @@ public interface CryptographicOperationInternalService {
      * @throws NotFoundException when the key, its private item or its token-profile scope cannot be found
      * @throws ConnectorException when a cryptography provider v2 cannot be reached or returns no schema
      */
-    OperationAttributeSchema listSignAttributeSchema(UUID keyUuid) throws NotFoundException, ConnectorException;
+    AttributesWithOwner listSignAttributeSchema(UUID keyUuid) throws NotFoundException, ConnectorException;
+
+    /**
+     * Checks the selected algorithm against the key's supported algorithms and returns its signing definitions. V2 uses
+     * one connector response for both the support check and definition expansion. Other attribute validation remains
+     * the caller's task; V1 retains its existing algorithm-support policy.
+     *
+     * @throws ValidationException when the selected algorithm is invalid or unsupported
+     * @throws NotFoundException when the key, private item or token-profile scope cannot be found
+     * @throws ConnectorException when the connector cannot be reached or returns an invalid signing schema
+     */
+    AttributesWithOwner validateAttributesAndGetSchema(UUID keyUuid, List<RequestAttribute> signatureAttributes)
+            throws NotFoundException, ConnectorException;
+
+    /**
+     * Checks whether the selected signature algorithm is offered for the key. V2 consults the connector's original
+     * signing schema; V1 retains its existing behavior because it has no key-specific connector schema to consult.
+     *
+     * @param signatureAttributes the algorithm-selection attributes, optionally accompanied by connector parameters
+     * @param keyUuid the key whose private item identifies the provider and connector scope
+     * @return whether the provider supports the selected algorithm
+     * @throws NotFoundException when the key, private item or token-profile scope cannot be found
+     * @throws ConnectorException when the v2 connector cannot be reached or returns an invalid signing schema
+     */
+    boolean areSignatureAttributesSupportedByKey(List<RequestAttribute> signatureAttributes, UUID keyUuid)
+            throws NotFoundException, ConnectorException;
 
     /**
      * Same as {@link CryptographicOperationExternalService#signData} but does not record any key event history.

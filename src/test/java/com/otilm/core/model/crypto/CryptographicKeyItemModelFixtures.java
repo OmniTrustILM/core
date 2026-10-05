@@ -25,7 +25,8 @@ public final class CryptographicKeyItemModelFixtures {
             List<KeyUsage> usage, String pqcParameterSpecName) {
         RemoteKeyReference reference = new RemoteKeyReference.UuidReference(UUID.randomUUID());
         return new CryptographicKeyItemOperationModel(UUID.randomUUID(), true, algorithm, state, type, usage,
-                pqcParameterSpecName, reference, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), null, null);
+                pqcParameterSpecName, reference, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), null, null,
+                UUID.randomUUID(), UUID.randomUUID());
     }
 
     /** An ACTIVE private-key item carrying the SIGN usage. */

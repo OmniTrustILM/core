@@ -1,0 +1,97 @@
+package com.otilm.core.attribute;
+
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.common.attribute.common.AttributeContent;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.common.DataAttribute;
+import com.otilm.api.model.common.enums.cryptography.EncryptionAlgorithm;
+import com.otilm.api.model.connector.cryptography.v2.operations.EncryptionAlgorithmAttribute;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Expands {@link EncryptionAlgorithmAttribute} definitions using {@link EncryptionAlgorithmMapping} and
+ * {@link RsaEncryptionAttributes}. Used by {@code KeyProviderV2Adapter.listEncryptAttributes} and
+ * {@code KeyProviderV2Adapter.listDecryptAttributes}.
+ */
+public final class EncryptionAlgorithmUtils {
+
+    private EncryptionAlgorithmUtils() {
+    }
+
+    /**
+     * Replaces {@code encryptionAlgorithm} with advertised {@code data_rsaEncScheme}, {@code data_rsaOaepHash} and
+     * BOOLEAN {@code data_rsaOaepMgf} choices. PKCS1-only definitions expose scheme alone. Mixed PKCS1/OAEP definitions
+     * require the scheme and keep OAEP fields optional globally; OAEP-only definitions require all three fields. The
+     * MGF field is read-only with the mapped value true. Retains unrelated definitions and input. Caller checks
+     * connector response for secret echoes before expansion.
+     *
+     * @throws ConnectorException for duplicate selectors, malformed choices, mixed split/original representations or
+     * replacement UUID/name collisions
+     */
+    public static List<BaseAttribute> expandEncryptionAlgorithmDefinition(List<BaseAttribute> connectorDefinitions)
+            throws ConnectorException {
+        return AlgorithmDefinitionMapping
+                .expand(connectorDefinitions, EncryptionAlgorithmAttribute.ATTRIBUTE_UUID,
+                        EncryptionAlgorithmAttribute.NAME, EncryptionAlgorithmUtils::mapDefinition);
+    }
+
+    /**
+     * Merges {@link EncryptionAlgorithmMapping#toAttributes} results; retains selector when every choice stays joint.
+     */
+    private static List<BaseAttribute> mapDefinition(BaseAttribute definition) throws ConnectorException {
+        if (!(definition.getContent() instanceof List<?> choices) || choices.isEmpty()) {
+            throw new ConnectorException("Connector encryptionAlgorithm definition must contain algorithm codes.");
+        }
+        List<List<RequestAttribute>> mappedChoices = new ArrayList<>();
+        for (Object choice : choices) {
+            EncryptionAlgorithm algorithm = parseChoice(choice);
+            mappedChoices.add(EncryptionAlgorithmMapping.toAttributes(algorithm));
+        }
+        long originalChoices = mappedChoices
+                .stream()
+                .filter(attributes -> attributes
+                        .stream()
+                        .anyMatch(attribute -> EncryptionAlgorithmAttribute.ATTRIBUTE_UUID.equals(attribute.getUuid())))
+                .count();
+        if (originalChoices == mappedChoices.size()) {
+            return List.of(definition);
+        }
+        if (originalChoices != 0) {
+            throw new ConnectorException(
+                    "Connector encryption algorithms do not share a common attribute representation.");
+        }
+        return AlgorithmDefinitionMapping.merge(mappedChoices, EncryptionAlgorithmUtils::fieldTemplate);
+    }
+
+    /**
+     * Reads string {@link AttributeContent#getData()} through {@link EncryptionAlgorithm#lookupByCode}.
+     */
+    private static EncryptionAlgorithm parseChoice(Object choice) throws ConnectorException {
+        if (!(choice instanceof AttributeContent value) || !(value.getData() instanceof String code)) {
+            throw new ConnectorException("Connector encryptionAlgorithm choices must contain string algorithm codes.");
+        }
+        return EncryptionAlgorithm
+                .lookupByCode(code)
+                .orElseThrow(() -> new ConnectorException(
+                        "Connector encryptionAlgorithm definition contains an unknown algorithm code."));
+    }
+
+    /** Selects {@link RsaEncryptionAttributes} template by split field name. */
+    private static DataAttribute fieldTemplate(RequestAttribute attribute) {
+        DataAttribute template = (DataAttribute) switch (attribute.getName()) {
+            case RsaEncryptionAttributes.ATTRIBUTE_DATA_RSA_ENC_SCHEME_NAME ->
+                RsaEncryptionAttributes.buildDataEncryptionScheme();
+            case RsaEncryptionAttributes.ATTRIBUTE_DATA_RSA_OAEP_HASH_NAME ->
+                RsaEncryptionAttributes.buildDataOaepHash();
+            case RsaEncryptionAttributes.ATTRIBUTE_DATA_RSA_OAEP_USE_MGF_NAME ->
+                RsaEncryptionAttributes.buildDataOaepMgf();
+            default -> throw new IllegalArgumentException("Unknown RSA encryption field.");
+        };
+        if (RsaEncryptionAttributes.ATTRIBUTE_DATA_RSA_OAEP_USE_MGF_NAME.equals(attribute.getName())) {
+            template.getProperties().setReadOnly(true);
+        }
+        return template;
+    }
+}

@@ -87,7 +87,7 @@ import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.model.ActionMessage;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.model.auth.ResourceAction;
-import com.otilm.core.model.crypto.OperationAttributeSchema;
+import com.otilm.core.model.crypto.AttributesWithOwner;
 import com.otilm.core.model.request.CertificateRequest;
 import com.otilm.core.model.request.CertificateRequestKeys;
 import com.otilm.core.model.request.CrmfCertificateRequest;
@@ -3073,11 +3073,11 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 || keyInternalService.getSignAttributeOwner(keyUuid) == null) {
             return;
         }
-        OperationAttributeSchema schema = cryptographicOperationService.listSignAttributeSchema(keyUuid);
+        AttributesWithOwner schema = cryptographicOperationService
+                .validateAttributesAndGetSchema(keyUuid, signatureAttributes);
         attributeEngine
                 .validateUpdateDataAttributes(schema.ownerConnectorUuid(), AttributeOperation.SIGN,
                         schema.definitions(), signatureAttributes);
-        schema.requireOfferedSignatureAlgorithm(signatureAttributes);
     }
 
     /**

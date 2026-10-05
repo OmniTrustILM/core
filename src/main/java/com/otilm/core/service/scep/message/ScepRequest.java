@@ -12,6 +12,7 @@ import java.io.InputStream;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.Provider;
+import java.security.ProviderException;
 import java.security.PublicKey;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
@@ -63,6 +64,9 @@ import org.bouncycastle.util.Store;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * Parses a signed SCEP request and opens its envelope before exposing the request payload.
+ */
 public class ScepRequest {
 
     private static final Logger logger = LoggerFactory.getLogger(ScepRequest.class);
@@ -344,7 +348,7 @@ public class ScepRequest {
 
                 try {
                     decryptedData = recipient.getContent(jceKeyTransEnvelopedRecipient);
-                } catch (CMSException e) {
+                } catch (CMSException | ProviderException e) {
                     String errorMessage = "Failed to decrypt encapsulated content";
                     logger.error(errorMessage + ": ", e);
                     throw new ScepException(errorMessage, e, FailInfo.BAD_REQUEST);

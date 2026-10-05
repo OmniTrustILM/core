@@ -1,14 +1,12 @@
 package com.otilm.core.service.cmp.message.handler;
 
-import com.otilm.api.clients.cryptography.CryptographicOperationsApiClient;
 import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
 import com.otilm.api.interfaces.core.cmp.error.ImplFailureInfo;
+import com.otilm.api.model.client.cryptography.operations.SignDataResponseDto;
+import com.otilm.api.model.client.cryptography.operations.SignatureResponseData;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
-import com.otilm.api.model.connector.cryptography.operations.SignDataResponseDto;
-import com.otilm.api.model.connector.cryptography.operations.data.SignatureResponseData;
 import com.otilm.api.model.core.certificate.CertificateState;
-import com.otilm.api.model.core.connector.ConnectorDto;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CryptographicKey;
@@ -18,6 +16,7 @@ import com.otilm.core.dao.entity.cmp.CmpProfile;
 import com.otilm.core.dao.entity.cmp.CmpTransaction;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
+import com.otilm.core.model.crypto.CryptographicKeyItemModelFixtures;
 import com.otilm.core.provider.PlatformProvider;
 import com.otilm.core.provider.key.PlatformPrivateKey;
 import com.otilm.core.service.cmp.CmpEntityUtil;
@@ -26,6 +25,8 @@ import com.otilm.core.service.cmp.configurations.ConfigurationContext;
 import com.otilm.core.service.cmp.configurations.variants.Mobile3gppProfileContext;
 import com.otilm.core.service.cmp.message.CertificateKeyService;
 import com.otilm.core.service.cmp.message.CmpTransactionService;
+import com.otilm.core.service.handler.key.KeyProviderAdapter;
+import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import java.math.BigInteger;
 import java.security.KeyPair;
 import java.security.SecureRandom;
@@ -55,6 +56,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.mock;
 
 @ExtendWith(MockitoExtension.class)
 public class CertConfirmMessageHandlerTest {
@@ -68,8 +70,6 @@ public class CertConfirmMessageHandlerTest {
     private CertificateRepository certificateRepository;
     @Mock
     private CmpTransactionService cmpTransactionService;
-    @Mock
-    private CryptographicOperationsApiClient cryptographicOperationsApiClient;
     @Mock
     private RaProfileRepository raProfileRepository;
 
@@ -137,15 +137,18 @@ public class CertConfirmMessageHandlerTest {
         // After confirmation, the handler builds a signature-protected pkiConfirm response,
         // which needs a private key, a provider and a sign-data call. Stub them.
         given(certificateKeyService.getPrivateKey(any()))
-                .willReturn(new PlatformPrivateKey(null, ckPrivateKey.getKeyReferenceUuid().toString(),
-                        new ConnectorDto(), KeyAlgorithm.ECDSA.getLabel()));
+                .willReturn(new PlatformPrivateKey(
+                        CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.ECDSA)));
+        KeyProviderAdapterFactory adapterFactory = mock(KeyProviderAdapterFactory.class);
+        KeyProviderAdapter adapter = mock(KeyProviderAdapter.class);
+        given(adapterFactory.forKeyItem(any())).willReturn(adapter);
         given(certificateKeyService.getProvider(any(), any()))
-                .willReturn(PlatformProvider.getInstance(cmpProfile.getName(), true, cryptographicOperationsApiClient));
+                .willReturn(PlatformProvider.getInstance(cmpProfile.getName(), false, adapterFactory));
         SignDataResponseDto signData = new SignDataResponseDto();
         SignatureResponseData signDataRsp = new SignatureResponseData();
-        signDataRsp.setData("test".getBytes());
+        signDataRsp.setData(Base64.getEncoder().encodeToString("test".getBytes()));
         signData.setSignatures(List.of(signDataRsp));
-        given(cryptographicOperationsApiClient.signData(any(), any(), any(), any())).willReturn(signData);
+        given(adapter.signData(any(), any())).willReturn(signData);
 
         // -- THEN
         PKIMessage response = tested.handle(request, configuration);

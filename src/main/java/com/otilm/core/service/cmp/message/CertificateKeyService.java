@@ -18,6 +18,6 @@ public interface CertificateKeyService {
      * @param certificate certificate
      * @return private key for given certificate
      */
-    PlatformPrivateKey getPrivateKey(Certificate certificate);
+    PlatformPrivateKey getPrivateKey(Certificate certificate) throws NotFoundException;
 
 }
