@@ -40,9 +40,13 @@
         </else>
     </if>
 
+    <!-- Adds log lines to the active span; with OpenTelemetry off there is no span, so it does nothing -->
+    <appender name="SpanEvents" class="com.otilm.core.config.SpanEventsAppender" />
+
     <root level="INFO">
         <appender-ref ref="CONSOLE" />
         <!--        <appender-ref ref="FILE" />-->
+        <appender-ref ref="SpanEvents" />
     </root>
 
     <!-- Only when the OpenTelemetry starter will install its SDK into the appender (OpenTelemetryAppenderCondition) -->
@@ -55,11 +59,8 @@
                 <captureMarkerAttribute>false</captureMarkerAttribute>
             </appender>
 
-            <appender name="SpanEvents" class="com.otilm.core.config.SpanEventsAppender" />
-
             <root>
                 <appender-ref ref="OpenTelemetry" />
-                <appender-ref ref="SpanEvents" />
             </root>
         </then>
     </if>

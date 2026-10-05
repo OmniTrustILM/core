@@ -95,19 +95,32 @@ class LogbackSpringConfigTest {
     @ParameterizedTest
     @ValueSource(strings = {
             "otel.sdk.disabled=true",
-            "otel.instrumentation.logback-appender.enabled=false",
-            "otel.instrumentation.common.default-enabled=false"})
-    void theOpenTelemetryAppendersStayOffWhenTheStarterWouldNotInstallTheSdk(String setting) throws JoranException {
-        String[] keyValue = setting.split("=");
-        MockEnvironment environment = new MockEnvironment().withProperty(keyValue[0], keyValue[1]);
-        if (!"otel.sdk.disabled".equals(keyValue[0])) {
-            environment.withProperty("otel.sdk.disabled", "false");
-        }
-
-        LoggerContext context = configure("ecs", environment);
+            "otel.sdk.disabled=false,otel.instrumentation.logback-appender.enabled=false",
+            "otel.sdk.disabled=false,otel.instrumentation.common.default-enabled=false",
+            "otel.file_format=1.0,otel.disabled=true,otel.sdk.disabled=false"})
+    void theOpenTelemetryAppenderStaysOffWhenTheStarterWouldNotInstallTheSdk(String settings) throws JoranException {
+        LoggerContext context = configure("ecs", environment(settings));
 
         assertThat(root(context).getAppender("OpenTelemetry")).isNull();
-        assertThat(root(context).getAppender("SpanEvents")).isNull();
+        assertThat(problems(context)).isEmpty();
+    }
+
+    @Test
+    void theDeclarativeOpenTelemetrySwitchIsTheOneThatCounts() throws JoranException {
+        LoggerContext context = configure("ecs",
+                environment("otel.file_format=1.0,otel.disabled=false,otel.sdk.disabled=true"));
+
+        assertThat(root(context).getAppender("OpenTelemetry")).isInstanceOf(OpenTelemetryAppender.class);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "otel.sdk.disabled=true",
+            "otel.sdk.disabled=false,otel.instrumentation.logback-appender.enabled=false"})
+    void spanEventsAreAttachedWhateverTheLogExportSwitch(String settings) throws JoranException {
+        LoggerContext context = configure("ecs", environment(settings));
+
+        assertThat(root(context).getAppender("SpanEvents")).isNotNull();
     }
 
     @Test
@@ -159,6 +172,15 @@ class LogbackSpringConfigTest {
         configurator.setContext(context);
         configurator.doConfigure(CONFIG);
         return context;
+    }
+
+    private static MockEnvironment environment(String settings) {
+        MockEnvironment environment = new MockEnvironment();
+        for (String setting : settings.split(",")) {
+            String[] keyValue = setting.split("=");
+            environment.withProperty(keyValue[0], keyValue[1]);
+        }
+        return environment;
     }
 
     private static Logger root(LoggerContext context) {
