@@ -1183,7 +1183,10 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
                     .version(version.getVersion())
                     .build();
 
-            List<RequestAttribute> signingOperationAttributes = staticKeyScheme.getSigningOperationAttributes();
+            List<RequestAttribute> submittedAttributes = staticKeyScheme.getSigningOperationAttributes();
+            List<RequestAttribute> signingOperationAttributes = submittedAttributes == null
+                    ? List.of()
+                    : submittedAttributes;
             attributeEngine
                     .validateUpdateDataAttributes(signingSchema.ownerConnectorUuid(), AttributeOperation.SIGN,
                             signingSchema.definitions(), signingOperationAttributes);

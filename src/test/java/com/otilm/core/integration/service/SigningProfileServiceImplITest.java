@@ -567,6 +567,59 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         assertThrows(AccessDeniedException.class, listAttributes);
     }
 
+    @Test
+    void create_intrinsicAlgorithmWithOmittedAttributes_persistsEmptySigningAttributes() throws Exception {
+        // given
+        SigningProfileRequestDto request = intrinsicAlgorithmRequestWithOmittedAttributes();
+
+        // when
+        SigningProfileDto created = signingProfileService.createSigningProfile(request);
+
+        // then
+        StaticKeyManagedSigningDto scheme = assertInstanceOf(StaticKeyManagedSigningDto.class,
+                created.getSigningScheme());
+        assertTrue(scheme.getSigningOperationAttributes().isEmpty());
+        assertEquals(created, signingProfileService.getSigningProfile(SecuredUUID.fromString(created.getUuid()), null));
+    }
+
+    @Test
+    void update_intrinsicAlgorithmWithOmittedAttributes_persistsEmptySigningAttributes() throws Exception {
+        // given
+        SigningProfileRequestDto request = intrinsicAlgorithmRequestWithOmittedAttributes();
+        SecuredUUID profileUuid = SecuredUUID.fromString(defaultManagedStaticKeySigningProfile.getUuid());
+        createSigningRecordFor(defaultManagedStaticKeySigningProfile);
+        int expectedVersion = defaultManagedStaticKeySigningProfile.getVersion() + 1;
+
+        // when
+        SigningProfileDto updated = signingProfileService.updateSigningProfile(profileUuid, request);
+
+        // then
+        StaticKeyManagedSigningDto scheme = assertInstanceOf(StaticKeyManagedSigningDto.class,
+                updated.getSigningScheme());
+        assertTrue(scheme.getSigningOperationAttributes().isEmpty());
+        assertEquals(expectedVersion, updated.getVersion());
+        assertEquals(updated, signingProfileService.getSigningProfile(profileUuid, null));
+    }
+
+    private SigningProfileRequestDto intrinsicAlgorithmRequestWithOmittedAttributes() throws Exception {
+        KeyAlgorithm intrinsicAlgorithm = KeyAlgorithm.FALCON;
+        KeyPair intrinsicKeyPair = CertificateGeneratorHelper.generateKeyPair(intrinsicAlgorithm, null);
+        String base64Spki = Base64.getEncoder().encodeToString(intrinsicKeyPair.getPublic().getEncoded());
+        cryptographyProviderServerMock.stubKeyPairCreation(base64Spki, intrinsicAlgorithm, UUID.randomUUID());
+        cryptographicKeyService
+                .createKey(UUID.fromString(tokenInstance.getUuid()),
+                        SecuredParentUUID.fromString(defaultTokenProfile.getUuid()), KeyRequestType.KEY_PAIR,
+                        aKeyPairRequest().withName("intrinsic-signing-key").build());
+        TestCertificateAuthority.TrustedCa trustedCa = testCertificateAuthority.createTrustedCa("CN=Intrinsic Root");
+        Certificate certificate = trustedCa.issueSigningCertificate(intrinsicKeyPair, "CN=Intrinsic Signing");
+        List<RequestAttribute> omittedAttributes = null;
+        return aSigningProfileRequest()
+                .withName("intrinsic-signing-profile")
+                .withStaticKeyManagedSigning(certificate.getUuid(), omittedAttributes)
+                .withRawSigning()
+                .build();
+    }
+
     @Nested
     class ListTests {
 
