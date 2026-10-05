@@ -12,6 +12,7 @@ import com.otilm.api.model.connector.cryptography.v2.operations.EncryptionAlgori
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -22,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Named.named;
 
 /**
  * Verifies encryption offers retain their presentation contract and classify malformed schemas as connector faults.
@@ -135,6 +137,41 @@ class EncryptionAlgorithmUtilsTest {
         // then
         ConnectorException failure = assertThrows(ConnectorException.class, expand);
         assertTrue(failure.getMessage().contains(expectedMessagePrefix));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("mismatchedIdentitySchemas")
+    void expandEncryptionAlgorithmDefinition_rejectsMismatchedReservedIdentity(List<BaseAttribute> schema) {
+        // given
+        String expectedMessage = "Connector publishes mismatched encryptionAlgorithm attribute UUID and name.";
+
+        // when
+        Executable expand = () -> EncryptionAlgorithmUtils.expandEncryptionAlgorithmDefinition(schema);
+
+        // then
+        ConnectorException failure = assertThrows(ConnectorException.class, expand);
+        assertEquals(expectedMessage, failure.getMessage());
+    }
+
+    private static Stream<Named<List<BaseAttribute>>> mismatchedIdentitySchemas() {
+        DataAttributeV3 valid = EncryptionAlgorithmAttribute.definition(List.of(EncryptionAlgorithm.RSA_OAEP_SHA256));
+        DataAttributeV3 wrongUuid = EncryptionAlgorithmAttribute
+                .definition(List.of(EncryptionAlgorithm.RSA_OAEP_SHA256));
+        wrongUuid.setUuid(UUID.randomUUID().toString());
+        DataAttributeV3 wrongName = EncryptionAlgorithmAttribute
+                .definition(List.of(EncryptionAlgorithm.RSA_OAEP_SHA256));
+        wrongName.setName("connector-option");
+        DataAttributeV3 missingUuid = EncryptionAlgorithmAttribute
+                .definition(List.of(EncryptionAlgorithm.RSA_OAEP_SHA256));
+        missingUuid.setUuid(null);
+        DataAttributeV3 missingName = EncryptionAlgorithmAttribute
+                .definition(List.of(EncryptionAlgorithm.RSA_OAEP_SHA256));
+        missingName.setName(null);
+        return Stream
+                .of(named("wrong UUID", List.of(wrongUuid)), named("wrong name", List.of(wrongName)),
+                        named("missing UUID", List.of(missingUuid)), named("missing name", List.of(missingName)),
+                        named("wrong UUID after valid entry", List.of(valid, wrongUuid)),
+                        named("wrong name before valid entry", List.of(wrongName, valid)));
     }
 
     private static Stream<List<BaseAttribute>> invalidSchemas() {

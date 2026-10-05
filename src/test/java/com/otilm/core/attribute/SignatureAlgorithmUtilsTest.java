@@ -131,14 +131,11 @@ class SignatureAlgorithmUtilsTest {
     }
 
     private static Stream<Named<List<BaseAttribute>>> schemasWithNoSplitConversion() {
-        DataAttributeV3 wrongUuid = SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA));
-        wrongUuid.setUuid("ae2b12c7-8718-4cb4-a8ad-a34dbd48cfa2");
         return Stream
                 .of(named("two ML-DSA choices", List
                         .of(SignatureAlgorithmAttribute
                                 .definition(List.of(SignatureAlgorithm.ML_DSA_44, SignatureAlgorithm.ML_DSA_65)))),
-                        named("no algorithm attribute", List.of(unrelatedDefinition("context"))),
-                        named("wrong algorithm UUID", List.of(wrongUuid)));
+                        named("no algorithm attribute", List.of(unrelatedDefinition("context"))));
     }
 
     @ParameterizedTest(name = "{0}")
@@ -258,13 +255,57 @@ class SignatureAlgorithmUtilsTest {
     }
 
     private static Stream<Named<List<BaseAttribute>>> schemasOfferingNoAlgorithm() {
-        DataAttributeV3 wrongUuid = SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA));
-        wrongUuid.setUuid("ae2b12c7-8718-4cb4-a8ad-a34dbd48cfa2");
         return Stream
                 .of(named("empty schema", List.of()),
                         named("only unrelated attributes", List.of(unrelatedDefinition("context"))),
-                        named("wrong reserved UUID", List.of(wrongUuid)),
                         named("empty choice list", List.of(SignatureAlgorithmAttribute.definition(List.of()))));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("mismatchedIdentitySchemas")
+    void expandSignatureAlgorithmDefinition_rejectsMismatchedReservedIdentity(List<BaseAttribute> schema) {
+        // given
+        String expectedMessage = "Connector publishes mismatched signatureAlgorithm attribute UUID and name.";
+
+        // when
+        Executable expand = () -> SignatureAlgorithmUtils.expandSignatureAlgorithmDefinition(schema);
+
+        // then
+        ConnectorException failure = assertThrows(ConnectorException.class, expand);
+        assertEquals(expectedMessage, failure.getMessage());
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("mismatchedIdentitySchemas")
+    void supportedAlgorithms_rejectsMismatchedReservedIdentity(List<BaseAttribute> schema) {
+        // given
+        String expectedMessage = "Connector publishes mismatched signatureAlgorithm attribute UUID and name.";
+
+        // when
+        Executable extract = () -> SignatureAlgorithmUtils.extractSupportedSignatureAlgorithms(schema);
+
+        // then
+        ConnectorException failure = assertThrows(ConnectorException.class, extract);
+        assertEquals(expectedMessage, failure.getMessage());
+    }
+
+    private static Stream<Named<List<BaseAttribute>>> mismatchedIdentitySchemas() {
+        DataAttributeV3 valid = SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA));
+        DataAttributeV3 wrongUuid = SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA));
+        wrongUuid.setUuid(UUID.randomUUID().toString());
+        DataAttributeV3 wrongName = SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA));
+        wrongName.setName("connector-option");
+        DataAttributeV3 missingUuid = SignatureAlgorithmAttribute
+                .definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA));
+        missingUuid.setUuid(null);
+        DataAttributeV3 missingName = SignatureAlgorithmAttribute
+                .definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA));
+        missingName.setName(null);
+        return Stream
+                .of(named("wrong UUID", List.of(wrongUuid)), named("wrong name", List.of(wrongName)),
+                        named("missing UUID", List.of(missingUuid)), named("missing name", List.of(missingName)),
+                        named("wrong UUID after valid entry", List.of(valid, wrongUuid)),
+                        named("wrong name before valid entry", List.of(wrongName, valid)));
     }
 
     @ParameterizedTest(name = "{0}")

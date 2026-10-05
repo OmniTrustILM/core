@@ -44,33 +44,18 @@ public final class SignatureAlgorithmUtils {
      * and empty choice lists return an empty list. Every choice is validated before returning, even after a match could
      * have been found, so callers cannot overlook malformed trailing values.
      *
-     * @throws ConnectorException when definitions are duplicated or their content contains invalid algorithm codes
+     * @param connectorDefinitions connector schema whose reserved signature identity must be consistent
+     * @return advertised signature algorithms, or an empty list when absent or without choices
+     * @throws ConnectorException when reserved identities mismatch, definitions are duplicated or algorithm codes are
+     * invalid
      */
     public static List<SignatureAlgorithm> extractSupportedSignatureAlgorithms(List<BaseAttribute> connectorDefinitions)
             throws ConnectorException {
         Objects.requireNonNull(connectorDefinitions, "connectorDefinitions must not be null");
-        Optional<BaseAttribute> definition = findAlgorithmDefinition(connectorDefinitions);
+        Optional<BaseAttribute> definition = AlgorithmDefinitionMapping
+                .findDefinition(connectorDefinitions, SignatureAlgorithmAttribute.ATTRIBUTE_UUID,
+                        SignatureAlgorithmAttribute.NAME);
         return definition.isPresent() ? readSupportedAlgorithms(definition.get()) : List.of();
-    }
-
-    /**
-     * Finds the reserved selector, rejecting duplicate definitions from the connector.
-     */
-    private static Optional<BaseAttribute> findAlgorithmDefinition(List<BaseAttribute> connectorDefinitions)
-            throws ConnectorException {
-        List<BaseAttribute> algorithmDefinitions = connectorDefinitions
-                .stream()
-                .filter(SignatureAlgorithmUtils::isSignatureAlgorithm)
-                .toList();
-        if (algorithmDefinitions.size() > 1) {
-            throw new ConnectorException("Connector publishes more than one signatureAlgorithm attribute definition.");
-        }
-        return algorithmDefinitions.stream().findFirst();
-    }
-
-    private static boolean isSignatureAlgorithm(BaseAttribute definition) {
-        return definition != null && SignatureAlgorithmAttribute.NAME.equals(definition.getName())
-                && SignatureAlgorithmAttribute.ATTRIBUTE_UUID.toString().equals(definition.getUuid());
     }
 
     /**

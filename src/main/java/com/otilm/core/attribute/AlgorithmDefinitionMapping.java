@@ -12,6 +12,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 
@@ -28,7 +29,8 @@ final class AlgorithmDefinitionMapping {
      * Replaces definition matching both UUID and name at its original position. Retains unrelated {@link BaseAttribute}
      * instances. Returns input when no replacement is needed.
      *
-     * @throws ConnectorException for duplicate selectors or replacement UUID/name collisions
+     * @throws ConnectorException for mismatched reserved identities, duplicate selectors or replacement UUID/name
+     * collisions
      */
     static List<BaseAttribute> expand(List<BaseAttribute> definitions, UUID uuid, String name, DefinitionMapper mapping)
             throws ConnectorException {
@@ -36,18 +38,11 @@ final class AlgorithmDefinitionMapping {
         Objects.requireNonNull(uuid, "uuid must not be null");
         Objects.requireNonNull(name, "name must not be null");
         Objects.requireNonNull(mapping, "mapping must not be null");
-        List<BaseAttribute> matches = definitions
-                .stream()
-                .filter(definition -> definition != null && name.equals(definition.getName())
-                        && uuid.toString().equals(definition.getUuid()))
-                .toList();
-        if (matches.size() > 1) {
-            throw new ConnectorException("Connector publishes more than one " + name + " attribute definition.");
-        }
-        if (matches.isEmpty()) {
+        Optional<BaseAttribute> selector = findDefinition(definitions, uuid, name);
+        if (selector.isEmpty()) {
             return definitions;
         }
-        BaseAttribute original = matches.getFirst();
+        BaseAttribute original = selector.get();
         List<BaseAttribute> replacements = mapping.map(original);
         for (BaseAttribute definition : definitions) {
             if (definition == null || definition == original) {
@@ -74,6 +69,30 @@ final class AlgorithmDefinitionMapping {
             }
         }
         return result;
+    }
+
+    static Optional<BaseAttribute> findDefinition(List<BaseAttribute> definitions, UUID uuid, String name)
+            throws ConnectorException {
+        String reservedUuid = uuid.toString();
+        BaseAttribute match = null;
+        for (BaseAttribute definition : definitions) {
+            if (definition == null) {
+                continue;
+            }
+            boolean matchesName = name.equals(definition.getName());
+            boolean matchesUuid = reservedUuid.equals(definition.getUuid());
+            if (matchesName != matchesUuid) {
+                throw new ConnectorException("Connector publishes mismatched " + name + " attribute UUID and name.");
+            }
+            if (matchesName) {
+                if (match != null) {
+                    throw new ConnectorException(
+                            "Connector publishes more than one " + name + " attribute definition.");
+                }
+                match = definition;
+            }
+        }
+        return Optional.ofNullable(match);
     }
 
     /**
