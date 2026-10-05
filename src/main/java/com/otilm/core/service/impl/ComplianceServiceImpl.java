@@ -24,7 +24,10 @@ import com.otilm.core.dao.repository.ComplianceProfileAssociationRepository;
 import com.otilm.core.dao.repository.ComplianceProfileRepository;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
+import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.SecretRepository;
+import com.otilm.core.dao.repository.TokenProfileRepository;
+import com.otilm.core.dao.repository.VaultProfileRepository;
 import com.otilm.core.evaluator.TriggerEvaluator;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.model.auth.ResourceAction;
@@ -80,6 +83,9 @@ public class ComplianceServiceImpl implements ComplianceExternalService, Complia
     private CryptographicKeyRepository cryptographicKeyRepository;
     private CryptographicKeyItemRepository cryptographicKeyItemRepository;
     private SecretRepository secretRepository;
+    private RaProfileRepository raProfileRepository;
+    private TokenProfileRepository tokenProfileRepository;
+    private VaultProfileRepository vaultProfileRepository;
 
     // since only checking condition items, not necessary CertificateTriggerEvaluator that implements special logic for
     // setting properties
@@ -155,6 +161,21 @@ public class ComplianceServiceImpl implements ComplianceExternalService, Complia
     @Autowired
     public void setCryptographicKeyItemRepository(CryptographicKeyItemRepository cryptographicKeyItemRepository) {
         this.cryptographicKeyItemRepository = cryptographicKeyItemRepository;
+    }
+
+    @Autowired
+    public void setRaProfileRepository(RaProfileRepository raProfileRepository) {
+        this.raProfileRepository = raProfileRepository;
+    }
+
+    @Autowired
+    public void setTokenProfileRepository(TokenProfileRepository tokenProfileRepository) {
+        this.tokenProfileRepository = tokenProfileRepository;
+    }
+
+    @Autowired
+    public void setVaultProfileRepository(VaultProfileRepository vaultProfileRepository) {
+        this.vaultProfileRepository = vaultProfileRepository;
     }
 
     @Lazy
@@ -436,12 +457,9 @@ public class ComplianceServiceImpl implements ComplianceExternalService, Complia
                 case CRYPTOGRAPHIC_KEY -> cryptographicKeyRepository.existsById(objectUuid);
                 case CRYPTOGRAPHIC_KEY_ITEM -> cryptographicKeyItemRepository.existsById(objectUuid);
                 case SECRET -> secretRepository.existsById(objectUuid);
-                case RA_PROFILE -> complianceProfileAssociationRepository
-                        .countByResourceAndObjectUuid(Resource.RA_PROFILE, objectUuid) > 0;
-                case TOKEN_PROFILE -> complianceProfileAssociationRepository
-                        .countByResourceAndObjectUuid(Resource.TOKEN_PROFILE, objectUuid) > 0;
-                case VAULT_PROFILE -> complianceProfileAssociationRepository
-                        .countByResourceAndObjectUuid(Resource.VAULT_PROFILE, objectUuid) > 0;
+                case RA_PROFILE -> raProfileRepository.existsByUuid(objectUuid);
+                case TOKEN_PROFILE -> tokenProfileRepository.existsById(objectUuid);
+                case VAULT_PROFILE -> vaultProfileRepository.existsById(objectUuid);
                 default -> throw new ValidationException(
                         COMPLIANCE_CHECK_VALIDATION_INVALID_RESOURCE_MESSAGE.formatted(resource.getLabel()));
             };
@@ -449,6 +467,14 @@ public class ComplianceServiceImpl implements ComplianceExternalService, Complia
                 throw new NotFoundException("Cannot check compliance. %s with UUID %s not found"
                         .formatted(resource.getLabel(), objectUuid));
             }
+        }
+
+        // The check skips profiles without a compliance profile, so a selection is refused only when none has one.
+        if (resource.hasComplianceProfiles() && !objectUuids.isEmpty()
+                && !complianceProfileAssociationRepository.existsByResourceAndObjectUuidIn(resource, objectUuids)) {
+            throw new ValidationException(
+                    "Cannot check compliance. No compliance profile is associated with the requested %s"
+                            .formatted(resource.getLabel()));
         }
     }
 

@@ -12,6 +12,8 @@ public interface RaProfileRepository extends SecurityFilterRepository<RaProfile,
 
     Optional<RaProfile> findByUuid(UUID uuid);
 
+    boolean existsByUuid(UUID uuid);
+
     /**
      * Loads an RA profile with its authority, connector, connector interface and the connector's function groups
      * eagerly. The function groups are fetched so callers that traverse the connector outside an active transaction

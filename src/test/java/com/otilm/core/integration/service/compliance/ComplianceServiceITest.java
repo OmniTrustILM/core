@@ -31,11 +31,13 @@ import com.otilm.core.dao.entity.Secret;
 import com.otilm.core.dao.entity.SecretVersion;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
+import com.otilm.core.dao.entity.VaultProfile;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.SecretRepository;
 import com.otilm.core.dao.repository.SecretVersionRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
+import com.otilm.core.dao.repository.VaultProfileRepository;
 import com.otilm.core.events.handlers.CertificateUploadedEventHandler;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.messaging.model.CertificateUploadEventMessageData;
@@ -91,6 +93,9 @@ class ComplianceServiceITest extends BaseComplianceTest {
 
     @Autowired
     private TokenInstanceReferenceRepository tokenRepository;
+
+    @Autowired
+    private VaultProfileRepository vaultProfileRepository;
 
     @Autowired
     CryptographicKeyRepository cryptographicKeyRepository;
@@ -741,5 +746,68 @@ class ComplianceServiceITest extends BaseComplianceTest {
                         () -> complianceExternalService
                                 .checkResourceObjectsComplianceValidation(Resource.RA_PROFILE, objectUuids),
                         "No RA Profile found with specified UUID");
+        Assertions
+                .assertThrows(NotFoundException.class,
+                        () -> complianceExternalService
+                                .checkResourceObjectsComplianceValidation(Resource.TOKEN_PROFILE, objectUuids),
+                        "No Token Profile found with specified UUID");
+        Assertions
+                .assertThrows(NotFoundException.class,
+                        () -> complianceExternalService
+                                .checkResourceObjectsComplianceValidation(Resource.VAULT_PROFILE, objectUuids),
+                        "No Vault Profile found with specified UUID");
+    }
+
+    @Test
+    void checkResourceObjectsComplianceValidationRejectsExistingProfileWithoutComplianceProfile() {
+        TokenInstanceReference token = new TokenInstanceReference();
+        token.setStatus(TokenInstanceStatus.UNKNOWN);
+        token.setName("Token");
+        token.setAuthor("John Doe");
+        token.setCreated(OffsetDateTime.now());
+        token.setUpdated(OffsetDateTime.now());
+        tokenRepository.save(token);
+
+        TokenProfile tokenProfile = new TokenProfile();
+        tokenProfile.setName("Unassociated Token Profile");
+        tokenProfile.setTokenInstanceReferenceUuid(token.getUuid());
+        tokenProfile.setAuthor("John Doe");
+        tokenProfile.setCreated(OffsetDateTime.now());
+        tokenProfile.setUpdated(OffsetDateTime.now());
+        tokenProfileRepository.save(tokenProfile);
+
+        VaultProfile vaultProfile = new VaultProfile();
+        vaultProfile.setName("UnassociatedVaultProfile");
+        vaultProfile.setVaultInstance(vaultInstanceRepository.findById(vaultInstanceUuid).orElseThrow());
+        vaultProfileRepository.save(vaultProfile);
+
+        List<UUID> raProfileUuids = List.of(unassociatedRaProfileUuid);
+        List<UUID> tokenProfileUuids = List.of(tokenProfile.getUuid());
+        List<UUID> vaultProfileUuids = List.of(vaultProfile.getUuid());
+        Assertions
+                .assertThrows(ValidationException.class,
+                        () -> complianceExternalService
+                                .checkResourceObjectsComplianceValidation(Resource.RA_PROFILE, raProfileUuids),
+                        "An existing RA Profile without a compliance profile is not a missing RA Profile");
+        Assertions
+                .assertThrows(ValidationException.class,
+                        () -> complianceExternalService
+                                .checkResourceObjectsComplianceValidation(Resource.TOKEN_PROFILE, tokenProfileUuids),
+                        "An existing Token Profile without a compliance profile is not a missing Token Profile");
+        Assertions
+                .assertThrows(ValidationException.class,
+                        () -> complianceExternalService
+                                .checkResourceObjectsComplianceValidation(Resource.VAULT_PROFILE, vaultProfileUuids),
+                        "An existing Vault Profile without a compliance profile is not a missing Vault Profile");
+    }
+
+    @Test
+    void checkResourceObjectsComplianceValidationAcceptsSelectionWithAnAssociatedProfile() {
+        List<UUID> raProfileUuids = List.of(associatedRaProfileUuid, unassociatedRaProfileUuid);
+        Assertions
+                .assertDoesNotThrow(
+                        () -> complianceExternalService
+                                .checkResourceObjectsComplianceValidation(Resource.RA_PROFILE, raProfileUuids),
+                        "Profiles without a compliance profile are skipped when another selected profile has one");
     }
 }
