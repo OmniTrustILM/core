@@ -51,6 +51,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.context.SecurityContext;
@@ -940,6 +941,60 @@ class ListViewServiceITest extends BaseSpringBootTest {
             executor.shutdownNow();
             Assertions.assertTrue(executor.awaitTermination(30, TimeUnit.SECONDS));
         }
+    }
+
+    /**
+     * On an authorization-cache miss the permission lookup waits on the policy engine, and every other write of the
+     * user's views of the resource would queue behind it if it ran under the lock.
+     */
+    @Test
+    void anEditResolvesAttributePermissionsBeforeItTakesTheLock() throws Exception {
+        createTeamAttribute();
+        ListViewDto created = createTeamColumnView();
+        SecurityContext context = SecurityContextHolder.getContext();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            AtomicInteger checksWhileWaiting = new AtomicInteger();
+            Future<ListViewDto> edit = transactionTemplate.execute(status -> {
+                clusterSynchronizer.lock("list-view:" + user + ":" + Resource.CERTIFICATE.getCode());
+                Mockito.clearInvocations(opaClient);
+                Future<ListViewDto> waiting = executor.submit(() -> {
+                    SecurityContextHolder.setContext(context);
+                    try {
+                        return listViewService
+                                .editView(created.getUuid(), update("Renamed", column("COMMON_NAME"), teamColumn()));
+                    } finally {
+                        SecurityContextHolder.clearContext();
+                    }
+                });
+                Awaitility
+                        .await()
+                        .atMost(Duration.ofSeconds(10))
+                        .until(() -> jdbcTemplate
+                                .queryForObject(
+                                        "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted",
+                                        Long.class) >= 1);
+                checksWhileWaiting.set(objectAccessChecks());
+                return waiting;
+            });
+
+            ListViewDto edited = edit.get(30, TimeUnit.SECONDS);
+            Assertions.assertEquals(ListViewFieldStatus.AVAILABLE, teamColumnOf(edited).getStatus());
+            Assertions.assertTrue(checksWhileWaiting.get() > 0);
+            Assertions.assertEquals(checksWhileWaiting.get(), objectAccessChecks());
+        } finally {
+            executor.shutdownNow();
+            Assertions.assertTrue(executor.awaitTermination(30, TimeUnit.SECONDS));
+        }
+    }
+
+    private int objectAccessChecks() {
+        return (int) Mockito
+                .mockingDetails(opaClient)
+                .getInvocations()
+                .stream()
+                .filter(invocation -> invocation.getMethod().getName().equals("checkObjectAccess"))
+                .count();
     }
 
     private void inANewTransaction(ListViewCall call) {

@@ -127,8 +127,10 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         UUID userUuid = loggedUserUuid();
         Resource resource = request.getResource();
         Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
-        Catalogue catalogue = catalogueOf(resource, namedFields(request), contentFilter);
+        List<NamedField> named = namedFields(request);
+        Catalogue catalogue = catalogueOf(resource, named, contentFilter);
         validateRequest(resource, request, Set.of(), List.of(), catalogue);
+        Map<NamedField, Set<UUID>> definitions = attributeEngine.definitionsBehind(resource, named, contentFilter);
 
         serializeWritesFor(userUuid, resource);
         if (listViewRepository.existsByUserUuidAndResourceAndName(userUuid, resource, request.getName())) {
@@ -138,8 +140,6 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         ListView view = new ListView();
         view.setUserUuid(userUuid);
         view.setResource(resource);
-        Map<NamedField, Set<UUID>> definitions = attributeEngine
-                .definitionsBehind(resource, namedFields(request), contentFilter);
         applyRequest(view, request, new Binder(resource, catalogue, definitions));
 
         return toDto(save(view, request.getName()), catalogue, definitions);
@@ -152,23 +152,25 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
             throws NotFoundException, AlreadyExistException {
         UUID userUuid = loggedUserUuid();
         ListView view = ownView(uuid, userUuid);
-        serializeWritesFor(userUuid, view.getResource());
+        Resource resource = view.getResource();
+        // Resolving the caller's attribute permissions can wait on the policy engine, so it is done before the lock
+        // that every other write of this user's views of the resource queues behind.
+        Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
+        List<NamedField> named = namedFields(request);
+        Catalogue catalogue = catalogueOf(resource, named, contentFilter);
+        Map<NamedField, Set<UUID>> definitions = attributeEngine.definitionsBehind(resource, named, contentFilter);
+
+        serializeWritesFor(userUuid, resource);
         // The stored entries decide what each requested one carries, so they are read again once no other write runs.
         refresh(view, uuid);
-
-        Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
-        Catalogue catalogue = catalogueOf(view.getResource(), namedFields(request), contentFilter);
-        validateRequest(view.getResource(), request, columnsOf(view), filtersOf(view), catalogue);
+        validateRequest(resource, request, columnsOf(view), filtersOf(view), catalogue);
 
         if (listViewRepository
-                .existsByUserUuidAndResourceAndNameAndUuidNot(userUuid, view.getResource(), request.getName(),
-                        view.getUuid())) {
+                .existsByUserUuidAndResourceAndNameAndUuidNot(userUuid, resource, request.getName(), view.getUuid())) {
             throw new AlreadyExistException(ListView.class, request.getName());
         }
 
-        Map<NamedField, Set<UUID>> definitions = attributeEngine
-                .definitionsBehind(view.getResource(), namedFields(request), contentFilter);
-        applyRequest(view, request, new Binder(view.getResource(), catalogue, definitions));
+        applyRequest(view, request, new Binder(resource, catalogue, definitions));
 
         return toDto(save(view, request.getName()), catalogue, definitions);
     }
