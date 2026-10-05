@@ -258,12 +258,14 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     void verifyData_pairsByPosition_andReturnsResult() throws Exception {
         // given
         connectorMock
-                .stubOperationAttributes("verify", "[]")
+                .stubOperationAttributes("verify", signSchema())
                 .stubOperation("verify", "{\"verifications\":[{\"identifier\":\"0\",\"result\":true}]}");
         VerifyDataRequestDto request = new VerifyDataRequestDto();
-        request.setSignatureAttributes(List.of());
+        request.setSignatureAttributes(sha256WithRsa());
         request.setData(List.of(signatureData(DATA)));
         request.setSignatures(List.of(signatureData(SIGNATURE)));
+        String expectedAlgorithmSelection = "{\"signatureAttributes\":[{\"name\":\"signatureAlgorithm\","
+                + "\"content\":[{\"data\":\"SHA256withRSA\"}]}]}";
 
         // when
         VerifyDataResponseDto response = operationService
@@ -275,6 +277,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
         connectorMock
                 .verifyOperationRequestContaining("verify",
                         "{\"data\":[{\"identifier\":\"0\"}],\"signatures\":[{\"identifier\":\"0\"}]}");
+        connectorMock.verifyOperationRequestContaining("verify", expectedAlgorithmSelection);
     }
 
     @Test
