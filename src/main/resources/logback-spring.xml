@@ -40,22 +40,28 @@
         </else>
     </if>
 
-    <!-- Attached whether or not OpenTelemetry is enabled: the OpenTelemetry starter installs the SDK into this
-         appender only when it is, so it exports nothing otherwise. Logback cannot see the OTEL_SDK_DISABLED
-         switch, so a condition here would stop log export exactly when OpenTelemetry is on. -->
-    <appender name="OpenTelemetry" class="io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender">
-        <captureExperimentalAttributes>true</captureExperimentalAttributes>
-        <captureCodeAttributes>true</captureCodeAttributes>
-        <captureMarkerAttribute>false</captureMarkerAttribute>
-    </appender>
-
-    <appender name="SpanEvents" class="com.otilm.core.config.SpanEventsAppender" />
-
     <root level="INFO">
         <appender-ref ref="CONSOLE" />
         <!--        <appender-ref ref="FILE" />-->
-        <appender-ref ref="OpenTelemetry" />
-        <appender-ref ref="SpanEvents" />
     </root>
+
+    <!-- Only when the OpenTelemetry starter will install its SDK into the appender (OpenTelemetryAppenderCondition) -->
+    <condition class="com.otilm.core.logging.OpenTelemetryAppenderCondition" />
+    <if>
+        <then>
+            <appender name="OpenTelemetry" class="io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender">
+                <captureExperimentalAttributes>true</captureExperimentalAttributes>
+                <captureCodeAttributes>true</captureCodeAttributes>
+                <captureMarkerAttribute>false</captureMarkerAttribute>
+            </appender>
+
+            <appender name="SpanEvents" class="com.otilm.core.config.SpanEventsAppender" />
+
+            <root>
+                <appender-ref ref="OpenTelemetry" />
+                <appender-ref ref="SpanEvents" />
+            </root>
+        </then>
+    </if>
     <logger name="com.otilm" level="INFO"/>
 </configuration>
