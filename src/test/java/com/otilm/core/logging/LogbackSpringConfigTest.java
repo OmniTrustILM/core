@@ -1,5 +1,6 @@
 package com.otilm.core.logging;
 
+import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.encoder.PatternLayoutEncoder;
@@ -86,6 +87,8 @@ class LogbackSpringConfigTest {
 
         assertThat(root(context).getAppender("OpenTelemetry")).isInstanceOf(OpenTelemetryAppender.class);
         assertThat(root(context).getAppender("SpanEvents")).isNotNull();
+        assertThat(root(context).getAppender("CONSOLE")).isNotNull();
+        assertThat(root(context).getLevel()).isEqualTo(Level.INFO);
         assertThat(problems(context)).isEmpty();
     }
 
