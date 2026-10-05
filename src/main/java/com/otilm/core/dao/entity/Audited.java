@@ -10,6 +10,7 @@ import lombok.Setter;
 import lombok.ToString;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
+import org.springframework.data.annotation.AccessType;
 import org.springframework.data.annotation.CreatedBy;
 import org.springframework.data.annotation.LastModifiedBy;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
@@ -22,9 +23,12 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 @EntityListeners(AuditingEntityListener.class)
 public abstract class Audited {
 
+    // Auditing sets the author through the setter, which bytecode dirty tracking records; a direct field write would
+    // leave the column out of a @DynamicUpdate entity's update.
     @Column(name = "i_author")
     @CreatedBy
     @LastModifiedBy
+    @AccessType(AccessType.Type.PROPERTY)
     protected String author;
 
     @Column(name = "i_cre", nullable = false, updatable = false)
