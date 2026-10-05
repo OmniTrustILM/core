@@ -7,10 +7,11 @@
     <!--    <include resource="org/springframework/boot/logging/logback/file-appender.xml" />-->
 
     <!-- The format picks the whole appender: logback does not support <if> nested inside an <appender>.
-         Boot sets CONSOLE_LOG_STRUCTURED_FORMAT to an empty string when PLATFORM_LOG_FORMAT is unset.
+         CONSOLE_LOG_STRUCTURED_FORMAT is unset for the text format (ConsoleLogFormatEnvironmentPostProcessor); text or
+         an empty value set through Boot's own property keeps the pattern too.
          Logback takes the branch from a <condition> placed right before its <if>; one inside the <if> is ignored. -->
     <condition class="ch.qos.logback.core.boolex.ExpressionPropertyCondition">
-        <expression>isNull("CONSOLE_LOG_STRUCTURED_FORMAT") || propertyEquals("CONSOLE_LOG_STRUCTURED_FORMAT", "")</expression>
+        <expression>isNull("CONSOLE_LOG_STRUCTURED_FORMAT") || propertyEquals("CONSOLE_LOG_STRUCTURED_FORMAT", "") || propertyEquals("CONSOLE_LOG_STRUCTURED_FORMAT", "text")</expression>
     </condition>
     <if>
         <then>

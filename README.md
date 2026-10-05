@@ -119,7 +119,7 @@ Application supports two types of message brokers:
 | `BROKER_ROUTINGKEY_SCHEDULER`         | Routing key for scheduler                                                                                                                        | ![](https://img.shields.io/badge/-NO-red.svg)             | `scheduler`         |
 | `BROKER_ROUTINGKEY_VALIDATION`        | Routing key for validation                                                                                                                       | ![](https://img.shields.io/badge/-NO-red.svg)             | `validation`        |
 | `SETTINGS_CACHE_REFRESH_INTERVAL`     | Interval of scheduled settings cache refresh from DB (in seconds)                                                                                | ![](https://img.shields.io/badge/-NO-red.svg)             | `30`                |)
-| `PLATFORM_LOG_FORMAT`                 | Console log format: unset for the text pattern, `ecs` or `logstash` for one JSON object per line                                                 | ![](https://img.shields.io/badge/-NO-red.svg)             | `N/A`               |
+| `PLATFORM_LOG_FORMAT`                 | Console log format: `text` for the pattern, `ecs` or `logstash` for one JSON object per line                                                     | ![](https://img.shields.io/badge/-NO-red.svg)             | `text`              |
 
 
 ### OpenTelemetry settings

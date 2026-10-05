@@ -193,9 +193,8 @@ logging:
   pattern:
     console: '[%d{yyyy-MM-dd HH:mm:ss.SSS}] %-5level [%t] [%logger - %line]: %m%n'
     file: '[%d{yyyy-MM-dd HH:mm:ss.SSS}] %-5level [%t] [%logger - %line]: %m%n'
+  console-format: ${PLATFORM_LOG_FORMAT:text}   # text keeps the pattern above; ecs or logstash writes one JSON object per line
   structured:
-    format:
-      console: ${PLATFORM_LOG_FORMAT:}   # Empty keeps the text pattern above; ecs or logstash writes one JSON object per line
     ecs:
       service:
         name: core
