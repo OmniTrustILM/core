@@ -228,14 +228,15 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         view.setColumns(columns);
         view.setDefaultView(request.isDefaultView());
         view.setFilters(filters.isEmpty() ? null : filters);
-        List<UUID> sortBinding = binder.sort(request.getSort(), view.getSort(), view.getSortAttributeDefinitionUuids());
+        Optional<List<UUID>> sortBinding = binder
+                .sort(request.getSort(), view.getSort(), view.getSortAttributeDefinitionUuids());
         ListViewSortRequestDto sort = request.getSort();
         view
                 .setSort(sort == null
                         ? null
                         : new SearchSortRequestDto(sort.getFieldSource(), sort.getFieldIdentifier(),
                                 sort.getDirection()));
-        view.setSortAttributeDefinitionUuids(sortBinding);
+        view.setSortAttributeDefinitionUuids(sortBinding.orElse(null));
     }
 
     private ListView ownView(String uuid, UUID userUuid) throws NotFoundException {
@@ -404,9 +405,10 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
          * carried like a column, and keeps a binding that no longer resolves rather than adopting a replacement. Any
          * other ordering is a choice made now and is bound to the current definitions, or refused if none backs it.
          */
-        List<UUID> sort(ListViewSortRequestDto requested, SearchSortRequestDto stored, List<UUID> storedBinding) {
+        Optional<List<UUID>> sort(ListViewSortRequestDto requested, SearchSortRequestDto stored,
+                List<UUID> storedBinding) {
             if (requested == null) {
-                return null;
+                return Optional.empty();
             }
             boolean carried = !Boolean.TRUE.equals(requested.getRebind()) && stored != null
                     && requested.getFieldSource() == stored.getFieldSource()
@@ -428,7 +430,8 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
                         column.getLabel());
                 entry
                         .setAttributeDefinitionUuids(bindingOf(CatalogueField.of(column),
-                                carried == null ? null : carried.getAttributeDefinitionUuids(), carried != null));
+                                carried == null ? null : carried.getAttributeDefinitionUuids(), carried != null)
+                                .orElse(null));
                 bound.add(entry);
             }
             return bound;
@@ -446,25 +449,31 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
                         filter.getCondition(), filter.getValue());
                 entry
                         .setAttributeDefinitionUuids(bindingOf(CatalogueField.of(filter),
-                                carried == null ? null : carried.getAttributeDefinitionUuids(), carried != null));
+                                carried == null ? null : carried.getAttributeDefinitionUuids(), carried != null)
+                                .orElse(null));
                 bound.add(entry);
             }
             return bound;
         }
 
-        private List<UUID> bindingOf(CatalogueField field, List<UUID> storedBinding, boolean carried) {
+        /**
+         * Empty for a field that is not an attribute, and for a carried entry stored without a binding whose field the
+         * caller is not offered or no current definition backs.
+         */
+        private Optional<List<UUID>> bindingOf(CatalogueField field, List<UUID> storedBinding, boolean carried) {
             if (!field.named().isAttribute()) {
-                return null;
+                return Optional.empty();
             }
             List<UUID> current = definitions.getOrDefault(field.named(), Set.of()).stream().sorted().toList();
             if (!carried) {
                 if (current.isEmpty()) {
                     rejectUnknown(resource, List.of(field.fieldIdentifier()));
                 }
-                return current;
+                return Optional.of(current);
             }
             boolean resolves = storedBinding == null || intersects(storedBinding, Set.copyOf(current));
-            return catalogue.offers(field) && !current.isEmpty() && resolves ? current : storedBinding;
+            return Optional
+                    .ofNullable(catalogue.offers(field) && !current.isEmpty() && resolves ? current : storedBinding);
         }
     }
 
@@ -559,12 +568,11 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         }
 
         List<ListViewFilterDto> uncarried = new ArrayList<>(filtersCarried);
-        List<ListViewFilterDto> filters = new ArrayList<>();
-        for (ListViewFilterDto filter : requested) {
-            if (takeCarried(uncarried, filter) == null) {
-                filters.add(filter);
-            }
-        }
+        // takeCarried consumes uncarried, so the predicate relies on sequential, in-order evaluation.
+        List<ListViewFilterDto> filters = requested
+                .stream()
+                .filter(filter -> takeCarried(uncarried, filter) == null)
+                .toList();
 
         rejectUnknown(resource,
                 filters
