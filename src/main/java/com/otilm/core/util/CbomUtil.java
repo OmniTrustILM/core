@@ -21,7 +21,7 @@ public final class CbomUtil {
         return serialNumber;
     }
 
-    static final String INVALID_VERSION_MESSAGE = "Invalid CBOM version. Version must be an integer greater than or equal to 1. Example: 1";
+    static final String INVALID_VERSION_MESSAGE = "Invalid CBOM version. Version must be an integer from 1 to 2147483647. Example: 1";
 
     /**
      * Checks the optional CycloneDX {@code version} field of an uploaded document: when present it must be a JSON

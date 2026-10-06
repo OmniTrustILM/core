@@ -649,7 +649,7 @@ class CbomServiceITest extends BaseSpringBootTest {
 
         ValidationException refusal = assertThrows(ValidationException.class, () -> cbomService.createCbom(request));
 
-        assertEquals("Invalid CBOM version. Version must be an integer greater than or equal to 1. Example: 1",
+        assertEquals("Invalid CBOM version. Version must be an integer from 1 to 2147483647. Example: 1",
                 refusal.getErrors().getFirst().getErrorDescription());
         mockServer.verify(0, WireMock.postRequestedFor(WireMock.urlPathEqualTo("/api/v1/bom")));
         assertEquals(0, cbomRepository.count());
