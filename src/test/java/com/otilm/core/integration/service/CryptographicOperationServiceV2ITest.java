@@ -26,12 +26,14 @@ import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeP
 import com.otilm.api.model.common.attribute.v3.MetadataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.EncryptionAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.enums.cryptography.RsaSignatureScheme;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
+import com.otilm.api.model.connector.cryptography.v2.operations.EncryptionAlgorithmAttribute;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorithmAttribute;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.ConnectorStatus;
@@ -56,6 +58,7 @@ import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
+import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.CryptographicOperationExternalService;
 import com.otilm.core.service.CryptographicOperationInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -93,6 +96,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
 
     private static final String DATA = Base64.getEncoder().encodeToString(new byte[]{1, 2, 3});
     private static final String SIGNATURE = Base64.getEncoder().encodeToString(new byte[]{9, 9});
+    private static final EncryptionAlgorithm CIPHER_ALGORITHM = EncryptionAlgorithm.RSA_OAEP_SHA256;
 
     @Autowired
     private CryptographicOperationExternalService operationService;
@@ -254,12 +258,14 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     void verifyData_pairsByPosition_andReturnsResult() throws Exception {
         // given
         connectorMock
-                .stubOperationAttributes("verify", "[]")
+                .stubOperationAttributes("verify", signSchema())
                 .stubOperation("verify", "{\"verifications\":[{\"identifier\":\"0\",\"result\":true}]}");
         VerifyDataRequestDto request = new VerifyDataRequestDto();
-        request.setSignatureAttributes(List.of());
+        request.setSignatureAttributes(sha256WithRsa());
         request.setData(List.of(signatureData(DATA)));
         request.setSignatures(List.of(signatureData(SIGNATURE)));
+        String expectedAlgorithmSelection = "{\"signatureAttributes\":[{\"name\":\"signatureAlgorithm\","
+                + "\"content\":[{\"data\":\"SHA256withRSA\"}]}]}";
 
         // when
         VerifyDataResponseDto response = operationService
@@ -271,13 +277,14 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
         connectorMock
                 .verifyOperationRequestContaining("verify",
                         "{\"data\":[{\"identifier\":\"0\"}],\"signatures\":[{\"identifier\":\"0\"}]}");
+        connectorMock.verifyOperationRequestContaining("verify", expectedAlgorithmSelection);
     }
 
     @Test
     void encryptData_returnsConnectorPayload_andRecordsSuccess() throws Exception {
         // given
         connectorMock
-                .stubOperationAttributes("encrypt", "[]")
+                .stubOperationAttributes("encrypt", cipherSchema())
                 .stubOperation("encrypt",
                         "{\"encryptedData\":[{\"identifier\":\"0\",\"data\":\"" + SIGNATURE + "\"}]}");
 
@@ -288,6 +295,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
 
         // then
         assertEquals(SIGNATURE, encrypted.getEncryptedData().get(0).getData());
+        connectorMock.verifyOperationRequestContaining("encrypt", cipherAlgorithmSelection());
         assertEquals(KeyEventStatus.SUCCESS, onlyEvent(KeyEvent.ENCRYPT).getStatus());
     }
 
@@ -295,7 +303,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     void decryptData_returnsConnectorPayload_andRecordsSuccess() throws Exception {
         // given
         connectorMock
-                .stubOperationAttributes("decrypt", "[]")
+                .stubOperationAttributes("decrypt", cipherSchema())
                 .stubOperation("decrypt", "{\"decryptedData\":[{\"identifier\":\"0\",\"data\":\"" + DATA + "\"}]}");
 
         // when
@@ -305,16 +313,28 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
 
         // then
         assertEquals(DATA, decrypted.getDecryptedData().get(0).getData());
+        connectorMock.verifyOperationRequestContaining("decrypt", cipherAlgorithmSelection());
         assertEquals(KeyEventStatus.SUCCESS, onlyEvent(KeyEvent.DECRYPT).getStatus());
     }
 
     private static CipherDataRequestDto cipherRequest() {
         CipherDataRequestDto request = new CipherDataRequestDto();
-        request.setCipherAttributes(List.of());
+        request.setCipherAttributes(List.of(EncryptionAlgorithmAttribute.request(CIPHER_ALGORITHM)));
         CipherRequestData item = new CipherRequestData();
         item.setData(DATA);
         request.setCipherData(List.of(item));
         return request;
+    }
+
+    private static String cipherSchema() throws Exception {
+        BaseAttribute algorithmDefinition = EncryptionAlgorithmAttribute.definition(List.of(CIPHER_ALGORITHM));
+        return ObjectMapperFactory.wire().writeValueAsString(List.of(algorithmDefinition));
+    }
+
+    private static String cipherAlgorithmSelection() throws Exception {
+        List<RequestAttribute> selection = List.of(EncryptionAlgorithmAttribute.request(CIPHER_ALGORITHM));
+        String selectionJson = ObjectMapperFactory.wire().writeValueAsString(selection);
+        return "{\"cipherAttributes\":" + selectionJson + "}";
     }
 
     @Test

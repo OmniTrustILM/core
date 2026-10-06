@@ -19,7 +19,9 @@ import com.otilm.core.dao.repository.cbom.CryptoAssetReferenceRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
 import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.model.cbom.CbomHeaderCounts;
+import com.otilm.core.model.cbom.CryptoAssetReferenceKind;
 import com.otilm.core.model.cbom.PqcStaleVerdictRow;
+import com.otilm.core.model.cbom.ResolvedAssetReference;
 import com.otilm.core.service.writer.cbom.CbomAssetSyncStateWriter;
 import com.otilm.core.service.writer.cbom.CbomHeaderCountsWriter;
 import com.otilm.core.service.writer.cbom.CbomIngestFindingWriter;
@@ -29,6 +31,7 @@ import com.otilm.core.service.writer.cbom.CryptoAssetSourceWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetWriter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.OffsetDateTime;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -91,7 +94,7 @@ class CbomAssetIngestServiceTest {
 
         assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
         verify(assetWriter, times(2)).upsertIdentity(anyString(), any(), any());
-        verify(sourceWriter, times(2)).upsertSource(any(), eq(CBOM), any(), any(), anyInt(), eq(SEEN_AT));
+        verify(sourceWriter, times(2)).upsertSource(any(), eq(CBOM), any(), any(), anyInt(), any(), eq(SEEN_AT));
         verify(stateWriter).markInProgress(CBOM);
         verify(stateWriter).markSynced(CBOM, SEEN_AT);
         verify(stateWriter, never()).markFailed(any(), anyString());
@@ -342,7 +345,7 @@ class CbomAssetIngestServiceTest {
 
         assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
         InOrder order = inOrder(sourceWriter, detachService, stateWriter);
-        order.verify(sourceWriter, atLeastOnce()).upsertSource(any(), eq(CBOM), any(), any(), anyInt(), any());
+        order.verify(sourceWriter, atLeastOnce()).upsertSource(any(), eq(CBOM), any(), any(), anyInt(), any(), any());
         order.verify(detachService).withdraw(earlier, POLICY.assetBatchSize());
         order.verify(stateWriter).markSynced(CBOM, SEEN_AT);
     }
@@ -425,10 +428,66 @@ class CbomAssetIngestServiceTest {
         ArgumentCaptor<Integer> occurrences = ArgumentCaptor.forClass(Integer.class);
         ArgumentCaptor<List<Map<String, Object>>> evidence = ArgumentCaptor.forClass(List.class);
         verify(sourceWriter, times(1))
-                .upsertSource(any(), eq(CBOM), any(), evidence.capture(), occurrences.capture(), eq(SEEN_AT));
+                .upsertSource(any(), eq(CBOM), any(), evidence.capture(), occurrences.capture(), any(), eq(SEEN_AT));
         verify(assetWriter, times(1)).upsertIdentity(anyString(), any(), any());
         assertThat(occurrences.getValue()).isEqualTo(2);
         assertThat(evidence.getValue()).hasSize(2);
+    }
+
+    /** The refs travel with the asset to its source row, folded per asset: they are what the CBOM page links by. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void eachAssetsFoldedBomRefsReachItsSourceRow() {
+        when(synchronizer.tryLock(LOCK_KEY)).thenReturn(true);
+        whenUpsertReturnsAFreshUuid();
+
+        ingest(CbomIngestTestFixtures
+                .documentOf(CbomIngestTestFixtures.algorithmWithRef("AES-256", "crypto/aes"),
+                        CbomIngestTestFixtures.algorithmWithRef("RSA-2048", "crypto/rsa"),
+                        CbomIngestTestFixtures.algorithmWithRef("AES-256", "crypto/aes-again")),
+                100);
+
+        ArgumentCaptor<List<String>> refs = ArgumentCaptor.forClass(List.class);
+        verify(sourceWriter, times(2))
+                .upsertSource(any(), eq(CBOM), any(), any(), anyInt(), refs.capture(), eq(SEEN_AT));
+        assertThat(refs.getAllValues())
+                .containsExactlyInAnyOrder(List.of("crypto/aes", "crypto/aes-again"), List.of("crypto/rsa"));
+    }
+
+    /**
+     * The row keeps only the refs it can store, and a reference still resolves through every ref the document defines:
+     * a certificate naming its signature algorithm by a ref too long to store finds that algorithm all the same. Each
+     * asset gets its own uuid, so a reference resolved to any other asset fails here.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void aRefTooLongToStoreIsLeftOffTheRowAndStillResolvesAReference() {
+        when(synchronizer.tryLock(anyString())).thenReturn(true);
+        final Map<String, UUID> uuidByKey = new HashMap<>();
+        when(assetWriter.upsertIdentity(anyString(), any(), any()))
+                .thenAnswer(call -> uuidByKey.computeIfAbsent(call.getArgument(0), key -> UUID.randomUUID()));
+        when(assetRepository.findUuidByIdentityKey(anyString()))
+                .thenAnswer(call -> Optional.ofNullable(uuidByKey.get(call.<String>getArgument(0))));
+        final String tooLong = "a".repeat(CbomAssetExtractor.ExtractedAsset.MAX_BOM_REF_LENGTH + 1);
+        final JsonNode document = CbomIngestTestFixtures
+                .documentOf(CbomIngestTestFixtures.algorithmWithRef("SHA256withRSA", tooLong),
+                        certificateSignedWith(tooLong));
+
+        ingest(document, 100);
+
+        final UUID algorithm = uuidByKey.get(keyOfComponentNamed(document, "SHA256withRSA"));
+        final UUID certificate = uuidByKey.get(keyOfComponentNamed(document, "example.com"));
+        assertThat(algorithm).isNotNull().isNotEqualTo(certificate);
+        ArgumentCaptor<List<String>> refs = ArgumentCaptor.forClass(List.class);
+        verify(sourceWriter, times(2))
+                .upsertSource(any(), eq(CBOM), any(), any(), anyInt(), refs.capture(), eq(SEEN_AT));
+        assertThat(refs.getAllValues()).containsExactlyInAnyOrder(List.of(), List.of("cert"));
+        ArgumentCaptor<List<ResolvedAssetReference>> resolved = ArgumentCaptor.forClass(List.class);
+        verify(referenceWriter).replaceReferences(eq(certificate), eq(CBOM), eq(SEEN_AT), resolved.capture());
+        assertThat(resolved.getValue())
+                .filteredOn(reference -> reference.kind() == CryptoAssetReferenceKind.SIGNATURE_ALGORITHM)
+                .singleElement()
+                .satisfies(reference -> assertThat(reference.targetAssetUuid()).isEqualTo(algorithm));
     }
 
     /**
@@ -747,6 +806,18 @@ class CbomAssetIngestServiceTest {
         return new CbomAssetExtractor(new CryptoAssetIdentity(new AssetNormalizer(IdentityTables.load())));
     }
 
+    /** How the real extractor keys the named component, so a test can tell the document's assets apart. */
+    private static String keyOfComponentNamed(JsonNode document, String componentName) {
+        return realExtractor()
+                .extract(document)
+                .assets()
+                .stream()
+                .filter(asset -> componentName.equals(asset.componentName()))
+                .map(CbomAssetExtractor.ExtractedAsset::identityKey)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("no component named " + componentName));
+    }
+
     private void whenUpsertReturnsAFreshUuid() {
         when(assetWriter.upsertIdentity(anyString(), any(), any())).thenAnswer(call -> UUID.randomUUID());
     }
@@ -795,6 +866,13 @@ class CbomAssetIngestServiceTest {
                 .read("{\"components\":[{\"type\":\"cryptographic-asset\",\"bom-ref\":\"cert\",\"name\":\"example.com\","
                         + "\"cryptoProperties\":{\"assetType\":\"certificate\",\"certificateProperties\":{"
                         + "\"subjectName\":\"CN=example.com,O=Example\",\"issuerName\":\"CN=Example CA,O=Example\"}}}]}");
+    }
+
+    private static String certificateSignedWith(String signatureAlgorithmRef) {
+        return "{\"type\":\"cryptographic-asset\",\"bom-ref\":\"cert\",\"name\":\"example.com\","
+                + "\"cryptoProperties\":{\"assetType\":\"certificate\",\"certificateProperties\":{"
+                + "\"subjectName\":\"CN=example.com,O=Example\",\"issuerName\":\"CN=Example CA,O=Example\","
+                + "\"signatureAlgorithmRef\":\"" + signatureAlgorithmRef + "\"}}}";
     }
 
     private static JsonNode twoAlgorithms() {

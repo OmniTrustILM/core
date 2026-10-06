@@ -53,6 +53,7 @@ import com.otilm.core.attribute.engine.OutboundSecretContainment;
 import com.otilm.core.attribute.engine.OutboundSecretLeakException;
 import com.otilm.core.client.CryptographyV2ApiClients;
 import com.otilm.core.dao.entity.KeyImportState;
+import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.key.normalization.NormalizedKey;
 import com.otilm.core.messaging.proxy.ConnectorAuthConverter;
 import com.otilm.core.messaging.proxy.CoreMessageProducer;
@@ -743,8 +744,9 @@ class KeyProviderV2AdapterImportTest {
         AttributeEngine attributes = mock(AttributeEngine.class);
         when(attributes.getRequestObjectDataAttributesContent(any())).thenReturn(List.of());
         return new KeyProviderV2Adapter(apiClients, target, attributes, resolver,
-                new OutboundSecretContainment(new ObjectMapper()), new ConnectorCapabilityService(),
-                RESPONSE_VALIDATOR);
+                new OutboundSecretContainment(new ObjectMapper()), new ConnectorCapabilityService(), RESPONSE_VALIDATOR,
+                mock(CryptographicKeyRepository.class), scope -> {
+                });
     }
 
     /**

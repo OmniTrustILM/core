@@ -9,6 +9,7 @@ import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.cbom.CbomContributedAssetDto;
 import com.otilm.api.model.core.cbom.CbomDetailDto;
 import com.otilm.api.model.core.cbom.CbomDto;
 import com.otilm.api.model.core.cbom.CbomSyncSkipDto;
@@ -53,6 +54,14 @@ public class CbomControllerImpl implements CbomController {
     @AuditLogged(module = Module.CORE, resource = Resource.CBOM, operation = Operation.LIST_VERSIONS)
     public List<CbomDto> listCbomVersions(@LogResource(uuid = true) UUID uuid) throws NotFoundException {
         return cbomService.getCbomVersions(SecuredUUID.fromUUID(uuid));
+    }
+
+    @Override
+    @AuditLogged(module = Module.CORE, resource = Resource.CRYPTO_ASSET, affiliatedResource = Resource.CBOM,
+            operation = Operation.LIST)
+    public PaginationResponseDto<CbomContributedAssetDto> listCbomAssets(
+            @LogResource(uuid = true, affiliated = true) UUID uuid, SearchRequestDto request) throws NotFoundException {
+        return cbomService.listCbomAssets(SecuredUUID.fromUUID(uuid), request, SecurityFilter.create());
     }
 
     @Override

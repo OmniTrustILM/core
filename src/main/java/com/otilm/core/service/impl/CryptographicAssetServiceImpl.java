@@ -8,6 +8,7 @@ import com.otilm.api.model.client.dashboard.CryptographicAssetStatisticsDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.cbom.CbomContributedAssetDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetDetailDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetEvidenceDto;
@@ -37,6 +38,7 @@ import com.otilm.core.cbom.pqc.PqcVerdictExplainer;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.dao.entity.Cbom;
 import com.otilm.core.dao.entity.Cbom_;
+import com.otilm.core.dao.entity.UniquelyIdentifiedAndAudited_;
 import com.otilm.core.dao.entity.UniquelyIdentified_;
 import com.otilm.core.dao.entity.cbom.CryptoAsset;
 import com.otilm.core.dao.entity.cbom.CryptoAssetSource;
@@ -47,10 +49,12 @@ import com.otilm.core.dao.repository.SortSpecification;
 import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetSourceRepository;
 import com.otilm.core.enums.FilterField;
+import com.otilm.core.mapper.workflows.PaginationResponseMapper;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.cbom.CryptoAssetCounts;
 import com.otilm.core.model.cbom.CryptoAssetIdentityGuard;
 import com.otilm.core.model.cbom.CryptoAssetListRow;
+import com.otilm.core.model.cbom.CryptoAssetSourceBomRefsRow;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.ObjectFilterAspect;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -177,12 +181,36 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
     @ExternalAuthorization(resource = Resource.CRYPTO_ASSET, action = ResourceAction.LIST)
     public PaginationResponseDto<CryptographicAssetDto> listCryptographicAssets(SecurityFilter filter,
             SearchRequestDto request) {
+        return findInventoryPage(filter, request, null,
+                uuids -> loadRows(uuids).stream().map(CryptographicAssetServiceImpl::toDto).toList());
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.CRYPTO_ASSET, action = ResourceAction.LIST)
+    public PaginationResponseDto<CbomContributedAssetDto> listCbomContributedAssets(UUID cbomUuid,
+            SearchRequestDto request, SecurityFilter filter) {
+        return findInventoryPage(filter, request, (root, cb, query) -> contributedBy(cbomUuid, root, cb, query),
+                uuids -> loadContributedRows(cbomUuid, uuids));
+    }
+
+    /**
+     * The one query pipeline behind every listing in the inventory's shape, so they validate, filter, order, count and
+     * project alike and a client pages them the same way. {@code scope} narrows the inventory before the request's
+     * filters apply, or is {@code null} for the whole inventory; it must keep the plain count below correct, as an
+     * EXISTS does and a join would not. {@code rowsOf} serves the page's uuids as the operation's rows, in page order.
+     */
+    private <T extends CryptographicAssetDto> PaginationResponseDto<T> findInventoryPage(SecurityFilter filter,
+            SearchRequestDto request,
+            TriFunction<Root<CryptoAsset>, CriteriaBuilder, CriteriaQuery<?>, Predicate> scope,
+            Function<List<UUID>, List<T>> rowsOf) {
         RequestValidatorHelper.revalidateSearchRequestDto(request, Resource.CRYPTO_ASSET);
         validatePaging(request);
         final Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
-        TriFunction<Root<CryptoAsset>, CriteriaBuilder, CriteriaQuery<?>, Predicate> where = (root, cb,
-                criteriaQuery) -> FilterPredicatesBuilder
-                        .getFiltersPredicate(cb, criteriaQuery, root, request.getFilters(), contentFilter);
+        TriFunction<Root<CryptoAsset>, CriteriaBuilder, CriteriaQuery<?>, Predicate> where = (root, cb, query) -> {
+            Predicate filters = FilterPredicatesBuilder
+                    .getFiltersPredicate(cb, query, root, request.getFilters(), contentFilter);
+            return scope == null ? filters : cb.and(scope.apply(root, cb, query), filters);
+        };
         Pageable page = PageRequest.of(request.getPageNumber() - 1, request.getItemsPerPage());
         SortSpecification sort = listingSortResolver.resolve(Resource.CRYPTO_ASSET, request.getSort(), contentFilter);
         // A column whose cell serves a derived value is ordered by that value rather than resolved by the repository
@@ -199,17 +227,62 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
         // the resource declares no groups or owner, so no query shape can duplicate a root row -- and
         // count(DISTINCT) forfeits parallel aggregation, which at millions of rows is seconds per page request.
         long totalItems = cryptoAssetRepository.countRowsUsingSecurityFilter(filter, where);
-        PaginationResponseDto<CryptographicAssetDto> response = new PaginationResponseDto<>();
-        List<CryptographicAssetDto> items = loadPage(pageUuids);
+        List<T> items = rowsOf.apply(pageUuids);
         attributeColumnProjector
                 .project(Resource.CRYPTO_ASSET, request.getColumns(), items, CryptographicAssetDto::getUuid,
                         contentFilter);
-        response.setItems(items);
-        response.setItemsPerPage(request.getItemsPerPage());
-        response.setPageNumber(request.getPageNumber());
-        response.setTotalItems(totalItems);
-        response.setTotalPages((int) Math.ceil((double) totalItems / request.getItemsPerPage()));
-        return response;
+        return PaginationResponseMapper.toDto(items, request.getPageNumber(), request.getItemsPerPage(), totalItems);
+    }
+
+    /**
+     * {@link #contributesToAsset} read from the asset side: the source row linking this asset to the given CBOM. An
+     * EXISTS rather than a join, for the reason {@code FilterField.CBOM_ASSET_SOURCE_CBOM} gives -- the uuid page query
+     * has no DISTINCT, and the plain count depends on nothing duplicating a root row. Keyed on the CBOM's uuid, not its
+     * serial number, so the page is one version's contribution.
+     */
+    private static Predicate contributedBy(UUID cbomUuid, Root<CryptoAsset> root, CriteriaBuilder cb,
+            CriteriaQuery<?> query) {
+        Subquery<Integer> contributed = query.subquery(Integer.class);
+        Root<CryptoAssetSource> source = contributed.from(CryptoAssetSource.class);
+        contributed
+                .select(cb.literal(1))
+                .where(cb.equal(source.get(CryptoAssetSource_.assetUuid), root.get(UniquelyIdentifiedAndAudited_.uuid)),
+                        cb.equal(source.get(CryptoAssetSource_.cbomUuid), cbomUuid));
+        return cb.exists(contributed);
+    }
+
+    private List<CbomContributedAssetDto> loadContributedRows(UUID cbomUuid, List<UUID> pageUuids) {
+        Map<UUID, List<String>> bomRefsByAsset = bomRefsByAsset(cbomUuid, pageUuids);
+        return contributedRows(loadRows(pageUuids), bomRefsByAsset);
+    }
+
+    /**
+     * Joins the page's rows to this CBOM's refs, leaving out a row the refs did not come back for: this CBOM's source
+     * row for it was withdrawn after the page was read -- a newer version superseded the CBOM, or it was deleted -- so
+     * the asset is no longer its contribution. Every source row carries its refs, empty or not, so a missing entry
+     * means a missing source row, never an asset without refs. The page's {@code totalItems} was counted earlier, so it
+     * can still include a row left out here.
+     */
+    static List<CbomContributedAssetDto> contributedRows(List<CryptoAssetListRow> rows,
+            Map<UUID, List<String>> bomRefsByAsset) {
+        return rows
+                .stream()
+                .filter(row -> bomRefsByAsset.containsKey(row.uuid()))
+                .map(row -> toContributedDto(row, bomRefsByAsset.get(row.uuid())))
+                .toList();
+    }
+
+    private Map<UUID, List<String>> bomRefsByAsset(UUID cbomUuid, List<UUID> assetUuids) {
+        if (assetUuids.isEmpty()) {
+            return Map.of();
+        }
+        return cryptoAssetSourceRepository
+                .findBomRefsByCbomUuidAndAssetUuids(cbomUuid, assetUuids)
+                .stream()
+                // One row per asset while uq_crypto_asset_source stands; a second would otherwise fail the whole page.
+                .collect(Collectors
+                        .toMap(CryptoAssetSourceBomRefsRow::assetUuid, CryptoAssetSourceBomRefsRow::bomRefs,
+                                (first, second) -> first));
     }
 
     @Override
@@ -579,7 +652,8 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
                 .toList();
     }
 
-    private List<CryptographicAssetDto> loadPage(List<UUID> pageUuids) {
+    /** The list rows for a page of uuids, in the page's order; a uuid whose row vanished in between is skipped. */
+    private List<CryptoAssetListRow> loadRows(List<UUID> pageUuids) {
         if (pageUuids.isEmpty()) {
             return List.of();
         }
@@ -587,13 +661,7 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
                 .findListRowsByUuids(pageUuids)
                 .stream()
                 .collect(Collectors.toMap(CryptoAssetListRow::uuid, Function.identity()));
-        return pageUuids
-                .stream()
-                // A uuid whose row vanished between the page and projection queries is skipped rather than failed.
-                .map(rowsByUuid::get)
-                .filter(Objects::nonNull)
-                .map(CryptographicAssetServiceImpl::toDto)
-                .collect(Collectors.toList());
+        return pageUuids.stream().map(rowsByUuid::get).filter(Objects::nonNull).toList();
     }
 
     /**
@@ -682,7 +750,16 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
     }
 
     private static CryptographicAssetDto toDto(CryptoAssetListRow row) {
-        CryptographicAssetDto dto = new CryptographicAssetDto();
+        return fill(new CryptographicAssetDto(), row);
+    }
+
+    private static CbomContributedAssetDto toContributedDto(CryptoAssetListRow row, List<String> bomRefs) {
+        CbomContributedAssetDto dto = fill(new CbomContributedAssetDto(), row);
+        dto.setBomRefs(bomRefs);
+        return dto;
+    }
+
+    private static <T extends CryptographicAssetDto> T fill(T dto, CryptoAssetListRow row) {
         dto.setUuid(row.uuid());
         // The contract marks name REQUIRED and the wire mapper drops nulls, so a nameless producer row serves its
         // recorded OID unless that OID is refuted. A row with no servable label at all serializes without the
