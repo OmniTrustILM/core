@@ -23,20 +23,33 @@ public interface AttributeContentItemRepository extends JpaRepository<AttributeC
     void deleteByAttributeDefinitionTypeAndAttributeDefinitionConnectorUuid(AttributeType attributeType,
             UUID connectorUuid);
 
-    /**
-     * Stores a plaintext value for a definition unless the definition already holds it, in which case nothing is
-     * written. A concurrent writer of the same value makes this wait for its transaction, then write nothing.
-     *
-     * @param json the value rendered as the entity mapping renders the {@code json} column
-     * @return 1 when this call stored the value, 0 when the definition already held it
-     */
+    /** A stored row read as a value, without placing the row in the persistence context. */
+    interface StoredValue {
+
+        UUID getUuid();
+
+        AttributeContent getJson();
+
+        String getEncryptedData();
+    }
+
+    List<StoredValue> findByAttributeDefinitionUuidAndEncryptedDataIsNotNull(UUID definitionUuid);
+
+    @Query("SELECT aci.uuid FROM AttributeContentItem aci WHERE aci.json = :json AND aci.attributeDefinitionUuid = :definitionUuid")
+    UUID findUuidByJsonAndAttributeDefinitionUuid(@Param("json") AttributeContent json,
+            @Param("definitionUuid") UUID definitionUuid);
+
+    /** Replaces an encrypted row's placeholder with its plaintext value. */
     @Modifying
     @Query(value = """
-            INSERT INTO {h-schema}attribute_content_item (uuid, attribute_definition_uuid, json)
-            VALUES (:uuid, :definitionUuid, CAST(:json AS jsonb))
-            ON CONFLICT (attribute_definition_uuid, json_hash) DO NOTHING
+            UPDATE {h-schema}attribute_content_item
+               SET json = CAST(:json AS jsonb), encrypted_data = NULL
+             WHERE uuid = :uuid
             """, nativeQuery = true)
-    int insertIfAbsent(@Param("uuid") UUID uuid, @Param("definitionUuid") UUID definitionUuid,
-            @Param("json") String json);
+    int storePlaintext(@Param("uuid") UUID uuid, @Param("json") String json);
+
+    @Modifying
+    @Query(value = "DELETE FROM {h-schema}attribute_content_item WHERE uuid = :uuid", nativeQuery = true)
+    int deleteItem(@Param("uuid") UUID uuid);
 
 }

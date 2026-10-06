@@ -780,29 +780,23 @@ public class AttributeEngine {
             }
             if (newProtectionLevel != ProtectionLevel.ENCRYPTED
                     && attributeDefinition.getProtectionLevel() == ProtectionLevel.ENCRYPTED) {
-                // if changing from ENCRYPTED to NONE, we need to decrypt existing content
-                List<AttributeContentItem> contents = attributeContentItemRepository
-                        .findByAttributeDefinitionUuid(attributeDefinition.getUuid());
-                for (AttributeContentItem contentItem : contents) {
-                    if (contentItem.getEncryptedData() == null) {
-                        continue;
-                    }
+                // if changing from ENCRYPTED to NONE, we need to decrypt existing content. Encrypted values are stored
+                // once per object, so objects sharing a value decrypt to the same content; a plaintext value has one
+                // row per definition, so such rows fold onto it. Rows are read as values and written with statements,
+                // never held in the session, which would walk every one of them again on each statement.
+                for (AttributeContentItemRepository.StoredValue encrypted : attributeContentItemRepository
+                        .findByAttributeDefinitionUuidAndEncryptedDataIsNotNull(attributeDefinition.getUuid())) {
                     AttributeContent plaintext = AttributeVersionHelper
-                            .decryptContent(contentItem.getJson(), attributeDefinition.getVersion(),
-                                    attributeDefinition.getContentType(), contentItem.getEncryptedData());
-                    // Encrypted values are stored once per object, so objects sharing a value decrypt to the same
-                    // content. A plaintext value has one row per definition: fold this one onto it.
-                    AttributeContentItem existing = attributeContentItemRepository
-                            .findByJsonAndAttributeDefinitionUuid(plaintext, attributeDefinition.getUuid());
-                    if (existing != null) {
-                        attributeContentItemWriter.moveMappings(contentItem.getUuid(), existing.getUuid());
-                        attributeContentItemRepository.delete(contentItem);
-                        continue;
+                            .decryptContent(encrypted.getJson(), attributeDefinition.getVersion(),
+                                    attributeDefinition.getContentType(), encrypted.getEncryptedData());
+                    UUID existing = attributeContentItemRepository
+                            .findUuidByJsonAndAttributeDefinitionUuid(plaintext, attributeDefinition.getUuid());
+                    if (existing == null) {
+                        attributeContentItemWriter.storePlaintext(encrypted.getUuid(), plaintext);
+                    } else if (!existing.equals(encrypted.getUuid())) {
+                        // equal when a concurrent switch already stored this very row as plaintext
+                        attributeContentItemWriter.foldInto(encrypted.getUuid(), existing);
                     }
-                    contentItem.setJson(plaintext);
-                    contentItem.setEncryptedData(null);
-                    // Flushed now, so the next row decrypting to this value finds it.
-                    attributeContentItemRepository.saveAndFlush(contentItem);
                 }
             }
         }

@@ -18,6 +18,7 @@ import com.otilm.api.model.common.attribute.v3.content.TextAttributeContentV3;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
+import com.otilm.core.dao.entity.AttributeContentItem;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.repository.AttributeContentItemRepository;
@@ -26,11 +27,14 @@ import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.service.handler.CertificateHandler;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.SqlCapture;
+import jakarta.persistence.EntityManagerFactory;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -39,6 +43,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import javax.sql.DataSource;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -46,6 +52,7 @@ import org.springframework.security.concurrent.DelegatingSecurityContextExecutor
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 /**
@@ -72,6 +79,8 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
     private CertificateHandler certificateHandler;
     @Autowired
     private AttributeDefinitionRepository attributeDefinitionRepository;
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
 
     @Test
     void registeringDiscoveredMetadataStoresTheDefinitionButNoValues() {
@@ -212,6 +221,71 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
         UUID third = newCertificate();
         write(third, definitionUuid, SHARED_VALUE);
         Assertions.assertEquals(List.of(SHARED_VALUE), storedValues(third, "secretProfile"));
+    }
+
+    /**
+     * Turning encryption off on a widely used attribute must stay linear: a session holding every row of the definition
+     * walks them all again on each statement the fold issues.
+     */
+    @Test
+    void turningEncryptionOffLeavesTheRowsOutOfTheSession() throws Exception {
+        CustomAttributeV3 attribute = customAttribute("secretProfile", AttributeContentType.STRING,
+                ProtectionLevel.ENCRYPTED);
+        UUID definitionUuid = attributeEngine
+                .updateCustomAttributeDefinition(attribute, List.of(Resource.CERTIFICATE))
+                .getUuid();
+        List<UUID> certificates = new ArrayList<>();
+        for (int i = 0; i < 120; i++) {
+            UUID certificateUuid = newCertificate();
+            certificates.add(certificateUuid);
+            write(certificateUuid, definitionUuid, "value-" + (i % 2));
+        }
+        attribute.getProperties().setProtectionLevel(ProtectionLevel.NONE);
+
+        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        boolean statisticsWereEnabled = statistics.isStatisticsEnabled();
+        statistics.setStatisticsEnabled(true);
+        statistics.clear();
+        try {
+            attributeEngine.updateCustomAttributeDefinition(attribute, List.of(Resource.CERTIFICATE));
+
+            Assertions
+                    .assertEquals(0,
+                            statistics.getEntityStatistics(AttributeContentItem.class.getName()).getLoadCount(),
+                            "the switch reads rows as values, not as managed entities");
+        } finally {
+            statistics.setStatisticsEnabled(statisticsWereEnabled);
+        }
+        Assertions.assertEquals(2, attributeContentItemRepository.count());
+        Assertions.assertEquals(List.of("value-0"), storedValues(certificates.getFirst(), "secretProfile"));
+        Assertions.assertEquals(List.of("value-1"), storedValues(certificates.getLast(), "secretProfile"));
+    }
+
+    /**
+     * Upload, issuance and protocol paths queue their own writes around an attribute write; storing a new value must
+     * not flush them early.
+     */
+    @Test
+    void storingANewValueLeavesUnrelatedPendingWritesQueued() throws Exception {
+        UUID definitionUuid = createAttribute("profile", AttributeContentType.STRING, ProtectionLevel.NONE);
+        UUID certificateUuid = newCertificate();
+
+        List<String> statements = new TransactionTemplate(transactionManager).execute(status -> {
+            Connector pending = new Connector();
+            pending.setVersion(ConnectorVersion.V1);
+            connectorRepository.save(pending);
+            try {
+                return SqlCapture.during(() -> {
+                    write(certificateUuid, definitionUuid, SHARED_VALUE);
+                    return null;
+                }).statements();
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
+        });
+
+        assertThat(statements).noneMatch(sql -> sql.toLowerCase().matches("(?s)insert into \\S*connector\\s*\\(.*"));
+        Assertions.assertEquals(1, attributeContentItemRepository.count());
     }
 
     private boolean aWriterWaitsOnALock() throws SQLException {
