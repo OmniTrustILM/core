@@ -23,6 +23,8 @@ class DiscoveryProtectedMetadataMigrationITest extends BaseSpringBootTest {
     private static final String SCRATCH_SCHEMA = "discovery_protected_metadata_migration_check";
     private static final String FINISHED = "40000000-0000-0000-0000-000000000001";
     private static final String RUNNING = "40000000-0000-0000-0000-000000000002";
+    // A stopped v2 run can be resumed, and its staged rows are imported then.
+    private static final String STOPPED = "40000000-0000-0000-0000-000000000003";
     private static final String META = """
             [{"name": "host", "properties": {"protectionLevel": "none"}, "content": [{"data": "web-1"}]},
              {"name": "token", "properties": {"protectionLevel": "encrypted"}, "content": [{"data": "s3cr3t"}]}]
@@ -38,7 +40,7 @@ class DiscoveryProtectedMetadataMigrationITest extends BaseSpringBootTest {
     private DataSource dataSource;
 
     @Test
-    void finishedDiscoveriesLoseTheirEncryptedAttributesAndRunningOnesKeepThem() throws Exception {
+    void finishedDiscoveriesLoseTheirEncryptedAttributesAndResumableOnesKeepThem() throws Exception {
         try (Connection connection = dataSource.getConnection()) {
             try (Statement statement = connection.createStatement()) {
                 statement.execute("DROP SCHEMA IF EXISTS " + SCRATCH_SCHEMA + " CASCADE");
@@ -47,9 +49,9 @@ class DiscoveryProtectedMetadataMigrationITest extends BaseSpringBootTest {
                 statement.execute(TABLE_STUBS);
                 statement
                         .execute("INSERT INTO discovery VALUES ('" + FINISHED + "', 'COMPLETED'), ('" + RUNNING
-                                + "', 'PROCESSING')");
+                                + "', 'PROCESSING'), ('" + STOPPED + "', 'STOPPED')");
                 for (String table : new String[]{"discovery_certificate", "discovery_item"}) {
-                    for (String discovery : new String[]{FINISHED, RUNNING}) {
+                    for (String discovery : new String[]{FINISHED, RUNNING, STOPPED}) {
                         statement
                                 .execute("INSERT INTO " + table + " VALUES (gen_random_uuid(), '" + discovery + "', '"
                                         + META + "')");
@@ -63,6 +65,7 @@ class DiscoveryProtectedMetadataMigrationITest extends BaseSpringBootTest {
                 for (String table : new String[]{"discovery_certificate", "discovery_item"}) {
                     assertThat(names(statement, table, FINISHED)).isEqualTo("host");
                     assertThat(names(statement, table, RUNNING)).isEqualTo("host,token");
+                    assertThat(names(statement, table, STOPPED)).isEqualTo("host,token");
                     statement.execute("UPDATE " + table + " SET protected_meta = 'sealed'");
                 }
             } finally {

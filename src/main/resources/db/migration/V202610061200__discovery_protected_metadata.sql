@@ -4,7 +4,8 @@ ALTER TABLE "discovery_certificate" ADD COLUMN "protected_meta" VARCHAR;
 ALTER TABLE "discovery_item" ADD COLUMN "protected_meta" VARCHAR;
 
 -- Rows of finished discoveries are never imported again, so their copies of encrypted attributes go; the objects
--- they were imported into keep those values, encrypted. Rows of a discovery still running keep theirs for the import.
+-- they were imported into keep those values, encrypted. Rows of a discovery that can still import keep theirs: one
+-- still running, or a stopped run, which can be resumed.
 UPDATE "discovery_certificate" AS "staged"
    SET "meta" = (SELECT COALESCE(jsonb_agg("element"."attribute" ORDER BY "element"."position"), '[]'::jsonb)
                    FROM jsonb_array_elements("staged"."meta") WITH ORDINALITY AS "element"("attribute", "position")
@@ -12,7 +13,7 @@ UPDATE "discovery_certificate" AS "staged"
  WHERE jsonb_typeof("staged"."meta") = 'array'
    AND jsonb_path_exists("staged"."meta", '$[*] ? (@.properties.protectionLevel == "encrypted")')
    AND "staged"."discovery_uuid" IN (SELECT "uuid" FROM "discovery"
-                                      WHERE "status" IN ('COMPLETED', 'WARNING', 'FAILED', 'STOPPED', 'CANCELLED'));
+                                      WHERE "status" IN ('COMPLETED', 'WARNING', 'FAILED', 'CANCELLED'));
 
 UPDATE "discovery_item" AS "staged"
    SET "meta" = (SELECT COALESCE(jsonb_agg("element"."attribute" ORDER BY "element"."position"), '[]'::jsonb)
@@ -21,4 +22,4 @@ UPDATE "discovery_item" AS "staged"
  WHERE jsonb_typeof("staged"."meta") = 'array'
    AND jsonb_path_exists("staged"."meta", '$[*] ? (@.properties.protectionLevel == "encrypted")')
    AND "staged"."discovery_uuid" IN (SELECT "uuid" FROM "discovery"
-                                      WHERE "status" IN ('COMPLETED', 'WARNING', 'FAILED', 'STOPPED', 'CANCELLED'));
+                                      WHERE "status" IN ('COMPLETED', 'WARNING', 'FAILED', 'CANCELLED'));
