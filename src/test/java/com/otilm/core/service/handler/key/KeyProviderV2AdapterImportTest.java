@@ -71,6 +71,7 @@ import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.OperationAttributeResolver;
+import com.otilm.core.util.PqcKeyFixtures;
 import jakarta.validation.Validation;
 import java.io.IOException;
 import java.security.KeyPairGenerator;
@@ -106,7 +107,69 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+/**
+ * Verifies import answers and secret containment at the v2 connector boundary.
+ */
 class KeyProviderV2AdapterImportTest {
+
+    @Test
+    void importKey_preservesAbsentLength_forSynchronousPqcPair() throws Exception {
+        // given
+        KeyPairDataResponseV2Dto response = PqcKeyFixtures.response(PqcKeyFixtures.keyPair());
+        when(client.importKey(eq(connector), any())).thenReturn(ResponseEntity.ok(response));
+
+        // when
+        ImportAnswer answer = adapter
+                .importKey(terms(List.of(FeatureFlag.KEY_IMPORT), false), attempt(), normalizedKey(), "pqc");
+
+        // then
+        assertPqcWithoutLength(answer);
+    }
+
+    @Test
+    void importKeyStatus_preservesAbsentLength_forCompletedPqcPair() throws Exception {
+        // given
+        KeyPairOperationStatusResponseV2Dto response = completedPqcImport();
+        when(client.getImportKeyStatus(eq(connector), any())).thenReturn(response);
+
+        // when
+        ImportAnswer answer = adapter
+                .importKeyStatus(profile(List.of(FeatureFlag.KEY_IMPORT)), metadata("operation"), sentSecretDigests(),
+                        "pqc");
+
+        // then
+        assertPqcWithoutLength(answer);
+    }
+
+    @Test
+    void importKeyResult_preservesAbsentLength_forRecoveredPqcPair() throws Exception {
+        // given
+        KeyPairOperationStatusResponseV2Dto response = completedPqcImport();
+        when(client.getImportKeyResult(eq(connector), any())).thenReturn(response);
+
+        // when
+        ImportAnswer answer = adapter
+                .importKeyResult(profile(List.of(FeatureFlag.KEY_IMPORT)), UUID.randomUUID(), sentSecretDigests(),
+                        "pqc");
+
+        // then
+        assertPqcWithoutLength(answer);
+    }
+
+    private static KeyPairOperationStatusResponseV2Dto completedPqcImport() throws Exception {
+        KeyPairOperationStatusResponseV2Dto response = new KeyPairOperationStatusResponseV2Dto();
+        response.setStatus(OperationStatus.COMPLETED);
+        response.setResult(PqcKeyFixtures.response(PqcKeyFixtures.keyPair()));
+        return response;
+    }
+
+    private static void assertPqcWithoutLength(ImportAnswer answer) {
+        assertThat(answer).isInstanceOf(ImportAnswer.Imported.class);
+        assertThat(((ImportAnswer.Imported) answer).items()).hasSize(2).allSatisfy(item -> {
+            assertThat(item.algorithm()).isEqualTo(KeyAlgorithm.MLDSA);
+            assertThat(item.length()).isNull();
+        });
+    }
 
     private static final char[] TRANSPORT_PASSPHRASE = "transport-passphrase-of-forty-three-chars-x".toCharArray();
     private static final OperationResponseValidator RESPONSE_VALIDATOR = new OperationResponseValidator(

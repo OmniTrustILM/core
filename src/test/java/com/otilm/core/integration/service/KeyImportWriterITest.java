@@ -12,6 +12,7 @@ import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.cryptography.key.EditKeyRequestDto;
 import com.otilm.api.model.client.cryptography.key.KeyCompromiseReason;
+import com.otilm.api.model.client.cryptography.key.KeyRequestDto;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.AttributeType;
@@ -59,6 +60,7 @@ import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.KeyImportRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
+import com.otilm.core.mapper.crypto.CryptographicKeyDtoMapper;
 import com.otilm.core.model.connector.ImmutableConnectorInterface;
 import com.otilm.core.model.crypto.CryptographicKeyBasicModel;
 import com.otilm.core.model.crypto.CryptographicKeyFullModel;
@@ -85,6 +87,7 @@ import com.otilm.core.service.writer.CryptographicKeyWriter;
 import com.otilm.core.service.writer.KeyImportWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CryptographyUtil;
+import com.otilm.core.util.PqcKeyFixtures;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.Query;
@@ -126,6 +129,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+/**
+ * Verifies import registration, reconciliation and persistence against PostgreSQL.
+ */
 @SpringBootTest
 class KeyImportWriterITest extends BaseSpringBootTest {
 
@@ -775,6 +781,69 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         KeyImport completed = keyImportRepository.findById(attempt.uuid()).orElseThrow();
         assertThat(completed.getState()).isEqualTo(KeyImportState.COMPLETED);
         assertThat(completed.getKeyUuid()).isEqualTo(key.uuid());
+    }
+
+    @Test
+    void complete_persistsAbsentLength_forImportedPqcPair() throws Exception {
+        // given
+        TokenProfileFullModel profile = persistedProfile();
+        KeyPair pair = PqcKeyFixtures.keyPair();
+        KeyImportTerms terms = new KeyImportTerms(profile, KeyRequestType.KEY_PAIR, KeyAlgorithm.MLDSA,
+                fingerprintOf(pair), true, List.of(), new NameAndUuidDto(UUID.randomUUID().toString(), "requester"));
+        KeyImportAttempt attempt = keyImportWriter.open(terms, "retry-pqc", "imported key", SENT);
+        ImportedKeyRegistration registration = registration(profile, pair, attempt, Set.of(), List.of(),
+                KeyAlgorithm.MLDSA, null);
+
+        // when
+        ImportedKey imported = keyImportWriter.complete(attempt.uuid(), registration).orElseThrow();
+
+        // then
+        assertAbsentLengthsPersisted(imported.key().uuid());
+        assertThat(imported.key().items()).allSatisfy(item -> assertThat(item.length()).isNull());
+        assertThat(CryptographicKeyDtoMapper.getKeyItems(imported.key()))
+                .allSatisfy(item -> assertThat(item.getLength()).isNull());
+        assertThat(CryptographicKeyDtoMapper.getKeyItemsSummary(imported.key()))
+                .allSatisfy(item -> assertThat(item.getLength()).isNull());
+        assertThat(keyImportRepository.findById(attempt.uuid()).orElseThrow().getState())
+                .isEqualTo(KeyImportState.COMPLETED);
+    }
+
+    @Test
+    void createKeyWithItems_persistsAbsentLength_forCreatedPqcPair() throws Exception {
+        // given
+        TokenProfileFullModel profile = persistedProfile();
+        KeyPair pair = PqcKeyFixtures.keyPair();
+        KeyMaterial publicMaterial = new KeyMaterial(KeyFormat.SPKI,
+                Base64.getEncoder().encodeToString(pair.getPublic().getEncoded()));
+        ProviderKeyItem publicItem = new ProviderKeyItem("pqc public", KeyType.PUBLIC_KEY, KeyAlgorithm.MLDSA, null,
+                new RemoteKeyReference.MetadataReference(List.of(handle("public-handle", "p"))), publicMaterial,
+                List.of());
+        ProviderKeyItem privateItem = new ProviderKeyItem("pqc private", KeyType.PRIVATE_KEY, KeyAlgorithm.MLDSA, null,
+                new RemoteKeyReference.MetadataReference(List.of(handle("private-handle", "q"))), null, List.of());
+        List<ProviderKeyItem> items = List.of(publicItem, privateItem);
+        KeyRequestDto request = new KeyRequestDto();
+        request.setName("created pqc");
+        request.setAttributes(List.of());
+        request.setCustomAttributes(List.of());
+
+        // when
+        CryptographicKeyBasicModel created = cryptographicKeyWriter
+                .createKeyWithItems(request, profile, profile.tokenInstance(), items, false, true);
+
+        // then
+        assertAbsentLengthsPersisted(created.uuid());
+    }
+
+    private void assertAbsentLengthsPersisted(UUID keyUuid) {
+        assertThat(jdbcTemplate
+                .queryForObject(
+                        "SELECT is_nullable FROM information_schema.columns WHERE table_schema = current_schema() "
+                                + "AND table_name = 'cryptographic_key_item' AND column_name = 'length'",
+                        String.class))
+                .isEqualTo("YES");
+        assertThat(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(keyUuid))).hasSize(2).allSatisfy(item -> {
+            assertThat(item.getLength()).isNull();
+        });
     }
 
     /**
@@ -1699,14 +1768,20 @@ class KeyImportWriterITest extends BaseSpringBootTest {
 
     private static ImportedKeyRegistration registration(TokenProfileFullModel profile, KeyPair pair,
             KeyImportAttempt attempt, Set<UUID> groups, List<RequestAttribute> customAttributes) {
+        return registration(profile, pair, attempt, groups, customAttributes, KeyAlgorithm.RSA, 2048);
+    }
+
+    private static ImportedKeyRegistration registration(TokenProfileFullModel profile, KeyPair pair,
+            KeyImportAttempt attempt, Set<UUID> groups, List<RequestAttribute> customAttributes, KeyAlgorithm algorithm,
+            Integer length) {
         KeyMaterial publicMaterial = new KeyMaterial(KeyFormat.SPKI,
                 Base64.getEncoder().encodeToString(pair.getPublic().getEncoded()));
-        ProviderKeyItem publicKey = new ProviderKeyItem("imported key public key", KeyType.PUBLIC_KEY, KeyAlgorithm.RSA,
-                2048, new RemoteKeyReference.MetadataReference(List.of(handle("public-handle", "p"))), publicMaterial,
+        ProviderKeyItem publicKey = new ProviderKeyItem("imported key public key", KeyType.PUBLIC_KEY, algorithm,
+                length, new RemoteKeyReference.MetadataReference(List.of(handle("public-handle", "p"))), publicMaterial,
                 List.of());
-        ProviderKeyItem privateKey = new ProviderKeyItem("imported key private key", KeyType.PRIVATE_KEY,
-                KeyAlgorithm.RSA, 2048,
-                new RemoteKeyReference.MetadataReference(List.of(handle("private-handle", "q"))), null, List.of());
+        ProviderKeyItem privateKey = new ProviderKeyItem("imported key private key", KeyType.PRIVATE_KEY, algorithm,
+                length, new RemoteKeyReference.MetadataReference(List.of(handle("private-handle", "q"))), null,
+                List.of());
         return new ImportedKeyRegistration(profile, List.of(publicKey, privateKey), attempt.keyReference(),
                 fingerprintOf(pair), true,
                 new KeyImportMetadata("imported key", "imported for the test", groups, customAttributes),

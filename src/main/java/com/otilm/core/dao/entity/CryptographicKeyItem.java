@@ -108,7 +108,7 @@ public class CryptographicKeyItem extends UniquelyIdentified
     private String keyData;
 
     @Column(name = "length")
-    private int length;
+    private Integer length;
 
     @Column(name = "state")
     @Enumerated(EnumType.STRING)

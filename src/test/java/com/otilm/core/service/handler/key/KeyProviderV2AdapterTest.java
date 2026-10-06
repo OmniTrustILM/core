@@ -112,6 +112,7 @@ import com.otilm.core.model.crypto.TransferableKeyType;
 import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.OperationAttributeResolver;
 import com.otilm.core.util.ExportEnvelopeFixtures;
+import com.otilm.core.util.PqcKeyFixtures;
 import jakarta.validation.Validation;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -1659,6 +1660,25 @@ class KeyProviderV2AdapterTest {
     }
 
     @Test
+    void exportKey_validatesPqcPair_withoutLength() throws Exception {
+        // given
+        KeyPair pair = PqcKeyFixtures.keyPair();
+        byte[] envelope = ExportEnvelopeFixtures.pinnedEnvelope(pair.getPrivate(), PASSPHRASE);
+        ExportKeyResponseV2Dto response = exportResponse(envelope, pair.getPublic());
+        response.setKeyData(PqcKeyFixtures.response(pair).getPublicKeyData().getKeyData());
+        HeldKey held = new HeldKey(KeyRequestType.KEY_PAIR, KeyAlgorithm.MLDSA, null, pair.getPublic().getEncoded(),
+                null);
+        when(client.listExportKeyAttributes(any(), any())).thenReturn(List.of());
+        when(client.exportKey(any(), any())).thenReturn(response);
+
+        // when
+        byte[] exported = adapter.exportKey(v2KeyItem(metadata("handle")), held, passphrase(), List.of());
+
+        // then
+        assertArrayEquals(envelope, exported);
+    }
+
+    @Test
     void exportKey_statesTheKeysReferenceWhenCoreHoldsOne() throws Exception {
         // given
         KeyPair pair = rsaKeyPair();
@@ -1984,6 +2004,23 @@ class KeyProviderV2AdapterTest {
         assertNull(privateKey.material());
         assertEquals(new RemoteKeyReference.MetadataReference(response.getPrivateKeyData().getKeyMeta()),
                 privateKey.reference());
+    }
+
+    @Test
+    void createKey_preservesAbsentLength_forPqcPair() throws Exception {
+        // given
+        KeyPairDataResponseV2Dto response = PqcKeyFixtures.response(PqcKeyFixtures.keyPair());
+        when(client.createKey(any(), any())).thenReturn(ResponseEntity.ok(response));
+
+        // when
+        List<ProviderKeyItem> items = adapter.createKey(profile, KeyRequestType.KEY_PAIR, List.of(), "pqc", false);
+
+        // then
+        assertEquals(2, items.size());
+        items.forEach(item -> {
+            assertEquals(KeyAlgorithm.MLDSA, item.algorithm());
+            assertNull(item.length());
+        });
     }
 
     @Test
