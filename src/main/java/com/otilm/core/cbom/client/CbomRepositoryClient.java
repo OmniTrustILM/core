@@ -84,6 +84,11 @@ public class CbomRepositoryClient {
      * {@code query.limit} is set, the whole unpaged legacy listing when it is not. Follow pages with
      * {@link #nextPage(BomSearchPage)} until {@link BomSearchPage#hasNext()} is false; the absence of the repository's
      * {@code Link rel="next"} header -- not the page size -- says the run is complete.
+     *
+     * <p>
+     * The listing itself is never absent from a deployed repository, so a 404 on this opening request is raised as
+     * {@link CbomRepositoryNotDeployedException}. A 404 on a later page keeps its plain status: the repository was
+     * there a page ago.
      */
     public BomSearchPage search(final BomSearchRequestDto query) throws CbomRepositoryException {
         final Integer limit = query.getLimit();
@@ -101,7 +106,14 @@ public class CbomRepositoryClient {
         if (limit != null) {
             builder.queryParam("limit", limit);
         }
-        return fetchPage(builder.build().toUri());
+        try {
+            return fetchPage(builder.build().toUri());
+        } catch (CbomRepositoryException e) {
+            if (e.getProblemDetail() != null && e.getProblemDetail().getStatus() == HttpStatus.NOT_FOUND.value()) {
+                throw new CbomRepositoryNotDeployedException();
+            }
+            throw e;
+        }
     }
 
     /** Fetches the page a previous page's {@code Link rel="next"} header pointed at. */
