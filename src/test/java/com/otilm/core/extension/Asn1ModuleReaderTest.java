@@ -719,6 +719,19 @@ class Asn1ModuleReaderTest {
         }
 
         @Test
+        void implicitWrittenOnANamedChoiceIsRefusedEvenInAnAssignmentNothingReaches() {
+            assertThatThrownBy(() -> read("C ::= CHOICE { a INTEGER, b BOOLEAN }\nT ::= SEQUENCE { x [0] IMPLICIT C }"))
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("'x' IMPLICIT")
+                    .hasMessageContaining("tag it EXPLICIT");
+        }
+
+        @Test
+        void aValidAssignmentNothingReachesIsAccepted() {
+            assertThat(read("C ::= CHOICE { a INTEGER, b BOOLEAN }\nT ::= SEQUENCE { x [0] EXPLICIT C }")).isNotNull();
+        }
+
+        @Test
         void implicitOnAnUndefinedReferenceIsStillHonoured() throws Exception {
             // ORAddress in the shipped Name Constraints is exactly this: a SEQUENCE the module does not spell out.
             ExtensionType holder = read("P ::= SEQUENCE { a [3] IMPLICIT ORAddress }");

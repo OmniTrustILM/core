@@ -113,8 +113,18 @@ public final class Asn1ModuleReader {
         if (reader.rootName == null) {
             throw new ValidationException("The extension's ASN.1 module assigns no type");
         }
-        return reader
-                .resolve(reader.assignments.get(reader.rootName), null, new ArrayDeque<>(List.of(reader.rootName)));
+        ExtensionType root = reader.resolveAssignment(reader.rootName);
+        // X.680 has no root: every assignment must be valid whether or not the extension's type reaches it.
+        reader.assignments
+                .keySet()
+                .stream()
+                .filter(name -> !name.equals(reader.rootName))
+                .forEach(reader::resolveAssignment);
+        return root;
+    }
+
+    private ExtensionType resolveAssignment(String name) {
+        return resolve(assignments.get(name), null, new ArrayDeque<>(List.of(name)));
     }
 
     // ---------- lexing ----------
