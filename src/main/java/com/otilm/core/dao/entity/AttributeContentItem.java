@@ -52,14 +52,15 @@ public class AttributeContentItem extends UniquelyIdentified {
 
     /**
      * Computed by the database, and mapped only so the test schema — generated from these annotations — carries the
-     * column the insert's conflict target names. NULL for an encrypted row, whose json is a placeholder shared by every
-     * encrypted value of the definition, so those rows never collide. Hashed to keep the index entry inside the btree
-     * limit.
+     * column the insert's conflict target names. Follows jsonb equality, as the lookup by value does. NULL for an
+     * encrypted row: its value lives in salted ciphertext, so equal values never share a json and stay one row per
+     * object, and NULLs never collide. A hash keeps the index entry inside the btree limit, and jsonb_hash_extended
+     * rather than a cryptographic digest, which a FIPS-mode server may refuse to compute.
      */
     @Column(name = "json_hash",
-            columnDefinition = "varchar generated always as (case when encrypted_data is null then md5(json::text) end) stored",
+            columnDefinition = "bigint generated always as (case when encrypted_data is null then jsonb_hash_extended(json, 0) end) stored",
             insertable = false, updatable = false)
-    private String jsonHash;
+    private Long jsonHash;
 
     public void setAttributeDefinition(AttributeDefinition attributeDefinition) {
         this.attributeDefinition = attributeDefinition;

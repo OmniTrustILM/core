@@ -103,6 +103,13 @@ class AttributeContentItemUniqueValueMigrationITest extends BaseSpringBootTest {
                         .satisfies(e -> assertThat(((SQLException) e).getSQLState()).isEqualTo("23505"));
                 insertItem(statement, "20000000-0000-0000-0000-000000000007", "{\"contentType\": \"string\"}",
                         "cipher-three");
+
+                // One value to the constraint is one value to the lookup, which compares jsonb: 1.0 equals 1.00.
+                insertItem(statement, "20000000-0000-0000-0000-000000000008", "{\"data\": 1.0}", null);
+                assertThatThrownBy(
+                        () -> insertItem(statement, "20000000-0000-0000-0000-000000000009", "{\"data\": 1.00}", null))
+                        .isInstanceOf(SQLException.class)
+                        .satisfies(e -> assertThat(((SQLException) e).getSQLState()).isEqualTo("23505"));
             } finally {
                 try (Statement statement = connection.createStatement()) {
                     // The connection goes back to a pool shared with the rest of the suite: the session's search_path

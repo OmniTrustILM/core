@@ -2,10 +2,11 @@
 -- writers storing the same new value at once used to insert it twice, after which every write of that value failed.
 -- Turning a definition's encryption off did the same, one row per object that held the value.
 --
--- Fold what is already duplicated, then let a unique constraint keep it that way. json_hash is NULL for an encrypted
--- row, whose json is a placeholder shared by every encrypted value of the definition, so encrypted rows stay outside
--- the rule: NULLs never collide in a unique constraint. A hash rather than the jsonb itself, because a btree entry
--- cannot hold a value over ~2.7 kB. Adding the stored column rewrites the table.
+-- Fold what is already duplicated, then let a unique constraint keep it that way. json_hash follows jsonb equality, as
+-- the lookup by value does. It is NULL for an encrypted row: the value lives in salted ciphertext, so equal values never
+-- share a json and stay one row per object, outside the rule, since NULLs never collide in a unique constraint. A hash
+-- rather than the jsonb itself, because a btree entry cannot hold a value over ~2.7 kB; jsonb_hash_extended rather than
+-- a cryptographic digest, which a FIPS-mode server may refuse to compute. Adding the stored column rewrites the table.
 
 CREATE TEMP TABLE "attribute_content_item_merge" ON COMMIT DROP AS
 SELECT "uuid" AS "duplicate_uuid", "keep_uuid"
@@ -40,8 +41,8 @@ DELETE FROM "attribute_content_item" AS "item"
  WHERE "item"."uuid" = "merge"."duplicate_uuid";
 
 ALTER TABLE "attribute_content_item"
-    ADD COLUMN "json_hash" VARCHAR
-        GENERATED ALWAYS AS (CASE WHEN "encrypted_data" IS NULL THEN md5("json"::text) END) STORED;
+    ADD COLUMN "json_hash" BIGINT
+        GENERATED ALWAYS AS (CASE WHEN "encrypted_data" IS NULL THEN jsonb_hash_extended("json", 0) END) STORED;
 
 ALTER TABLE "attribute_content_item"
     ADD CONSTRAINT "uq_attribute_content_item_value" UNIQUE ("attribute_definition_uuid", "json_hash");
