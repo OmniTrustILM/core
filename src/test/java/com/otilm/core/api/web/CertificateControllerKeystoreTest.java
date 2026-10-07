@@ -2,6 +2,7 @@ package com.otilm.core.api.web;
 
 import com.otilm.core.api.ExceptionHandlingAdvice;
 import com.otilm.core.service.CertificateKeystoreExternalService;
+import com.otilm.core.util.ApplicationMessageConverters;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -25,6 +26,7 @@ class CertificateControllerKeystoreTest {
         controller.setCertificateKeystoreService(keystoreService);
         mockMvc = MockMvcBuilders
                 .standaloneSetup(controller)
+                .setMessageConverters(ApplicationMessageConverters.get())
                 .setControllerAdvice(new ExceptionHandlingAdvice())
                 .build();
     }

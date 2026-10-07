@@ -4,6 +4,7 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.certificate.CertificateImportRequestDto;
 import com.otilm.core.api.ExceptionHandlingAdvice;
 import com.otilm.core.service.CertificateImportExternalService;
+import com.otilm.core.util.ApplicationMessageConverters;
 import java.util.Base64;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,7 +34,11 @@ class CertificateControllerImportTest {
     @BeforeEach
     void setUp() {
         controller.setCertificateImportService(importService);
-        mvc = MockMvcBuilders.standaloneSetup(controller).setControllerAdvice(new ExceptionHandlingAdvice()).build();
+        mvc = MockMvcBuilders
+                .standaloneSetup(controller)
+                .setMessageConverters(ApplicationMessageConverters.get())
+                .setControllerAdvice(new ExceptionHandlingAdvice())
+                .build();
     }
 
     @Test
