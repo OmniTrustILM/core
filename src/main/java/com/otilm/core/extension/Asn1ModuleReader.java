@@ -54,11 +54,14 @@ public final class Asn1ModuleReader {
     private static final int MAX_RANGES = 64;
     /** Inlining references can multiply a small module into a very large type; this caps what one may become. */
     private static final int MAX_RESOLVED_MEMBERS = 10_000;
+    /** Every assignment is resolved, so aliases of one large type repeat its work; this caps the module's total. */
+    private static final int MAX_VALIDATED_MEMBERS = 1_000_000;
 
     private final List<String> tokens = new ArrayList<>();
     private int at;
     private int nesting;
     private int resolvedMembers;
+    private int validatedMembers;
     private boolean implicitTags;
     private final Map<String, Node> assignments = new LinkedHashMap<>();
     private String rootName;
@@ -792,6 +795,10 @@ public final class Asn1ModuleReader {
             if (++resolvedMembers > MAX_RESOLVED_MEMBERS) {
                 throw new ValidationException("The extension's ASN.1 module resolves to more than %d members"
                         .formatted(MAX_RESOLVED_MEMBERS));
+            }
+            if (++validatedMembers > MAX_VALIDATED_MEMBERS) {
+                throw new ValidationException(("The extension's ASN.1 module takes more than %d member resolutions "
+                        + "to validate; reduce the types that repeat a large one").formatted(MAX_VALIDATED_MEMBERS));
             }
             ExtensionType type = resolve(member, member, inProgress);
             boolean open = member.tag != null && choiceOrOpenType(member, new HashSet<>());

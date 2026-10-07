@@ -741,6 +741,21 @@ class Asn1ModuleReaderTest {
         }
 
         @Test
+        void aliasesOfOneLargeTypeCannotMultiplyTheValidationWork() {
+            StringBuilder module = new StringBuilder("S ::= SEQUENCE { ");
+            for (int i = 0; i < 9_000; i++) {
+                module.append(i == 0 ? "" : ", ").append("m").append(i).append(" INTEGER");
+            }
+            module.append(" }\n");
+            for (int i = 0; i < 120; i++) {
+                module.append("A%d ::= S\n".formatted(i));
+            }
+            assertThatThrownBy(() -> read(module.toString()))
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("to validate");
+        }
+
+        @Test
         void implicitOnAnUndefinedReferenceIsStillHonoured() throws Exception {
             // ORAddress in the shipped Name Constraints is exactly this: a SEQUENCE the module does not spell out.
             ExtensionType holder = read("P ::= SEQUENCE { a [3] IMPLICIT ORAddress }");
