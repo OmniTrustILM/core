@@ -140,10 +140,10 @@ public class CbomRepositoryClient {
     }
 
     /**
-     * A failed page request keeps its status -- the sync run classifies a 503 by it, and any other status fails the run
-     * -- but not the repository's own {@code detail}: a failed page fails the whole run, whose message an operator
-     * reads in the scheduler's job result, and that sentence is chosen by the other side. It is logged for the Core log
-     * and replaced here with Core's own.
+     * A failed page request keeps its status, which its callers classify the failure by, but not the repository's own
+     * {@code detail}: a failed page can fail the whole run, whose message an operator reads in the scheduler's job
+     * result, and that sentence is chosen by the other side. It is logged for the Core log and replaced here with
+     * Core's own.
      */
     private static CbomRepositoryException pageRequestFailed(final CbomRepositoryException failure) {
         final ProblemDetail reported = failure.getProblemDetail();
