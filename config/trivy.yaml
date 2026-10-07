@@ -1,8 +1,23 @@
+# Trivy policy for the container scan gate.
+#
+# In force because the Docker workflows set allow-trivy-config-override, so
+# that .trivyignore can waive CVE-2026-47884. It mirrors the OmniTrustILM org
+# default (.github/actions/resolve-trivy-config/trivy.yaml in
+# OmniTrustILM/.github); keep the two in step. Drop the override, and with it
+# this file and .trivyignore, once the waiver is no longer needed.
 format: table
 exit-code: 1
 severity:
   - CRITICAL
+  - HIGH
+
+scan:
+  scanners:
+    - vuln
+    - secret
+
 vulnerability:
-  type: [os, library]
-ignore-unfixed: false
-scanners: "vuln,secret"
+  type:
+    - os
+    - library
+  ignore-unfixed: true

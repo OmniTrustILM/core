@@ -74,6 +74,8 @@ jobs:
       image: ilm-preview/core
       cache-scope: core-preview
       pre-build: maven
+      # Core's own policy in config/trivy.yaml, so .trivyignore applies.
+      allow-trivy-config-override: true
       # Pinning the commit rather than the branch keeps the published tag
       # honest when a push lands mid-run. A fork commit resolves here because
       # fork objects live in this repository's network.

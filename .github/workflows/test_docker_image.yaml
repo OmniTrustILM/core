@@ -110,5 +110,7 @@ jobs:
       cache-scope: core
       pre-build: maven
       skip-tests: true
+      # Core's own policy in config/trivy.yaml, so .trivyignore applies.
+      allow-trivy-config-override: true
       build-args: |
         VERSION=${{ github.ref_name }}

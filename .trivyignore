@@ -1,0 +1,8 @@
+# Read by the container scan gate under allow-trivy-config-override; see
+# config/trivy.yaml.
+
+# spring-webmvc XsltView SSRF/RCE. Exploitation needs XsltView, a catch-all /**
+# view mapping and view names taken from user input; Core is a REST API and
+# renders no views. The only open-source fix is Spring Framework 7.0.9 (Spring
+# Boot 4); 6.2.20 is commercial only. Remove with the Spring Boot 4 migration.
+CVE-2026-47884 exp:2026-10-31

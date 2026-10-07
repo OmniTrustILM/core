@@ -24,5 +24,7 @@ jobs:
       image: ilm/core
       cache-scope: core
       pre-build: maven
+      # Core's own policy in config/trivy.yaml, so .trivyignore applies.
+      allow-trivy-config-override: true
       build-args: |
         VERSION=${{ github.ref_name }}
