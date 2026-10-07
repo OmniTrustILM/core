@@ -35,9 +35,19 @@ public interface AttributeContentItemRepository extends JpaRepository<AttributeC
 
     List<StoredValue> findByAttributeDefinitionUuidAndEncryptedDataIsNotNull(UUID definitionUuid);
 
-    @Query("SELECT aci.uuid FROM AttributeContentItem aci WHERE aci.json = :json AND aci.attributeDefinitionUuid = :definitionUuid")
-    UUID findUuidByJsonAndAttributeDefinitionUuid(@Param("json") AttributeContent json,
-            @Param("definitionUuid") UUID definitionUuid);
+    /**
+     * The definition's plaintext row holding a value, found through {@code uq_attribute_content_item_value}'s key,
+     * which an encrypted row does not carry.
+     *
+     * @param json the value rendered as the entity mapping renders the {@code json} column
+     */
+    @Query(value = """
+            SELECT uuid FROM {h-schema}attribute_content_item
+             WHERE attribute_definition_uuid = :definitionUuid
+               AND json_hash = jsonb_hash_extended(CAST(:json AS jsonb), 0)
+               AND json = CAST(:json AS jsonb)
+            """, nativeQuery = true)
+    UUID findPlaintextUuid(@Param("definitionUuid") UUID definitionUuid, @Param("json") String json);
 
     /** Replaces an encrypted row's placeholder with its plaintext value. */
     @Modifying

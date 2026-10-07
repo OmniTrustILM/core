@@ -1,13 +1,11 @@
 package com.otilm.core.service.writer;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectWriter;
 import com.otilm.api.model.common.attribute.common.AttributeContent;
 import com.otilm.core.dao.entity.AttributeContentItem;
 import com.otilm.core.dao.entity.AttributeDefinition;
 import com.otilm.core.dao.repository.AttributeContent2ObjectRepository;
 import com.otilm.core.dao.repository.AttributeContentItemRepository;
-import com.otilm.core.serialization.ObjectMapperFactory;
+import com.otilm.core.serialization.AttributeContentJson;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.util.UUID;
@@ -28,15 +26,6 @@ public class AttributeContentItemWriter {
             VALUES (:uuid, :definitionUuid, CAST(:json AS jsonb))
             ON CONFLICT (attribute_definition_uuid, json_hash) DO NOTHING
             """;
-
-    /**
-     * Renders a value exactly as Hibernate's {@code FormatMapper} renders the {@code json} column, which writes through
-     * the declared type rather than the runtime one. A row stored with any other rendering would not match the lookup
-     * of the same value, and the definition would hold it twice.
-     */
-    private static final ObjectWriter JSON_COLUMN_WRITER = ObjectMapperFactory
-            .jsonColumn()
-            .writerFor(AttributeContent.class);
 
     private final AttributeContentItemRepository contentItemRepository;
     private final AttributeContent2ObjectRepository contentMappingRepository;
@@ -71,32 +60,29 @@ public class AttributeContentItemWriter {
                 .addSynchronizedEntityClass(AttributeDefinition.class)
                 .setParameter("uuid", UUID.randomUUID())
                 .setParameter("definitionUuid", definitionUuid)
-                .setParameter("json", render(content))
+                .setParameter("json", AttributeContentJson.render(content))
                 .executeUpdate() == 1;
     }
 
     /** Stores the plaintext of an encrypted row in its place. */
     @Transactional
     public void storePlaintext(UUID itemUuid, AttributeContent plaintext) {
-        contentItemRepository.storePlaintext(itemUuid, render(plaintext));
+        contentItemRepository.storePlaintext(itemUuid, AttributeContentJson.render(plaintext));
     }
 
     /**
-     * Folds one content item into another of the same definition: its mappings move to the other, and it is deleted. A
-     * mapping the other already has for the same object is dropped rather than duplicated.
+     * Folds one content item into another of the same definition: its mappings move to the other, and it is deleted. An
+     * object that held both now holds the other twice, until {@link #dropRepeatedMappings} runs for it.
      */
     @Transactional
     public void foldInto(UUID duplicateUuid, UUID keepUuid) {
         contentMappingRepository.moveMappings(duplicateUuid, keepUuid);
-        contentMappingRepository.deleteRepeatedMappings(keepUuid);
         contentItemRepository.deleteItem(duplicateUuid);
     }
 
-    private static String render(AttributeContent content) {
-        try {
-            return JSON_COLUMN_WRITER.writeValueAsString(content);
-        } catch (JsonProcessingException e) {
-            throw new IllegalStateException("An attribute value could not be rendered for storage", e);
-        }
+    /** Drops mappings of a content item that repeat another of its mappings for the same object, keeping one. */
+    @Transactional
+    public void dropRepeatedMappings(UUID itemUuid) {
+        contentMappingRepository.deleteRepeatedMappings(itemUuid);
     }
 }

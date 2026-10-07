@@ -73,6 +73,7 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
 import com.otilm.core.security.authz.SecurityResourceFilter;
+import com.otilm.core.serialization.AttributeContentJson;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.writer.AttributeContentItemWriter;
 import com.otilm.core.service.writer.AttributeDefinitionWriter;
@@ -783,21 +784,26 @@ public class AttributeEngine {
                 // if changing from ENCRYPTED to NONE, we need to decrypt existing content. Encrypted values are stored
                 // once per object, so objects sharing a value decrypt to the same content; a plaintext value has one
                 // row per definition, so such rows fold onto it. Rows are read as values and written with statements,
-                // never held in the session, which would walk every one of them again on each statement.
+                // never held in the session, which would walk every one of them again on each statement. Each value
+                // is looked up through the unique key, which only plaintext rows carry.
+                Set<UUID> survivors = new HashSet<>();
                 for (AttributeContentItemRepository.StoredValue encrypted : attributeContentItemRepository
                         .findByAttributeDefinitionUuidAndEncryptedDataIsNotNull(attributeDefinition.getUuid())) {
                     AttributeContent plaintext = AttributeVersionHelper
                             .decryptContent(encrypted.getJson(), attributeDefinition.getVersion(),
                                     attributeDefinition.getContentType(), encrypted.getEncryptedData());
                     UUID existing = attributeContentItemRepository
-                            .findUuidByJsonAndAttributeDefinitionUuid(plaintext, attributeDefinition.getUuid());
+                            .findPlaintextUuid(attributeDefinition.getUuid(), AttributeContentJson.render(plaintext));
                     if (existing == null) {
                         attributeContentItemWriter.storePlaintext(encrypted.getUuid(), plaintext);
                     } else if (!existing.equals(encrypted.getUuid())) {
                         // equal when a concurrent switch already stored this very row as plaintext
                         attributeContentItemWriter.foldInto(encrypted.getUuid(), existing);
+                        survivors.add(existing);
                     }
                 }
+                // Once per surviving row, after every fold into it, rather than over its growing mappings per fold.
+                survivors.forEach(attributeContentItemWriter::dropRepeatedMappings);
             }
         }
     }
@@ -1874,7 +1880,7 @@ public class AttributeEngine {
         processSecurityFilter(definitionUuid, attributeDefinition);
 
         // Validated before the stored content goes: a rejection is a checked AttributeException, which rolls nothing
-        // back, so validating after the delete left the object without its previous value.
+        // back, so a rejection after the delete would leave the object without its previous value.
         List<BaseAttributeContentV3<?>> contentV3s = null;
         if (attributeContentItems != null && !attributeContentItems.isEmpty()) {
             contentV3s = AttributeVersionHelper.getBaseAttributeContentV3s(attributeContentItems, attributeDefinition);
@@ -2712,14 +2718,31 @@ public class AttributeEngine {
     }
 
     /**
+     * Stores the plaintext values a page of discovered metadata carries, committed by the caller before the page's rows
+     * are imported in parallel: the imports then find these rows instead of inserting them, and never wait on one
+     * another's transactions over a shared new value. An encrypted definition's values are left to the import, which
+     * stores them encrypted, one row per object. Sorted, so two registrations sharing values lock them in the same
+     * order.
+     */
+    public void registerAttributeContentItems(AttributeDefinition attributeDefinition,
+            Collection<AttributeContent> attributeContentItems) {
+        if (attributeContentItems == null || attributeDefinition.getProtectionLevel() == ProtectionLevel.ENCRYPTED) {
+            return;
+        }
+        attributeContentItems
+                .stream()
+                .sorted(Comparator.comparing(AttributeContentJson::render))
+                .forEach(content -> attributeContentItemWriter.insertIfAbsent(attributeDefinition.getUuid(), content));
+    }
+
+    /**
      * The definition's row for a plaintext value, stored first when the definition does not hold it yet. Writers racing
      * to store the same new value converge on one row: the insert yields to {@code uq_attribute_content_item_value}
      * instead of failing, and the row is read back.
      *
      * <p>
-     * The insert is a native statement without declared query spaces, so it flushes the whole session first. That is
-     * load-bearing: a metadata definition created earlier in the same transaction has to reach the database before a
-     * row referencing it can.
+     * The insert declares the content-item and definition tables, so a definition created earlier in the transaction
+     * reaches the database before the row referencing it, while the caller's unrelated queued writes stay queued.
      */
     private AttributeContentItem findOrCreateContentItem(UUID definitionUuid, AttributeContent content) {
         AttributeContentItem existing = attributeContentItemRepository

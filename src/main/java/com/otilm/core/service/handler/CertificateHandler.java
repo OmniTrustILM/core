@@ -1,6 +1,7 @@
 package com.otilm.core.service.handler;
 
 import com.otilm.api.exception.AttributeException;
+import com.otilm.api.model.common.attribute.common.AttributeContent;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.connector.discovery.DiscoveryProviderCertificateDataDto;
 import com.otilm.api.model.core.auth.Resource;
@@ -8,6 +9,7 @@ import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
+import com.otilm.core.dao.entity.AttributeDefinition;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryCertificate;
@@ -35,10 +37,12 @@ import java.security.PublicKey;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -148,14 +152,23 @@ public class CertificateHandler {
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW, isolation = Isolation.DEFAULT)
-    public void updateMetadataDefinition(List<MetadataAttribute> metadataAttributes, UUID connectorUuid,
-            String connectorName) {
+    public void updateMetadataDefinition(List<MetadataAttribute> metadataAttributes,
+            Map<String, Set<AttributeContent>> metadataContentsMapping, UUID connectorUuid, String connectorName) {
         logger
                 .debug("Updating {} discovery certificate metadata definitions for connector {}",
                         metadataAttributes.size(), connectorName);
-        for (MetadataAttribute metadataAttribute : metadataAttributes) {
+        // In a fixed order, so two registrations sharing new values lock them in the same order.
+        List<MetadataAttribute> orderedAttributes = metadataAttributes
+                .stream()
+                .sorted(Comparator.comparing(MetadataAttribute::getUuid))
+                .toList();
+        for (MetadataAttribute metadataAttribute : orderedAttributes) {
             try {
-                attributeEngine.updateMetadataAttributeDefinition(metadataAttribute, connectorUuid);
+                AttributeDefinition attributeDefinition = attributeEngine
+                        .updateMetadataAttributeDefinition(metadataAttribute, connectorUuid);
+                attributeEngine
+                        .registerAttributeContentItems(attributeDefinition,
+                                metadataContentsMapping.get(metadataAttribute.getUuid()));
             } catch (AttributeException e) {
                 logger
                         .error("Unable to update discovery certificate metadata definition with UUID {} and name {} for discovery connector {}. Message: {}",

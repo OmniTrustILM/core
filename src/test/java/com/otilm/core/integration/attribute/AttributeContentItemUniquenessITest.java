@@ -4,15 +4,19 @@ import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.attribute.ResponseAttributeV3;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.common.attribute.common.AttributeContent;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.content.data.CodeBlockAttributeContentData;
+import com.otilm.api.model.common.attribute.common.content.data.ProgrammingLanguageEnum;
 import com.otilm.api.model.common.attribute.common.content.data.ProtectionLevel;
 import com.otilm.api.model.common.attribute.common.properties.CustomAttributeProperties;
 import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
+import com.otilm.api.model.common.attribute.v3.content.CodeBlockAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.TextAttributeContentV3;
 import com.otilm.api.model.core.auth.Resource;
@@ -27,6 +31,8 @@ import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.service.handler.CertificateHandler;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.SecretEncodingVersion;
+import com.otilm.core.util.SecretsUtil;
 import com.otilm.core.util.SqlCapture;
 import jakarta.persistence.EntityManagerFactory;
 import java.sql.Connection;
@@ -36,6 +42,8 @@ import java.sql.Statement;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -48,6 +56,7 @@ import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.concurrent.DelegatingSecurityContextExecutorService;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -57,7 +66,7 @@ import static org.awaitility.Awaitility.await;
 
 /**
  * Each plaintext value of a definition is stored in one row, which the lookup by value relies on: with two rows every
- * later write of the value failed.
+ * later write of the value fails.
  */
 class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
 
@@ -83,17 +92,28 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
     private EntityManagerFactory entityManagerFactory;
 
     @Test
-    void registeringDiscoveredMetadataStoresTheDefinitionButNoValues() {
+    void registeringDiscoveredMetadataStoresPlaintextValuesAheadOfTheImport() {
         Connector connector = new Connector();
         connector.setVersion(ConnectorVersion.V1);
         connector = connectorRepository.save(connector);
+        MetadataAttributeV2 pillar = metadataAttribute("pillar", "Retail");
+        MetadataAttributeV2 token = metadataAttribute("token", "secret");
+        token.getProperties().setProtectionLevel(ProtectionLevel.ENCRYPTED);
 
         certificateHandler
-                .updateMetadataDefinition(List.<MetadataAttribute>of(metadataAttribute("pillar", "Retail")),
+                .updateMetadataDefinition(List.<MetadataAttribute>of(pillar, token), Map
+                        .of(pillar.getUuid(),
+                                Set
+                                        .<AttributeContent>of(new StringAttributeContentV2(null, "Retail"),
+                                                new StringAttributeContentV2(null, "Corporate")),
+                                token.getUuid(),
+                                Set.<AttributeContent>of(new StringAttributeContentV2(null, "secret"))),
                         connector.getUuid(), "discovery-connector");
 
-        Assertions.assertEquals(1, attributeDefinitionRepository.count());
-        Assertions.assertEquals(0, attributeContentItemRepository.count(), "values arrive with the import, mapped");
+        Assertions.assertEquals(2, attributeDefinitionRepository.count());
+        // Committed before the parallel import, which then finds them instead of inserting and waiting on another
+        // import's transaction. An encrypted value is left to the import, which stores it encrypted per object.
+        Assertions.assertEquals(2, attributeContentItemRepository.count());
     }
 
     @Test
@@ -195,8 +215,8 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
     }
 
     /**
-     * Encrypted values are stored once per object, so objects sharing a value used to decrypt into identical rows, the
-     * same state concurrent writers produced; with the unique constraint the switch itself would fail instead.
+     * Encrypted values are stored once per object, so objects sharing a value decrypt to identical content; the switch
+     * has to fold those rows onto one, or the unique constraint makes it fail.
      */
     @Test
     void turningEncryptionOffLeavesOneRowPerValue() throws Exception {
@@ -217,7 +237,7 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
         Assertions.assertEquals(1, attributeContentItemRepository.count(), "rows decrypting alike fold onto one");
         Assertions.assertEquals(List.of(SHARED_VALUE), storedValues(first, "secretProfile"));
         Assertions.assertEquals(List.of(SHARED_VALUE), storedValues(second, "secretProfile"));
-        // The write the duplicate rows used to break.
+        // A later write of the value resolves to the one remaining row.
         UUID third = newCertificate();
         write(third, definitionUuid, SHARED_VALUE);
         Assertions.assertEquals(List.of(SHARED_VALUE), storedValues(third, "secretProfile"));
@@ -286,6 +306,72 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
 
         assertThat(statements).noneMatch(sql -> sql.toLowerCase().matches("(?s)insert into \\S*connector\\s*\\(.*"));
         Assertions.assertEquals(1, attributeContentItemRepository.count());
+    }
+
+    /**
+     * Each decrypted value is looked up through the unique index's key, and repeated mappings are dropped once per
+     * surviving row: scanning every row of the definition per value, or a survivor's growing mappings per fold, makes
+     * the switch quadratic.
+     */
+    @Test
+    void turningEncryptionOffLooksValuesUpByTheirIndexedKey() throws Exception {
+        CustomAttributeV3 attribute = customAttribute("secretProfile", AttributeContentType.STRING,
+                ProtectionLevel.ENCRYPTED);
+        UUID definitionUuid = attributeEngine
+                .updateCustomAttributeDefinition(attribute, List.of(Resource.CERTIFICATE))
+                .getUuid();
+        for (int i = 0; i < 6; i++) {
+            write(newCertificate(), definitionUuid, "value-" + (i % 2));
+        }
+        attribute.getProperties().setProtectionLevel(ProtectionLevel.NONE);
+
+        List<String> statements = SqlCapture
+                .during(() -> attributeEngine.updateCustomAttributeDefinition(attribute, List.of(Resource.CERTIFICATE)))
+                .statements();
+
+        List<String> valueLookups = statements
+                .stream()
+                .map(sql -> sql.toLowerCase().replaceAll("\\s+", ""))
+                .filter(sql -> sql.startsWith("select") && sql.contains("attribute_content_item")
+                        && sql.contains("json="))
+                .toList();
+        assertThat(valueLookups).isNotEmpty().allMatch(sql -> sql.contains("json_hash"));
+        long mappingDedupes = statements
+                .stream()
+                .map(String::toLowerCase)
+                .filter(sql -> sql.startsWith("delete") && sql.contains("attribute_content_2_object")
+                        && sql.contains("using"))
+                .count();
+        Assertions.assertEquals(2, mappingDedupes, "once per surviving value, not once per folded row");
+        Assertions.assertEquals(2, attributeContentItemRepository.count());
+    }
+
+    /**
+     * A row whose ciphertext decrypts to something the content type cannot parse comes back as its placeholder. Two
+     * such placeholders are equal, so a lookup that reached encrypted rows would find both and fail the switch.
+     */
+    @Test
+    void turningEncryptionOffGetsPastRowsWhoseValueCannotBeRead() throws Exception {
+        CustomAttributeV3 attribute = customAttribute("secretScript", AttributeContentType.CODEBLOCK,
+                ProtectionLevel.ENCRYPTED);
+        UUID definitionUuid = attributeEngine
+                .updateCustomAttributeDefinition(attribute, List.of(Resource.CERTIFICATE))
+                .getUuid();
+        for (String code : List.of("a", "b")) {
+            attributeEngine
+                    .updateObjectCustomAttributeContent(Resource.CERTIFICATE, newCertificate(), definitionUuid, null,
+                            List
+                                    .of(new CodeBlockAttributeContentV3(null,
+                                            new CodeBlockAttributeContentData(ProgrammingLanguageEnum.PYTHON, code))));
+        }
+        new JdbcTemplate(dataSource)
+                .update("UPDATE attribute_content_item SET encrypted_data = ?",
+                        SecretsUtil.encryptAndEncodeSecretString("not-json", SecretEncodingVersion.V1));
+        attribute.getProperties().setProtectionLevel(ProtectionLevel.NONE);
+
+        Assertions
+                .assertDoesNotThrow(() -> attributeEngine
+                        .updateCustomAttributeDefinition(attribute, List.of(Resource.CERTIFICATE)));
     }
 
     private boolean aWriterWaitsOnALock() throws SQLException {
