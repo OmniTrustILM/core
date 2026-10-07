@@ -732,6 +732,15 @@ class Asn1ModuleReaderTest {
         }
 
         @Test
+        void theMemberBudgetIsPerAssignmentNotPerModule() {
+            StringBuilder module = new StringBuilder();
+            for (int i = 0; i < 150; i++) {
+                module.append("T%d ::= SEQUENCE { m %s }\n".formatted(i, i == 149 ? "INTEGER" : "T" + (i + 1)));
+            }
+            assertThat(read(module.toString())).isNotNull();
+        }
+
+        @Test
         void implicitOnAnUndefinedReferenceIsStillHonoured() throws Exception {
             // ORAddress in the shipped Name Constraints is exactly this: a SEQUENCE the module does not spell out.
             ExtensionType holder = read("P ::= SEQUENCE { a [3] IMPLICIT ORAddress }");

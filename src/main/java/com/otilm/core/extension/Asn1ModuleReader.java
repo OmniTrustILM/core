@@ -124,6 +124,7 @@ public final class Asn1ModuleReader {
     }
 
     private ExtensionType resolveAssignment(String name) {
+        resolvedMembers = 0;
         return resolve(assignments.get(name), null, new ArrayDeque<>(List.of(name)));
     }
 
