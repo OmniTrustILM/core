@@ -46,3 +46,7 @@ ALTER TABLE "attribute_content_item"
 
 ALTER TABLE "attribute_content_item"
     ADD CONSTRAINT "uq_attribute_content_item_value" UNIQUE ("attribute_definition_uuid", "json_hash");
+
+-- The constraint's index leads with the definition, so it answers every lookup by definition that the index from
+-- V202609251800 was added for; keeping both would only double the upkeep on each write.
+DROP INDEX IF EXISTS "idx_attribute_content_item_definition";

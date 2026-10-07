@@ -51,7 +51,8 @@ class AttributeContentItemUniqueValueMigrationITest extends BaseSpringBootTest {
                 "item_order" INTEGER,
                 "purpose" VARCHAR,
                 "object_version" INTEGER
-            )
+            );
+            CREATE INDEX "idx_attribute_content_item_definition" ON "attribute_content_item" ("attribute_definition_uuid")
             """;
 
     @Autowired
@@ -103,6 +104,23 @@ class AttributeContentItemUniqueValueMigrationITest extends BaseSpringBootTest {
                         .satisfies(e -> assertThat(((SQLException) e).getSQLState()).isEqualTo("23505"));
                 insertItem(statement, "20000000-0000-0000-0000-000000000007", "{\"contentType\": \"string\"}",
                         "cipher-three");
+
+                // The constraint's index leads with the definition, so the definition-only index goes and lookups by
+                // definition use the constraint's index.
+                assertThat(count(statement, "SELECT count(*) FROM pg_indexes WHERE schemaname = '" + SCRATCH_SCHEMA
+                        + "' AND indexname = 'idx_attribute_content_item_definition'")).isZero();
+                statement.execute("SET enable_seqscan = off");
+                StringBuilder plan = new StringBuilder();
+                try (ResultSet rows = statement
+                        .executeQuery(
+                                "EXPLAIN SELECT uuid FROM attribute_content_item WHERE attribute_definition_uuid = '"
+                                        + DEFINITION + "'")) {
+                    while (rows.next()) {
+                        plan.append(rows.getString(1)).append('\n');
+                    }
+                }
+                statement.execute("RESET enable_seqscan");
+                assertThat(plan.toString()).contains("uq_attribute_content_item_value");
 
                 // One value to the constraint is one value to the lookup, which compares jsonb: 1.0 equals 1.00.
                 insertItem(statement, "20000000-0000-0000-0000-000000000008", "{\"data\": 1.0}", null);
