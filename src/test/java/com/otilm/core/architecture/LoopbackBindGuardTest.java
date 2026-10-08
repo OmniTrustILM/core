@@ -27,11 +27,17 @@ class LoopbackBindGuardTest {
             .compile("dynamic(Https)?Port\\(\\)|new\\s+WireMockServer\\(\\s*0\\s*\\)|\\.(https)?[pP]ort\\(\\s*0\\s*\\)"
                     + "|new\\s+InetSocketAddress\\(\\s*0\\s*\\)");
 
+    /** A test class whose embedded server takes an OS-chosen port, on the wildcard address unless it sets one. */
+    private static final Pattern RANDOM_PORT_TEST = Pattern.compile("(?m)^@SpringBootTest\\([^)]*RANDOM_PORT");
+
+    private static final String SERVER_ADDRESS = "server.address=";
+
     @Test
     void everyServerOnAnOsChosenPortBindsTheLoopbackAddress() throws IOException {
         assertThat(sourcesAskingForAWildcardOsChosenPort())
-                .describedAs("a WireMock stub on an OS-chosen port comes from LoopbackWireMock; any other server binds "
-                        + "InetAddress.getLoopbackAddress()")
+                .describedAs(
+                        "a WireMock stub on an OS-chosen port comes from LoopbackWireMock, a RANDOM_PORT test sets "
+                                + "server.address, and any other server binds LoopbackWireMock.HOST")
                 .containsExactly(LOOPBACK_WIRE_MOCK);
     }
 
@@ -47,7 +53,9 @@ class LoopbackBindGuardTest {
 
     private static boolean asksForAWildcardOsChosenPort(Path source) {
         try {
-            return WILDCARD_OS_CHOSEN_PORT.matcher(Files.readString(source)).find();
+            String text = Files.readString(source);
+            return WILDCARD_OS_CHOSEN_PORT.matcher(text).find()
+                    || (RANDOM_PORT_TEST.matcher(text).find() && !text.contains(SERVER_ADDRESS));
         } catch (IOException e) {
             throw new IllegalStateException(e);
         }
