@@ -410,6 +410,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
                 .map(Object::toString)
                 .filter(s -> StringUtils.isNotBlank(s))
                 .orElseThrow(() -> new ValidationException("specVersion must not be empty"));
+        CbomUtil.validateVersion(content);
 
         // upload JSON to cbom-repository
         CryptoStatsDto cryptoStats = null;
