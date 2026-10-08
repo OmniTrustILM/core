@@ -1,16 +1,20 @@
 package com.otilm.core.serialization.golden;
 
+import com.fasterxml.jackson.core.StreamReadFeature;
+import com.fasterxml.jackson.core.StreamWriteFeature;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationConfig;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import org.springframework.http.ProblemDetail;
 
 /** Wire output compared against goldens recorded on the Spring Boot 3.5 line, under {@code src/test/resources/wire}. */
 public final class WireGolden {
@@ -18,7 +22,7 @@ public final class WireGolden {
     private static final String DIR = "wire/";
 
     /** A feature line of {@link #fingerprint}; group 1 is the feature's key, such as {@code ser INDENT_OUTPUT}. */
-    private static final Pattern FEATURE = Pattern.compile("((?:mapper|ser|de) \\w+)=(?:true|false)");
+    private static final Pattern FEATURE = Pattern.compile("((?:mapper|ser|de|read|write) \\w+)=(?:true|false)");
 
     private WireGolden() {
     }
@@ -37,8 +41,19 @@ public final class WireGolden {
         for (DeserializationFeature feature : DeserializationFeature.values()) {
             lines.add("de " + feature + "=" + mapper.getDeserializationConfig().isEnabled(feature));
         }
+        for (StreamReadFeature feature : StreamReadFeature.values()) {
+            lines.add("read " + feature + "=" + mapper.getFactory().isEnabled(feature));
+        }
+        for (StreamWriteFeature feature : StreamWriteFeature.values()) {
+            lines.add("write " + feature + "=" + mapper.getFactory().isEnabled(feature));
+        }
         lines.add("inclusion " + config.getDefaultPropertyInclusion());
+        lines.add("visibility " + config.getDefaultVisibilityChecker());
+        Class<?> problemDetailMixIn = mapper.findMixInClassFor(ProblemDetail.class);
+        lines.add("mixIns " + mapper.mixInCount());
+        lines.add("mixIn ProblemDetail " + (problemDetailMixIn == null ? "none" : problemDetailMixIn.getName()));
         lines.add("dateFormat " + config.getDateFormat().getClass().getName());
+        lines.add("epoch " + config.getDateFormat().format(new Date(0)));
         lines.add("timeZone " + config.getTimeZone().getID());
         lines.add("naming " + config.getPropertyNamingStrategy());
         return String.join("\n", lines) + "\n";

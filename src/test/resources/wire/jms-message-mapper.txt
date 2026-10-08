@@ -103,7 +103,25 @@ de READ_UNKNOWN_ENUM_VALUES_USING_DEFAULT_VALUE=false
 de READ_DATE_TIMESTAMPS_AS_NANOSECONDS=true
 de ADJUST_DATES_TO_CONTEXT_TIME_ZONE=true
 de EAGER_DESERIALIZER_FETCH=true
+read AUTO_CLOSE_SOURCE=true
+read IGNORE_UNDEFINED=false
+read STRICT_DUPLICATE_DETECTION=false
+read CLEAR_CURRENT_TOKEN_ON_CLOSE=true
+read INCLUDE_SOURCE_IN_LOCATION=false
+read USE_FAST_BIG_NUMBER_PARSER=false
+read USE_FAST_DOUBLE_PARSER=false
+write AUTO_CLOSE_CONTENT=true
+write AUTO_CLOSE_TARGET=true
+write FLUSH_PASSED_TO_STREAM=true
+write WRITE_BIGDECIMAL_AS_PLAIN=false
+write IGNORE_UNKNOWN=false
+write STRICT_DUPLICATE_DETECTION=false
+write USE_FAST_DOUBLE_WRITER=false
 inclusion JsonInclude.Value(value=USE_DEFAULTS,content=USE_DEFAULTS)
+visibility [Visibility: getter=PUBLIC_ONLY,isGetter=PUBLIC_ONLY,setter=ANY,creator=ANY,field=PUBLIC_ONLY]
+mixIns 6
+mixIn ProblemDetail org.springframework.http.converter.json.ProblemDetailJacksonMixin
 dateFormat com.fasterxml.jackson.databind.util.StdDateFormat
+epoch 1970-01-01T00:00:00.000+00:00
 timeZone UTC
 naming null
