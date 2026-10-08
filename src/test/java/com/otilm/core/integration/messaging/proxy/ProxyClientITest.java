@@ -28,7 +28,6 @@ import org.mockito.ArgumentMatchers;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jms.core.JmsTemplate;
 import org.springframework.jms.core.ProducerCallback;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
@@ -46,7 +45,7 @@ class ProxyClientITest extends BaseSpringBootTest {
 
     private static final ObjectMapper JSON = new ObjectMapper();
 
-    @MockitoBean
+    @Autowired
     private JmsTemplate jmsTemplate;
 
     @Autowired
