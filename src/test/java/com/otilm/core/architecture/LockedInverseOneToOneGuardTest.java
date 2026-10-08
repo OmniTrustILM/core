@@ -24,9 +24,9 @@ import org.springframework.util.ClassUtils;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * Pessimistic locks on entities with an inverse {@code @OneToOne} broke in Hibernate 7 (HHH-20744, fixed in 7.4.12), so
- * each {@code @Lock} repository query on such an entity needs a PessimisticLockITest case. Programmatic locks are
- * enumerated on core#2017.
+ * Pessimistic locks on entities with an inverse {@code @OneToOne} broke in Hibernate 7.2 (HHH-20744, fixed in 7.4.8),
+ * so each {@code @Lock} repository query on such an entity needs a PessimisticLockITest case. Locks taken through the
+ * EntityManager are not scanned.
  */
 class LockedInverseOneToOneGuardTest {
 
