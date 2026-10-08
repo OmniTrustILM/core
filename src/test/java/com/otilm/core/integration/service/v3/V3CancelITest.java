@@ -315,7 +315,7 @@ class V3CancelITest extends BaseSpringBootTest {
      */
     private static String problemJson(String errorCode, String detail) {
         return """
-                {"type":"about:blank","title":"Unprocessable Entity","status":422,"detail":"%s","errorCode":"%s"}
+                {"type":"about:blank","title":"Unprocessable Content","status":422,"detail":"%s","errorCode":"%s"}
                 """.formatted(detail, errorCode);
     }
 

@@ -14,6 +14,7 @@ public final class ApplicationMessageConverters {
     private ApplicationMessageConverters() {
     }
 
+    @SuppressWarnings("deprecation")
     public static HttpMessageConverter<?>[] get() {
         List<HttpMessageConverter<?>> converters = new ArrayList<>();
         new WebAppConfig().configureMessageConverters(converters);
