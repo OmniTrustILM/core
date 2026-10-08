@@ -46,6 +46,7 @@ import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.service.writer.RaProfileCertificateRequestAttributeWriter;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.seeders.CryptographicKeySeeder;
 import com.otilm.core.util.seeders.FunctionGroupSeeder;
@@ -130,14 +131,14 @@ class CertificateRequestIntegrationITest extends BaseSpringBootTest {
 
     @BeforeEach
     void wireConnectorRaProfileAndCryptographicKey() throws NoSuchAlgorithmException, AttributeException {
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
-        WireMock.configureFor("localhost", mockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
 
         // Single connector serves both the authority and the crypto provider — WireMock
         // routes by path, so one URL+version is sufficient for both function groups.
         Connector connector = new Connector();
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector = connectorRepository.save(connector);

@@ -32,10 +32,10 @@ class OAuth2UtilUserInfoTest {
 
     @BeforeEach
     void startServer() {
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
-        WireMock.configureFor("localhost", mockServer.port());
-        userInfoUrl = "http://localhost:" + mockServer.port() + "/userinfo";
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
+        userInfoUrl = LoopbackWireMock.url(mockServer) + "/userinfo";
     }
 
     @AfterEach
@@ -101,9 +101,9 @@ class OAuth2UtilUserInfoTest {
         String previousPort = System.getProperty("http.proxyPort");
         Authenticator previousAuthenticator = Authenticator.getDefault();
         MultiServerAuthenticator proxyAuthenticator = new MultiServerAuthenticator();
-        proxyAuthenticator.add("localhost:" + mockServer.port(), "proxy-user", "proxy-password");
+        proxyAuthenticator.add(LoopbackWireMock.HOST + ":" + mockServer.port(), "proxy-user", "proxy-password");
         Authenticator.setDefault(proxyAuthenticator);
-        System.setProperty("http.proxyHost", "localhost");
+        System.setProperty("http.proxyHost", LoopbackWireMock.HOST);
         System.setProperty("http.proxyPort", String.valueOf(mockServer.port()));
         try {
             mockServer

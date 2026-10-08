@@ -15,6 +15,7 @@ import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.service.v2.ConnectorExternalService;
 import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -74,11 +75,11 @@ class ConnectorApiClientCacheITest extends BaseSpringBootTest {
     }
 
     private String startMockServer() {
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
-        WireMock.configureFor("localhost", mockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
         mockServer.stubFor(WireMock.get("/v1").willReturn(WireMock.okJson("[]")));
-        return "http://localhost:" + mockServer.port();
+        return LoopbackWireMock.url(mockServer);
     }
 
     @Test

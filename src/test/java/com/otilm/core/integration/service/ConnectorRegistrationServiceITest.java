@@ -16,6 +16,7 @@ import com.otilm.core.service.ConnectorExternalService;
 import com.otilm.core.service.ConnectorRegistrationExternalService;
 import com.otilm.core.util.AuthenticationTokenTestHelper;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -35,10 +36,10 @@ class ConnectorRegistrationServiceITest extends BaseSpringBootTest {
 
     @BeforeEach
     public void setUp() {
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
 
-        WireMock.configureFor("localhost", mockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
     }
 
     @AfterEach
@@ -53,7 +54,7 @@ class ConnectorRegistrationServiceITest extends BaseSpringBootTest {
         ConnectorRequestDto request = new ConnectorRequestDto();
         request.setName("testConnector");
         request.setAuthType(AuthType.NONE);
-        request.setUrl("http://localhost:" + mockServer.port());
+        request.setUrl(LoopbackWireMock.url(mockServer));
         UuidDto uuidDto = connectorRegistrationService.registerConnector(request);
 
         ConnectorDto connectorDto = connectorService.getConnector(SecuredUUID.fromString(uuidDto.getUuid()));

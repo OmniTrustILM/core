@@ -1,5 +1,6 @@
 package com.otilm.core.config.http;
 
+import com.otilm.core.util.LoopbackWireMock;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
@@ -39,10 +40,10 @@ class PlatformHttpClientsTest {
 
     @BeforeEach
     void startServer() throws IOException {
-        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server = HttpServer.create(new InetSocketAddress(LoopbackWireMock.HOST, 0), 0);
         serverExecutor = Executors.newVirtualThreadPerTaskExecutor();
         server.setExecutor(serverExecutor);
-        url = "http://localhost:" + server.getAddress().getPort() + "/probe";
+        url = LoopbackWireMock.url(server.getAddress().getPort()) + "/probe";
     }
 
     @AfterEach

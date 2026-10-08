@@ -14,6 +14,7 @@ import com.otilm.core.model.cbom.BomResponseDto;
 import com.otilm.core.model.cbom.BomSearchRequestDto;
 import com.otilm.core.model.cbom.BomVersionDto;
 import com.otilm.core.settings.SettingsCache;
+import com.otilm.core.util.LoopbackWireMock;
 import java.net.URI;
 import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
@@ -34,7 +35,6 @@ import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathMatching;
-import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -46,7 +46,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class CbomRepositoryClientTest {
 
     @RegisterExtension
-    static WireMockExtension wireMock = WireMockExtension.newInstance().options(wireMockConfig().dynamicPort()).build();
+    static WireMockExtension wireMock = WireMockExtension.newInstance().options(LoopbackWireMock.options()).build();
 
     private CbomRepositoryClient client;
     private ObjectMapper objectMapper;
@@ -55,7 +55,7 @@ class CbomRepositoryClientTest {
 
     @BeforeEach
     void setUp() {
-        baseUrl = wireMock.baseUrl();
+        baseUrl = LoopbackWireMock.url(wireMock.getPort());
         originalPlatformSettings = SettingsCache.getSettings(SettingsSection.PLATFORM);
 
         PlatformSettingsDto platformSettings = new PlatformSettingsDto();

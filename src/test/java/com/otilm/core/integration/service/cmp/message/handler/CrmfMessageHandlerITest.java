@@ -48,6 +48,7 @@ import com.otilm.core.service.cmp.message.handler.PollResult;
 import com.otilm.core.service.handler.CertificateValidationStatusPoller;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.mockbeans.PollMocks;
 import java.math.BigInteger;
@@ -158,7 +159,7 @@ class CrmfMessageHandlerITest extends BaseSpringBootTest {
         // -- create customer/client profile (signature-based)
         Connector connector = new Connector();
         connector.setName("authorityInstanceConnector");
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector = connectorRepository.save(connector);
@@ -416,7 +417,7 @@ class CrmfMessageHandlerITest extends BaseSpringBootTest {
     private Certificate createSigningCertificateEntity(WireMockServer mockServer) {
         Connector connector = new Connector();
         connector.setName("signingCertConnector");
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector = connectorRepository.save(connector);

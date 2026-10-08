@@ -48,6 +48,7 @@ import com.otilm.core.service.cmp.registration.CmpRegistrationResolver;
 import com.otilm.core.service.registration.RegistrationChallengeStore;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.mockbeans.PollMocks;
 import jakarta.persistence.EntityManager;
@@ -156,7 +157,7 @@ class CmpRegistrationEnrolmentITest extends BaseSpringBootTest {
 
         Connector connector = new Connector();
         connector.setName("cmpRegistrationConnector");
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector = connectorRepository.save(connector);
