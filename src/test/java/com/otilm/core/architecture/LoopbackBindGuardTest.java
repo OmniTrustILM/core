@@ -1,5 +1,6 @@
 package com.otilm.core.architecture;
 
+import com.github.tomakehurst.wiremock.WireMockServer;
 import com.otilm.core.util.LoopbackWireMock;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -40,6 +41,18 @@ class LoopbackBindGuardTest {
                         "a WireMock stub on an OS-chosen port comes from LoopbackWireMock, a RANDOM_PORT test sets "
                                 + "server.address to LoopbackWireMock.HOST, and any other server binds it")
                 .containsExactly(LOOPBACK_WIRE_MOCK);
+    }
+
+    @Test
+    void loopbackWireMockStubsBindTheLoopbackAddress() {
+        WireMockServer server = LoopbackWireMock.start();
+        try {
+            assertThat(server.getOptions().bindAddress())
+                    .describedAs("the source scan exempts LoopbackWireMock, so its bind address is held here")
+                    .isEqualTo(LoopbackWireMock.HOST);
+        } finally {
+            server.stop();
+        }
     }
 
     private static List<Path> sourcesAskingForAWildcardOsChosenPort() throws IOException {
