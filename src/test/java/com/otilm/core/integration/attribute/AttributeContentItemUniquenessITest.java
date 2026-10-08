@@ -359,6 +359,33 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
     }
 
     /**
+     * Two switches of one definition visit its encrypted rows in the same order. In opposite orders each would hold a
+     * row the other is about to fold into its own, and the two would wait on each other.
+     */
+    @Test
+    void turningEncryptionOffVisitsTheEncryptedRowsInOneOrder() throws Exception {
+        CustomAttributeV3 attribute = customAttribute("secretProfile", AttributeContentType.STRING,
+                ProtectionLevel.ENCRYPTED);
+        UUID definitionUuid = attributeEngine
+                .updateCustomAttributeDefinition(attribute, List.of(Resource.CERTIFICATE))
+                .getUuid();
+        write(newCertificate(), definitionUuid, SHARED_VALUE);
+        attribute.getProperties().setProtectionLevel(ProtectionLevel.NONE);
+
+        List<String> statements = SqlCapture
+                .during(() -> attributeEngine.updateCustomAttributeDefinition(attribute, List.of(Resource.CERTIFICATE)))
+                .statements();
+
+        List<String> encryptedRowReads = statements
+                .stream()
+                .map(sql -> sql.toLowerCase().replaceAll("\\s+", " "))
+                .filter(sql -> sql.startsWith("select") && sql.contains("attribute_content_item")
+                        && sql.contains("encrypted_data is not null"))
+                .toList();
+        assertThat(encryptedRowReads).isNotEmpty().allMatch(sql -> sql.contains("order by"));
+    }
+
+    /**
      * Each decrypted value is looked up through the unique index's key, and repeated mappings are dropped once per
      * surviving row: scanning every row of the definition per value, or a survivor's growing mappings per fold, makes
      * the switch quadratic.

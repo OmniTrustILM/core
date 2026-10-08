@@ -789,7 +789,8 @@ public class AttributeEngine {
                 // is looked up through the unique key, which only plaintext rows carry.
                 Set<UUID> survivors = new HashSet<>();
                 for (AttributeContentItemRepository.StoredValue encrypted : attributeContentItemRepository
-                        .findByAttributeDefinitionUuidAndEncryptedDataIsNotNull(attributeDefinition.getUuid())) {
+                        .findByAttributeDefinitionUuidAndEncryptedDataIsNotNullOrderByUuid(
+                                attributeDefinition.getUuid())) {
                     AttributeContent plaintext = AttributeVersionHelper
                             .decryptContent(encrypted.getJson(), attributeDefinition.getVersion(),
                                     attributeDefinition.getContentType(), encrypted.getEncryptedData());

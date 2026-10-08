@@ -33,7 +33,7 @@ public interface AttributeContentItemRepository extends JpaRepository<AttributeC
         String getEncryptedData();
     }
 
-    List<StoredValue> findByAttributeDefinitionUuidAndEncryptedDataIsNotNull(UUID definitionUuid);
+    List<StoredValue> findByAttributeDefinitionUuidAndEncryptedDataIsNotNullOrderByUuid(UUID definitionUuid);
 
     /**
      * The definition's plaintext row holding a value, found through {@code uq_attribute_content_item_value}'s key,
