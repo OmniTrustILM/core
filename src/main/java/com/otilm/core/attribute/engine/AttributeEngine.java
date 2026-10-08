@@ -2759,10 +2759,6 @@ public class AttributeEngine {
      * The definition's row for a plaintext value, stored first when the definition does not hold it yet. Writers racing
      * to store the same new value converge on one row: the insert yields to {@code uq_attribute_content_item_value}
      * instead of failing, and the row is read back.
-     *
-     * <p>
-     * The insert declares the content-item and definition tables, so a definition created earlier in the transaction
-     * reaches the database before the row referencing it, while the caller's unrelated queued writes stay queued.
      */
     private AttributeContentItem findOrCreateContentItem(UUID definitionUuid, AttributeContent content) {
         AttributeContentItem existing = attributeContentItemRepository

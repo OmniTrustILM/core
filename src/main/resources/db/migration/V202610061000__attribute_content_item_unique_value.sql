@@ -1,4 +1,4 @@
--- Store each plaintext attribute value once per definition (core#1899). The lookup by value expects one row, and two
+-- Store each plaintext attribute value once per definition. The lookup by value expects one row, and two
 -- writers storing the same new value at once used to insert it twice, after which every write of that value failed.
 -- Turning a definition's encryption off did the same, one row per object that held the value.
 --
@@ -6,7 +6,8 @@
 -- the lookup by value does. It is NULL for an encrypted row: the value lives in salted ciphertext, so equal values never
 -- share a json and stay one row per object, outside the rule, since NULLs never collide in a unique constraint. A hash
 -- rather than the jsonb itself, because a btree entry cannot hold a value over ~2.7 kB; jsonb_hash_extended rather than
--- a cryptographic digest, which a FIPS-mode server may refuse to compute. Adding the stored column rewrites the table.
+-- md5(), which a FIPS-mode server refuses, or sha256(), which needs a text-to-bytea conversion a generated column
+-- cannot use. Adding the stored column rewrites the table.
 
 CREATE TEMP TABLE "attribute_content_item_merge" ON COMMIT DROP AS
 SELECT "uuid" AS "duplicate_uuid", "keep_uuid"

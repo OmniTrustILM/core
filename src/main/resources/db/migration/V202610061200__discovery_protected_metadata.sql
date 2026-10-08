@@ -1,5 +1,5 @@
--- Discovery keeps the metadata attributes a connector declares encrypted out of the staged metadata, encrypted
--- (core#2462). A row staged before this has no protected_meta, and its metadata reads as stored.
+-- Discovery keeps the metadata attributes a connector declares encrypted out of the staged metadata, encrypted. A row
+-- staged before this has no protected_meta, and its metadata reads as stored.
 ALTER TABLE "discovery_certificate" ADD COLUMN "protected_meta" VARCHAR;
 ALTER TABLE "discovery_item" ADD COLUMN "protected_meta" VARCHAR;
 

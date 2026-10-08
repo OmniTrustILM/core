@@ -1,5 +1,5 @@
 -- Discovery registered every metadata value ahead of import in plaintext, those of definitions that keep their values
--- encrypted included (core#2462). The import stores such values encrypted, one row per object, and never maps those
+-- encrypted included. The import stores such values encrypted, one row per object, and never maps those
 -- plaintext rows, so nothing reads them.
 DELETE FROM "attribute_content_item" AS "item"
  USING "attribute_definition" AS "definition"
