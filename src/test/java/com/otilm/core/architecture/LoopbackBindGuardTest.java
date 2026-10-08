@@ -1,5 +1,6 @@
 package com.otilm.core.architecture;
 
+import com.otilm.core.util.LoopbackWireMock;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -30,14 +31,14 @@ class LoopbackBindGuardTest {
     /** A test class whose embedded server takes an OS-chosen port, on the wildcard address unless it sets one. */
     private static final Pattern RANDOM_PORT_TEST = Pattern.compile("(?m)^@SpringBootTest\\([^)]*RANDOM_PORT");
 
-    private static final String SERVER_ADDRESS = "server.address=";
+    private static final String LOOPBACK_SERVER_ADDRESS = "server.address=" + LoopbackWireMock.HOST;
 
     @Test
     void everyServerOnAnOsChosenPortBindsTheLoopbackAddress() throws IOException {
         assertThat(sourcesAskingForAWildcardOsChosenPort())
                 .describedAs(
                         "a WireMock stub on an OS-chosen port comes from LoopbackWireMock, a RANDOM_PORT test sets "
-                                + "server.address, and any other server binds LoopbackWireMock.HOST")
+                                + "server.address to LoopbackWireMock.HOST, and any other server binds it")
                 .containsExactly(LOOPBACK_WIRE_MOCK);
     }
 
@@ -55,7 +56,7 @@ class LoopbackBindGuardTest {
         try {
             String text = Files.readString(source);
             return WILDCARD_OS_CHOSEN_PORT.matcher(text).find()
-                    || (RANDOM_PORT_TEST.matcher(text).find() && !text.contains(SERVER_ADDRESS));
+                    || (RANDOM_PORT_TEST.matcher(text).find() && !text.contains(LOOPBACK_SERVER_ADDRESS));
         } catch (IOException e) {
             throw new IllegalStateException(e);
         }
