@@ -1812,8 +1812,7 @@ class KeyProviderV2AdapterTest {
                 () -> adapter.exportKey(keyItem, held, passphrase, NO_ATTRIBUTES));
 
         // then
-        assertThat(refused).hasMessageContaining(ErrorCode.KEY_NOT_EXPORTABLE.name());
-        assertThat(refused).hasMessageNotContaining(echoed);
+        assertThat(refused).hasMessageContaining(ErrorCode.KEY_NOT_EXPORTABLE.name()).hasMessageNotContaining(echoed);
     }
 
     /** The request carried the passphrase, so nothing the connector answered may travel on. */
