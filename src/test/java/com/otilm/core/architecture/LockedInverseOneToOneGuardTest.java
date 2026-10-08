@@ -2,9 +2,12 @@ package com.otilm.core.architecture;
 
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CryptographicKey;
+import jakarta.persistence.LockModeType;
 import jakarta.persistence.OneToOne;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
@@ -30,16 +33,20 @@ class LockedInverseOneToOneGuardTest {
 
     static final Set<Class<?>> COVERED = Set.of(Certificate.class, CryptographicKey.class);
 
+    private static final Set<LockModeType> PESSIMISTIC = EnumSet
+            .of(LockModeType.PESSIMISTIC_READ, LockModeType.PESSIMISTIC_WRITE,
+                    LockModeType.PESSIMISTIC_FORCE_INCREMENT);
+
     @Test
     void everyLockedEntityWithAnInverseOneToOneIsCovered() {
-        Set<Class<?>> exposed = lockedEntities()
+        Set<Class<?>> exposed = pessimisticallyLockedEntities()
                 .stream()
                 .filter(LockedInverseOneToOneGuardTest::hasInverseOneToOne)
                 .collect(Collectors.toSet());
         assertEquals(COVERED, exposed, "Add a PessimisticLockITest case for each new entity, then list it in COVERED");
     }
 
-    private static Set<Class<?>> lockedEntities() {
+    private static Set<Class<?>> pessimisticallyLockedEntities() {
         ClassPathScanningCandidateComponentProvider scanner = new ClassPathScanningCandidateComponentProvider(false) {
             @Override
             protected boolean isCandidateComponent(AnnotatedBeanDefinition definition) {
@@ -50,12 +57,17 @@ class LockedInverseOneToOneGuardTest {
         Set<Class<?>> entities = new HashSet<>();
         for (BeanDefinition candidate : scanner.findCandidateComponents("com.otilm.core.dao.repository")) {
             Class<?> repository = ClassUtils.resolveClassName(candidate.getBeanClassName(), null);
-            if (Arrays.stream(repository.getMethods()).anyMatch(m -> m.isAnnotationPresent(Lock.class))) {
+            if (Arrays.stream(repository.getMethods()).anyMatch(LockedInverseOneToOneGuardTest::locksPessimistically)) {
                 Class<?>[] types = GenericTypeResolver.resolveTypeArguments(repository, Repository.class);
                 entities.add(Objects.requireNonNull(types, repository.getName())[0]);
             }
         }
         return entities;
+    }
+
+    private static boolean locksPessimistically(Method method) {
+        Lock lock = method.getAnnotation(Lock.class);
+        return lock != null && PESSIMISTIC.contains(lock.value());
     }
 
     private static boolean hasInverseOneToOne(Class<?> entity) {
