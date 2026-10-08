@@ -39,7 +39,7 @@ class CertificateControllerKeystoreTest {
                 .perform(post("/v1/certificates/{uuid}/keystore", UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"passphrase\":\"too-short\"}"))
-                .andExpect(status().isUnprocessableEntity());
+                .andExpect(status().isUnprocessableContent());
 
         verifyNoInteractions(keystoreService);
     }

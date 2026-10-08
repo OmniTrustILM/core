@@ -1085,7 +1085,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         ConnectorProblemException refused = Assertions
                 .assertThrows(ConnectorProblemException.class, () -> discoveryService.startDiscovery(created));
 
-        Assertions.assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, refused.getHttpStatus());
+        Assertions.assertEquals(HttpStatus.UNPROCESSABLE_CONTENT, refused.getHttpStatus());
         Assertions.assertTrue(refused.getMessage().contains("10.0.0.999"), refused.getMessage());
         Assertions.assertTrue(discoveryRepository.findByUuid(created).isEmpty(), "the refused run is not kept");
     }

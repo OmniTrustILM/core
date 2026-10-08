@@ -19,6 +19,7 @@ class ConnectorClientWireGoldenTest {
         WireGolden.assertFingerprintMatches("connector-client-mapper.txt", connectorClientMapper());
     }
 
+    @SuppressWarnings("removal")
     private static ObjectMapper connectorClientMapper() {
         ExchangeStrategies strategies = ExchangeStrategies
                 .builder()

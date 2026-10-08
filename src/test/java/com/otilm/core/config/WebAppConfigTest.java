@@ -2,7 +2,7 @@ package com.otilm.core.config;
 
 import com.otilm.core.config.logging.MdcRequestFilter;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.autoconfigure.security.SecurityProperties;
+import org.springframework.boot.security.autoconfigure.web.servlet.SecurityFilterProperties;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -18,6 +18,6 @@ class WebAppConfigTest {
         // then
         assertThat(registration.getFilter()).isInstanceOf(MdcRequestFilter.class);
         assertThat(registration.getUrlPatterns()).containsExactly("/*");
-        assertThat(registration.getOrder()).isLessThan(SecurityProperties.DEFAULT_FILTER_ORDER);
+        assertThat(registration.getOrder()).isLessThan(SecurityFilterProperties.DEFAULT_FILTER_ORDER);
     }
 }

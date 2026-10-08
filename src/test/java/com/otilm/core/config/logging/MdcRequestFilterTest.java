@@ -69,7 +69,7 @@ class MdcRequestFilterTest {
     @Test
     void affiliatedObjectNamedByAFailedRequest_isNotInheritedByTheNextOne() throws Exception {
         // given - a request that names its affiliated object and then fails in its handler
-        mockMvc.perform(post(FAILED_REQUEST)).andExpect(status().isUnprocessableEntity());
+        mockMvc.perform(post(FAILED_REQUEST)).andExpect(status().isUnprocessableContent());
 
         // when - the next request on the thread is refused before it names its own
         mockMvc.perform(post(REFUSED_REQUEST)).andExpect(status().isNotFound());
@@ -93,7 +93,7 @@ class MdcRequestFilterTest {
     @Test
     void failedRequest_leavesNothingInTheMdcOfItsThread() throws Exception {
         // when
-        mockMvc.perform(post(FAILED_REQUEST)).andExpect(status().isUnprocessableEntity());
+        mockMvc.perform(post(FAILED_REQUEST)).andExpect(status().isUnprocessableContent());
 
         // then
         assertThat(MDC.getCopyOfContextMap()).isNullOrEmpty();

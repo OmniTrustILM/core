@@ -1839,7 +1839,7 @@ class KeyProviderV2AdapterTest {
     private static Stream<Exception> failedExports() {
         String echoed = "failed for " + new String(PASSPHRASE);
         ProblemDetailExtended withoutCode = new ProblemDetailExtended();
-        withoutCode.setStatus(HttpStatus.UNPROCESSABLE_ENTITY.value());
+        withoutCode.setStatus(HttpStatus.UNPROCESSABLE_CONTENT.value());
         withoutCode.setDetail(echoed);
         return Stream
                 .of(new ConnectorProblemException(
