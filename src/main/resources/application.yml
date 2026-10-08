@@ -193,6 +193,12 @@ logging:
   pattern:
     console: '[%d{yyyy-MM-dd HH:mm:ss.SSS}] %-5level [%t] [%logger - %line]: %m%n'
     file: '[%d{yyyy-MM-dd HH:mm:ss.SSS}] %-5level [%t] [%logger - %line]: %m%n'
+  console-format: ${PLATFORM_LOG_FORMAT:text}   # text keeps the pattern above; ecs or logstash writes one JSON object per line
+  structured:
+    ecs:
+      service:
+        name: core
+        node-name: ${HOSTNAME:}          # The pod name under Kubernetes, so ECS lines tell replicas apart
   schema-version: '@log-schema.version@'
 
 # Configuration of actuator
