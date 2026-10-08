@@ -1576,7 +1576,7 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
 
         mockServer = new WireMockServer(WireMockPorts.AUTH_SERVICE);
         mockServer.start();
-        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
+        WireMock.configureFor("localhost", mockServer.port());
 
         mockServer
                 .stubFor(WireMock

@@ -445,7 +445,7 @@ class NotificationProfileServiceITest extends BaseSpringBootTest {
     void testUpdateNotificationProfile() throws NotFoundException {
         mockServer = new WireMockServer(WireMockPorts.AUTH_SERVICE);
         mockServer.start();
-        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
+        WireMock.configureFor("localhost", mockServer.port());
 
         UUID roleUuid = UUID.randomUUID();
         mockServer.stubFor(WireMock.get(WireMock.urlPathMatching("/auth/roles/[^/]+")).willReturn(WireMock.okJson("""
