@@ -30,8 +30,8 @@ class LoopbackBindGuardTest {
     @Test
     void everyServerOnAnOsChosenPortBindsTheLoopbackAddress() throws IOException {
         assertThat(sourcesAskingForAWildcardOsChosenPort())
-                .describedAs("a WireMock stub on an OS-chosen port comes from LoopbackWireMock and is reached at "
-                        + "LoopbackWireMock.url(); any other server binds InetAddress.getLoopbackAddress()")
+                .describedAs("a WireMock stub on an OS-chosen port comes from LoopbackWireMock; any other server binds "
+                        + "InetAddress.getLoopbackAddress()")
                 .containsExactly(LOOPBACK_WIRE_MOCK);
     }
 
