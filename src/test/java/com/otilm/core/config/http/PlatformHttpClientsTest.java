@@ -3,6 +3,7 @@ package com.otilm.core.config.http;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -39,7 +40,7 @@ class PlatformHttpClientsTest {
 
     @BeforeEach
     void startServer() throws IOException {
-        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
         serverExecutor = Executors.newVirtualThreadPerTaskExecutor();
         server.setExecutor(serverExecutor);
         url = "http://localhost:" + server.getAddress().getPort() + "/probe";

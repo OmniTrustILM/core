@@ -59,6 +59,7 @@ import com.otilm.core.service.writer.cbom.CryptoAssetWriter;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.tasks.CbomSyncTask;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.SearchHelper;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
@@ -203,14 +204,14 @@ class CbomServiceITest extends BaseSpringBootTest {
         scheduledJobHistoryRepository.deleteAll();
         scheduledJobsRepository.deleteAll();
 
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
 
-        WireMock.configureFor("localhost", mockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
 
         PlatformSettingsDto platformSettings = new PlatformSettingsDto();
         platformSettings.setUtils(new UtilsSettingsDto());
-        platformSettings.getUtils().setCbomRepositoryUrl("http://localhost:" + mockServer.port());
+        platformSettings.getUtils().setCbomRepositoryUrl(LoopbackWireMock.url(mockServer));
         settingsCache.cacheSettings(SettingsSection.PLATFORM, platformSettings);
     }
 

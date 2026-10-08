@@ -2,7 +2,6 @@ package com.otilm.core.integration.service;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
-import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
 import com.github.tomakehurst.wiremock.extension.Parameters;
 import com.github.tomakehurst.wiremock.extension.ServeEventListener;
 import com.github.tomakehurst.wiremock.stubbing.ServeEvent;
@@ -109,6 +108,7 @@ import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.KeySizeUtil;
+import com.otilm.core.util.LoopbackWireMock;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
@@ -229,13 +229,13 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
     void setUp() {
         alignHistoryDeletionConstraintWithMigration();
         // Start Mock Server
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
-        WireMock.configureFor("localhost", mockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
 
         // Create and Save Connector
         connector = new Connector();
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector = connectorRepository.saveAndFlush(connector); // Ensure immediate persistence
@@ -1056,9 +1056,9 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
             }
         };
         mockServer.stop();
-        mockServer = new WireMockServer(WireMockConfiguration.wireMockConfig().dynamicPort().extensions(listener));
+        mockServer = new WireMockServer(LoopbackWireMock.options().extensions(listener));
         mockServer.start();
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connectorRepository.saveAndFlush(connector);
         mockServer.stubFor(WireMock.delete(WireMock.urlPathEqualTo(destructionPath)).willReturn(WireMock.ok()));
         return compromise;

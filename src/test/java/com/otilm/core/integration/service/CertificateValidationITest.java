@@ -47,6 +47,7 @@ import com.otilm.core.service.impl.CertificateServiceImpl;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateTestUtil;
 import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -178,10 +179,10 @@ public class CertificateValidationITest extends BaseSpringBootTest {
 
     @BeforeEach
     public void setUp() throws GeneralSecurityException, IOException, com.otilm.api.exception.CertificateException {
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
 
-        WireMock.configureFor("localhost", mockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
         InputStream keyStoreStream = CertificateServiceITest.class.getClassLoader().getResourceAsStream("client1.p12");
         KeyStore keyStore = KeyStore.getInstance("PKCS12");
         keyStore.load(keyStoreStream, "123456".toCharArray());
@@ -491,7 +492,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
     void testOcspValidationCheck() throws Exception {
         var certificateChainInfo = CertificateGeneratorHelper
                 .generateCertificateWithIssuer(KeyAlgorithm.RSA, "CN=Test-Ca", "CN=Test-EndEntity",
-                        "http://localhost:%d/ocsp".formatted(mockServer.port()));
+                        LoopbackWireMock.url(mockServer) + "/ocsp");
 
         uploadCertificate(certificateChainInfo.getCaCertificateBase64Encoded());
 
@@ -549,7 +550,8 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             throws GeneralSecurityException, OperatorCreationException, IOException, NotFoundException {
         long stamp = System.nanoTime();
         List<String> crlUrls = List
-                .of(mockServer.baseUrl() + "/p1a-" + stamp + ".crl", mockServer.baseUrl() + "/p1b-" + stamp + ".crl");
+                .of(LoopbackWireMock.url(mockServer) + "/p1a-" + stamp + ".crl",
+                        LoopbackWireMock.url(mockServer) + "/p1b-" + stamp + ".crl");
         X509Certificate cert = createSelfSignedCertificateWithCrl("testCrlNone-" + stamp, crlUrls, null,
                 BigInteger.ONE);
         Certificate entity = createTrustedCertEntity(cert);
@@ -568,7 +570,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         X509Certificate caCert = CertificateUtil.getX509Certificate(caCertificate.getCertificateContent().getContent());
         String urlPath = "/p2-" + stamp + ".crl";
         X509Certificate cert = createSelfSignedCertificateWithCrl("testCrlEmpty-" + stamp,
-                List.of(mockServer.baseUrl() + urlPath), null, BigInteger.ONE);
+                List.of(LoopbackWireMock.url(mockServer) + urlPath), null, BigInteger.ONE);
         Certificate entity = createTrustedCertEntity(cert);
         stubCrlPoint(urlPath, createEmptyCRL(caCert, pair.getPrivate()).getEncoded());
 
@@ -589,7 +591,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         X509Certificate caCert = CertificateUtil.getX509Certificate(caCertificate.getCertificateContent().getContent());
         String urlPath = "/p3-" + stamp + ".crl";
         X509Certificate cert = createSelfSignedCertificateWithCrl("testCrlUpdate-" + stamp,
-                List.of(mockServer.baseUrl() + urlPath), null, BigInteger.ONE);
+                List.of(LoopbackWireMock.url(mockServer) + urlPath), null, BigInteger.ONE);
         createTrustedCertEntity(cert);
 
         Map<BigInteger, Integer> v1Entries = new HashMap<>();
@@ -627,7 +629,8 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         String urlPathBad = "/p4-bad-" + stamp + ".crl"; // intentionally not stubbed
         String urlPathOk = "/p4-ok-" + stamp + ".crl";
         X509Certificate cert = createSelfSignedCertificateWithCrl("testCrlRevoked-" + stamp,
-                List.of(mockServer.baseUrl() + urlPathBad, mockServer.baseUrl() + urlPathOk), null, BigInteger.ONE);
+                List.of(LoopbackWireMock.url(mockServer) + urlPathBad, LoopbackWireMock.url(mockServer) + urlPathOk),
+                null, BigInteger.ONE);
         Certificate entity = createTrustedCertEntity(cert);
 
         X509CRL empty = createEmptyCRL(caCert, pair.getPrivate());
@@ -653,7 +656,8 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         String basePath = "/p5-base-" + stamp + ".crl";
         String deltaPath = "/p5-delta-" + stamp + ".crl";
         X509Certificate cert = createSelfSignedCertificateWithCrl("testCrlDeltaOk-" + stamp,
-                List.of(mockServer.baseUrl() + basePath), List.of(mockServer.baseUrl() + deltaPath), BigInteger.TWO);
+                List.of(LoopbackWireMock.url(mockServer) + basePath),
+                List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
         createTrustedCertEntity(cert);
 
         stubCrlPoint(basePath, createEmptyCRL(caCert, pair.getPrivate()).getEncoded());
@@ -676,7 +680,8 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         String basePath = "/p6-base-" + stamp + ".crl";
         String deltaPath = "/p6-delta-" + stamp + ".crl";
         X509Certificate cert = createSelfSignedCertificateWithCrl("testCrlDeltaBad-" + stamp,
-                List.of(mockServer.baseUrl() + basePath), List.of(mockServer.baseUrl() + deltaPath), BigInteger.TWO);
+                List.of(LoopbackWireMock.url(mockServer) + basePath),
+                List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
         Certificate entity = createTrustedCertEntity(cert);
 
         // Base CRL has crlNumber=2; delta carries indicator=3 (unreachable since base never advances to 3).
@@ -700,7 +705,8 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         String basePath = "/p7-base-" + stamp + ".crl";
         String deltaPath = "/p7-delta-" + stamp + ".crl";
         X509Certificate cert = createSelfSignedCertificateWithCrl("testCrlDeltaIssuer-" + stamp,
-                List.of(mockServer.baseUrl() + basePath), List.of(mockServer.baseUrl() + deltaPath), BigInteger.TWO);
+                List.of(LoopbackWireMock.url(mockServer) + basePath),
+                List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
         Certificate entity = createTrustedCertEntity(cert);
 
         stubCrlPoint(basePath, createEmptyCRL(caCert, pair.getPrivate()).getEncoded());
@@ -725,7 +731,8 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         String basePath = "/p8-base-" + stamp + ".crl";
         String deltaPath = "/p8-delta-" + stamp + ".crl";
         X509Certificate cert = createSelfSignedCertificateWithCrl("testCrlDeltaApply-" + stamp,
-                List.of(mockServer.baseUrl() + basePath), List.of(mockServer.baseUrl() + deltaPath), BigInteger.TWO);
+                List.of(LoopbackWireMock.url(mockServer) + basePath),
+                List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
         Certificate entity = createTrustedCertEntity(cert);
 
         // Base CRL: serial 123 (KEY_COMPROMISE) and 1234 (CA_COMPROMISE).
@@ -1124,7 +1131,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         String caIssuersPath = "/aiaissuer.crt";
         X509Certificate eeCert = CertificateGeneratorHelper
                 .generateEndEntityCertificateWithCaIssuers(caKeyPair, caCert, eeKeyPair, "CN=AIA-Test-EE",
-                        mockServer.baseUrl() + caIssuersPath);
+                        LoopbackWireMock.url(mockServer) + caIssuersPath);
 
         // Serve the CA in DER format at the AIA URL.
         mockServer

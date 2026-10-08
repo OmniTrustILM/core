@@ -73,6 +73,7 @@ import com.otilm.core.service.ApprovalProfileExternalService;
 import com.otilm.core.service.RaProfileExternalService;
 import com.otilm.core.service.RaProfileInternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.builders.AuthorityFixtures;
 import java.util.List;
@@ -132,15 +133,15 @@ class RaProfileServiceITest extends ApprovalProfileData {
 
     @BeforeEach
     void setUp() {
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
 
-        WireMock.configureFor("localhost", mockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
 
         connector = new Connector();
         connector.setUuid(UUID.randomUUID());
         connector.setName("authorityInstanceConnector");
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector = connectorRepository.save(connector);

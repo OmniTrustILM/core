@@ -19,6 +19,7 @@ import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.service.RaProfileCertificateRequestAttributeService;
 import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.builders.AuthorityFixtures;
 import java.io.StringWriter;
 import java.security.KeyPair;
@@ -78,7 +79,7 @@ class ClientOperationRequestAttributePropagationITest extends BaseSpringBootTest
 
     @BeforeEach
     void startMockAuthorityAndWireV2Profile() {
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
 
         AuthorityFixtures.Repos fixtureRepos = new AuthorityFixtures.Repos(connectorRepository, functionGroupRepository,

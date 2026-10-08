@@ -43,6 +43,7 @@ import com.otilm.core.service.acme.AcmeExternalService;
 import com.otilm.core.service.acme.AcmeTestUtil;
 import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.builders.AuthorityFixtures;
 import java.net.URI;
 import java.security.KeyPair;
@@ -157,9 +158,9 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
 
     @BeforeEach
     public void setUpAcme() throws NoSuchAlgorithmException {
-        wireMockServer = new WireMockServer(0);
+        wireMockServer = new WireMockServer(LoopbackWireMock.options());
         wireMockServer.start();
-        WireMock.configureFor("localhost", wireMockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, wireMockServer.port());
 
         // Stubs for raProfileService.addRaProfile (mergeAndValidateAttributes calls v1 RA-profile attribute
         // endpoints to validate and list attributes before saving the RA profile).

@@ -52,6 +52,7 @@ import com.otilm.core.service.writer.cbom.CbomSyncSkipWriter;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.tasks.CbomSyncTask;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.SchemaHistory;
 import java.time.Duration;
 import java.time.Instant;
@@ -130,11 +131,11 @@ class CbomSyncITest extends BaseSpringBootTest {
     @BeforeEach
     void startRepository() {
         originalSettings = SettingsCache.getSettings(SettingsSection.PLATFORM);
-        repository = new WireMockServer(0);
+        repository = new WireMockServer(LoopbackWireMock.options());
         repository.start();
         PlatformSettingsDto settings = new PlatformSettingsDto();
         settings.setUtils(new UtilsSettingsDto());
-        settings.getUtils().setCbomRepositoryUrl("http://localhost:" + repository.port());
+        settings.getUtils().setCbomRepositoryUrl(LoopbackWireMock.url(repository));
         settingsCache.cacheSettings(SettingsSection.PLATFORM, settings);
 
         logged = new ListAppender<>();
@@ -1197,7 +1198,7 @@ class CbomSyncITest extends BaseSpringBootTest {
     private void cacheAssetIngestEnabled(boolean enabled) {
         PlatformSettingsDto settings = new PlatformSettingsDto();
         settings.setUtils(new UtilsSettingsDto());
-        settings.getUtils().setCbomRepositoryUrl("http://localhost:" + repository.port());
+        settings.getUtils().setCbomRepositoryUrl(LoopbackWireMock.url(repository));
         settings.getUtils().setCbomSyncAssetIngestEnabled(enabled);
         settingsCache.cacheSettings(SettingsSection.PLATFORM, settings);
     }

@@ -86,6 +86,7 @@ import com.otilm.core.service.NotificationProfileExternalService;
 import com.otilm.core.service.ResourceObjectAssociationService;
 import com.otilm.core.service.TriggerInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.WireMockPorts;
 import java.io.IOException;
 import java.security.cert.CertificateException;
@@ -1575,7 +1576,7 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
 
         mockServer = new WireMockServer(WireMockPorts.AUTH_SERVICE);
         mockServer.start();
-        WireMock.configureFor("localhost", mockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
 
         mockServer
                 .stubFor(WireMock
@@ -1591,9 +1592,9 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
 
     @Test
     void testSetRaProfile() throws RuleException, NotFoundException, CertificateException, IOException {
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
-        WireMock.configureFor("localhost", mockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
 
         mockServer
                 .stubFor(WireMock
@@ -1603,7 +1604,7 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
 
         Connector connector = new Connector();
         connector.setName("authorityInstanceConnector");
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connectorRepository.save(connector);
