@@ -163,7 +163,7 @@ final class GoldenJson {
         }
     }
 
-    private static boolean regenerating() {
+    static boolean regenerating() {
         if (!Boolean.getBoolean(REGENERATE_PROPERTY)) {
             return false;
         }
@@ -175,7 +175,7 @@ final class GoldenJson {
         return true;
     }
 
-    private static String read(String path) {
+    static String read(String path) {
         Path onDisk = SOURCE_DIR.resolve(path);
         try {
             if (Files.exists(onDisk)) {

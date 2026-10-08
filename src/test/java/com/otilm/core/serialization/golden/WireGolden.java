@@ -7,11 +7,18 @@ import com.fasterxml.jackson.databind.SerializationConfig;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /** Wire output compared against goldens recorded on the Spring Boot 3.5 line, under {@code src/test/resources/wire}. */
 public final class WireGolden {
 
     private static final String DIR = "wire/";
+
+    /** A feature line of {@link #fingerprint}; group 1 is the feature's key, such as {@code ser INDENT_OUTPUT}. */
+    private static final Pattern FEATURE = Pattern.compile("((?:mapper|ser|de) \\w+)=(?:true|false)");
 
     private WireGolden() {
     }
@@ -41,6 +48,30 @@ public final class WireGolden {
     private static String simpleName(Object moduleId) {
         String id = String.valueOf(moduleId);
         return id.substring(id.lastIndexOf('.') + 1);
+    }
+
+    /**
+     * Jackson minors add feature constants, so a feature the golden has not recorded is left out and only a recorded
+     * setting that changed fails. Regenerating records the new ones.
+     */
+    public static void assertFingerprintMatches(String name, ObjectMapper mapper) {
+        String actual = fingerprint(mapper);
+        if (!GoldenJson.regenerating()) {
+            Set<String> recorded = GoldenJson
+                    .read(DIR + name)
+                    .lines()
+                    .map(FEATURE::matcher)
+                    .filter(Matcher::matches)
+                    .map(feature -> feature.group(1))
+                    .collect(Collectors.toSet());
+            actual = actual.lines().filter(line -> isRecorded(line, recorded)).collect(Collectors.joining("\n"));
+        }
+        assertMatches(name, actual);
+    }
+
+    private static boolean isRecorded(String line, Set<String> recordedFeatures) {
+        Matcher feature = FEATURE.matcher(line);
+        return !feature.matches() || recordedFeatures.contains(feature.group(1));
     }
 
     /** Regenerating with -Dgolden.regenerate=true is for the 3.5 line only. */

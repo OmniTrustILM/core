@@ -39,8 +39,8 @@ class JmsWireGoldenITest extends BaseSpringBootTest {
     @Test
     void jmsMapperIsConfiguredAsOnThe35Line() {
         WireGolden
-                .assertMatches("jms-message-mapper.txt",
-                        WireGolden.fingerprint(ObjectMapperFactory.jmsMessage(objectMapperBuilder)));
+                .assertFingerprintMatches("jms-message-mapper.txt",
+                        ObjectMapperFactory.jmsMessage(objectMapperBuilder));
     }
 
     @Test

@@ -27,6 +27,6 @@ class MvcWireGoldenITest extends BaseSpringBootTest {
                 .orElseThrow();
         MappingJackson2HttpMessageConverter jackson2 = assertInstanceOf(MappingJackson2HttpMessageConverter.class,
                 json);
-        WireGolden.assertMatches("mvc-mapper.txt", WireGolden.fingerprint(jackson2.getObjectMapper()));
+        WireGolden.assertFingerprintMatches("mvc-mapper.txt", jackson2.getObjectMapper());
     }
 }

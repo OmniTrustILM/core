@@ -16,7 +16,7 @@ class ConnectorClientWireGoldenTest {
 
     @Test
     void connectorClientMapperIsConfiguredAsOnThe35Line() {
-        WireGolden.assertMatches("connector-client-mapper.txt", WireGolden.fingerprint(connectorClientMapper()));
+        WireGolden.assertFingerprintMatches("connector-client-mapper.txt", connectorClientMapper());
     }
 
     private static ObjectMapper connectorClientMapper() {
