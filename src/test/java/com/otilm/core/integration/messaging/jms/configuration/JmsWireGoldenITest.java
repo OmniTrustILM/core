@@ -18,8 +18,10 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
+import org.springframework.jms.support.converter.MappingJackson2MessageConverter;
 import org.springframework.jms.support.converter.MessageConverter;
 
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -38,6 +40,8 @@ class JmsWireGoldenITest extends BaseSpringBootTest {
 
     @Test
     void jmsMapperIsConfiguredAsOnThe35Line() {
+        // The converter keeps its mapper private; JmsConfig builds it with the factory fingerprinted below.
+        assertInstanceOf(MappingJackson2MessageConverter.class, messageConverter);
         WireGolden
                 .assertFingerprintMatches("jms-message-mapper.txt",
                         ObjectMapperFactory.jmsMessage(objectMapperBuilder));
