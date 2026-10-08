@@ -2,6 +2,8 @@ package com.otilm.core.serialization.golden;
 
 import com.fasterxml.jackson.core.StreamReadFeature;
 import com.fasterxml.jackson.core.StreamWriteFeature;
+import com.fasterxml.jackson.core.json.JsonReadFeature;
+import com.fasterxml.jackson.core.json.JsonWriteFeature;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -22,7 +24,8 @@ public final class WireGolden {
     private static final String DIR = "wire/";
 
     /** A feature line of {@link #fingerprint}; group 1 is the feature's key, such as {@code ser INDENT_OUTPUT}. */
-    private static final Pattern FEATURE = Pattern.compile("((?:mapper|ser|de|read|write) \\w+)=(?:true|false)");
+    private static final Pattern FEATURE = Pattern
+            .compile("((?:mapper|ser|de|read|write|jsonRead|jsonWrite) \\w+)=(?:true|false)");
 
     private WireGolden() {
     }
@@ -46,6 +49,13 @@ public final class WireGolden {
         }
         for (StreamWriteFeature feature : StreamWriteFeature.values()) {
             lines.add("write " + feature + "=" + mapper.getFactory().isEnabled(feature));
+        }
+        // Jackson 2 keeps each JSON feature as the parser or generator feature it maps to.
+        for (JsonReadFeature feature : JsonReadFeature.values()) {
+            lines.add("jsonRead " + feature + "=" + mapper.getFactory().isEnabled(feature.mappedFeature()));
+        }
+        for (JsonWriteFeature feature : JsonWriteFeature.values()) {
+            lines.add("jsonWrite " + feature + "=" + mapper.getFactory().isEnabled(feature.mappedFeature()));
         }
         lines.add("inclusion " + config.getDefaultPropertyInclusion());
         lines.add("visibility " + config.getDefaultVisibilityChecker());
