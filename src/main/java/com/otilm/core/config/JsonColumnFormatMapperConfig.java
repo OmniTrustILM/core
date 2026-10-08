@@ -3,7 +3,7 @@ package com.otilm.core.config;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import org.hibernate.cfg.MappingSettings;
 import org.hibernate.type.format.jackson.JacksonJsonFormatMapper;
-import org.springframework.boot.autoconfigure.orm.jpa.HibernatePropertiesCustomizer;
+import org.springframework.boot.hibernate.autoconfigure.HibernatePropertiesCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 

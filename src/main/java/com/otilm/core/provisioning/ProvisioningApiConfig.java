@@ -6,7 +6,7 @@ import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
-import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
+import org.springframework.boot.http.client.HttpClientSettings;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.BufferingClientHttpRequestFactory;
@@ -52,7 +52,7 @@ public class ProvisioningApiConfig {
 
     @Bean
     public RestClient provisioningRestClient(ClientHttpRequestInterceptor provisioningHttpLoggingInterceptor) {
-        ClientHttpRequestFactorySettings settings = ClientHttpRequestFactorySettings
+        HttpClientSettings settings = HttpClientSettings
                 .defaults()
                 .withConnectTimeout(provisioningApiProperties.connectTimeout())
                 .withReadTimeout(provisioningApiProperties.readTimeout());

@@ -18,7 +18,7 @@ import java.util.Map;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
+import org.springframework.boot.http.client.HttpClientSettings;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpRequest;
 import org.springframework.http.HttpStatusCode;
@@ -52,7 +52,7 @@ public class OAuth2Util {
      * specific here is how the provider's responses are mapped.
      */
     private static RestClient buildRestClient() {
-        ClientHttpRequestFactorySettings settings = ClientHttpRequestFactorySettings
+        HttpClientSettings settings = HttpClientSettings
                 .defaults()
                 .withConnectTimeout(CONNECT_TIMEOUT)
                 .withReadTimeout(READ_TIMEOUT);
