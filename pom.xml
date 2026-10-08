@@ -17,7 +17,7 @@
         <!-- The mainline value - only a release-cut PR changes it, in lockstep with
              this project's own <version>. CI overrides it with -Dinterfaces.version=...
              when a PR body carries a Depends-On or Interfaces-Version marker. -->
-        <interfaces.version>2.20.0-SNAPSHOT</interfaces.version>
+        <interfaces.version>3.0.0-SNAPSHOT</interfaces.version>
         <archunit.version>1.5.1</archunit.version>
         <log-schema.version>1.1</log-schema.version>
         <hsqldb.version>2.7.3</hsqldb.version>
