@@ -29,6 +29,7 @@ import com.otilm.core.dao.repository.AttributeContentItemRepository;
 import com.otilm.core.dao.repository.AttributeDefinitionRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
+import com.otilm.core.serialization.AttributeContentJson;
 import com.otilm.core.service.handler.CertificateHandler;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.SecretEncodingVersion;
@@ -36,6 +37,7 @@ import com.otilm.core.util.SecretsUtil;
 import com.otilm.core.util.SqlCapture;
 import jakarta.persistence.EntityManagerFactory;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -155,6 +157,54 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
         Assertions.assertEquals(1, attributeContentItemRepository.count(), "both writers share one row");
         Assertions.assertEquals(List.of(SHARED_VALUE), storedValues(first, "profile"));
         Assertions.assertEquals(List.of(SHARED_VALUE), storedValues(second, "profile"));
+    }
+
+    /**
+     * Two writes storing the same new values in opposite order must not deadlock. The competitor holds the value that
+     * sorts first and then stores the other one; a write that took its values in list order would already hold that
+     * other one while waiting on the first, and the two would wait on each other.
+     */
+    @Test
+    void writersOfTheSameNewValuesInOppositeOrderDoNotDeadlock() throws Exception {
+        UUID definitionUuid = attributeEngine
+                .updateCustomAttributeDefinition(listAttribute("profiles"), List.of(Resource.CERTIFICATE))
+                .getUuid();
+        UUID certificateUuid = newCertificate();
+        StringAttributeContentV3 sortsFirst = new StringAttributeContentV3("profile-a");
+        StringAttributeContentV3 sortsSecond = new StringAttributeContentV3("profile-b");
+        assertThat(AttributeContentJson.render(sortsFirst)).isLessThan(AttributeContentJson.render(sortsSecond));
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+
+        ExecutorService executor = new DelegatingSecurityContextExecutorService(Executors.newSingleThreadExecutor());
+        try (Connection competitor = dataSource.getConnection()) {
+            competitor.setAutoCommit(false);
+            insertValue(competitor, definitionUuid, sortsFirst);
+
+            Future<?> writer = executor.submit(() -> transaction.executeWithoutResult(status -> {
+                try {
+                    attributeEngine
+                            .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificateUuid, definitionUuid,
+                                    null, List.of(sortsSecond, sortsFirst));
+                } catch (NotFoundException | AttributeException e) {
+                    throw new IllegalStateException(e);
+                }
+            }));
+            await()
+                    .atMost(Duration.ofSeconds(30))
+                    .pollInterval(Duration.ofMillis(50))
+                    .until(() -> writer.isDone() || aWriterWaitsOnALock());
+            insertValue(competitor, definitionUuid, sortsSecond);
+            competitor.commit();
+
+            writer.get(30, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        Assertions.assertEquals(2, attributeContentItemRepository.count());
+        Assertions
+                .assertEquals(List.of("profile-b", "profile-a"), storedValues(certificateUuid, "profiles"),
+                        "the object keeps the values in the order it was given them");
     }
 
     @Test
@@ -386,6 +436,20 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
         }
     }
 
+    private static void insertValue(Connection connection, UUID definitionUuid, AttributeContent content)
+            throws SQLException {
+        try (PreparedStatement insert = connection.prepareStatement("""
+                INSERT INTO attribute_content_item (uuid, attribute_definition_uuid, json)
+                VALUES (?, ?, CAST(? AS jsonb))
+                ON CONFLICT (attribute_definition_uuid, json_hash) DO NOTHING
+                """)) {
+            insert.setObject(1, UUID.randomUUID());
+            insert.setObject(2, definitionUuid);
+            insert.setString(3, AttributeContentJson.render(content));
+            insert.executeUpdate();
+        }
+    }
+
     private static void awaitRelease(CountDownLatch latch) {
         try {
             if (!latch.await(30, TimeUnit.SECONDS)) {
@@ -432,6 +496,14 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
         properties.setLabel(name);
         properties.setProtectionLevel(protectionLevel);
         attribute.setProperties(properties);
+        return attribute;
+    }
+
+    static CustomAttributeV3 listAttribute(String name) {
+        CustomAttributeV3 attribute = customAttribute(name, AttributeContentType.STRING, ProtectionLevel.NONE);
+        attribute.getProperties().setList(true);
+        attribute.getProperties().setMultiSelect(true);
+        attribute.getProperties().setExtensibleList(true);
         return attribute;
     }
 

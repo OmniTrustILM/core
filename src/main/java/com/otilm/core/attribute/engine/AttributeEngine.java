@@ -97,6 +97,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
@@ -2657,6 +2658,10 @@ public class AttributeEngine {
                 .getProtectionLevel() == ProtectionLevel.ENCRYPTED
                         ? loadDecryptedMappedItems(attributeDefinition, objectAttributeContentInfo)
                         : List.of();
+        Map<String, AttributeContentItem> plaintextRows = attributeDefinition
+                .getProtectionLevel() == ProtectionLevel.ENCRYPTED
+                        ? Map.of()
+                        : findOrCreateContentItems(attributeDefinition.getUuid(), attributeContentItems);
 
         for (int i = 0; i < attributeContentItems.size(); i++) {
             AttributeContent attributeContentItem = attributeContentItems.get(i);
@@ -2672,8 +2677,7 @@ public class AttributeEngine {
                                     attributeDefinition.getVersion());
                 }
             } else {
-                // A plaintext value has one row per definition, shared by every object holding it.
-                contentItemEntity = findOrCreateContentItem(attributeDefinition.getUuid(), attributeContentItem);
+                contentItemEntity = plaintextRows.get(AttributeContentJson.render(attributeContentItem));
             }
 
             // an existing row may already be mapped to this object; only an encrypted value reaches the insert below
@@ -2733,6 +2737,22 @@ public class AttributeEngine {
                 .stream()
                 .sorted(Comparator.comparing(AttributeContentJson::render))
                 .forEach(content -> attributeContentItemWriter.insertIfAbsent(attributeDefinition.getUuid(), content));
+    }
+
+    /**
+     * The definition's row for each plaintext value, keyed by the value's rendering. A plaintext value has one row per
+     * definition, shared by every object holding it. Values the definition does not hold yet are stored in the order
+     * {@link #registerAttributeContentItems} uses, so two writes storing the same new values wait on each other in that
+     * order instead of each holding one value the other needs.
+     */
+    private Map<String, AttributeContentItem> findOrCreateContentItems(UUID definitionUuid,
+            List<? extends AttributeContent> contents) {
+        Map<String, AttributeContent> byRendering = new TreeMap<>();
+        contents.forEach(content -> byRendering.putIfAbsent(AttributeContentJson.render(content), content));
+        Map<String, AttributeContentItem> rows = new HashMap<>();
+        byRendering
+                .forEach((rendering, content) -> rows.put(rendering, findOrCreateContentItem(definitionUuid, content)));
+        return rows;
     }
 
     /**
