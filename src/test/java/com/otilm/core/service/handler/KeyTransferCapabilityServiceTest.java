@@ -508,7 +508,7 @@ class KeyTransferCapabilityServiceTest {
     private static Stream<Exception> failuresSpecificToOneProfile() {
         return Stream
                 .of(new ConnectorClientException("Profile attribute is invalid", HttpStatus.BAD_REQUEST),
-                        problem(HttpStatus.UNPROCESSABLE_ENTITY),
+                        problem(HttpStatus.UNPROCESSABLE_CONTENT),
                         new ValidationException("Secret the profile references is disabled"));
     }
 
