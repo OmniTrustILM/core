@@ -46,7 +46,7 @@ import static org.mockito.Mockito.verify;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-@TestPropertySource(properties = "server.servlet.context-path=")
+@TestPropertySource(properties = {"server.servlet.context-path=", "server.address=127.0.0.1"})
 class OAuth2LoginControllerITest {
 
     @LocalServerPort
