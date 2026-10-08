@@ -1,0 +1,2 @@
+# Tests that fail on the Spring Boot 4.1 line: classname#name<TAB>owner issue. An owner starting with "flaky" accepts either outcome.
+# ../sb41/known_failures.py reports any disagreement, so this list only shrinks. It is empty before the merge to main.
