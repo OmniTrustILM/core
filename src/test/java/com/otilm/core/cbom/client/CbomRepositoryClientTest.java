@@ -366,6 +366,36 @@ class CbomRepositoryClientTest {
         assertEquals("CBOM Repository failed a page request (HTTP 400)", ex.getProblemDetail().getDetail());
     }
 
+    /** What a deployment without the repository answers when its URL points at the platform's own ingress. */
+    @Test
+    void search_readsA404OnTheOpeningPageAsNoRepositoryDeployed() {
+        wireMock
+                .stubFor(get(urlPathEqualTo("/api/v1/bom"))
+                        .willReturn(aResponse()
+                                .withStatus(404)
+                                .withHeader("Content-Type", "application/json")
+                                .withBody("{\"message\":\"No endpoint GET /api/v1/bom.\"}")));
+
+        BomSearchRequestDto query = pagedQuery(0, 1);
+        CbomRepositoryNotDeployedException ex = assertThrows(CbomRepositoryNotDeployedException.class,
+                () -> client.search(query));
+        assertEquals(404, ex.getProblemDetail().getStatus());
+    }
+
+    @Test
+    void nextPage_keepsA404AsAFailedPage() throws Exception {
+        stubPage("after", "0", "[]", "<bom?cursor=c1&limit=1>; rel=\"next\"");
+        wireMock
+                .stubFor(get(urlPathEqualTo("/api/v1/bom"))
+                        .withQueryParam("cursor", equalTo("c1"))
+                        .willReturn(aResponse().withStatus(404)));
+
+        BomSearchPage first = client.search(pagedQuery(0, 1));
+        CbomRepositoryException ex = assertThrows(CbomRepositoryException.class, () -> client.nextPage(first));
+        assertFalse(ex instanceof CbomRepositoryNotDeployedException);
+        assertEquals(404, ex.getProblemDetail().getStatus());
+    }
+
     @Test
     void testRead_WithoutVersion() throws Exception {
         // Arrange
