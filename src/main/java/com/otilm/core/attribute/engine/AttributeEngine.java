@@ -864,10 +864,10 @@ public class AttributeEngine {
 
         // load missing data attributes definitions from DB
         for (RequestAttribute RequestAttribute : requestAttributes) {
-            if (definitionsMapping.get(RequestAttribute.getName()) == null) {
+            if (definitionsMapping.get(RequestAttribute.getName()) == null && RequestAttribute.getUuid() != null) {
                 AttributeDefinition missingDefinition = attributeDefinitionRepository
                         .findByTypeAndConnectorUuidAndAttributeUuidAndName(AttributeType.DATA, connectorUuid,
-                                UUID.fromString(String.valueOf(RequestAttribute.getUuid())), RequestAttribute.getName())
+                                UUID.fromString(RequestAttribute.getUuid().toString()), RequestAttribute.getName())
                         .orElse(null);
                 if (missingDefinition != null) {
                     claimUnknownOperation(missingDefinition, operation);
@@ -2880,9 +2880,13 @@ public class AttributeEngine {
             AttributeDefinition definition = definitionsMapping.get(attribute.getName());
             if (definition == null) {
                 errors
-                        .add(ValidationError
-                                .create("Content for attribute {} is provided but definition is not found",
-                                        attribute.getName()));
+                        .add(attribute.getUuid() == null
+                                ? ValidationError
+                                        .create("Attribute {} has no uuid and its name does not match any definition; "
+                                                + "provide the uuid of the attribute", attribute.getName())
+                                : ValidationError
+                                        .create("Content for attribute {} is provided but definition is not found",
+                                                attribute.getName()));
                 continue;
             }
             try {
