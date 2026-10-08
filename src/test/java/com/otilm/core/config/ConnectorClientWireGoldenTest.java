@@ -10,8 +10,8 @@ import org.springframework.http.codec.json.Jackson2JsonDecoder;
 import org.springframework.web.reactive.function.client.ExchangeStrategies;
 
 /**
- * The connector and OPA clients read and write JSON with the mapper {@link ApiClientCodecs} builds on core's classpath,
- * which can register more modules than it does on interfaces' own.
+ * The connector clients read and write JSON with the mapper {@link ApiClientCodecs} builds on core's classpath, which
+ * can register more modules than it does on interfaces' own.
  */
 class ConnectorClientWireGoldenTest {
 

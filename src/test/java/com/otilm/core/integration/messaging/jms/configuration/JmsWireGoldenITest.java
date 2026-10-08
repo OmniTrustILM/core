@@ -60,7 +60,8 @@ class JmsWireGoldenITest extends BaseSpringBootTest {
 
     private String written(Object message) throws JMSException {
         Session session = mock(Session.class);
-        when(session.createTextMessage(anyString())).thenReturn(mock(TextMessage.class));
+        TextMessage textMessage = mock(TextMessage.class);
+        when(session.createTextMessage(anyString())).thenReturn(textMessage);
         messageConverter.toMessage(message, session);
         ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
         verify(session).createTextMessage(text.capture());
