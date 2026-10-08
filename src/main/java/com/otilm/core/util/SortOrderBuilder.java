@@ -14,6 +14,7 @@ import jakarta.persistence.criteria.CommonAbstractCriteria;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.From;
+import jakarta.persistence.criteria.Nulls;
 import jakarta.persistence.criteria.Order;
 import jakarta.persistence.criteria.Root;
 import java.util.ArrayList;
@@ -24,7 +25,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
-import org.hibernate.query.NullPrecedence;
 import org.hibernate.query.criteria.JpaOrder;
 
 /**
@@ -152,7 +152,7 @@ public final class SortOrderBuilder {
         Order order = direction == SortDirection.DESC
                 ? criteriaBuilder.desc(expression)
                 : criteriaBuilder.asc(expression);
-        return ((JpaOrder) order).nullPrecedence(NullPrecedence.LAST);
+        return ((JpaOrder) order).nullPrecedence(Nulls.LAST);
     }
 
     /**
