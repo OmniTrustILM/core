@@ -123,6 +123,28 @@ class StagedMetadataITest extends BaseSpringBootTest {
     }
 
     @Test
+    void anAttributeWithoutPropertiesStaysInTheClear() {
+        MetadataAttributeV2 bare = (MetadataAttributeV2) attribute("host", "web-1", ProtectionLevel.NONE);
+        bare.setProperties(null);
+
+        StagedMetadata.Sealed sealed = StagedMetadata.seal(List.of(bare));
+
+        assertThat(names(sealed.meta())).containsExactly("host");
+        assertThat(sealed.protectedMeta()).isNull();
+    }
+
+    @Test
+    void metadataWithoutAVisiblePartReadsBackWhole() {
+        StagedMetadata.Sealed sealed = StagedMetadata
+                .seal(List.of(attribute("token", SECRET, ProtectionLevel.ENCRYPTED)));
+
+        List<MetadataAttribute> unsealed = StagedMetadata.unseal(null, sealed.protectedMeta());
+
+        assertThat(names(unsealed)).containsExactly("token");
+        assertThat(valueOf(unsealed, "token")).isEqualTo(SECRET);
+    }
+
+    @Test
     void aRowStagedBeforeTheSplitReadsAsStored() {
         List<MetadataAttribute> legacy = mixedMeta();
 
