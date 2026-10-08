@@ -13,6 +13,7 @@ import org.springframework.http.client.BufferingClientHttpRequestFactory;
 import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.http.client.ClientHttpRequestInterceptor;
 import org.springframework.http.client.ClientHttpResponse;
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.support.RestClientAdapter;
 import org.springframework.web.service.invoker.HttpServiceProxyFactory;
@@ -65,6 +66,9 @@ public class ProvisioningApiConfig {
                 .requestFactory(new BufferingClientHttpRequestFactory(factory))
                 .defaultHeader("X-API-Key", provisioningApiProperties.apiKey())
                 .requestInterceptor(provisioningHttpLoggingInterceptor)
+                .configureMessageConverters(converters -> converters
+                        .registerDefaults()
+                        .withJsonConverter(new MappingJackson2HttpMessageConverter()))
                 .build();
     }
 
