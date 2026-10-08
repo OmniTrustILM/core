@@ -1,6 +1,7 @@
 package com.otilm.core.security.authz.opa;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.otilm.api.clients.ApiClientCodecs;
 import com.otilm.core.security.authz.opa.dto.OpaInput;
 import com.otilm.core.security.authz.opa.dto.OpaObjectAccessResult;
 import com.otilm.core.security.authz.opa.dto.OpaRequestDetails;
@@ -88,7 +89,7 @@ public class OpaClient {
 
     public WebClient getClient() {
         if (client == null) {
-            client = WebClient.builder().baseUrl(opaBaseUrl).build();
+            client = WebClient.builder().baseUrl(opaBaseUrl).codecs(ApiClientCodecs::configureJsonCodecs).build();
         }
         return client;
     }
