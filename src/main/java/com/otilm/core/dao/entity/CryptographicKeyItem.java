@@ -168,6 +168,11 @@ public class CryptographicKeyItem extends UniquelyIdentified
         }
     }
 
+    /** Stores a length below 1 as null, so an unknown length has one stored form. */
+    public void setLength(Integer length) {
+        this.length = KeySizeUtil.knownLength(length);
+    }
+
     public List<KeyUsage> getUsage() {
         return KeyUsage.convertBitMaskToSet(usage).stream().toList();
     }
@@ -191,7 +196,7 @@ public class CryptographicKeyItem extends UniquelyIdentified
         }
         dto.setKeyAlgorithm(keyAlgorithm);
         dto.setType(type);
-        dto.setLength(KeySizeUtil.knownLength(length));
+        dto.setLength(length);
         dto.setFormat(format);
         dto.setState(state);
         dto.setEnabled(enabled);
@@ -212,7 +217,7 @@ public class CryptographicKeyItem extends UniquelyIdentified
         }
         dto.setKeyAlgorithm(keyAlgorithm);
         dto.setType(type);
-        dto.setLength(KeySizeUtil.knownLength(length));
+        dto.setLength(length);
         dto.setFormat(format);
         dto.setState(state);
         dto.setEnabled(enabled);

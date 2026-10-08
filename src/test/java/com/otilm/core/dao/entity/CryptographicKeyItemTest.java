@@ -36,19 +36,16 @@ class CryptographicKeyItemTest {
 
     @ParameterizedTest
     @ValueSource(ints = {-1, 0})
-    void publicMappings_reportAbsentLength_forCertificateKeyOfUnknownLength(int storedLength) {
+    void setLength_storesNull_forLengthBelowOne(int lengthBelowOne) {
         // given
-        CryptographicKeyItem item = keyItem(KeyAlgorithm.UNKNOWN, KeyType.PUBLIC_KEY, storedLength);
+        CryptographicKeyItem item = keyItem(KeyAlgorithm.UNKNOWN, KeyType.PUBLIC_KEY, null);
 
         // when
-        CryptographicKeyItemBasicModel snapshot = CryptographicKeyItemBasicModel.from(item);
-        CryptographicKeyFullModel model = aKeySnapshot().withItems(List.of(snapshot)).build();
+        item.setLength(lengthBelowOne);
 
         // then
-        assertThat(item.mapToDto().getLength()).isNull();
-        assertThat(item.mapToSummaryDto().getLength()).isNull();
-        assertThat(CryptographicKeyDtoMapper.mapItemToDetailDto(snapshot).getLength()).isNull();
-        assertThat(CryptographicKeyDtoMapper.getKeyItemsSummary(model).getFirst().getLength()).isNull();
+        assertThat(item.getLength()).isNull();
+        assertThat(CryptographicKeyItemBasicModel.from(item).length()).isNull();
     }
 
     private static CryptographicKeyItem keyItem(KeyAlgorithm algorithm, KeyType type, Integer length) {
