@@ -5,12 +5,11 @@ import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.core.messaging.model.EventMessage;
 import com.otilm.core.messaging.model.ValidationMessage;
 import com.otilm.core.serialization.ObjectMapperFactory;
+import com.otilm.core.serialization.golden.WireGolden;
 import com.otilm.core.util.BaseSpringBootTest;
-import com.otilm.core.util.WireGolden;
 import jakarta.jms.JMSException;
 import jakarta.jms.Session;
 import jakarta.jms.TextMessage;
-import java.io.IOException;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
@@ -38,7 +37,7 @@ class JmsWireGoldenITest extends BaseSpringBootTest {
     private MessageConverter messageConverter;
 
     @Test
-    void jmsMapperIsConfiguredAsOnThe35Line() throws IOException {
+    void jmsMapperIsConfiguredAsOnThe35Line() {
         WireGolden
                 .assertMatches("jms-message-mapper.txt",
                         WireGolden.fingerprint(ObjectMapperFactory.jmsMessage(objectMapperBuilder)));

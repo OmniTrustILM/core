@@ -30,7 +30,7 @@ final class GoldenJson {
 
     private static final String RESOURCE_DIR = "golden";
 
-    private static final Path SOURCE_DIR = Path.of("src", "test", "resources", RESOURCE_DIR);
+    private static final Path SOURCE_DIR = Path.of("src", "test", "resources");
 
     private GoldenJson() {
     }
@@ -40,12 +40,12 @@ final class GoldenJson {
         String actual = serialize(mapper, value);
 
         if (regenerating()) {
-            write(goldenName, actual);
+            write(jsonGolden(goldenName), actual);
             return;
         }
 
-        String expected = read(goldenName);
-        assertThat(actual).describedAs(driftMessage(goldenName)).isEqualTo(expected);
+        String expected = read(jsonGolden(goldenName));
+        assertThat(actual).describedAs(driftMessage(jsonGolden(goldenName))).isEqualTo(expected);
     }
 
     /**
@@ -85,16 +85,36 @@ final class GoldenJson {
         String actual = canonicalize(rawJson);
 
         if (regenerating()) {
-            write(goldenName, actual);
+            write(jsonGolden(goldenName), actual);
             return;
         }
 
-        assertThat(actual).describedAs(driftMessage(goldenName)).isEqualTo(read(goldenName));
+        assertThat(actual).describedAs(driftMessage(jsonGolden(goldenName))).isEqualTo(read(jsonGolden(goldenName)));
     }
 
-    private static String driftMessage(String goldenName) {
-        return "Serialized JSON drifted from golden '" + goldenName + ".json'. During the Jackson 3 migration this is "
-                + "a finding to explain, not a test to update: trace the diff to a documented behaviour change before "
+    /**
+     * Compares text no mapper here produced, such as a mapper fingerprint or a JMS message body.
+     *
+     * @param path golden path under {@code src/test/resources}, with its suffix
+     */
+    static void assertMatchesGoldenText(String path, String actual) {
+        String normalized = normalize(actual);
+
+        if (regenerating()) {
+            write(path, normalized);
+            return;
+        }
+
+        assertThat(normalized).describedAs(driftMessage(path)).isEqualTo(read(path));
+    }
+
+    private static String jsonGolden(String goldenName) {
+        return RESOURCE_DIR + "/" + goldenName + ".json";
+    }
+
+    private static String driftMessage(String path) {
+        return "Serialized output drifted from golden '" + path + "'. During the Jackson 3 migration this is a "
+                + "finding to explain, not a test to update: trace the diff to a documented behaviour change before "
                 + "regenerating with -D" + REGENERATE_PROPERTY + "=true.";
     }
 
@@ -155,33 +175,32 @@ final class GoldenJson {
         return true;
     }
 
-    private static String read(String goldenName) {
-        Path onDisk = SOURCE_DIR.resolve(goldenName + ".json");
+    private static String read(String path) {
+        Path onDisk = SOURCE_DIR.resolve(path);
         try {
             if (Files.exists(onDisk)) {
                 return normalize(Files.readString(onDisk, StandardCharsets.UTF_8));
             }
             // Fall back to the classpath copy when the working directory is not the module root.
-            try (InputStream stream = GoldenJson.class
-                    .getResourceAsStream("/" + RESOURCE_DIR + "/" + goldenName + ".json")) {
+            try (InputStream stream = GoldenJson.class.getResourceAsStream("/" + path)) {
                 if (stream == null) {
-                    return fail("Golden '%s.json' does not exist. Create it by running with -D%s=true and reviewing "
-                            + "the generated file before committing.", goldenName, REGENERATE_PROPERTY);
+                    return fail("Golden '%s' does not exist. Create it by running with -D%s=true and reviewing "
+                            + "the generated file before committing.", path, REGENERATE_PROPERTY);
                 }
                 return normalize(new String(stream.readAllBytes(), StandardCharsets.UTF_8));
             }
         } catch (IOException e) {
-            throw new UncheckedIOException("Could not read golden '" + goldenName + ".json'", e);
+            throw new UncheckedIOException("Could not read golden '" + path + "'", e);
         }
     }
 
-    private static void write(String goldenName, String content) {
-        Path target = SOURCE_DIR.resolve(goldenName + ".json");
+    private static void write(String path, String content) {
+        Path target = SOURCE_DIR.resolve(path);
         try {
             Files.createDirectories(target.getParent());
             Files.writeString(target, content + "\n", StandardCharsets.UTF_8);
         } catch (IOException e) {
-            throw new UncheckedIOException("Could not write golden '" + goldenName + ".json'", e);
+            throw new UncheckedIOException("Could not write golden '" + path + "'", e);
         }
     }
 

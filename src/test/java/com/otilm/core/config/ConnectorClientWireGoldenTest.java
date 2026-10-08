@@ -2,8 +2,7 @@ package com.otilm.core.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.clients.ApiClientCodecs;
-import com.otilm.core.util.WireGolden;
-import java.io.IOException;
+import com.otilm.core.serialization.golden.WireGolden;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.codec.DecoderHttpMessageReader;
 import org.springframework.http.codec.json.Jackson2JsonDecoder;
@@ -16,7 +15,7 @@ import org.springframework.web.reactive.function.client.ExchangeStrategies;
 class ConnectorClientWireGoldenTest {
 
     @Test
-    void connectorClientMapperIsConfiguredAsOnThe35Line() throws IOException {
+    void connectorClientMapperIsConfiguredAsOnThe35Line() {
         WireGolden.assertMatches("connector-client-mapper.txt", WireGolden.fingerprint(connectorClientMapper()));
     }
 

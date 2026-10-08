@@ -1,22 +1,17 @@
-package com.otilm.core.util;
+package com.otilm.core.serialization.golden;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationConfig;
 import com.fasterxml.jackson.databind.SerializationFeature;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-
-/** Wire output compared against goldens recorded on the Spring Boot 3.5 line. */
+/** Wire output compared against goldens recorded on the Spring Boot 3.5 line, under {@code src/test/resources/wire}. */
 public final class WireGolden {
 
-    private static final Path ROOT = Path.of("src/test/resources/wire");
+    private static final String DIR = "wire/";
 
     private WireGolden() {
     }
@@ -48,13 +43,8 @@ public final class WireGolden {
         return id.substring(id.lastIndexOf('.') + 1);
     }
 
-    /** Recording mode, -Dwire.golden.write=true, is for the 3.5 line only. */
-    public static void assertMatches(String name, String actual) throws IOException {
-        Path golden = ROOT.resolve(name);
-        if (Boolean.getBoolean("wire.golden.write")) {
-            Files.createDirectories(golden.getParent());
-            Files.writeString(golden, actual);
-        }
-        assertEquals(Files.readString(golden), actual, "Wire output drifted from " + golden);
+    /** Regenerating with -Dgolden.regenerate=true is for the 3.5 line only. */
+    public static void assertMatches(String name, String actual) {
+        GoldenJson.assertMatchesGoldenText(DIR + name, actual);
     }
 }

@@ -1,8 +1,7 @@
 package com.otilm.core.integration.config;
 
+import com.otilm.core.serialization.golden.WireGolden;
 import com.otilm.core.util.BaseSpringBootTest;
-import com.otilm.core.util.WireGolden;
-import java.io.IOException;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,7 +18,7 @@ class MvcWireGoldenITest extends BaseSpringBootTest {
     private RequestMappingHandlerAdapter handlerAdapter;
 
     @Test
-    void jsonResponsesUseTheJackson2MapperOfThe35Line() throws IOException {
+    void jsonResponsesUseTheJackson2MapperOfThe35Line() {
         HttpMessageConverter<?> json = handlerAdapter
                 .getMessageConverters()
                 .stream()
