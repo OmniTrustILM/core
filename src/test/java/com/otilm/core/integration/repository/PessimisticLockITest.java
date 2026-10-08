@@ -6,6 +6,7 @@ import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.util.BaseSpringBootTest;
 import java.sql.SQLException;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -23,7 +24,12 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /** Proves each pessimistic lock query on an entity with an inverse {@code @OneToOne} really takes the row lock. */
-class PessimisticLockITest extends BaseSpringBootTest {
+public class PessimisticLockITest extends BaseSpringBootTest {
+
+    /** The lock queries the cases below exercise; LockedInverseOneToOneGuardTest keeps it complete. */
+    public static final Set<String> LOCK_QUERIES = Set
+            .of("CertificateRepository#findAndLockWithAssociationsByUuid",
+                    "CryptographicKeyRepository#findForUpdateByUuid");
 
     /** PostgreSQL's SQLSTATE for a NOWAIT lock request on a row another transaction holds. */
     private static final String LOCK_NOT_AVAILABLE = "55P03";
