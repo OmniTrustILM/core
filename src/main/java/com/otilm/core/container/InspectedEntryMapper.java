@@ -60,7 +60,7 @@ public final class InspectedEntryMapper {
     private static void describeKey(InspectedEntryDto inspected, KeyEntry key) {
         KeyDescription description = key.description();
         inspected.setKeyAlgorithm(description.algorithm());
-        inspected.setKeyLength(knownLength(description.length()));
+        inspected.setKeyLength(KeySizeUtil.knownLength(description.length()));
         if (key.leaf() != null) {
             describeCertificate(inspected, key.leaf());
             inspected.setChainLength(1 + key.issuers().size());
@@ -118,12 +118,8 @@ public final class InspectedEntryMapper {
         KeyAlgorithm algorithm = CertificateUtil.getKeyAlgorithmEnumFromProviderName(publicKey.getAlgorithm());
         if (algorithm != KeyAlgorithm.UNKNOWN) {
             inspected.setKeyAlgorithm(algorithm);
-            inspected.setKeyLength(knownLength(KeySizeUtil.getKeyLength(publicKey)));
+            inspected.setKeyLength(KeySizeUtil.knownLength(KeySizeUtil.getKeyLength(publicKey)));
         }
-    }
-
-    private static Integer knownLength(int length) {
-        return length > 0 ? length : null;
     }
 
     private static OffsetDateTime utc(Instant instant) {

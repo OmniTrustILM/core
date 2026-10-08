@@ -129,9 +129,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/**
- * Verifies import registration, reconciliation and persistence against PostgreSQL.
- */
 @SpringBootTest
 class KeyImportWriterITest extends BaseSpringBootTest {
 

@@ -19,6 +19,7 @@ import com.otilm.core.model.crypto.ImmutableCryptographicKeyListModel;
 import com.otilm.core.model.crypto.KeyCertificateAssociationModel;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.group.GroupModel;
+import com.otilm.core.util.KeySizeUtil;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -184,7 +185,7 @@ public final class CryptographicKeyDtoMapper {
         }
         dto.setKeyAlgorithm(item.algorithm());
         dto.setType(item.type());
-        dto.setLength(item.length());
+        dto.setLength(KeySizeUtil.knownLength(item.length()));
         dto.setFormat(responseFormat(item));
         dto.setState(item.state());
         dto.setEnabled(item.enabled());
@@ -205,7 +206,7 @@ public final class CryptographicKeyDtoMapper {
         }
         dto.setKeyAlgorithm(item.algorithm());
         dto.setType(item.type());
-        dto.setLength(item.length());
+        dto.setLength(KeySizeUtil.knownLength(item.length()));
         dto.setFormat(responseFormat(item));
         dto.setState(item.state());
         dto.setEnabled(item.enabled());

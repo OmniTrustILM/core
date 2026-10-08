@@ -107,9 +107,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-/**
- * Verifies import answers and secret containment at the v2 connector boundary.
- */
 class KeyProviderV2AdapterImportTest {
 
     @Test
