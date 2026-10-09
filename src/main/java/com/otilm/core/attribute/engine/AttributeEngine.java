@@ -2762,14 +2762,12 @@ public class AttributeEngine {
      * instead of failing, and the row is read back.
      */
     private AttributeContentItem findOrCreateContentItem(UUID definitionUuid, AttributeContent content) {
-        AttributeContentItem existing = attributeContentItemRepository
-                .findByJsonAndAttributeDefinitionUuid(content, definitionUuid);
+        AttributeContentItem existing = attributeContentItemWriter.findPlaintext(definitionUuid, content);
         if (existing != null) {
             return existing;
         }
         attributeContentItemWriter.insertIfAbsent(definitionUuid, content);
-        AttributeContentItem stored = attributeContentItemRepository
-                .findByJsonAndAttributeDefinitionUuid(content, definitionUuid);
+        AttributeContentItem stored = attributeContentItemWriter.findPlaintext(definitionUuid, content);
         if (stored == null) {
             throw new IllegalStateException(
                     "An attribute value of definition %s was stored but cannot be read back".formatted(definitionUuid));

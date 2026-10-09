@@ -15,8 +15,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Writes to attribute content items that the entity mapping cannot express. Methods use the default propagation and
- * join the attribute engine's transaction.
+ * Reads and writes of attribute content items that the entity mapping cannot express. Methods use the default
+ * propagation and join the attribute engine's transaction.
  */
 @Service
 public class AttributeContentItemWriter {
@@ -24,7 +24,13 @@ public class AttributeContentItemWriter {
     private static final String INSERT_IF_ABSENT = """
             INSERT INTO {h-schema}attribute_content_item (uuid, attribute_definition_uuid, json)
             VALUES (:uuid, :definitionUuid, CAST(:json AS jsonb))
-            ON CONFLICT (attribute_definition_uuid, json_hash) DO NOTHING
+            ON CONFLICT (attribute_definition_uuid, json_digest) DO NOTHING
+            """;
+
+    private static final String FIND_PLAINTEXT = """
+            SELECT * FROM {h-schema}attribute_content_item
+             WHERE attribute_definition_uuid = :definitionUuid
+               AND json_digest = sha256(decode(replace(CAST(:json AS jsonb)::text, chr(92), chr(92) || chr(92)), 'escape'))
             """;
 
     private final AttributeContentItemRepository contentItemRepository;
@@ -62,6 +68,23 @@ public class AttributeContentItemWriter {
                 .setParameter("definitionUuid", definitionUuid)
                 .setParameter("json", AttributeContentJson.render(content))
                 .executeUpdate() == 1;
+    }
+
+    /**
+     * The definition's plaintext row holding a value, found through {@code uq_attribute_content_item_value}'s key,
+     * which an encrypted row does not carry. Declares its table as {@link #insertIfAbsent} does, so it flushes no
+     * unrelated write.
+     */
+    @Transactional
+    public AttributeContentItem findPlaintext(UUID definitionUuid, AttributeContent content) {
+        NativeQuery<?> query = entityManager
+                .createNativeQuery(FIND_PLAINTEXT, AttributeContentItem.class)
+                .unwrap(NativeQuery.class);
+        return (AttributeContentItem) query
+                .addSynchronizedEntityClass(AttributeContentItem.class)
+                .setParameter("definitionUuid", definitionUuid)
+                .setParameter("json", AttributeContentJson.render(content))
+                .uniqueResult();
     }
 
     /** Stores the plaintext of an encrypted row in its place. */

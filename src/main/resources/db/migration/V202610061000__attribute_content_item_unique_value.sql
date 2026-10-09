@@ -2,12 +2,17 @@
 -- writers storing the same new value at once used to insert it twice, after which every write of that value failed.
 -- Turning a definition's encryption off did the same, one row per object that held the value.
 --
--- Fold what is already duplicated, then let a unique constraint keep it that way. json_hash follows jsonb equality, as
--- the lookup by value does. It is NULL for an encrypted row: the value lives in salted ciphertext, so equal values never
--- share a json and stay one row per object, outside the rule, since NULLs never collide in a unique constraint. A hash
--- rather than the jsonb itself, because a btree entry cannot hold a value over ~2.7 kB; jsonb_hash_extended rather than
--- md5(), which a FIPS-mode server refuses, or sha256(), which needs a text-to-bytea conversion a generated column
--- cannot use. Adding the stored column rewrites the table.
+-- Fold what is already duplicated, then let a unique constraint keep it that way. json_digest is the SHA-256 of the
+-- value's jsonb text, which the lookup by value computes too: key order and spacing are normalized away, a number's
+-- written precision is not, so 1.0 and 1.00 are two values. It is NULL for an encrypted row: the value lives in salted
+-- ciphertext, so equal values never share a json and stay one row per object, outside the rule, since NULLs never
+-- collide in a unique constraint.
+--
+-- A digest rather than the jsonb itself, because a btree entry cannot hold a value over ~2.7 kB. SHA-256 rather than
+-- jsonb_hash_extended, which folds a container's start into its hash without rotating it: [{},{}] and [[],[]] hash
+-- alike, and the second could never be stored. md5() is refused on a FIPS-mode server, and convert_to() is not
+-- immutable, so the text reaches sha256() through decode(..., 'escape'), with each backslash doubled because that
+-- format reads it as an escape. Adding the stored column rewrites the table.
 
 CREATE TEMP TABLE "attribute_content_item_merge" ON COMMIT DROP AS
 SELECT "uuid" AS "duplicate_uuid", "keep_uuid"
@@ -42,11 +47,13 @@ DELETE FROM "attribute_content_item" AS "item"
  WHERE "item"."uuid" = "merge"."duplicate_uuid";
 
 ALTER TABLE "attribute_content_item"
-    ADD COLUMN "json_hash" BIGINT
-        GENERATED ALWAYS AS (CASE WHEN "encrypted_data" IS NULL THEN jsonb_hash_extended("json", 0) END) STORED;
+    ADD COLUMN "json_digest" BYTEA
+        GENERATED ALWAYS AS (CASE WHEN "encrypted_data" IS NULL
+                                  THEN sha256(decode(replace("json"::TEXT, chr(92), chr(92) || chr(92)), 'escape'))
+                             END) STORED;
 
 ALTER TABLE "attribute_content_item"
-    ADD CONSTRAINT "uq_attribute_content_item_value" UNIQUE ("attribute_definition_uuid", "json_hash");
+    ADD CONSTRAINT "uq_attribute_content_item_value" UNIQUE ("attribute_definition_uuid", "json_digest");
 
 -- The constraint's index leads with the definition, so it answers every lookup by definition that the index from
 -- V202609251800 was added for; keeping both would only double the upkeep on each write.

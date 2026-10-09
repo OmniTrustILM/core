@@ -27,7 +27,7 @@ import org.hibernate.type.SqlTypes;
 @RequiredArgsConstructor
 @Entity
 @Table(name = "attribute_content_item", uniqueConstraints = @UniqueConstraint(name = "uq_attribute_content_item_value",
-        columnNames = {"attribute_definition_uuid", "json_hash"}))
+        columnNames = {"attribute_definition_uuid", "json_digest"}))
 public class AttributeContentItem extends UniquelyIdentified {
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -52,12 +52,12 @@ public class AttributeContentItem extends UniquelyIdentified {
 
     /**
      * Computed by the database, and mapped only so the test schema — generated from these annotations — carries the
-     * column the insert's conflict target names. NULL for an encrypted row; V202610061000 explains the hash.
+     * column the insert's conflict target names. NULL for an encrypted row; V202610061000 explains the digest.
      */
-    @Column(name = "json_hash",
-            columnDefinition = "bigint generated always as (case when encrypted_data is null then jsonb_hash_extended(json, 0) end) stored",
+    @Column(name = "json_digest",
+            columnDefinition = "bytea generated always as (case when encrypted_data is null then sha256(decode(replace(json::text, chr(92), chr(92) || chr(92)), 'escape')) end) stored",
             insertable = false, updatable = false)
-    private Long jsonHash;
+    private byte[] jsonDigest;
 
     public void setAttributeDefinition(AttributeDefinition attributeDefinition) {
         this.attributeDefinition = attributeDefinition;

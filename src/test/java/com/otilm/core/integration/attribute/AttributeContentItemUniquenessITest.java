@@ -17,6 +17,7 @@ import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.CodeBlockAttributeContentV3;
+import com.otilm.api.model.common.attribute.v3.content.ObjectAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.TextAttributeContentV3;
 import com.otilm.api.model.core.auth.Resource;
@@ -36,6 +37,7 @@ import com.otilm.core.util.SecretEncodingVersion;
 import com.otilm.core.util.SecretsUtil;
 import com.otilm.core.util.SqlCapture;
 import jakarta.persistence.EntityManagerFactory;
+import java.io.Serializable;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -43,6 +45,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -253,6 +256,60 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
         Assertions.assertEquals(1, attributeContentItemRepository.count());
     }
 
+    /**
+     * jsonb_hash_extended folds a container's start into its hash without rotating it, so two empty containers in a row
+     * cancel out and these values hash alike. Keyed on that hash, the constraint would turn the second value away.
+     */
+    @Test
+    void valuesAWeakHashConfusesAreStoredApart() throws Exception {
+        UUID definitionUuid = createAttribute("layout", AttributeContentType.OBJECT, ProtectionLevel.NONE);
+        UUID emptyObjects = newCertificate();
+        UUID emptyArrays = newCertificate();
+
+        writeObject(emptyObjects, definitionUuid, new HashMap<>(Map.of("v", List.of(Map.of(), Map.of()))));
+        writeObject(emptyArrays, definitionUuid, new HashMap<>(Map.of("v", List.of(List.of(), List.of()))));
+
+        Assertions.assertEquals(2, attributeContentItemRepository.count());
+        Assertions.assertEquals(List.of("{v=[{}, {}]}"), storedValues(emptyObjects, "layout"));
+        Assertions.assertEquals(List.of("{v=[[], []]}"), storedValues(emptyArrays, "layout"));
+    }
+
+    /**
+     * The digest is taken from the value's jsonb text, which carries backslashes and characters outside ASCII; the
+     * write and the lookup have to arrive at the same digest for them.
+     */
+    @Test
+    void aValueWithBackslashesAndNonAsciiTextIsStoredOnce() throws Exception {
+        UUID definitionUuid = createAttribute("profile", AttributeContentType.STRING, ProtectionLevel.NONE);
+        String value = "C:\\pki\\\"root\" é 中";
+        write(newCertificate(), definitionUuid, value);
+        UUID second = newCertificate();
+        write(second, definitionUuid, value);
+
+        Assertions.assertEquals(1, attributeContentItemRepository.count());
+        Assertions.assertEquals(List.of(value), storedValues(second, "profile"));
+    }
+
+    @Test
+    void aStoredValueIsFoundThroughTheConstraintIndex() throws Exception {
+        UUID definitionUuid = createAttribute("profile", AttributeContentType.STRING, ProtectionLevel.NONE);
+        write(newCertificate(), definitionUuid, SHARED_VALUE);
+        UUID certificateUuid = newCertificate();
+
+        List<String> valueLookups = SqlCapture.during(() -> {
+            write(certificateUuid, definitionUuid, SHARED_VALUE);
+            return null;
+        })
+                .statements()
+                .stream()
+                .map(sql -> sql.toLowerCase().replaceAll("\\s+", ""))
+                .filter(sql -> sql.startsWith("select") && sql.contains("attribute_content_item")
+                        && (sql.contains("json=") || sql.contains("json_digest=")))
+                .toList();
+
+        assertThat(valueLookups).isNotEmpty().allMatch(sql -> sql.contains("json_digest="));
+    }
+
     @Test
     void encryptedValuesStayOneRowPerObject() throws Exception {
         UUID definitionUuid = createAttribute("secretProfile", AttributeContentType.STRING, ProtectionLevel.ENCRYPTED);
@@ -410,9 +467,9 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
                 .stream()
                 .map(sql -> sql.toLowerCase().replaceAll("\\s+", ""))
                 .filter(sql -> sql.startsWith("select") && sql.contains("attribute_content_item")
-                        && sql.contains("json="))
+                        && (sql.contains("json=") || sql.contains("json_digest=")))
                 .toList();
-        assertThat(valueLookups).isNotEmpty().allMatch(sql -> sql.contains("json_hash"));
+        assertThat(valueLookups).isNotEmpty().allMatch(sql -> sql.contains("json_digest="));
         long mappingDedupes = statements
                 .stream()
                 .map(String::toLowerCase)
@@ -468,7 +525,7 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
         try (PreparedStatement insert = connection.prepareStatement("""
                 INSERT INTO attribute_content_item (uuid, attribute_definition_uuid, json)
                 VALUES (?, ?, CAST(? AS jsonb))
-                ON CONFLICT (attribute_definition_uuid, json_hash) DO NOTHING
+                ON CONFLICT (attribute_definition_uuid, json_digest) DO NOTHING
                 """)) {
             insert.setObject(1, UUID.randomUUID());
             insert.setObject(2, definitionUuid);
@@ -497,6 +554,16 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
             attributeEngine
                     .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificateUuid, definitionUuid, null,
                             List.of(new StringAttributeContentV3(value)));
+        } catch (NotFoundException | AttributeException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    void writeObject(UUID certificateUuid, UUID definitionUuid, Serializable data) {
+        try {
+            attributeEngine
+                    .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificateUuid, definitionUuid, null,
+                            List.of(new ObjectAttributeContentV3(data)));
         } catch (NotFoundException | AttributeException e) {
             throw new IllegalStateException(e);
         }

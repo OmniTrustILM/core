@@ -14,8 +14,6 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface AttributeContentItemRepository extends JpaRepository<AttributeContentItem, String> {
 
-    AttributeContentItem findByJsonAndAttributeDefinitionUuid(AttributeContent attributeContent, UUID definitionUuid);
-
     List<AttributeContentItem> findByAttributeDefinitionUuid(UUID definitionUuid);
 
     void deleteByAttributeDefinitionUuid(UUID definitionUuid);
@@ -36,17 +34,17 @@ public interface AttributeContentItemRepository extends JpaRepository<AttributeC
     List<StoredValue> findByAttributeDefinitionUuidAndEncryptedDataIsNotNullOrderByUuid(UUID definitionUuid);
 
     /**
-     * The definition's plaintext row holding a value, found through {@code uq_attribute_content_item_value}'s key,
-     * which an encrypted row does not carry.
+     * The uuid of the definition's plaintext row holding a value, found through
+     * {@code uq_attribute_content_item_value}'s key, which an encrypted row does not carry.
      *
      * @param json the value rendered as the entity mapping renders the {@code json} column
      */
     @Query(value = """
             SELECT uuid FROM {h-schema}attribute_content_item
              WHERE attribute_definition_uuid = :definitionUuid
-               AND json_hash = jsonb_hash_extended(CAST(:json AS jsonb), 0)
-               AND json = CAST(:json AS jsonb)
-            """, nativeQuery = true)
+               AND json_digest = sha256(decode(replace(CAST(:json AS jsonb)::text, chr(92), chr(92) || chr(92)), 'escape'))
+            """,
+            nativeQuery = true)
     UUID findPlaintextUuid(@Param("definitionUuid") UUID definitionUuid, @Param("json") String json);
 
     /** Replaces an encrypted row's placeholder with its plaintext value. */
