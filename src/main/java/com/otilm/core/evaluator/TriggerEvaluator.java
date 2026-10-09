@@ -63,6 +63,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.BiPredicate;
+import java.util.stream.Stream;
 import javax.xml.datatype.DatatypeFactory;
 import javax.xml.datatype.Duration;
 import org.apache.commons.beanutils.PropertyUtils;
@@ -289,6 +290,10 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
                 return listSpecificOperatorsFunctionMap.get(operator).test(objectValues, conditionValue);
             }
 
+            if (filterField.isNativeArrayField()) {
+                return evaluateNativeArray(operator, conditionValue, objectValues, filterField);
+            }
+
             return evaluateItemsInCollection(operator, conditionValue, objectValues, nestedJoinAttributes, filterField,
                     fieldType);
         } catch (RuleException e) {
@@ -330,6 +335,35 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         }
 
         return result;
+    }
+
+    /**
+     * Compares a native array the way the listing filter does, enum items by their code. EQUALS holds when the array
+     * has any of the condition's values and NOT_EQUALS when it has none. CONTAINS and NOT_CONTAINS ask the same of an
+     * enum array, whose condition values the listing resolves to members, and look for a substring in any other array.
+     */
+    private static boolean evaluateNativeArray(FilterConditionOperator operator, Object conditionValue,
+            Collection<?> objectValues, FilterField filterField) throws RuleException {
+        List<String> items = objectValues
+                .stream()
+                .filter(Objects::nonNull)
+                .map(item -> item instanceof IPlatformEnum platformEnum ? platformEnum.getCode() : item.toString())
+                .toList();
+        List<String> wanted = (conditionValue instanceof Collection<?> values
+                ? values.stream()
+                : Stream.of(conditionValue)).filter(Objects::nonNull).map(Object::toString).toList();
+        BiPredicate<String, String> matches = filterField.getEnumClass() != null ? String::equals : String::contains;
+        return switch (operator) {
+            case EQUALS -> wanted.stream().anyMatch(items::contains);
+            case NOT_EQUALS -> wanted.stream().noneMatch(items::contains);
+            case CONTAINS ->
+                items.stream().anyMatch(item -> wanted.stream().anyMatch(value -> matches.test(item, value)));
+            case NOT_CONTAINS ->
+                items.stream().noneMatch(item -> wanted.stream().anyMatch(value -> matches.test(item, value)));
+            default -> throw new RuleException(
+                    "Condition on field '%s' is not set properly: operator '%s' cannot be applied to it"
+                            .formatted(filterField.getLabel(), operator.getLabel()));
+        };
     }
 
     private static BiPredicate<Object, Object> comparisonFor(FilterFieldType fieldType,

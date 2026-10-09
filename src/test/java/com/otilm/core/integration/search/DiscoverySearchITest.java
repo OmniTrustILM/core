@@ -7,7 +7,9 @@ import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.certificate.DiscoveryResponseDto;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
+import com.otilm.api.model.client.certificate.SearchSortRequestDto;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.client.discovery.DiscoveryListDto;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.properties.CustomAttributeProperties;
@@ -22,6 +24,10 @@ import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.api.model.core.search.FilterConditionOperator;
+import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.model.core.search.SearchFieldDataDto;
+import com.otilm.api.model.core.search.SortDirection;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.Connector;
@@ -42,7 +48,11 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -161,6 +171,9 @@ class DiscoverySearchITest extends BaseSpringBootTest {
             discovery4.setEndTime(localDateTime("2020-10-01T10:10:10"));
             discovery4.setTotalCertificatesDiscovered(5);
             discovery4.setConnectorTotalCertificatesDiscovered(5);
+            // Targets keys as well, and received far more items than certificates.
+            discovery4.setLastAppliedSequence(40);
+            discovery4.setResources(new ArrayList<>(List.of(Resource.CERTIFICATE, Resource.CRYPTOGRAPHIC_KEY)));
             discoveryRepository.save(discovery4);
 
             loadMetaData();
@@ -370,6 +383,122 @@ class DiscoverySearchITest extends BaseSpringBootTest {
         Assertions
                 .assertThrows(ValidationException.class, () -> retrieveTheDiscoveriesBySearch(filters),
                         "Non-numeric value for GREATER on a NUMBER field must throw ValidationException");
+    }
+
+    @Test
+    void testFilterDataByTotalItemsDiscovered() {
+        final List<SearchFilterRequestDto> filters = new ArrayList<>();
+        // test_discovery4 found only 5 certificates; the item total counts its keys too.
+        filters.add(aPropertyFilter(FilterField.DISCOVERY_TOTAL_ITEMS_DISCOVERED, FilterConditionOperator.GREATER, 15));
+        Assertions
+                .assertEquals(Set.of("test_discovery3", "test_discovery4"),
+                        namesOf(retrieveTheDiscoveriesBySearch(filters)));
+    }
+
+    @Test
+    void testFilterDataByTotalItemsDiscovered_pastTheIntegerRange() {
+        // Nothing bounds a connector's sequence, so the cursor, and the total read off it, can outgrow an integer.
+        final Discovery outsized = new Discovery();
+        outsized.setName("test_discovery_outsized");
+        outsized.setConnectorUuid(discovery.getConnectorUuid());
+        outsized.setConnectorName("connector1");
+        outsized.setStatus(DiscoveryStatus.IN_PROGRESS);
+        outsized.setConnectorStatus(DiscoveryStatus.IN_PROGRESS);
+        outsized.setLastAppliedSequence(3_000_000_000L);
+        discoveryRepository.save(outsized);
+
+        final List<SearchFilterRequestDto> filters = List
+                .of(aPropertyFilter(FilterField.DISCOVERY_TOTAL_ITEMS_DISCOVERED, FilterConditionOperator.GREATER, 15));
+        Assertions
+                .assertEquals(Set.of("test_discovery3", "test_discovery4", "test_discovery_outsized"),
+                        namesOf(retrieveTheDiscoveriesBySearch(filters)));
+    }
+
+    @Test
+    void testFilterDataByResources() {
+        Assertions
+                .assertEquals(Set.of("test_discovery4"),
+                        namesOf(retrieveTheDiscoveriesByResources(FilterConditionOperator.CONTAINS,
+                                Resource.CRYPTOGRAPHIC_KEY.getCode())));
+        Assertions
+                .assertEquals(Set.of("test_discovery1", "test_discovery2", "test_discovery3"),
+                        namesOf(retrieveTheDiscoveriesByResources(FilterConditionOperator.NOT_CONTAINS,
+                                Resource.CRYPTOGRAPHIC_KEY.getCode())));
+    }
+
+    @Test
+    void testFilterDataByResources_findsV1RunsByTheCertificatesTheyTarget() {
+        Assertions
+                .assertEquals(Set.of("test_discovery1", "test_discovery2", "test_discovery3", "test_discovery4"),
+                        namesOf(retrieveTheDiscoveriesByResources(FilterConditionOperator.CONTAINS,
+                                Resource.CERTIFICATE.getCode())));
+    }
+
+    @Test
+    void theListingSortsByTheItemTotal() {
+        final SearchRequestDto searchRequestDto = new SearchRequestDto();
+        searchRequestDto
+                .setSort(new SearchSortRequestDto(FilterFieldSource.PROPERTY,
+                        FilterField.DISCOVERY_TOTAL_ITEMS_DISCOVERED.name(), SortDirection.DESC));
+
+        List<String> names = discoveryService
+                .listDiscoveries(SecurityFilter.create(), searchRequestDto)
+                .getDiscoveries()
+                .stream()
+                .map(DiscoveryListDto::getName)
+                .toList();
+
+        Assertions
+                .assertEquals(List.of("test_discovery4", "test_discovery3", "test_discovery1", "test_discovery2"),
+                        names);
+    }
+
+    @Test
+    void theListingCarriesEachRunsItemTotalAndResources() {
+        Map<String, DiscoveryListDto> byName = discoveryService
+                .listDiscoveries(SecurityFilter.create(), new SearchRequestDto())
+                .getDiscoveries()
+                .stream()
+                .collect(Collectors.toMap(DiscoveryListDto::getName, Function.identity()));
+
+        Assertions.assertEquals(40, byName.get("test_discovery4").getTotalItemsDiscovered());
+        Assertions
+                .assertEquals(List.of(Resource.CERTIFICATE, Resource.CRYPTOGRAPHIC_KEY),
+                        byName.get("test_discovery4").getResources());
+        Assertions.assertEquals(15, byName.get("test_discovery1").getTotalItemsDiscovered());
+        Assertions.assertEquals(List.of(Resource.CERTIFICATE), byName.get("test_discovery1").getResources());
+    }
+
+    @Test
+    void theCatalogueOffersTheItemTotalAndTheResourcesADiscoveryCanTarget() {
+        Map<String, SearchFieldDataDto> fields = discoveryService
+                .getSearchableFieldInformationByGroup()
+                .stream()
+                .filter(group -> group.getFilterFieldSource() == FilterFieldSource.PROPERTY)
+                .map(SearchFieldDataByGroupDto::getSearchFieldData)
+                .flatMap(List::stream)
+                .collect(Collectors.toMap(SearchFieldDataDto::getFieldIdentifier, Function.identity()));
+
+        SearchFieldDataDto items = fields.get(FilterField.DISCOVERY_TOTAL_ITEMS_DISCOVERED.name());
+        Assertions.assertNotNull(items);
+        Assertions.assertEquals(true, items.getSortable());
+
+        SearchFieldDataDto resources = fields.get(FilterField.DISCOVERY_RESOURCES.name());
+        Assertions.assertNotNull(resources);
+        Assertions
+                .assertEquals(List.of(Resource.CERTIFICATE.getCode(), Resource.CRYPTOGRAPHIC_KEY.getCode()),
+                        resources.getValue());
+        // A run holds several resources, so there is no one value to order by.
+        Assertions.assertEquals(false, resources.getSortable());
+    }
+
+    private DiscoveryResponseDto retrieveTheDiscoveriesByResources(FilterConditionOperator operator, String code) {
+        return retrieveTheDiscoveriesBySearch(
+                List.of(aPropertyFilter(FilterField.DISCOVERY_RESOURCES, operator, code)));
+    }
+
+    private static Set<String> namesOf(DiscoveryResponseDto responseDto) {
+        return responseDto.getDiscoveries().stream().map(DiscoveryListDto::getName).collect(Collectors.toSet());
     }
 
     private DiscoveryResponseDto retrieveTheDiscoveriesBySearch(final List<SearchFilterRequestDto> filters) {

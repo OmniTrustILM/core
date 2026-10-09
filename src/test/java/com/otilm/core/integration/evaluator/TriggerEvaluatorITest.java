@@ -36,6 +36,7 @@ import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.certificate.CertificateKeyUsage;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.notification.RecipientType;
 import com.otilm.api.model.core.search.FilterConditionOperator;
@@ -72,6 +73,7 @@ import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateLocationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
+import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.LocationRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
@@ -121,6 +123,9 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
 
     @Autowired
     private TriggerEvaluator<Discovery> discoveryTriggerEvaluator;
+
+    @Autowired
+    private DiscoveryRepository discoveryRepository;
 
     @Autowired
     private TriggerEvaluator<Comment> commentTriggerEvaluator;
@@ -745,6 +750,88 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
         condition.setValue("2019-12-01T22:10:00.274+00:00");
         Assertions
                 .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+    }
+
+    /**
+     * The item total is derived by the database, so a condition reads it off a run as loaded, which is how the
+     * discovery-finished handler hands its run to the evaluator. The run received 52 items, 48 of them certificates.
+     */
+    @Test
+    void aConditionOnTheItemTotalReadsTheTotalTheRunWasLoadedWith() throws RuleException {
+        Discovery stored = new Discovery();
+        stored.setName("item-total-condition");
+        stored.setConnectorUuid(UUID.randomUUID());
+        stored.setStatus(DiscoveryStatus.COMPLETED);
+        stored.setConnectorStatus(DiscoveryStatus.COMPLETED);
+        stored.setLastAppliedSequence(52);
+        stored.setTotalCertificatesDiscovered(48);
+        stored = discoveryRepository.saveAndFlush(stored);
+        Discovery discovery = discoveryRepository.findByUuid(stored.getUuid()).orElseThrow();
+
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setFieldIdentifier(FilterField.DISCOVERY_TOTAL_ITEMS_DISCOVERED.toString());
+        condition.setOperator(FilterConditionOperator.GREATER);
+        condition.setValue(50);
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+        condition.setValue(52);
+        Assertions
+                .assertFalse(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+    }
+
+    /** Resources compares the way the listing filter compares it, by code. */
+    @Test
+    void aConditionOnResourcesMatchesTheRunsTargetsByCode() throws RuleException {
+        Discovery discovery = new Discovery();
+        discovery.setResources(List.of(Resource.CERTIFICATE, Resource.CRYPTOGRAPHIC_KEY));
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setFieldIdentifier(FilterField.DISCOVERY_RESOURCES.toString());
+
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        condition.setValue(List.of(Resource.CRYPTOGRAPHIC_KEY.getCode()));
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+        condition.setValue(List.of(Resource.SECRET.getCode()));
+        Assertions
+                .assertFalse(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+
+        condition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+        condition.setValue(List.of(Resource.SECRET.getCode(), Resource.CRYPTOGRAPHIC_KEY.getCode()));
+        Assertions
+                .assertFalse(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+
+        condition.setOperator(FilterConditionOperator.CONTAINS);
+        condition.setValue(Resource.CRYPTOGRAPHIC_KEY.getCode());
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+        condition.setOperator(FilterConditionOperator.NOT_CONTAINS);
+        Assertions
+                .assertFalse(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+        condition.setValue(Resource.SECRET.getCode());
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+
+        condition.setOperator(FilterConditionOperator.NOT_EMPTY);
+        condition.setValue(null);
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+    }
+
+    @Test
+    void aConditionOnResourcesFindsAV1RunByTheCertificatesItTargets() throws RuleException {
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setFieldIdentifier(FilterField.DISCOVERY_RESOURCES.toString());
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        condition.setValue(List.of(Resource.CERTIFICATE.getCode()));
+
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator
+                        .evaluateConditionItem(condition, new Discovery(), Resource.DISCOVERY));
     }
 
     /**

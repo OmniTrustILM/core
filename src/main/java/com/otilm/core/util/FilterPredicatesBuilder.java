@@ -523,7 +523,7 @@ public class FilterPredicatesBuilder {
             if (expression == null) {
                 throw new ValidationException("Invalid filter configuration: no expression for field " + filterField);
             }
-            expression = ((JpaExpression) expression).cast(filterField.getType().getExpressionClass());
+            expression = ((JpaExpression) expression).cast(expressionClassOf(filterField));
         }
 
         boolean multipleValues = filterValues.size() > 1;
@@ -1041,6 +1041,16 @@ public class FilterPredicatesBuilder {
         return condition == FilterConditionOperator.COUNT_EQUAL || condition == FilterConditionOperator.COUNT_NOT_EQUAL
                 || condition == FilterConditionOperator.COUNT_GREATER_THAN
                 || condition == FilterConditionOperator.COUNT_LESS_THAN;
+    }
+
+    // A number compares as an integer, except one held in a long: an integer cast fails the whole query on the first
+    // row past the integer range.
+    private static Class<?> expressionClassOf(FilterField filterField) {
+        Class<?> javaType = filterField.getFieldAttribute().getJavaType();
+        if (filterField.getType() == SearchFieldTypeEnum.NUMBER && (javaType == long.class || javaType == Long.class)) {
+            return Long.class;
+        }
+        return filterField.getType().getExpressionClass();
     }
 
     private static List<Object> preparePropertyFilterValues(final SearchFilterRequestDto filterDto,

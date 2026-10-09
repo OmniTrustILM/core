@@ -132,6 +132,37 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
     }
 
     @Test
+    void itemTotal_isTheCursor_soTheListingShowsWhatTheDetailReportsAsReceived() {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+
+        ingestor.applyDrainPage(run.getUuid(), page(3L, true, keyItem(1, "key-a"), certificateItem(2, "cert-a")));
+        assertThat(reload(run).getTotalItemsDiscovered()).isEqualTo(2);
+
+        // The tail of the previous page comes back with one new item: only the new one counts.
+        ingestor.applyDrainPage(run.getUuid(), page(3L, false, certificateItem(2, "cert-a"), keyItem(3, "key-b")));
+        Discovery reloaded = reload(run);
+        assertThat(reloaded.getTotalItemsDiscovered()).isEqualTo(3).isEqualTo(reloaded.getLastAppliedSequence());
+    }
+
+    @Test
+    void itemTotal_survivesTheRunBeingReleasedFromItsConnectorsInterface() {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        ingestor.applyDrainPage(run.getUuid(), page(2L, false, keyItem(1, "key-a"), keyItem(2, "key-b")));
+        Discovery ended = reload(run);
+        ended.setStatus(DiscoveryStatus.COMPLETED);
+        discoveryRepository.saveAndFlush(ended);
+
+        // What a connector's delete does to the runs that ended against it.
+        discoveryRepository
+                .releaseConnectorInterfaces(List.of(ended.getConnectorInterfaceUuid()),
+                        List.of(DiscoveryStatus.COMPLETED));
+
+        Discovery released = reload(run);
+        assertThat(released.getConnectorInterfaceUuid()).isNull();
+        assertThat(released.getTotalItemsDiscovered()).isEqualTo(2);
+    }
+
+    @Test
     void emptyPage_stagesNothingAndMovesNothing() {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
         ingestor.applyDrainPage(run.getUuid(), page(2L, false, keyItem(1, "key-a"), keyItem(2, "key-b")));
@@ -154,7 +185,7 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
         assertThat(reload(run).getLastAppliedSequence()).isEqualTo(2);
     }
 
-    /** The certificate total is the only yield figure the discovery listing carries. */
+    /** The discovery listing shows the certificate total while the run is live, not only once it ends. */
     @Test
     void certificateTotal_movesAsPagesLandRatherThanOnlyAtTheEnd() {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);

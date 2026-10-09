@@ -110,8 +110,8 @@ public class DiscoveryEventIngestor {
     }
 
     /**
-     * Keeps the run's certificate total current as pages land: it is the only yield figure the discovery listing
-     * carries, so a live run must not show none until it ends.
+     * Keeps the run's certificate total current as pages land: the discovery listing shows it beside the item total, so
+     * a live run must not show no certificates until it ends.
      *
      * <p>
      * Counted rather than accumulated: staging skips a certificate already staged for this run, so adding the page size
