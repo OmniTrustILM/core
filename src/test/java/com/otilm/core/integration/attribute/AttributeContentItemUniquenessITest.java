@@ -48,6 +48,7 @@ import java.sql.Statement;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -59,6 +60,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiConsumer;
 import javax.sql.DataSource;
 import org.hibernate.SessionFactory;
 import org.hibernate.stat.Statistics;
@@ -307,6 +309,83 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
         Assertions.assertEquals(2, attributeContentItemRepository.count());
         Assertions.assertEquals(List.of(SHARED_VALUE), storedValues(certificateUuid, "region"));
         Assertions.assertEquals(List.of(SHARED_VALUE), storedValues(certificateUuid, "tier"));
+    }
+
+    @Test
+    void importsOfGlobalMetadataThatConnectorsSendUnderOtherUuidsDoNotDeadlock() throws Exception {
+        UUID certificateUuid = newCertificate();
+
+        writeGlobalMetadataAlongsideAnotherConnector((attributes, connectorUuid) -> {
+            try {
+                attributeEngine
+                        .updateMetadataAttributes(attributes,
+                                ObjectAttributeContentInfo
+                                        .builder(Resource.CERTIFICATE, certificateUuid)
+                                        .connector(connectorUuid)
+                                        .build());
+            } catch (AttributeException e) {
+                throw new IllegalStateException(e);
+            }
+        });
+
+        Assertions.assertEquals(2, attributeContentItemRepository.count());
+    }
+
+    @Test
+    void registrationsOfGlobalMetadataThatConnectorsSendUnderOtherUuidsDoNotDeadlock() throws Exception {
+        writeGlobalMetadataAlongsideAnotherConnector((attributes, connectorUuid) -> {
+            Map<String, Set<AttributeContent>> contents = new HashMap<>();
+            attributes.forEach(attribute -> contents.put(attribute.getUuid(), new HashSet<>(attribute.getContent())));
+            certificateHandler.updateMetadataDefinition(attributes, contents, connectorUuid, "second-connector");
+        });
+
+        Assertions.assertEquals(2, attributeContentItemRepository.count());
+    }
+
+    /**
+     * A global definition is found by its name, so two connectors can send it under UUIDs of their own. Here the first
+     * connector's UUIDs for {@code alpha} and {@code beta} sort as the names do and the second connector's the other
+     * way round. The competitor, writing as the first connector, holds alpha's new value and then stores beta's; a
+     * write taking beta first would hold it while waiting on alpha.
+     */
+    private void writeGlobalMetadataAlongsideAnotherConnector(
+            BiConsumer<List<MetadataAttribute>, UUID> writeAsSecondConnector) throws Exception {
+        UUID firstConnector = newConnector();
+        UUID secondConnector = newConnector();
+        UUID alpha = attributeEngine
+                .updateMetadataAttributeDefinition(
+                        globalMetadataAttribute("20000000-0000-0000-0000-000000000000", "alpha"), firstConnector)
+                .getUuid();
+        UUID beta = attributeEngine
+                .updateMetadataAttributeDefinition(
+                        globalMetadataAttribute("80000000-0000-0000-0000-000000000000", "beta"), firstConnector)
+                .getUuid();
+        List<MetadataAttribute> sentBySecondConnector = List
+                .of(globalMetadataAttribute("90000000-0000-0000-0000-000000000000", "alpha"),
+                        globalMetadataAttribute("10000000-0000-0000-0000-000000000000", "beta"));
+        AttributeContent value = new StringAttributeContentV2(null, SHARED_VALUE);
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+
+        ExecutorService executor = new DelegatingSecurityContextExecutorService(Executors.newSingleThreadExecutor());
+        try (Connection competitor = dataSource.getConnection()) {
+            competitor.setAutoCommit(false);
+            insertValue(competitor, alpha, value);
+
+            Future<?> writer = executor
+                    .submit(() -> transaction
+                            .executeWithoutResult(
+                                    status -> writeAsSecondConnector.accept(sentBySecondConnector, secondConnector)));
+            await()
+                    .atMost(Duration.ofSeconds(30))
+                    .pollInterval(Duration.ofMillis(50))
+                    .until(() -> writer.isDone() || aWriterWaitsOnALock());
+            insertValue(competitor, beta, value);
+            competitor.commit();
+
+            writer.get(30, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     @Test
@@ -652,6 +731,12 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
         return certificateRepository.save(new Certificate()).getUuid();
     }
 
+    UUID newConnector() {
+        Connector connector = new Connector();
+        connector.setVersion(ConnectorVersion.V1);
+        return connectorRepository.save(connector).getUuid();
+    }
+
     void write(UUID certificateUuid, UUID definitionUuid, String value) {
         try {
             attributeEngine
@@ -730,6 +815,13 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
         MetadataAttributeProperties properties = new MetadataAttributeProperties();
         properties.setLabel(name);
         metadata.setProperties(properties);
+        return metadata;
+    }
+
+    static MetadataAttributeV2 globalMetadataAttribute(String uuid, String name) {
+        MetadataAttributeV2 metadata = metadataAttribute(name, SHARED_VALUE);
+        metadata.setUuid(uuid);
+        metadata.getProperties().setGlobal(true);
         return metadata;
     }
 }

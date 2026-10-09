@@ -37,7 +37,6 @@ import java.security.PublicKey;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Base64;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -157,10 +156,9 @@ public class CertificateHandler {
         logger
                 .debug("Updating {} discovery certificate metadata definitions for connector {}",
                         metadataAttributes.size(), connectorName);
-        // In a fixed order, so two registrations sharing new values lock them in the same order.
         List<MetadataAttribute> orderedAttributes = metadataAttributes
                 .stream()
-                .sorted(Comparator.comparing(MetadataAttribute::getUuid))
+                .sorted(AttributeEngine.METADATA_WRITE_ORDER)
                 .toList();
         for (MetadataAttribute metadataAttribute : orderedAttributes) {
             try {

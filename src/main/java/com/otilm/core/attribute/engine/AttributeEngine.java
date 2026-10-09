@@ -123,6 +123,16 @@ public class AttributeEngine {
 
     private static final ObjectMapper ATTRIBUTES_OBJECT_MAPPER = ObjectMapperFactory.attributeContent();
 
+    /**
+     * The order metadata is written in, so two writes of the same definitions lock them and their new values alike. A
+     * global definition is found by its name, which every connector sending it shares while each may give it a UUID of
+     * its own; a connector's own definition is found by its UUID.
+     */
+    public static final Comparator<MetadataAttribute> METADATA_WRITE_ORDER = Comparator
+            .comparing((MetadataAttribute attribute) -> !isGlobalMetadata(attribute))
+            .thenComparing(attribute -> isGlobalMetadata(attribute) ? attribute.getName() : attribute.getUuid(),
+                    Comparator.nullsLast(Comparator.naturalOrder()));
+
     @PersistenceContext
     private EntityManager entityManager;
     private AttributeDefinitionRepository attributeDefinitionRepository;
@@ -1320,6 +1330,10 @@ public class AttributeEngine {
         }
     }
 
+    private static boolean isGlobalMetadata(MetadataAttribute attribute) {
+        return attribute.getProperties() != null && attribute.getProperties().isGlobal();
+    }
+
     /**
      * Compares definitions by their serialized form. The attribute model has no value-based equals on its nested types.
      */
@@ -1347,12 +1361,7 @@ public class AttributeEngine {
             return;
         }
 
-        // Attribute UUID order, as discovery registers them, so concurrent writes lock shared new values alike.
-        List<MetadataAttribute> ordered = attributes
-                .stream()
-                .sorted(Comparator
-                        .comparing(MetadataAttribute::getUuid, Comparator.nullsLast(Comparator.naturalOrder())))
-                .toList();
+        List<MetadataAttribute> ordered = attributes.stream().sorted(METADATA_WRITE_ORDER).toList();
         for (MetadataAttribute metadataAttribute : ordered) {
             if (metadataAttribute.getType() != AttributeType.META) {
                 continue;
