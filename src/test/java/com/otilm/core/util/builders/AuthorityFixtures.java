@@ -18,6 +18,7 @@ import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.FunctionGroupRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
 
 import java.util.Arrays;
@@ -89,7 +90,7 @@ public final class AuthorityFixtures {
      * @param kind authority kind label stored on the AuthorityInstanceReference (e.g. "MOCK_EJBCA")
      */
     public static Fixture v2Authority(Repos r, WireMockServer wm, String kind) {
-        Connector connector = saveConnector(r, "http://localhost:" + wm.port());
+        Connector connector = saveConnector(r, LoopbackWireMock.url(wm));
         AuthorityInstanceReference authority = saveAuthority(r, connector, null, kind);
         RaProfile raProfile = saveRaProfile(r, authority);
         return new Fixture(connector, authority, raProfile);
@@ -131,7 +132,7 @@ public final class AuthorityFixtures {
      * CERTIFICATE_STATUS_POLLING)
      */
     public static Fixture v3Authority(Repos r, WireMockServer wm, FeatureFlag... features) {
-        Connector connector = saveConnector(r, "http://localhost:" + wm.port());
+        Connector connector = saveConnector(r, LoopbackWireMock.url(wm));
         ConnectorInterfaceEntity iface = saveConnectorInterface(r, connector, features);
         AuthorityInstanceReference authority = saveAuthority(r, connector, iface, null);
         RaProfile raProfile = saveRaProfile(r, authority);

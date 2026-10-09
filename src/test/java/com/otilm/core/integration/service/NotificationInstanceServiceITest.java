@@ -29,6 +29,7 @@ import com.otilm.core.dao.repository.notifications.NotificationProfileRepository
 import com.otilm.core.dao.repository.notifications.NotificationProfileVersionRepository;
 import com.otilm.core.service.NotificationInstanceExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
 import java.util.List;
 import java.util.UUID;
@@ -70,10 +71,10 @@ class NotificationInstanceServiceITest extends BaseSpringBootTest {
 
     @BeforeEach
     void setUp() {
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
 
-        WireMock.configureFor("localhost", mockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
 
         mockServer
                 .stubFor(WireMock
@@ -90,7 +91,7 @@ class NotificationInstanceServiceITest extends BaseSpringBootTest {
 
         connector = new Connector();
         connector.setName("notificationInstanceConnector");
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector = connectorRepository.save(connector);

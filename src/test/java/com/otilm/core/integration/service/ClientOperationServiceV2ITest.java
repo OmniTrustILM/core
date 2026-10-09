@@ -6,7 +6,6 @@ import ch.qos.logback.core.read.ListAppender;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder;
 import com.github.tomakehurst.wiremock.client.WireMock;
-import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
 import com.github.tomakehurst.wiremock.extension.Parameters;
 import com.github.tomakehurst.wiremock.extension.ServeEventListener;
 import com.github.tomakehurst.wiremock.http.Fault;
@@ -122,6 +121,7 @@ import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateRequestUtils;
 import com.otilm.core.util.CertificateTestUtil;
 import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.builders.AuthorityFixtures;
 import com.otilm.core.util.builders.CertificateRequestEntityBuilder;
 import java.io.IOException;
@@ -309,10 +309,10 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
     @BeforeEach
     void setUp() throws GeneralSecurityException, IOException, NotFoundException, AttributeException {
-        mockServer = new WireMockServer(WireMockConfiguration.wireMockConfig().dynamicPort().extensions(responseGate));
+        mockServer = new WireMockServer(LoopbackWireMock.options().extensions(responseGate));
         mockServer.start();
 
-        WireMock.configureFor("localhost", mockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
 
         AuthorityFixtures.Repos fixtureRepos = new AuthorityFixtures.Repos(connectorRepository, functionGroupRepository,
                 connector2FunctionGroupRepository, authorityInstanceReferenceRepository, raProfileRepository,

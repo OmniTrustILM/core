@@ -30,6 +30,7 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.TokenInstanceExternalService;
 import com.otilm.core.service.TokenInstanceInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
 import java.util.List;
 import java.util.UUID;
@@ -77,14 +78,14 @@ class TokenInstanceServiceITest extends BaseSpringBootTest {
 
     @BeforeEach
     public void setUp() {
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
 
-        WireMock.configureFor("localhost", mockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
 
         connector = new Connector();
         connector.setName("tokenInstanceConnector");
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector = connectorRepository.save(connector);

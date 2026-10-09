@@ -39,6 +39,7 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.service.CallbackExternalService;
 import com.otilm.core.service.callback.AttributeCallbackScopeResolver;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.builders.DataAttributeV3Builder;
 import java.util.List;
 import java.util.UUID;
@@ -90,13 +91,13 @@ class AttributesV2CallbackDispatchITest extends BaseSpringBootTest {
 
     @BeforeEach
     void setUp() {
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
-        WireMock.configureFor("localhost", mockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
 
         connector = new Connector();
         connector.setName("c");
-        connector.setUrl(mockServer.baseUrl());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connectorRepository.save(connector);
@@ -650,7 +651,7 @@ class AttributesV2CallbackDispatchITest extends BaseSpringBootTest {
         // rejected (422) before any connector POST — otherwise a caller could stamp a foreign interface.
         Connector other = new Connector();
         other.setName("other");
-        other.setUrl(mockServer.baseUrl() + "/other");
+        other.setUrl(LoopbackWireMock.url(mockServer) + "/other");
         other.setVersion(ConnectorVersion.V1);
         other.setStatus(ConnectorStatus.CONNECTED);
         connectorRepository.save(other);

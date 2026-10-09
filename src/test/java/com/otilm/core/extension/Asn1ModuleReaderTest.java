@@ -719,6 +719,43 @@ class Asn1ModuleReaderTest {
         }
 
         @Test
+        void implicitWrittenOnANamedChoiceIsRefusedEvenInAnAssignmentNothingReaches() {
+            assertThatThrownBy(() -> read("C ::= CHOICE { a INTEGER, b BOOLEAN }\nT ::= SEQUENCE { x [0] IMPLICIT C }"))
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("'x' IMPLICIT")
+                    .hasMessageContaining("tag it EXPLICIT");
+        }
+
+        @Test
+        void aValidAssignmentNothingReachesIsAccepted() {
+            assertThat(read("C ::= CHOICE { a INTEGER, b BOOLEAN }\nT ::= SEQUENCE { x [0] EXPLICIT C }")).isNotNull();
+        }
+
+        @Test
+        void theMemberBudgetIsPerAssignmentNotPerModule() {
+            StringBuilder module = new StringBuilder();
+            for (int i = 0; i < 150; i++) {
+                module.append("T%d ::= SEQUENCE { m %s }\n".formatted(i, i == 149 ? "INTEGER" : "T" + (i + 1)));
+            }
+            assertThat(read(module.toString())).isNotNull();
+        }
+
+        @Test
+        void aliasesOfOneLargeTypeCannotMultiplyTheValidationWork() {
+            StringBuilder module = new StringBuilder("S ::= SEQUENCE { ");
+            for (int i = 0; i < 9_000; i++) {
+                module.append(i == 0 ? "" : ", ").append("m").append(i).append(" INTEGER");
+            }
+            module.append(" }\n");
+            for (int i = 0; i < 120; i++) {
+                module.append("A%d ::= S\n".formatted(i));
+            }
+            assertThatThrownBy(() -> read(module.toString()))
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("to validate");
+        }
+
+        @Test
         void implicitOnAnUndefinedReferenceIsStillHonoured() throws Exception {
             // ORAddress in the shipped Name Constraints is exactly this: a SEQUENCE the module does not spell out.
             ExtensionType holder = read("P ::= SEQUENCE { a [3] IMPLICIT ORAddress }");

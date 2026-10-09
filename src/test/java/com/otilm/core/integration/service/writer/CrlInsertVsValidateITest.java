@@ -2,13 +2,13 @@ package com.otilm.core.integration.service.writer;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
-import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.core.dao.entity.Crl;
 import com.otilm.core.dao.repository.CrlRepository;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.service.CrlService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.PlatformX500NameStyle;
 import java.math.BigInteger;
 import java.security.KeyPair;
@@ -62,9 +62,9 @@ class CrlInsertVsValidateITest extends BaseSpringBootTest {
 
     @BeforeEach
     void setup() throws Exception {
-        crlServer = new WireMockServer(WireMockConfiguration.wireMockConfig().dynamicPort());
+        crlServer = new WireMockServer(LoopbackWireMock.options());
         crlServer.start();
-        String crlUrl = "http://localhost:" + crlServer.port() + "/crl/ca.crl";
+        String crlUrl = LoopbackWireMock.url(crlServer) + "/crl/ca.crl";
 
         KeyPair caKeyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
         caCert = CertificateGeneratorHelper.generateCACertificate(caKeyPair, "CN=CrlRaceCa-" + System.nanoTime());

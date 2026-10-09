@@ -9,6 +9,7 @@ import com.otilm.core.config.CookieConfig;
 import com.otilm.core.service.AuditLogExternalService;
 import com.otilm.core.service.AuditLogInternalService;
 import com.otilm.core.settings.SettingsCache;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.SessionTableHelper;
 import java.net.HttpCookie;
 import java.net.URI;
@@ -46,7 +47,7 @@ import static org.mockito.Mockito.verify;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-@TestPropertySource(properties = "server.servlet.context-path=")
+@TestPropertySource(properties = {"server.servlet.context-path=", "server.address=127.0.0.1"})
 class OAuth2LoginControllerITest {
 
     @LocalServerPort
@@ -162,7 +163,7 @@ class OAuth2LoginControllerITest {
         // controller does sendRedirect("oauth2/authorization/{provider}") => 302
         Assertions.assertTrue(res.statusCode() >= 300 && res.statusCode() < 400);
         Assertions
-                .assertEquals("http://localhost:" + port + "/oauth2/authorization/only",
+                .assertEquals(LoopbackWireMock.url(port) + "/oauth2/authorization/only",
                         res.headers().firstValue("Location").orElse(null));
 
         // We can’t directly introspect server-side session here; instead, verify session cookie exists.
@@ -206,7 +207,7 @@ class OAuth2LoginControllerITest {
         Assertions.assertTrue(res.statusCode() >= 300 && res.statusCode() < 400);
         // The Location should NOT contain the redirect anymore
         Assertions
-                .assertEquals("http://localhost:" + port + "/oauth2/authorization/only",
+                .assertEquals(LoopbackWireMock.url(port) + "/oauth2/authorization/only",
                         res.headers().firstValue("Location").orElse(null));
     }
 
@@ -228,7 +229,7 @@ class OAuth2LoginControllerITest {
 
         Assertions.assertTrue(res.statusCode() >= 300 && res.statusCode() < 400);
         Assertions
-                .assertEquals("http://localhost:" + port + "/oauth2/authorization/only",
+                .assertEquals(LoopbackWireMock.url(port) + "/oauth2/authorization/only",
                         res.headers().firstValue("Location").orElse(null));
     }
 
@@ -289,7 +290,7 @@ class OAuth2LoginControllerITest {
     }
 
     private URI uri(String path) {
-        return URI.create("http://localhost:" + port + path);
+        return URI.create(LoopbackWireMock.url(port) + path);
     }
 
     private static String extractSessionCookie(HttpHeaders headers) {

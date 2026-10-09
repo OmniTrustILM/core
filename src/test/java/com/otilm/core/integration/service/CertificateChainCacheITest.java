@@ -14,6 +14,7 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.impl.CertificateServiceImpl;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.util.LoopbackWireMock;
 import java.security.KeyPair;
 import java.security.cert.X509Certificate;
 import java.util.Base64;
@@ -188,15 +189,15 @@ class CertificateChainCacheITest extends BaseSpringBootTest {
 
     @Test
     void cacheIsEvictedAfterAiaIssuerDownloaded() throws Exception {
-        WireMockServer wireMock = new WireMockServer(0);
+        WireMockServer wireMock = new WireMockServer(LoopbackWireMock.options());
         wireMock.start();
         try {
             KeyPair rootKp = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
             X509Certificate rootX509 = CertificateGeneratorHelper.generateCACertificate(rootKp, "CN=CacheAIA-Root");
 
             String aiaPath = "/issuer.der";
-            String aiaUrl = "http://localhost:" + wireMock.port() + aiaPath;
-            WireMock.configureFor("localhost", wireMock.port());
+            String aiaUrl = LoopbackWireMock.url(wireMock) + aiaPath;
+            WireMock.configureFor(LoopbackWireMock.HOST, wireMock.port());
             wireMock
                     .stubFor(WireMock
                             .get(aiaPath)

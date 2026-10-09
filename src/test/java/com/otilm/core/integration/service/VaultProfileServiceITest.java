@@ -48,6 +48,7 @@ import com.otilm.core.service.AttributeExternalService;
 import com.otilm.core.service.VaultProfileExternalService;
 import com.otilm.core.service.VaultProfileInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -88,10 +89,10 @@ class VaultProfileServiceITest extends BaseSpringBootTest {
 
     @BeforeEach
     void setUp() throws AlreadyExistException, AttributeException {
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
 
-        WireMock.configureFor("localhost", mockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
 
         WireMock
                 .stubFor(WireMock
@@ -100,7 +101,7 @@ class VaultProfileServiceITest extends BaseSpringBootTest {
 
         connector = new Connector();
         connector.setName("testConnector");
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connectorRepository.save(connector);
 

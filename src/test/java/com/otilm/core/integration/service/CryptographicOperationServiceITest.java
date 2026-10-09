@@ -54,6 +54,7 @@ import com.otilm.core.service.CryptographicOperationInternalService;
 import com.otilm.core.service.TokenInstanceInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateRequestUtils;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -124,14 +125,14 @@ class CryptographicOperationServiceITest extends BaseSpringBootTest {
 
     @BeforeEach
     public void setUp() {
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
 
-        WireMock.configureFor("localhost", mockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
 
         Connector connector = new Connector();
         connector.setName("tokenInstanceConnector");
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector = connectorRepository.save(connector);

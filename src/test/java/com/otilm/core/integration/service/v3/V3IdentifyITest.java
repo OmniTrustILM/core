@@ -22,6 +22,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateExternalService;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.builders.AuthorityFixtures;
 import com.otilm.core.util.builders.V3ConnectorStubs;
 import java.util.List;
@@ -76,9 +77,9 @@ class V3IdentifyITest extends BaseSpringBootTest {
 
     @BeforeEach
     void setUpWireMock() {
-        wireMockServer = new WireMockServer(0);
+        wireMockServer = new WireMockServer(LoopbackWireMock.options());
         wireMockServer.start();
-        WireMock.configureFor("localhost", wireMockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, wireMockServer.port());
     }
 
     @AfterEach

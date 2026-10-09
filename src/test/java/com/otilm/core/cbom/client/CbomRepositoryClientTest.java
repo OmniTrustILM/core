@@ -14,6 +14,7 @@ import com.otilm.core.model.cbom.BomResponseDto;
 import com.otilm.core.model.cbom.BomSearchRequestDto;
 import com.otilm.core.model.cbom.BomVersionDto;
 import com.otilm.core.settings.SettingsCache;
+import com.otilm.core.util.LoopbackWireMock;
 import java.net.URI;
 import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
@@ -34,7 +35,6 @@ import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathMatching;
-import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -46,7 +46,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class CbomRepositoryClientTest {
 
     @RegisterExtension
-    static WireMockExtension wireMock = WireMockExtension.newInstance().options(wireMockConfig().dynamicPort()).build();
+    static WireMockExtension wireMock = WireMockExtension.newInstance().options(LoopbackWireMock.options()).build();
 
     private CbomRepositoryClient client;
     private ObjectMapper objectMapper;
@@ -55,7 +55,7 @@ class CbomRepositoryClientTest {
 
     @BeforeEach
     void setUp() {
-        baseUrl = wireMock.baseUrl();
+        baseUrl = LoopbackWireMock.url(wireMock.getPort());
         originalPlatformSettings = SettingsCache.getSettings(SettingsSection.PLATFORM);
 
         PlatformSettingsDto platformSettings = new PlatformSettingsDto();
@@ -364,6 +364,36 @@ class CbomRepositoryClientTest {
         CbomRepositoryException ex = assertThrows(CbomRepositoryException.class, () -> client.nextPage(first));
         assertEquals(400, ex.getProblemDetail().getStatus());
         assertEquals("CBOM Repository failed a page request (HTTP 400)", ex.getProblemDetail().getDetail());
+    }
+
+    /** What a deployment without the repository answers when its URL points at the platform's own ingress. */
+    @Test
+    void search_readsA404OnTheOpeningPageAsNoRepositoryDeployed() {
+        wireMock
+                .stubFor(get(urlPathEqualTo("/api/v1/bom"))
+                        .willReturn(aResponse()
+                                .withStatus(404)
+                                .withHeader("Content-Type", "application/json")
+                                .withBody("{\"message\":\"No endpoint GET /api/v1/bom.\"}")));
+
+        BomSearchRequestDto query = pagedQuery(0, 1);
+        CbomRepositoryNotDeployedException ex = assertThrows(CbomRepositoryNotDeployedException.class,
+                () -> client.search(query));
+        assertEquals(404, ex.getProblemDetail().getStatus());
+    }
+
+    @Test
+    void nextPage_keepsA404AsAFailedPage() throws Exception {
+        stubPage("after", "0", "[]", "<bom?cursor=c1&limit=1>; rel=\"next\"");
+        wireMock
+                .stubFor(get(urlPathEqualTo("/api/v1/bom"))
+                        .withQueryParam("cursor", equalTo("c1"))
+                        .willReturn(aResponse().withStatus(404)));
+
+        BomSearchPage first = client.search(pagedQuery(0, 1));
+        CbomRepositoryException ex = assertThrows(CbomRepositoryException.class, () -> client.nextPage(first));
+        assertFalse(ex instanceof CbomRepositoryNotDeployedException);
+        assertEquals(404, ex.getProblemDetail().getStatus());
     }
 
     @Test

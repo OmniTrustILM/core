@@ -73,6 +73,7 @@ import com.otilm.core.service.SecretExternalService;
 import com.otilm.core.service.SecretInternalService;
 import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.SecretEncodingVersion;
 import com.otilm.core.util.SecretsUtil;
 import com.otilm.core.util.WireMockPorts;
@@ -170,10 +171,10 @@ class SecretServiceITest extends BaseSpringBootTest {
         }).when(actionProducer).produceMessage(any());
         Mockito.doNothing().when(authHelper).authenticateAsUser(any());
 
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
 
-        WireMock.configureFor("localhost", mockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
         WireMock
                 .stubFor(WireMock
                         .get(WireMock.urlPathMatching("/v1/secretProvider/secrets/basicAuth/attributes"))
@@ -222,7 +223,7 @@ class SecretServiceITest extends BaseSpringBootTest {
 
         connector = new Connector();
         connector.setName("testConnector");
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connectorRepository.save(connector);
 

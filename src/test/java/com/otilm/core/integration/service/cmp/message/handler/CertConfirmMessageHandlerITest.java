@@ -34,6 +34,7 @@ import com.otilm.core.service.cmp.message.CertificateKeyServiceImpl;
 import com.otilm.core.service.cmp.message.CmpTransactionService;
 import com.otilm.core.service.cmp.message.handler.CertConfirmMessageHandler;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import java.math.BigInteger;
 import java.security.KeyPair;
 import java.security.SecureRandom;
@@ -283,7 +284,7 @@ public class CertConfirmMessageHandlerITest extends BaseSpringBootTest {
     // -- entities
     private Certificate createSigningCertificateEntity(WireMockServer mockServer) {
         Connector connector = new Connector();
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector = connectorRepository.save(connector);

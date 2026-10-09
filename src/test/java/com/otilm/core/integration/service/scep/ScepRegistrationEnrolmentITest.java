@@ -50,6 +50,7 @@ import com.otilm.core.service.scep.impl.ScepServiceImpl;
 import com.otilm.core.service.scep.message.ScepConstants;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.mockbeans.ProducerMocks;
 import com.otilm.core.util.seeders.CryptographicKeySeeder;
 import java.math.BigInteger;
@@ -159,13 +160,13 @@ class ScepRegistrationEnrolmentITest extends BaseSpringBootTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
-        WireMock.configureFor("localhost", mockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
 
         Connector connector = new Connector();
         connector.setName("scepRegistrationTestConnector");
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector = connectorRepository.save(connector);

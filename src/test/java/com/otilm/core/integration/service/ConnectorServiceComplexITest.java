@@ -27,6 +27,7 @@ import com.otilm.core.dao.repository.FunctionGroupRepository;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.ConnectorExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
 import java.util.Collections;
 import java.util.List;
@@ -56,10 +57,10 @@ class ConnectorServiceComplexITest extends BaseSpringBootTest {
 
     @BeforeEach
     void setUp() {
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
 
-        WireMock.configureFor("localhost", mockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
     }
 
     @AfterEach
@@ -96,7 +97,7 @@ class ConnectorServiceComplexITest extends BaseSpringBootTest {
 
         Connector connector = new Connector();
         connector.setName("testConnector");
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector = connectorRepository.save(connector);
@@ -123,7 +124,7 @@ class ConnectorServiceComplexITest extends BaseSpringBootTest {
         ConnectorRequestDto request = new ConnectorRequestDto();
         request.setName("testConnector");
         request.setAuthType(AuthType.NONE);
-        request.setUrl("http://localhost:" + mockServer.port());
+        request.setUrl(LoopbackWireMock.url(mockServer));
 
         InfoResponse infoResponse = new InfoResponse();
         infoResponse.setFunctionGroupCode(FunctionGroupCode.CREDENTIAL_PROVIDER);
@@ -173,7 +174,7 @@ class ConnectorServiceComplexITest extends BaseSpringBootTest {
         ConnectorRequestDto request = new ConnectorRequestDto();
         request.setName("testConnector");
         request.setAuthType(AuthType.NONE);
-        request.setUrl("http://localhost:" + mockServer.port());
+        request.setUrl(LoopbackWireMock.url(mockServer));
 
         ConnectorDto dto = connectorService.createConnector(request);
         Assertions.assertNotNull(dto);
@@ -215,7 +216,7 @@ class ConnectorServiceComplexITest extends BaseSpringBootTest {
         mockServer.stubFor(WireMock.get("/v1").willReturn(WireMock.okJson("[]")));
         ConnectorUpdateRequestDto request = new ConnectorUpdateRequestDto();
         request.setAuthType(AuthType.NONE);
-        request.setUrl("http://localhost:" + mockServer.port());
+        request.setUrl(LoopbackWireMock.url(mockServer));
 
         ConnectorDto dto = connectorService.editConnector(connector.getSecuredUuid(), request);
         Assertions.assertNotNull(dto);
@@ -261,7 +262,7 @@ class ConnectorServiceComplexITest extends BaseSpringBootTest {
 
         Connector connector = new Connector();
         connector.setName("testConnector");
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connector = connectorRepository.save(connector);
 
