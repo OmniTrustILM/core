@@ -15,6 +15,7 @@ import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.core.model.NamedModel;
 import com.otilm.core.model.compliance.ComplianceResultDto;
 import com.otilm.core.util.DtoMapper;
+import com.otilm.core.util.KeySizeUtil;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -108,7 +109,7 @@ public class CryptographicKeyItem extends UniquelyIdentified
     private String keyData;
 
     @Column(name = "length")
-    private int length;
+    private Integer length;
 
     @Column(name = "state")
     @Enumerated(EnumType.STRING)
@@ -165,6 +166,11 @@ public class CryptographicKeyItem extends UniquelyIdentified
         if (key != null) {
             this.keyUuid = key.getUuid();
         }
+    }
+
+    /** Stores a length below 1 as null, so an unknown length has one stored form. */
+    public void setLength(Integer length) {
+        this.length = KeySizeUtil.knownLength(length);
     }
 
     public List<KeyUsage> getUsage() {

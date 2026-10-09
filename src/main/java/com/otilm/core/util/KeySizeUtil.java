@@ -90,6 +90,11 @@ public class KeySizeUtil {
         return len;
     }
 
+    /** A key length as Core records it: null in place of a length below 1. */
+    public static Integer knownLength(Integer length) {
+        return length != null && length > 0 ? length : null;
+    }
+
     private static int getJCECPublicKeyLength(JCEECPublicKey publicKey) {
         int len;
         final org.bouncycastle.jce.spec.ECParameterSpec spec = publicKey.getParameters();

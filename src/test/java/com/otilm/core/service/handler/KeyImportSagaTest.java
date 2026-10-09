@@ -41,6 +41,9 @@ import com.otilm.core.service.handler.key.KeyProviderAdapter;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import com.otilm.core.service.writer.CryptographicKeyWriter;
 import com.otilm.core.service.writer.KeyImportWriter;
+import com.otilm.core.util.KeySizeUtil;
+import com.otilm.core.util.PqcKeyFixtures;
+import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.sql.SQLException;
 import java.time.Duration;
@@ -58,6 +61,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
@@ -81,6 +85,53 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class KeyImportSagaTest {
+
+    @ParameterizedTest
+    @EnumSource(ImportCompletion.class)
+    void importKey_registersPqcWithoutLength_forEachCompletionPath(ImportCompletion completion) throws Exception {
+        // given
+        preparePqcImport();
+        ImportAnswer.Imported answer = imported(key.subjectPublicKeyInfo(), KeyAlgorithm.MLDSA, null);
+        switch (completion) {
+            case SYNCHRONOUS -> when(adapter.importKey(terms, attempt, key, "imported key")).thenReturn(answer);
+            case ASYNCHRONOUS -> {
+                when(adapter.importKey(terms, attempt, key, "imported key"))
+                        .thenReturn(new ImportAnswer.Running(HANDLE));
+                when(adapter.importKeyStatus(terms.profile(), HANDLE, SENT, "imported key")).thenReturn(answer);
+            }
+            case RECOVERY -> {
+                openAttempt(attempt);
+                when(adapter.importKeyResult(terms.profile(), attempt.uuid(), SENT, "imported key")).thenReturn(answer);
+            }
+        }
+
+        // when
+        ImportedKey result = saga.importKey(terms, RETRY, key, metadata);
+
+        // then
+        assertThat(result.key()).isSameAs(registered);
+        ArgumentCaptor<ImportedKeyRegistration> registration = ArgumentCaptor.forClass(ImportedKeyRegistration.class);
+        verify(keyImportWriter).complete(eq(attempt.uuid()), registration.capture());
+        assertThat(registration.getValue().items()).hasSize(2).allSatisfy(item -> {
+            assertThat(item.algorithm()).isEqualTo(KeyAlgorithm.MLDSA);
+            assertThat(item.length()).isNull();
+        });
+    }
+
+    private void preparePqcImport() throws Exception {
+        KeyPair pair = PqcKeyFixtures.keyPair();
+        key = new NormalizedKey(KeyRequestType.KEY_PAIR, KeyAlgorithm.MLDSA, KeySizeUtil.getKeyLength(pair.getPublic()),
+                pair.getPublic().getEncoded(), key.encryptedPrivateKeyInfo(), key.transportPassphrase());
+        terms = new KeyImportTerms(terms.profile(), KeyRequestType.KEY_PAIR, KeyAlgorithm.MLDSA,
+                terms.spkiFingerprint(), terms.exportable(), terms.importAttributes(), terms.requester());
+        when(keyImportWriter.open(terms, RETRY, "imported key", keyDigests)).thenReturn(attempt);
+    }
+
+    private enum ImportCompletion {
+        SYNCHRONOUS,
+        ASYNCHRONOUS,
+        RECOVERY
+    }
 
     private static final String RETRY = "retry";
 
@@ -940,6 +991,8 @@ class KeyImportSagaTest {
                         importedSecretKey(secretKeyItem(KeyType.SECRET_KEY, KeyAlgorithm.UNKNOWN, 256))),
                         named("of another length",
                                 importedSecretKey(secretKeyItem(KeyType.SECRET_KEY, KeyAlgorithm.AES, 128))),
+                        named("without length",
+                                importedSecretKey(secretKeyItem(KeyType.SECRET_KEY, KeyAlgorithm.AES, null))),
                         named("as another kind of item",
                                 importedSecretKey(secretKeyItem(KeyType.PRIVATE_KEY, KeyAlgorithm.AES, 256))),
                         named("with a second item",
@@ -1255,12 +1308,15 @@ class KeyImportSagaTest {
     }
 
     private static ImportAnswer.Imported imported(byte[] spki) {
-        ProviderKeyItem publicKey = new ProviderKeyItem("imported key public key", KeyType.PUBLIC_KEY, KeyAlgorithm.RSA,
-                2048, new RemoteKeyReference.MetadataReference(List.of(meta("public"))),
+        return imported(spki, KeyAlgorithm.RSA, 2048);
+    }
+
+    private static ImportAnswer.Imported imported(byte[] spki, KeyAlgorithm algorithm, Integer length) {
+        ProviderKeyItem publicKey = new ProviderKeyItem("imported key public key", KeyType.PUBLIC_KEY, algorithm,
+                length, new RemoteKeyReference.MetadataReference(List.of(meta("public"))),
                 new KeyMaterial(KeyFormat.SPKI, Base64.getEncoder().encodeToString(spki)), List.of());
-        ProviderKeyItem privateKey = new ProviderKeyItem("imported key private key", KeyType.PRIVATE_KEY,
-                KeyAlgorithm.RSA, 2048, new RemoteKeyReference.MetadataReference(List.of(meta("private"))), null,
-                List.of());
+        ProviderKeyItem privateKey = new ProviderKeyItem("imported key private key", KeyType.PRIVATE_KEY, algorithm,
+                length, new RemoteKeyReference.MetadataReference(List.of(meta("private"))), null, List.of());
         return new ImportAnswer.Imported(KeyRequestType.KEY_PAIR, List.of(publicKey, privateKey));
     }
 
@@ -1268,7 +1324,7 @@ class KeyImportSagaTest {
         return new ImportAnswer.Imported(KeyRequestType.SECRET, List.of(item));
     }
 
-    private static ProviderKeyItem secretKeyItem(KeyType type, KeyAlgorithm algorithm, int length) {
+    private static ProviderKeyItem secretKeyItem(KeyType type, KeyAlgorithm algorithm, Integer length) {
         return new ProviderKeyItem("imported key", type, algorithm, length,
                 new RemoteKeyReference.MetadataReference(List.of(meta("secret"))), null, List.of());
     }

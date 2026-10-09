@@ -112,6 +112,7 @@ import com.otilm.core.model.crypto.TransferableKeyType;
 import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.OperationAttributeResolver;
 import com.otilm.core.util.ExportEnvelopeFixtures;
+import com.otilm.core.util.PqcKeyFixtures;
 import jakarta.validation.Validation;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -126,10 +127,10 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -140,15 +141,10 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.junit.jupiter.api.Named.named;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
 import static org.mockito.ArgumentMatchers.any;
@@ -228,10 +224,10 @@ class KeyProviderV2AdapterTest {
         when(keyRepository.findOperationScopeByUuid(keyItem.keyUuid())).thenReturn(Optional.empty());
 
         // when
-        Executable execute = () -> operation.run(adapter, keyItem);
+        ThrowingCallable execute = () -> operation.run(adapter, keyItem);
 
         // then
-        assertThrows(NotFoundException.class, execute);
+        assertThatThrownBy(execute).isInstanceOf(NotFoundException.class);
         verifyNoInteractions(scopeValidator, client, operationsClient);
     }
 
@@ -245,10 +241,10 @@ class KeyProviderV2AdapterTest {
         org.mockito.Mockito.clearInvocations(attributes, resolver);
 
         // when
-        Executable execute = () -> operation.run(adapter, keyItem);
+        ThrowingCallable execute = () -> operation.run(adapter, keyItem);
 
         // then
-        assertSame(denied, assertThrows(ValidationException.class, execute));
+        assertThatThrownBy(execute).isSameAs(denied);
         verifyNoInteractions(attributes, resolver, client, operationsClient);
         verify(keyRepository).findOperationScopeByUuid(keyItem.keyUuid());
     }
@@ -289,8 +285,8 @@ class KeyProviderV2AdapterTest {
         List<RequestAttribute> selected = adapter.signatureAttributesFor(algorithm);
 
         // then
-        assertEquals(expectedAttributeNames, selected.stream().map(RequestAttribute::getName).toList());
-        assertEquals(SignatureAlgorithm.SHA256_WITH_RSA_PSS, SignatureAlgorithmMapping.toAlgorithm(selected));
+        assertThat(selected.stream().map(RequestAttribute::getName).toList()).isEqualTo(expectedAttributeNames);
+        assertThat(SignatureAlgorithmMapping.toAlgorithm(selected)).isEqualTo(SignatureAlgorithm.SHA256_WITH_RSA_PSS);
     }
 
     @ParameterizedTest
@@ -303,7 +299,7 @@ class KeyProviderV2AdapterTest {
         List<RequestAttribute> selected = adapter.cipherAttributesFor(cipherAlgorithm);
 
         // then
-        assertEquals(algorithm, EncryptionAlgorithmMapping.toAlgorithm(selected));
+        assertThat(EncryptionAlgorithmMapping.toAlgorithm(selected)).isEqualTo(algorithm);
         verifyNoInteractions(keyRepository, operationsClient, attributes, resolver);
     }
 
@@ -313,10 +309,10 @@ class KeyProviderV2AdapterTest {
         String unsupportedAlgorithm = "AES/GCM/NoPadding";
 
         // when
-        Executable select = () -> adapter.cipherAttributesFor(unsupportedAlgorithm);
+        ThrowingCallable select = () -> adapter.cipherAttributesFor(unsupportedAlgorithm);
 
         // then
-        assertThrows(NotSupportedException.class, select);
+        assertThatThrownBy(select).isInstanceOf(NotSupportedException.class);
         verifyNoInteractions(keyRepository, operationsClient);
     }
 
@@ -339,13 +335,12 @@ class KeyProviderV2AdapterTest {
                 : adapter.listDecryptAttributes(item);
 
         // then
-        assertEquals(
-                List
+        assertThat(presented.stream().map(BaseAttribute::getName).toList())
+                .isEqualTo(List
                         .of(RsaEncryptionAttributes.ATTRIBUTE_DATA_RSA_ENC_SCHEME_NAME,
                                 RsaEncryptionAttributes.ATTRIBUTE_DATA_RSA_OAEP_HASH_NAME,
-                                RsaEncryptionAttributes.ATTRIBUTE_DATA_RSA_OAEP_USE_MGF_NAME),
-                presented.stream().map(BaseAttribute::getName).toList());
-        assertEquals(AttributeContentType.BOOLEAN, ((DataAttributeV3) presented.getLast()).getContentType());
+                                RsaEncryptionAttributes.ATTRIBUTE_DATA_RSA_OAEP_USE_MGF_NAME));
+        assertThat(((DataAttributeV3) presented.getLast()).getContentType()).isEqualTo(AttributeContentType.BOOLEAN);
     }
 
     @ParameterizedTest
@@ -434,8 +429,9 @@ class KeyProviderV2AdapterTest {
         } else {
             verify(operationsClient).decryptData(any(), sent.capture());
         }
-        assertEquals(algorithm, EncryptionAlgorithmAttribute.selectedAlgorithm(sent.getValue().getCipherAttributes()));
-        assertSame(splitSelection, request.getCipherAttributes());
+        assertThat(EncryptionAlgorithmAttribute.selectedAlgorithm(sent.getValue().getCipherAttributes()))
+                .isEqualTo(algorithm);
+        assertThat(request.getCipherAttributes()).isSameAs(splitSelection);
     }
 
     @Test
@@ -444,10 +440,10 @@ class KeyProviderV2AdapterTest {
         TokenInstanceBasicModel token = mock(TokenInstanceBasicModel.class);
 
         // when
-        Executable listKeys = () -> adapter.listKeys(token);
+        ThrowingCallable listKeys = () -> adapter.listKeys(token);
 
         // then
-        assertThrows(UnsupportedOperationException.class, listKeys);
+        assertThatThrownBy(listKeys).isInstanceOf(UnsupportedOperationException.class);
         verifyNoInteractions(client, attributes, resolver, token);
     }
 
@@ -469,10 +465,10 @@ class KeyProviderV2AdapterTest {
         // then
         ArgumentCaptor<DestroyKeyRequestV2Dto> request = ArgumentCaptor.forClass(DestroyKeyRequestV2Dto.class);
         verify(client).destroyKey(any(), request.capture());
-        assertSame(keyMeta, request.getValue().getKeyMeta());
-        assertSame(resolvedToken, request.getValue().getTokenAttributes());
-        assertSame(resolvedProfile, request.getValue().getTokenProfileAttributes());
-        assertEquals(OperationExecutionMode.SYNCHRONOUS, request.getValue().getExecutionMode());
+        assertThat(request.getValue().getKeyMeta()).isSameAs(keyMeta);
+        assertThat(request.getValue().getTokenAttributes()).isSameAs(resolvedToken);
+        assertThat(request.getValue().getTokenProfileAttributes()).isSameAs(resolvedProfile);
+        assertThat(request.getValue().getExecutionMode()).isEqualTo(OperationExecutionMode.SYNCHRONOUS);
     }
 
     @ParameterizedTest
@@ -483,11 +479,11 @@ class KeyProviderV2AdapterTest {
         when(client.destroyKey(any(), any())).thenReturn(response);
 
         // when
-        Executable destroy = () -> adapter.destroyKeyItem(cryptographicKey, reference);
+        ThrowingCallable destroy = () -> adapter.destroyKeyItem(cryptographicKey, reference);
 
         // then
-        ConnectorException exception = assertThrows(ConnectorException.class, destroy);
-        assertEquals("Connector did not confirm synchronous key destruction.", exception.getMessage());
+        ConnectorException exception = catchThrowableOfType(ConnectorException.class, destroy);
+        assertThat(exception).hasMessage("Connector did not confirm synchronous key destruction.");
     }
 
     @ParameterizedTest
@@ -497,10 +493,10 @@ class KeyProviderV2AdapterTest {
         RemoteKeyReference invalidReference = reference;
 
         // when
-        Executable destroy = () -> adapter.destroyKeyItem(cryptographicKey, invalidReference);
+        ThrowingCallable destroy = () -> adapter.destroyKeyItem(cryptographicKey, invalidReference);
 
         // then
-        assertThrows(IllegalArgumentException.class, destroy);
+        assertThatThrownBy(destroy).isInstanceOf(IllegalArgumentException.class);
         verifyNoInteractions(client);
     }
 
@@ -512,10 +508,10 @@ class KeyProviderV2AdapterTest {
         when(client.destroyKey(any(), any())).thenThrow(failure);
 
         // when
-        Executable destroy = () -> adapter.destroyKeyItem(cryptographicKey, reference);
+        ThrowingCallable destroy = () -> adapter.destroyKeyItem(cryptographicKey, reference);
 
         // then
-        assertSame(failure, assertThrows(ConnectorException.class, destroy));
+        assertThatThrownBy(destroy).isSameAs(failure);
     }
 
     @ParameterizedTest
@@ -528,10 +524,10 @@ class KeyProviderV2AdapterTest {
                 .thenThrow(new ConnectorEntityNotFoundException("Key was already deleted"));
 
         // when
-        Executable destroy = () -> adapter.destroyKeyItem(key, reference);
+        ThrowingCallable destroy = () -> adapter.destroyKeyItem(key, reference);
 
         // then
-        assertDoesNotThrow(destroy);
+        assertThatCode(destroy).doesNotThrowAnyException();
         verify(client).destroyKey(any(), any());
     }
 
@@ -544,10 +540,10 @@ class KeyProviderV2AdapterTest {
         when(client.destroyKey(any(), any())).thenThrow(failure);
 
         // when
-        Executable destroy = () -> adapter.destroyKeyItem(key, reference);
+        ThrowingCallable destroy = () -> adapter.destroyKeyItem(key, reference);
 
         // then
-        assertDoesNotThrow(destroy);
+        assertThatCode(destroy).doesNotThrowAnyException();
         verify(client).destroyKey(any(), any());
     }
 
@@ -561,10 +557,10 @@ class KeyProviderV2AdapterTest {
         when(client.destroyKey(any(), any())).thenReturn(response);
 
         // when
-        Executable destroy = () -> adapter.destroyKeyItem(key, reference);
+        ThrowingCallable destroy = () -> adapter.destroyKeyItem(key, reference);
 
         // then
-        assertDoesNotThrow(destroy);
+        assertThatCode(destroy).doesNotThrowAnyException();
         verify(client).destroyKey(any(), any());
     }
 
@@ -577,10 +573,10 @@ class KeyProviderV2AdapterTest {
         when(client.destroyKey(any(), any())).thenThrow(failure);
 
         // when
-        Executable destroy = () -> adapter.destroyKeyItem(key, reference);
+        ThrowingCallable destroy = () -> adapter.destroyKeyItem(key, reference);
 
         // then
-        assertSame(failure, assertThrows(IllegalStateException.class, destroy));
+        assertThatThrownBy(destroy).isSameAs(failure);
     }
 
     @ParameterizedTest(name = "{0}: {1}")
@@ -598,10 +594,10 @@ class KeyProviderV2AdapterTest {
         boolean supported = adapter.areSignatureAttributesSupportedByKey(keyItem, selection);
 
         // then
-        assertTrue(supported);
+        assertThat(supported).isTrue();
         ArgumentCaptor<KeyScopedRequestV2Dto> sent = ArgumentCaptor.forClass(KeyScopedRequestV2Dto.class);
         verify(operationsClient).listSignAttributes(any(), sent.capture());
-        assertSame(keyMeta, sent.getValue().getKeyMeta());
+        assertThat(sent.getValue().getKeyMeta()).isSameAs(keyMeta);
         verify(attributes, never()).updateDataAttributeDefinitions(any(), any(), any());
     }
 
@@ -627,8 +623,8 @@ class KeyProviderV2AdapterTest {
         List<BaseAttribute> definitions = adapter.listValidatedSignAttributes(keyItem, selection);
 
         // then
-        assertEquals(selection.stream().map(attribute -> attribute.getUuid().toString()).toList(),
-                definitions.stream().map(BaseAttribute::getUuid).toList());
+        assertThat(definitions.stream().map(BaseAttribute::getUuid).toList())
+                .isEqualTo(selection.stream().map(attribute -> attribute.getUuid().toString()).toList());
         verify(operationsClient).listSignAttributes(any(), any());
         verify(attributes).updateDataAttributeDefinitions(any(), any(), eq(definitions));
     }
@@ -643,12 +639,12 @@ class KeyProviderV2AdapterTest {
                 .thenReturn(List.of(SignatureAlgorithmAttribute.definition(List.of(offeredAlgorithm))));
 
         // when
-        Executable list = () -> adapter.listValidatedSignAttributes(v2KeyItem(metadata("handle")), selection);
+        ThrowingCallable list = () -> adapter.listValidatedSignAttributes(v2KeyItem(metadata("handle")), selection);
 
         // then
-        ValidationException failure = assertThrows(ValidationException.class, list);
-        assertEquals("The signature attribute values or their combination are not supported by the key.",
-                failure.getMessage());
+        ValidationException failure = catchThrowableOfType(ValidationException.class, list);
+        assertThat(failure)
+                .hasMessage("The signature attribute values or their combination are not supported by the key.");
         verify(operationsClient).listSignAttributes(any(), any());
         verify(attributes, never()).updateDataAttributeDefinitions(any(), any(), any());
     }
@@ -661,12 +657,12 @@ class KeyProviderV2AdapterTest {
         when(operationsClient.listSignAttributes(any(), any())).thenReturn(schema);
 
         // when
-        Executable list = () -> adapter.listValidatedSignAttributes(v2KeyItem(metadata("handle")), selection);
+        ThrowingCallable list = () -> adapter.listValidatedSignAttributes(v2KeyItem(metadata("handle")), selection);
 
         // then
-        ValidationException failure = assertThrows(ValidationException.class, list);
-        assertEquals("The signature attribute values or their combination are not supported by the key.",
-                failure.getMessage());
+        ValidationException failure = catchThrowableOfType(ValidationException.class, list);
+        assertThat(failure)
+                .hasMessage("The signature attribute values or their combination are not supported by the key.");
         verify(attributes, never()).updateDataAttributeDefinitions(any(), any(), any());
     }
 
@@ -678,10 +674,10 @@ class KeyProviderV2AdapterTest {
         when(operationsClient.listSignAttributes(any(), any())).thenThrow(expectedFailure);
 
         // when
-        Executable list = () -> adapter.listValidatedSignAttributes(v2KeyItem(metadata("handle")), selection);
+        ThrowingCallable list = () -> adapter.listValidatedSignAttributes(v2KeyItem(metadata("handle")), selection);
 
         // then
-        assertSame(expectedFailure, assertThrows(ConnectorException.class, list));
+        assertThatThrownBy(list).isSameAs(expectedFailure);
         verify(attributes, never()).updateDataAttributeDefinitions(any(), any(), any());
     }
 
@@ -694,12 +690,12 @@ class KeyProviderV2AdapterTest {
         when(operationsClient.listSignAttributes(any(), any())).thenReturn(schema);
 
         // when
-        Executable list = () -> adapter.listValidatedSignAttributes(v2KeyItem(metadata("handle")), selection);
+        ThrowingCallable list = () -> adapter.listValidatedSignAttributes(v2KeyItem(metadata("handle")), selection);
 
         // then
-        ConnectorException failure = assertThrows(ConnectorException.class, list);
-        assertEquals(expectedMessage, failure.getMessage());
-        assertEquals(profile.connectorUuid().toString(), failure.getConnector().getUuid());
+        ConnectorException failure = catchThrowableOfType(ConnectorException.class, list);
+        assertThat(failure).hasMessage(expectedMessage);
+        assertThat(failure.getConnector().getUuid()).isEqualTo(profile.connectorUuid().toString());
         verify(attributes, never()).updateDataAttributeDefinitions(any(), any(), any());
     }
 
@@ -715,10 +711,10 @@ class KeyProviderV2AdapterTest {
         List<RequestAttribute> selection = SignatureAlgorithmMapping.toAttributes(offeredAlgorithm);
 
         // when
-        Executable list = () -> adapter.listValidatedSignAttributes(v2KeyItem(metadata("handle")), selection);
+        ThrowingCallable list = () -> adapter.listValidatedSignAttributes(v2KeyItem(metadata("handle")), selection);
 
         // then
-        assertThrows(OutboundSecretLeakException.class, list);
+        assertThatThrownBy(list).isInstanceOf(OutboundSecretLeakException.class);
         verify(attributes, never()).updateDataAttributeDefinitions(any(), any(), any());
     }
 
@@ -738,7 +734,7 @@ class KeyProviderV2AdapterTest {
         boolean supported = adapter.areSignatureAttributesSupportedByKey(v2KeyItem(metadata("handle")), selection);
 
         // then
-        assertFalse(supported);
+        assertThat(supported).isFalse();
     }
 
     @ParameterizedTest(name = "{0}")
@@ -753,7 +749,7 @@ class KeyProviderV2AdapterTest {
         boolean supported = adapter.areSignatureAttributesSupportedByKey(v2KeyItem(metadata("handle")), selection);
 
         // then
-        assertFalse(supported);
+        assertThat(supported).isFalse();
     }
 
     private static Stream<Named<List<BaseAttribute>>> schemasOfferingNoAlgorithm() {
@@ -771,12 +767,13 @@ class KeyProviderV2AdapterTest {
         when(operationsClient.listSignAttributes(any(), any())).thenReturn(schema);
 
         // when
-        Executable check = () -> adapter.areSignatureAttributesSupportedByKey(v2KeyItem(metadata("handle")), selection);
+        ThrowingCallable check = () -> adapter
+                .areSignatureAttributesSupportedByKey(v2KeyItem(metadata("handle")), selection);
 
         // then
-        ConnectorException failure = assertThrows(ConnectorException.class, check);
-        assertEquals(expectedMessage, failure.getMessage());
-        assertEquals(profile.connectorUuid().toString(), failure.getConnector().getUuid());
+        ConnectorException failure = catchThrowableOfType(ConnectorException.class, check);
+        assertThat(failure).hasMessage(expectedMessage);
+        assertThat(failure.getConnector().getUuid()).isEqualTo(profile.connectorUuid().toString());
     }
 
     private static Stream<Arguments> invalidSignatureOffers() {
@@ -816,10 +813,11 @@ class KeyProviderV2AdapterTest {
         when(operationsClient.listSignAttributes(any(), any())).thenThrow(expectedFailure);
 
         // when
-        Executable check = () -> adapter.areSignatureAttributesSupportedByKey(v2KeyItem(metadata("handle")), selection);
+        ThrowingCallable check = () -> adapter
+                .areSignatureAttributesSupportedByKey(v2KeyItem(metadata("handle")), selection);
 
         // then
-        assertSame(expectedFailure, assertThrows(ConnectorException.class, check));
+        assertThatThrownBy(check).isSameAs(expectedFailure);
     }
 
     @Test
@@ -836,10 +834,11 @@ class KeyProviderV2AdapterTest {
         List<RequestAttribute> selection = SignatureAlgorithmMapping.toAttributes(SignatureAlgorithm.SHA256_WITH_RSA);
 
         // when
-        Executable check = () -> adapter.areSignatureAttributesSupportedByKey(v2KeyItem(metadata("handle")), selection);
+        ThrowingCallable check = () -> adapter
+                .areSignatureAttributesSupportedByKey(v2KeyItem(metadata("handle")), selection);
 
         // then
-        assertThrows(OutboundSecretLeakException.class, check);
+        assertThatThrownBy(check).isInstanceOf(OutboundSecretLeakException.class);
     }
 
     @Test
@@ -855,7 +854,7 @@ class KeyProviderV2AdapterTest {
                         CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA), signatureAttributes);
 
         // then
-        assertEquals(SignatureAlgorithm.SHA384_WITH_RSA_PSS, resolved.platformAlgorithm());
+        assertThat(resolved.platformAlgorithm()).isEqualTo(SignatureAlgorithm.SHA384_WITH_RSA_PSS);
         verifyNoInteractions(operationsClient);
     }
 
@@ -869,32 +868,32 @@ class KeyProviderV2AdapterTest {
                         List.of(SignatureAlgorithmAttribute.request(SignatureAlgorithm.ML_DSA_65)));
 
         // then
-        assertEquals(SignatureAlgorithm.ML_DSA_65, resolved.platformAlgorithm());
+        assertThat(resolved.platformAlgorithm()).isEqualTo(SignatureAlgorithm.ML_DSA_65);
     }
 
     @Test
     void resolveSignatureAlgorithm_refusesAMissingSelection() {
         // when
-        Executable resolve = () -> adapter
+        ThrowingCallable resolve = () -> adapter
                 .resolveSignatureAlgorithm(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA),
                         CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA),
                         List.of(stringAttribute("signatureScheme", "PKCS1-v1_5")));
 
         // then
-        assertThrows(ValidationException.class, resolve);
+        assertThatThrownBy(resolve).isInstanceOf(ValidationException.class);
     }
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("selectionsTheKeyCannotSignWith")
     void resolveSignatureAlgorithm_refusesAnAlgorithmTheKeyCannotSignWith(UnfitSelection selection) {
         // when
-        Executable resolve = () -> adapter
+        ThrowingCallable resolve = () -> adapter
                 .resolveSignatureAlgorithm(selection.privateKey(), selection.publicKey(),
                         List.of(SignatureAlgorithmAttribute.request(selection.algorithm())));
 
         // then
-        ValidationException failure = assertThrows(ValidationException.class, resolve);
-        assertTrue(failure.getMessage().contains(selection.algorithm().getCode()));
+        ValidationException failure = catchThrowableOfType(ValidationException.class, resolve);
+        assertThat(failure).hasMessageContaining(selection.algorithm().getCode());
     }
 
     private static Stream<Named<UnfitSelection>> selectionsTheKeyCannotSignWith() {
@@ -951,13 +950,14 @@ class KeyProviderV2AdapterTest {
         // then
         ArgumentCaptor<SignDataRequestV2Dto> sent = ArgumentCaptor.forClass(SignDataRequestV2Dto.class);
         verify(operationsClient).signData(any(), sent.capture());
-        assertSame(keyMeta, sent.getValue().getKeyMeta());
-        assertSame(resolvedToken, sent.getValue().getTokenAttributes());
-        assertSame(resolvedProfile, sent.getValue().getTokenProfileAttributes());
-        assertEquals(OperationExecutionMode.SYNCHRONOUS, sent.getValue().getExecutionMode());
-        assertEquals("0", sent.getValue().getData().get(0).getIdentifier());
-        assertNull(response.getSignatures().get(0).getIdentifier());
-        assertEquals(Base64.getEncoder().encodeToString(new byte[]{7}), response.getSignatures().get(0).getData());
+        assertThat(sent.getValue().getKeyMeta()).isSameAs(keyMeta);
+        assertThat(sent.getValue().getTokenAttributes()).isSameAs(resolvedToken);
+        assertThat(sent.getValue().getTokenProfileAttributes()).isSameAs(resolvedProfile);
+        assertThat(sent.getValue().getExecutionMode()).isEqualTo(OperationExecutionMode.SYNCHRONOUS);
+        assertThat(sent.getValue().getData().get(0).getIdentifier()).isEqualTo("0");
+        assertThat(response.getSignatures().get(0).getIdentifier()).isNull();
+        assertThat(response.getSignatures().get(0).getData())
+                .isEqualTo(Base64.getEncoder().encodeToString(new byte[]{7}));
     }
 
     @Test
@@ -983,11 +983,11 @@ class KeyProviderV2AdapterTest {
         ArgumentCaptor<SignDataRequestV2Dto> sent = ArgumentCaptor.forClass(SignDataRequestV2Dto.class);
         verify(operationsClient).signData(any(), sent.capture());
         List<RequestAttribute> connectorAttributes = sent.getValue().getSignatureAttributes();
-        assertEquals(List.of("context", SignatureAlgorithmAttribute.NAME),
-                connectorAttributes.stream().map(RequestAttribute::getName).toList());
-        assertSame(parameter, connectorAttributes.getFirst());
-        assertEquals(algorithm, SignatureAlgorithmAttribute.selectedAlgorithm(connectorAttributes));
-        assertEquals(submitted, request.getSignatureAttributes());
+        assertThat(connectorAttributes.stream().map(RequestAttribute::getName).toList())
+                .isEqualTo(List.of("context", SignatureAlgorithmAttribute.NAME));
+        assertThat(connectorAttributes.getFirst()).isSameAs(parameter);
+        assertThat(SignatureAlgorithmAttribute.selectedAlgorithm(connectorAttributes)).isEqualTo(algorithm);
+        assertThat(request.getSignatureAttributes()).isEqualTo(submitted);
     }
 
     @Test
@@ -1013,11 +1013,11 @@ class KeyProviderV2AdapterTest {
         ArgumentCaptor<VerifyDataRequestV2Dto> sent = ArgumentCaptor.forClass(VerifyDataRequestV2Dto.class);
         verify(operationsClient).verifyData(any(), sent.capture());
         List<RequestAttribute> connectorAttributes = sent.getValue().getSignatureAttributes();
-        assertEquals(List.of("context", SignatureAlgorithmAttribute.NAME),
-                connectorAttributes.stream().map(RequestAttribute::getName).toList());
-        assertSame(parameter, connectorAttributes.getFirst());
-        assertEquals(algorithm, SignatureAlgorithmAttribute.selectedAlgorithm(connectorAttributes));
-        assertEquals(submitted, request.getSignatureAttributes());
+        assertThat(connectorAttributes.stream().map(RequestAttribute::getName).toList())
+                .isEqualTo(List.of("context", SignatureAlgorithmAttribute.NAME));
+        assertThat(connectorAttributes.getFirst()).isSameAs(parameter);
+        assertThat(SignatureAlgorithmAttribute.selectedAlgorithm(connectorAttributes)).isEqualTo(algorithm);
+        assertThat(request.getSignatureAttributes()).isEqualTo(submitted);
     }
 
     @ParameterizedTest
@@ -1034,11 +1034,11 @@ class KeyProviderV2AdapterTest {
         request.setData(List.of(item));
 
         // when
-        Executable sign = () -> adapter.signData(v2KeyItem(metadata("handle")), request);
+        ThrowingCallable sign = () -> adapter.signData(v2KeyItem(metadata("handle")), request);
 
         // then
-        ConnectorException failure = assertThrows(ConnectorException.class, sign);
-        assertEquals("Connector did not return a synchronous signing result.", failure.getMessage());
+        ConnectorException failure = catchThrowableOfType(ConnectorException.class, sign);
+        assertThat(failure).hasMessage("Connector did not return a synchronous signing result.");
     }
 
     private static Stream<ResponseEntity<SignDataResponseV2Dto>> nonSynchronousSignResponses() {
@@ -1067,10 +1067,10 @@ class KeyProviderV2AdapterTest {
         request.setData(List.of(item));
 
         // when
-        Executable sign = () -> adapter.signData(v2KeyItem(metadata("handle")), request);
+        ThrowingCallable sign = () -> adapter.signData(v2KeyItem(metadata("handle")), request);
 
         // then
-        assertThrows(ValidationException.class, sign);
+        assertThatThrownBy(sign).isInstanceOf(ValidationException.class);
         verify(operationsClient, never()).signData(any(), any());
     }
 
@@ -1082,10 +1082,10 @@ class KeyProviderV2AdapterTest {
         request.setData(List.of());
 
         // when
-        Executable sign = () -> adapter.signData(v2KeyItem(List.of()), request);
+        ThrowingCallable sign = () -> adapter.signData(v2KeyItem(List.of()), request);
 
         // then
-        assertThrows(ValidationException.class, sign);
+        assertThatThrownBy(sign).isInstanceOf(ValidationException.class);
         verifyNoInteractions(operationsClient);
     }
 
@@ -1111,10 +1111,10 @@ class KeyProviderV2AdapterTest {
         // then
         ArgumentCaptor<VerifyDataRequestV2Dto> sent = ArgumentCaptor.forClass(VerifyDataRequestV2Dto.class);
         verify(operationsClient).verifyData(any(), sent.capture());
-        assertEquals("0", sent.getValue().getData().get(0).getIdentifier());
-        assertEquals("0", sent.getValue().getSignatures().get(0).getIdentifier());
-        assertTrue(response.getVerifications().get(0).isResult());
-        assertNull(response.getVerifications().get(0).getIdentifier());
+        assertThat(sent.getValue().getData().get(0).getIdentifier()).isEqualTo("0");
+        assertThat(sent.getValue().getSignatures().get(0).getIdentifier()).isEqualTo("0");
+        assertThat(response.getVerifications().get(0).isResult()).isTrue();
+        assertThat(response.getVerifications().get(0).getIdentifier()).isNull();
     }
 
     @Test
@@ -1129,11 +1129,11 @@ class KeyProviderV2AdapterTest {
         request.setSignatures(List.of());
 
         // when
-        Executable verifyCall = () -> adapter.verifyData(v2KeyItem(metadata("handle")), request);
+        ThrowingCallable verifyCall = () -> adapter.verifyData(v2KeyItem(metadata("handle")), request);
 
         // then
-        ValidationException failure = assertThrows(ValidationException.class, verifyCall);
-        assertTrue(failure.getMessage().contains("one signature per data item"));
+        ValidationException failure = catchThrowableOfType(ValidationException.class, verifyCall);
+        assertThat(failure).hasMessageContaining("one signature per data item");
         verify(operationsClient, never()).verifyData(any(), any());
     }
 
@@ -1158,10 +1158,10 @@ class KeyProviderV2AdapterTest {
         // then
         ArgumentCaptor<VerifyDataRequestV2Dto> sent = ArgumentCaptor.forClass(VerifyDataRequestV2Dto.class);
         verify(operationsClient).verifyData(any(), sent.capture());
-        assertEquals(List.of("0", "1"), sentIdentifiers(sent.getValue().getData()));
-        assertEquals(List.of("0", "1"), sentIdentifiers(sent.getValue().getSignatures()));
-        assertEquals("a", response.getVerifications().get(0).getIdentifier());
-        assertEquals("b", response.getVerifications().get(1).getIdentifier());
+        assertThat(sentIdentifiers(sent.getValue().getData())).isEqualTo(List.of("0", "1"));
+        assertThat(sentIdentifiers(sent.getValue().getSignatures())).isEqualTo(List.of("0", "1"));
+        assertThat(response.getVerifications().get(0).getIdentifier()).isEqualTo("a");
+        assertThat(response.getVerifications().get(1).getIdentifier()).isEqualTo("b");
     }
 
     @Test
@@ -1186,10 +1186,10 @@ class KeyProviderV2AdapterTest {
         // then
         ArgumentCaptor<SignDataRequestV2Dto> sent = ArgumentCaptor.forClass(SignDataRequestV2Dto.class);
         verify(operationsClient).signData(any(), sent.capture());
-        assertEquals(List.of("0", "1", "2"), sentIdentifiers(sent.getValue().getData()));
-        assertEquals("custom", response.getSignatures().get(0).getIdentifier());
-        assertNull(response.getSignatures().get(1).getIdentifier());
-        assertEquals("1", response.getSignatures().get(2).getIdentifier());
+        assertThat(sentIdentifiers(sent.getValue().getData())).isEqualTo(List.of("0", "1", "2"));
+        assertThat(response.getSignatures().get(0).getIdentifier()).isEqualTo("custom");
+        assertThat(response.getSignatures().get(1).getIdentifier()).isNull();
+        assertThat(response.getSignatures().get(2).getIdentifier()).isEqualTo("1");
     }
 
     @Test
@@ -1209,10 +1209,12 @@ class KeyProviderV2AdapterTest {
         SignDataResponseDto response = adapter.signData(v2KeyItem(metadata("handle")), request);
 
         // then
-        assertEquals("first", response.getSignatures().get(0).getIdentifier());
-        assertEquals(Base64.getEncoder().encodeToString(new byte[]{1}), response.getSignatures().get(0).getData());
-        assertEquals("second", response.getSignatures().get(1).getIdentifier());
-        assertEquals(Base64.getEncoder().encodeToString(new byte[]{2}), response.getSignatures().get(1).getData());
+        assertThat(response.getSignatures().get(0).getIdentifier()).isEqualTo("first");
+        assertThat(response.getSignatures().get(0).getData())
+                .isEqualTo(Base64.getEncoder().encodeToString(new byte[]{1}));
+        assertThat(response.getSignatures().get(1).getIdentifier()).isEqualTo("second");
+        assertThat(response.getSignatures().get(1).getData())
+                .isEqualTo(Base64.getEncoder().encodeToString(new byte[]{2}));
     }
 
     @Test
@@ -1229,10 +1231,10 @@ class KeyProviderV2AdapterTest {
         request.setData(List.of(signatureItem("AQ==", null), signatureItem("Ag==", null)));
 
         // when
-        Executable sign = () -> adapter.signData(v2KeyItem(metadata("handle")), request);
+        ThrowingCallable sign = () -> adapter.signData(v2KeyItem(metadata("handle")), request);
 
         // then
-        assertThrows(ConnectorException.class, sign);
+        assertThatThrownBy(sign).isInstanceOf(ConnectorException.class);
     }
 
     @Test
@@ -1247,10 +1249,10 @@ class KeyProviderV2AdapterTest {
         request.setData(List.of(signatureItem("AQ==", null), signatureItem("Ag==", null)));
 
         // when
-        Executable sign = () -> adapter.signData(v2KeyItem(metadata("handle")), request);
+        ThrowingCallable sign = () -> adapter.signData(v2KeyItem(metadata("handle")), request);
 
         // then
-        assertThrows(ConnectorException.class, sign);
+        assertThatThrownBy(sign).isInstanceOf(ConnectorException.class);
     }
 
     @Test
@@ -1262,10 +1264,10 @@ class KeyProviderV2AdapterTest {
         request.setSignatures(List.of(signatureItem("Aw==", "b"), signatureItem("BA==", "a")));
 
         // when
-        Executable verify = () -> adapter.verifyData(v2KeyItem(metadata("handle")), request);
+        ThrowingCallable verify = () -> adapter.verifyData(v2KeyItem(metadata("handle")), request);
 
         // then
-        assertThrows(ValidationException.class, verify);
+        assertThatThrownBy(verify).isInstanceOf(ValidationException.class);
         verifyNoInteractions(operationsClient);
     }
 
@@ -1284,10 +1286,10 @@ class KeyProviderV2AdapterTest {
         request.setSignatures(List.of(signatureItem("Ag==", null)));
 
         // when
-        Executable verify = () -> adapter.verifyData(v2KeyItem(metadata("handle")), request);
+        ThrowingCallable verify = () -> adapter.verifyData(v2KeyItem(metadata("handle")), request);
 
         // then
-        assertThrows(OutboundSecretLeakException.class, verify);
+        assertThatThrownBy(verify).isInstanceOf(OutboundSecretLeakException.class);
     }
 
     @Test
@@ -1329,11 +1331,11 @@ class KeyProviderV2AdapterTest {
         request.setData(List.of(signatureItem("AQ==", "caller")));
 
         // when
-        Executable sign = () -> adapter.signData(v2KeyItem(metadata("handle")), request);
+        ThrowingCallable sign = () -> adapter.signData(v2KeyItem(metadata("handle")), request);
 
         // then
-        ConnectorException failure = assertThrows(ConnectorException.class, sign);
-        assertEquals("Connector returned an identifier that was not part of the request.", failure.getMessage());
+        ConnectorException failure = catchThrowableOfType(ConnectorException.class, sign);
+        assertThat(failure).hasMessage("Connector returned an identifier that was not part of the request.");
     }
 
     @Test
@@ -1354,8 +1356,9 @@ class KeyProviderV2AdapterTest {
         EncryptDataResponseDto response = adapter.encryptData(v2KeyItem(metadata("handle")), request);
 
         // then
-        assertEquals("custom", response.getEncryptedData().get(0).getIdentifier());
-        assertEquals(Base64.getEncoder().encodeToString(new byte[]{5}), response.getEncryptedData().get(0).getData());
+        assertThat(response.getEncryptedData().get(0).getIdentifier()).isEqualTo("custom");
+        assertThat(response.getEncryptedData().get(0).getData())
+                .isEqualTo(Base64.getEncoder().encodeToString(new byte[]{5}));
     }
 
     @Test
@@ -1376,8 +1379,9 @@ class KeyProviderV2AdapterTest {
         DecryptDataResponseDto response = adapter.decryptData(v2KeyItem(metadata("handle")), request);
 
         // then
-        assertEquals("custom", response.getDecryptedData().get(0).getIdentifier());
-        assertEquals(Base64.getEncoder().encodeToString(new byte[]{9}), response.getDecryptedData().get(0).getData());
+        assertThat(response.getDecryptedData().get(0).getIdentifier()).isEqualTo("custom");
+        assertThat(response.getDecryptedData().get(0).getData())
+                .isEqualTo(Base64.getEncoder().encodeToString(new byte[]{9}));
     }
 
     @ParameterizedTest(name = "{0}")
@@ -1392,7 +1396,7 @@ class KeyProviderV2AdapterTest {
         List<BaseAttribute> result = adapterListing.list(adapter, v2KeyItem(metadata("handle")));
 
         // then
-        assertSame(schema, result);
+        assertThat(result).isSameAs(schema);
         verify(attributes).updateDataAttributeDefinitions(profile.connectorUuid(), null, schema);
     }
 
@@ -1410,12 +1414,12 @@ class KeyProviderV2AdapterTest {
         when(clientListing.list(operationsClient)).thenReturn(List.of(selector, selector));
 
         // when
-        Executable list = () -> adapterListing.list(adapter, v2KeyItem(metadata("handle")));
+        ThrowingCallable list = () -> adapterListing.list(adapter, v2KeyItem(metadata("handle")));
 
         // then
-        ConnectorException failure = assertThrows(ConnectorException.class, list);
-        assertEquals(expectedMessage, failure.getMessage());
-        assertEquals(profile.connectorUuid().toString(), failure.getConnector().getUuid());
+        ConnectorException failure = catchThrowableOfType(ConnectorException.class, list);
+        assertThat(failure).hasMessage(expectedMessage);
+        assertThat(failure.getConnector().getUuid()).isEqualTo(profile.connectorUuid().toString());
         verify(attributes, never()).updateDataAttributeDefinitions(any(), any(), any());
     }
 
@@ -1431,12 +1435,12 @@ class KeyProviderV2AdapterTest {
         when(clientListing.list(operationsClient)).thenReturn(List.of(selector, conflictingDefinition));
 
         // when
-        Executable list = () -> adapterListing.list(adapter, v2KeyItem(metadata("handle")));
+        ThrowingCallable list = () -> adapterListing.list(adapter, v2KeyItem(metadata("handle")));
 
         // then
-        ConnectorException failure = assertThrows(ConnectorException.class, list);
-        assertEquals(expectedMessage, failure.getMessage());
-        assertEquals(profile.connectorUuid().toString(), failure.getConnector().getUuid());
+        ConnectorException failure = catchThrowableOfType(ConnectorException.class, list);
+        assertThat(failure).hasMessage(expectedMessage);
+        assertThat(failure.getConnector().getUuid()).isEqualTo(profile.connectorUuid().toString());
         verify(attributes, never()).updateDataAttributeDefinitions(any(), any(), any());
     }
 
@@ -1455,11 +1459,10 @@ class KeyProviderV2AdapterTest {
         List<BaseAttribute> presented = adapterListing.list(adapter, v2KeyItem(metadata("handle")));
 
         // then
-        assertEquals(
-                List
+        assertThat(presented.stream().map(BaseAttribute::getName).toList())
+                .isEqualTo(List
                         .of(RsaSignatureAttributes.ATTRIBUTE_DATA_RSA_SIG_SCHEME,
-                                RsaSignatureAttributes.ATTRIBUTE_DATA_SIG_DIGEST),
-                presented.stream().map(BaseAttribute::getName).toList());
+                                RsaSignatureAttributes.ATTRIBUTE_DATA_SIG_DIGEST));
         verify(attributes).updateDataAttributeDefinitions(profile.connectorUuid(), null, presented);
     }
 
@@ -1478,10 +1481,10 @@ class KeyProviderV2AdapterTest {
         when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of(original));
 
         // when
-        Executable listDefinitions = () -> adapter.listSignAttributes(v2KeyItem(metadata("handle")));
+        ThrowingCallable listDefinitions = () -> adapter.listSignAttributes(v2KeyItem(metadata("handle")));
 
         // then
-        assertThrows(OutboundSecretLeakException.class, listDefinitions);
+        assertThatThrownBy(listDefinitions).isInstanceOf(OutboundSecretLeakException.class);
         verify(attributes, never()).updateDataAttributeDefinitions(any(), any(), any());
     }
 
@@ -1494,10 +1497,10 @@ class KeyProviderV2AdapterTest {
         when(operationsClient.listSignAttributes(any(), any())).thenReturn(definitionsWithDefault(expandedSecret));
 
         // when
-        Executable listDefinitions = () -> adapter.listSignAttributes(v2KeyItem(metadata("handle")));
+        ThrowingCallable listDefinitions = () -> adapter.listSignAttributes(v2KeyItem(metadata("handle")));
 
         // then
-        assertThrows(OutboundSecretLeakException.class, listDefinitions);
+        assertThatThrownBy(listDefinitions).isInstanceOf(OutboundSecretLeakException.class);
     }
 
     @Test
@@ -1511,10 +1514,10 @@ class KeyProviderV2AdapterTest {
         request.setData(List.of(signatureItem("AQ==", null)));
 
         // when
-        Executable sign = () -> adapter.signData(v2KeyItem(metadata("handle")), request);
+        ThrowingCallable sign = () -> adapter.signData(v2KeyItem(metadata("handle")), request);
 
         // then
-        assertThrows(OutboundSecretLeakException.class, sign);
+        assertThatThrownBy(sign).isInstanceOf(OutboundSecretLeakException.class);
         verify(operationsClient, never()).signData(any(), any());
     }
 
@@ -1528,10 +1531,10 @@ class KeyProviderV2AdapterTest {
         request.setData(List.of(signatureItem(data, null)));
 
         // when
-        Executable sign = () -> adapter.signData(v2KeyItem(metadata("handle")), request);
+        ThrowingCallable sign = () -> adapter.signData(v2KeyItem(metadata("handle")), request);
 
         // then
-        assertThrows(ValidationException.class, sign);
+        assertThatThrownBy(sign).isInstanceOf(ValidationException.class);
         verify(operationsClient, never()).signData(any(), any());
     }
 
@@ -1547,10 +1550,10 @@ class KeyProviderV2AdapterTest {
         request.setData(List.of(signatureItem("AQ==", null)));
 
         // when
-        Executable sign = () -> adapter.signData(v2KeyItem(metadata("handle")), request);
+        ThrowingCallable sign = () -> adapter.signData(v2KeyItem(metadata("handle")), request);
 
         // then
-        assertThrows(ConnectorException.class, sign);
+        assertThatThrownBy(sign).isInstanceOf(ConnectorException.class);
     }
 
     @Test
@@ -1565,9 +1568,10 @@ class KeyProviderV2AdapterTest {
         List<TransferableKeyType> importable = adapter.listImportableKeyTypes(profile);
 
         // then
-        assertEquals(
-                List.of(new TransferableKeyType(KeyRequestType.KEY_PAIR, Set.of(KeyAlgorithm.RSA, KeyAlgorithm.ECDSA))),
-                importable);
+        assertThat(importable)
+                .isEqualTo(List
+                        .of(new TransferableKeyType(KeyRequestType.KEY_PAIR,
+                                Set.of(KeyAlgorithm.RSA, KeyAlgorithm.ECDSA))));
     }
 
     @Test
@@ -1582,10 +1586,10 @@ class KeyProviderV2AdapterTest {
         List<BaseAttribute> listed = adapter.listImportKeyAttributes(profile, KeyRequestType.SECRET);
 
         // then
-        assertEquals(schema, listed);
-        assertEquals(KeyRequestType.SECRET, sent.getValue().getKeyRequestType());
-        assertEquals(List.of(), sent.getValue().getTokenAttributes());
-        assertEquals(List.of(), sent.getValue().getTokenProfileAttributes());
+        assertThat(listed).isEqualTo(schema);
+        assertThat(sent.getValue().getKeyRequestType()).isEqualTo(KeyRequestType.SECRET);
+        assertThat(sent.getValue().getTokenAttributes()).isEqualTo(List.of());
+        assertThat(sent.getValue().getTokenProfileAttributes()).isEqualTo(List.of());
         verify(attributes).updateDataAttributeDefinitions(profile.connectorUuid(), null, schema);
     }
 
@@ -1598,10 +1602,10 @@ class KeyProviderV2AdapterTest {
         when(client.listImportKeyAttributes(any(), any())).thenReturn(definitionsWithDefault(expandedSecret));
 
         // when
-        Executable listDefinitions = () -> adapter.listImportKeyAttributes(profile, KeyRequestType.KEY_PAIR);
+        ThrowingCallable listDefinitions = () -> adapter.listImportKeyAttributes(profile, KeyRequestType.KEY_PAIR);
 
         // then
-        assertThrows(OutboundSecretLeakException.class, listDefinitions);
+        assertThatThrownBy(listDefinitions).isInstanceOf(OutboundSecretLeakException.class);
         verify(attributes, never()).updateDataAttributeDefinitions(any(), any(), any());
     }
 
@@ -1616,7 +1620,7 @@ class KeyProviderV2AdapterTest {
         List<BaseAttribute> listed = adapter.listImportKeyAttributes(profile, KeyRequestType.KEY_PAIR);
 
         // then
-        assertEquals(List.of(label), listed);
+        assertThat(listed).isEqualTo(List.of(label));
         verify(attributes).updateDataAttributeDefinitions(profile.connectorUuid(), null, List.of(label));
     }
 
@@ -1630,7 +1634,7 @@ class KeyProviderV2AdapterTest {
         List<BaseAttribute> listed = adapter.listExportKeyAttributes(v2KeyItem(metadata("handle")));
 
         // then
-        assertEquals(schema, listed);
+        assertThat(listed).isEqualTo(schema);
         verify(attributes).updateDataAttributeDefinitions(any(), isNull(), eq(schema));
     }
 
@@ -1647,15 +1651,36 @@ class KeyProviderV2AdapterTest {
                 .exportKey(v2KeyItem(metadata("handle")), heldKey(pair.getPublic()), passphrase(), List.of());
 
         // then
-        assertArrayEquals(envelope, exported);
+        assertThat(exported).isEqualTo(envelope);
         ArgumentCaptor<ExportKeyRequestV2Dto> sent = ArgumentCaptor.forClass(ExportKeyRequestV2Dto.class);
         verify(client).exportKey(any(), sent.capture());
-        assertEquals(KeyRequestType.KEY_PAIR, sent.getValue().getKeyRequestType());
-        assertEquals(new String(PASSPHRASE), sent.getValue().getPassphrase());
-        assertEquals(List.of(), sent.getValue().getExportKeyAttributes());
-        assertEquals(metadata("handle").getFirst().getName(), sent.getValue().getKeyMeta().getFirst().getName());
-        assertNull(sent.getValue().getKeyReference(),
-                "a key with no reference of Core's own is exported by its handle");
+        assertThat(sent.getValue().getKeyRequestType()).isEqualTo(KeyRequestType.KEY_PAIR);
+        assertThat(sent.getValue().getPassphrase()).isEqualTo(new String(PASSPHRASE));
+        assertThat(sent.getValue().getExportKeyAttributes()).isEqualTo(List.of());
+        assertThat(sent.getValue().getKeyMeta().getFirst().getName())
+                .isEqualTo(metadata("handle").getFirst().getName());
+        assertThat(sent.getValue().getKeyReference())
+                .as("a key with no reference of Core's own is exported by its handle")
+                .isNull();
+    }
+
+    @Test
+    void exportKey_validatesPqcPair_withoutLength() throws Exception {
+        // given
+        KeyPair pair = PqcKeyFixtures.keyPair();
+        byte[] envelope = ExportEnvelopeFixtures.pinnedEnvelope(pair.getPrivate(), PASSPHRASE);
+        ExportKeyResponseV2Dto response = exportResponse(envelope, pair.getPublic());
+        response.setKeyData(PqcKeyFixtures.response(pair).getPublicKeyData().getKeyData());
+        HeldKey held = new HeldKey(KeyRequestType.KEY_PAIR, KeyAlgorithm.MLDSA, null, pair.getPublic().getEncoded(),
+                null);
+        when(client.listExportKeyAttributes(any(), any())).thenReturn(List.of());
+        when(client.exportKey(any(), any())).thenReturn(response);
+
+        // when
+        byte[] exported = adapter.exportKey(v2KeyItem(metadata("handle")), held, passphrase(), List.of());
+
+        // then
+        assertThat(exported).isEqualTo(envelope);
     }
 
     @Test
@@ -1677,7 +1702,7 @@ class KeyProviderV2AdapterTest {
         // then
         ArgumentCaptor<ExportKeyRequestV2Dto> sent = ArgumentCaptor.forClass(ExportKeyRequestV2Dto.class);
         verify(client).exportKey(any(), sent.capture());
-        assertEquals(reference.toString(), sent.getValue().getKeyReference());
+        assertThat(sent.getValue().getKeyReference()).isEqualTo(reference.toString());
     }
 
     @Test
@@ -1694,11 +1719,11 @@ class KeyProviderV2AdapterTest {
         Passphrase passphrase = passphrase();
 
         // when
-        ConnectorServerException refused = assertThrows(ConnectorServerException.class,
+        ConnectorServerException refused = catchThrowableOfType(ConnectorServerException.class,
                 () -> adapter.exportKey(keyItem, held, passphrase, NO_ATTRIBUTES));
 
         // then
-        assertEquals(HttpStatus.BAD_GATEWAY, refused.getHttpStatus());
+        assertThat(refused.getHttpStatus()).isEqualTo(HttpStatus.BAD_GATEWAY);
     }
 
     @Test
@@ -1716,8 +1741,8 @@ class KeyProviderV2AdapterTest {
 
         // when
         // then
-        assertThrows(OutboundSecretLeakException.class,
-                () -> adapter.exportKey(keyItem, held, passphrase, NO_ATTRIBUTES));
+        assertThatThrownBy(() -> adapter.exportKey(keyItem, held, passphrase, NO_ATTRIBUTES))
+                .isInstanceOf(OutboundSecretLeakException.class);
     }
 
     @Test
@@ -1731,7 +1756,8 @@ class KeyProviderV2AdapterTest {
 
         // when
         // then
-        assertThrows(ValidationException.class, () -> adapter.exportKey(keyItem, held, passphrase, NO_ATTRIBUTES));
+        assertThatThrownBy(() -> adapter.exportKey(keyItem, held, passphrase, NO_ATTRIBUTES))
+                .isInstanceOf(ValidationException.class);
         verify(client, never()).exportKey(any(), any());
     }
 
@@ -1747,7 +1773,7 @@ class KeyProviderV2AdapterTest {
         byte[] exported = adapter.exportKey(v2KeyItem(metadata("handle")), heldSecret(256), passphrase(), List.of());
 
         // then
-        assertArrayEquals(envelope, exported);
+        assertThat(exported).isEqualTo(envelope);
     }
 
     @Test
@@ -1762,11 +1788,11 @@ class KeyProviderV2AdapterTest {
         Passphrase passphrase = passphrase();
 
         // when
-        ConnectorServerException refused = assertThrows(ConnectorServerException.class,
+        ConnectorServerException refused = catchThrowableOfType(ConnectorServerException.class,
                 () -> adapter.exportKey(keyItem, held, passphrase, NO_ATTRIBUTES));
 
         // then
-        assertEquals(HttpStatus.BAD_GATEWAY, refused.getHttpStatus());
+        assertThat(refused.getHttpStatus()).isEqualTo(HttpStatus.BAD_GATEWAY);
     }
 
     @Test
@@ -1782,12 +1808,11 @@ class KeyProviderV2AdapterTest {
         Passphrase passphrase = passphrase();
 
         // when
-        ValidationException refused = assertThrows(ValidationException.class,
+        ValidationException refused = catchThrowableOfType(ValidationException.class,
                 () -> adapter.exportKey(keyItem, held, passphrase, NO_ATTRIBUTES));
 
         // then
-        assertTrue(refused.getMessage().contains(ErrorCode.KEY_NOT_EXPORTABLE.name()), refused.getMessage());
-        assertFalse(refused.getMessage().contains(echoed), refused.getMessage());
+        assertThat(refused).hasMessageContaining(ErrorCode.KEY_NOT_EXPORTABLE.name()).hasMessageNotContaining(echoed);
     }
 
     /** The request carried the passphrase, so nothing the connector answered may travel on. */
@@ -1802,13 +1827,13 @@ class KeyProviderV2AdapterTest {
         Passphrase passphrase = passphrase();
 
         // when
-        ConnectorServerException failed = assertThrows(ConnectorServerException.class,
+        ConnectorServerException failed = catchThrowableOfType(ConnectorServerException.class,
                 () -> adapter.exportKey(keyItem, held, passphrase, NO_ATTRIBUTES));
 
         // then
-        assertEquals(HttpStatus.BAD_GATEWAY, failed.getHttpStatus());
-        assertFalse(failed.getMessage().contains(new String(PASSPHRASE)), failed.getMessage());
-        assertNull(failed.getCause());
+        assertThat(failed.getHttpStatus()).isEqualTo(HttpStatus.BAD_GATEWAY);
+        assertThat(failed).hasMessageNotContaining(new String(PASSPHRASE));
+        assertThat(failed.getCause()).isNull();
     }
 
     private static Stream<Exception> failedExports() {
@@ -1970,20 +1995,36 @@ class KeyProviderV2AdapterTest {
                 .createKey(profile, KeyRequestType.KEY_PAIR, List.of(), wrapperName, false);
 
         // then
-        assertEquals(2, items.size());
+        assertThat(items).hasSize(2);
         ProviderKeyItem publicKey = items.get(0);
         ProviderKeyItem privateKey = items.get(1);
-        assertEquals(wrapperName + " public key", publicKey.name());
-        assertEquals(wrapperName + " private key", privateKey.name());
-        assertEquals(KeyType.PUBLIC_KEY, publicKey.type());
-        assertEquals(KeyFormat.SPKI, publicKey.material().format());
-        assertArrayEquals(expectedSpki, Base64.getDecoder().decode(publicKey.material().serializedValue()));
-        assertEquals(new RemoteKeyReference.MetadataReference(response.getPublicKeyData().getKeyMeta()),
-                publicKey.reference());
-        assertEquals(KeyType.PRIVATE_KEY, privateKey.type());
-        assertNull(privateKey.material());
-        assertEquals(new RemoteKeyReference.MetadataReference(response.getPrivateKeyData().getKeyMeta()),
-                privateKey.reference());
+        assertThat(publicKey.name()).isEqualTo(wrapperName + " public key");
+        assertThat(privateKey.name()).isEqualTo(wrapperName + " private key");
+        assertThat(publicKey.type()).isEqualTo(KeyType.PUBLIC_KEY);
+        assertThat(publicKey.material().format()).isEqualTo(KeyFormat.SPKI);
+        assertThat(Base64.getDecoder().decode(publicKey.material().serializedValue())).isEqualTo(expectedSpki);
+        assertThat(publicKey.reference())
+                .isEqualTo(new RemoteKeyReference.MetadataReference(response.getPublicKeyData().getKeyMeta()));
+        assertThat(privateKey.type()).isEqualTo(KeyType.PRIVATE_KEY);
+        assertThat(privateKey.material()).isNull();
+        assertThat(privateKey.reference())
+                .isEqualTo(new RemoteKeyReference.MetadataReference(response.getPrivateKeyData().getKeyMeta()));
+    }
+
+    @Test
+    void createKey_preservesAbsentLength_forPqcPair() throws Exception {
+        // given
+        KeyPairDataResponseV2Dto response = PqcKeyFixtures.response(PqcKeyFixtures.keyPair());
+        when(client.createKey(any(), any())).thenReturn(ResponseEntity.ok(response));
+
+        // when
+        List<ProviderKeyItem> items = adapter.createKey(profile, KeyRequestType.KEY_PAIR, List.of(), "pqc", false);
+
+        // then
+        assertThat(items).hasSize(2).allSatisfy(item -> {
+            assertThat(item.algorithm()).isEqualTo(KeyAlgorithm.MLDSA);
+            assertThat(item.length()).isNull();
+        });
     }
 
     @Test
@@ -2000,21 +2041,21 @@ class KeyProviderV2AdapterTest {
                 .createKey(profile, KeyRequestType.SECRET, creationAttributes, wrapperName, false);
 
         // then
-        assertEquals(1, items.size());
+        assertThat(items).hasSize(1);
         ProviderKeyItem key = items.getFirst();
-        assertEquals(KeyType.SECRET_KEY, key.type());
-        assertEquals(response.getKeyData().getAlgorithm(), key.algorithm());
-        assertEquals(response.getKeyData().getLength().intValue(), key.length());
-        assertEquals(response.getKeyData().getMetadata(), key.metadata());
-        assertEquals(new RemoteKeyReference.MetadataReference(response.getKeyMeta()), key.reference());
-        assertNull(key.material());
-        assertEquals(wrapperName, key.name());
+        assertThat(key.type()).isEqualTo(KeyType.SECRET_KEY);
+        assertThat(key.algorithm()).isEqualTo(response.getKeyData().getAlgorithm());
+        assertThat(key.length()).isEqualTo(response.getKeyData().getLength().intValue());
+        assertThat(key.metadata()).isEqualTo(response.getKeyData().getMetadata());
+        assertThat(key.reference()).isEqualTo(new RemoteKeyReference.MetadataReference(response.getKeyMeta()));
+        assertThat(key.material()).isNull();
+        assertThat(key.name()).isEqualTo(wrapperName);
         ArgumentCaptor<CreateKeyRequestV2Dto> request = ArgumentCaptor.forClass(CreateKeyRequestV2Dto.class);
         verify(client).createKey(any(), request.capture());
-        assertEquals(OperationExecutionMode.SYNCHRONOUS, request.getValue().getExecutionMode());
-        assertEquals(KeyRequestType.SECRET, request.getValue().getKeyRequestType());
-        assertTrue(request.getValue().getCreateKeyAttributes().containsAll(creationAttributes));
-        assertDoesNotThrow(() -> UUID.fromString(request.getValue().getKeyCreationId()));
+        assertThat(request.getValue().getExecutionMode()).isEqualTo(OperationExecutionMode.SYNCHRONOUS);
+        assertThat(request.getValue().getKeyRequestType()).isEqualTo(KeyRequestType.SECRET);
+        assertThat(request.getValue().getCreateKeyAttributes()).containsAll(creationAttributes);
+        assertThatCode(() -> UUID.fromString(request.getValue().getKeyCreationId())).doesNotThrowAnyException();
     }
 
     @Test
@@ -2031,11 +2072,11 @@ class KeyProviderV2AdapterTest {
         ArgumentCaptor<CreateKeyRequestV2Dto> request = ArgumentCaptor.forClass(CreateKeyRequestV2Dto.class);
         verify(client).createKey(any(), request.capture());
         RequestAttribute intent = request.getValue().getCreateKeyAttributes().getFirst();
-        assertInstanceOf(RequestAttributeV3.class, intent);
-        assertEquals(KeyExportableAttribute.ATTRIBUTE_UUID, intent.getUuid());
-        assertEquals(KeyExportableAttribute.NAME, intent.getName());
-        assertEquals(AttributeContentType.BOOLEAN, intent.getContentType());
-        assertTrue(KeyExportableAttribute.isRequested(request.getValue().getCreateKeyAttributes()));
+        assertThat(intent).isInstanceOf(RequestAttributeV3.class);
+        assertThat(intent.getUuid()).isEqualTo(KeyExportableAttribute.ATTRIBUTE_UUID);
+        assertThat(intent.getName()).isEqualTo(KeyExportableAttribute.NAME);
+        assertThat(intent.getContentType()).isEqualTo(AttributeContentType.BOOLEAN);
+        assertThat(KeyExportableAttribute.isRequested(request.getValue().getCreateKeyAttributes())).isTrue();
     }
 
     @Test
@@ -2051,8 +2092,8 @@ class KeyProviderV2AdapterTest {
         // then
         ArgumentCaptor<CreateKeyRequestV2Dto> request = ArgumentCaptor.forClass(CreateKeyRequestV2Dto.class);
         verify(client).createKey(any(), request.capture());
-        assertFalse(KeyExportableAttribute.isRequested(request.getValue().getCreateKeyAttributes()));
-        assertEquals(1, request.getValue().getCreateKeyAttributes().size());
+        assertThat(KeyExportableAttribute.isRequested(request.getValue().getCreateKeyAttributes())).isFalse();
+        assertThat(request.getValue().getCreateKeyAttributes()).hasSize(1);
     }
 
     @Test
@@ -2066,8 +2107,8 @@ class KeyProviderV2AdapterTest {
         // then
         ArgumentCaptor<CreateKeyRequestV2Dto> request = ArgumentCaptor.forClass(CreateKeyRequestV2Dto.class);
         verify(client).createKey(any(), request.capture());
-        assertTrue(KeyExportableAttribute.isRequested(request.getValue().getCreateKeyAttributes()));
-        assertEquals(1, request.getValue().getCreateKeyAttributes().size());
+        assertThat(KeyExportableAttribute.isRequested(request.getValue().getCreateKeyAttributes())).isTrue();
+        assertThat(request.getValue().getCreateKeyAttributes()).hasSize(1);
     }
 
     @ParameterizedTest
@@ -2085,7 +2126,7 @@ class KeyProviderV2AdapterTest {
         // then
         ArgumentCaptor<CreateKeyRequestV2Dto> request = ArgumentCaptor.forClass(CreateKeyRequestV2Dto.class);
         verify(client).createKey(any(), request.capture());
-        assertEquals(List.of(label), request.getValue().getCreateKeyAttributes());
+        assertThat(request.getValue().getCreateKeyAttributes()).isEqualTo(List.of(label));
     }
 
     @Test
@@ -2106,8 +2147,8 @@ class KeyProviderV2AdapterTest {
         // then
         ArgumentCaptor<CreateKeyRequestV2Dto> request = ArgumentCaptor.forClass(CreateKeyRequestV2Dto.class);
         verify(client).createKey(any(), request.capture());
-        assertEquals(1, request.getValue().getCreateKeyAttributes().size());
-        assertFalse(KeyExportableAttribute.isRequested(request.getValue().getCreateKeyAttributes()));
+        assertThat(request.getValue().getCreateKeyAttributes()).hasSize(1);
+        assertThat(KeyExportableAttribute.isRequested(request.getValue().getCreateKeyAttributes())).isFalse();
     }
 
     @Test
@@ -2116,12 +2157,12 @@ class KeyProviderV2AdapterTest {
         when(client.createKey(any(), any())).thenReturn(ResponseEntity.accepted().build());
 
         // when
-        Executable createKey = () -> adapter
+        ThrowingCallable createKey = () -> adapter
                 .createKey(profile, KeyRequestType.SECRET, List.of(), profile.name(), false);
 
         // then
-        ConnectorException exception = assertThrows(ConnectorException.class, createKey);
-        assertTrue(exception.getMessage().contains("synchronous key creation result"));
+        ConnectorException exception = catchThrowableOfType(ConnectorException.class, createKey);
+        assertThat(exception).hasMessageContaining("synchronous key creation result");
     }
 
     @Test
@@ -2141,8 +2182,8 @@ class KeyProviderV2AdapterTest {
         // then
         ArgumentCaptor<CreateKeyRequestV2Dto> request = ArgumentCaptor.forClass(CreateKeyRequestV2Dto.class);
         verify(client).createKey(any(), request.capture());
-        assertEquals(resolvedToken, request.getValue().getTokenAttributes());
-        assertEquals(resolvedProfile, request.getValue().getTokenProfileAttributes());
+        assertThat(request.getValue().getTokenAttributes()).isEqualTo(resolvedToken);
+        assertThat(request.getValue().getTokenProfileAttributes()).isEqualTo(resolvedProfile);
     }
 
     @ParameterizedTest(name = "{0}")
@@ -2152,11 +2193,12 @@ class KeyProviderV2AdapterTest {
         when(client.createKey(any(), any())).thenReturn(response);
 
         // when
-        Executable create = () -> adapter.createKey(profile, KeyRequestType.SECRET, List.of(), profile.name(), false);
+        ThrowingCallable create = () -> adapter
+                .createKey(profile, KeyRequestType.SECRET, List.of(), profile.name(), false);
 
         // then
-        ConnectorException exception = assertThrows(ConnectorException.class, create);
-        assertEquals("Connector did not return the requested synchronous key creation result.", exception.getMessage());
+        ConnectorException exception = catchThrowableOfType(ConnectorException.class, create);
+        assertThat(exception).hasMessage("Connector did not return the requested synchronous key creation result.");
     }
 
     @Test
@@ -2166,10 +2208,11 @@ class KeyProviderV2AdapterTest {
         when(client.createKey(any(), any())).thenThrow(failure);
 
         // when
-        Executable create = () -> adapter.createKey(profile, KeyRequestType.SECRET, List.of(), profile.name(), false);
+        ThrowingCallable create = () -> adapter
+                .createKey(profile, KeyRequestType.SECRET, List.of(), profile.name(), false);
 
         // then
-        assertSame(failure, assertThrows(ConnectorException.class, create));
+        assertThatThrownBy(create).isSameAs(failure);
     }
 
     @ParameterizedTest
@@ -2189,13 +2232,13 @@ class KeyProviderV2AdapterTest {
         List<BaseAttribute> definitions = adapter.listCreateKeyAttributes(profile, type);
 
         // then
-        assertEquals(expectedDefinitions, definitions);
+        assertThat(definitions).isEqualTo(expectedDefinitions);
         ArgumentCaptor<CreateKeyAttributesRequestV2Dto> request = ArgumentCaptor
                 .forClass(CreateKeyAttributesRequestV2Dto.class);
         verify(client).listCreateKeyAttributes(any(), request.capture());
-        assertEquals(type, request.getValue().getKeyRequestType());
-        assertEquals(resolvedToken, request.getValue().getTokenAttributes());
-        assertEquals(resolvedProfile, request.getValue().getTokenProfileAttributes());
+        assertThat(request.getValue().getKeyRequestType()).isEqualTo(type);
+        assertThat(request.getValue().getTokenAttributes()).isEqualTo(resolvedToken);
+        assertThat(request.getValue().getTokenProfileAttributes()).isEqualTo(resolvedProfile);
     }
 
     @Test
@@ -2205,10 +2248,10 @@ class KeyProviderV2AdapterTest {
         when(resolver.resolveForConnectorRequestAsSystem(profile.connectorUuid(), List.of())).thenThrow(failure);
 
         // when
-        Executable listDefinitions = () -> adapter.listCreateKeyAttributes(profile, KeyRequestType.SECRET);
+        ThrowingCallable listDefinitions = () -> adapter.listCreateKeyAttributes(profile, KeyRequestType.SECRET);
 
         // then
-        assertSame(failure, assertThrows(ConnectorException.class, listDefinitions));
+        assertThatThrownBy(listDefinitions).isSameAs(failure);
         verifyNoInteractions(client);
     }
 
@@ -2222,10 +2265,10 @@ class KeyProviderV2AdapterTest {
         when(client.listCreateKeyAttributes(any(), any())).thenReturn(echoedDefinitions);
 
         // when
-        Executable listDefinitions = () -> adapter.listCreateKeyAttributes(profile, KeyRequestType.SECRET);
+        ThrowingCallable listDefinitions = () -> adapter.listCreateKeyAttributes(profile, KeyRequestType.SECRET);
 
         // then
-        assertThrows(OutboundSecretLeakException.class, listDefinitions);
+        assertThatThrownBy(listDefinitions).isInstanceOf(OutboundSecretLeakException.class);
     }
 
     @Test
@@ -2240,7 +2283,7 @@ class KeyProviderV2AdapterTest {
         List<BaseAttribute> definitions = adapter.listCreateKeyAttributes(profile, KeyRequestType.SECRET);
 
         // then
-        assertEquals(List.of(keySize), definitions);
+        assertThat(definitions).isEqualTo(List.of(keySize));
     }
 
     @Test
@@ -2255,7 +2298,7 @@ class KeyProviderV2AdapterTest {
         List<BaseAttribute> definitions = adapter.listCreateKeyAttributes(profile, KeyRequestType.KEY_PAIR);
 
         // then
-        assertEquals(expectedDefinitions, definitions);
+        assertThat(definitions).isEqualTo(expectedDefinitions);
     }
 
     private void stubExpandedSecret(Resource resource, String secret) throws Exception {
