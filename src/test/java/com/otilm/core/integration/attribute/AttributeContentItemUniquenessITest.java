@@ -51,6 +51,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -345,7 +346,12 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
     @Test
     void aValueTooLargeForAPlainIndexIsStoredOnce() throws Exception {
         UUID definitionUuid = createAttribute("note", AttributeContentType.TEXT, ProtectionLevel.NONE);
-        String value = "x".repeat(10_000);
+        // Random letters: an index entry is compressed first, and repeated characters would fit a plain index after
+        // all.
+        String value = new Random(1899)
+                .ints(10_000, 'a', 'z' + 1)
+                .collect(StringBuilder::new, StringBuilder::appendCodePoint, StringBuilder::append)
+                .toString();
 
         for (int i = 0; i < 2; i++) {
             attributeEngine
