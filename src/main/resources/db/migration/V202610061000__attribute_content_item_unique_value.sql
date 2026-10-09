@@ -4,9 +4,9 @@
 --
 -- Fold what is already duplicated, then let a unique constraint keep it that way. json_digest is the SHA-256 of the
 -- value's jsonb text, which the lookup by value computes too: key order and spacing are normalized away, a number's
--- written precision is not, so 1.0 and 1.00 are two values. It is NULL for an encrypted row: the value lives in salted
--- ciphertext, so equal values never share a json and stay one row per object, outside the rule, since NULLs never
--- collide in a unique constraint.
+-- written precision is not, so 1.0 and 1.00 are two values. It is NULL for an encrypted row, whose json is the same
+-- placeholder whatever the value and whose value lies in salted ciphertext no digest can match: encrypted rows stay one
+-- row per object, outside the rule, since NULLs never collide in a unique constraint.
 --
 -- A digest rather than the jsonb itself, because a btree entry cannot hold a value over ~2.7 kB. SHA-256 rather than
 -- jsonb_hash_extended, which folds a container's start into its hash without rotating it: [{},{}] and [[],[]] hash
