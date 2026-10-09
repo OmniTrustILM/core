@@ -33,6 +33,8 @@ class AttributeContentItemUniqueValueMigrationITest extends BaseSpringBootTest {
     private static final String ENCRYPTED_TWO = "20000000-0000-0000-0000-000000000005";
     private static final String EMPTY_OBJECTS = "20000000-0000-0000-0000-000000000010";
     private static final String EMPTY_ARRAYS = "20000000-0000-0000-0000-000000000011";
+    private static final String ONE_DECIMAL = "20000000-0000-0000-0000-000000000012";
+    private static final String TWO_DECIMALS = "20000000-0000-0000-0000-000000000013";
     private static final String CERTIFICATE_ONE = "30000000-0000-0000-0000-000000000001";
     private static final String CERTIFICATE_TWO = "30000000-0000-0000-0000-000000000002";
     private static final String TABLE_STUBS = """
@@ -78,6 +80,10 @@ class AttributeContentItemUniqueValueMigrationITest extends BaseSpringBootTest {
                 // Distinct values that jsonb_hash_extended hashes alike: the constraint must still go on.
                 insertItem(statement, EMPTY_OBJECTS, "{\"data\": {\"v\": [{}, {}]}}", null);
                 insertItem(statement, EMPTY_ARRAYS, "{\"data\": {\"v\": [[], []]}}", null);
+                // Equal under jsonb comparison, two values under the constraint's key: the fold must not merge them.
+                insertItem(statement, ONE_DECIMAL, "{\"data\": 1.0}", null);
+                insertItem(statement, TWO_DECIMALS, "{\"data\": 1.00}", null);
+                insertMapping(statement, TWO_DECIMALS, CERTIFICATE_TWO);
                 insertMapping(statement, KEEP, CERTIFICATE_ONE);
                 insertMapping(statement, DUPLICATE, CERTIFICATE_TWO);
                 // Certificate one held both copies: after the fold it must hold the value once, not twice.
@@ -89,7 +95,11 @@ class AttributeContentItemUniqueValueMigrationITest extends BaseSpringBootTest {
 
                 assertThat(count(statement,
                         "SELECT count(*) FROM attribute_content_item WHERE uuid = '" + DUPLICATE + "'")).isZero();
-                assertThat(count(statement, "SELECT count(*) FROM attribute_content_item")).isEqualTo(6);
+                assertThat(count(statement,
+                        "SELECT count(*) FROM attribute_content_2_object WHERE attribute_content_item_uuid = '"
+                                + TWO_DECIMALS + "' AND object_uuid = '" + CERTIFICATE_TWO + "'"))
+                        .isEqualTo(1);
+                assertThat(count(statement, "SELECT count(*) FROM attribute_content_item")).isEqualTo(8);
                 assertThat(count(statement, "SELECT count(*) FROM attribute_content_2_object WHERE"
                         + " attribute_content_item_uuid = '" + KEEP + "' AND object_uuid = '" + CERTIFICATE_ONE + "'"))
                         .isEqualTo(1);
@@ -101,7 +111,7 @@ class AttributeContentItemUniqueValueMigrationITest extends BaseSpringBootTest {
                         .isEqualTo(2);
                 assertThat(count(statement,
                         "SELECT count(*) FROM attribute_content_item WHERE encrypted_data IS NULL AND json_digest IS NOT NULL"))
-                        .isEqualTo(4);
+                        .isEqualTo(6);
 
                 assertThatThrownBy(() -> insertItem(statement, "20000000-0000-0000-0000-000000000006",
                         "{\"data\": \"shared\"}", null))
@@ -128,14 +138,12 @@ class AttributeContentItemUniqueValueMigrationITest extends BaseSpringBootTest {
                 assertThat(plan.toString()).contains("uq_attribute_content_item_value");
 
                 // The constraint keys on the jsonb text, as the lookup by value does: key order and spacing are
-                // normalized away, a number's written precision is not.
+                // normalized away.
                 insertItem(statement, "20000000-0000-0000-0000-000000000008", "{\"data\": {\"a\": 1, \"b\": 2}}", null);
                 assertThatThrownBy(() -> insertItem(statement, "20000000-0000-0000-0000-000000000009",
                         "{\"data\": {\"b\": 2,  \"a\": 1}}", null))
                         .isInstanceOf(SQLException.class)
                         .satisfies(e -> assertThat(((SQLException) e).getSQLState()).isEqualTo("23505"));
-                insertItem(statement, "20000000-0000-0000-0000-000000000012", "{\"data\": 1.0}", null);
-                insertItem(statement, "20000000-0000-0000-0000-000000000013", "{\"data\": 1.00}", null);
 
                 // The lookup's digest has to be the one this column holds, for text that needs escaping too.
                 String escaped = "{\"data\": \"C:\\\\pki \\\"root\\\" é 中\"}";

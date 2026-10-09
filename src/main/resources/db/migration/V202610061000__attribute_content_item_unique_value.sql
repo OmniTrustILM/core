@@ -11,10 +11,11 @@
 -- sha256() through decode(..., 'escape'), each backslash doubled because that format reads it as an escape. Adding the
 -- stored column rewrites the table.
 
+-- Duplicates are matched on the text the digest is taken from: jsonb equality would fold 1.0 and 1.00 together.
 CREATE TEMP TABLE "attribute_content_item_merge" ON COMMIT DROP AS
 SELECT "uuid" AS "duplicate_uuid", "keep_uuid"
   FROM (SELECT "uuid",
-               first_value("uuid") OVER (PARTITION BY "attribute_definition_uuid", "json" ORDER BY "uuid")
+               first_value("uuid") OVER (PARTITION BY "attribute_definition_uuid", "json"::TEXT ORDER BY "uuid")
                    AS "keep_uuid"
           FROM "attribute_content_item"
          WHERE "encrypted_data" IS NULL) AS "ranked"
