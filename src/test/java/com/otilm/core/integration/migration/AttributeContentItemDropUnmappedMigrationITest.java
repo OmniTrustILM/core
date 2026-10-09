@@ -74,9 +74,7 @@ class AttributeContentItemDropUnmappedMigrationITest extends BaseSpringBootTest 
                                 + "', 'CERTIFICATE', gen_random_uuid()), (gen_random_uuid(), '" + MAPPED_PLAIN
                                 + "', 'CERTIFICATE', gen_random_uuid())");
 
-                statement
-                        .execute(new String(new ClassPathResource(MIGRATION_RESOURCE).getInputStream().readAllBytes(),
-                                StandardCharsets.UTF_8));
+                statement.execute(new ClassPathResource(MIGRATION_RESOURCE).getContentAsString(StandardCharsets.UTF_8));
 
                 List<String> remaining = new ArrayList<>();
                 try (ResultSet rows = statement

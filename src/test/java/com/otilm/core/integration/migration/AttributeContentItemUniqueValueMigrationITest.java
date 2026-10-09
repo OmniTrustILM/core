@@ -83,9 +83,7 @@ class AttributeContentItemUniqueValueMigrationITest extends BaseSpringBootTest {
                 insertMapping(statement, ENCRYPTED_ONE, CERTIFICATE_ONE);
                 insertMapping(statement, ENCRYPTED_TWO, CERTIFICATE_TWO);
 
-                statement
-                        .execute(new String(new ClassPathResource(MIGRATION_RESOURCE).getInputStream().readAllBytes(),
-                                StandardCharsets.UTF_8));
+                statement.execute(new ClassPathResource(MIGRATION_RESOURCE).getContentAsString(StandardCharsets.UTF_8));
 
                 assertThat(count(statement,
                         "SELECT count(*) FROM attribute_content_item WHERE uuid = '" + DUPLICATE + "'")).isZero();

@@ -58,9 +58,7 @@ class DiscoveryProtectedMetadataMigrationITest extends BaseSpringBootTest {
                     }
                 }
 
-                statement
-                        .execute(new String(new ClassPathResource(MIGRATION_RESOURCE).getInputStream().readAllBytes(),
-                                StandardCharsets.UTF_8));
+                statement.execute(new ClassPathResource(MIGRATION_RESOURCE).getContentAsString(StandardCharsets.UTF_8));
 
                 for (String table : new String[]{"discovery_certificate", "discovery_item"}) {
                     assertThat(names(statement, table, FINISHED)).isEqualTo("host");
