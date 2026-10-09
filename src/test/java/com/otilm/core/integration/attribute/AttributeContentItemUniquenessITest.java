@@ -48,6 +48,7 @@ import java.sql.Statement;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -210,6 +211,56 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
         Assertions
                 .assertEquals(List.of("profile-b", "profile-a"), storedValues(certificateUuid, "profiles"),
                         "the object keeps the values in the order it was given them");
+    }
+
+    /**
+     * The database stores an object value once whatever order its keys arrive in, so the order new values are stored in
+     * cannot follow the keys' arrival order either: here it would put b first for one writer and second for the other.
+     */
+    @Test
+    void writersOfAnObjectValueWithItsKeysInAnotherOrderDoNotDeadlock() throws Exception {
+        CustomAttributeV3 attribute = customAttribute("layouts", AttributeContentType.OBJECT, ProtectionLevel.NONE);
+        attribute.getProperties().setList(true);
+        attribute.getProperties().setMultiSelect(true);
+        attribute.getProperties().setExtensibleList(true);
+        UUID definitionUuid = attributeEngine
+                .updateCustomAttributeDefinition(attribute, List.of(Resource.CERTIFICATE))
+                .getUuid();
+        UUID certificateUuid = newCertificate();
+        ObjectAttributeContentV3 a = new ObjectAttributeContentV3(orderedMap("a", 1, "z", 0));
+        ObjectAttributeContentV3 aKeysReversed = new ObjectAttributeContentV3(orderedMap("z", 0, "a", 1));
+        ObjectAttributeContentV3 b = new ObjectAttributeContentV3(orderedMap("a", 2, "z", 0));
+        assertThat(AttributeContentJson.render(b)).isLessThan(AttributeContentJson.render(aKeysReversed));
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+
+        ExecutorService executor = new DelegatingSecurityContextExecutorService(Executors.newSingleThreadExecutor());
+        try (Connection competitor = dataSource.getConnection()) {
+            competitor.setAutoCommit(false);
+            insertValue(competitor, definitionUuid, a);
+
+            Future<?> writer = executor.submit(() -> transaction.executeWithoutResult(status -> {
+                try {
+                    attributeEngine
+                            .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificateUuid, definitionUuid,
+                                    null, List.of(b, aKeysReversed));
+                } catch (NotFoundException | AttributeException e) {
+                    throw new IllegalStateException(e);
+                }
+            }));
+            await()
+                    .atMost(Duration.ofSeconds(30))
+                    .pollInterval(Duration.ofMillis(50))
+                    .until(() -> writer.isDone() || aWriterWaitsOnALock());
+            insertValue(competitor, definitionUuid, b);
+            competitor.commit();
+
+            writer.get(30, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        Assertions.assertEquals(2, attributeContentItemRepository.count());
+        Assertions.assertEquals(List.of("{a=2, z=0}", "{a=1, z=0}"), storedValues(certificateUuid, "layouts"));
     }
 
     @Test
@@ -606,6 +657,14 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
         } catch (NotFoundException | AttributeException e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    static LinkedHashMap<String, Object> orderedMap(String firstKey, Object firstValue, String secondKey,
+            Object secondValue) {
+        LinkedHashMap<String, Object> map = new LinkedHashMap<>();
+        map.put(firstKey, firstValue);
+        map.put(secondKey, secondValue);
+        return map;
     }
 
     void writeObject(UUID certificateUuid, UUID definitionUuid, Serializable data) {

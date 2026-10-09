@@ -2712,7 +2712,7 @@ public class AttributeEngine {
                                     attributeDefinition.getVersion());
                 }
             } else {
-                contentItemEntity = plaintextRows.get(AttributeContentJson.render(attributeContentItem));
+                contentItemEntity = plaintextRows.get(AttributeContentJson.canonical(attributeContentItem));
             }
 
             // an existing row may already be mapped to this object; only an encrypted value reaches the insert below
@@ -2770,20 +2770,20 @@ public class AttributeEngine {
         }
         attributeContentItems
                 .stream()
-                .sorted(Comparator.comparing(AttributeContentJson::render))
+                .sorted(Comparator.comparing(AttributeContentJson::canonical))
                 .forEach(content -> attributeContentItemWriter.insertIfAbsent(attributeDefinition.getUuid(), content));
     }
 
     /**
-     * The definition's row for each plaintext value, keyed by the value's rendering. A plaintext value has one row per
-     * definition, shared by every object holding it. Values the definition does not hold yet are stored in the order
-     * {@link #registerAttributeContentItems} uses, so two writes storing the same new values wait on each other in that
-     * order instead of each holding one value the other needs.
+     * The definition's row for each plaintext value, keyed by the value's {@link AttributeContentJson#canonical
+     * canonical} rendering. A plaintext value has one row per definition, shared by every object holding it. Values the
+     * definition does not hold yet are stored in the order {@link #registerAttributeContentItems} uses, so two writes
+     * storing the same new values wait on each other in that order instead of each holding one value the other needs.
      */
     private Map<String, AttributeContentItem> findOrCreateContentItems(UUID definitionUuid,
             List<? extends AttributeContent> contents) {
         Map<String, AttributeContent> byRendering = new TreeMap<>();
-        contents.forEach(content -> byRendering.putIfAbsent(AttributeContentJson.render(content), content));
+        contents.forEach(content -> byRendering.putIfAbsent(AttributeContentJson.canonical(content), content));
         Map<String, AttributeContentItem> rows = new HashMap<>();
         byRendering
                 .forEach((rendering, content) -> rows.put(rendering, findOrCreateContentItem(definitionUuid, content)));
