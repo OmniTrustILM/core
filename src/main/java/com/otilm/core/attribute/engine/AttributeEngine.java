@@ -1349,7 +1349,15 @@ public class AttributeEngine {
             return;
         }
 
-        for (MetadataAttribute metadataAttribute : attributes) {
+        // In the order discovery registers them in, so two writes storing the same new values of several attributes
+        // wait
+        // on each other in one order instead of each holding a value the other needs.
+        List<MetadataAttribute> ordered = attributes
+                .stream()
+                .sorted(Comparator
+                        .comparing(MetadataAttribute::getUuid, Comparator.nullsLast(Comparator.naturalOrder())))
+                .toList();
+        for (MetadataAttribute metadataAttribute : ordered) {
             if (metadataAttribute.getType() != AttributeType.META) {
                 continue;
             }
@@ -1698,12 +1706,16 @@ public class AttributeEngine {
         }
 
         deleteOperationObjectAttributesContent(AttributeType.DATA, info);
+        List<ContentWrite> writes = new ArrayList<>();
         for (RequestAttribute requestAttribute : requestAttributes) {
             AttributeDefinition attributeDefinition = attributeDefinitionRepository
                     .findByTypeAndConnectorUuidAndAttributeUuidAndName(AttributeType.DATA, info.connectorUuid(),
                             requestAttribute.getUuid(), requestAttribute.getName())
                     .orElseThrow(() -> new NotFoundException(AttributeDefinition.class, requestAttribute.getName()));
-            createObjectAttributeContent(attributeDefinition, info, requestAttribute.getContent());
+            writes.add(new ContentWrite(attributeDefinition, requestAttribute.getContent()));
+        }
+        for (var write : inDefinitionOrder(writes)) {
+            createObjectAttributeContent(write.definition(), info, write.content());
         }
 
         return getObjectDataAttributesContent(info);
@@ -1757,12 +1769,16 @@ public class AttributeEngine {
                         deleted, info.objectType().getLabel(), info.objectUuid(), info.objectVersion(),
                         info.operation(), info.purpose());
 
+        List<ContentWrite> writes = new ArrayList<>();
         for (RequestAttribute requestAttribute : requestAttributes) {
             AttributeDefinition attributeDefinition = attributeDefinitionRepository
                     .findByTypeAndConnectorUuidAndAttributeUuidAndName(AttributeType.DATA, info.connectorUuid(),
                             requestAttribute.getUuid(), requestAttribute.getName())
                     .orElseThrow(() -> new NotFoundException(AttributeDefinition.class, requestAttribute.getName()));
-            createObjectAttributeContent(attributeDefinition, info, requestAttribute.getContent());
+            writes.add(new ContentWrite(attributeDefinition, requestAttribute.getContent()));
+        }
+        for (var write : inDefinitionOrder(writes)) {
+            createObjectAttributeContent(write.definition(), info, write.content());
         }
 
         return getObjectDataAttributesContent(info);
@@ -1792,6 +1808,7 @@ public class AttributeEngine {
                 && securityResourceFilter.getForbiddenObjects().isEmpty())) {
             // custom attributes content is automatically replaced
             deleteObjectAttributeContentByType(AttributeType.CUSTOM, objectType, objectUuid);
+            List<ContentWrite> writes = new ArrayList<>();
             for (RequestAttribute requestAttribute : requestAttributes) {
                 AttributeDefinition attributeDefinition = attributeDefinitionRepository
                         .findByTypeAndName(AttributeType.CUSTOM, requestAttribute.getName())
@@ -1805,27 +1822,44 @@ public class AttributeEngine {
                                 .map(ac -> AttributeVersionHelper
                                         .convertAttributeContentToV3(ac, requestAttribute.getContentType()))
                                 .toList();
-                createObjectAttributeContent(attributeDefinition,
-                        ObjectAttributeContentInfo.builder(objectType, objectUuid).build(), attributeContent);
+                writes.add(new ContentWrite(attributeDefinition, attributeContent));
+            }
+            for (var write : inDefinitionOrder(writes)) {
+                createObjectAttributeContent(write.definition(),
+                        ObjectAttributeContentInfo.builder(objectType, objectUuid).build(), write.content());
             }
         } else {
             // delete only content of allowed attributes
             deleteObjectAllowedCustomAttributeContent(securityResourceFilter, objectType, objectUuid);
 
+            List<ContentWrite> writes = new ArrayList<>();
             for (RequestAttribute requestAttribute : requestAttributes) {
                 AttributeDefinition attributeDefinition = attributeDefinitionRepository
                         .findByTypeAndName(AttributeType.CUSTOM, requestAttribute.getName())
                         .orElseThrow(
                                 () -> new NotFoundException(AttributeDefinition.class, requestAttribute.getName()));
                 checkCustomAttributeUpdatePermissions(securityResourceFilter, attributeDefinition);
-
-                createObjectAttributeContent(attributeDefinition,
-                        ObjectAttributeContentInfo.builder(objectType, objectUuid).build(),
-                        requestAttribute.getContent());
+                writes.add(new ContentWrite(attributeDefinition, requestAttribute.getContent()));
+            }
+            for (var write : inDefinitionOrder(writes)) {
+                createObjectAttributeContent(write.definition(),
+                        ObjectAttributeContentInfo.builder(objectType, objectUuid).build(), write.content());
             }
         }
 
         return getObjectCustomAttributesContent(objectType, objectUuid, securityResourceFilter);
+    }
+
+    /** One attribute's content in a write of several, which may be null for an attribute the request leaves unset. */
+    private record ContentWrite(AttributeDefinition definition, List<? extends AttributeContent> content) {
+    }
+
+    /**
+     * The writes ordered by definition, so two writes storing the same new values of several attributes wait on each
+     * other in one order instead of each holding a value the other needs.
+     */
+    private static List<ContentWrite> inDefinitionOrder(List<ContentWrite> writes) {
+        return writes.stream().sorted(Comparator.comparing(write -> write.definition().getUuid())).toList();
     }
 
     private static void checkCustomAttributeUpdatePermissions(SecurityResourceFilter securityResourceFilter,

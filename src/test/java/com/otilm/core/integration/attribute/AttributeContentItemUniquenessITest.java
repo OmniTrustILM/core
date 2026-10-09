@@ -2,6 +2,8 @@ package com.otilm.core.integration.attribute;
 
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.attribute.ResponseAttributeV3;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.common.attribute.common.AttributeContent;
@@ -208,6 +210,53 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
         Assertions
                 .assertEquals(List.of("profile-b", "profile-a"), storedValues(certificateUuid, "profiles"),
                         "the object keeps the values in the order it was given them");
+    }
+
+    @Test
+    void writersOfNewValuesOfTwoAttributesInOppositeOrderDoNotDeadlock() throws Exception {
+        Map<UUID, String> names = Map
+                .of(createAttribute("region", AttributeContentType.STRING, ProtectionLevel.NONE), "region",
+                        createAttribute("tier", AttributeContentType.STRING, ProtectionLevel.NONE), "tier");
+        UUID sortsFirst = names.keySet().stream().sorted().toList().getFirst();
+        UUID sortsSecond = names.keySet().stream().sorted().toList().getLast();
+        StringAttributeContentV3 value = new StringAttributeContentV3(SHARED_VALUE);
+        UUID certificateUuid = newCertificate();
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+
+        ExecutorService executor = new DelegatingSecurityContextExecutorService(Executors.newSingleThreadExecutor());
+        try (Connection competitor = dataSource.getConnection()) {
+            competitor.setAutoCommit(false);
+            insertValue(competitor, sortsFirst, value);
+
+            Future<?> writer = executor.submit(() -> transaction.executeWithoutResult(status -> {
+                try {
+                    attributeEngine
+                            .updateObjectCustomAttributesContent(Resource.CERTIFICATE, certificateUuid,
+                                    List
+                                            .of(new RequestAttributeV3(sortsSecond, names.get(sortsSecond),
+                                                    AttributeContentType.STRING, List.of(value)),
+                                                    new RequestAttributeV3(sortsFirst, names.get(sortsFirst),
+                                                            AttributeContentType.STRING, List.of(value))),
+                                    null);
+                } catch (ValidationException | NotFoundException | AttributeException e) {
+                    throw new IllegalStateException(e);
+                }
+            }));
+            await()
+                    .atMost(Duration.ofSeconds(30))
+                    .pollInterval(Duration.ofMillis(50))
+                    .until(() -> writer.isDone() || aWriterWaitsOnALock());
+            insertValue(competitor, sortsSecond, value);
+            competitor.commit();
+
+            writer.get(30, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        Assertions.assertEquals(2, attributeContentItemRepository.count());
+        Assertions.assertEquals(List.of(SHARED_VALUE), storedValues(certificateUuid, "region"));
+        Assertions.assertEquals(List.of(SHARED_VALUE), storedValues(certificateUuid, "tier"));
     }
 
     @Test
