@@ -2757,11 +2757,13 @@ public class AttributeEngine {
     }
 
     /**
-     * Stores the plaintext values a page of discovered metadata carries, committed by the caller before the page's rows
-     * are imported in parallel: the imports then find these rows instead of inserting them, and never wait on one
-     * another's transactions over a shared new value. An encrypted definition's values are left to the import, which
-     * stores them encrypted, one row per object. Sorted, so two registrations sharing values lock them in the same
-     * order.
+     * Stores the plaintext values a page of discovered metadata carries.
+     *
+     * <p>
+     * The caller must commit them before importing the page's rows in parallel. The imports then find these rows
+     * instead of inserting them, so they never wait on each other over a shared new value. An encrypted definition's
+     * values are left to the import, which stores them encrypted, one row per object. Values are stored in canonical
+     * order, so two registrations sharing values lock them in the same order.
      */
     public void registerAttributeContentItems(AttributeDefinition attributeDefinition,
             Collection<AttributeContent> attributeContentItems) {
