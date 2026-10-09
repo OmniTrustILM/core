@@ -1,18 +1,15 @@
--- Store each plaintext attribute value once per definition. The lookup by value expects one row, and two
--- writers storing the same new value at once used to insert it twice, after which every write of that value failed.
--- Turning a definition's encryption off did the same, one row per object that held the value.
+-- Store each plaintext attribute value once per definition. Concurrent first writes, and turning a definition's
+-- encryption off, could store a value twice, and every later write of it then failed. Fold existing duplicates, then
+-- let a unique constraint keep it that way.
 --
--- Fold what is already duplicated, then let a unique constraint keep it that way. json_digest is the SHA-256 of the
--- value's jsonb text, which the lookup by value computes too: key order and spacing are normalized away, a number's
--- written precision is not, so 1.0 and 1.00 are two values. It is NULL for an encrypted row, whose json is the same
--- placeholder whatever the value and whose value lies in salted ciphertext no digest can match: encrypted rows stay one
--- row per object, outside the rule, since NULLs never collide in a unique constraint.
+-- json_digest is the SHA-256 of the value's jsonb text, as the lookup by value computes it: key order and spacing
+-- normalize away, a number's written precision does not, so 1.0 and 1.00 are two values. It is NULL for an encrypted
+-- row, whose json is a placeholder shared by every value, so encrypted rows stay one per object, outside the rule.
 --
--- A digest rather than the jsonb itself, because a btree entry cannot hold a value over ~2.7 kB. SHA-256 rather than
--- jsonb_hash_extended, which folds a container's start into its hash without rotating it: [{},{}] and [[],[]] hash
--- alike, and the second could never be stored. md5() is refused on a FIPS-mode server, and convert_to() is not
--- immutable, so the text reaches sha256() through decode(..., 'escape'), with each backslash doubled because that
--- format reads it as an escape. Adding the stored column rewrites the table.
+-- A digest because a btree entry cannot hold a value over ~2.7 kB; SHA-256 because jsonb_hash_extended gives [{},{}]
+-- and [[],[]] one hash and md5() fails on a FIPS-mode server. convert_to() is not immutable, so the text reaches
+-- sha256() through decode(..., 'escape'), each backslash doubled because that format reads it as an escape. Adding the
+-- stored column rewrites the table.
 
 CREATE TEMP TABLE "attribute_content_item_merge" ON COMMIT DROP AS
 SELECT "uuid" AS "duplicate_uuid", "keep_uuid"

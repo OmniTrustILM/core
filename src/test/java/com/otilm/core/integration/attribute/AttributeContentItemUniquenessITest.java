@@ -120,8 +120,7 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
                         connector.getUuid(), "discovery-connector");
 
         Assertions.assertEquals(2, attributeDefinitionRepository.count());
-        // Committed before the parallel import, which then finds them instead of inserting and waiting on another
-        // import's transaction. An encrypted value is left to the import, which stores it encrypted per object.
+        // The encrypted value is left to the import, which stores it per object.
         Assertions.assertEquals(2, attributeContentItemRepository.count());
     }
 
@@ -167,9 +166,8 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
     }
 
     /**
-     * Two writes storing the same new values in opposite order must not deadlock. The competitor holds the value that
-     * sorts first and then stores the other one; a write that took its values in list order would already hold that
-     * other one while waiting on the first, and the two would wait on each other.
+     * The competitor holds the value that sorts first, then stores the other; a write taking its values in list order
+     * would already hold that other one while waiting on the first.
      */
     @Test
     void writersOfTheSameNewValuesInOppositeOrderDoNotDeadlock() throws Exception {
@@ -346,8 +344,7 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
     @Test
     void aValueTooLargeForAPlainIndexIsStoredOnce() throws Exception {
         UUID definitionUuid = createAttribute("note", AttributeContentType.TEXT, ProtectionLevel.NONE);
-        // Random letters: an index entry is compressed first, and repeated characters would fit a plain index after
-        // all.
+        // Random letters: an index entry is compressed first, so repeated characters would fit a plain index.
         String value = new Random(1899)
                 .ints(10_000, 'a', 'z' + 1)
                 .collect(StringBuilder::new, StringBuilder::appendCodePoint, StringBuilder::append)

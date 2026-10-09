@@ -783,10 +783,8 @@ public class AttributeEngine {
             if (newProtectionLevel != ProtectionLevel.ENCRYPTED
                     && attributeDefinition.getProtectionLevel() == ProtectionLevel.ENCRYPTED) {
                 // if changing from ENCRYPTED to NONE, we need to decrypt existing content. Encrypted values are stored
-                // once per object, so objects sharing a value decrypt to the same content; a plaintext value has one
-                // row per definition, so such rows fold onto it. Rows are read as values and written with statements,
-                // never held in the session, which would walk every one of them again on each statement. Each value
-                // is looked up through the unique key, which only plaintext rows carry.
+                // once per object, so rows decrypting alike fold onto the value's one plaintext row. Rows are read as
+                // values and written with statements: held in the session, each statement would walk them all again.
                 Set<UUID> survivors = new HashSet<>();
                 for (AttributeContentItemRepository.StoredValue encrypted : attributeContentItemRepository
                         .findByAttributeDefinitionUuidAndEncryptedDataIsNotNullOrderByUuid(
@@ -1349,9 +1347,7 @@ public class AttributeEngine {
             return;
         }
 
-        // In the order discovery registers them in, so two writes storing the same new values of several attributes
-        // wait
-        // on each other in one order instead of each holding a value the other needs.
+        // Attribute UUID order, as discovery registers them, so concurrent writes lock shared new values alike.
         List<MetadataAttribute> ordered = attributes
                 .stream()
                 .sorted(Comparator
@@ -1854,10 +1850,7 @@ public class AttributeEngine {
     private record ContentWrite(AttributeDefinition definition, List<? extends AttributeContent> content) {
     }
 
-    /**
-     * The writes ordered by definition, so two writes storing the same new values of several attributes wait on each
-     * other in one order instead of each holding a value the other needs.
-     */
+    /** Orders the writes by definition, so concurrent writes lock shared new values in one order. */
     private static List<ContentWrite> inDefinitionOrder(List<ContentWrite> writes) {
         return writes.stream().sorted(Comparator.comparing(write -> write.definition().getUuid())).toList();
     }
@@ -1923,7 +1916,6 @@ public class AttributeEngine {
             validateAttributeContent(attributeDefinition, contentV3s);
         }
 
-        // custom attributes content is automatically replaced
         deleteObjectAttributeDefinitionContent(attributeDefinition.getUuid(), objectType, objectUuid);
         if (contentV3s != null) {
             createObjectAttributeContent(attributeDefinition,
