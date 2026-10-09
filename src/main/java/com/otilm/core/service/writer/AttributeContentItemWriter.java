@@ -27,11 +27,9 @@ public class AttributeContentItemWriter {
             ON CONFLICT (attribute_definition_uuid, json_digest) DO NOTHING
             """;
 
-    private static final String FIND_PLAINTEXT = """
-            SELECT * FROM {h-schema}attribute_content_item
-             WHERE attribute_definition_uuid = :definitionUuid
-               AND json_digest = sha256(decode(replace(CAST(:json AS jsonb)::text, chr(92), chr(92) || chr(92)), 'escape'))
-            """;
+    private static final String FIND_PLAINTEXT = "SELECT * FROM {h-schema}attribute_content_item"
+            + " WHERE attribute_definition_uuid = :definitionUuid AND json_digest = "
+            + AttributeContentItem.DIGEST_OF_JSON_PARAMETER;
 
     private final AttributeContentItemRepository contentItemRepository;
     private final AttributeContent2ObjectRepository contentMappingRepository;

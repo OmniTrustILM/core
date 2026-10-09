@@ -39,12 +39,9 @@ public interface AttributeContentItemRepository extends JpaRepository<AttributeC
      *
      * @param json the value rendered as the entity mapping renders the {@code json} column
      */
-    @Query(value = """
-            SELECT uuid FROM {h-schema}attribute_content_item
-             WHERE attribute_definition_uuid = :definitionUuid
-               AND json_digest = sha256(decode(replace(CAST(:json AS jsonb)::text, chr(92), chr(92) || chr(92)), 'escape'))
-            """,
-            nativeQuery = true)
+    @Query(value = "SELECT uuid FROM {h-schema}attribute_content_item"
+            + " WHERE attribute_definition_uuid = :definitionUuid AND json_digest = "
+            + AttributeContentItem.DIGEST_OF_JSON_PARAMETER, nativeQuery = true)
     UUID findPlaintextUuid(@Param("definitionUuid") UUID definitionUuid, @Param("json") String json);
 
     /** Replaces an encrypted row's placeholder with its plaintext value. */

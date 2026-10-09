@@ -30,6 +30,12 @@ import org.hibernate.type.SqlTypes;
         columnNames = {"attribute_definition_uuid", "json_digest"}))
 public class AttributeContentItem extends UniquelyIdentified {
 
+    /**
+     * The {@code json_digest} of a value bound as {@code :json}, for a lookup through
+     * {@code uq_attribute_content_item_value}. It must compute what V202610061000's generated column holds.
+     */
+    public static final String DIGEST_OF_JSON_PARAMETER = "sha256(decode(replace(CAST(:json AS jsonb)::text, chr(92), chr(92) || chr(92)), 'escape'))";
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "attribute_definition_uuid", nullable = false, insertable = false, updatable = false)
     @ToString.Exclude

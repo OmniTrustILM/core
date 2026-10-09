@@ -1,8 +1,10 @@
 package com.otilm.core.integration.migration;
 
+import com.otilm.core.dao.entity.AttributeContentItem;
 import com.otilm.core.util.BaseSpringBootTest;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -134,6 +136,19 @@ class AttributeContentItemUniqueValueMigrationITest extends BaseSpringBootTest {
                         .satisfies(e -> assertThat(((SQLException) e).getSQLState()).isEqualTo("23505"));
                 insertItem(statement, "20000000-0000-0000-0000-000000000012", "{\"data\": 1.0}", null);
                 insertItem(statement, "20000000-0000-0000-0000-000000000013", "{\"data\": 1.00}", null);
+
+                // The lookup's digest has to be the one this column holds, for text that needs escaping too.
+                String escaped = "{\"data\": \"C:\\\\pki \\\"root\\\" é 中\"}";
+                insertItem(statement, "20000000-0000-0000-0000-000000000014", escaped, null);
+                try (PreparedStatement lookup = connection
+                        .prepareStatement("SELECT count(*) FROM attribute_content_item WHERE json_digest = "
+                                + AttributeContentItem.DIGEST_OF_JSON_PARAMETER.replace(":json", "?"))) {
+                    lookup.setString(1, escaped);
+                    try (ResultSet rows = lookup.executeQuery()) {
+                        rows.next();
+                        assertThat(rows.getLong(1)).isEqualTo(1);
+                    }
+                }
             } finally {
                 try (Statement statement = connection.createStatement()) {
                     // The connection goes back to a pool shared with the rest of the suite: the session's search_path
