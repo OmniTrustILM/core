@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.NestedExceptionUtils;
 
 /**
  * How discovery holds a connector's metadata between staging and import. Attributes the connector declares
@@ -72,7 +73,10 @@ public final class StagedMetadata {
                     .deserialize(SecretsUtil.decodeAndDecryptSecretString(protectedMeta, SecretEncodingVersion.V1),
                             MetadataAttribute.class);
         } catch (IllegalArgumentException | IllegalStateException e) {
-            logger.warn("Protected discovery metadata could not be read and is left out: {}", e.getMessage());
+            // Named by type only: a parser's message quotes what it rejected, which here is the decrypted value.
+            logger
+                    .warn("Protected discovery metadata could not be read and is left out ({})",
+                            NestedExceptionUtils.getMostSpecificCause(e).getClass().getSimpleName());
             return meta;
         }
         List<MetadataAttribute> all = new ArrayList<>(meta == null ? List.of() : meta);

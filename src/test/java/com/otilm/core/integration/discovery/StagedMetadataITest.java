@@ -1,5 +1,8 @@
 package com.otilm.core.integration.discovery;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.client.metadata.MetadataResponseDto;
 import com.otilm.api.model.client.metadata.ResponseMetadata;
@@ -35,6 +38,8 @@ import com.otilm.core.service.handler.discovery.StagedMetadata;
 import com.otilm.core.service.writer.discovery.DiscoveryItemWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.util.SecretEncodingVersion;
+import com.otilm.core.util.SecretsUtil;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
@@ -54,6 +59,7 @@ import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -156,6 +162,31 @@ class StagedMetadataITest extends BaseSpringBootTest {
         List<MetadataAttribute> visible = List.of(attribute("host", "web-1", ProtectionLevel.NONE));
 
         assertThat(names(StagedMetadata.unseal(visible, "not-a-sealed-value"))).containsExactly("host");
+    }
+
+    /**
+     * A value that decrypts but does not parse is still protected, and the parser's message quotes what it rejected.
+     */
+    @Test
+    void aProtectedValueThatDoesNotParseStaysOutOfTheLog() {
+        String plaintext = "protectedvaluenotjson";
+        String sealed = SecretsUtil.encryptAndEncodeSecretString(plaintext, SecretEncodingVersion.V1);
+        List<MetadataAttribute> visible = List.of(attribute("host", "web-1", ProtectionLevel.NONE));
+        ListAppender<ILoggingEvent> logged = new ListAppender<>();
+        logged.start();
+        Logger logger = (Logger) LoggerFactory.getLogger(StagedMetadata.class);
+        logger.addAppender(logged);
+        try {
+            assertThat(names(StagedMetadata.unseal(visible, sealed))).containsExactly("host");
+        } finally {
+            logger.detachAppender(logged);
+        }
+
+        assertThat(logged.list)
+                .isNotEmpty()
+                .noneMatch(
+                        event -> event.getFormattedMessage().contains(plaintext) || (event.getThrowableProxy() != null
+                                && String.valueOf(event.getThrowableProxy().getMessage()).contains(plaintext)));
     }
 
     @Test
