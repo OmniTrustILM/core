@@ -1864,6 +1864,34 @@ public class AttributeEngine {
         return writes.stream().sorted(Comparator.comparing(write -> write.definition().getUuid())).toList();
     }
 
+    /**
+     * Runs the per-attribute update permission check without writing anything, so a caller that submits an attribute it
+     * may not edit can be refused before it reaches a side effect. The write applies the same check, but only after it
+     * has already cleared the content it is allowed to replace.
+     */
+    public void validateCustomAttributesUpdatePermissions(List<RequestAttribute> requestAttributes)
+            throws NotFoundException, AttributeException {
+        SecurityResourceFilter securityResourceFilter = loadCustomAttributesSecurityResourceFilter();
+        if (requestAttributes == null || securityResourceFilter == null
+                || (!securityResourceFilter.areOnlySpecificObjectsAllowed()
+                        && securityResourceFilter.getForbiddenObjects().isEmpty())) {
+            return;
+        }
+        for (RequestAttribute requestAttribute : requestAttributes) {
+            AttributeDefinition attributeDefinition = attributeDefinitionRepository
+                    .findByTypeAndName(AttributeType.CUSTOM, requestAttribute.getName())
+                    .orElseThrow(() -> new NotFoundException(AttributeDefinition.class, requestAttribute.getName()));
+            // Content validation filters on the submitted uuid while the write resolves by name, so an attribute
+            // carrying one definition's uuid under another's name slips past validation and is written anyway.
+            if (!attributeDefinition.getUuid().equals(requestAttribute.getUuid())) {
+                throw new AttributeException(String
+                        .format("Custom attribute `%s` does not match the submitted attribute UUID",
+                                requestAttribute.getName()));
+            }
+            checkCustomAttributeUpdatePermissions(securityResourceFilter, attributeDefinition);
+        }
+    }
+
     private static void checkCustomAttributeUpdatePermissions(SecurityResourceFilter securityResourceFilter,
             AttributeDefinition attributeDefinition) throws AttributeException {
         if ((securityResourceFilter.areOnlySpecificObjectsAllowed())) {
