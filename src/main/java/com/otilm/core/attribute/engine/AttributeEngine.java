@@ -96,6 +96,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
@@ -437,7 +438,8 @@ public class AttributeEngine {
 
     /**
      * METADATA strict read for NG resolution. The META connector read is UUID-keyed via the Optional finder
-     * {@code findByTypeAndConnectorUuidAndAttributeUuidAndName} (unique by construction — no 500 exposure).
+     * {@code findByTypeAndConnectorUuidAndAttributeUuidAndName}, which {@code uq_attribute_definition_key} keeps
+     * unique.
      */
     public BaseAttribute getMetadataAttributeDefinitionStrict(UUID connectorUuid, UUID attributeUuid, String name) {
         AttributeDefinition definition = attributeDefinitionRepository
@@ -1085,18 +1087,12 @@ public class AttributeEngine {
 
     private void updateGroupAttributeDefinition(UUID connectorUuid, BaseAttribute attribute) throws AttributeException {
         validateAttributeDefinition(attribute, connectorUuid);
-        AttributeDefinition attributeDefinition = attributeDefinitionRepository
+        Supplier<Optional<AttributeDefinition>> lookup = () -> attributeDefinitionRepository
                 .findByTypeAndConnectorUuidAndAttributeUuidAndName(AttributeType.GROUP, connectorUuid,
-                        UUID.fromString(attribute.getUuid()), attribute.getName())
-                .orElse(null);
+                        UUID.fromString(attribute.getUuid()), attribute.getName());
+        AttributeDefinition attributeDefinition = lookup.get().orElse(null);
         if (attributeDefinition == null) {
-            attributeDefinition = new AttributeDefinition();
-            attributeDefinition.setConnectorUuid(connectorUuid);
-            attributeDefinition.setAttributeUuid(UUID.fromString(attribute.getUuid()));
-            attributeDefinition.setName(attribute.getName());
-            attributeDefinition.setType(AttributeType.GROUP);
-            attributeDefinition.setVersion(attribute.getVersion());
-            attributeDefinition.setLabel(attribute.getName());
+            attributeDefinition = registerNew(newGroupDefinition(connectorUuid, attribute), lookup);
         }
         attributeDefinition.setDefinition(attribute);
         attributeDefinitionRepository.save(attributeDefinition);
@@ -1119,41 +1115,33 @@ public class AttributeEngine {
 
         // find by connector uuid and name only because attribute uuid could be generated when data attribute was
         // migrated from RequestAttribute
-        AttributeDefinition attributeDefinition = attributeDefinitionRepository
+        Supplier<Optional<AttributeDefinition>> lookup = () -> attributeDefinitionRepository
                 .findByTypeAndConnectorUuidAndAttributeUuidAndName(AttributeType.DATA, connectorUuid,
-                        UUID.fromString(dataAttribute.getUuid()), dataAttribute.getName())
-                .orElse(null);
-        if (attributeDefinition != null) {
-            // update definition when it was migrated from RequestAttribute
-            if (attributeDefinition.getLabel().isEmpty() && attributeDefinition
-                    .getDefinition()
-                    .getDescription()
-                    .equals(ATTRIBUTE_DEFINITION_FORCE_UPDATE_LABEL)) {
-                attributeDefinition.setContentType(dataAttribute.getContentType());
-                attributeDefinition.setAttributeUuid(UUID.fromString(dataAttribute.getUuid()));
-            }
-            // check for change of content type
-            else if (attributeDefinition.getContentType() != dataAttribute.getContentType()) {
-                throw new AttributeException(String
-                        .format("Connector attribute content type changed to %s while stored attribute definition have content type %s",
-                                dataAttribute.getContentType().getLabel(),
-                                attributeDefinition.getContentType().getLabel()),
-                        dataAttribute.getUuid(), dataAttribute.getName(), dataAttribute.getType(),
-                        connectorUuid.toString());
-            }
-            claimUnknownOperation(attributeDefinition, operation);
-        } else {
+                        UUID.fromString(dataAttribute.getUuid()), dataAttribute.getName());
+        AttributeDefinition attributeDefinition = lookup.get().orElse(null);
+        if (attributeDefinition == null) {
             logger
                     .debug("Registering new data attribute with UUID {} and name {} for connector {}",
                             dataAttribute.getUuid(), dataAttribute.getName(), connectorUuid);
-            attributeDefinition = new AttributeDefinition();
-            attributeDefinition.setConnectorUuid(connectorUuid);
-            attributeDefinition.setAttributeUuid(UUID.fromString(dataAttribute.getUuid()));
-            attributeDefinition.setName(dataAttribute.getName());
-            attributeDefinition.setType(AttributeType.DATA);
-            attributeDefinition.setContentType(dataAttribute.getContentType());
-            attributeDefinition.setOperation(operation);
+            attributeDefinition = registerNew(newDataDefinition(connectorUuid, operation, dataAttribute), lookup);
         }
+        // update definition when it was migrated from RequestAttribute
+        if (attributeDefinition.getLabel().isEmpty() && attributeDefinition
+                .getDefinition()
+                .getDescription()
+                .equals(ATTRIBUTE_DEFINITION_FORCE_UPDATE_LABEL)) {
+            attributeDefinition.setContentType(dataAttribute.getContentType());
+            attributeDefinition.setAttributeUuid(UUID.fromString(dataAttribute.getUuid()));
+        }
+        // check for change of content type
+        else if (attributeDefinition.getContentType() != dataAttribute.getContentType()) {
+            throw new AttributeException(String
+                    .format("Connector attribute content type changed to %s while stored attribute definition have content type %s",
+                            dataAttribute.getContentType().getLabel(), attributeDefinition.getContentType().getLabel()),
+                    dataAttribute.getUuid(), dataAttribute.getName(), dataAttribute.getType(),
+                    connectorUuid.toString());
+        }
+        claimUnknownOperation(attributeDefinition, operation);
 
         attributeDefinition.setVersion(dataAttribute.getVersion());
         attributeDefinition.setLabel(dataAttribute.getProperties().getLabel());
@@ -1176,6 +1164,84 @@ public class AttributeEngine {
             attributeDefinition.setDefinition(dataAttribute);
         }
         attributeDefinitionRepository.save(attributeDefinition);
+    }
+
+    /**
+     * Stores a definition nobody had registered, or reuses the one a concurrent registration stored first, and returns
+     * it managed: the caller goes on as for any definition already registered.
+     */
+    private AttributeDefinition registerNew(AttributeDefinition candidate,
+            Supplier<Optional<AttributeDefinition>> lookup) {
+        attributeDefinitionWriter.insertIfAbsent(candidate);
+        return lookup
+                .get()
+                .orElseThrow(() -> new IllegalStateException(
+                        "Attribute definition %s of type %s was neither stored nor found"
+                                .formatted(candidate.getName(), candidate.getType())));
+    }
+
+    private Optional<AttributeDefinition> findMetadataDefinition(MetadataAttribute metadataAttribute,
+            UUID connectorUuid) {
+        if (metadataAttribute.getProperties().isGlobal()) {
+            Optional<AttributeDefinition> global = attributeDefinitionRepository
+                    .findByTypeAndNameAndGlobal(AttributeType.META, metadataAttribute.getName(), true);
+            if (global.isPresent()) {
+                return global;
+            }
+        }
+        return attributeDefinitionRepository
+                .findByTypeAndConnectorUuidAndAttributeUuidAndName(AttributeType.META, connectorUuid,
+                        UUID.fromString(metadataAttribute.getUuid()), metadataAttribute.getName());
+    }
+
+    private static AttributeDefinition newMetadataDefinition(MetadataAttribute metadataAttribute, UUID connectorUuid,
+            String label, ProtectionLevel protectionLevel, MetadataAttribute definitionCopy) {
+        AttributeDefinition definition = new AttributeDefinition();
+        definition.setConnectorUuid(connectorUuid);
+        definition.setAttributeUuid(UUID.fromString(metadataAttribute.getUuid()));
+        definition.setName(metadataAttribute.getName());
+        definition.setType(AttributeType.META);
+        definition.setContentType(metadataAttribute.getContentType());
+        definition.setVersion(metadataAttribute.getVersion());
+        definition.setGlobal(metadataAttribute.getProperties().isGlobal());
+        definition.setLabel(label);
+        definition.setProtectionLevel(protectionLevel);
+        definition.setDefinition(definitionCopy);
+        return definition;
+    }
+
+    /**
+     * The first row of a data definition carries it without content: the registration that follows encrypts default
+     * content into the caller's attribute and writes the full definition, as it does for every registration.
+     */
+    private static AttributeDefinition newDataDefinition(UUID connectorUuid, String operation,
+            DataAttribute dataAttribute) {
+        AttributeDefinition definition = new AttributeDefinition();
+        definition.setConnectorUuid(connectorUuid);
+        definition.setAttributeUuid(UUID.fromString(dataAttribute.getUuid()));
+        definition.setName(dataAttribute.getName());
+        definition.setType(AttributeType.DATA);
+        definition.setContentType(dataAttribute.getContentType());
+        definition.setOperation(operation);
+        definition.setVersion(dataAttribute.getVersion());
+        definition.setLabel(dataAttribute.getProperties().getLabel());
+        definition.setRequired(dataAttribute.getProperties().isRequired());
+        definition.setReadOnly(dataAttribute.getProperties().isReadOnly());
+        definition.setProtectionLevel(dataAttribute.getProperties().getProtectionLevel());
+        definition.setDefinition(copyWithoutContent(dataAttribute));
+        return definition;
+    }
+
+    private static AttributeDefinition newGroupDefinition(UUID connectorUuid, BaseAttribute attribute) {
+        AttributeDefinition definition = new AttributeDefinition();
+        definition.setConnectorUuid(connectorUuid);
+        definition.setAttributeUuid(UUID.fromString(attribute.getUuid()));
+        definition.setName(attribute.getName());
+        definition.setType(AttributeType.GROUP);
+        definition.setVersion(attribute.getVersion());
+        definition.setLabel(attribute.getName());
+        definition.setDefinition(attribute);
+        return definition;
     }
 
     /**
@@ -1218,18 +1284,6 @@ public class AttributeEngine {
         }
         validateAttributeDefinition(metadataAttribute, connectorUuid);
 
-        AttributeDefinition attributeDefinition = null;
-        if (isGlobal) {
-            attributeDefinition = attributeDefinitionRepository
-                    .findByTypeAndNameAndGlobal(AttributeType.META, metadataAttribute.getName(), true)
-                    .orElse(null);
-        }
-        if (attributeDefinition == null) {
-            attributeDefinition = attributeDefinitionRepository
-                    .findByTypeAndConnectorUuidAndAttributeUuidAndName(AttributeType.META, connectorUuid,
-                            UUID.fromString(metadataAttribute.getUuid()), metadataAttribute.getName())
-                    .orElse(null);
-        }
         String label = metadataAttribute.getProperties().getLabel();
         ProtectionLevel protectionLevel = metadataAttribute.getProperties().getProtectionLevel();
         if (protectionLevel == null) {
@@ -1244,38 +1298,34 @@ public class AttributeEngine {
         definitionCopy.setContent(List.of());
         applyNormalizedProtectionLevel(definitionCopy, protectionLevel);
 
-        if (attributeDefinition != null) {
-            // check for change of content type
-            if (attributeDefinition.getContentType() != metadataAttribute.getContentType()) {
-                throw new AttributeException(String
-                        .format("Metadata attribute content type changed to %s while stored attribute definition have content type %s",
-                                metadataAttribute.getContentType().getLabel(),
-                                attributeDefinition.getContentType().getLabel()),
-                        metadataAttribute.getUuid(), metadataAttribute.getName(), metadataAttribute.getType(),
-                        connectorUuid == null ? null : connectorUuid.toString());
-            }
-            // The same metadata definition gets (re-)sent for every repeated operation but rarely changes.
-            // Skip the write when nothing changed. The entity's protection level is compared explicitly:
-            // rows written before the level was persisted have it unset even though the serialized
-            // definition already declares it, and those must fall through to be reconciled below.
-            if (Objects.equals(attributeDefinition.getLabel(), label)
-                    && attributeDefinition.getProtectionLevel() == protectionLevel
-                    && sameSerializedDefinition(attributeDefinition.getDefinition(), definitionCopy)) {
-                return attributeDefinition;
-            }
-        } else {
+        Supplier<Optional<AttributeDefinition>> lookup = () -> findMetadataDefinition(metadataAttribute, connectorUuid);
+        AttributeDefinition attributeDefinition = lookup.get().orElse(null);
+        if (attributeDefinition == null) {
             logger
                     .debug("Registering new {} metadata attribute with UUID {} and name {} for connector {}",
                             isGlobal ? "global" : "connector", metadataAttribute.getUuid(), metadataAttribute.getName(),
                             connectorUuid);
-            attributeDefinition = new AttributeDefinition();
-            attributeDefinition.setConnectorUuid(connectorUuid);
-            attributeDefinition.setAttributeUuid(UUID.fromString(metadataAttribute.getUuid()));
-            attributeDefinition.setName(metadataAttribute.getName());
-            attributeDefinition.setType(AttributeType.META);
-            attributeDefinition.setContentType(metadataAttribute.getContentType());
-            attributeDefinition.setVersion(metadataAttribute.getVersion());
-            attributeDefinition.setGlobal(isGlobal);
+            attributeDefinition = registerNew(
+                    newMetadataDefinition(metadataAttribute, connectorUuid, label, protectionLevel, definitionCopy),
+                    lookup);
+        }
+        // check for change of content type
+        if (attributeDefinition.getContentType() != metadataAttribute.getContentType()) {
+            throw new AttributeException(String
+                    .format("Metadata attribute content type changed to %s while stored attribute definition have content type %s",
+                            metadataAttribute.getContentType().getLabel(),
+                            attributeDefinition.getContentType().getLabel()),
+                    metadataAttribute.getUuid(), metadataAttribute.getName(), metadataAttribute.getType(),
+                    connectorUuid == null ? null : connectorUuid.toString());
+        }
+        // The same metadata definition gets (re-)sent for every repeated operation but rarely changes.
+        // Skip the write when nothing changed. The entity's protection level is compared explicitly:
+        // rows written before the level was persisted have it unset even though the serialized
+        // definition already declares it, and those must fall through to be reconciled below.
+        if (Objects.equals(attributeDefinition.getLabel(), label)
+                && attributeDefinition.getProtectionLevel() == protectionLevel
+                && sameSerializedDefinition(attributeDefinition.getDefinition(), definitionCopy)) {
+            return attributeDefinition;
         }
         // Re-protect stored content when the declared level diverges from the persisted one. This also
         // heals definitions whose content was stored in plaintext before the metadata protection level
