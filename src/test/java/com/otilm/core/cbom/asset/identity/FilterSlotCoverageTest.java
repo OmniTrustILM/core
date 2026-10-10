@@ -98,10 +98,12 @@ class FilterSlotCoverageTest {
             }
         }
 
-        assertThat(extracted).isEqualTo(53);
+        assertThat(extracted)
+                .describedAs("55 components, of which 3 route to no asset type and are skipped")
+                .isEqualTo(50);
         assertThat(blind)
                 .containsExactlyInAnyOrderEntriesOf(Map
-                        .of(UNROUTABLE, 3, CbomNames.ASSET_TYPE_CERTIFICATE, 27, CbomNames.ASSET_TYPE_PROTOCOL, 6,
+                        .of(CbomNames.ASSET_TYPE_CERTIFICATE, 27, CbomNames.ASSET_TYPE_PROTOCOL, 6,
                                 CbomNames.ASSET_TYPE_RELATED_CRYPTO_MATERIAL, 7));
     }
 

@@ -54,13 +54,13 @@ class CryptoAssetReferenceIngestITest extends BaseSpringBootTest {
              "cryptoProperties":{"assetType":"algorithm","algorithmProperties":{"primitive":"signature"}}}""";
 
     private static final String AES = """
-            {"type":"cryptographic-asset","bom-ref":"alg-aes","name":"AES-128-GCM",
+            {"type":"cryptographic-asset","bom-ref":"alg-aes","name":"AES-256-GCM",
              "cryptoProperties":{"assetType":"algorithm","algorithmProperties":{"primitive":"ae"}}}""";
 
     private static final String PROTOCOL = """
             {"type":"cryptographic-asset","bom-ref":"tls","name":"TLSv1.3",
              "cryptoProperties":{"assetType":"protocol","protocolProperties":{"type":"tls","version":"1.3",
-              "cipherSuites":[{"name":"TLS_AES_128_GCM_SHA256","identifiers":["0x13","0x01"],
+              "cipherSuites":[{"name":"TLS_AES_256_GCM_SHA384","identifiers":["0x13","0x02"],
                                "algorithms":["alg-aes","not-in-this-document"]}]}}}""";
 
     @Autowired
@@ -118,8 +118,8 @@ class CryptoAssetReferenceIngestITest extends BaseSpringBootTest {
         assertThat(referencesOf(CryptographicAssetType.PROTOCOL))
                 .extracting(CryptoAssetReference::getOrdinal, CryptoAssetReference::getRef,
                         CryptoAssetReference::getSuite, CryptoAssetReference::getTargetAssetUuid)
-                .containsExactly(tuple(0, "alg-aes", "0x1301", named("aes-128-gcm")),
-                        tuple(1, "not-in-this-document", "0x1301", null));
+                .containsExactly(tuple(0, "alg-aes", "0x1302", named("aes-256-gcm")),
+                        tuple(1, "not-in-this-document", "0x1302", null));
     }
 
     /**
@@ -297,7 +297,7 @@ class CryptoAssetReferenceIngestITest extends BaseSpringBootTest {
 
         jdbcTemplate
                 .update("UPDATE " + dbSchema + ".crypto_asset SET primitive = 'kem' WHERE uuid = ?",
-                        named("aes-128-gcm"));
+                        named("aes-256-gcm"));
 
         assertThat(workList()).contains(protocol);
     }

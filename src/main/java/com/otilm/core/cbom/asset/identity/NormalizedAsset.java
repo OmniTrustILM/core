@@ -28,6 +28,7 @@ public final class NormalizedAsset {
     private String family;
     private String primitive;
     private Integer parameterSet;
+    private boolean parameterSetFromPayload;
     private String curve;
     private String mode;
     private String padding;
@@ -41,6 +42,7 @@ public final class NormalizedAsset {
     private final List<String> asciiCaseRisk = new ArrayList<>();
     private final List<String> keyedCaseValues = new ArrayList<>();
     private final List<String> notes = new ArrayList<>();
+    private final List<String> findings = new ArrayList<>();
 
     NormalizedAsset(String assetType, String name) {
         this.assetType = assetType;
@@ -147,6 +149,11 @@ public final class NormalizedAsset {
         return List.copyOf(notes);
     }
 
+    /** What the derivation has to tell the producer: a recorded property the registry contradicts. */
+    public List<String> findings() {
+        return List.copyOf(findings);
+    }
+
     void setAssetType(String assetType) {
         this.assetType = assetType;
     }
@@ -173,6 +180,15 @@ public final class NormalizedAsset {
 
     void setParameterSet(Integer parameterSet) {
         this.parameterSet = parameterSet;
+    }
+
+    /** Whether the parameter set was declared or arc-supplied rather than read out of the name. Derivation state. */
+    boolean parameterSetFromPayload() {
+        return parameterSetFromPayload;
+    }
+
+    void setParameterSetFromPayload(boolean fromPayload) {
+        this.parameterSetFromPayload = fromPayload;
     }
 
     void setCurve(String curve) {
@@ -231,5 +247,9 @@ public final class NormalizedAsset {
 
     void note(String note) {
         notes.add(note);
+    }
+
+    void finding(String finding) {
+        findings.add(finding);
     }
 }

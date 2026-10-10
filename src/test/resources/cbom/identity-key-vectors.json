@@ -2926,7 +2926,7 @@
   },
   {
    "id": "gen-096-alg-family",
-   "why": "corpus shape alg:family/110001/esc/fam=name/var=multi|sized/ps/notes=1, first seen at corpora/wild/Cosmian~kms~cbom~cbom.cdx.json#29",
+   "why": "corpus shape alg:family/110001/esc/fam=name/var=multi|sized/ps/notes=1, first seen at corpora/wild/Cosmian~kms~cbom~cbom.cdx.json#29; the declared parameterSetIdentifier is not an ML-KEM parameter set and the size the name spells is recorded instead",
    "component": {
     "type": "cryptographic-asset",
     "bom-ref": "algo-hybrid-kem-r25519-mlkem512",
@@ -2965,13 +2965,13 @@
    },
    "expected": {
     "chainStep": "alg:family",
-    "preImage": "ALG|ML-KEM|256||||rhybridkem%7C25519,512",
-    "identityKey": "feded01c2d0b1d04c38f9c1ece80743f04d9f9e71f0bdf19ebbe6eb12044a292"
+    "preImage": "ALG|ML-KEM|512||||rhybridkem%7C25519",
+    "identityKey": "68370e77ac424517537955357945998fcdabcfdbb4e1500e479e1abdf7fa09da"
    }
   },
   {
    "id": "gen-094-alg-family",
-   "why": "corpus shape alg:family/110001/esc/fam=name/var=sized/ps, first seen at corpora/wild/Cosmian~kms~cbom~cbom.cdx.json#25",
+   "why": "corpus shape alg:family/110001/esc/fam=name/var=sized/ps, first seen at corpora/wild/Cosmian~kms~cbom~cbom.cdx.json#25; the declared parameterSetIdentifier is not an ML-KEM parameter set and the size the name spells is recorded instead",
    "component": {
     "type": "cryptographic-asset",
     "bom-ref": "algo-ml-kem-512",
@@ -3013,13 +3013,13 @@
    },
    "expected": {
     "chainStep": "alg:family",
-    "preImage": "ALG|ML-KEM|800||||%7C512",
-    "identityKey": "d660a9bc216abcdac6d2c3a33f7bdfcebc081b30e595ed81666a0773ac317e36"
+    "preImage": "ALG|ML-KEM|512||||",
+    "identityKey": "5d010aa62387cb405518e761a3d27a3920b55de5fffbf8870a8d5d20d72a1083"
    }
   },
   {
    "id": "gen-095-alg-family",
-   "why": "corpus shape alg:family/110001/esc/fam=name/var=sized/ps/notes=1, first seen at corpora/wild/Cosmian~kms~cbom~cbom.cdx.json#27",
+   "why": "corpus shape alg:family/110001/esc/fam=name/var=sized/ps/notes=1, first seen at corpora/wild/Cosmian~kms~cbom~cbom.cdx.json#27; the declared parameterSetIdentifier is not an ML-KEM parameter set and the size the name spells is recorded instead",
    "component": {
     "type": "cryptographic-asset",
     "bom-ref": "algo-hybrid-kem-p256-mlkem512",
@@ -3060,8 +3060,8 @@
    },
    "expected": {
     "chainStep": "alg:family",
-    "preImage": "ALG|ML-KEM|256||||phybridkem%7C512",
-    "identityKey": "ed81a6b0518830f93ac9510730806e15ce0e096767a112e72867bfc2720f928f"
+    "preImage": "ALG|ML-KEM|512||||phybridkem%7C256,p256",
+    "identityKey": "020db1d036ca18777cd9f61a4ef75c52edf6b8dd6a469bb04670ccdfbfa76ae2"
    }
   },
   {

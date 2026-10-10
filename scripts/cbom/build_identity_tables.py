@@ -736,6 +736,11 @@ PRIMITIVE_DEFAULTS = {
     "PERK": "signature", "RYDE": "signature", "MIRATH": "signature", "LESS": "signature",
 }
 
+# The size whitelist: below 64 a bit count cannot be told from a byte count, above 16384 a number is a
+# cost or a round count. It also bounds which registry alternations count as size lists.
+SIZE_MIN = 64
+SIZE_MAX = 16384
+
 # Both tables below were knowledge in the reference kernel rather than data until 2026-08-20:
 # a third implementation could derive neither Ed448 = 456 nor Curve448 = 448 from any published
 # artifact, and no artifact carried the attribute-name-to-OID map at all.
@@ -1125,14 +1130,177 @@ def unloadable_patterns(labelled: list[tuple[str, str]]) -> list[str]:
     return problems
 
 
-def emitted_patterns() -> list[tuple[str, str]]:
+def emitted_patterns(tables: dict) -> list[tuple[str, str]]:
     labelled = [(f"nameGrammar[{i}] {rule['family']}", rule["pattern"]) for i, rule in enumerate(NAME_GRAMMAR)]
     labelled += [(f"cipherSuiteNamePatterns[{i}]", p) for i, p in enumerate(CIPHER_SUITE_NAME_PATTERNS)]
     labelled += [(f"secondaryMarkers[{label}]", p) for label, p in SECONDARY_MARKERS]
+    labelled += [(f"sizeVariants[{family}]", entry["pattern"]) for family, entries in tables["sizeVariants"].items()
+                 for entry in entries]
+    labelled += [(f"variantPrimitives[{entry['family']}]", entry["pattern"]) for entry in tables["variantPrimitives"]]
     return labelled
 
 
 OID_ARC = re.compile(r"[0-9]+(\.[0-9]+)+")
+
+# A literal size enumeration inside a registry variant pattern: `AES[-(128|192|256)]`, `ML-KEM-(512|768|1024)`.
+SIZE_ALTERNATION = re.compile(r"\((\d+(?:\|\d+)+)\)")
+
+
+REGEX_SPECIALS = set(".^$*+?{}[]\\|()")
+
+
+def _matching_paren(pattern: str, start: int) -> int:
+    depth = 0
+    for index in range(start, len(pattern)):
+        if pattern[index] == "(":
+            depth += 1
+        elif pattern[index] == ")":
+            depth -= 1
+            if depth == 0:
+                return index
+    raise SystemExit(f"unbalanced parentheses in registry pattern {pattern!r}")
+
+
+def registry_pattern_regex(pattern: str, stop_at_size_group: bool) -> str | None:
+    """A registry variant pattern as a java.util.regex, or None when it cannot be rendered.
+
+    The registry's own syntax is small: ``[...]`` is optional, ``(a|b)`` an alternation, ``{name}`` a
+    template the registry does not enumerate. A templated pattern is not rendered -- its template would
+    have to be guessed. With ``stop_at_size_group`` the regex ends right after the first all-numeric
+    alternation, captured as ``(\\d+)`` and left optional when the registry wrote it optional, so
+    ``AES[-(128|192|256)]...`` renders as ``AES(?:-(\\d+))?``: it finds the size the name spells for the
+    family, or that the name spells none, without rendering the mode and padding tails."""
+    out: list[str] = []
+    optional_depth = 0
+    index = 0
+    while index < len(pattern):
+        character = pattern[index]
+        if character == "{":
+            return None
+        if character == "[":
+            out.append("(?:")
+            optional_depth += 1
+        elif character == "]":
+            out.append(")?")
+            optional_depth -= 1
+        elif character == "(":
+            end = _matching_paren(pattern, index)
+            inner = pattern[index + 1:end]
+            if "(" not in inner and all(part.isdigit() for part in inner.split("|")):
+                # Producers glue or re-separate a size (`SHAKE-128`, `shake_128`, `AES/128`), as the grammar's own
+                # size reading allows, so any separator or none precedes a size group whether or not the registry
+                # wrote one; a hyphen the registry did write is already rendered optional below.
+                if out and out[-1] == "-?":
+                    out.pop()
+                out.append("[-_/]?")
+                if stop_at_size_group:
+                    out.append(r"(\d+)")
+                    out.extend(")?" for _ in range(optional_depth))
+                    return "".join(out)
+                out.append("(?:" + inner + ")")
+                index = end + 1
+                continue
+            out.append("(?:")
+        elif character == "-":
+            # `MLKEM512` and `ML-KEM-512` are one spelling to the grammar (`ML-?KEM`), so to these patterns too.
+            out.append("-?")
+        elif character in ")|":
+            out.append(character)
+        elif character in REGEX_SPECIALS:
+            out.append("\\" + character)
+        else:
+            out.append(character)
+        index += 1
+    return None if stop_at_size_group else "".join(out)
+
+
+def size_variants(registry: dict, size_min: int, size_max: int) -> dict[str, list[dict]]:
+    """Per family, the registry variants that spell a size and the sizes each admits.
+
+    Keyed on the rendered regex rather than the variant, because AES writes its size group into ten
+    patterns that all render ``AES(?:-(\\d+))?``; one entry carries their union. The same whitelist rule as
+    ``admissible_parameter_sets`` decides which alternations are size lists, so the two tables agree."""
+    variants: dict[str, dict[str, set[int]]] = {}
+    for algorithm in registry["algorithms"]:
+        for variant in algorithm.get("variant", []):
+            pattern = variant["pattern"]
+            for group in SIZE_ALTERNATION.findall(pattern):
+                values = [int(value) for value in group.split("|")]
+                if not all(size_min <= value <= size_max for value in values):
+                    break
+                regex = registry_pattern_regex(pattern, stop_at_size_group=True)
+                if regex is not None:
+                    variants.setdefault(algorithm["family"], {}).setdefault(regex, set()).update(values)
+                break
+    return {family: [{"pattern": regex, "sizes": sorted(sizes)} for regex, sizes in sorted(entries.items())]
+            for family, entries in sorted(variants.items())}
+
+
+def _required_spelling(pattern: str) -> str:
+    """The pattern with every optional part dropped, innermost first, so nested brackets go too."""
+    while True:
+        stripped = re.sub(r"\[[^\[\]]*\]", "", pattern)
+        if stripped == pattern:
+            return stripped
+        pattern = stripped
+
+
+def variant_primitives(registry: dict, legal: set[str]) -> list[dict]:
+    """The registry variants whose primitive differs from their family's default, as name patterns.
+
+    ``SHAKE(128|256)`` is an XOF where SHA-3 defaults to a hash, ``ChaCha20-Poly1305`` an AEAD where
+    ChaCha20 defaults to a stream cipher: the family default alone mis-reads them, and the primitive is
+    a rule input. Only template-free patterns render; a templated one (every AES AEAD variant) is left to
+    the family default and the normalizer's own folds. A primitive 1.6 cannot express is skipped, since
+    the stored primitive is held to that vocabulary."""
+    rendered: list[dict] = []
+    for algorithm in registry["algorithms"]:
+        family = algorithm["family"]
+        default = PRIMITIVE_DEFAULTS.get(family)
+        if family not in legal:
+            continue
+        # What the variant requires once its optional parts are dropped. `AES[-(128|192|256)][-(GMAC|CMAC)]` requires
+        # only `AES`, so it would claim a bare AES-256 as a MAC; `TUAK[-MAC]` and `TUAK[-KDF]` both require `TUAK`.
+        # A variant whose required spelling is also a differently-primitived variant's, or the default's, says nothing
+        # the name can be read by, and is left to the family default.
+        primitives_by_required: dict[str, set[str]] = {}
+        for variant in algorithm.get("variant", []):
+            primitives_by_required.setdefault(_required_spelling(variant["pattern"]), set()).add(
+                variant.get("primitive") or "")
+        for variant in algorithm.get("variant", []):
+            primitive = variant.get("primitive")
+            required = _required_spelling(variant["pattern"])
+            if primitive is None or primitive == default or primitive not in PRIMITIVES_1_6:
+                continue
+            if len(primitives_by_required[required]) > 1 or any(
+                    required == _required_spelling(other["pattern"]) and other.get("primitive") == default
+                    for other in algorithm.get("variant", [])):
+                continue
+            regex = registry_pattern_regex(variant["pattern"], stop_at_size_group=False)
+            if regex is not None:
+                rendered.append({"family": family, "pattern": regex, "primitive": primitive})
+    return sorted(rendered, key=lambda entry: (entry["family"], entry["pattern"]))
+
+
+def admissible_parameter_sets(registry: dict, size_min: int, size_max: int) -> dict[str, list[int]]:
+    """The parameter sets the registry fixes literally, per family.
+
+    The registry is a name grammar, not a size list, so this reads only what it states outright: an
+    alternation of plain integers inside a variant pattern. A templated size (``{keyLength}``,
+    ``{dkmLength}``) and a size-less pattern contribute nothing, so RSA, the KDFs and RC6 stay
+    unconstrained. An alternation with a member outside the size whitelist is not a size list either --
+    ``Ed(25519|448)`` names curves, ``CFB(1|8|64|128)`` a feedback width, ``ML-DSA-(44|65|87)`` levels
+    below the floor -- and is skipped whole rather than trimmed, because a trimmed set would refuse the
+    very sizes the family uses. What remains is the enumeration that lets a verdict refuse ``AES-64`` and
+    ``ML-KEM-1000`` while leaving ``RC6-64`` a legal, weak instantiation."""
+    sets: dict[str, set[int]] = {}
+    for algorithm in registry["algorithms"]:
+        for variant in algorithm.get("variant", []):
+            for group in SIZE_ALTERNATION.findall(variant["pattern"]):
+                values = [int(value) for value in group.split("|")]
+                if all(size_min <= value <= size_max for value in values):
+                    sets.setdefault(algorithm["family"], set()).update(values)
+    return {family: sorted(values) for family, values in sorted(sets.items())}
 
 
 def strand_offenders(oid_strand: dict, canonical: dict[str, str], aliases: dict[str, str]) -> list[str]:
@@ -1227,6 +1395,9 @@ TABLE_SHAPES = {
     "primitiveDefaults": {"*": "str"},
     "primitivesExpressibleIn16": ["str"],
     "nameIntrinsicSizes": {"*": "int"},
+    "admissibleParameterSets": {"*": ["int"]},
+    "sizeVariants": {"*": [{"pattern": "str", "sizes": ["int"]}]},
+    "variantPrimitives": [{"family": "str", "pattern": "str", "primitive": "str"}],
     "dnShortNames": {"*": "str"},
 }
 
@@ -1343,11 +1514,14 @@ def main() -> None:
         "variantVocabulary": VARIANT_VOCABULARY,
         "variantSynonyms": VARIANT_SYNONYMS,
         "truncatableFamilies": TRUNCATABLE_FAMILIES,
-        "sizeWhitelist": {"min": 64, "max": 16384},
+        "sizeWhitelist": {"min": SIZE_MIN, "max": SIZE_MAX},
         "sentinels": SENTINELS,
         "primitiveDefaults": PRIMITIVE_DEFAULTS,
         "primitivesExpressibleIn16": PRIMITIVES_1_6,
         "nameIntrinsicSizes": NAME_INTRINSIC_SIZES,
+        "admissibleParameterSets": admissible_parameter_sets(registry, SIZE_MIN, SIZE_MAX),
+        "sizeVariants": size_variants(registry, SIZE_MIN, SIZE_MAX),
+        "variantPrimitives": variant_primitives(registry, legal),
         "dnShortNames": DN_SHORT_NAMES,
     }
 
@@ -1359,6 +1533,9 @@ def main() -> None:
     print(f"  oid entries / blocked : {len(tables['oidToFamily'])} / {len(tables['oidBlockedPrefixes'])}")
     print(f"  grammar rules         : {len(NAME_GRAMMAR)}")
     print(f"  primitive defaults    : {len(PRIMITIVE_DEFAULTS)}")
+    print(f"  admissible param sets : {len(tables['admissibleParameterSets'])} families")
+    print(f"  size variants         : {sum(len(v) for v in tables['sizeVariants'].values())} patterns")
+    print(f"  variant primitives    : {len(tables['variantPrimitives'])} patterns")
     # Closed-vocabulary tokens must be printable ASCII. Measured: all 129 families, 197
     # curves, 8 modes, 8 padding tokens and 41 stoplist tokens already are, so this
     # asserts an existing property rather than imposing a new one — and it means the
@@ -1400,7 +1577,7 @@ def main() -> None:
         "oidToFamily-enrichment": strand_offenders(oid_strand, canonical, aliases),
         "primitiveValues": bad_primitives,
         "reachable-without-default": missing_defaults,
-        "patterns": unloadable_patterns(emitted_patterns()),
+        "patterns": unloadable_patterns(emitted_patterns(tables)),
         "patterns-screen-self-check": screen_self_check(),
         "curveAliases-fold": alias_fold_collisions(aliases, canonical),
         "value-shape": non_string_table_values(tables),

@@ -308,7 +308,8 @@ class ReferencedSlotProjectionTest {
             "session,     shared-secret, 256, X25519-Kyber768,   READY,     MATERIAL-SYMMETRIC-READY",
             "session,     shared-secret, 256, X25519-ML-KEM-768, READY,     MATERIAL-SYMMETRIC-READY",
             "k,           secret-key,    256, HMAC-SHA256,       READY,     MATERIAL-SYMMETRIC-READY",
-            "AES-64,      secret-key,    256, AES-256-GCM,       NOT_READY, SYMMETRIC-UNDERSIZED",
+            "AES-128,     secret-key,    256, AES-256-GCM,       NOT_READY, SYMMETRIC-UNDERSIZED",
+            "AES-64,      secret-key,    256, AES-256-GCM,       UNKNOWN,   PARAMETER-SET-UNREGISTERED",
             "HMAC-RIPEMD, secret-key,    256, AES-256-GCM,       UNKNOWN,   FAMILY-AMBIGUOUS-COMPONENT",
             "HMAC-RIPEMD, secret-key,    256, HMAC-SHA256,       UNKNOWN,   FAMILY-AMBIGUOUS-COMPONENT",
             "session,     secret-key,     64, AES-256-GCM,       NOT_READY, MATERIAL-SYMMETRIC-WEAK"})

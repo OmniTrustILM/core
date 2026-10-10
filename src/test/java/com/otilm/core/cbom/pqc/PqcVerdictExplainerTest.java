@@ -61,6 +61,17 @@ class PqcVerdictExplainerTest {
         assertThatThrownBy(() -> explainer.explain(ASSET)).isInstanceOf(QueryTimeoutException.class);
     }
 
+    /** No rule serves the tier any more, so a row that predates its removal is answered like one that is gone. */
+    @Test
+    void aRowOnTheUnroutableTierHasNoExplanation() {
+        when(repository.verdictRowsByUuids(List.of(ASSET)))
+                .thenReturn(List
+                        .of(new PqcStaleVerdictRow(ASSET, CryptographicAssetType.UNROUTABLE, "unclassified", null, null,
+                                null, null, null, null, null, null, null, 1L)));
+
+        assertThat(explainer.explain(ASSET)).isEmpty();
+    }
+
     @Test
     void aRowThatIsGoneHasNoExplanation() {
         when(repository.verdictRowsByUuids(List.of(ASSET))).thenReturn(List.of());

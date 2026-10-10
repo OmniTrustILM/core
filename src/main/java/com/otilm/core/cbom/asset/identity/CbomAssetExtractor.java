@@ -299,6 +299,10 @@ public final class CbomAssetExtractor {
                 // identity[_-<space>]?key, so the type name followed by such a variable reads as the fenced token
                 // across the space between them -- a rule about text, applied to text, with no idea what a type is.
                 CryptoAssetIdentity.Identity extracted = identity.of(component, scope, refuted);
+                if (extracted.asset().assetType() == null) {
+                    skips.add(new Skip(encodable(nameOf(component)), unroutableReason(component)));
+                    continue;
+                }
                 List<JsonNode> occurrences = occurrencesOf(component);
                 ExtractedAsset asset = new ExtractedAsset(extracted.key(), extracted.step(), extracted.asset(),
                         nameOf(component), extracted.redaction().storedPayload(),
@@ -513,16 +517,22 @@ public final class CbomAssetExtractor {
      *
      * <p>
      * Either declaration is enough. A component <em>typed</em> {@code cryptographic-asset} with no
-     * {@code cryptoProperties} at all is not skipped -- it keys on the unroutable backstop tier with its name, and
-     * there is one in the validation corpus. And a component carrying {@code cryptoProperties} while typed something
-     * else is still a cryptographic asset by the only evidence that matters, since the type field is producer text like
-     * any other.
+     * {@code cryptoProperties} at all is one, and is reported as a skip rather than inventoried: there is no algorithm
+     * to assess and no type to serve, and a stored row would only ever read "unroutable". And a component carrying
+     * {@code cryptoProperties} while typed something else is still a cryptographic asset by the only evidence that
+     * matters, since the type field is producer text like any other.
      */
     private static boolean isCryptographicAsset(JsonNode component) {
         JsonNode type = component.get("type");
         boolean declaredType = type != null && type.isTextual() && "cryptographic-asset".equals(type.textValue());
         JsonNode properties = component.get("cryptoProperties");
         return declaredType || (properties != null && properties.isObject());
+    }
+
+    /** Why a component routed to no asset type is skipped: the member and the failure, never the value. */
+    private static String unroutableReason(JsonNode component) {
+        String finding = CryptoAssetIdentity.unroutedTypeFinding(component);
+        return finding != null ? finding : "cryptoProperties is absent, so the component declares no asset type";
     }
 
     private static List<String> bomRefOf(JsonNode component) {

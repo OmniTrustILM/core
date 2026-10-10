@@ -52,6 +52,12 @@ scratchpad. It was reconstructed from the ratified `oidToFamily` and
 repo-local, reviewable inputs. Treat it as a ratified local decision strand until
 an independently sourced OID registry extraction replaces it.
 
+`admissibleParameterSets` is read out of the registry's variant patterns: the sizes a
+family enumerates literally (`AES[-(128|192|256)]`, `ML-KEM-(512|768|1024)`), and nothing
+for a family whose pattern templates the size or carries none. The PQC rules refuse a
+recorded parameter set outside its family's enumeration, so the set is generated, never
+hand-typed.
+
 The remaining grammar, sentinel, pseudo-family, primitive-default, DN short-name,
 and intrinsic-size decisions live in `scripts/cbom/build_identity_tables.py`.
 They are local policy decisions or corpus-ratified repairs, not complete upstream

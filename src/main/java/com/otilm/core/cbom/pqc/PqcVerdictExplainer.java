@@ -3,6 +3,7 @@ package com.otilm.core.cbom.pqc;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.otilm.api.model.core.cryptoasset.CryptographicAssetType;
 import com.otilm.api.model.core.cryptoasset.PqcExplanationStepOutcome;
 import com.otilm.api.model.core.cryptoasset.PqcVerdict;
 import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
@@ -44,13 +45,21 @@ public class PqcVerdictExplainer {
     public record Result(PqcExplanation explanation, Map<String, Object> inputs, String referenceBasis) {
     }
 
-    /** @return empty when the row is gone */
+    /**
+     * @return empty when the row is gone, or when it is a leftover of the unroutable tier, which no rule serves and the
+     * migration that retired it deletes
+     */
     public Optional<Result> explain(UUID assetUuid) {
         List<PqcStaleVerdictRow> rows = assetRepository.verdictRowsByUuids(List.of(assetUuid));
         if (rows.isEmpty()) {
             return Optional.empty();
         }
         PqcStaleVerdictRow row = rows.get(0);
+        if (row.assetType() == CryptographicAssetType.UNROUTABLE) {
+            // No rule serves the tier and ingest stores it no more; a row that predates the migration is as good as
+            // gone.
+            return Optional.empty();
+        }
         // Outside the fallback: a database failure is an error to report, not an asset the rules cannot evaluate.
         Map<UUID, List<PqcReferences.Reference>> loaded = referenceReader.load(rows);
         try {
