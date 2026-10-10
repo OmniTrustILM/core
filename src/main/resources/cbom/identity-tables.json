@@ -4202,6 +4202,402 @@
     "x448": 448,
     "curve448": 448
   },
+  "admissibleParameterSets": {
+    "AES": [
+      128,
+      192,
+      256
+    ],
+    "ARIA": [
+      128,
+      192,
+      256
+    ],
+    "BLAKE2": [
+      160,
+      256,
+      384,
+      512
+    ],
+    "CAMELLIA": [
+      128,
+      192,
+      256
+    ],
+    "ML-KEM": [
+      512,
+      768,
+      1024
+    ],
+    "RIPEMD": [
+      128,
+      160,
+      256,
+      320
+    ],
+    "SHA-3": [
+      128,
+      224,
+      256,
+      384,
+      512
+    ],
+    "Serpent": [
+      128,
+      192,
+      256
+    ],
+    "Twofish": [
+      128,
+      192,
+      256
+    ]
+  },
+  "sizeVariants": {
+    "AES": [
+      {
+        "pattern": "AES(?:[-_/]?(\\d+))?",
+        "sizes": [
+          128,
+          192,
+          256
+        ]
+      }
+    ],
+    "ARIA": [
+      {
+        "pattern": "ARIA[-_/]?(\\d+)",
+        "sizes": [
+          128,
+          192,
+          256
+        ]
+      }
+    ],
+    "BLAKE2": [
+      {
+        "pattern": "BLAKE2b[-_/]?(\\d+)",
+        "sizes": [
+          160,
+          256,
+          384,
+          512
+        ]
+      },
+      {
+        "pattern": "BLAKE2s[-_/]?(\\d+)",
+        "sizes": [
+          160,
+          256
+        ]
+      }
+    ],
+    "CAMELLIA": [
+      {
+        "pattern": "CAMELLIA[-_/]?(\\d+)",
+        "sizes": [
+          128,
+          192,
+          256
+        ]
+      }
+    ],
+    "ML-KEM": [
+      {
+        "pattern": "ML-?KEM[-_/]?(\\d+)",
+        "sizes": [
+          512,
+          768,
+          1024
+        ]
+      }
+    ],
+    "RIPEMD": [
+      {
+        "pattern": "RIPEMD[-_/]?(\\d+)",
+        "sizes": [
+          128,
+          160,
+          256,
+          320
+        ]
+      }
+    ],
+    "SHA-3": [
+      {
+        "pattern": "KMACXOF[-_/]?(\\d+)",
+        "sizes": [
+          128,
+          256
+        ]
+      },
+      {
+        "pattern": "KMAC[-_/]?(\\d+)",
+        "sizes": [
+          128,
+          256
+        ]
+      },
+      {
+        "pattern": "ParallelHashXOF[-_/]?(\\d+)",
+        "sizes": [
+          128,
+          256
+        ]
+      },
+      {
+        "pattern": "ParallelHash[-_/]?(\\d+)",
+        "sizes": [
+          128,
+          256
+        ]
+      },
+      {
+        "pattern": "SHA3[-_/]?(\\d+)",
+        "sizes": [
+          224,
+          256,
+          384,
+          512
+        ]
+      },
+      {
+        "pattern": "SHAKE[-_/]?(\\d+)",
+        "sizes": [
+          128,
+          256
+        ]
+      },
+      {
+        "pattern": "TupleHashXOF[-_/]?(\\d+)",
+        "sizes": [
+          128,
+          256
+        ]
+      },
+      {
+        "pattern": "TupleHash[-_/]?(\\d+)",
+        "sizes": [
+          128,
+          256
+        ]
+      },
+      {
+        "pattern": "cSHAKE[-_/]?(\\d+)",
+        "sizes": [
+          128,
+          256
+        ]
+      }
+    ],
+    "Serpent": [
+      {
+        "pattern": "Serpent[-_/]?(\\d+)",
+        "sizes": [
+          128,
+          192,
+          256
+        ]
+      }
+    ],
+    "Twofish": [
+      {
+        "pattern": "Twofish[-_/]?(\\d+)",
+        "sizes": [
+          128,
+          192,
+          256
+        ]
+      }
+    ]
+  },
+  "variantPrimitives": [
+    {
+      "family": "A5/1",
+      "pattern": "A5/1",
+      "primitive": "stream-cipher"
+    },
+    {
+      "family": "A5/2",
+      "pattern": "A5/2",
+      "primitive": "stream-cipher"
+    },
+    {
+      "family": "AES",
+      "pattern": "AES(?:[-_/]?(?:128|192|256))?-?CTR-?HMAC-?SHA1(?:-?96)?",
+      "primitive": "ae"
+    },
+    {
+      "family": "AES",
+      "pattern": "AES(?:[-_/]?(?:128|192|256))?-?SIV",
+      "primitive": "ae"
+    },
+    {
+      "family": "AES",
+      "pattern": "AES-?CMAC-?PRF-?128",
+      "primitive": "mac"
+    },
+    {
+      "family": "Ascon",
+      "pattern": "Ascon-?CXOF128",
+      "primitive": "xof"
+    },
+    {
+      "family": "Ascon",
+      "pattern": "Ascon-?Hash256",
+      "primitive": "hash"
+    },
+    {
+      "family": "Ascon",
+      "pattern": "Ascon-?XOF128",
+      "primitive": "xof"
+    },
+    {
+      "family": "BLAKE2",
+      "pattern": "BLAKE2b[-_/]?(?:160|256|384|512)-?HMAC",
+      "primitive": "mac"
+    },
+    {
+      "family": "BLAKE2",
+      "pattern": "BLAKE2s[-_/]?(?:160|256)-?HMAC",
+      "primitive": "mac"
+    },
+    {
+      "family": "BLS",
+      "pattern": "BLS(?:12-?381|12-?377|BN254)",
+      "primitive": "signature"
+    },
+    {
+      "family": "ChaCha20",
+      "pattern": "ChaCha20-?Poly1305",
+      "primitive": "ae"
+    },
+    {
+      "family": "ChaCha20",
+      "pattern": "XChaCha20-?Poly1305",
+      "primitive": "ae"
+    },
+    {
+      "family": "GOST",
+      "pattern": "GOST28147_MAC",
+      "primitive": "mac"
+    },
+    {
+      "family": "GOST",
+      "pattern": "GOSTR3410",
+      "primitive": "signature"
+    },
+    {
+      "family": "GOST",
+      "pattern": "GOSTR3411",
+      "primitive": "hash"
+    },
+    {
+      "family": "GOST",
+      "pattern": "GOSTR3411_HMAC",
+      "primitive": "mac"
+    },
+    {
+      "family": "HC",
+      "pattern": "HC-?128",
+      "primitive": "stream-cipher"
+    },
+    {
+      "family": "HC",
+      "pattern": "HC-?256",
+      "primitive": "stream-cipher"
+    },
+    {
+      "family": "RABBIT",
+      "pattern": "RABBIT",
+      "primitive": "stream-cipher"
+    },
+    {
+      "family": "SEED",
+      "pattern": "SEED-?128-?(?:CCM|GCM)",
+      "primitive": "ae"
+    },
+    {
+      "family": "SHA-3",
+      "pattern": "KMACXOF[-_/]?(?:128|256)",
+      "primitive": "mac"
+    },
+    {
+      "family": "SHA-3",
+      "pattern": "KMAC[-_/]?(?:128|256)",
+      "primitive": "mac"
+    },
+    {
+      "family": "SHA-3",
+      "pattern": "ParallelHashXOF[-_/]?(?:128|256)",
+      "primitive": "xof"
+    },
+    {
+      "family": "SHA-3",
+      "pattern": "SHAKE[-_/]?(?:128|256)",
+      "primitive": "xof"
+    },
+    {
+      "family": "SHA-3",
+      "pattern": "TupleHashXOF[-_/]?(?:128|256)",
+      "primitive": "xof"
+    },
+    {
+      "family": "SHA-3",
+      "pattern": "cSHAKE[-_/]?(?:128|256)",
+      "primitive": "xof"
+    },
+    {
+      "family": "SM2",
+      "pattern": "SM2-?(?:ENC|ENCRYPTION)(?:-?256)?",
+      "primitive": "pke"
+    },
+    {
+      "family": "SM2",
+      "pattern": "SM2-?(?:KEX|KEYEXCHANGE|KEY-?EXCHANGE|KEYAGREE|KEY-?AGREE|KEYAGREEMENT|KEY-?AGREEMENT)(?:-?256)?",
+      "primitive": "key-agree"
+    },
+    {
+      "family": "SM9",
+      "pattern": "SM9-?(?:ENC|ENCRYPTION|PKE|PUBLICKEY-?ENCRYPTION|PUBLIC-?KEY-?ENCRYPTION)",
+      "primitive": "pke"
+    },
+    {
+      "family": "SM9",
+      "pattern": "SM9-?(?:KEM|KEYENCAPSULATION|KEY-?ENCAPSULATION)",
+      "primitive": "kem"
+    },
+    {
+      "family": "SM9",
+      "pattern": "SM9-?(?:KEX|KEYEXCHANGE|KEY-?EXCHANGE|KEYAGREE|KEYAGREEMENT|KEY-?AGREE|KEY-?AGREEMENT)",
+      "primitive": "key-agree"
+    },
+    {
+      "family": "SNOW3G",
+      "pattern": "128-?EIA1",
+      "primitive": "mac"
+    },
+    {
+      "family": "Salsa20",
+      "pattern": "Salsa20-?Poly1305",
+      "primitive": "ae"
+    },
+    {
+      "family": "TLS-PRF",
+      "pattern": "TLS1-?PRF(?:-?RFC7627)?",
+      "primitive": "kdf"
+    },
+    {
+      "family": "UMAC",
+      "pattern": "UMAC(?:[-_/]?(?:32|64|96|128))?",
+      "primitive": "mac"
+    },
+    {
+      "family": "ZUC",
+      "pattern": "128-?EIA3",
+      "primitive": "mac"
+    }
+  ],
   "dnShortNames": {
     "cn": "2.5.4.3",
     "sn": "2.5.4.4",

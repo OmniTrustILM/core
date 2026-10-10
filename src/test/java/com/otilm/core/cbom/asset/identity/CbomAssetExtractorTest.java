@@ -53,6 +53,23 @@ class CbomAssetExtractorTest {
                 .anySatisfy(finding -> assertThat(finding).contains("producer inlined a value"));
     }
 
+    /** The normalizer's own findings reach the boundary too, so the ingest report names the producer's record. */
+    @Test
+    void aNormalizerFindingReachesTheExtractionBoundary() {
+        CbomAssetExtractor.Extraction extraction = EXTRACTOR
+                .extract(read("{\"components\":[{\"type\":\"cryptographic-asset\",\"name\":\"aes-64-cbc\","
+                        + "\"cryptoProperties\":{\"assetType\":\"algorithm\","
+                        + "\"algorithmProperties\":{\"parameterSetIdentifier\":\"64\"}}}]}"));
+
+        assertThat(extraction.assets())
+                .singleElement()
+                .satisfies(asset -> assertThat(asset.findings())
+                        .singleElement()
+                        .asString()
+                        .contains("parameter set 64")
+                        .contains("128, 192, 256"));
+    }
+
     @Test
     void nestedComponentTreesAreWalkedToTheirLeaves() {
         JsonNode document = read("{\"components\":[{\"type\":\"library\",\"name\":\"outer\",\"components\":["
@@ -66,31 +83,20 @@ class CbomAssetExtractorTest {
     }
 
     /**
-     * A component typed {@code cryptographic-asset} with no {@code cryptoProperties} is extracted, not skipped.
-     *
-     * <p>
-     * It keys on the unroutable backstop tier with its name. There is one in the validation corpus, and skipping it
-     * would lose the only record that a producer emitted something the specification cannot route.
+     * A component typed {@code cryptographic-asset} with no {@code cryptoProperties} routes to no asset type, so it is
+     * reported as a skip rather than stored: there is no algorithm to assess and no type to serve.
      */
-    @Test
-    void aComponentWithNoCryptoPropertiesIsUnroutableRatherThanSkipped() {
-        CbomAssetExtractor.Extraction extraction = EXTRACTOR
-                .extract(read("{\"components\":[{\"type\":\"cryptographic-asset\",\"name\":\"broken\"}]}"));
-
-        assertThat(extraction.skips()).isEmpty();
-        assertThat(extraction.assets())
-                .singleElement()
-                .satisfies(asset -> assertThat(asset.chainStep()).isEqualTo("backstop:unknown-type"));
-    }
-
     @ParameterizedTest
     @ValueSource(strings = {"", ",\"cryptoProperties\":null"})
-    void aComponentWithNoCryptoPropertiesRaisesNoFinding(String cryptoProperties) {
+    void aComponentWithNoCryptoPropertiesIsSkippedWithTheReason(String cryptoProperties) {
         CbomAssetExtractor.Extraction extraction = EXTRACTOR
                 .extract(read("{\"components\":[{\"type\":\"cryptographic-asset\",\"name\":\"unclassified\""
                         + cryptoProperties + "}]}"));
 
-        assertThat(extraction.assets().get(0).findings()).isEmpty();
+        assertThat(extraction.assets()).isEmpty();
+        assertThat(extraction.skips())
+                .containsExactly(new CbomAssetExtractor.Skip("unclassified",
+                        "cryptoProperties is absent, so the component declares no asset type"));
     }
 
     /** CycloneDX requires {@code assetType} and closes its vocabulary, so these documents are invalid. */
@@ -102,15 +108,13 @@ class CbomAssetExtractorTest {
             "{\"assetType\":\"keypair\"}   | cryptoProperties.assetType is not one of the asset types CycloneDX defines",
             "{\"assetType\":\"\"}          | cryptoProperties.assetType is not one of the asset types CycloneDX defines",
             "{\"assetType\":42}            | cryptoProperties.assetType is not one of the asset types CycloneDX defines"})
-    void cryptoPropertiesWithoutAUsableAssetTypeRaiseAFindingWithoutTheValue(String properties, String finding) {
+    void cryptoPropertiesWithoutAUsableAssetTypeAreSkippedNamingTheMemberNotTheValue(String properties, String reason) {
         CbomAssetExtractor.Extraction extraction = EXTRACTOR
                 .extract(read("{\"components\":[{\"type\":\"cryptographic-asset\",\"name\":\"invalid\","
                         + "\"cryptoProperties\":" + properties + "}]}"));
 
-        assertThat(extraction.skips()).isEmpty();
-        CbomAssetExtractor.ExtractedAsset asset = extraction.assets().get(0);
-        assertThat(asset.chainStep()).isEqualTo("backstop:unknown-type");
-        assertThat(asset.findings()).containsExactly(finding);
+        assertThat(extraction.assets()).isEmpty();
+        assertThat(extraction.skips()).containsExactly(new CbomAssetExtractor.Skip("invalid", reason));
     }
 
     @Test
@@ -175,7 +179,8 @@ class CbomAssetExtractorTest {
         CbomAssetExtractor.Extraction extraction = EXTRACTOR.extract(document);
 
         assertThat(extraction.headerCounts()).isEqualTo(CbomHeaderCounts.ZERO);
-        assertThat(extraction.assets()).hasSize(3);
+        assertThat(extraction.assets()).describedAs("the library carrying cryptoProperties").hasSize(1);
+        assertThat(extraction.skips()).describedAs("the two components with no asset type to route").hasSize(2);
     }
 
     @Test
@@ -353,7 +358,6 @@ class CbomAssetExtractorTest {
             "{\"components\":[{\"type\":\"cryptographic-asset\",\"name\":\"a\",\"cryptoProperties\":{\"assetType\":\"algorithm\"},\"evidence\":{}}]}",
             "{\"components\":[{\"type\":\"cryptographic-asset\",\"name\":\"a\",\"cryptoProperties\":{\"assetType\":\"algorithm\"},\"nonstandardField\":{\"deeply\":[1,2,3]}}]}",
             "{\"components\":[{\"type\":\"cryptographic-asset\",\"cryptoProperties\":{\"assetType\":\"algorithm\"}}]}",
-            "{\"components\":[{\"type\":\"cryptographic-asset\",\"name\":null,\"cryptoProperties\":{\"assetType\":null}}]}",
             "{\"components\":[{\"type\":\"cryptographic-asset\",\"name\":\"a\",\"cryptoProperties\":{\"assetType\":\"protocol\",\"protocolProperties\":{\"type\":\"tls\",\"version\":\"n/a\",\"cipherSuites\":[{}]}}}]}"})
     void wildButLegalInputParsesWithoutFailingTheRun(String json) {
         CbomAssetExtractor.Extraction extraction = EXTRACTOR.extract(read(json));
@@ -361,6 +365,19 @@ class CbomAssetExtractorTest {
         assertThat(extraction.skips()).isEmpty();
         assertThat(extraction.assets()).hasSize(1);
         assertThat(extraction.assets().get(0).identityKey()).hasSize(64);
+    }
+
+    /** A nameless component with a null asset type is reported, not thrown on: the skip carries the empty name. */
+    @Test
+    void aNamelessComponentWithNoAssetTypeIsReportedAsASkip() {
+        CbomAssetExtractor.Extraction extraction = EXTRACTOR
+                .extract(read("{\"components\":[{\"type\":\"cryptographic-asset\",\"name\":null,"
+                        + "\"cryptoProperties\":{\"assetType\":null}}]}"));
+
+        assertThat(extraction.assets()).isEmpty();
+        assertThat(extraction.skips())
+                .containsExactly(new CbomAssetExtractor.Skip("",
+                        "cryptoProperties.assetType is missing, and CycloneDX requires it"));
     }
 
     @ParameterizedTest

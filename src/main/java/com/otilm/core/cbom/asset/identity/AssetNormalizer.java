@@ -17,6 +17,7 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * The whole normalization pipeline, as one pure function from a component to its typed slots.
@@ -296,6 +297,7 @@ public record AssetNormalizer(IdentityTables tables) {
         derivePadding(norm, algorithm);
         derivePrimitive(norm, algorithm);
         foldAuthenticatedEncryption(norm);
+        reconcileParameterSetWithRegistry(norm);
 
         List<String> dropped = new ArrayList<>();
         String residue = variantResidue(norm.name(), norm.parameterSet(), norm.mode(), norm.family(),
@@ -741,7 +743,9 @@ public record AssetNormalizer(IdentityTables tables) {
      * <p>
      * Agreement and subsumption both settle; a genuine disagreement is the only case that records a conflict, and it
      * keeps the name because a refuted arc is the weaker witness -- the arc is one token a producer may have copied,
-     * while the name is the string the asset is actually called.
+     * while the name is the string the asset is actually called. Letting the arc win was tried and reverted: it never
+     * merged the two spellings, because the name's token stays in the variant, and it keyed an {@code ML-DSA-65}
+     * carrying a copied ecdsa-with-SHA256 arc as ECDSA. The contradiction is reported to the producer either way.
      *
      * <p>
      * Every null test here is its own: the callers pass whatever the arc and the grammar produced, including nothing
@@ -765,7 +769,7 @@ public record AssetNormalizer(IdentityTables tables) {
 
     /**
      * Both the arc and the name named a family: agreement and either direction of subsumption settle, the rest is a
-     * conflict.
+     * conflict the name wins.
      */
     private IdentityTables.OidEntry reconcileBothWitnesses(NormalizedAsset norm, String fromOid, String fromName,
             IdentityTables.OidEntry entry, String suffix) {
@@ -778,6 +782,9 @@ public record AssetNormalizer(IdentityTables tables) {
         if (tables.subsumes(fromName, fromOid)) {
             return settleAgreed(norm, fromOid, "oid (name subsumed)" + suffix, entry);
         }
+        norm
+                .finding("the oid names the " + fromOid + " family while the component name reads as " + fromName
+                        + "; the oid was refuted");
         norm.setFamily(fromName);
         norm.setFamilySource("name (oid refuted)" + suffix);
         norm.setOidConflict(true);
@@ -815,7 +822,10 @@ public record AssetNormalizer(IdentityTables tables) {
 
     private void deriveParameterSet(NormalizedAsset norm, JsonNode algorithm, IdentityTables.OidEntry enrichment) {
         List<String> notes = new ArrayList<>();
-        norm.setParameterSet(parseParameterSet(norm.name(), algorithm.get(CbomNames.PARAMETER_SET_IDENTIFIER), notes));
+        Integer declared = parameterSetFromIdentifier(algorithm.get(CbomNames.PARAMETER_SET_IDENTIFIER),
+                CbomNames.PARAMETER_SET_IDENTIFIER, notes);
+        norm.setParameterSet(declared != null ? declared : parameterSetFromName(norm.name(), notes));
+        norm.setParameterSetFromPayload(declared != null);
         notes.forEach(norm::note);
         rejectDigestLengthAsKeySize(norm);
         if (norm.parameterSet() == null) {
@@ -830,24 +840,94 @@ public record AssetNormalizer(IdentityTables tables) {
                                 + enrichment.matchedArc() + " -> " + enrichment.parameterSet());
             }
             norm.setParameterSet(enrichment.parameterSet());
+            norm.setParameterSetFromPayload(true);
         }
     }
 
     /**
-     * Key or digest size, whitelisted, and never read out of a mode or a curve.
-     *
-     * <p>
-     * {@code parameterSetIdentifier} is polysemous in real output -- measured across one producer it carries a key
-     * size, a digest size, a cipher mode, a MAC name and a curve name -- so a numeric reading is tried first and the
-     * name is parsed only as a fallback.
+     * Holds the parameter set to what the registry enumerates for the family. There is no 64-bit AES and no ML-KEM with
+     * parameter set 800: where the family's variant spells an admissible size in the name, that size is the parameter
+     * set over a declared one the family does not define, and the declaration is reported. A declared size the family
+     * does define stands, as it always has, even against a different one the name spells; that too is reported. A value
+     * read out of the name that is neither the variant's own size nor one the family defines -- the 96 of
+     * {@code AES-GCM-96} is a tag length -- is not the parameter set and is not recorded. What remains is a value
+     * nothing redeems: it stays in the slot, so the row keys apart from the real algorithm, and the verdict refuses it.
      */
-    public Integer parseParameterSet(String name, JsonNode parameterSetIdentifier, List<String> notes) {
-        Integer declared = parameterSetFromIdentifier(parameterSetIdentifier, CbomNames.PARAMETER_SET_IDENTIFIER,
-                notes);
-        if (declared != null) {
-            return declared;
+    private void reconcileParameterSetWithRegistry(NormalizedAsset norm) {
+        Set<Integer> admissible = admissibleParameterSets(norm.name(), norm.family());
+        Integer recorded = norm.parameterSet();
+        if (admissible == null || recorded == null) {
+            return;
         }
-        return parameterSetFromName(name, notes);
+        Integer spelled = registrySizeSpelled(norm.name(), norm.family());
+        if (admissible.contains(recorded)) {
+            if (norm.parameterSetFromPayload() && spelled != null && !spelled.equals(recorded)
+                    && admissible.contains(spelled)) {
+                // The declaration stands, as it always has; the disagreement with the name is the producer's to hear.
+                norm
+                        .finding("the declared parameter set " + recorded + " contradicts the size the name spells, "
+                                + spelled + "; the declaration is recorded");
+            }
+            return;
+        }
+        String admitted = new TreeSet<>(admissible).stream().map(String::valueOf).collect(Collectors.joining(", "));
+        if (spelled != null && admissible.contains(spelled)) {
+            if (norm.parameterSetFromPayload()) {
+                norm
+                        .finding("the declared parameter set " + recorded + " is not one the " + norm.family()
+                                + " family defines (the registry admits " + admitted + "); the size the name spells, "
+                                + spelled + ", is recorded instead");
+            }
+            norm
+                    .note("parameterSet " + recorded + " overridden by " + spelled
+                            + ", the size the registry variant spells");
+            norm.setParameterSet(spelled);
+            return;
+        }
+        if (!norm.parameterSetFromPayload() && spelled == null) {
+            norm
+                    .note("size " + recorded + " from the name is not one the " + norm.family()
+                            + " family defines nor the size its variant spells, so it is not the parameter set");
+            norm.setParameterSet(null);
+            return;
+        }
+        norm
+                .finding("the recorded parameter set " + recorded + " is not one the " + norm.family()
+                        + " family defines; the registry admits " + admitted);
+    }
+
+    /**
+     * The parameter sets the registry admits for this name of this family: the matching size variant's, else the
+     * family's enumeration as a whole, else {@code null} where the registry enumerates none.
+     */
+    public Set<Integer> admissibleParameterSets(String name, String family) {
+        if (family == null) {
+            return null;
+        }
+        IdentityTables.SizeVariant variant = sizeVariant(name, family);
+        return variant != null ? variant.sizes() : tables.admissibleParameterSets().get(family);
+    }
+
+    /** The size the family's matching registry variant spells in the name, or {@code null} when it spells none. */
+    public Integer registrySizeSpelled(String name, String family) {
+        IdentityTables.SizeVariant variant = sizeVariant(name, family);
+        if (variant == null) {
+            return null;
+        }
+        Matcher matcher = variant.pattern().matcher(name);
+        return matcher.find() && matcher.group(1) != null ? Integer.valueOf(matcher.group(1)) : null;
+    }
+
+    private IdentityTables.SizeVariant sizeVariant(String name, String family) {
+        if (name == null || family == null) {
+            return null;
+        }
+        for (IdentityTables.SizeVariant variant : tables.sizeVariants().getOrDefault(family, List.of())) {
+            if (variant.pattern().matcher(name).find()) {
+                return variant;
+            }
+        }
+        return null;
     }
 
     /**
@@ -1278,7 +1358,7 @@ public record AssetNormalizer(IdentityTables tables) {
     }
 
     /**
-     * Declared value, else {@code cryptoFunctions}, else the family default.
+     * Declared value, else {@code cryptoFunctions}, else the registry variant the name spells, else the family default.
      *
      * <p>
      * The OID deliberately never supplies it: letting a correct arc contribute {@code block-cipher} where an OID-less
@@ -1317,7 +1397,28 @@ public record AssetNormalizer(IdentityTables tables) {
             norm.setPrimitive(fromFunctions);
             return;
         }
-        norm.setPrimitive(norm.family() == null ? null : tables.primitiveDefaults().get(norm.family()));
+        String fromVariant = primitiveFromRegistryVariant(norm.name(), norm.family());
+        norm
+                .setPrimitive(fromVariant != null
+                        ? fromVariant
+                        : norm.family() == null ? null : tables.primitiveDefaults().get(norm.family()));
+    }
+
+    /**
+     * The primitive of the registry variant the name spells, where it differs from the family's default: SHAKE is an
+     * XOF where SHA-3 defaults to a hash. Read before the default so a producer's declaration of the same value cannot
+     * move what the name already says.
+     */
+    public String primitiveFromRegistryVariant(String name, String family) {
+        if (name == null || family == null) {
+            return null;
+        }
+        for (IdentityTables.VariantPrimitive variant : tables.variantPrimitives()) {
+            if (variant.family().equals(family) && variant.pattern().matcher(name).find()) {
+                return variant.primitive();
+            }
+        }
+        return null;
     }
 
     private String primitiveFromFunctions(NormalizedAsset norm, JsonNode functions) {

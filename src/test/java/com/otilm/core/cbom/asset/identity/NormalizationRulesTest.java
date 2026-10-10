@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.TextNode;
+import com.otilm.core.model.cbom.CryptoAssetIdentityGuard;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import java.io.IOException;
 import java.time.Duration;
@@ -197,6 +198,99 @@ class NormalizationRulesTest {
 
         assertThat(asset.family()).isEqualTo("RSAES-OAEP");
         assertThat(asset.oidConflict()).isFalse();
+    }
+
+    /**
+     * The name wins every disagreement with the arc, whatever kind of primitive either names: an arc is one token a
+     * producer may have copied from a neighbouring asset. The contradiction is reported to the producer and the guard
+     * keeps the row apart from an alias.
+     */
+    @ParameterizedTest
+    @CsvSource({
+            "hashlib.md5, 1.2.840.10045.4.3.2, MD5",
+            "HKDF-SHA-256, 1.2.840.113549.2.9, HKDF",
+            "ML-DSA-65, 1.2.840.10045.4.3.2, ML-DSA",
+            "Ed25519, 1.2.840.10045.4.3.2, EdDSA",
+            "SHA384, 2.16.840.1.101.3.4.2.9, SHA-2"})
+    void anArcTheNameContradictsIsRefutedAndReported(String name, String oid, String family) {
+        JsonNode component = algorithmComponent(name, "{}", "\"oid\":\"" + oid + "\",");
+        NormalizedAsset asset = normalize(component);
+
+        assertThat(asset.family()).isEqualTo(family);
+        assertThat(asset.familySource()).isEqualTo("name (oid refuted)");
+        assertThat(asset.oidConflict()).isTrue();
+        assertThat(asset.findings()).singleElement().asString().contains(family).contains("refuted");
+        assertThat(IDENTITY.of(component).guard()).isEqualTo(CryptoAssetIdentityGuard.REFUTED_OID);
+        assertThat(keyOf(component)).describedAs("a refuted arc contributes nothing").isEqualTo(keyOfAlgorithm(name));
+    }
+
+    /** A declared size the family defines stands even against the size the name spells; the clash is reported. */
+    @Test
+    void aDeclaredAdmissibleSizeOutranksTheSpelledOneAndIsReported() {
+        NormalizedAsset declared = normalize(algorithmComponent("AES-128", "{\"parameterSetIdentifier\":\"256\"}"));
+        assertThat(declared.parameterSet()).isEqualTo(256);
+        assertThat(declared.findings()).singleElement().asString().contains("256").contains("128");
+        assertThat(normalize(algorithmComponent("AES-256", "{\"parameterSetIdentifier\":\"64\"}")).parameterSet())
+                .describedAs("a declared size the family does not define yields to the spelled one")
+                .isEqualTo(256);
+        assertThat(normalize(algorithmComponent("AES-256", "{\"parameterSetIdentifier\":\"256\"}")).findings())
+                .isEmpty();
+    }
+
+    /** A registry variant is found as a word: {@code handshake-128} spells no SHAKE, {@code myaes128} no AES size. */
+    @Test
+    void aRegistryVariantIsReadAsAWordNotASubstring() {
+        assertThat(normalize("handshake-128").family()).isNull();
+        assertThat(NORMALIZER.primitiveFromRegistryVariant("TLS handshake-128", "SHA-3")).isNull();
+        assertThat(NORMALIZER.registrySizeSpelled("TLS handshake-128", "SHA-3")).isNull();
+        assertThat(NORMALIZER.registrySizeSpelled("myaes128", "AES")).isNull();
+        assertThat(NORMALIZER.registrySizeSpelled("myAESKey-AES-64", "AES")).isEqualTo(64);
+        for (String spelling : new String[]{"SHAKE-128", "shake_128", "SHAKE128", "SHAKE/128"}) {
+            assertThat(NORMALIZER.registrySizeSpelled(spelling, "SHA-3")).describedAs(spelling).isEqualTo(128);
+            assertThat(NORMALIZER.primitiveFromRegistryVariant(spelling, "SHA-3"))
+                    .describedAs(spelling)
+                    .isEqualTo("xof");
+        }
+        assertThat(NORMALIZER.registrySizeSpelled("MLKEM512", "ML-KEM")).isEqualTo(512);
+    }
+
+    /** A parameter set the registry does not enumerate for the family stays in the slot and is reported. */
+    @Test
+    void aParameterSetTheFamilyDoesNotDefineIsReportedToTheProducer() {
+        NormalizedAsset aes64 = normalize(algorithmComponent("aes-64-cbc", "{\"parameterSetIdentifier\":\"64\"}"));
+        assertThat(aes64.parameterSet()).isEqualTo(64);
+        assertThat(aes64.findings())
+                .singleElement()
+                .asString()
+                .contains("64")
+                .contains("AES")
+                .contains("128, 192, 256");
+        assertThat(normalize("AES-256-GCM").findings()).isEmpty();
+        assertThat(normalize("RC6-64").findings()).describedAs("RC6 templates its key length").isEmpty();
+        assertThat(normalize("ML-KEM-1000").findings()).singleElement().asString().contains("512, 768, 1024");
+
+        NormalizedAsset declaredBytes = normalize(
+                algorithmComponent("ML-KEM-512", "{\"parameterSetIdentifier\":\"800\"}"));
+        assertThat(declaredBytes.parameterSet())
+                .describedAs("the size the name spells, not the declared 800")
+                .isEqualTo(512);
+        assertThat(declaredBytes.findings()).singleElement().asString().contains("800").contains("512");
+        assertThat(keyOf(algorithmComponent("ML-KEM-512", "{\"parameterSetIdentifier\":\"800\"}")))
+                .isEqualTo(keyOfAlgorithm("ML-KEM-512"))
+                .isEqualTo(keyOf(algorithmComponent("MLKEM512", "{\"parameterSetIdentifier\":\"800\"}")));
+        assertThat(normalize(algorithmComponent("P256+ML-KEM-768 Hybrid KEM", "{\"parameterSetIdentifier\":\"256\"}"))
+                .parameterSet()).isEqualTo(768);
+        assertThat(normalize(algorithmComponent("AES-256-GCM", "{\"parameterSetIdentifier\":\"96\"}")).parameterSet())
+                .isEqualTo(256);
+        assertThat(normalize("AES-64").parameterSet()).describedAs("spelled by the family's own variant").isEqualTo(64);
+
+        NormalizedAsset tagLength = normalize("AES-GCM-96");
+        assertThat(tagLength.parameterSet()).describedAs("a tag length is not AES's parameter set").isNull();
+        assertThat(tagLength.findings()).isEmpty();
+        assertThat(normalize("SHA3-128").findings()).singleElement().asString().contains("224, 256, 384, 512");
+        assertThat(normalize("SHAKE128").findings()).isEmpty();
+        assertThat(normalize("SHAKE128").primitive()).isEqualTo("xof");
+        assertThat(normalize("SHA3-256").primitive()).isEqualTo("hash");
     }
 
     /** A cipher suite derives no family: reducing it to its bulk cipher throws away key exchange and authentication. */

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetType;
+import com.otilm.api.model.core.cryptoasset.PqcExplanationStepOutcome;
 import com.otilm.api.model.core.cryptoasset.PqcVerdict;
 import com.otilm.core.cbom.asset.CryptoAssetIdentityFields;
 import com.otilm.core.cbom.asset.identity.AssetNormalizer;
@@ -58,22 +59,232 @@ class PqcEvaluatorTest {
     }
 
     /**
-     * {@link PqcRules#MIN_SYMMETRIC_KEY_BITS} gated the material size arms and nothing else, so an algorithm reached
-     * {@code ready} on its family alone with {@code parameterSet = 64} sitting unread in the input.
+     * The floor is 256 bits: CNSA 2.0 admits AES-256 and nothing smaller, and a digest length is held to the same
+     * number. A size the registry does not enumerate for the family is not a weak instantiation but a record of
+     * something that does not exist, where a templated family -- RC6 takes any key length -- can be legal and small.
      */
     @Test
     void anAlgorithmIsDecidedByTheSizeItRecords() {
-        for (String undersized : new String[]{"AES-64", "RC6-64"}) {
+        for (String undersized : new String[]{
+                "AES-128",
+                "aes128-gcm",
+                "AES-192",
+                "AES-192-CCM",
+                "RC6-64",
+                "SHA-224",
+                "SHA3-224",
+                "ARIA-128-GCM"}) {
             PqcDecision decision = verdictOf(algorithm(undersized));
             assertThat(decision.verdict()).describedAs("algorithm %s", undersized).isEqualTo(PqcVerdict.NOT_READY);
             assertThat(decision.ruleId()).describedAs("algorithm %s", undersized).isEqualTo("SYMMETRIC-UNDERSIZED");
             assertThat(decision.evaluatedFields()).describedAs("algorithm %s", undersized).containsKey("parameterSet");
         }
-        for (String adequate : new String[]{"AES", "AES-128", "AES-256", "aes128-gcm", "AES-256-GCM"}) {
+        for (String adequate : new String[]{
+                "AES",
+                "AES-256",
+                "AES-256-GCM",
+                "SHA-256",
+                "SHA-384",
+                "SHA3-256",
+                "SHAKE256",
+                "ChaCha20-Poly1305"}) {
             assertThat(verdictOf(algorithm(adequate)).ruleId())
                     .describedAs("algorithm %s", adequate)
                     .isEqualTo("SYMMETRIC-READY");
         }
+    }
+
+    /** There is no 64-bit AES and no ML-KEM-1000: the record is invalid, not weak, and no strength rule reads it. */
+    @Test
+    void aParameterSetTheFamilyDoesNotDefineIsRefusedRatherThanScored() {
+        for (String unregistered : new String[]{
+                "AES-64",
+                "aes-64-cbc",
+                "ML-KEM-1000",
+                "CAMELLIA-64",
+                "BLAKE2b-64",
+                "SHA3-192",
+                "SHA3-128"}) {
+            PqcDecision decision = verdictOf(algorithm(unregistered));
+            assertThat(decision.verdict()).describedAs("algorithm %s", unregistered).isEqualTo(PqcVerdict.UNKNOWN);
+            assertThat(decision.ruleId())
+                    .describedAs("algorithm %s", unregistered)
+                    .isEqualTo("PARAMETER-SET-UNREGISTERED");
+            assertThat(decision.evaluatedFields())
+                    .describedAs("algorithm %s", unregistered)
+                    .containsKey("parameterSet");
+        }
+        PqcDecision aes64 = verdictOf(algorithm("AES-64"));
+        assertThat(aes64.reason()).contains("AES family defines").contains("128, 192, 256");
+        assertThat(aes64.evaluatedFields()).containsEntry("parameterSet", 64);
+        assertThat(verdictOf(algorithm("ML-KEM-1000")).reason()).contains("512, 768, 1024");
+        for (String registered : new String[]{"ML-KEM-512", "ML-KEM-768", "ML-KEM-1024"}) {
+            assertThat(verdictOf(algorithm(registered)).ruleId())
+                    .describedAs("algorithm %s", registered)
+                    .isEqualTo("PQC-STANDARDIZED");
+        }
+        assertThat(verdictOf(algorithm("RC6-64")).ruleId())
+                .describedAs("RC6 templates its key length, so 64 is a legal size the floor fails")
+                .isEqualTo("SYMMETRIC-UNDERSIZED");
+        PqcDecision tagLength = verdictOf(algorithm("AES-GCM-96"));
+        assertThat(tagLength.ruleId())
+                .describedAs("96 is neither the size the AES variant spells nor one AES defines, so it is not the "
+                        + "parameter set and the family decides")
+                .isEqualTo("SYMMETRIC-READY");
+        assertThat(tagLength.evaluatedFields()).doesNotContainKey("parameterSet");
+        for (String[] declared : new String[][]{
+                {"ML-KEM-512", "800"},
+                {"MLKEM512", "800"},
+                {"ML-KEM-768", "1184"},
+                {"P256+ML-KEM-768 Hybrid KEM", "256"},
+                {"AES-256-GCM", "96"}}) {
+            PqcDecision decision = verdictOf(component("algorithm", declared[0],
+                    "{\"algorithmProperties\":{\"parameterSetIdentifier\":\"" + declared[1] + "\"}}"));
+            assertThat(decision.ruleId())
+                    .describedAs("%s declaring %s: the size the name spells is the parameter set", declared[0],
+                            declared[1])
+                    .isNotEqualTo("PARAMETER-SET-UNREGISTERED");
+            assertThat(decision.verdict())
+                    .describedAs("%s declaring %s", declared[0], declared[1])
+                    .isEqualTo(PqcVerdict.READY);
+        }
+        assertThat(verdictOf(
+                component("algorithm", "aes-64-cbc", "{\"algorithmProperties\":{\"parameterSetIdentifier\":\"64\"}}"))
+                .ruleId())
+                .describedAs("the develop-02 record: declared and spelled 64, which AES does not define")
+                .isEqualTo("PARAMETER-SET-UNREGISTERED");
+    }
+
+    /** The registry variant the name spells fixes the primitive, so a declaration agreeing with it changes nothing. */
+    @Test
+    void aDeclaredPrimitiveAgreeingWithTheRegistryVariantMovesNoVerdict() {
+        for (String[] nameAndPrimitive : new String[][]{
+                {"SHAKE128", "xof"},
+                {"SHAKE256", "xof"},
+                {"cSHAKE128", "xof"},
+                {"KMAC128", "mac"},
+                {"ChaCha20-Poly1305", "ae"}}) {
+            PqcDecision bare = verdictOf(algorithm(nameAndPrimitive[0]));
+            PqcDecision declared = verdictOf(component("algorithm", nameAndPrimitive[0],
+                    "{\"algorithmProperties\":{\"primitive\":\"" + nameAndPrimitive[1] + "\"}}"));
+            assertThat(bare.verdict()).describedAs(nameAndPrimitive[0]).isEqualTo(declared.verdict());
+            assertThat(bare.ruleId()).describedAs(nameAndPrimitive[0]).isEqualTo(declared.ruleId());
+        }
+        for (String spelling : new String[]{"SHAKE-128", "shake_128", "SHAKE/128"}) {
+            assertThat(verdictOf(algorithm(spelling)).ruleId())
+                    .describedAs("%s is SHAKE128 however it is separated", spelling)
+                    .isEqualTo("SYMMETRIC-READY");
+        }
+        assertThat(verdictOf(component("algorithm", "SHA3-128", "{\"algorithmProperties\":{\"primitive\":\"xof\"}}"))
+                .ruleId())
+                .describedAs("a declared primitive does not redeem a size the SHA3 variant does not define")
+                .isEqualTo("PARAMETER-SET-UNREGISTERED");
+        PqcDecision shake = verdictOf(algorithm("SHAKE128"));
+        assertThat(shake.ruleId()).isEqualTo("SYMMETRIC-READY");
+        assertThat(shake.evaluatedFields())
+                .describedAs("an XOF's 128 is a strength level, not a key size the floor reads")
+                .containsEntry("primitive", "xof")
+                .doesNotContainKey("parameterSet");
+        assertThat(verdictOf(algorithm("SHA3-224")).ruleId())
+                .describedAs("a digest length is held to the floor")
+                .isEqualTo("SYMMETRIC-UNDERSIZED");
+    }
+
+    /** The ready rules do not vouch for a family instantiated with a size it does not define. */
+    @Test
+    void anUnregisteredParameterSetLeavesTheReadyRulesUnmatched() {
+        JsonNode aes64 = algorithm("AES-64");
+        PqcExplanation explanation = explanationOf(aes64);
+        assertThat(explanation.steps())
+                .filteredOn(
+                        step -> step.ruleId().equals("SYMMETRIC-READY") || step.ruleId().equals("SYMMETRIC-UNDERSIZED"))
+                .extracting(PqcExplanation.Step::outcome)
+                .containsExactly(PqcExplanationStepOutcome.NOT_MATCHED, PqcExplanationStepOutcome.NOT_MATCHED);
+        assertThat(explanationOf(algorithm("ML-KEM-1000")).steps())
+                .filteredOn(step -> step.ruleId().equals("PQC-STANDARDIZED"))
+                .singleElement()
+                .satisfies(step -> assertThat(step.outcome()).isEqualTo(PqcExplanationStepOutcome.NOT_MATCHED));
+    }
+
+    /**
+     * A KDF's parameter set is its output length, a MAC's a tag length: none of them is a key size, so no key-size rule
+     * reads it, and the reason names the construction.
+     */
+    @Test
+    void aNonKeyPrimitiveNeverTakesAKeySizeRule() {
+        for (String[] construction : new String[][]{
+                {"scrypt", "256"},
+                {"scrypt", "64"},
+                {"Argon2id", "256"},
+                {"bcrypt", "64"},
+                {"Poly1305", "64"}}) {
+            JsonNode kdf = component("algorithm", construction[0],
+                    "{\"algorithmProperties\":{\"parameterSetIdentifier\":\"" + construction[1] + "\"}}");
+            PqcDecision decision = verdictOf(kdf);
+            assertThat(decision.verdict())
+                    .describedAs("%s at %s", construction[0], construction[1])
+                    .isEqualTo(PqcVerdict.READY);
+            assertThat(decision.ruleId())
+                    .describedAs("%s at %s", construction[0], construction[1])
+                    .isEqualTo("SYMMETRIC-READY");
+            assertThat(decision.evaluatedFields())
+                    .describedAs("%s at %s", construction[0], construction[1])
+                    .containsKey("primitive")
+                    .doesNotContainKey("parameterSet");
+            assertThat(decision.reason()).contains("rather than a key size");
+        }
+        JsonNode declaredKdf = component("algorithm", "AES-256",
+                "{\"algorithmProperties\":{\"primitive\":\"kdf\",\"parameterSetIdentifier\":\"256\"}}");
+        assertThat(verdictOf(declaredKdf).evaluatedFields())
+                .describedAs("a declared kdf primitive is the record's, whatever family it names")
+                .containsEntry("primitive", "kdf")
+                .doesNotContainKey("parameterSet");
+        assertThat(verdictOf(algorithm("HKDF-SHA256")).ruleId()).isEqualTo("SYMMETRIC-READY");
+        assertThat(verdictOf(algorithm("HKDF")).ruleId()).isEqualTo("CONSTRUCTION-UNINSTANTIATED");
+        PqcRuleInput kdfRow = evaluator
+                .fromStoredRow(storedRow(normalizer.normalize(algorithm("scrypt")).asset()), null);
+        assertThat(PqcEvaluator.inputsOf(kdfRow, null, PqcReferences.NONE)).containsEntry("primitive", "kdf");
+        assertThat(evaluator
+                .fromStoredRow(storedRow(normalizer.normalize(material("scrypt", "secret-key", 256)).asset()), null)
+                .primitive())
+                .describedAs("a material row's primitive column is its referenced algorithm's, a filter slot")
+                .isNull();
+    }
+
+    /** An exclusion decides ahead of every finding: a salt is not a key, however it is named. */
+    @Test
+    void anExclusionOutranksAFindingTheNameWouldCarry() {
+        JsonNode salt = material("DES-salt", "salt", 128);
+        PqcDecision decision = verdictOf(salt);
+        assertThat(decision.verdict()).isEqualTo(PqcVerdict.NOT_APPLICABLE);
+        assertThat(decision.ruleId()).isEqualTo("MATERIAL-NOT-KEY");
+        assertThat(explanationOf(salt).steps())
+                .filteredOn(step -> step.ruleId().equals("CLASSICAL-LEGACY"))
+                .singleElement()
+                .satisfies(step -> {
+                    assertThat(step.outcome()).isEqualTo(PqcExplanationStepOutcome.MATCHED);
+                    assertThat(step.verdict()).isEqualTo(PqcVerdict.NOT_READY);
+                });
+    }
+
+    /** Every rule is evaluated: the hybrid rule holds beside the broken digest that outranks it. */
+    @Test
+    void aWeakerFindingDecidesAndTheRulesThatAlsoHeldAreShown() {
+        JsonNode hybrid = algorithm("X25519-ML-KEM-768-MD5");
+        assertThat(verdictOf(hybrid).ruleId()).isEqualTo("CLASSICAL-LEGACY-COMPONENT");
+        assertThat(explanationOf(hybrid).steps())
+                .filteredOn(step -> step.ruleId().startsWith("PQC-HYBRID-PQC"))
+                .singleElement()
+                .satisfies(step -> {
+                    assertThat(step.outcome()).isEqualTo(PqcExplanationStepOutcome.MATCHED);
+                    assertThat(step.verdict()).isEqualTo(PqcVerdict.READY);
+                });
+        assertThat(explanationOf(algorithm("X25519-ML-KEM-768")).steps())
+                .describedAs("the classical half is what a hybrid is for, so no family rule holds on it")
+                .filteredOn(step -> step.ruleId().equals("CLASSICAL-SHOR")
+                        || step.ruleId().equals("CLASSICAL-SHOR-COMPONENT"))
+                .extracting(PqcExplanation.Step::outcome)
+                .containsOnly(PqcExplanationStepOutcome.NOT_MATCHED);
     }
 
     /**
@@ -173,7 +384,13 @@ class PqcEvaluatorTest {
     /** A declared key size does not outvote the size the name spells, or a key could clear what its algorithm fails. */
     @Test
     void aKeyNamedForAnUndersizedAlgorithmIsAsUndersizedAsTheAlgorithm() {
-        for (String undersized : new String[]{"AES-64", "AES64", "AES_64", "AES/64", "myAESKey-AES-64", "RC6-64"}) {
+        for (String undersized : new String[]{
+                "AES-128",
+                "AES128",
+                "AES_128",
+                "AES/128",
+                "myAESKey-AES-128",
+                "RC6-64"}) {
             String asAlgorithm = verdictOf(algorithm(undersized)).ruleId();
             assertThat(asAlgorithm).isEqualTo("SYMMETRIC-UNDERSIZED");
             for (Integer size : new Integer[]{256, null}) {
@@ -184,7 +401,18 @@ class PqcEvaluatorTest {
                 assertThat(key.ruleId()).describedAs("a %s-bit %s key", size, undersized).isEqualTo(asAlgorithm);
             }
         }
-        assertThat(verdictOf(material("AES-128", "secret-key", 256)).ruleId()).isEqualTo("MATERIAL-SYMMETRIC-READY");
+        for (String unregistered : new String[]{"AES-64", "AES64", "myAESKey-AES-64"}) {
+            String asAlgorithm = verdictOf(algorithm(unregistered)).ruleId();
+            assertThat(asAlgorithm).isEqualTo("PARAMETER-SET-UNREGISTERED");
+            for (Integer size : new Integer[]{256, null}) {
+                PqcDecision key = verdictOf(material(unregistered, "secret-key", size));
+                assertThat(key.verdict())
+                        .describedAs("a %s-bit %s key", size, unregistered)
+                        .isEqualTo(PqcVerdict.UNKNOWN);
+                assertThat(key.ruleId()).describedAs("a %s-bit %s key", size, unregistered).isEqualTo(asAlgorithm);
+            }
+        }
+        assertThat(verdictOf(material("AES-256", "secret-key", 256)).ruleId()).isEqualTo("MATERIAL-SYMMETRIC-READY");
     }
 
     /**
@@ -198,14 +426,14 @@ class PqcEvaluatorTest {
                     .describedAs("a 256-bit %s key", name)
                     .isEqualTo("MATERIAL-SYMMETRIC-READY");
         }
-        assertThat(verdictOf(material("Ascon-80pq", "secret-key", 160)).ruleId()).isEqualTo("MATERIAL-SYMMETRIC-READY");
+        assertThat(verdictOf(material("Ascon-80pq", "secret-key", 256)).ruleId()).isEqualTo("MATERIAL-SYMMETRIC-READY");
     }
 
     @Test
     void anAdequateSizeIsEvidenceForTheReadyVerdict() {
-        PqcDecision algorithm = verdictOf(algorithm("AES-128"));
+        PqcDecision algorithm = verdictOf(algorithm("AES-256"));
         assertThat(algorithm.ruleId()).isEqualTo("SYMMETRIC-READY");
-        assertThat(algorithm.evaluatedFields()).containsEntry(PqcRules.PARAMETER_SET, 128);
+        assertThat(algorithm.evaluatedFields()).containsEntry(PqcRules.PARAMETER_SET, 256);
         PqcDecision key = verdictOf(material("AES", "secret-key", 256));
         assertThat(key.verdict()).isEqualTo(PqcVerdict.READY);
         assertThat(key.evaluatedFields()).containsEntry(PqcRules.MATERIAL_SIZE, 256);
@@ -590,8 +818,12 @@ class PqcEvaluatorTest {
         PqcDecision weak = verdictOf(material("k", "secret-key", 64));
         assertThat(weak.verdict()).isEqualTo(PqcVerdict.NOT_READY);
         assertThat(weak.ruleId()).isEqualTo("MATERIAL-SYMMETRIC-WEAK");
-        assertThat(verdictOf(material("k", "secret-key", 127)).ruleId()).isEqualTo("MATERIAL-SYMMETRIC-WEAK");
-        assertThat(verdictOf(material("k", "secret-key", 128)).ruleId()).isEqualTo("MATERIAL-SYMMETRIC-READY");
+        for (int belowTheFloor : new int[]{127, 128, 192, 255}) {
+            assertThat(verdictOf(material("k", "secret-key", belowTheFloor)).ruleId())
+                    .describedAs("size %s", belowTheFloor)
+                    .isEqualTo("MATERIAL-SYMMETRIC-WEAK");
+        }
+        assertThat(verdictOf(material("k", "secret-key", 256)).ruleId()).isEqualTo("MATERIAL-SYMMETRIC-READY");
         for (int outsideTheBand : new int[]{56, 32, 0, -1}) {
             PqcDecision decision = verdictOf(material("k", "secret-key", outsideTheBand));
             assertThat(decision.ruleId())
@@ -707,16 +939,16 @@ class PqcEvaluatorTest {
      */
     @Test
     void aHybridTheGrammarMissedIsStillNotDecidedByItsClassicalHalf() {
-        for (String name : new String[]{
-                "X25519-HAWK-512",
-                "ECDH-Raccoon-128",
-                "X25519-Picnic",
-                "X25519-AIMer-L1",
-                "X25519-HAWK (draft)"}) {
-            PqcDecision decision = verdictOf(algorithm(name));
-            assertThat(decision.ruleId()).describedAs("name %s", name).isEqualTo("PQC-HYBRID-PQC-PRESTANDARD");
+        for (String[] nameAndRuleId : new String[][]{
+                {"X25519-HAWK-512", "PQC-HYBRID-PQC-BROKEN"},
+                {"ECDH-Raccoon-128", "PQC-HYBRID-PQC-PRESTANDARD"},
+                {"X25519-Picnic", "PQC-HYBRID-PQC-PRESTANDARD"},
+                {"X25519-AIMer-L1", "PQC-HYBRID-PQC-PRESTANDARD"},
+                {"X25519-HAWK (draft)", "PQC-HYBRID-PQC-BROKEN"}}) {
+            PqcDecision decision = verdictOf(algorithm(nameAndRuleId[0]));
+            assertThat(decision.ruleId()).describedAs("name %s", nameAndRuleId[0]).isEqualTo(nameAndRuleId[1]);
             assertThat(decision.evaluatedFields())
-                    .describedAs("the components that decided %s", name)
+                    .describedAs("the components that decided %s", nameAndRuleId[0])
                     .containsKey("hybridComponents");
         }
     }
@@ -836,14 +1068,14 @@ class PqcEvaluatorTest {
                 "{\"relatedCryptoMaterialProperties\":{\"type\":\"secret-key\",\"size\":64}}");
         assertThat(verdictOf(undersized).ruleId()).isEqualTo("PQC-STANDARDIZED");
 
-        JsonNode overstated = component("algorithm", "AES-64",
+        JsonNode overstated = component("algorithm", "AES-128",
                 "{\"relatedCryptoMaterialProperties\":{\"type\":\"secret-key\",\"size\":256}}");
         assertThat(verdictOf(overstated).ruleId())
                 .describedAs("an algorithm's size is its parameter set; a strayed block must not overrule it")
                 .isEqualTo("SYMMETRIC-UNDERSIZED");
 
         JsonNode understated = component("algorithm", "AES-256",
-                "{\"relatedCryptoMaterialProperties\":{\"type\":\"secret-key\",\"size\":64}}");
+                "{\"relatedCryptoMaterialProperties\":{\"type\":\"secret-key\",\"size\":128}}");
         PqcDecision understatedDecision = verdictOf(understated);
         assertThat(understatedDecision.ruleId()).isEqualTo("SYMMETRIC-READY");
         assertThat(understatedDecision.evaluatedFields())
@@ -948,8 +1180,8 @@ class PqcEvaluatorTest {
         assertThat(verdictOf(algorithm("hmac-md5-etm@openssh.com")).ruleId())
                 .isEqualTo(verdictOf(algorithm("hmac-md5")).ruleId())
                 .isEqualTo("CLASSICAL-LEGACY-COMPONENT");
-        assertThat(verdictOf(algorithm("aes128-gcm@openssh.com")).ruleId())
-                .isEqualTo(verdictOf(algorithm("aes128-gcm")).ruleId())
+        assertThat(verdictOf(algorithm("aes256-gcm@openssh.com")).ruleId())
+                .isEqualTo(verdictOf(algorithm("aes256-gcm")).ruleId())
                 .isEqualTo("SYMMETRIC-READY");
     }
 
@@ -989,6 +1221,8 @@ class PqcEvaluatorTest {
     @Test
     void theCryptanalysedCandidatesAreSeparatedFromTheMerelyUnstandardised() {
         assertThat(verdictOf(algorithm("GeMSS-128")).ruleId()).isEqualTo("PQC-BROKEN");
+        assertThat(verdictOf(algorithm("HAWK-512")).ruleId()).isEqualTo("PQC-BROKEN");
+        assertThat(verdictOf(algorithm("HAWK-512")).verdict()).isEqualTo(PqcVerdict.NOT_READY);
         assertThat(verdictOf(algorithm("IDEA")).ruleId())
                 .describedAs("a 64-bit block cipher belongs with 3DES and Blowfish by this table's own criterion")
                 .isEqualTo("CLASSICAL-LEGACY");
@@ -1018,13 +1252,11 @@ class PqcEvaluatorTest {
                 .doesNotContainKey("parameterSet");
     }
 
-    /** The column is NOT NULL with UNROUTABLE in its CHECK, so a null here made the backstop row unwritable. */
+    /** The column is NOT NULL with UNROUTABLE in its CHECK; ingest stores no such row, and no rule serves one. */
     @Test
-    void theUnroutableBackstopHasAnAssetType() {
+    void theUnroutableTierHasAnAssetTypeAndNoRule() {
         assertThat(PqcEvaluator.assetTypeOf(null)).isEqualTo(CryptographicAssetType.UNROUTABLE);
-        PqcDecision untyped = verdictOf(untyped("Acme Wrap"));
-        assertThat(untyped.ruleId()).isEqualTo("ASSET-TYPE-UNROUTABLE");
-        assertThat(untyped.evaluatedFields()).containsEntry("assetType", "unroutable");
+        assertThat(PqcRuleCatalog.servedFor(CryptographicAssetType.UNROUTABLE)).isEmpty();
     }
 
     @Test
@@ -1066,6 +1298,12 @@ class PqcEvaluatorTest {
         return decision;
     }
 
+    private PqcExplanation explanationOf(JsonNode component) {
+        JsonNode properties = component.get("cryptoProperties");
+        PqcRuleInput input = evaluator.fromStoredRow(storedRow(normalizer.normalize(component).asset()), properties);
+        return evaluator.explain(input, PqcEvaluator.nistQuantumSecurityLevel(properties));
+    }
+
     /**
      * The row a single producer's derivation leaves in the table: its columns, folded by the column's own rule. Exact
      * only for one producer -- a second sharing the key keeps the first's {@code name} and may lose the merge election
@@ -1095,11 +1333,6 @@ class PqcEvaluatorTest {
                 ? "{\"assetType\":\"" + assetType + "\"}"
                 : "{\"assetType\":\"" + assetType + "\"," + extraProperties.substring(1);
         return componentWithProperties(name, properties);
-    }
-
-    /** A component naming no asset type at all, which routes to the unroutable backstop. */
-    static JsonNode untyped(String name) {
-        return componentWithProperties(name, "{}");
     }
 
     private static JsonNode componentWithProperties(String name, String properties) {

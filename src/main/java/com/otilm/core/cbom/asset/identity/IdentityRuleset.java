@@ -20,13 +20,15 @@ package com.otilm.core.cbom.asset.identity;
 public final class IdentityRuleset {
 
     /**
-     * Generation 3 is the first generation an environment can actually hold: it is stamped from the commit that wires
-     * ingest to {@code CryptoAssetWriter}. Generation 2 routed by asset-type tier and was never reachable from
-     * production, and rulings changed keys while it stood -- the cipher-suite repair and the regenerated decision
-     * tables among them -- so rows written from here are separated from the keys that generation would have produced.
-     * Generation 1 framed ten typed fields, so every key this build writes differs from that generation's too.
+     * Generation 4 records the size the registry variant spells in the name over a declared parameter set the family
+     * does not define, where generation 3 keyed the declared value. Generation 3 is the first generation an environment
+     * can actually hold: it is stamped from the commit that wires ingest to {@code CryptoAssetWriter}. Generation 2
+     * routed by asset-type tier and was never reachable from production, and rulings changed keys while it stood -- the
+     * cipher-suite repair and the regenerated decision tables among them -- so rows written from here are separated
+     * from the keys that generation would have produced. Generation 1 framed ten typed fields, so every key this build
+     * writes differs from that generation's too.
      */
-    public static final int VERSION = 3;
+    public static final int VERSION = 4;
 
     private IdentityRuleset() {
     }
