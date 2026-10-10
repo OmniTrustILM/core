@@ -132,7 +132,17 @@ public class AttributeEngine {
     public static final Comparator<MetadataAttribute> METADATA_WRITE_ORDER = Comparator
             .comparing((MetadataAttribute attribute) -> !isGlobalMetadata(attribute))
             .thenComparing(attribute -> isGlobalMetadata(attribute) ? attribute.getName() : attribute.getUuid(),
-                    Comparator.nullsLast(Comparator.naturalOrder()));
+                    Comparator.nullsLast(Comparator.naturalOrder()))
+            .thenComparing(MetadataAttribute::getName, Comparator.nullsLast(Comparator.naturalOrder()));
+
+    /**
+     * The order connector and platform definitions are registered in, so two registrations of the same new definitions
+     * insert them in one order and the second waits on the first rather than deadlocking.
+     */
+    private static final Comparator<BaseAttribute> DEFINITION_WRITE_ORDER = Comparator
+            .comparing(BaseAttribute::getType, Comparator.nullsLast(Comparator.naturalOrder()))
+            .thenComparing(BaseAttribute::getUuid, Comparator.nullsLast(Comparator.naturalOrder()))
+            .thenComparing(BaseAttribute::getName, Comparator.nullsLast(Comparator.naturalOrder()));
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -1061,7 +1071,7 @@ public class AttributeEngine {
             return;
         }
         Supplier<Map<String, String>> codeToOidMap = lazyCodeToOidMap();
-        for (BaseAttribute attribute : attributes) {
+        for (BaseAttribute attribute : attributes.stream().sorted(DEFINITION_WRITE_ORDER).toList()) {
             if (attribute.getType() == AttributeType.DATA) {
                 updateDataAttributeDefinition(connectorUuid, operation, (DataAttribute) attribute, codeToOidMap);
             }
@@ -1074,7 +1084,7 @@ public class AttributeEngine {
     public void updateAttributeDefinitionsWithCallback(UUID connectorUuid, List<? extends BaseAttribute> attributes)
             throws AttributeException {
         Supplier<Map<String, String>> codeToOidMap = lazyCodeToOidMap();
-        for (BaseAttribute attribute : attributes) {
+        for (BaseAttribute attribute : attributes.stream().sorted(DEFINITION_WRITE_ORDER).toList()) {
             if (attribute.getType() == AttributeType.GROUP) {
                 updateGroupAttributeDefinition(connectorUuid, attribute);
             }

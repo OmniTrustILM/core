@@ -37,6 +37,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
 /**
@@ -278,5 +279,38 @@ class AttributeDefinitionUniquenessITest extends BaseSpringBootTest {
         callback.setCallbackMethod("GET");
         attribute.setAttributeCallback(callback);
         return attribute;
+    }
+
+    /**
+     * Registrations order their definitions, so two that store the same new ones insert them in one order: the second
+     * waits on the first instead of each holding what the other needs. The order shows in which definition a refused
+     * list stores before it is refused, whatever order the connector listed them in.
+     */
+    @Test
+    void definitionsWithCallbacksAreRegisteredInKeyOrder() throws Exception {
+        UUID connector = newConnector();
+        String name = "first-" + UUID.randomUUID();
+        GroupAttributeV3 refused = groupAttribute("ffffffff-ffff-ffff-ffff-ffffffffffff", " ");
+        GroupAttributeV3 accepted = groupAttribute("00000000-0000-0000-0000-00000000000a", name);
+
+        assertThatThrownBy(
+                () -> attributeEngine.updateAttributeDefinitionsWithCallback(connector, List.of(refused, accepted)))
+                .isInstanceOf(AttributeException.class);
+
+        assertThat(definitionsNamed(AttributeType.GROUP, name)).hasSize(1);
+    }
+
+    @Test
+    void dataDefinitionsAreRegisteredInKeyOrder() throws Exception {
+        UUID connector = newConnector();
+        String name = "first-" + UUID.randomUUID();
+        DataAttributeV2 refused = dataAttribute("ffffffff-ffff-ffff-ffff-ffffffffffff", " ");
+        DataAttributeV2 accepted = dataAttribute("00000000-0000-0000-0000-00000000000a", name);
+
+        assertThatThrownBy(
+                () -> attributeEngine.updateDataAttributeDefinitions(connector, null, List.of(refused, accepted)))
+                .isInstanceOf(AttributeException.class);
+
+        assertThat(definitionsNamed(AttributeType.DATA, name)).hasSize(1);
     }
 }
