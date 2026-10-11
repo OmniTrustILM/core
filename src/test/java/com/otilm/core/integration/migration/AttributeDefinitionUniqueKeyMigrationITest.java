@@ -216,8 +216,12 @@ class AttributeDefinitionUniqueKeyMigrationITest extends BaseSpringBootTest {
         });
     }
 
+    /**
+     * The global row survives although the connector row is older: other connectors share it and the API addresses it
+     * by its UUID.
+     */
     @Test
-    void aGlobalAndAConnectorRowWithTheSameKeyFoldIntoOneGlobalRow() throws Exception {
+    void aGlobalAndAConnectorRowWithTheSameKeyFoldIntoTheGlobalRow() throws Exception {
         inScratchSchema(statement -> {
             definition(statement, KEPT, "META", CONNECTOR_ONE, ATTRIBUTE, "source", false, "STRING", null, EARLIER);
             definition(statement, DUPLICATE, "META", CONNECTOR_ONE, ATTRIBUTE, "source", true, "STRING", null, LATER);
@@ -226,7 +230,7 @@ class AttributeDefinitionUniqueKeyMigrationITest extends BaseSpringBootTest {
 
             assertThat(count(statement, "SELECT count(*) FROM attribute_definition")).isEqualTo(1);
             assertThat(count(statement,
-                    "SELECT count(*) FROM attribute_definition WHERE uuid = '" + KEPT + "' AND global IS TRUE"))
+                    "SELECT count(*) FROM attribute_definition WHERE uuid = '" + DUPLICATE + "' AND global IS TRUE"))
                     .isEqualTo(1);
         });
     }

@@ -8,9 +8,10 @@
 -- folded.
 --
 -- A duplicate folds into the kept row only when it reads its values the same way: the same content type, version and
--- protection level. A metadata duplicate that differs is detached instead, as deleting its connector would: its values
--- stay on the objects that hold them and it stops matching lookups. A data or group duplicate that differs cannot come
--- from the race and is refused rather than guessed at.
+-- protection level. A metadata duplicate that differs is detached instead: its connector is cleared, as deleting the
+-- connector would, and so is its global flag, so the global-name key holds. Its values stay on the objects that hold
+-- them and it stops matching lookups. A data or group duplicate that differs cannot come from the race and is refused
+-- rather than guessed at.
 
 CREATE TEMP TABLE "attribute_definition_merge" (
     "duplicate_uuid" UUID PRIMARY KEY,
@@ -199,13 +200,14 @@ BEGIN
 END
 $$ LANGUAGE plpgsql;
 
--- First pass: global definitions, one per type and name. A data row with an operation wins, then the oldest.
+-- First pass: global definitions, one per type and name. Both passes keep a data row with an operation first, then a
+-- global row, then the oldest; every row here is global, so the second rule decides nothing in this pass.
 INSERT INTO "attribute_definition_merge" ("duplicate_uuid", "keep_uuid")
 SELECT "ranked"."uuid", "ranked"."keep_uuid"
   FROM (SELECT "uuid",
                first_value("uuid") OVER (
                    PARTITION BY "type", "name"
-                   ORDER BY ("type" = 'DATA' AND "operation" IS NULL), "created_at", "uuid"
+                   ORDER BY ("type" = 'DATA' AND "operation" IS NULL), ("global" IS NOT TRUE), "created_at", "uuid"
                ) AS "keep_uuid"
           FROM "attribute_definition"
          WHERE "global" IS TRUE) AS "ranked"
@@ -215,13 +217,14 @@ SELECT pg_temp.split_incompatible_attribute_definitions();
 SELECT pg_temp.fold_attribute_definitions();
 
 -- Second pass: every definition with a connector key, globals kept by the first pass included, so a global and a
--- connector row with the same key cannot both survive.
+-- connector row with the same key cannot both survive. The global row is kept even when the connector row is older:
+-- other connectors share it and the API addresses it by its UUID.
 INSERT INTO "attribute_definition_merge" ("duplicate_uuid", "keep_uuid")
 SELECT "ranked"."uuid", "ranked"."keep_uuid"
   FROM (SELECT "uuid",
                first_value("uuid") OVER (
                    PARTITION BY "type", "connector_key", "attribute_uuid", "name"
-                   ORDER BY ("type" = 'DATA' AND "operation" IS NULL), "created_at", "uuid"
+                   ORDER BY ("type" = 'DATA' AND "operation" IS NULL), ("global" IS NOT TRUE), "created_at", "uuid"
                ) AS "keep_uuid"
           FROM (SELECT *,
                        CASE WHEN "type" = 'META' THEN "connector_uuid"
