@@ -418,6 +418,12 @@ class DiscoverySearchITest extends BaseSpringBootTest {
                         2_999_999_999L));
         Assertions
                 .assertEquals(Set.of("test_discovery_outsized"), namesOf(retrieveTheDiscoveriesBySearch(pastTheRange)));
+
+        // As a float, 2999999999.5 rounds up to the total itself.
+        final List<SearchFilterRequestDto> fractional = List
+                .of(aPropertyFilter(FilterField.DISCOVERY_TOTAL_ITEMS_DISCOVERED, FilterConditionOperator.GREATER,
+                        "2999999999.5"));
+        Assertions.assertEquals(Set.of("test_discovery_outsized"), namesOf(retrieveTheDiscoveriesBySearch(fractional)));
     }
 
     @Test

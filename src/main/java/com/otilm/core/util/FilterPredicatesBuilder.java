@@ -52,6 +52,7 @@ import jakarta.persistence.metamodel.Attribute;
 import jakarta.persistence.metamodel.PluralAttribute;
 import jakarta.persistence.metamodel.SingularAttribute;
 import java.io.Serializable;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -1090,12 +1091,16 @@ public class FilterPredicatesBuilder {
                     }
                 } else if (filterField.getType() == SearchFieldTypeEnum.NUMBER) {
                     try {
-                        if (stringValue.contains(".")) {
-                            preparedFilterValue = Float.parseFloat(stringValue);
-                        } else if (expressionClassOf(filterField) == Long.class) {
-                            preparedFilterValue = Long.parseLong(stringValue);
+                        boolean fractional = stringValue.contains(".");
+                        if (expressionClassOf(filterField) == Long.class) {
+                            // A float rounds past 2^24, so a threshold on a long keeps every digit it was given.
+                            preparedFilterValue = fractional
+                                    ? new BigDecimal(stringValue)
+                                    : Long.parseLong(stringValue);
                         } else {
-                            preparedFilterValue = Integer.parseInt(stringValue);
+                            preparedFilterValue = fractional
+                                    ? Float.parseFloat(stringValue)
+                                    : Integer.parseInt(stringValue);
                         }
                     } catch (NumberFormatException e) {
                         throw new ValidationException(
