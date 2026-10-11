@@ -179,7 +179,7 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
         try {
             providerResponse = discoverCertificatesByProvider(context);
         } catch (DiscoveryException e) {
-            logger.error("Discovery {} ended at the provider", discoveryUuid, e);
+            logger.error("Discovery {} did not complete at the provider", discoveryUuid, e);
             storeRunMetadata(context);
             return finalizeDiscoveryInTx(context, null);
         } catch (InterruptedException e) {
