@@ -2001,6 +2001,39 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         Assertions.assertTrue(TransactionSynchronizationManager.getResourceMap().isEmpty());
     }
 
+    /**
+     * A runtime failure that crosses a transactional service marks the loading transaction rollback-only. The run must
+     * still end FAILED with that failure's message, not with the commit's {@code UnexpectedRollbackException}.
+     */
+    @Test
+    void aRuntimeFailureLoadingTheContextEndsTheRunFailedWithItsOwnMessage() throws Exception {
+        WireMock
+                .stubFor(WireMock
+                        .get(WireMock.urlPathMatching("/v1/discoveryProvider/[^/]+/attributes"))
+                        .willReturn(WireMock.okJson(CREDENTIAL_DEFINITION)));
+        CredentialAttributeContentData identity = new CredentialAttributeContentData();
+        identity.setUuid("not-a-uuid");
+        identity.setName("broken-reference");
+        DiscoveryDto dto = new DiscoveryDto();
+        dto.setName("RunDiscoveryIT-" + UUID.randomUUID());
+        dto.setKind("IpAndPort");
+        dto.setConnectorUuid(connector.getUuid().toString());
+        dto
+                .setAttributes(List
+                        .of(new RequestAttributeV2(UUID.fromString("7f7f0000-0000-4000-8000-000000000002"),
+                                "credential", AttributeContentType.CREDENTIAL,
+                                List.of(new CredentialAttributeContentV2("broken-reference", identity)))));
+        UUID discoveryUuid = UUID.fromString(discoveryService.createDiscovery(dto, true).getUuid());
+
+        discoveryInternalService.runDiscovery(discoveryUuid, null);
+
+        Discovery persisted = discoveryRepository.findByUuid(discoveryUuid).orElseThrow();
+        Assertions.assertEquals(DiscoveryStatus.FAILED, persisted.getStatus());
+        Assertions.assertTrue(persisted.getMessage().contains("not-a-uuid"), persisted.getMessage());
+        Assertions.assertFalse(persisted.getMessage().contains("UnexpectedRollback"), persisted.getMessage());
+        Assertions.assertNotNull(persisted.getEndTime());
+    }
+
     private String dataResponseWithCertificateMeta(int totalCertificates, String metaJson) {
         return """
                 {"uuid": "%s", "name": "integration-provider", "status": "completed",

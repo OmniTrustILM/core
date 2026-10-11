@@ -261,39 +261,53 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
         UUID loggedUserUuid = UUID.fromString(AuthHelper.getUserIdentification().getUuid());
 
         // reload discovery modal with all association since it could be in separate transaction/session due to async
-        return Objects.requireNonNull(readOnlyTransactions.execute(status -> {
-            String message = null;
-            Connector connector = null;
-            List<DataAttribute> dataAttributes = null;
-            Discovery discovery = discoveryRepository.findWithTriggersByUuid(discoveryUuid);
-            try {
-                logger.info("Loading discovery context: name={}, uuid={}", discovery.getName(), discovery.getUuid());
-                connector = connectorRepository
-                        .findByUuid(discovery.getConnectorUuid())
-                        .orElseThrow(() -> new NotFoundException(Connector.class, discovery.getConnectorUuid()));
-                dataAttributes = attributeEngine
-                        .getDefinitionObjectAttributeContent(AttributeType.DATA, connector.getUuid(), null,
-                                Resource.DISCOVERY, discovery.getUuid());
+        Discovery discovery = Objects
+                .requireNonNull(readOnlyTransactions
+                        .execute(status -> discoveryRepository.findWithTriggersByUuid(discoveryUuid)));
+        try {
+            return Objects
+                    .requireNonNull(
+                            readOnlyTransactions.execute(status -> loadConnectedContext(loggedUserUuid, discovery)));
+        } catch (RuntimeException e) {
+            // Out here, so the template has rolled back: a runtime failure that crossed a transactional service has
+            // marked it rollback-only, and handling it inside would turn into an UnexpectedRollbackException on commit.
+            logger.error("Could not load the context of discovery {}", discoveryUuid, e);
+            return failedContext(loggedUserUuid, null, discovery, e.getMessage());
+        }
+    }
 
-                credentialService.loadFullCredentialData(dataAttributes);
-                resourceService.loadResourceObjectContentData(dataAttributes);
+    /** Checked failures do not mark the transaction rollback-only, so they are answered here, inside it. */
+    private DiscoveryContext loadConnectedContext(UUID loggedUserUuid, Discovery discovery) {
+        Connector connector = null;
+        List<DataAttribute> dataAttributes = null;
+        try {
+            logger.info("Loading discovery context: name={}, uuid={}", discovery.getName(), discovery.getUuid());
+            connector = connectorRepository
+                    .findByUuid(discovery.getConnectorUuid())
+                    .orElseThrow(() -> new NotFoundException(Connector.class, discovery.getConnectorUuid()));
+            dataAttributes = attributeEngine
+                    .getDefinitionObjectAttributeContent(AttributeType.DATA, connector.getUuid(), null,
+                            Resource.DISCOVERY, discovery.getUuid());
 
-            } catch (Exception e) {
-                logger.error("Could not load the context of discovery {}", discoveryUuid, e);
-                message = e.getMessage();
-            }
-
+            credentialService.loadFullCredentialData(dataAttributes);
+            resourceService.loadResourceObjectContentData(dataAttributes);
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            logger.error("Could not load the context of discovery {}", discovery.getUuid(), e);
             ConnectorDto connectorDto = connector != null ? connector.mapToDto() : null;
-            DiscoveryContext discoveryContext = new DiscoveryContext(loggedUserUuid, connectorDto, discovery,
-                    dataAttributes);
+            return failedContext(loggedUserUuid, connectorDto, discovery, e.getMessage());
+        }
+        return new DiscoveryContext(loggedUserUuid, connector.mapToDto(), discovery, dataAttributes);
+    }
 
-            if (message != null) {
-                discoveryContext.setMessage(message);
-                discoveryContext.setDiscoveryStatus(DiscoveryStatus.FAILED);
-                discoveryContext.setConnectorDiscoveryStatus(DiscoveryStatus.FAILED);
-            }
-            return discoveryContext;
-        }));
+    private static DiscoveryContext failedContext(UUID loggedUserUuid, ConnectorDto connectorDto, Discovery discovery,
+            String message) {
+        DiscoveryContext context = new DiscoveryContext(loggedUserUuid, connectorDto, discovery, null);
+        context.setMessage(message);
+        context.setDiscoveryStatus(DiscoveryStatus.FAILED);
+        context.setConnectorDiscoveryStatus(DiscoveryStatus.FAILED);
+        return context;
     }
 
     private DiscoveryDetailDto failAtProvider(DiscoveryContext context, Exception e) {
