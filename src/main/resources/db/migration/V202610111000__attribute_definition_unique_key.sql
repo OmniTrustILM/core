@@ -9,10 +9,10 @@
 --
 -- Global metadata folds by name only where the engine looks it up by name: a row without a connector, or one whose
 -- stored definition declares it global. Metadata an operator promoted to global keeps the connector's own declaration
--- unless an operator has since edited it, so the engine still looks it up by its connector; folding it away would
--- split that connector's values over a fresh row. Under each name the global flag stays with one row: a row the engine looks up by name when
--- there is one, otherwise the oldest promoted row. Any other promoted row is demoted rather than merged: it keeps its
--- connector and values and loses only the global flag.
+-- unless an operator has since edited it, so the engine still looks it up by its connector; folding it away would split
+-- that connector's values over a fresh row. Under each name the global flag stays with one row: a row the engine looks
+-- up by name when there is one, otherwise the oldest promoted row. Any other promoted row is demoted rather than
+-- merged: it keeps its connector and values and loses only the global flag.
 --
 -- A duplicate folds into the kept row only when it reads its values the same way: the same content type, version and
 -- protection level. A metadata duplicate that differs is detached instead: its connector is cleared, as deleting the
@@ -231,40 +231,40 @@ CREATE FUNCTION pg_temp.collect_global_attribute_definitions() RETURNS VOID AS $
 DECLARE
     "demoted_uuids" TEXT;
 BEGIN
-WITH "ranked" AS (
-    SELECT "uuid", "promoted",
-           first_value("uuid") OVER (
-               PARTITION BY "type", "name"
-               ORDER BY "promoted", ("type" = 'DATA' AND "operation" IS NULL), "created_at", "uuid"
-           ) AS "keep_uuid"
-      FROM (SELECT *,
-                   "connector_uuid" IS NOT NULL
-                       AND ("definition" -> 'properties' ->> 'global') IS DISTINCT FROM 'true' AS "promoted"
-              FROM "attribute_definition"
-             WHERE "global" IS TRUE) AS "flagged"
-), "demoted" AS (
-    UPDATE "attribute_definition"
-       SET "global" = FALSE
-     WHERE "uuid" IN (SELECT "ranked"."uuid"
-                        FROM "ranked"
-                       WHERE "ranked"."promoted"
-                         AND "ranked"."uuid" <> "ranked"."keep_uuid")
-    RETURNING "uuid"
-), "collected" AS (
-    INSERT INTO "attribute_definition_merge" ("duplicate_uuid", "keep_uuid")
-    SELECT "ranked"."uuid", "ranked"."keep_uuid"
-      FROM "ranked"
-     WHERE NOT "ranked"."promoted"
-       AND "ranked"."uuid" <> "ranked"."keep_uuid"
-    RETURNING 1
-)
-SELECT string_agg("demoted"."uuid"::TEXT, ', ' ORDER BY "demoted"."uuid")
-  INTO "demoted_uuids"
-  FROM "demoted";
+    WITH "ranked" AS (
+        SELECT "uuid", "promoted",
+               first_value("uuid") OVER (
+                   PARTITION BY "type", "name"
+                   ORDER BY "promoted", ("type" = 'DATA' AND "operation" IS NULL), "created_at", "uuid"
+               ) AS "keep_uuid"
+          FROM (SELECT *,
+                       "connector_uuid" IS NOT NULL
+                           AND ("definition" -> 'properties' ->> 'global') IS DISTINCT FROM 'true' AS "promoted"
+                  FROM "attribute_definition"
+                 WHERE "global" IS TRUE) AS "flagged"
+    ), "demoted" AS (
+        UPDATE "attribute_definition"
+           SET "global" = FALSE
+         WHERE "uuid" IN (SELECT "ranked"."uuid"
+                            FROM "ranked"
+                           WHERE "ranked"."promoted"
+                             AND "ranked"."uuid" <> "ranked"."keep_uuid")
+        RETURNING "uuid"
+    ), "collected" AS (
+        INSERT INTO "attribute_definition_merge" ("duplicate_uuid", "keep_uuid")
+        SELECT "ranked"."uuid", "ranked"."keep_uuid"
+          FROM "ranked"
+         WHERE NOT "ranked"."promoted"
+           AND "ranked"."uuid" <> "ranked"."keep_uuid"
+        RETURNING 1
+    )
+    SELECT string_agg("demoted"."uuid"::TEXT, ', ' ORDER BY "demoted"."uuid")
+      INTO "demoted_uuids"
+      FROM "demoted";
 
-IF "demoted_uuids" IS NOT NULL THEN
-    RAISE NOTICE 'Global metadata demoted to its connector, as another global definition holds its name: %', "demoted_uuids";
-END IF;
+    IF "demoted_uuids" IS NOT NULL THEN
+        RAISE NOTICE 'Global metadata demoted to its connector, as another global definition holds its name: %', "demoted_uuids";
+    END IF;
 END
 $$ LANGUAGE plpgsql;
 
