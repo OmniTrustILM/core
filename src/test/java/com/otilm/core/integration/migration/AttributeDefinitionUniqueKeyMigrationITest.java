@@ -1,6 +1,12 @@
 package com.otilm.core.integration.migration;
 
+import com.otilm.api.exception.AttributeException;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeProperties;
+import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
+import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -120,6 +126,8 @@ class AttributeDefinitionUniqueKeyMigrationITest extends BaseSpringBootTest {
     private DataSource dataSource;
     @Autowired
     private ConnectorRepository connectorRepository;
+    @Autowired
+    private AttributeEngine attributeEngine;
 
     @FunctionalInterface
     private interface SqlWork {
@@ -195,12 +203,14 @@ class AttributeDefinitionUniqueKeyMigrationITest extends BaseSpringBootTest {
 
     @Test
     void globalMetadataUnderTwoUuidsFolds_andAGlobalDeclaredDifferentlyIsDetached() throws Exception {
+        String declaredGlobal = storedMetadataDefinition(true);
         inScratchSchema(statement -> {
-            definition(statement, KEPT, "META", CONNECTOR_ONE, ATTRIBUTE, "source", true, "STRING", null, EARLIER);
+            definition(statement, KEPT, "META", CONNECTOR_ONE, ATTRIBUTE, "source", true, "STRING", null, EARLIER,
+                    declaredGlobal);
             definition(statement, DUPLICATE, "META", CONNECTOR_TWO, OTHER_ATTRIBUTE, "source", true, "STRING", null,
-                    LATER);
+                    LATER, declaredGlobal);
             definition(statement, THIRD, "META", CONNECTOR_THREE, OTHER_ATTRIBUTE, "source", true, "INTEGER", null,
-                    LATEST);
+                    LATEST, declaredGlobal);
             value(statement, THIRD_VALUE, THIRD, "{\"data\": 3}");
             mapping(statement, THIRD_VALUE, OBJECT_ONE);
 
@@ -213,6 +223,82 @@ class AttributeDefinitionUniqueKeyMigrationITest extends BaseSpringBootTest {
             assertThat(count(statement, "SELECT count(*) FROM attribute_content_item WHERE uuid = '" + THIRD_VALUE
                     + "' AND attribute_definition_uuid = '" + THIRD + "'")).isEqualTo(1);
             assertThat(count(statement, "SELECT count(*) FROM attribute_definition WHERE global IS TRUE")).isEqualTo(1);
+        });
+    }
+
+    /**
+     * Metadata a connector declares as its own, promoted to global by an operator: the engine still finds it by its
+     * connector, so folding one into the other would split that connector's values over the fresh row its next
+     * registration inserts.
+     */
+    @Test
+    void twoPromotedGlobalsUnderOneNameKeepTheirConnectors_andTheOlderKeepsTheName() throws Exception {
+        String connectorScoped = storedMetadataDefinition(false);
+        inScratchSchema(statement -> {
+            definition(statement, KEPT, "META", CONNECTOR_ONE, ATTRIBUTE, "source", true, "STRING", null, EARLIER,
+                    connectorScoped);
+            definition(statement, DUPLICATE, "META", CONNECTOR_TWO, OTHER_ATTRIBUTE, "source", true, "STRING", null,
+                    LATER, connectorScoped);
+            value(statement, KEPT_VALUE, KEPT, "{\"data\": \"x\"}");
+            value(statement, DUPLICATE_VALUE, DUPLICATE, "{\"data\": \"x\"}");
+
+            migrate(statement);
+
+            assertThat(scope(statement, KEPT)).isEqualTo(new Scope(CONNECTOR_ONE, true));
+            assertThat(scope(statement, DUPLICATE)).isEqualTo(new Scope(CONNECTOR_TWO, false));
+            assertThat(definitionOf(statement, KEPT_VALUE)).isEqualTo(KEPT);
+            assertThat(definitionOf(statement, DUPLICATE_VALUE)).isEqualTo(DUPLICATE);
+        });
+    }
+
+    @Test
+    void aSharedGlobalKeepsTheNameOverAnOlderPromotedOne() throws Exception {
+        String declaredGlobal = storedMetadataDefinition(true);
+        String connectorScoped = storedMetadataDefinition(false);
+        String promoted = "d0000000-0000-0000-0000-000000000021";
+        String shared = "d0000000-0000-0000-0000-000000000022";
+        inScratchSchema(statement -> {
+            definition(statement, promoted, "META", CONNECTOR_ONE, ATTRIBUTE, "source", true, "STRING", null, EARLIER,
+                    connectorScoped);
+            definition(statement, shared, "META", CONNECTOR_THREE, OTHER_ATTRIBUTE, "source", true, "STRING", null,
+                    LATER, declaredGlobal);
+            value(statement, KEPT_VALUE, promoted, "{\"data\": \"x\"}");
+
+            migrate(statement);
+
+            assertThat(scope(statement, shared)).isEqualTo(new Scope(CONNECTOR_THREE, true));
+            assertThat(scope(statement, promoted)).isEqualTo(new Scope(CONNECTOR_ONE, false));
+            assertThat(definitionOf(statement, KEPT_VALUE)).isEqualTo(promoted);
+        });
+    }
+
+    @Test
+    void aLonePromotedGlobalStaysGlobal() throws Exception {
+        String connectorScoped = storedMetadataDefinition(false);
+        inScratchSchema(statement -> {
+            definition(statement, KEPT, "META", CONNECTOR_ONE, ATTRIBUTE, "source", true, "STRING", null, EARLIER,
+                    connectorScoped);
+
+            migrate(statement);
+
+            assertThat(scope(statement, KEPT)).isEqualTo(new Scope(CONNECTOR_ONE, true));
+        });
+    }
+
+    /** A global without a connector is found by name whatever its stored definition says. */
+    @Test
+    void aGlobalWithoutAConnectorAndOneDeclaredGlobalOnAConnectorFold() throws Exception {
+        String declaredGlobal = storedMetadataDefinition(true);
+        inScratchSchema(statement -> {
+            definition(statement, KEPT, "META", null, ATTRIBUTE, "source", true, "STRING", null, EARLIER);
+            definition(statement, DUPLICATE, "META", CONNECTOR_ONE, OTHER_ATTRIBUTE, "source", true, "STRING", null,
+                    LATER, declaredGlobal);
+            value(statement, DUPLICATE_VALUE, DUPLICATE, "{\"data\": \"x\"}");
+
+            migrate(statement);
+
+            assertThat(count(statement, "SELECT count(*) FROM attribute_definition")).isEqualTo(1);
+            assertThat(definitionOf(statement, DUPLICATE_VALUE)).isEqualTo(KEPT);
         });
     }
 
@@ -446,17 +532,44 @@ class AttributeDefinitionUniqueKeyMigrationITest extends BaseSpringBootTest {
         }
     }
 
+    /** The definition column the engine stores for metadata a connector registers, declared global or its own. */
+    private String storedMetadataDefinition(boolean global) throws AttributeException, SQLException {
+        String name = "source-" + UUID.randomUUID();
+        MetadataAttributeV2 metadata = new MetadataAttributeV2();
+        metadata.setUuid(UUID.randomUUID().toString());
+        metadata.setName(name);
+        metadata.setType(AttributeType.META);
+        metadata.setContentType(AttributeContentType.STRING);
+        MetadataAttributeProperties properties = new MetadataAttributeProperties();
+        properties.setLabel(name);
+        properties.setGlobal(global);
+        metadata.setProperties(properties);
+        UUID stored = attributeEngine
+                .updateMetadataAttributeDefinition(metadata, UUID.fromString(newConnector()))
+                .getUuid();
+        try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
+            return text(statement,
+                    "SELECT definition::TEXT FROM " + dbSchema + ".attribute_definition WHERE uuid = '" + stored + "'");
+        }
+    }
+
     private static void definition(Statement statement, String uuid, String type, String connector, String attribute,
             String name, boolean global, String contentType, String operation, String createdAt) throws SQLException {
+        definition(statement, uuid, type, connector, attribute, name, global, contentType, operation, createdAt, "{}");
+    }
+
+    private static void definition(Statement statement, String uuid, String type, String connector, String attribute,
+            String name, boolean global, String contentType, String operation, String createdAt, String json)
+            throws SQLException {
         statement
                 .execute(
                         """
                                 INSERT INTO attribute_definition (uuid, connector_uuid, attribute_uuid, name, type, content_type, label,
                                     definition, global, operation, created_at, updated_at)
-                                VALUES ('%s', %s, '%s', '%s', '%s', '%s', '%s', '{}', %s, %s, '%s', '%s')
+                                VALUES ('%s', %s, '%s', '%s', '%s', '%s', '%s', %s, %s, %s, '%s', '%s')
                                 """
-                                .formatted(uuid, literal(connector), attribute, name, type, contentType, name, global,
-                                        literal(operation), createdAt, createdAt));
+                                .formatted(uuid, literal(connector), attribute, name, type, contentType, name,
+                                        literal(json), global, literal(operation), createdAt, createdAt));
     }
 
     private static void value(Statement statement, String uuid, String definition, String json) throws SQLException {
@@ -485,7 +598,29 @@ class AttributeDefinitionUniqueKeyMigrationITest extends BaseSpringBootTest {
     }
 
     private static String literal(String value) {
-        return value == null ? "NULL" : "'" + value + "'";
+        return value == null ? "NULL" : "'" + value.replace("'", "''") + "'";
+    }
+
+    /** Where a definition row is looked up from: its connector and global flag. */
+    private record Scope(String connector, boolean global) {
+    }
+
+    /** The scope of a definition row, or null when the migration deleted it. */
+    private static Scope scope(Statement statement, String definition) throws SQLException {
+        try (ResultSet rows = statement
+                .executeQuery(
+                        "SELECT connector_uuid, global FROM attribute_definition WHERE uuid = '" + definition + "'")) {
+            return rows.next() ? new Scope(rows.getString(1), rows.getBoolean(2)) : null;
+        }
+    }
+
+    /** The definition a value belongs to, or null when the migration deleted the value. */
+    private static String definitionOf(Statement statement, String value) throws SQLException {
+        try (ResultSet rows = statement
+                .executeQuery(
+                        "SELECT attribute_definition_uuid FROM attribute_content_item WHERE uuid = '" + value + "'")) {
+            return rows.next() ? rows.getString(1) : null;
+        }
     }
 
     private static long count(Statement statement, String sql) throws SQLException {

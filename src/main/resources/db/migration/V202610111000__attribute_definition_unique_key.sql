@@ -7,6 +7,13 @@
 -- definition without a connector was left by a deleted connector; two of them may share a UUID and name and are not
 -- folded.
 --
+-- Global metadata folds by name only where the engine looks it up by name: a row without a connector, or one whose
+-- stored definition declares it global. Metadata an operator promoted to global keeps a definition that declares it
+-- the connector's own, so the engine still looks it up by its connector; folding it away would split that connector's
+-- values over a fresh row. Under each name the global flag stays with one row: a row the engine looks up by name when
+-- there is one, otherwise the oldest promoted row. Any other promoted row is demoted rather than merged: it keeps its
+-- connector and values and loses only the global flag.
+--
 -- A duplicate folds into the kept row only when it reads its values the same way: the same content type, version and
 -- protection level. A metadata duplicate that differs is detached instead: its connector is cleared, as deleting the
 -- connector would, and so is its global flag, so the global-name key holds. Its values stay on the objects that hold
@@ -205,24 +212,41 @@ BEGIN
 END
 $$ LANGUAGE plpgsql;
 
--- First pass: global definitions, one per type and name. Both passes keep a data row with an operation first, then a
--- global row, then the oldest; every row here is global, so the second rule decides nothing in this pass.
+-- First pass: global definitions, one per type and name. A row is shared when the engine looks it up by name, and
+-- promoted otherwise. The kept row is a shared one when the group has any, then a data row with an operation, then
+-- the oldest. Every other shared row folds into it. Every other promoted row is demoted instead and never enters the
+-- fold; a promoted row alone under its name stays global.
+WITH "ranked" AS (
+    SELECT "uuid", "promoted",
+           first_value("uuid") OVER (
+               PARTITION BY "type", "name"
+               ORDER BY "promoted", ("type" = 'DATA' AND "operation" IS NULL), "created_at", "uuid"
+           ) AS "keep_uuid"
+      FROM (SELECT *,
+                   "connector_uuid" IS NOT NULL
+                       AND ("definition" -> 'properties' ->> 'global') IS DISTINCT FROM 'true' AS "promoted"
+              FROM "attribute_definition"
+             WHERE "global" IS TRUE) AS "flagged"
+), "demoted" AS (
+    UPDATE "attribute_definition"
+       SET "global" = FALSE
+     WHERE "uuid" IN (SELECT "ranked"."uuid"
+                        FROM "ranked"
+                       WHERE "ranked"."promoted"
+                         AND "ranked"."uuid" <> "ranked"."keep_uuid")
+)
 INSERT INTO "attribute_definition_merge" ("duplicate_uuid", "keep_uuid")
 SELECT "ranked"."uuid", "ranked"."keep_uuid"
-  FROM (SELECT "uuid",
-               first_value("uuid") OVER (
-                   PARTITION BY "type", "name"
-                   ORDER BY ("type" = 'DATA' AND "operation" IS NULL), ("global" IS NOT TRUE), "created_at", "uuid"
-               ) AS "keep_uuid"
-          FROM "attribute_definition"
-         WHERE "global" IS TRUE) AS "ranked"
- WHERE "ranked"."uuid" <> "ranked"."keep_uuid";
+  FROM "ranked"
+ WHERE NOT "ranked"."promoted"
+   AND "ranked"."uuid" <> "ranked"."keep_uuid";
 
 SELECT pg_temp.split_incompatible_attribute_definitions();
 SELECT pg_temp.fold_attribute_definitions();
 
--- Second pass: every definition with a connector key, globals kept by the first pass included, so a global and a
--- connector row with the same key cannot both survive. The global row is kept even when the connector row is older:
+-- Second pass: every definition with a connector key, globals kept by the first pass and promoted rows it demoted
+-- included, so a global and a connector row with the same key cannot both survive. It keeps a data row with an
+-- operation first, then a global row, then the oldest. The global row is kept even when the connector row is older:
 -- other connectors share it and the API addresses it by its UUID.
 INSERT INTO "attribute_definition_merge" ("duplicate_uuid", "keep_uuid")
 SELECT "ranked"."uuid", "ranked"."keep_uuid"
