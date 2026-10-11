@@ -164,6 +164,25 @@ class AttributeDefinitionUniquenessITest extends BaseSpringBootTest {
     }
 
     /**
+     * A connector and its first definitions written in one transaction: the definition's insert runs natively, so the
+     * connector still pending in the session has to land before it, or the connector foreign key refuses the row.
+     */
+    @Test
+    void aConnectorAndItsFirstDefinitionStoreInOneTransaction() {
+        String name = "sameTransaction-" + UUID.randomUUID();
+        DataAttributeV2 attribute = dataAttribute(UUID.randomUUID().toString(), name);
+
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            Connector connector = new Connector();
+            connector.setVersion(ConnectorVersion.V1);
+            UUID connectorUuid = connectorRepository.save(connector).getUuid();
+            register(() -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, null, List.of(attribute)));
+        });
+
+        assertThat(definitionsNamed(AttributeType.DATA, name)).hasSize(1);
+    }
+
+    /**
      * The first writer stores its definition and holds its transaction open; the second must wait on it rather than
      * insert a second row beside it. Without the unique keys the second never waits, and one of the two fails at
      * commit.

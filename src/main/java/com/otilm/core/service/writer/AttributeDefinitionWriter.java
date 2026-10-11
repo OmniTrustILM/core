@@ -1,6 +1,7 @@
 package com.otilm.core.service.writer;
 
 import com.otilm.core.dao.entity.AttributeDefinition;
+import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.repository.AttributeDefinitionRepository;
 import com.otilm.core.serialization.AttributeDefinitionJson;
 import jakarta.persistence.EntityManager;
@@ -47,8 +48,9 @@ public class AttributeDefinitionWriter {
      * writes nothing and the caller reads that writer's row. With no conflict target, either key counts.
      *
      * <p>
-     * The statement declares {@link AttributeDefinition} as its table, so Hibernate flushes before it only when a
-     * definition is pending rather than before every call; such a flush still runs the session's whole action queue.
+     * The statement declares {@link AttributeDefinition} and {@link Connector} as its tables: a pending definition or
+     * connector is flushed before it, so the connector foreign key holds. Other pending writes do not force a flush on
+     * every call, though a flush, once triggered, still runs the session's whole action queue.
      *
      * @return whether this call stored the definition
      */
@@ -58,6 +60,7 @@ public class AttributeDefinitionWriter {
         NativeQuery<?> insert = entityManager.createNativeQuery(INSERT_IF_ABSENT).unwrap(NativeQuery.class);
         return insert
                 .addSynchronizedEntityClass(AttributeDefinition.class)
+                .addSynchronizedEntityClass(Connector.class)
                 .setParameter("uuid", UUID.randomUUID(), StandardBasicTypes.UUID)
                 .setParameter("connectorUuid", definition.getConnectorUuid(), StandardBasicTypes.UUID)
                 .setParameter("attributeUuid", definition.getAttributeUuid(), StandardBasicTypes.UUID)
