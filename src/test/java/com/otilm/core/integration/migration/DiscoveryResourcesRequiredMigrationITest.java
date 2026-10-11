@@ -43,9 +43,7 @@ class DiscoveryResourcesRequiredMigrationITest extends BaseSpringBootTest {
                 statement
                         .execute("INSERT INTO discovery VALUES ('" + V1_NULL + "', NULL), ('" + V1_EMPTY
                                 + "', '{}'), ('" + V2 + "', '{CERTIFICATE,CRYPTOGRAPHIC_KEY}')");
-                statement
-                        .execute(new String(new ClassPathResource(MIGRATION_RESOURCE).getInputStream().readAllBytes(),
-                                StandardCharsets.UTF_8));
+                statement.execute(new ClassPathResource(MIGRATION_RESOURCE).getContentAsString(StandardCharsets.UTF_8));
 
                 assertThat(resources(statement, V1_NULL)).isEqualTo("{CERTIFICATE}");
                 assertThat(resources(statement, V1_EMPTY)).isEqualTo("{CERTIFICATE}");

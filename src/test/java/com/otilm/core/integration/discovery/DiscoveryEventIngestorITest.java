@@ -185,7 +185,6 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
         assertThat(reload(run).getLastAppliedSequence()).isEqualTo(2);
     }
 
-    /** The discovery listing shows the certificate total while the run is live, not only once it ends. */
     @Test
     void certificateTotal_movesAsPagesLandRatherThanOnlyAtTheEnd() {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);

@@ -805,7 +805,6 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
                 .assertFalse(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
     }
 
-    /** Resources compares the way the listing filter compares it, by code. */
     @Test
     void aConditionOnResourcesMatchesTheRunsTargetsByCode() throws RuleException {
         Discovery discovery = new Discovery();

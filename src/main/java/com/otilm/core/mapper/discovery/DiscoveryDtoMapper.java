@@ -99,7 +99,7 @@ public class DiscoveryDtoMapper {
         return dto;
     }
 
-    /** The interface driving the run; null for a v1 run, which is how a client tells the generations apart. */
+    /** The interface driving the run; null for a v1 run, and for an ended v2 run whose connector was deleted. */
     private static ConnectorInterfaceDto connectorInterfaceOf(Discovery discovery) {
         return discovery.getConnectorInterface() == null ? null : discovery.getConnectorInterface().mapToDto();
     }

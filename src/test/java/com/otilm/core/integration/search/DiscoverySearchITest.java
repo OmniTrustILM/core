@@ -426,6 +426,36 @@ class DiscoverySearchITest extends BaseSpringBootTest {
         Assertions.assertEquals(Set.of("test_discovery_outsized"), namesOf(retrieveTheDiscoveriesBySearch(fractional)));
     }
 
+    /** A count is whole, so a fraction equals no run and differs from every one. */
+    @Test
+    void testFilterDataByCountEqualToAFraction() {
+        for (FilterField count : List
+                .of(FilterField.DISCOVERY_TOTAL_CERT_DISCOVERED, FilterField.DISCOVERY_TOTAL_ITEMS_DISCOVERED)) {
+            Assertions
+                    .assertEquals(Set.of(),
+                            namesOf(retrieveTheDiscoveriesBySearch(
+                                    List.of(aPropertyFilter(count, FilterConditionOperator.EQUALS, "15.5")))),
+                            count.name());
+            Assertions
+                    .assertEquals(Set.of("test_discovery1", "test_discovery2", "test_discovery3", "test_discovery4"),
+                            namesOf(retrieveTheDiscoveriesBySearch(
+                                    List.of(aPropertyFilter(count, FilterConditionOperator.NOT_EQUALS, "15.5")))),
+                            count.name());
+            Assertions
+                    .assertEquals(Set.of("test_discovery1"),
+                            namesOf(retrieveTheDiscoveriesBySearch(List
+                                    .of(aPropertyFilter(count, FilterConditionOperator.EQUALS,
+                                            new ArrayList<>(List.of("15.5", "15")))))),
+                            count.name());
+            Assertions
+                    .assertEquals(Set.of("test_discovery2", "test_discovery3", "test_discovery4"),
+                            namesOf(retrieveTheDiscoveriesBySearch(List
+                                    .of(aPropertyFilter(count, FilterConditionOperator.NOT_EQUALS,
+                                            new ArrayList<>(List.of("15.5", "15")))))),
+                            count.name());
+        }
+    }
+
     @Test
     void testFilterDataByResources() {
         Assertions

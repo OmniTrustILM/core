@@ -560,6 +560,11 @@ public class FilterPredicatesBuilder {
                     + " with operator " + conditionOperator);
         }
         final Expression finalExpression = expression;
+        // A number is inlined, as the range comparisons inline it. Bound, a fraction would first have to coerce to the
+        // integer the expression is cast to, which Hibernate refuses before the query runs.
+        final List<?> equalityOperands = filterField.getType() == SearchFieldTypeEnum.NUMBER
+                ? filterValues.stream().map(criteriaBuilder::literal).toList()
+                : filterValues;
         switch (conditionOperator) {
             case EQUALS -> {
                 if (bitEnumProperty) {
@@ -574,8 +579,8 @@ public class FilterPredicatesBuilder {
                     predicate = getNativeArrayEqualsExpression(criteriaBuilder, filterValues, finalExpression);
                 } else {
                     predicate = multipleValues
-                            ? expression.in(filterValues)
-                            : criteriaBuilder.equal(expression, filterValues.getFirst());
+                            ? expression.in(equalityOperands)
+                            : criteriaBuilder.equal(expression, equalityOperands.getFirst());
                 }
             }
             case NOT_EQUALS -> {
@@ -609,9 +614,9 @@ public class FilterPredicatesBuilder {
                                         .or(getNotPresentPredicate(criteriaBuilder, from, expression, hasParent,
                                                 isParentCollection, false, isJsonArray),
                                                 multipleValues
-                                                        ? criteriaBuilder.not(expression.in(filterValues))
+                                                        ? criteriaBuilder.not(expression.in(equalityOperands))
                                                         : criteriaBuilder
-                                                                .notEqual(expression, filterValues.getFirst()));
+                                                                .notEqual(expression, equalityOperands.getFirst()));
                     }
                 }
             }
