@@ -419,6 +419,26 @@ class AttributeDefinitionUniqueKeyMigrationITest extends BaseSpringBootTest {
         });
     }
 
+    /**
+     * A group declares no content type; null against null is not a difference, so the pair folds and is not refused.
+     */
+    @Test
+    void aGroupPairWithoutAContentTypeFoldsIntoTheOlderRow() throws Exception {
+        inScratchSchema(statement -> {
+            definition(statement, KEPT, "GROUP", CONNECTOR_ONE, ATTRIBUTE, "section", false, "STRING", null, EARLIER);
+            definition(statement, DUPLICATE, "GROUP", CONNECTOR_ONE, ATTRIBUTE, "section", false, "STRING", null,
+                    LATER);
+            update(statement, KEPT, "content_type = NULL, protection_level = NULL");
+            update(statement, DUPLICATE, "content_type = NULL, protection_level = NULL");
+
+            migrate(statement);
+
+            assertThat(count(statement, "SELECT count(*) FROM attribute_definition")).isEqualTo(1);
+            assertThat(count(statement, "SELECT count(*) FROM attribute_definition WHERE uuid = '" + KEPT + "'"))
+                    .isEqualTo(1);
+        });
+    }
+
     @Test
     void aDataPairOfDifferentProtectionLevelsStopsTheMigration() throws Exception {
         inScratchSchema(statement -> {

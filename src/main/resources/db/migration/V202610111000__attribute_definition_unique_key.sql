@@ -17,8 +17,8 @@
 -- A duplicate folds into the kept row only when it reads its values the same way: the same content type, version and
 -- protection level. A metadata duplicate that differs is detached instead: its connector is cleared, as deleting the
 -- connector would, and so is its global flag, so the global-name key holds. Its values stay on the objects that hold
--- them and it stops matching lookups. A data or group duplicate that differs cannot come from the race and is refused
--- rather than guessed at.
+-- them and it stops matching lookups. A data or group duplicate that differs is not one the fold can decide, so it
+-- is refused rather than guessed at.
 
 -- Old pods keep running through a rolling upgrade: their writes and reads of definitions wait until the fold and both
 -- keys are in place, so none of them inserts a duplicate, or binds a value to one, behind the fold.
@@ -78,7 +78,7 @@ BEGIN
             OR "duplicate"."version" <> "kept"."version"
             OR COALESCE("duplicate"."protection_level", 'NONE') <> COALESCE("kept"."protection_level", 'NONE'));
     IF "refused" IS NOT NULL THEN
-        RAISE EXCEPTION 'Duplicate attribute definitions differ in content type, version or protection level and cannot be merged: %', "refused";
+        RAISE EXCEPTION 'Duplicate attribute definitions differ in content type, version or protection level and cannot be merged: %. Resolve these pairs before upgrading; the 2.20.0 upgrade notes describe how.', "refused";
     END IF;
 
     WITH "detached" AS (
