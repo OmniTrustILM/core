@@ -412,6 +412,12 @@ class DiscoverySearchITest extends BaseSpringBootTest {
         Assertions
                 .assertEquals(Set.of("test_discovery3", "test_discovery4", "test_discovery_outsized"),
                         namesOf(retrieveTheDiscoveriesBySearch(filters)));
+
+        final List<SearchFilterRequestDto> pastTheRange = List
+                .of(aPropertyFilter(FilterField.DISCOVERY_TOTAL_ITEMS_DISCOVERED, FilterConditionOperator.GREATER,
+                        2_999_999_999L));
+        Assertions
+                .assertEquals(Set.of("test_discovery_outsized"), namesOf(retrieveTheDiscoveriesBySearch(pastTheRange)));
     }
 
     @Test

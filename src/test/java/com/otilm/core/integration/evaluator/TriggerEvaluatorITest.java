@@ -782,6 +782,29 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
                 .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
     }
 
+    /** A float holds integers exactly only up to 2^24, and an item total can outgrow that. */
+    @Test
+    void aConditionOnTheItemTotalComparesExactlyPastTheFloatRange() throws RuleException {
+        Discovery stored = new Discovery();
+        stored.setName("item-total-condition-large");
+        stored.setConnectorUuid(UUID.randomUUID());
+        stored.setStatus(DiscoveryStatus.COMPLETED);
+        stored.setConnectorStatus(DiscoveryStatus.COMPLETED);
+        stored.setLastAppliedSequence(3_000_000_001L);
+        stored = discoveryRepository.saveAndFlush(stored);
+        Discovery discovery = discoveryRepository.findByUuid(stored.getUuid()).orElseThrow();
+
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setFieldIdentifier(FilterField.DISCOVERY_TOTAL_ITEMS_DISCOVERED.toString());
+        condition.setOperator(FilterConditionOperator.GREATER);
+        condition.setValue(3_000_000_000L);
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        Assertions
+                .assertFalse(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+    }
+
     /** Resources compares the way the listing filter compares it, by code. */
     @Test
     void aConditionOnResourcesMatchesTheRunsTargetsByCode() throws RuleException {

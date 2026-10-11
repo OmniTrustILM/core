@@ -45,6 +45,7 @@ import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import jakarta.persistence.metamodel.Attribute;
 import java.lang.reflect.InvocationTargetException;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -901,13 +902,12 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
     }
 
     private static int compareNumbers(Number objectNumber, Object conditionNumber) {
-        if (conditionNumber instanceof String) {
-            conditionNumber = Float.parseFloat(conditionNumber.toString());
-        } else if (!(conditionNumber instanceof Number)) {
+        if (!(conditionNumber instanceof String) && !(conditionNumber instanceof Number)) {
             throw new ValidationException("Invalid type for conditionNumber. Expected String or Number, but got: "
                     + (conditionNumber == null ? "null" : conditionNumber.getClass().getSimpleName()));
         }
-        return Float.compare(objectNumber.floatValue(), ((Number) conditionNumber).floatValue());
+        // Decimal, not float: a float holds integers exactly only up to 2^24, and a long total outgrows that.
+        return new BigDecimal(objectNumber.toString()).compareTo(new BigDecimal(conditionNumber.toString().trim()));
     }
 
     private boolean evaluateConditionOnAttribute(List<? extends AttributeContent> content,

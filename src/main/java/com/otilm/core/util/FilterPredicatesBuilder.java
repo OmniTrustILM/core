@@ -1090,9 +1090,13 @@ public class FilterPredicatesBuilder {
                     }
                 } else if (filterField.getType() == SearchFieldTypeEnum.NUMBER) {
                     try {
-                        preparedFilterValue = stringValue.contains(".")
-                                ? Float.parseFloat(stringValue)
-                                : Integer.parseInt(stringValue);
+                        if (stringValue.contains(".")) {
+                            preparedFilterValue = Float.parseFloat(stringValue);
+                        } else if (expressionClassOf(filterField) == Long.class) {
+                            preparedFilterValue = Long.parseLong(stringValue);
+                        } else {
+                            preparedFilterValue = Integer.parseInt(stringValue);
+                        }
                     } catch (NumberFormatException e) {
                         throw new ValidationException(
                                 "Filter field value " + stringValue + " cannot be parsed as a Number.");
