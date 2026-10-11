@@ -10,6 +10,8 @@ import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.service.writer.DiscoveryWriter;
 import com.otilm.core.util.BaseSpringBootTest;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -157,6 +159,46 @@ class DiscoveryWriterITest extends BaseSpringBootTest {
     @Test
     void markDispatchRefusedIsEmptyForAnUnknownRun() {
         assertThat(discoveryWriter.markDispatchRefused(UUID.randomUUID(), "refused")).isEmpty();
+    }
+
+    @Test
+    void markFailedUnlessTerminalEndsARunParkedInAMidRunWarning() {
+        Discovery run = givenDiscovery();
+        run.setStatus(DiscoveryStatus.WARNING);
+        run.setConnectorStatus(DiscoveryStatus.IN_PROGRESS);
+        discoveryRepository.save(run);
+
+        var detail = discoveryWriter.markFailedUnlessTerminal(run.getUuid(), "Core failed").orElseThrow();
+
+        assertThat(detail.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
+        Discovery persisted = discoveryRepository.findByUuid(run.getUuid()).orElseThrow();
+        assertThat(persisted.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
+        assertThat(persisted.getConnectorStatus()).isEqualTo(DiscoveryStatus.FAILED);
+        assertThat(persisted.getMessage()).isEqualTo("Core failed");
+        assertThat(persisted.getEndTime()).isNotNull();
+    }
+
+    @Test
+    void markFailedUnlessTerminalLeavesARunThatAlreadyEndedUntouched() {
+        for (DiscoveryStatus ended : List.of(DiscoveryStatus.COMPLETED, DiscoveryStatus.WARNING)) {
+            Discovery run = givenDiscovery();
+            run.setStatus(ended);
+            run.setConnectorStatus(ended);
+            run.setMessage("ended normally");
+            run.setEndTime(OffsetDateTime.now(ZoneOffset.UTC));
+            discoveryRepository.save(run);
+
+            assertThat(discoveryWriter.markFailedUnlessTerminal(run.getUuid(), "Core failed")).isEmpty();
+
+            Discovery persisted = discoveryRepository.findByUuid(run.getUuid()).orElseThrow();
+            assertThat(persisted.getStatus()).isEqualTo(ended);
+            assertThat(persisted.getMessage()).isEqualTo("ended normally");
+        }
+    }
+
+    @Test
+    void markFailedUnlessTerminalIsEmptyForAnUnknownRun() {
+        assertThat(discoveryWriter.markFailedUnlessTerminal(UUID.randomUUID(), "Core failed")).isEmpty();
     }
 
     private Discovery givenDiscovery() {

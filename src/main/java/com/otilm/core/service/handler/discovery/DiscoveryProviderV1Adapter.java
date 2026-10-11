@@ -68,6 +68,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -102,6 +103,7 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
     private final DiscoveryMessageWriter messageWriter;
     private final TransactionTemplate transactions;
     private final TransactionTemplate readOnlyTransactions;
+    private final TransactionTemplate newTransactions;
     private final DiscoveryWriter discoveryWriter;
 
     public DiscoveryProviderV1Adapter(DiscoveryProperties discoveryProperties,
@@ -128,6 +130,8 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
         this.transactions = new TransactionTemplate(transactionManager);
         this.readOnlyTransactions = new TransactionTemplate(transactionManager);
         this.readOnlyTransactions.setReadOnly(true);
+        this.newTransactions = new TransactionTemplate(transactionManager);
+        this.newTransactions.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.discoveryWriter = discoveryWriter;
     }
 
@@ -613,7 +617,7 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
                 .connector(discovery.getConnectorUuid())
                 .build();
         try {
-            transactions.executeWithoutResult(status -> {
+            newTransactions.executeWithoutResult(status -> {
                 try {
                     attributeEngine.updateMetadataAttributes(metadata, target);
                 } catch (AttributeException e) {
