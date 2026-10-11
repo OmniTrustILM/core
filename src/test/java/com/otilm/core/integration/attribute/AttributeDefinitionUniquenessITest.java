@@ -140,7 +140,11 @@ class AttributeDefinitionUniquenessITest extends BaseSpringBootTest {
                 .anySatisfy(sql -> assertThat(sql.toLowerCase())
                         .contains("attribute_definition")
                         .contains("on conflict do nothing"));
-        // The natively stored definition reads back exactly as it was rendered, so nothing looks changed.
+        // The natively stored definition reads back exactly as it was rendered, so the engine's re-read and set in the
+        // first call leaves nothing for Hibernate to write; the repeat, in a fresh session, writes nothing either.
+        assertThat(first)
+                .noneMatch(sql -> sql.toLowerCase().startsWith("update")
+                        && sql.toLowerCase().contains("attribute_definition"));
         assertThat(repeat)
                 .noneMatch(sql -> sql.toLowerCase().contains("attribute_definition")
                         && (sql.toLowerCase().startsWith("insert") || sql.toLowerCase().startsWith("update")));
