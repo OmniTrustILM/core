@@ -326,7 +326,7 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
     }
 
     /** The reason is shown to users, so it is the exception's own text only when that is safe to show. */
-    static String withSafeReason(String prefix, Exception e) {
+    private static String withSafeReason(String prefix, Exception e) {
         String reason = PlatformException.safeMessage(e, "");
         return reason.isBlank() ? prefix + "." : prefix + ": " + reason;
     }
