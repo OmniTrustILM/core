@@ -448,8 +448,9 @@ public class AttributeEngine {
 
     /**
      * METADATA strict read for NG resolution. The META connector read is UUID-keyed via the Optional finder
-     * {@code findByTypeAndConnectorUuidAndAttributeUuidAndName}, which {@code uq_attribute_definition_key} keeps
-     * unique.
+     * {@code findByTypeAndConnectorUuidAndAttributeUuidAndName}, which {@code uq_attribute_definition_key} keeps unique
+     * for a connector's definitions. Metadata left by deleted connectors, which has no connector and may repeat, is not
+     * looked up by this finder.
      */
     public BaseAttribute getMetadataAttributeDefinitionStrict(UUID connectorUuid, UUID attributeUuid, String name) {
         AttributeDefinition definition = attributeDefinitionRepository
@@ -1149,7 +1150,7 @@ public class AttributeEngine {
                     .format("Connector attribute content type changed to %s while stored attribute definition have content type %s",
                             dataAttribute.getContentType().getLabel(), attributeDefinition.getContentType().getLabel()),
                     dataAttribute.getUuid(), dataAttribute.getName(), dataAttribute.getType(),
-                    connectorUuid.toString());
+                    connectorUuid == null ? null : connectorUuid.toString());
         }
         claimUnknownOperation(attributeDefinition, operation);
 

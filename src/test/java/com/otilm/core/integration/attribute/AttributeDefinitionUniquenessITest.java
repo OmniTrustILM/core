@@ -182,6 +182,19 @@ class AttributeDefinitionUniquenessITest extends BaseSpringBootTest {
         assertThat(definitionsNamed(AttributeType.DATA, name)).hasSize(1);
     }
 
+    @Test
+    void aPlatformDataDefinitionReRegisteredWithAnotherContentTypeIsRefused() throws Exception {
+        String uuid = UUID.randomUUID().toString();
+        String name = "platform-" + UUID.randomUUID();
+        attributeEngine.updateDataAttributeDefinitions(null, "platform-operation", List.of(dataAttribute(uuid, name)));
+        DataAttributeV2 changed = dataAttribute(uuid, name);
+        changed.setContentType(AttributeContentType.INTEGER);
+
+        assertThatThrownBy(
+                () -> attributeEngine.updateDataAttributeDefinitions(null, "platform-operation", List.of(changed)))
+                .isInstanceOf(AttributeException.class);
+    }
+
     /**
      * The first writer stores its definition and holds its transaction open; the second must wait on it rather than
      * insert a second row beside it. Without the unique keys the second never waits, and one of the two fails at
