@@ -43,14 +43,14 @@ public class AttributeDefinitionWriter {
     }
 
     /**
-     * Stores a new definition unless one with the same key is already there: the connector's attribute, or the global
-     * name. A concurrent writer of the same definition makes this wait for its transaction; when it commits, this
-     * writes nothing and the caller reads that writer's row. With no conflict target, either key counts.
+     * Stores a new definition unless one with the same key (the connector's attribute or the global name) exists; a
+     * concurrent writer of the same key makes this wait, then write nothing. Either key counts: there is no conflict
+     * target.
      *
      * <p>
-     * The statement declares {@link AttributeDefinition} and {@link Connector} as its tables: a pending definition or
-     * connector is flushed before it, so the connector foreign key holds. Other pending writes do not force a flush on
-     * every call, though a flush, once triggered, still runs the session's whole action queue.
+     * Declares {@link AttributeDefinition} and {@link Connector} as its tables, so a pending definition or connector is
+     * flushed first and the connector foreign key holds; a flush, once triggered, runs the session's whole action
+     * queue.
      *
      * @return whether this call stored the definition
      */

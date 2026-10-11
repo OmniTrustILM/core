@@ -595,9 +595,8 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
 
     /**
      * Stores the metadata the connector reported about the run, once, in a transaction of its own. It is advisory: a
-     * failure leaves the run's outcome alone, takes back whatever of the metadata was already written, and stays on the
-     * run as a warning that no later message replaces. A checked refusal marks the transaction rollback-only, so it
-     * rolls back too.
+     * failure, a checked refusal included (rethrown unchecked inside the transaction), takes back whatever was written,
+     * leaves the run's outcome alone, and stays on the run as a warning that no later message replaces.
      */
     private void storeRunMetadata(DiscoveryContext context) {
         if (context.isRunMetadataHandled()) {

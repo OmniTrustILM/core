@@ -147,11 +147,9 @@ public class AttributeDefinition extends UniquelyIdentified implements ObjectAcc
     private ProtectionLevel protectionLevel;
 
     /**
-     * The connector a definition is unique within, computed by the database. A metadata definition without a connector
-     * keeps NULL: deleting a connector leaves its metadata definitions without one, and two such leftovers may share an
-     * attribute UUID and name. Any other definition without a connector is the platform's own, keyed under a fixed UUID
-     * so that two copies collide. Mapped only so the test schema, generated from these annotations, carries the column
-     * the unique key names; V202610111000 adds it in production.
+     * The connector a definition is unique within, computed by the database: NULL for a metadata definition without a
+     * connector, since a deleted connector's leftovers may repeat, and a fixed UUID for the platform's own definitions,
+     * so their copies collide. Mapped only so the test schema carries the column; V202610111000 adds it in production.
      */
     @Setter(AccessLevel.NONE)
     @Column(name = "connector_key",
