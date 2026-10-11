@@ -38,6 +38,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 class GlobalMetadataServiceITest extends BaseSpringBootTest {
 
     @Autowired
@@ -321,5 +323,33 @@ class GlobalMetadataServiceITest extends BaseSpringBootTest {
                 .promoteConnectorMetadata(UUID.fromString(connectorMetaAttribute.getUuid()), connector.getUuid());
         List<AttributeDefinitionDto> dto = attributeService.listGlobalMetadata();
         Assertions.assertEquals(2, dto.size());
+    }
+
+    @Test
+    void promotingOntoATakenGlobalNameIsRefused() {
+        MetadataAttributeV2 clash = new MetadataAttributeV2();
+        clash.setUuid("87e968ca-9404-4128-8b58-3ab5db2ba09e");
+        clash.setName(metaAttribute.getName());
+        clash.setType(AttributeType.META);
+        clash.setContentType(AttributeContentType.STRING);
+        MetadataAttributeProperties properties = new MetadataAttributeProperties();
+        properties.setLabel("Clash");
+        clash.setProperties(properties);
+        AttributeDefinition clashing = new AttributeDefinition();
+        clashing.setDefinition(clash);
+        clashing.setName(clash.getName());
+        clashing.setAttributeUuid(UUID.fromString(clash.getUuid()));
+        clashing.setContentType(clash.getContentType());
+        clashing.setType(AttributeType.META);
+        clashing.setConnectorUuid(connector.getUuid());
+        clashing.setLabel("Clash");
+        clashing = attributeDefinitionRepository.save(clashing);
+
+        Assertions
+                .assertThrows(ValidationException.class, () -> attributeService
+                        .promoteConnectorMetadata(UUID.fromString(clash.getUuid()), connector.getUuid()));
+
+        Assertions.assertEquals(1, attributeService.listGlobalMetadata().size());
+        assertThat(clashing.getGlobal()).isNotEqualTo(Boolean.TRUE);
     }
 }
