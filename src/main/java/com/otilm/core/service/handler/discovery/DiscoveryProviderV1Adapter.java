@@ -56,6 +56,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -208,10 +209,11 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
             }
         }
 
-        StagedCounts counts = readOnlyTransactions
-                .execute(status -> new StagedCounts(
-                        discoveryCertificateRepository.countByDiscovery(discovery).intValue(),
-                        discoveryCertificateRepository.countByDiscoveryAndNewlyDiscovered(discovery, true)));
+        StagedCounts counts = Objects
+                .requireNonNull(readOnlyTransactions
+                        .execute(status -> new StagedCounts(
+                                discoveryCertificateRepository.countByDiscovery(discovery).intValue(),
+                                discoveryCertificateRepository.countByDiscoveryAndNewlyDiscovered(discovery, true))));
         context.setCertificatesDiscovered(counts.certificates());
         long newlyDiscoveredCount = counts.newlyDiscovered();
 
@@ -255,7 +257,7 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
         UUID loggedUserUuid = UUID.fromString(AuthHelper.getUserIdentification().getUuid());
 
         // reload discovery modal with all association since it could be in separate transaction/session due to async
-        return readOnlyTransactions.execute(status -> {
+        return Objects.requireNonNull(readOnlyTransactions.execute(status -> {
             String message = null;
             Connector connector = null;
             List<DataAttribute> dataAttributes = null;
@@ -273,6 +275,7 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
                 resourceService.loadResourceObjectContentData(dataAttributes);
 
             } catch (Exception e) {
+                logger.error("Could not load the context of discovery {}", discoveryUuid, e);
                 message = e.getMessage();
             }
 
@@ -286,7 +289,7 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
                 discoveryContext.setConnectorDiscoveryStatus(DiscoveryStatus.FAILED);
             }
             return discoveryContext;
-        });
+        }));
     }
 
     private DiscoveryDetailDto failAtProvider(DiscoveryContext context, Exception e) {
