@@ -162,13 +162,13 @@ class DiscoveryWriterITest extends BaseSpringBootTest {
     }
 
     @Test
-    void markFailedUnlessTerminalEndsARunParkedInAMidRunWarning() {
+    void markFailedUnlessEndedEndsARunParkedInAMidRunWarning() {
         Discovery run = givenDiscovery();
         run.setStatus(DiscoveryStatus.WARNING);
         run.setConnectorStatus(DiscoveryStatus.IN_PROGRESS);
         discoveryRepository.save(run);
 
-        var detail = discoveryWriter.markFailedUnlessTerminal(run.getUuid(), "Core failed").orElseThrow();
+        var detail = discoveryWriter.markFailedUnlessEnded(run.getUuid(), "Core failed").orElseThrow();
 
         assertThat(detail.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
         Discovery persisted = discoveryRepository.findByUuid(run.getUuid()).orElseThrow();
@@ -179,7 +179,7 @@ class DiscoveryWriterITest extends BaseSpringBootTest {
     }
 
     @Test
-    void markFailedUnlessTerminalLeavesARunThatAlreadyEndedUntouched() {
+    void markFailedUnlessEndedLeavesARunThatAlreadyEndedUntouched() {
         for (DiscoveryStatus ended : List.of(DiscoveryStatus.COMPLETED, DiscoveryStatus.WARNING)) {
             Discovery run = givenDiscovery();
             run.setStatus(ended);
@@ -188,7 +188,7 @@ class DiscoveryWriterITest extends BaseSpringBootTest {
             run.setEndTime(OffsetDateTime.now(ZoneOffset.UTC));
             discoveryRepository.save(run);
 
-            assertThat(discoveryWriter.markFailedUnlessTerminal(run.getUuid(), "Core failed")).isEmpty();
+            assertThat(discoveryWriter.markFailedUnlessEnded(run.getUuid(), "Core failed")).isEmpty();
 
             Discovery persisted = discoveryRepository.findByUuid(run.getUuid()).orElseThrow();
             assertThat(persisted.getStatus()).isEqualTo(ended);
@@ -197,8 +197,8 @@ class DiscoveryWriterITest extends BaseSpringBootTest {
     }
 
     @Test
-    void markFailedUnlessTerminalIsEmptyForAnUnknownRun() {
-        assertThat(discoveryWriter.markFailedUnlessTerminal(UUID.randomUUID(), "Core failed")).isEmpty();
+    void markFailedUnlessEndedIsEmptyForAnUnknownRun() {
+        assertThat(discoveryWriter.markFailedUnlessEnded(UUID.randomUUID(), "Core failed")).isEmpty();
     }
 
     private Discovery givenDiscovery() {

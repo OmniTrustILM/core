@@ -13,7 +13,6 @@ import java.util.Collection;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -113,12 +112,13 @@ public class DiscoveryWriter {
     /**
      * Ends a v1 run that Core itself failed to finish, unless it already ended. A run counts as ended once it has an
      * end time, so one parked in a mid-run {@code WARNING} is still ended here. The caller's transactions have rolled
-     * back by then, so this starts a fresh one, and it locks the row so a concurrent ending is not overwritten.
+     * back by then, so the caller runs it in a transaction of its own; it locks the row so a concurrent ending is not
+     * overwritten.
      *
      * @return the run's detail, or empty when the run is gone or has already ended
      */
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public Optional<DiscoveryDetailDto> markFailedUnlessTerminal(UUID discoveryUuid, String message) {
+    @Transactional
+    public Optional<DiscoveryDetailDto> markFailedUnlessEnded(UUID discoveryUuid, String message) {
         return discoveryRepository
                 .findWithLockByUuid(discoveryUuid)
                 .filter(discovery -> discovery.getEndTime() == null)

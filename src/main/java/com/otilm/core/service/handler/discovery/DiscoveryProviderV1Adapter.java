@@ -151,7 +151,9 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
     private DiscoveryDetailDto endAfterCoreFailure(UUID discoveryUuid, RuntimeException failure) {
         logger.error("Discovery {} failed in Core", discoveryUuid, failure);
         String message = "Discovery failed in Core.";
-        Optional<DiscoveryDetailDto> ended = discoveryWriter.markFailedUnlessTerminal(discoveryUuid, message);
+        Optional<DiscoveryDetailDto> ended = Objects
+                .requireNonNull(newTransactions
+                        .execute(status -> discoveryWriter.markFailedUnlessEnded(discoveryUuid, message)));
         if (ended.isEmpty()) {
             throw failure;
         }
