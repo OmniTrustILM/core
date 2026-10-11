@@ -2029,8 +2029,8 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
 
         Discovery persisted = discoveryRepository.findByUuid(discoveryUuid).orElseThrow();
         Assertions.assertEquals(DiscoveryStatus.FAILED, persisted.getStatus());
-        Assertions.assertTrue(persisted.getMessage().contains("not-a-uuid"), persisted.getMessage());
-        Assertions.assertFalse(persisted.getMessage().contains("UnexpectedRollback"), persisted.getMessage());
+        Assertions.assertEquals(DiscoveryStatus.FAILED, persisted.getConnectorStatus());
+        Assertions.assertEquals("Invalid UUID not-a-uuid in the request", persisted.getMessage());
         Assertions.assertNotNull(persisted.getEndTime());
     }
 

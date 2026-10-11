@@ -88,6 +88,8 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
 
     private static final String RUN_METADATA_NOT_STORED = "Discovery metadata could not be stored.";
 
+    private static final String CONTEXT_NOT_LOADED = "Discovery could not be prepared in Core.";
+
     private final DiscoveryProperties discoveryProperties;
     private final DiscoveryRepository discoveryRepository;
     private final ConnectorRepository connectorRepository;
@@ -274,7 +276,7 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
             // Out here, so the template has rolled back: a runtime failure that crossed a transactional service has
             // marked it rollback-only, and handling it inside would turn into an UnexpectedRollbackException on commit.
             logger.error("Could not load the context of discovery {}", discoveryUuid, e);
-            return failedContext(loggedUserUuid, null, discovery, e.getMessage());
+            return failedContext(loggedUserUuid, null, discovery, PlatformException.safeMessage(e, CONTEXT_NOT_LOADED));
         }
     }
 
@@ -298,7 +300,8 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
         } catch (Exception e) {
             logger.error("Could not load the context of discovery {}", discovery.getUuid(), e);
             ConnectorDto connectorDto = connector != null ? connector.mapToDto() : null;
-            return failedContext(loggedUserUuid, connectorDto, discovery, e.getMessage());
+            return failedContext(loggedUserUuid, connectorDto, discovery,
+                    PlatformException.safeMessage(e, CONTEXT_NOT_LOADED));
         }
         return new DiscoveryContext(loggedUserUuid, connector.mapToDto(), discovery, dataAttributes);
     }
