@@ -8,9 +8,9 @@
 -- folded.
 --
 -- Global metadata folds by name only where the engine looks it up by name: a row without a connector, or one whose
--- stored definition declares it global. Metadata an operator promoted to global keeps a definition that declares it
--- the connector's own, so the engine still looks it up by its connector; folding it away would split that connector's
--- values over a fresh row. Under each name the global flag stays with one row: a row the engine looks up by name when
+-- stored definition declares it global. Metadata an operator promoted to global keeps the connector's own declaration
+-- unless an operator has since edited it, so the engine still looks it up by its connector; folding it away would
+-- split that connector's values over a fresh row. Under each name the global flag stays with one row: a row the engine looks up by name when
 -- there is one, otherwise the oldest promoted row. Any other promoted row is demoted rather than merged: it keeps its
 -- connector and values and loses only the global flag.
 --
@@ -21,7 +21,7 @@
 -- rather than guessed at.
 
 -- Old pods keep running through a rolling upgrade: their writes and reads of definitions wait until the fold and both
--- keys are in place, so none of them inserts a duplicate, or binds a value or a list view to one, behind the fold.
+-- keys are in place, so none of them inserts a duplicate, or binds a value to one, behind the fold.
 -- Value inserts check their foreign key against this table, so they wait too.
 LOCK TABLE "attribute_definition" IN ACCESS EXCLUSIVE MODE;
 
@@ -63,6 +63,7 @@ $$ LANGUAGE SQL STABLE;
 CREATE FUNCTION pg_temp.split_incompatible_attribute_definitions() RETURNS VOID AS $$
 DECLARE
     "refused" TEXT;
+    "detached_uuids" TEXT;
 BEGIN
     SELECT string_agg("folded"."duplicate_uuid"::TEXT || ' (kept ' || "folded"."keep_uuid"::TEXT || ')', ', ')
       INTO "refused"
@@ -85,11 +86,21 @@ BEGIN
            AND ("duplicate"."content_type" IS DISTINCT FROM "kept"."content_type"
                 OR "duplicate"."version" <> "kept"."version"
                 OR COALESCE("duplicate"."protection_level", 'NONE') <> COALESCE("kept"."protection_level", 'NONE'))
-        RETURNING "folded"."duplicate_uuid"
+        RETURNING "folded"."duplicate_uuid", "folded"."keep_uuid"
+    ), "updated" AS (
+        UPDATE "attribute_definition"
+           SET "connector_uuid" = NULL, "global" = FALSE
+         WHERE "uuid" IN (SELECT "duplicate_uuid" FROM "detached")
+        RETURNING 1
     )
-    UPDATE "attribute_definition"
-       SET "connector_uuid" = NULL, "global" = FALSE
-     WHERE "uuid" IN (SELECT "duplicate_uuid" FROM "detached");
+    SELECT string_agg("detached"."duplicate_uuid"::TEXT || ' (kept ' || "detached"."keep_uuid"::TEXT || ')', ', '
+                      ORDER BY "detached"."duplicate_uuid")
+      INTO "detached_uuids"
+      FROM "detached";
+
+    IF "detached_uuids" IS NOT NULL THEN
+        RAISE NOTICE 'Attribute definitions detached from their connector, as they read their values differently from the definition kept: %', "detached_uuids";
+    END IF;
 END
 $$ LANGUAGE plpgsql;
 
@@ -214,8 +225,12 @@ $$ LANGUAGE plpgsql;
 
 -- First pass: global definitions, one per type and name. A row is shared when the engine looks it up by name, and
 -- promoted otherwise. The kept row is a shared one when the group has any, then a data row with an operation, then
--- the oldest. Every other shared row folds into it. Every other promoted row is demoted instead and never enters the
--- fold; a promoted row alone under its name stays global.
+-- the oldest. Every other shared row folds into it, or is detached when it reads its values differently. Every other
+-- promoted row is demoted instead and never enters the fold; a promoted row alone under its name stays global.
+CREATE FUNCTION pg_temp.collect_global_attribute_definitions() RETURNS VOID AS $$
+DECLARE
+    "demoted_uuids" TEXT;
+BEGIN
 WITH "ranked" AS (
     SELECT "uuid", "promoted",
            first_value("uuid") OVER (
@@ -234,13 +249,26 @@ WITH "ranked" AS (
                         FROM "ranked"
                        WHERE "ranked"."promoted"
                          AND "ranked"."uuid" <> "ranked"."keep_uuid")
+    RETURNING "uuid"
+), "collected" AS (
+    INSERT INTO "attribute_definition_merge" ("duplicate_uuid", "keep_uuid")
+    SELECT "ranked"."uuid", "ranked"."keep_uuid"
+      FROM "ranked"
+     WHERE NOT "ranked"."promoted"
+       AND "ranked"."uuid" <> "ranked"."keep_uuid"
+    RETURNING 1
 )
-INSERT INTO "attribute_definition_merge" ("duplicate_uuid", "keep_uuid")
-SELECT "ranked"."uuid", "ranked"."keep_uuid"
-  FROM "ranked"
- WHERE NOT "ranked"."promoted"
-   AND "ranked"."uuid" <> "ranked"."keep_uuid";
+SELECT string_agg("demoted"."uuid"::TEXT, ', ' ORDER BY "demoted"."uuid")
+  INTO "demoted_uuids"
+  FROM "demoted";
 
+IF "demoted_uuids" IS NOT NULL THEN
+    RAISE NOTICE 'Global metadata demoted to its connector, as another global definition holds its name: %', "demoted_uuids";
+END IF;
+END
+$$ LANGUAGE plpgsql;
+
+SELECT pg_temp.collect_global_attribute_definitions();
 SELECT pg_temp.split_incompatible_attribute_definitions();
 SELECT pg_temp.fold_attribute_definitions();
 
@@ -280,5 +308,6 @@ ALTER TABLE "attribute_definition"
     ADD CONSTRAINT "uq_attribute_definition_global_name" UNIQUE ("type", "global_name");
 
 DROP FUNCTION pg_temp.fold_attribute_definitions();
+DROP FUNCTION pg_temp.collect_global_attribute_definitions();
 DROP FUNCTION pg_temp.split_incompatible_attribute_definitions();
 DROP FUNCTION pg_temp.rebind_list_view_entries(JSONB);

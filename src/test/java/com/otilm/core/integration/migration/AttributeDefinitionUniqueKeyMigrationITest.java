@@ -318,6 +318,7 @@ class AttributeDefinitionUniqueKeyMigrationITest extends BaseSpringBootTest {
 
             assertThat(count(statement, "SELECT count(*) FROM attribute_definition")).isEqualTo(1);
             assertThat(definitionOf(statement, DUPLICATE_VALUE)).isEqualTo(KEPT);
+            assertThat(scope(statement, KEPT)).isEqualTo(new Scope(null, true));
         });
     }
 
@@ -327,9 +328,11 @@ class AttributeDefinitionUniqueKeyMigrationITest extends BaseSpringBootTest {
      */
     @Test
     void aGlobalAndAConnectorRowWithTheSameKeyFoldIntoTheGlobalRow() throws Exception {
+        String declaredGlobal = storedMetadataDefinition(true);
         inScratchSchema(statement -> {
             definition(statement, KEPT, "META", CONNECTOR_ONE, ATTRIBUTE, "source", false, "STRING", null, EARLIER);
-            definition(statement, DUPLICATE, "META", CONNECTOR_ONE, ATTRIBUTE, "source", true, "STRING", null, LATER);
+            definition(statement, DUPLICATE, "META", CONNECTOR_ONE, ATTRIBUTE, "source", true, "STRING", null, LATER,
+                    declaredGlobal);
 
             migrate(statement);
 
