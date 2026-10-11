@@ -1,6 +1,9 @@
 package com.otilm.core.service.handler.discovery;
 
+import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.interfaces.client.v1.DiscoverySyncApiClient;
+import com.otilm.api.model.connector.discovery.DiscoveryProviderDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.ConnectorDto;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
@@ -49,13 +52,15 @@ class DiscoveryProviderV1AdapterTest {
     private final AttributeEngine attributeEngine = mock(AttributeEngine.class);
     private final CredentialInternalService credentialService = mock(CredentialInternalService.class);
     private final DiscoveryDetailCounts detailCounts = mock(DiscoveryDetailCounts.class);
+    private final DiscoveryProperties discoveryProperties = mock(DiscoveryProperties.class);
+    private final ConnectorApiFactory connectorApiFactory = mock(ConnectorApiFactory.class);
+    private final DiscoverySyncApiClient providerClient = mock(DiscoverySyncApiClient.class);
 
-    private final DiscoveryProviderV1Adapter adapter = new DiscoveryProviderV1Adapter(mock(DiscoveryProperties.class),
+    private final DiscoveryProviderV1Adapter adapter = new DiscoveryProviderV1Adapter(discoveryProperties,
             mock(PlatformTransactionManager.class), discoveryRepository, connectorRepository,
             mock(CertificateRepository.class), mock(DiscoveryCertificateRepository.class), attributeEngine,
-            mock(CertificateHandler.class), credentialService, mock(ResourceInternalService.class),
-            mock(ConnectorApiFactory.class), mock(EventProducer.class), detailCounts,
-            mock(DiscoveryMessageWriter.class), mock(DiscoveryWriter.class));
+            mock(CertificateHandler.class), credentialService, mock(ResourceInternalService.class), connectorApiFactory,
+            mock(EventProducer.class), detailCounts, mock(DiscoveryMessageWriter.class), mock(DiscoveryWriter.class));
 
     private final Discovery run = new Discovery();
 
@@ -81,10 +86,65 @@ class DiscoveryProviderV1AdapterTest {
 
     @Test
     void aLoadFailureThatIsNotACorePlatformExceptionEndsTheRunWithTheFixedText() throws NotFoundException {
+        connectAs();
+        prepareRun();
+        doThrow(new IllegalStateException("select * from secret"))
+                .when(credentialService)
+                .loadFullCredentialData(any(List.class));
+
+        var detail = adapter.start(run.getUuid(), null);
+
+        assertThat(detail.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
+        assertThat(detail.getConnectorStatus()).isEqualTo(DiscoveryStatus.FAILED);
+        assertThat(detail.getMessage()).isEqualTo("Discovery could not be prepared in Core.");
+        assertThat(detail.getMessage()).doesNotContain("select");
+    }
+
+    @Test
+    void aStartFailureThatIsNotACorePlatformExceptionEndsTheRunWithTheFixedText()
+            throws NotFoundException, ConnectorException {
+        connectAs();
+        prepareRun();
+        when(providerClient.discoverCertificates(any(), any()))
+                .thenThrow(new IllegalStateException("Cannot deserialize value of type com.example.Secret"));
+
+        var detail = adapter.start(run.getUuid(), null);
+
+        assertThat(detail.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
+        assertThat(detail.getMessage()).isEqualTo("Failed to run discovery at the provider.");
+        assertThat(detail.getMessage()).doesNotContain("deserialize");
+    }
+
+    @Test
+    void aPollFailureThatIsNotACorePlatformExceptionEndsTheRunWithTheFixedText()
+            throws NotFoundException, ConnectorException {
+        connectAs();
+        prepareRun();
+        when(discoveryProperties.sleepTimeMs()).thenReturn(1);
+        DiscoveryProviderDto started = new DiscoveryProviderDto();
+        started.setUuid("provider-run");
+        started.setName("unit-run");
+        started.setStatus(DiscoveryStatus.IN_PROGRESS);
+        when(providerClient.discoverCertificates(any(), any())).thenReturn(started);
+        when(providerClient.getDiscoveryData(any(), any(), any()))
+                .thenThrow(new IllegalStateException("Cannot deserialize value of type com.example.Secret"));
+
+        var detail = adapter.start(run.getUuid(), null);
+
+        assertThat(detail.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
+        assertThat(detail.getMessage()).isEqualTo("Error in provider during discovery.");
+        assertThat(detail.getMessage()).doesNotContain("deserialize");
+    }
+
+    private void connectAs() {
         SecurityContextHolder
                 .getContext()
                 .setAuthentication(new PlatformAuthenticationToken(new PlatformUserDetails(new AuthenticationInfo(
                         AuthMethod.USER_PROXY, UUID.randomUUID().toString(), "operator", List.of()))));
+    }
+
+    /** A run whose context loads cleanly and whose provider client is {@link #providerClient}. */
+    private void prepareRun() throws NotFoundException {
         UUID connectorUuid = UUID.randomUUID();
         run.setUuid(UUID.randomUUID());
         run.setName("unit-run");
@@ -97,16 +157,7 @@ class DiscoveryProviderV1AdapterTest {
         when(attributeEngine
                 .getDefinitionObjectAttributeContent(any(), any(), any(), any(Resource.class), any(UUID.class)))
                 .thenReturn(List.of());
-        doThrow(new IllegalStateException("select * from secret"))
-                .when(credentialService)
-                .loadFullCredentialData(any(List.class));
         when(detailCounts.forRun(run)).thenReturn(new DiscoveryDtoMapper.DetailCounts(0, 0, 0, 0));
-
-        var detail = adapter.start(run.getUuid(), null);
-
-        assertThat(detail.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
-        assertThat(detail.getConnectorStatus()).isEqualTo(DiscoveryStatus.FAILED);
-        assertThat(detail.getMessage()).isEqualTo("Discovery could not be prepared in Core.");
-        assertThat(detail.getMessage()).doesNotContain("select");
+        when(connectorApiFactory.getDiscoveryApiClient(any())).thenReturn(providerClient);
     }
 }

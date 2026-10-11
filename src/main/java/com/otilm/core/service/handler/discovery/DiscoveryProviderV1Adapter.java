@@ -317,9 +317,18 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
 
     private DiscoveryDetailDto failAtProvider(DiscoveryContext context, Exception e) {
         logger.error("Error in discovery '{}' at provider", context.getDiscovery().getName(), e);
-        context.setDiscoveryFailed("Error in provider during discovery: " + e.getMessage());
+        context
+                .setDiscoveryFailed(e instanceof InterruptedException
+                        ? "Discovery was interrupted."
+                        : withSafeReason("Error in provider during discovery", e));
         storeRunMetadata(context);
         return finalizeDiscoveryInTx(context, null);
+    }
+
+    /** The reason is shown to users, so it is the exception's own text only when that is safe to show. */
+    static String withSafeReason(String prefix, Exception e) {
+        String reason = PlatformException.safeMessage(e, "");
+        return reason.isBlank() ? prefix + "." : prefix + ": " + reason;
     }
 
     private record StagedCounts(int certificates, long newlyDiscovered) {
@@ -373,7 +382,8 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
                             discovery.getUuid(), response.getStatus(), response.getTotalCertificatesDiscovered());
             discovery.setDiscoveryConnectorReference(response.getUuid());
         } catch (Exception e) {
-            context.setDiscoveryFailed("Failed to run discovery at the provider: " + e.getMessage());
+            logger.error("Discovery {} could not be started at the provider", discovery.getUuid(), e);
+            context.setDiscoveryFailed(withSafeReason("Failed to run discovery at the provider", e));
             throw new DiscoveryException(discovery.getName(), context.getMessage());
         }
 
