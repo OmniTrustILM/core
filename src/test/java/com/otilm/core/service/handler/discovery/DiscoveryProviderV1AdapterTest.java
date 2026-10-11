@@ -12,6 +12,7 @@ import com.otilm.core.service.CredentialInternalService;
 import com.otilm.core.service.DiscoveryProperties;
 import com.otilm.core.service.ResourceInternalService;
 import com.otilm.core.service.handler.CertificateHandler;
+import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -25,7 +26,8 @@ class DiscoveryProviderV1AdapterTest {
             mock(PlatformTransactionManager.class), mock(DiscoveryRepository.class), mock(ConnectorRepository.class),
             mock(CertificateRepository.class), mock(DiscoveryCertificateRepository.class), mock(AttributeEngine.class),
             mock(CertificateHandler.class), mock(CredentialInternalService.class), mock(ResourceInternalService.class),
-            mock(ConnectorApiFactory.class), mock(EventProducer.class), mock(DiscoveryDetailCounts.class));
+            mock(ConnectorApiFactory.class), mock(EventProducer.class), mock(DiscoveryDetailCounts.class),
+            mock(DiscoveryMessageWriter.class));
 
     private final Discovery run = new Discovery();
 

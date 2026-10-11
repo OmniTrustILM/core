@@ -22,9 +22,13 @@ import com.otilm.api.model.client.discovery.DiscoveryDto;
 import com.otilm.api.model.client.discovery.DiscoveryListDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.PaginationResponseDto;
+import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.content.data.CredentialAttributeContentData;
+import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeProperties;
+import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.content.CredentialAttributeContentV2;
 import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
@@ -39,7 +43,10 @@ import com.otilm.api.model.core.discovery.DiscoveryItemDto;
 import com.otilm.api.model.core.discovery.DiscoveryMessageDto;
 import com.otilm.api.model.core.discovery.DiscoveryMessageSeverity;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
+import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.auth.ContextRefreshListener;
+import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.Connector2FunctionGroup;
@@ -47,13 +54,16 @@ import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.Credential;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryCertificate;
+import com.otilm.core.dao.entity.DiscoveryMessage;
 import com.otilm.core.dao.entity.FunctionGroup;
 import com.otilm.core.dao.repository.CertificateContentRepository;
+import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.Connector2FunctionGroupRepository;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.CredentialRepository;
 import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
+import com.otilm.core.dao.repository.DiscoveryMessageRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.DiscoveryWorkRepository;
 import com.otilm.core.dao.repository.FunctionGroupRepository;
@@ -75,9 +85,11 @@ import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.tasks.ScheduledJobInfo;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.DiscoveryCheckpointFixture;
 import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
+import com.otilm.core.util.RefusedDefinitionInserts;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -91,6 +103,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
 
 class DiscoveryServiceITest extends BaseSpringBootTest {
@@ -142,6 +155,15 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
     @Autowired
     private DiscoveryRunTerminator terminator;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+    @Autowired
+    private DiscoveryMessageRepository discoveryMessageRepository;
+    @Autowired
+    private CertificateRepository certificateRepository;
+    @Autowired
+    private AttributeEngine attributeEngine;
+
     private Discovery discovery;
     private Connector connector;
 
@@ -187,6 +209,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
 
     @AfterEach
     void tearDown() {
+        RefusedDefinitionInserts.remove(jdbcTemplate);
         mockServer.stop();
     }
 
@@ -1852,5 +1875,165 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
                 .stubFor(WireMock
                         .post(WireMock.urlPathMatching("/v1/discoveryProvider/discover/" + PROVIDER_DISCOVERY_UUID))
                         .willReturn(WireMock.okJson(discoveryDataResponse)));
+    }
+
+    private static final String REFUSED_META_JSON = """
+            {"version": 2, "uuid": "00000000-0000-0000-0000-0000000000f1", "name": "%s",
+             "content": [{"reference": "1", "data": 1}], "type": "meta", "contentType": "integer",
+             "properties": {"label": "Refused", "visible": true, "group": null, "global": false, "overwrite": false}}
+            """.formatted(RefusedDefinitionInserts.REFUSED_NAME);
+
+    @Test
+    void aRunWhoseMetadataCannotBeStoredCompletesWithAWarning() throws Exception {
+        RefusedDefinitionInserts.install(jdbcTemplate);
+        UUID discoveryUuid = createRunnableDiscovery();
+        stubDiscoveryStart(startResponseWithMeta(0, REFUSED_META_JSON));
+
+        discoveryInternalService.runDiscovery(discoveryUuid, null);
+
+        Discovery persisted = discoveryRepository.findByUuid(discoveryUuid).orElseThrow();
+        Assertions.assertEquals(DiscoveryStatus.COMPLETED, persisted.getStatus());
+        Assertions
+                .assertEquals("Discovery completed. No certificates discovered at provider."
+                        + " Discovery metadata could not be stored.", persisted.getMessage());
+        Assertions
+                .assertEquals(List.of(DiscoveryMessageCode.RUN_METADATA_NOT_RECORDED.code()),
+                        runMessageCodes(discoveryUuid));
+    }
+
+    @Test
+    void aRunThatFindsOnlyKnownCertificatesCompletesWithTheMetadataWarning() throws Exception {
+        RefusedDefinitionInserts.install(jdbcTemplate);
+        knownCertificate();
+        UUID discoveryUuid = createRunnableDiscovery();
+        stubDiscoveryStart(startResponseWithMeta(1, REFUSED_META_JSON));
+        stubDiscoveryData(dataResponse(1));
+
+        discoveryInternalService.runDiscovery(discoveryUuid, null);
+
+        Discovery persisted = discoveryRepository.findByUuid(discoveryUuid).orElseThrow();
+        Assertions.assertEquals(DiscoveryStatus.COMPLETED, persisted.getStatus());
+        Assertions
+                .assertEquals("Discovery completed successfully. Discovery metadata could not be stored.",
+                        persisted.getMessage());
+        Assertions
+                .assertEquals(List.of(DiscoveryMessageCode.RUN_METADATA_NOT_RECORDED.code()),
+                        runMessageCodes(discoveryUuid));
+    }
+
+    @Test
+    void aRunWithNewCertificatesCarriesTheMetadataWarningIntoProcessing() throws Exception {
+        RefusedDefinitionInserts.install(jdbcTemplate);
+        UUID discoveryUuid = createRunnableDiscovery();
+        stubDiscoveryStart(startResponseWithMeta(1, REFUSED_META_JSON));
+        stubDiscoveryData(dataResponse(1));
+
+        discoveryInternalService.runDiscovery(discoveryUuid, null);
+
+        Discovery persisted = discoveryRepository.findByUuid(discoveryUuid).orElseThrow();
+        Assertions.assertEquals(DiscoveryStatus.PROCESSING, persisted.getStatus());
+        // Processing keeps this message on a clean run: the final one appends it after "Discovery completed
+        // successfully."
+        Assertions
+                .assertEquals(
+                        "Discovered certificates downloaded from provider. Discovery metadata could not be stored.",
+                        persisted.getMessage());
+        Assertions
+                .assertEquals(List.of(DiscoveryMessageCode.RUN_METADATA_NOT_RECORDED.code()),
+                        runMessageCodes(discoveryUuid));
+    }
+
+    @Test
+    void aRunWhoseMetadataIsStoredCompletesWithoutAWarning() throws Exception {
+        UUID discoveryUuid = createRunnableDiscovery();
+        stubDiscoveryStart(startResponseWithMeta(0, RUN_META_JSON));
+
+        discoveryInternalService.runDiscovery(discoveryUuid, null);
+
+        Discovery persisted = discoveryRepository.findByUuid(discoveryUuid).orElseThrow();
+        Assertions.assertEquals(DiscoveryStatus.COMPLETED, persisted.getStatus());
+        Assertions.assertEquals("Discovery completed. No certificates discovered at provider", persisted.getMessage());
+        Assertions.assertEquals(List.of(), runMessageCodes(discoveryUuid));
+        Assertions.assertEquals(List.of("totalUrls"), storedRunMetadataNames(discoveryUuid));
+    }
+
+    @Test
+    void metadataTheEngineRefusesPartWayStoresNoneOfTheRunsMetadata() throws Exception {
+        // Registered as a string; the run below reports it as an integer, which the engine refuses with a checked
+        // exception after it has stored the first statement.
+        attributeEngine
+                .updateMetadataAttributeDefinition(
+                        stringMetadata("ffffffff-ffff-ffff-ffff-fffffffffff1", "laterRefused"), connector.getUuid());
+        UUID discoveryUuid = createRunnableDiscovery();
+        stubDiscoveryStart(
+                startResponseWithMeta(0, integerRunMeta("00000000-0000-0000-0000-0000000000a1", "storedFirst") + ", "
+                        + integerRunMeta("ffffffff-ffff-ffff-ffff-fffffffffff1", "laterRefused")));
+
+        discoveryInternalService.runDiscovery(discoveryUuid, null);
+
+        Discovery persisted = discoveryRepository.findByUuid(discoveryUuid).orElseThrow();
+        Assertions.assertEquals(DiscoveryStatus.COMPLETED, persisted.getStatus());
+        Assertions
+                .assertTrue(persisted.getMessage().endsWith("Discovery metadata could not be stored."),
+                        persisted.getMessage());
+        Assertions.assertEquals(List.of(), storedRunMetadataNames(discoveryUuid));
+        Assertions
+                .assertEquals(List.of(DiscoveryMessageCode.RUN_METADATA_NOT_RECORDED.code()),
+                        runMessageCodes(discoveryUuid));
+    }
+
+    private String startResponseWithMeta(int totalCertificates, String metaJson) {
+        return """
+                {"uuid": "%s", "name": "integration-provider", "status": "completed",
+                 "totalCertificatesDiscovered": %d, "certificateData": [], "meta": [%s]}
+                """.formatted(PROVIDER_DISCOVERY_UUID, totalCertificates, metaJson);
+    }
+
+    private static String integerRunMeta(String uuid, String name) {
+        return """
+                {"version": 2, "uuid": "%s", "name": "%s", "content": [{"reference": "1", "data": 1}],
+                 "type": "meta", "contentType": "integer",
+                 "properties": {"label": "%s", "visible": true, "group": null, "global": false, "overwrite": false}}
+                """.formatted(uuid, name, name);
+    }
+
+    private static MetadataAttributeV2 stringMetadata(String uuid, String name) {
+        MetadataAttributeV2 metadata = new MetadataAttributeV2();
+        metadata.setUuid(uuid);
+        metadata.setName(name);
+        metadata.setType(AttributeType.META);
+        metadata.setContentType(AttributeContentType.STRING);
+        MetadataAttributeProperties properties = new MetadataAttributeProperties();
+        properties.setLabel(name);
+        metadata.setProperties(properties);
+        return metadata;
+    }
+
+    private void knownCertificate() throws Exception {
+        Certificate known = new Certificate();
+        known
+                .setFingerprint(CertificateUtil
+                        .getThumbprint(CertificateUtil.parseCertificate(CERTIFICATE_BASE64).getEncoded()));
+        certificateRepository.save(known);
+    }
+
+    private List<String> runMessageCodes(UUID discoveryUuid) {
+        return discoveryMessageRepository
+                .findAll()
+                .stream()
+                .filter(message -> message.getDiscoveryUuid().equals(discoveryUuid))
+                .map(DiscoveryMessage::getCode)
+                .toList();
+    }
+
+    private List<String> storedRunMetadataNames(UUID discoveryUuid) {
+        return attributeEngine
+                .getMetadataAttributesDefinitionContent(ObjectAttributeContentInfo
+                        .builder(Resource.DISCOVERY, discoveryUuid)
+                        .connector(connector.getUuid())
+                        .build())
+                .stream()
+                .map(MetadataAttribute::getName)
+                .toList();
     }
 }

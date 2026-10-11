@@ -16,6 +16,7 @@ import com.otilm.api.model.connector.discovery.DiscoveryProviderDto;
 import com.otilm.api.model.connector.discovery.DiscoveryRequestDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.ConnectorDto;
+import com.otilm.api.model.core.discovery.DiscoveryMessageSeverity;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
@@ -33,10 +34,12 @@ import com.otilm.core.events.handlers.DiscoveryFinishedEventHandler;
 import com.otilm.core.mapper.discovery.DiscoveryDtoMapper;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.model.discovery.DiscoveryContext;
+import com.otilm.core.model.discovery.DiscoveryMessageCode;
 import com.otilm.core.service.CredentialInternalService;
 import com.otilm.core.service.DiscoveryProperties;
 import com.otilm.core.service.ResourceInternalService;
 import com.otilm.core.service.handler.CertificateHandler;
+import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
 import com.otilm.core.tasks.ScheduledJobInfo;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.AuthHelper;
@@ -56,12 +59,14 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.DefaultTransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * The v1 (legacy) discovery flow, kept behavior-frozen: start the run at the provider, wait for completion, download
@@ -78,6 +83,8 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
 
     private static final Semaphore downloadCertSemaphore = new Semaphore(10);
 
+    private static final String RUN_METADATA_NOT_STORED = "Discovery metadata could not be stored.";
+
     private final DiscoveryProperties discoveryProperties;
     private final PlatformTransactionManager transactionManager;
     private final DiscoveryRepository discoveryRepository;
@@ -91,6 +98,8 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
     private final ResourceInternalService resourceService;
     private final ConnectorApiFactory connectorApiFactory;
     private final EventProducer eventProducer;
+    private final DiscoveryMessageWriter messageWriter;
+    private final TransactionTemplate transactions;
 
     public DiscoveryProviderV1Adapter(DiscoveryProperties discoveryProperties,
             PlatformTransactionManager transactionManager, DiscoveryRepository discoveryRepository,
@@ -98,7 +107,7 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
             DiscoveryCertificateRepository discoveryCertificateRepository, AttributeEngine attributeEngine,
             CertificateHandler certificateHandler, CredentialInternalService credentialService,
             ResourceInternalService resourceService, ConnectorApiFactory connectorApiFactory,
-            EventProducer eventProducer, DiscoveryDetailCounts detailCounts) {
+            EventProducer eventProducer, DiscoveryDetailCounts detailCounts, DiscoveryMessageWriter messageWriter) {
         this.detailCounts = detailCounts;
         this.discoveryProperties = discoveryProperties;
         this.transactionManager = transactionManager;
@@ -112,6 +121,8 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
         this.resourceService = resourceService;
         this.connectorApiFactory = connectorApiFactory;
         this.eventProducer = eventProducer;
+        this.messageWriter = messageWriter;
+        this.transactions = new TransactionTemplate(transactionManager);
     }
 
     @Override
@@ -120,28 +131,31 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
         DiscoveryContext context = loadDiscoveryContext(discoveryUuid);
         Discovery discovery = context.getDiscovery();
         if (context.getDiscoveryStatus() == DiscoveryStatus.FAILED) {
-            return finalizeDiscoveryInTx(context, false, null);
+            return finalizeDiscoveryInTx(context, null);
         }
 
         // discover certificates by provider
         DiscoveryProviderDto providerResponse;
         try {
             providerResponse = discoverCertificatesByProvider(context);
+            storeRunMetadata(context);
             if (context.getConnectorCertificatesDiscovered() == 0) {
                 context.setDiscoveryStatus(DiscoveryStatus.COMPLETED);
-                return finalizeDiscoveryInTx(context, true, "No certificates discovered at provider");
+                return finalizeDiscoveryInTx(context, "No certificates discovered at provider");
             }
-            updateDiscoveryStateInTx(context, true);
+            updateDiscoveryStateInTx(context);
         } catch (DiscoveryException e) {
             logger.error(e.getMessage());
-            return finalizeDiscoveryInTx(context, true, null);
+            storeRunMetadata(context);
+            return finalizeDiscoveryInTx(context, null);
         } catch (Exception e) {
             logger.error("Error in discovery '{}' at provider: {}", discovery.getName(), e.getMessage());
             context.setDiscoveryFailed("Error in provider during discovery: " + e.getMessage());
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
             }
-            return finalizeDiscoveryInTx(context, true, null);
+            storeRunMetadata(context);
+            return finalizeDiscoveryInTx(context, null);
         }
 
         // download and create discovered certificates
@@ -199,12 +213,12 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
             if (context.getDiscoveryStatus() == DiscoveryStatus.IN_PROGRESS) {
                 context.setDiscoveryStatus(DiscoveryStatus.COMPLETED);
             }
-            return finalizeDiscoveryInTx(context, false, preProcessingMessage);
+            return finalizeDiscoveryInTx(context, preProcessingMessage);
         } else {
             context.setDiscoveryStatus(DiscoveryStatus.PROCESSING);
         }
 
-        updateDiscoveryStateInTx(context, false);
+        updateDiscoveryStateInTx(context);
 
         DiscoveryDetailDto discoveryDto = DiscoveryDtoMapper.toDetailDto(discovery, detailCounts.forRun(discovery));
         eventProducer
@@ -340,7 +354,7 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
                                 "Discovery exceeded maximum time of %d hours. Please abort the discovery if the provider is stuck in state '%s'."
                                         .formatted((int) (discoveryProperties.maxWaitTimeSeconds() / (60 * 60)),
                                                 DiscoveryStatus.IN_PROGRESS.getLabel()));
-                updateDiscoveryStateInTx(context, false);
+                updateDiscoveryStateInTx(context);
             } else if (isReachedMaxTime && secondsElapsed > 2 * discoveryProperties.maxWaitTimeSeconds()) {
                 context.setDiscoveryStatus(DiscoveryStatus.FAILED);
                 context.setConnectorDiscoveryStatus(response.getStatus());
@@ -520,48 +534,93 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
         futures.clear();
     }
 
-    private void updateDiscoveryStateInTx(DiscoveryContext discoveryContext, boolean updateMetadata) {
+    private void updateDiscoveryStateInTx(DiscoveryContext discoveryContext) {
         TransactionStatus transaction = transactionManager.getTransaction(new DefaultTransactionDefinition());
-        Discovery discovery = updateDiscoveryState(discoveryContext, updateMetadata);
+        Discovery discovery = updateDiscoveryState(discoveryContext);
         discoveryRepository.save(discovery);
         transactionManager.commit(transaction);
     }
 
-    private Discovery updateDiscoveryState(DiscoveryContext discoveryContext, boolean updateMetadata) {
+    private Discovery updateDiscoveryState(DiscoveryContext discoveryContext) {
         Discovery discovery = discoveryContext.getDiscovery();
 
         discovery.setStatus(discoveryContext.getDiscoveryStatus());
         discovery.setConnectorStatus(discoveryContext.getConnectorDiscoveryStatus());
-        discovery.setMessage(discoveryContext.getMessage());
+        discovery.setMessage(withRunMetadataNote(discoveryContext, discoveryContext.getMessage()));
         discovery.setTotalCertificatesDiscovered(discoveryContext.getCertificatesDiscovered());
         discovery.setConnectorTotalCertificatesDiscovered(discoveryContext.getConnectorCertificatesDiscovered());
-        if (updateMetadata && discoveryContext.getMetadata() != null && !discoveryContext.getMetadata().isEmpty()) {
-            try {
-                attributeEngine
-                        .updateMetadataAttributes(discoveryContext.getMetadata(),
-                                ObjectAttributeContentInfo
-                                        .builder(Resource.DISCOVERY, discovery.getUuid())
-                                        .connector(discovery.getConnectorUuid())
-                                        .build());
-            } catch (Exception e) {
-                logger.warn("Failed to serialize discovery metadata");
-            }
-        }
-
         return discovery;
     }
 
-    private DiscoveryDetailDto finalizeDiscoveryInTx(DiscoveryContext discoveryContext, boolean updateMetadata,
-            String preProcessingMessage) {
+    /**
+     * Stores the metadata the connector reported about the run, once, in a transaction of its own. It is advisory: a
+     * failure leaves the run's outcome alone, takes back whatever of the metadata was already written, and stays on the
+     * run as a warning that no later message replaces. A checked refusal marks the transaction rollback-only, so it
+     * rolls back too.
+     */
+    private void storeRunMetadata(DiscoveryContext context) {
+        if (context.isRunMetadataHandled()) {
+            return;
+        }
+        context.setRunMetadataHandled(true);
+        List<MetadataAttribute> metadata = context.getMetadata();
+        if (metadata == null || metadata.isEmpty()) {
+            return;
+        }
+        Discovery discovery = context.getDiscovery();
+        ObjectAttributeContentInfo target = ObjectAttributeContentInfo
+                .builder(Resource.DISCOVERY, discovery.getUuid())
+                .connector(discovery.getConnectorUuid())
+                .build();
+        AtomicReference<Exception> failure = new AtomicReference<>();
+        try {
+            transactions.executeWithoutResult(status -> {
+                try {
+                    attributeEngine.updateMetadataAttributes(metadata, target);
+                } catch (AttributeException e) {
+                    failure.set(e);
+                    status.setRollbackOnly();
+                }
+            });
+        } catch (RuntimeException e) {
+            failure.set(e);
+        }
+        if (failure.get() != null) {
+            logger.warn("Metadata of discovery {} could not be stored", discovery.getUuid(), failure.get());
+            context.setRunMetadataNotStored(true);
+            messageWriter
+                    .append(discovery.getUuid(), DiscoveryMessageSeverity.WARNING,
+                            DiscoveryMessageCode.RUN_METADATA_NOT_RECORDED,
+                            "The connector's metadata about the run could not be stored.");
+        }
+    }
+
+    private static String withRunMetadataNote(DiscoveryContext context, String message) {
+        if (!context.isRunMetadataNotStored()) {
+            return message;
+        }
+        if (message == null || message.isBlank()) {
+            return RUN_METADATA_NOT_STORED;
+        }
+        if (message.endsWith(RUN_METADATA_NOT_STORED)) {
+            return message;
+        }
+        return message.endsWith(".")
+                ? message + " " + RUN_METADATA_NOT_STORED
+                : message + ". " + RUN_METADATA_NOT_STORED;
+    }
+
+    private DiscoveryDetailDto finalizeDiscoveryInTx(DiscoveryContext discoveryContext, String preProcessingMessage) {
         TransactionStatus transaction = transactionManager.getTransaction(new DefaultTransactionDefinition());
-        Discovery discovery = updateDiscoveryState(discoveryContext, updateMetadata);
+        Discovery discovery = updateDiscoveryState(discoveryContext);
 
         discovery.setEndTime(OffsetDateTime.now(ZoneOffset.UTC));
         if (discovery.getStatus() == DiscoveryStatus.COMPLETED) {
             discovery
-                    .setMessage(preProcessingMessage == null
-                            ? "Discovery completed successfully"
-                            : "Discovery completed. " + preProcessingMessage);
+                    .setMessage(withRunMetadataNote(discoveryContext,
+                            preProcessingMessage == null
+                                    ? "Discovery completed successfully"
+                                    : "Discovery completed. " + preProcessingMessage));
         }
 
         discoveryRepository.save(discovery);
