@@ -13,6 +13,11 @@
 -- them and it stops matching lookups. A data or group duplicate that differs cannot come from the race and is refused
 -- rather than guessed at.
 
+-- Old pods keep running through a rolling upgrade: their writes and reads of definitions wait until the fold and both
+-- keys are in place, so none of them inserts a duplicate, or binds a value or a list view to one, behind the fold.
+-- Value inserts check their foreign key against this table, so they wait too.
+LOCK TABLE "attribute_definition" IN ACCESS EXCLUSIVE MODE;
+
 CREATE TEMP TABLE "attribute_definition_merge" (
     "duplicate_uuid" UUID PRIMARY KEY,
     "keep_uuid" UUID NOT NULL

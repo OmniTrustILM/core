@@ -430,8 +430,20 @@ class AttributeDefinitionUniqueKeyMigrationITest extends BaseSpringBootTest {
         }
     }
 
+    /** In one transaction, as Flyway runs it: the migration's table lock needs one. */
     private static void migrate(Statement statement) throws Exception {
-        statement.execute(new ClassPathResource(MIGRATION_RESOURCE).getContentAsString(StandardCharsets.UTF_8));
+        String migration = new ClassPathResource(MIGRATION_RESOURCE).getContentAsString(StandardCharsets.UTF_8);
+        Connection connection = statement.getConnection();
+        connection.setAutoCommit(false);
+        try {
+            statement.execute(migration);
+            connection.commit();
+        } catch (SQLException e) {
+            connection.rollback();
+            throw e;
+        } finally {
+            connection.setAutoCommit(true);
+        }
     }
 
     private static void definition(Statement statement, String uuid, String type, String connector, String attribute,
