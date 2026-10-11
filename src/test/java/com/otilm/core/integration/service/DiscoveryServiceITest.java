@@ -1994,7 +1994,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
 
         Discovery persisted = discoveryRepository.findByUuid(discoveryUuid).orElseThrow();
         Assertions.assertEquals(DiscoveryStatus.FAILED, persisted.getStatus());
-        Assertions.assertTrue(persisted.getMessage().startsWith("Discovery failed in Core"), persisted.getMessage());
+        Assertions.assertEquals("Discovery failed in Core.", persisted.getMessage());
         Assertions.assertNotNull(persisted.getEndTime());
         // Every boundary rolled back on the way out: nothing is left bound to the thread.
         Assertions.assertFalse(TransactionSynchronizationManager.isActualTransactionActive());

@@ -145,12 +145,12 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
     }
 
     /**
-     * Ends the run as Failed when Core itself could not finish it, so it never stays In progress. The message names the
-     * failure's kind only; the exception goes to the log.
+     * Ends the run as Failed when Core itself could not finish it, so it never stays In progress. The message is fixed
+     * text, so no internal detail reaches the user; the exception goes to the log.
      */
     private DiscoveryDetailDto endAfterCoreFailure(UUID discoveryUuid, RuntimeException failure) {
         logger.error("Discovery {} failed in Core", discoveryUuid, failure);
-        String message = "Discovery failed in Core: " + failure.getClass().getSimpleName();
+        String message = "Discovery failed in Core.";
         Optional<DiscoveryDetailDto> ended = discoveryWriter.markFailedUnlessTerminal(discoveryUuid, message);
         if (ended.isEmpty()) {
             throw failure;
