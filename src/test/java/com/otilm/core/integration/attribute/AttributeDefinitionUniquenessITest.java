@@ -140,9 +140,8 @@ class AttributeDefinitionUniquenessITest extends BaseSpringBootTest {
                 .anySatisfy(sql -> assertThat(sql.toLowerCase())
                         .contains("attribute_definition")
                         .contains("on conflict do nothing"));
-        // The native insert's rendering reads back equal to the definition, so the first call's re-read finds nothing
-        // to
-        // update; the repeat writes nothing either.
+        // The native insert's rendering reads back equal to the definition, so the first call's re-read finds
+        // nothing to update; the repeat writes nothing either.
         assertThat(first)
                 .noneMatch(sql -> sql.toLowerCase().matches("(?s)update\\s+(\\w+\\.)?attribute_definition\\s.*"));
         assertThat(repeat)
