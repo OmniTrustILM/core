@@ -40,11 +40,13 @@ import com.otilm.core.service.CredentialInternalService;
 import com.otilm.core.service.DiscoveryProperties;
 import com.otilm.core.service.ResourceInternalService;
 import com.otilm.core.service.handler.CertificateHandler;
+import com.otilm.core.service.writer.DiscoveryWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
 import com.otilm.core.tasks.ScheduledJobInfo;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.CertificateUtil;
+import java.security.GeneralSecurityException;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.time.OffsetDateTime;
@@ -54,6 +56,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -64,8 +67,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.TransactionStatus;
-import org.springframework.transaction.support.DefaultTransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -86,7 +87,6 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
     private static final String RUN_METADATA_NOT_STORED = "Discovery metadata could not be stored.";
 
     private final DiscoveryProperties discoveryProperties;
-    private final PlatformTransactionManager transactionManager;
     private final DiscoveryRepository discoveryRepository;
     private final ConnectorRepository connectorRepository;
     private final CertificateRepository certificateRepository;
@@ -100,6 +100,8 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
     private final EventProducer eventProducer;
     private final DiscoveryMessageWriter messageWriter;
     private final TransactionTemplate transactions;
+    private final TransactionTemplate readOnlyTransactions;
+    private final DiscoveryWriter discoveryWriter;
 
     public DiscoveryProviderV1Adapter(DiscoveryProperties discoveryProperties,
             PlatformTransactionManager transactionManager, DiscoveryRepository discoveryRepository,
@@ -107,10 +109,10 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
             DiscoveryCertificateRepository discoveryCertificateRepository, AttributeEngine attributeEngine,
             CertificateHandler certificateHandler, CredentialInternalService credentialService,
             ResourceInternalService resourceService, ConnectorApiFactory connectorApiFactory,
-            EventProducer eventProducer, DiscoveryDetailCounts detailCounts, DiscoveryMessageWriter messageWriter) {
+            EventProducer eventProducer, DiscoveryDetailCounts detailCounts, DiscoveryMessageWriter messageWriter,
+            DiscoveryWriter discoveryWriter) {
         this.detailCounts = detailCounts;
         this.discoveryProperties = discoveryProperties;
-        this.transactionManager = transactionManager;
         this.discoveryRepository = discoveryRepository;
         this.connectorRepository = connectorRepository;
         this.certificateRepository = certificateRepository;
@@ -123,10 +125,39 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
         this.eventProducer = eventProducer;
         this.messageWriter = messageWriter;
         this.transactions = new TransactionTemplate(transactionManager);
+        this.readOnlyTransactions = new TransactionTemplate(transactionManager);
+        this.readOnlyTransactions.setReadOnly(true);
+        this.discoveryWriter = discoveryWriter;
     }
 
     @Override
     public DiscoveryDetailDto start(UUID discoveryUuid, ScheduledJobInfo scheduledJobInfo) {
+        try {
+            return run(discoveryUuid, scheduledJobInfo);
+        } catch (RuntimeException e) {
+            return endAfterCoreFailure(discoveryUuid, e);
+        }
+    }
+
+    /**
+     * Ends the run as Failed when Core itself could not finish it, so it never stays In progress. The message names the
+     * failure's kind only; the exception goes to the log.
+     */
+    private DiscoveryDetailDto endAfterCoreFailure(UUID discoveryUuid, RuntimeException failure) {
+        logger.error("Discovery {} failed in Core", discoveryUuid, failure);
+        String message = "Discovery failed in Core: " + failure.getClass().getSimpleName();
+        Optional<DiscoveryDetailDto> ended = discoveryWriter.markFailedUnlessTerminal(discoveryUuid, message);
+        if (ended.isEmpty()) {
+            throw failure;
+        }
+        eventProducer
+                .produceMessage(DiscoveryFinishedEventHandler
+                        .constructEventMessage(discoveryUuid, AuthHelper.getActingUserUuidOrNull(), null,
+                                new DiscoveryResult(DiscoveryStatus.FAILED, message)));
+        return ended.get();
+    }
+
+    private DiscoveryDetailDto run(UUID discoveryUuid, ScheduledJobInfo scheduledJobInfo) {
         // reload discovery modal with all association since it could be in separate transaction/session due to async
         DiscoveryContext context = loadDiscoveryContext(discoveryUuid);
         Discovery discovery = context.getDiscovery();
@@ -138,25 +169,22 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
         DiscoveryProviderDto providerResponse;
         try {
             providerResponse = discoverCertificatesByProvider(context);
-            storeRunMetadata(context);
-            if (context.getConnectorCertificatesDiscovered() == 0) {
-                context.setDiscoveryStatus(DiscoveryStatus.COMPLETED);
-                return finalizeDiscoveryInTx(context, "No certificates discovered at provider");
-            }
-            updateDiscoveryStateInTx(context);
         } catch (DiscoveryException e) {
             logger.error(e.getMessage());
             storeRunMetadata(context);
             return finalizeDiscoveryInTx(context, null);
-        } catch (Exception e) {
-            logger.error("Error in discovery '{}' at provider: {}", discovery.getName(), e.getMessage());
-            context.setDiscoveryFailed("Error in provider during discovery: " + e.getMessage());
-            if (e instanceof InterruptedException) {
-                Thread.currentThread().interrupt();
-            }
-            storeRunMetadata(context);
-            return finalizeDiscoveryInTx(context, null);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return failAtProvider(context, e);
+        } catch (RuntimeException e) {
+            return failAtProvider(context, e);
         }
+        storeRunMetadata(context);
+        if (context.getConnectorCertificatesDiscovered() == 0) {
+            context.setDiscoveryStatus(DiscoveryStatus.COMPLETED);
+            return finalizeDiscoveryInTx(context, "No certificates discovered at provider");
+        }
+        updateDiscoveryStateInTx(context);
 
         // download and create discovered certificates
         List<DiscoveryProviderCertificateDataDto> duplicateCertificates = new ArrayList<>();
@@ -168,43 +196,24 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
             logger.error(e.getMessage());
         }
 
-        TransactionStatus transaction = transactionManager.getTransaction(new DefaultTransactionDefinition());
-        // process duplicates
+        // Each duplicate's metadata is written in a transaction of its own, so one that fails cannot take the counts
+        // down with it.
         for (DiscoveryProviderCertificateDataDto certificate : duplicateCertificates) {
             try {
-                X509Certificate x509Cert = CertificateUtil.parseCertificate(certificate.getBase64Content());
-                String fingerprint = CertificateUtil.getThumbprint(x509Cert.getEncoded());
-                Certificate existingCertificate = certificateRepository.findByFingerprint(fingerprint).orElse(null);
-
-                if (existingCertificate == null) {
-                    logger
-                            .warn("Could not update metadata for duplicate discovery certificate. Certificate with fingerprint {} not found.",
-                                    fingerprint);
-                } else {
-                    attributeEngine
-                            .updateMetadataAttributes(certificate.getMeta(),
-                                    ObjectAttributeContentInfo
-                                            .builder(Resource.CERTIFICATE, existingCertificate.getUuid())
-                                            .connector(UUID.fromString(context.getConnectorDto().getUuid()))
-                                            .source(Resource.DISCOVERY, discovery.getUuid())
-                                            .sourceName(discovery.getName())
-                                            .build());
-                }
-            } catch (AttributeException e) {
+                transactions.executeWithoutResult(status -> updateDuplicateCertificateMetadata(context, certificate));
+            } catch (RuntimeException e) {
                 logger
-                        .error("Could not update metadata for duplicate discovery certificate {}.",
-                                certificate.getUuid());
-            } catch (Exception e) {
-                logger
-                        .error("Could not parse and process duplicate discovery certificate {}: {}",
-                                certificate.getUuid(), e.getMessage());
+                        .error("Could not update metadata of duplicate certificate {} of discovery {}",
+                                certificate.getUuid(), discovery.getName(), e);
             }
         }
 
-        context.setCertificatesDiscovered(discoveryCertificateRepository.countByDiscovery(discovery).intValue());
-        Long newlyDiscoveredCount = discoveryCertificateRepository.countByDiscoveryAndNewlyDiscovered(discovery, true);
-
-        transactionManager.commit(transaction);
+        StagedCounts counts = readOnlyTransactions
+                .execute(status -> new StagedCounts(
+                        discoveryCertificateRepository.countByDiscovery(discovery).intValue(),
+                        discoveryCertificateRepository.countByDiscoveryAndNewlyDiscovered(discovery, true)));
+        context.setCertificatesDiscovered(counts.certificates());
+        long newlyDiscoveredCount = counts.newlyDiscovered();
 
         String preProcessingMessage = context.getDiscoveryStatus() == DiscoveryStatus.IN_PROGRESS
                 ? null
@@ -245,44 +254,76 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
     private DiscoveryContext loadDiscoveryContext(UUID discoveryUuid) {
         UUID loggedUserUuid = UUID.fromString(AuthHelper.getUserIdentification().getUuid());
 
-        DefaultTransactionDefinition transactionDef = new DefaultTransactionDefinition();
-        transactionDef.setReadOnly(true);
-        TransactionStatus transaction = transactionManager.getTransaction(transactionDef);
-
         // reload discovery modal with all association since it could be in separate transaction/session due to async
-        String message = null;
-        Connector connector = null;
-        List<DataAttribute> dataAttributes = null;
-        Discovery discovery = discoveryRepository.findWithTriggersByUuid(discoveryUuid);
+        return readOnlyTransactions.execute(status -> {
+            String message = null;
+            Connector connector = null;
+            List<DataAttribute> dataAttributes = null;
+            Discovery discovery = discoveryRepository.findWithTriggersByUuid(discoveryUuid);
+            try {
+                logger.info("Loading discovery context: name={}, uuid={}", discovery.getName(), discovery.getUuid());
+                connector = connectorRepository
+                        .findByUuid(discovery.getConnectorUuid())
+                        .orElseThrow(() -> new NotFoundException(Connector.class, discovery.getConnectorUuid()));
+                dataAttributes = attributeEngine
+                        .getDefinitionObjectAttributeContent(AttributeType.DATA, connector.getUuid(), null,
+                                Resource.DISCOVERY, discovery.getUuid());
+
+                credentialService.loadFullCredentialData(dataAttributes);
+                resourceService.loadResourceObjectContentData(dataAttributes);
+
+            } catch (Exception e) {
+                message = e.getMessage();
+            }
+
+            ConnectorDto connectorDto = connector != null ? connector.mapToDto() : null;
+            DiscoveryContext discoveryContext = new DiscoveryContext(loggedUserUuid, connectorDto, discovery,
+                    dataAttributes);
+
+            if (message != null) {
+                discoveryContext.setMessage(message);
+                discoveryContext.setDiscoveryStatus(DiscoveryStatus.FAILED);
+                discoveryContext.setConnectorDiscoveryStatus(DiscoveryStatus.FAILED);
+            }
+            return discoveryContext;
+        });
+    }
+
+    private DiscoveryDetailDto failAtProvider(DiscoveryContext context, Exception e) {
+        logger.error("Error in discovery '{}' at provider", context.getDiscovery().getName(), e);
+        context.setDiscoveryFailed("Error in provider during discovery: " + e.getMessage());
+        storeRunMetadata(context);
+        return finalizeDiscoveryInTx(context, null);
+    }
+
+    private record StagedCounts(int certificates, long newlyDiscovered) {
+    }
+
+    /** Runs in the caller's transaction; a checked failure is rethrown unchecked so the transaction rolls back. */
+    private void updateDuplicateCertificateMetadata(DiscoveryContext context,
+            DiscoveryProviderCertificateDataDto certificate) {
+        Discovery discovery = context.getDiscovery();
         try {
-            logger.info("Loading discovery context: name={}, uuid={}", discovery.getName(), discovery.getUuid());
-            connector = connectorRepository
-                    .findByUuid(discovery.getConnectorUuid())
-                    .orElseThrow(() -> new NotFoundException(Connector.class, discovery.getConnectorUuid()));
-            dataAttributes = attributeEngine
-                    .getDefinitionObjectAttributeContent(AttributeType.DATA, connector.getUuid(), null,
-                            Resource.DISCOVERY, discovery.getUuid());
-
-            credentialService.loadFullCredentialData(dataAttributes);
-            resourceService.loadResourceObjectContentData(dataAttributes);
-
-        } catch (Exception e) {
-            message = e.getMessage();
+            X509Certificate x509Cert = CertificateUtil.parseCertificate(certificate.getBase64Content());
+            String fingerprint = CertificateUtil.getThumbprint(x509Cert.getEncoded());
+            Certificate existingCertificate = certificateRepository.findByFingerprint(fingerprint).orElse(null);
+            if (existingCertificate == null) {
+                logger
+                        .warn("Could not update metadata for duplicate discovery certificate. Certificate with fingerprint {} not found.",
+                                fingerprint);
+                return;
+            }
+            attributeEngine
+                    .updateMetadataAttributes(certificate.getMeta(),
+                            ObjectAttributeContentInfo
+                                    .builder(Resource.CERTIFICATE, existingCertificate.getUuid())
+                                    .connector(UUID.fromString(context.getConnectorDto().getUuid()))
+                                    .source(Resource.DISCOVERY, discovery.getUuid())
+                                    .sourceName(discovery.getName())
+                                    .build());
+        } catch (AttributeException | GeneralSecurityException e) {
+            throw new MetadataNotStored(e);
         }
-
-        ConnectorDto connectorDto = connector != null ? connector.mapToDto() : null;
-        DiscoveryContext discoveryContext = new DiscoveryContext(loggedUserUuid, connectorDto, discovery,
-                dataAttributes);
-
-        if (message != null) {
-            discoveryContext.setMessage(message);
-            discoveryContext.setDiscoveryStatus(DiscoveryStatus.FAILED);
-            discoveryContext.setConnectorDiscoveryStatus(DiscoveryStatus.FAILED);
-        }
-
-        transactionManager.commit(transaction);
-
-        return discoveryContext;
     }
 
     private DiscoveryProviderDto discoverCertificatesByProvider(final DiscoveryContext context)
@@ -535,10 +576,7 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
     }
 
     private void updateDiscoveryStateInTx(DiscoveryContext discoveryContext) {
-        TransactionStatus transaction = transactionManager.getTransaction(new DefaultTransactionDefinition());
-        Discovery discovery = updateDiscoveryState(discoveryContext);
-        discoveryRepository.save(discovery);
-        transactionManager.commit(transaction);
+        transactions.executeWithoutResult(status -> discoveryRepository.save(updateDiscoveryState(discoveryContext)));
     }
 
     private Discovery updateDiscoveryState(DiscoveryContext discoveryContext) {
@@ -607,20 +645,19 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
     }
 
     private DiscoveryDetailDto finalizeDiscoveryInTx(DiscoveryContext discoveryContext, String preProcessingMessage) {
-        TransactionStatus transaction = transactionManager.getTransaction(new DefaultTransactionDefinition());
-        Discovery discovery = updateDiscoveryState(discoveryContext);
-
-        discovery.setEndTime(OffsetDateTime.now(ZoneOffset.UTC));
-        if (discovery.getStatus() == DiscoveryStatus.COMPLETED) {
-            discovery
-                    .setMessage(withRunMetadataNote(discoveryContext,
-                            preProcessingMessage == null
-                                    ? "Discovery completed successfully"
-                                    : "Discovery completed. " + preProcessingMessage));
-        }
-
-        discoveryRepository.save(discovery);
-        transactionManager.commit(transaction);
+        Discovery discovery = discoveryContext.getDiscovery();
+        transactions.executeWithoutResult(status -> {
+            updateDiscoveryState(discoveryContext);
+            discovery.setEndTime(OffsetDateTime.now(ZoneOffset.UTC));
+            if (discovery.getStatus() == DiscoveryStatus.COMPLETED) {
+                discovery
+                        .setMessage(withRunMetadataNote(discoveryContext,
+                                preProcessingMessage == null
+                                        ? "Discovery completed successfully"
+                                        : "Discovery completed. " + preProcessingMessage));
+            }
+            discoveryRepository.save(discovery);
+        });
 
         DiscoveryDetailDto discoveryDto = DiscoveryDtoMapper.toDetailDto(discovery, detailCounts.forRun(discovery));
         eventProducer

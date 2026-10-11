@@ -109,4 +109,26 @@ public class DiscoveryWriter {
         });
     }
 
+    /**
+     * Ends a v1 run that Core itself failed to finish, unless it already ended. The caller's transactions have rolled
+     * back by then, so this starts a fresh one.
+     *
+     * @return the run's detail, or empty when the run is gone or already terminal
+     */
+    @Transactional
+    public Optional<DiscoveryDetailDto> markFailedUnlessTerminal(UUID discoveryUuid, String message) {
+        return discoveryRepository
+                .findByUuid(discoveryUuid)
+                .filter(discovery -> !DiscoveryRunLifecycle.isTerminal(discovery.getStatus()))
+                .map(discovery -> {
+                    discovery.setStatus(DiscoveryStatus.FAILED);
+                    if (!DiscoveryRunLifecycle.isTerminal(discovery.getConnectorStatus())) {
+                        discovery.setConnectorStatus(DiscoveryStatus.FAILED);
+                    }
+                    discovery.setMessage(message);
+                    discovery.setEndTime(OffsetDateTime.now(ZoneOffset.UTC));
+                    return DiscoveryDtoMapper.toDetailDto(discovery, detailCounts.forRun(discovery));
+                });
+    }
+
 }

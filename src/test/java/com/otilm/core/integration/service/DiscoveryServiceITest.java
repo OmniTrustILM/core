@@ -105,6 +105,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 class DiscoveryServiceITest extends BaseSpringBootTest {
 
@@ -1980,6 +1981,37 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         Assertions
                 .assertEquals(List.of(DiscoveryMessageCode.RUN_METADATA_NOT_RECORDED.code()),
                         runMessageCodes(discoveryUuid));
+    }
+
+    @Test
+    void aRunCoreCannotFinishEndsFailedRatherThanInProgress() throws Exception {
+        RefusedDefinitionInserts.install(jdbcTemplate);
+        UUID discoveryUuid = createRunnableDiscovery();
+        stubDiscoveryStart(startResponse(1));
+        stubDiscoveryData(dataResponseWithCertificateMeta(1, REFUSED_META_JSON));
+
+        Assertions.assertDoesNotThrow(() -> discoveryInternalService.runDiscovery(discoveryUuid, null));
+
+        Discovery persisted = discoveryRepository.findByUuid(discoveryUuid).orElseThrow();
+        Assertions.assertEquals(DiscoveryStatus.FAILED, persisted.getStatus());
+        Assertions.assertTrue(persisted.getMessage().startsWith("Discovery failed in Core"), persisted.getMessage());
+        Assertions.assertNotNull(persisted.getEndTime());
+        // Every boundary rolled back on the way out: nothing is left bound to the thread.
+        Assertions.assertFalse(TransactionSynchronizationManager.isActualTransactionActive());
+        Assertions.assertTrue(TransactionSynchronizationManager.getResourceMap().isEmpty());
+    }
+
+    private String dataResponseWithCertificateMeta(int totalCertificates, String metaJson) {
+        return """
+                {"uuid": "%s", "name": "integration-provider", "status": "completed",
+                 "totalCertificatesDiscovered": %d,
+                 "certificateData": [{
+                     "uuid": "0279d416-02ed-4415-a8cd-85af3f083222",
+                     "base64Content": "%s",
+                     "meta": [%s]
+                 }],
+                 "meta": []}
+                """.formatted(PROVIDER_DISCOVERY_UUID, totalCertificates, CERTIFICATE_BASE64, metaJson);
     }
 
     private String startResponseWithMeta(int totalCertificates, String metaJson) {
