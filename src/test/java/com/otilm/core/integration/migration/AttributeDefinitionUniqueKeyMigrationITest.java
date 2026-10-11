@@ -56,6 +56,9 @@ class AttributeDefinitionUniqueKeyMigrationITest extends BaseSpringBootTest {
     private static final String EARLIER = "2026-10-01 10:00:00";
     private static final String LATER = "2026-10-01 10:00:01";
     private static final String LATEST = "2026-10-01 10:00:02";
+    private static final String NOTIFICATION_INSTANCE = "f0000000-0000-0000-0000-000000000001";
+    private static final String MAPPING_ATTRIBUTE = "f0000000-0000-0000-0000-000000000002";
+    private static final String REFUSED = "differ in content type, version or protection level and cannot be merged";
     private static final String TABLE_STUBS = """
             CREATE TABLE "attribute_definition" (
                 "uuid" UUID PRIMARY KEY,
@@ -175,6 +178,22 @@ class AttributeDefinitionUniqueKeyMigrationITest extends BaseSpringBootTest {
             assertThat(count(statement,
                     "SELECT count(*) FROM attribute_relation WHERE attribute_definition_uuid = '" + KEPT + "'"))
                     .isEqualTo(2);
+            assertThat(count(statement, "SELECT count(*) FROM notification_instance_mapped_attributes"
+                    + " WHERE attribute_definition_uuid = '" + KEPT + "'")).isEqualTo(1);
+        });
+    }
+
+    @Test
+    void aNotificationMappingHeldByBothRowsIsKeptOnce() throws Exception {
+        inScratchSchema(statement -> {
+            definition(statement, KEPT, "META", CONNECTOR_ONE, ATTRIBUTE, "source", false, "STRING", null, EARLIER);
+            definition(statement, DUPLICATE, "META", CONNECTOR_ONE, ATTRIBUTE, "source", false, "STRING", null, LATER);
+            notificationMapping(statement, KEPT);
+            notificationMapping(statement, DUPLICATE);
+
+            migrate(statement);
+
+            assertThat(count(statement, "SELECT count(*) FROM notification_instance_mapped_attributes")).isEqualTo(1);
             assertThat(count(statement, "SELECT count(*) FROM notification_instance_mapped_attributes"
                     + " WHERE attribute_definition_uuid = '" + KEPT + "'")).isEqualTo(1);
         });
@@ -365,6 +384,68 @@ class AttributeDefinitionUniqueKeyMigrationITest extends BaseSpringBootTest {
             assertThatThrownBy(() -> migrate(statement))
                     .isInstanceOf(SQLException.class)
                     .hasMessageContaining(DUPLICATE);
+        });
+    }
+
+    @Test
+    void aDataPairOfDifferentVersionsStopsTheMigration() throws Exception {
+        inScratchSchema(statement -> {
+            definition(statement, KEPT, "DATA", CONNECTOR_ONE, ATTRIBUTE, "port", false, "STRING", null, EARLIER);
+            definition(statement, DUPLICATE, "DATA", CONNECTOR_ONE, ATTRIBUTE, "port", false, "STRING", null, LATER);
+            update(statement, DUPLICATE, "version = 3");
+
+            assertThatThrownBy(() -> migrate(statement))
+                    .isInstanceOf(SQLException.class)
+                    .hasMessageContaining(REFUSED)
+                    .hasMessageContaining(DUPLICATE);
+        });
+    }
+
+    /** Definitions written before the protection level was stored carry none, which reads as NONE. */
+    @Test
+    void aDataPairWithoutAProtectionLevelAndWithNoneFolds() throws Exception {
+        inScratchSchema(statement -> {
+            definition(statement, KEPT, "DATA", CONNECTOR_ONE, ATTRIBUTE, "port", false, "STRING", null, EARLIER);
+            definition(statement, DUPLICATE, "DATA", CONNECTOR_ONE, ATTRIBUTE, "port", false, "STRING", null, LATER);
+            update(statement, DUPLICATE, "protection_level = 'NONE'");
+
+            migrate(statement);
+
+            assertThat(count(statement, "SELECT count(*) FROM attribute_definition")).isEqualTo(1);
+            assertThat(scope(statement, KEPT)).isEqualTo(new Scope(CONNECTOR_ONE, false));
+        });
+    }
+
+    @Test
+    void aDataPairOfDifferentProtectionLevelsStopsTheMigration() throws Exception {
+        inScratchSchema(statement -> {
+            definition(statement, KEPT, "DATA", CONNECTOR_ONE, ATTRIBUTE, "port", false, "STRING", null, EARLIER);
+            definition(statement, DUPLICATE, "DATA", CONNECTOR_ONE, ATTRIBUTE, "port", false, "STRING", null, LATER);
+            update(statement, KEPT, "protection_level = 'NONE'");
+            update(statement, DUPLICATE, "protection_level = 'ENCRYPTED'");
+
+            assertThatThrownBy(() -> migrate(statement))
+                    .isInstanceOf(SQLException.class)
+                    .hasMessageContaining(REFUSED)
+                    .hasMessageContaining(DUPLICATE);
+        });
+    }
+
+    @Test
+    void aConnectorsMetadataPairOfDifferentContentTypesDetachesTheNewerRow() throws Exception {
+        inScratchSchema(statement -> {
+            definition(statement, KEPT, "META", CONNECTOR_ONE, ATTRIBUTE, "totalUrls", false, "INTEGER", null, EARLIER);
+            definition(statement, DUPLICATE, "META", CONNECTOR_ONE, ATTRIBUTE, "totalUrls", false, "STRING", null,
+                    LATER);
+            value(statement, KEPT_VALUE, KEPT, "{\"data\": 5}");
+            value(statement, DUPLICATE_VALUE, DUPLICATE, "{\"data\": \"5\"}");
+
+            migrate(statement);
+
+            assertThat(scope(statement, DUPLICATE)).isEqualTo(new Scope(null, false));
+            assertThat(definitionOf(statement, DUPLICATE_VALUE)).isEqualTo(DUPLICATE);
+            assertThat(scope(statement, KEPT)).isEqualTo(new Scope(CONNECTOR_ONE, false));
+            assertThat(definitionOf(statement, KEPT_VALUE)).isEqualTo(KEPT);
         });
     }
 
@@ -589,6 +670,18 @@ class AttributeDefinitionUniqueKeyMigrationITest extends BaseSpringBootTest {
                 .execute("INSERT INTO attribute_content_2_object (uuid, attribute_content_item_uuid, object_type,"
                         + " object_uuid, item_order) VALUES (gen_random_uuid(), '" + item + "', 'CERTIFICATE', '"
                         + object + "', 0)");
+    }
+
+    /** Maps the definition to one attribute of one notification instance, the same for every call. */
+    private static void notificationMapping(Statement statement, String definition) throws SQLException {
+        statement
+                .execute("INSERT INTO notification_instance_mapped_attributes (uuid, notification_instance_ref_uuid,"
+                        + " attribute_definition_uuid, mapping_attribute_uuid) VALUES (gen_random_uuid(), '"
+                        + NOTIFICATION_INSTANCE + "', '" + definition + "', '" + MAPPING_ATTRIBUTE + "')");
+    }
+
+    private static void update(Statement statement, String definition, String assignment) throws SQLException {
+        statement.execute("UPDATE attribute_definition SET " + assignment + " WHERE uuid = '" + definition + "'");
     }
 
     private static void relation(Statement statement, String definition, String resource) throws SQLException {
