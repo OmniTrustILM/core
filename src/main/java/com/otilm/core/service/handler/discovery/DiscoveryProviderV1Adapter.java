@@ -4,6 +4,7 @@ import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.DiscoveryException;
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.PlatformException;
 import com.otilm.api.interfaces.client.v1.DiscoverySyncApiClient;
 import com.otilm.api.model.client.discovery.DiscoveryDetailDto;
 import com.otilm.api.model.common.attribute.common.AttributeContent;
@@ -59,7 +60,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -572,21 +572,17 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
                 .builder(Resource.DISCOVERY, discovery.getUuid())
                 .connector(discovery.getConnectorUuid())
                 .build();
-        AtomicReference<Exception> failure = new AtomicReference<>();
         try {
             transactions.executeWithoutResult(status -> {
                 try {
                     attributeEngine.updateMetadataAttributes(metadata, target);
                 } catch (AttributeException e) {
-                    failure.set(e);
-                    status.setRollbackOnly();
+                    throw new MetadataNotStored(e);
                 }
             });
         } catch (RuntimeException e) {
-            failure.set(e);
-        }
-        if (failure.get() != null) {
-            logger.warn("Metadata of discovery {} could not be stored", discovery.getUuid(), failure.get());
+            Throwable cause = e instanceof MetadataNotStored ? e.getCause() : e;
+            logger.warn("Metadata of discovery {} could not be stored", discovery.getUuid(), cause);
             context.setRunMetadataNotStored(true);
             messageWriter
                     .append(discovery.getUuid(), DiscoveryMessageSeverity.WARNING,
@@ -632,6 +628,13 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
                         .constructEventMessage(discovery.getUuid(), discoveryContext.getLoggedUserUuid(), null,
                                 new DiscoveryResult(discovery.getStatus(), discovery.getMessage())));
         return discoveryDto;
+    }
+
+    /** Carries a checked failure out of a transaction callback, rolling the transaction back on the way. */
+    private static final class MetadataNotStored extends RuntimeException implements PlatformException {
+        private MetadataNotStored(Exception cause) {
+            super(cause);
+        }
     }
 
 }
