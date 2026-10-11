@@ -49,7 +49,7 @@ public enum DiscoveryMessageCode {
     /** How the run ended; the message is the terminal reason and the severity follows the terminal status. */
     RUN_ENDED("runEnded"),
 
-    /** A run metadata statement Core did not record: over the size cap, or malformed. */
+    /** Run metadata Core did not record: a statement over the size cap or malformed, or storing it failed. */
     RUN_METADATA_NOT_RECORDED("runMetadataNotRecorded"),
     /** A discovered key the pipeline could not turn into a key record. */
     KEY_IMPORT_FAILED("keyImportFailed"),

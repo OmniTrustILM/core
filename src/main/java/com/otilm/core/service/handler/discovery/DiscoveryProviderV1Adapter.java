@@ -175,7 +175,7 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
         try {
             providerResponse = discoverCertificatesByProvider(context);
         } catch (DiscoveryException e) {
-            logger.error(e.getMessage());
+            logger.error("Discovery {} ended at the provider", discoveryUuid, e);
             storeRunMetadata(context);
             return finalizeDiscoveryInTx(context, null);
         } catch (InterruptedException e) {
@@ -198,7 +198,7 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
             context.setDiscoveryStatus(DiscoveryStatus.IN_PROGRESS);
             context.setMessage("Discovered certificates downloaded from provider");
         } catch (DiscoveryException e) {
-            logger.error(e.getMessage());
+            logger.error("Discovery {} could not download all certificates", discoveryUuid, e);
         }
 
         // Each duplicate's metadata is written in a transaction of its own, so one that fails cannot take the counts
