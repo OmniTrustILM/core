@@ -23,6 +23,9 @@
 -- Old pods keep running through a rolling upgrade: their writes and reads of definitions wait until the fold and both
 -- keys are in place, so none of them inserts a duplicate, or binds a value to one, behind the fold.
 -- Value inserts check their foreign key against this table, so they wait too.
+-- While the lock is queued, old pods' reads of definitions queue behind it, so the wait is bounded: if old pods hold
+-- the table longer than a minute, the migration fails, is rolled back whole, and runs again on the next start.
+SET LOCAL lock_timeout = '60s';
 LOCK TABLE "attribute_definition" IN ACCESS EXCLUSIVE MODE;
 
 CREATE TEMP TABLE "attribute_definition_merge" (
