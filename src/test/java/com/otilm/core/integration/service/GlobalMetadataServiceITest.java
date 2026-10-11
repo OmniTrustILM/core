@@ -350,6 +350,7 @@ class GlobalMetadataServiceITest extends BaseSpringBootTest {
                         .promoteConnectorMetadata(UUID.fromString(clash.getUuid()), connector.getUuid()));
 
         Assertions.assertEquals(1, attributeService.listGlobalMetadata().size());
-        assertThat(clashing.getGlobal()).isNotEqualTo(Boolean.TRUE);
+        assertThat(attributeDefinitionRepository.findByUuid(clashing.getUuid()).orElseThrow().getGlobal())
+                .isNotEqualTo(Boolean.TRUE);
     }
 }
