@@ -2016,6 +2016,21 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
     }
 
     @Test
+    void aPropertyFilterFieldOfAnotherResourceIsRefusedNamingTheField() {
+        SearchRequestDto searchRequestDto = new SearchRequestDto();
+        searchRequestDto
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.COMMON_NAME.name(),
+                                FilterConditionOperator.EQUALS, "x")));
+        SecurityFilter securityFilter = new SecurityFilter();
+
+        ValidationException exception = Assertions
+                .assertThrows(ValidationException.class,
+                        () -> cryptographicKeyService.listCryptographicKeys(securityFilter, searchRequestDto));
+        Assertions.assertTrue(exception.getMessage().contains("COMMON_NAME"), exception.getMessage());
+    }
+
+    @Test
     void testAttributeIntegerFilter_invalidValue_throwsValidationException() {
         CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
         searchRequestDto

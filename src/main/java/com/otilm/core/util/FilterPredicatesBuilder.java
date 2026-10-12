@@ -416,6 +416,23 @@ public class FilterPredicatesBuilder {
                         ValidationError.create("Unknown filter field identifier %s.".formatted(fieldIdentifier))));
     }
 
+    /**
+     * The path of a property filter field on the listing's entity. A field of another resource does not resolve there,
+     * and the persistence layer would turn the resulting {@link IllegalArgumentException} into a server fault.
+     */
+    private static <Y> Path<Y> resolvePropertyFilterPath(final From from, final FilterField filterField) {
+        try {
+            return resolveFieldPath(from, filterField.getFieldAttribute());
+        } catch (IllegalArgumentException e) {
+            throw fieldNotOnListing(filterField);
+        }
+    }
+
+    private static ValidationException fieldNotOnListing(final FilterField filterField) {
+        return new ValidationException(
+                ValidationError.create("Field %s cannot filter this listing.".formatted(filterField.name())));
+    }
+
     private static boolean isDeclaredOnStrictSubtypeOf(final From<?, ?> from, final Attribute<?, ?> fieldAttribute) {
         final Class<?> declaringType = fieldAttribute.getDeclaringType().getJavaType();
         return !declaringType.equals(from.getJavaType()) && from.getJavaType().isAssignableFrom(declaringType);
@@ -444,7 +461,12 @@ public class FilterPredicatesBuilder {
                     ? contributed
                     : criteriaBuilder.not(contributed);
         }
-        From from = getJoinedAssociation(root, joinedAssociations, filterField, filterDto.getCondition());
+        From from;
+        try {
+            from = getJoinedAssociation(root, joinedAssociations, filterField, filterDto.getCondition());
+        } catch (IllegalArgumentException e) {
+            throw fieldNotOnListing(filterField);
+        }
 
         // prepare filter values, expression and set filter characteristics
         List<Object> filterValues = preparePropertyFilterValues(filterDto, filterField);
@@ -495,7 +517,7 @@ public class FilterPredicatesBuilder {
 
         Expression expression = null;
         if (filterField.getFieldAttribute() != null && !isCountOperator(filterDto.getCondition())) {
-            expression = resolveFieldPath(from, filterField.getFieldAttribute());
+            expression = resolvePropertyFilterPath(from, filterField);
         }
 
         boolean isJsonArray = false;
@@ -503,29 +525,28 @@ public class FilterPredicatesBuilder {
             isJsonArray = isJsonArray(filterField);
             if (isJsonArray) {
                 expression = criteriaBuilder
-                        .function("jsonb_path_query_array", String.class,
-                                resolveFieldPath(from, filterField.getFieldAttribute()),
+                        .function("jsonb_path_query_array", String.class, resolvePropertyFilterPath(from, filterField),
                                 criteriaBuilder.literal(getArrayJsonPath(filterField.getJsonPath())));
             } else {
                 expression = switch (filterField.getJsonPath().length) {
                     case 1 -> criteriaBuilder
                             .function(JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME, String.class,
-                                    resolveFieldPath(from, filterField.getFieldAttribute()),
+                                    resolvePropertyFilterPath(from, filterField),
                                     criteriaBuilder.literal(filterField.getJsonPath()[0]));
                     case 2 -> criteriaBuilder
                             .function(JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME, String.class,
-                                    resolveFieldPath(from, filterField.getFieldAttribute()),
+                                    resolvePropertyFilterPath(from, filterField),
                                     criteriaBuilder.literal(filterField.getJsonPath()[0]),
                                     criteriaBuilder.literal(filterField.getJsonPath()[1]));
                     case 3 -> criteriaBuilder
                             .function(JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME, String.class,
-                                    resolveFieldPath(from, filterField.getFieldAttribute()),
+                                    resolvePropertyFilterPath(from, filterField),
                                     criteriaBuilder.literal(filterField.getJsonPath()[0]),
                                     criteriaBuilder.literal(filterField.getJsonPath()[1]),
                                     criteriaBuilder.literal(filterField.getJsonPath()[2]));
                     case 4 -> criteriaBuilder
                             .function(JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME, String.class,
-                                    resolveFieldPath(from, filterField.getFieldAttribute()),
+                                    resolvePropertyFilterPath(from, filterField),
                                     criteriaBuilder.literal(filterField.getJsonPath()[0]),
                                     criteriaBuilder.literal(filterField.getJsonPath()[1]),
                                     criteriaBuilder.literal(filterField.getJsonPath()[2]),
