@@ -1566,6 +1566,27 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void aV1RunTargetsCertificatesAndCountsThemAsItsItems()
+            throws AlreadyExistException, ConnectorException, AttributeException, NotFoundException {
+        DiscoveryDto dto = new DiscoveryDto();
+        dto.setName("V1ItemTotalIT-" + UUID.randomUUID());
+        dto.setKind("IpAndPort");
+        dto.setConnectorUuid(connector.getUuid().toString());
+        dto.setAttributes(List.of());
+
+        UUID discoveryUuid = UUID.fromString(discoveryService.createDiscovery(dto, true).getUuid());
+        Assertions
+                .assertEquals(List.of(Resource.CERTIFICATE),
+                        discoveryRepository.findByUuid(discoveryUuid).orElseThrow().getResources());
+
+        discoveryInternalService.runDiscovery(discoveryUuid, null);
+
+        Discovery persisted = discoveryRepository.findByUuid(discoveryUuid).orElseThrow();
+        Assertions.assertEquals(1, persisted.getTotalCertificatesDiscovered());
+        Assertions.assertEquals(1, persisted.getTotalItemsDiscovered());
+    }
+
+    @Test
     void runDiscoveryTest() throws AlreadyExistException, ConnectorException, AttributeException, NotFoundException {
         DiscoveryDto dto = new DiscoveryDto();
         dto.setName("RunDiscoveryIT-" + UUID.randomUUID());

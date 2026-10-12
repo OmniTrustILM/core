@@ -1,6 +1,7 @@
 package com.otilm.core.mapper.discovery;
 
 import com.otilm.api.model.client.discovery.DiscoveryDetailDto;
+import com.otilm.api.model.client.discovery.DiscoveryListDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredKeyDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.discovery.DiscoveryItemDto;
@@ -9,8 +10,10 @@ import com.otilm.core.dao.repository.DiscoveryItemRow;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.util.CertificateUtil;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import static com.otilm.core.util.builders.DiscoveredKeyDtoBuilder.aPublicKey;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -31,6 +34,33 @@ class DiscoveryDtoMapperTest {
         assertThat(dto.getItemsNewlyDiscovered()).isEqualTo(11);
         assertThat(dto.getItemsProcessed()).isEqualTo(7);
         assertThat(dto.getItemsFailed()).isEqualTo(2);
+    }
+
+    @Test
+    void aV2RunReleasedFromItsDeletedConnectorStillReportsTheItemsItReceived() {
+        // A connector's delete clears the interface link of its ended runs; the cursor is what is left to say v2.
+        Discovery released = run();
+        released.setLastAppliedSequence(40);
+
+        assertThat(DiscoveryDtoMapper
+                .toDetailDto(released, new DiscoveryDtoMapper.DetailCounts(0, 0, 0, 0))
+                .getItemsDiscovered()).isEqualTo(40);
+        assertThat(DiscoveryDtoMapper
+                .toDetailDto(run(), new DiscoveryDtoMapper.DetailCounts(0, 0, 0, 0))
+                .getItemsDiscovered()).isNull();
+    }
+
+    @Test
+    void theListingCarriesTheItemTotalAndTheResources() {
+        Discovery run = run();
+        // The database derives it on load; nothing writes it.
+        ReflectionTestUtils.setField(run, "totalItemsDiscovered", 52L);
+        run.setResources(List.of(Resource.CERTIFICATE, Resource.CRYPTOGRAPHIC_KEY));
+
+        DiscoveryListDto dto = DiscoveryDtoMapper.toListDto(run);
+
+        assertThat(dto.getTotalItemsDiscovered()).isEqualTo(52);
+        assertThat(dto.getResources()).containsExactly(Resource.CERTIFICATE, Resource.CRYPTOGRAPHIC_KEY);
     }
 
     @Test

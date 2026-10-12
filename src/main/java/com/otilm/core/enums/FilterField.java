@@ -10,6 +10,7 @@ import com.otilm.api.model.common.enums.IPlatformEnum;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.connector.discovery.v2.DiscoveredItemPayloadDto;
 import com.otilm.api.model.connector.secrets.SecretType;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cbom.CbomAssetSyncState;
@@ -240,6 +241,10 @@ public enum FilterField {
             DiscoveryStatus.class, null, false, null),
     DISCOVERY_TOTAL_CERT_DISCOVERED(Resource.DISCOVERY, null, null, Discovery_.totalCertificatesDiscovered,
             "Total certificate discovered", SearchFieldTypeEnum.NUMBER),
+    DISCOVERY_TOTAL_ITEMS_DISCOVERED(Resource.DISCOVERY, null, null, Discovery_.totalItemsDiscovered,
+            "Total items discovered", SearchFieldTypeEnum.NUMBER),
+    DISCOVERY_RESOURCES(Resource.DISCOVERY, null, null, Discovery_.resources, "Resources",
+            SearchFieldTypeEnum.NATIVE_ARRAY, Resource.class, DiscoveredItemPayloadDto.DISCOVERABLE),
     DISCOVERY_CONNECTOR_NAME(Resource.DISCOVERY, null, null, Discovery_.connectorName, "Discovery provider",
             SearchFieldTypeEnum.LIST),
     DISCOVERY_KIND(Resource.DISCOVERY, null, null, Discovery_.kind, "Kind", SearchFieldTypeEnum.STRING),

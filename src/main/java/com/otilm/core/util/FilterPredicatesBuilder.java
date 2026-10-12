@@ -52,6 +52,7 @@ import jakarta.persistence.metamodel.Attribute;
 import jakarta.persistence.metamodel.PluralAttribute;
 import jakarta.persistence.metamodel.SingularAttribute;
 import java.io.Serializable;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -523,7 +524,7 @@ public class FilterPredicatesBuilder {
             if (expression == null) {
                 throw new ValidationException("Invalid filter configuration: no expression for field " + filterField);
             }
-            expression = ((JpaExpression) expression).cast(filterField.getType().getExpressionClass());
+            expression = ((JpaExpression) expression).cast(expressionClassOf(filterField));
         }
 
         boolean multipleValues = filterValues.size() > 1;
@@ -559,6 +560,11 @@ public class FilterPredicatesBuilder {
                     + " with operator " + conditionOperator);
         }
         final Expression finalExpression = expression;
+        // A number is inlined, as the range comparisons inline it. Bound, a fraction would first have to coerce to the
+        // integer the expression is cast to, which Hibernate refuses before the query runs.
+        final List<?> equalityOperands = filterField.getType() == SearchFieldTypeEnum.NUMBER
+                ? filterValues.stream().map(criteriaBuilder::literal).toList()
+                : filterValues;
         switch (conditionOperator) {
             case EQUALS -> {
                 if (bitEnumProperty) {
@@ -573,8 +579,8 @@ public class FilterPredicatesBuilder {
                     predicate = getNativeArrayEqualsExpression(criteriaBuilder, filterValues, finalExpression);
                 } else {
                     predicate = multipleValues
-                            ? expression.in(filterValues)
-                            : criteriaBuilder.equal(expression, filterValues.getFirst());
+                            ? expression.in(equalityOperands)
+                            : criteriaBuilder.equal(expression, equalityOperands.getFirst());
                 }
             }
             case NOT_EQUALS -> {
@@ -608,9 +614,9 @@ public class FilterPredicatesBuilder {
                                         .or(getNotPresentPredicate(criteriaBuilder, from, expression, hasParent,
                                                 isParentCollection, false, isJsonArray),
                                                 multipleValues
-                                                        ? criteriaBuilder.not(expression.in(filterValues))
+                                                        ? criteriaBuilder.not(expression.in(equalityOperands))
                                                         : criteriaBuilder
-                                                                .notEqual(expression, filterValues.getFirst()));
+                                                                .notEqual(expression, equalityOperands.getFirst()));
                     }
                 }
             }
@@ -1043,6 +1049,16 @@ public class FilterPredicatesBuilder {
                 || condition == FilterConditionOperator.COUNT_LESS_THAN;
     }
 
+    // A number compares as an integer, except one held in a long: an integer cast fails the whole query on the first
+    // row past the integer range.
+    private static Class<?> expressionClassOf(FilterField filterField) {
+        Class<?> javaType = filterField.getFieldAttribute().getJavaType();
+        if (filterField.getType() == SearchFieldTypeEnum.NUMBER && (javaType == long.class || javaType == Long.class)) {
+            return Long.class;
+        }
+        return filterField.getType().getExpressionClass();
+    }
+
     private static List<Object> preparePropertyFilterValues(final SearchFilterRequestDto filterDto,
             final FilterField filterField) {
         Serializable filterValue = filterDto.getValue();
@@ -1080,9 +1096,17 @@ public class FilterPredicatesBuilder {
                     }
                 } else if (filterField.getType() == SearchFieldTypeEnum.NUMBER) {
                     try {
-                        preparedFilterValue = stringValue.contains(".")
-                                ? Float.parseFloat(stringValue)
-                                : Integer.parseInt(stringValue);
+                        boolean fractional = stringValue.contains(".");
+                        if (expressionClassOf(filterField) == Long.class) {
+                            // A float rounds past 2^24, so a threshold on a long keeps every digit it was given.
+                            preparedFilterValue = fractional
+                                    ? new BigDecimal(stringValue)
+                                    : Long.parseLong(stringValue);
+                        } else {
+                            preparedFilterValue = fractional
+                                    ? Float.parseFloat(stringValue)
+                                    : Integer.parseInt(stringValue);
+                        }
                     } catch (NumberFormatException e) {
                         throw new ValidationException(
                                 "Filter field value " + stringValue + " cannot be parsed as a Number.");
