@@ -179,6 +179,32 @@ class PqcEvaluatorTest {
                 .isEqualTo("PARAMETER-SET-UNREGISTERED");
     }
 
+    /**
+     * A construction over a cipher is as strong as the cipher's key, which its name may spell: the 128 of
+     * {@code AES-128-CMAC} is RFC 4493's AES-128 key. A tag length is not a key, wherever it is spelled.
+     */
+    @Test
+    void aConstructionIsHeldToTheFloorByTheKeyItsCipherSpells() {
+        for (String undersized : new String[]{
+                "AES-128-CMAC",
+                "CMAC-AES-128",
+                "AES-128-GMAC",
+                "AES-192-CMAC",
+                "CMAC-Camellia-128"}) {
+            PqcDecision decision = verdictOf(algorithm(undersized));
+            assertThat(decision.verdict()).describedAs(undersized).isEqualTo(PqcVerdict.NOT_READY);
+            assertThat(decision.ruleId()).describedAs(undersized).isEqualTo("SYMMETRIC-UNDERSIZED");
+        }
+        for (String ready : new String[]{
+                "AES-256-CMAC",
+                "AES-256-CMAC-96",
+                "AES-CMAC-96",
+                "CMAC-AES-64",
+                "HMAC-SHA3-224"}) {
+            assertThat(verdictOf(algorithm(ready)).ruleId()).describedAs(ready).isEqualTo("SYMMETRIC-READY");
+        }
+    }
+
     /** A truncated digest is as long as its output, not as the hash it was truncated from. */
     @Test
     void aTruncatedDigestIsHeldToTheFloorByItsTruncatedLength() {

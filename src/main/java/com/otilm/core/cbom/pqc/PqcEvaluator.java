@@ -55,6 +55,9 @@ public class PqcEvaluator {
 
     private static final Set<String> STATEFUL_HASH_SIGNATURES = Set.of("LMS", "XMSS");
 
+    /** The primitives whose size is a key length, so a construction over one is as strong as that key. */
+    private static final Set<String> KEYED_CIPHERS = Set.of("block-cipher", "stream-cipher");
+
     /**
      * The marker the normalizer keeps in the variant for a truncated digest: {@code SHA-512/224} carries {@code t224}.
      */
@@ -326,6 +329,7 @@ public class PqcEvaluator {
         private final FamilyClass disposition;
         private final boolean construction;
         private final FamilyClass namedPrimitive;
+        private final String namedPrimitiveFamily;
         private final boolean nonKeyPrimitive;
         private final Set<Integer> admissibleParameterSets;
         private final boolean parameterSetUnregistered;
@@ -344,6 +348,7 @@ public class PqcEvaluator {
             this.family = nameIsTheSoleWeakToken ? ratifiedFamily(input.name()) : stored;
             this.disposition = PqcFamilies.of(family);
             this.construction = PqcFamilies.isConstruction(family);
+            this.namedPrimitiveFamily = construction ? namedPrimitiveFamily(input) : null;
             this.namedPrimitive = construction ? namedPrimitive(input) : null;
             this.nonKeyPrimitive = input.primitive() != null
                     && PqcRules.NON_KEY_PRIMITIVES.contains(AsciiText.fold(input.primitive()));
@@ -352,7 +357,11 @@ public class PqcEvaluator {
                     : normalizer.admissibleParameterSets(input.name(), family);
             this.parameterSetUnregistered = admissibleParameterSets != null && input.parameterSet() != null
                     && !admissibleParameterSets.contains(input.parameterSet());
-            this.recordedSize = recordedSizeBits(input, construction || nonKeyPrimitive || parameterSetUnregistered);
+            Integer ownSize = construction || nonKeyPrimitive || parameterSetUnregistered
+                    ? null
+                    : truncated(input, withinRatifiedSizeBand(input.parameterSet()));
+            this.recordedSize = recordedSizeBits(input,
+                    construction ? cipherKeySize(input, namedPrimitiveFamily) : ownSize);
             PqcRuleInput withFamily = nameIsTheSoleWeakToken ? input.withAlgorithmFamily(family) : input;
             this.evidence = withFamily.withHybridComponents(genuineHybrid ? hybridComponents : List.of());
         }
@@ -666,6 +675,38 @@ public class PqcEvaluator {
     }
 
     /**
+     * The family of the unbroken primitive a construction's secondary tokens name, the last one where they name
+     * several, or {@code null} when they name none.
+     */
+    private String namedPrimitiveFamily(PqcRuleInput input) {
+        String named = null;
+        for (String token : secondaryTokens(input)) {
+            String family = ratifiedFamilyOfToken(token);
+            if (PqcFamilies.of(family) == FamilyClass.QUANTUM_RESISTANT_SYMMETRIC
+                    && !PqcFamilies.isConstruction(family)) {
+                named = family;
+            }
+        }
+        return named;
+    }
+
+    /**
+     * The key length a construction's cipher spells -- the 128 of {@code AES-128-CMAC} -- or {@code null}. Only a size
+     * the cipher's registry variant spells and defines counts, so a trailing tag length is never read as a key: the 96
+     * of {@code AES-CMAC-96} is not where AES spells its size, and the 64 of {@code CMAC-AES-64} is no AES key. A hash
+     * primitive's number is a digest length, not a key, so an HMAC reads none.
+     */
+    private Integer cipherKeySize(PqcRuleInput input, String cipherFamily) {
+        if (cipherFamily == null
+                || !KEYED_CIPHERS.contains(normalizer.tables().primitiveDefaults().get(cipherFamily))) {
+            return null;
+        }
+        Integer spelled = normalizer.registrySizeSpelled(input.name(), cipherFamily);
+        Set<Integer> admissible = normalizer.admissibleParameterSets(input.name(), cipherFamily);
+        return spelled != null && admissible != null && admissible.contains(spelled) ? spelled : null;
+    }
+
+    /**
      * The disposition of the primitive a construction's secondary tokens name, or {@code null} when they name none.
      * Another construction does not count, since the pair says no more than either half, and a bare parameter set does
      * not either. An ambiguous primitive outranks an unbroken one: a construction cannot be vouched for over a part
@@ -693,20 +734,23 @@ public class PqcEvaluator {
      * {@code materialSize} counts only on a material row. A producer bug stamps the material block onto algorithms too,
      * and there the row's own size is its parameter set -- a strayed size would otherwise decide {@code AES-64} ready
      * and {@code AES-256} undersized. When a key's name spells a size too, the smaller decides: a declared size must
-     * not clear a key its own algorithm name fails. A truncated digest is as long as its truncation:
-     * {@code SHA-512/224} records 512 as its parameter set and 224 as a marker, and its output is 224 bits.
+     * not clear a key its own algorithm name fails.
      *
-     * @param parameterSetIsNotASize a construction's digest or tag length, a non-key primitive's output length, or a
-     * number the family does not define
+     * @param named the size the name records: a primitive's parameter set, cut to its truncation for a truncated
+     * digest, or a construction's cipher key length; {@code null} for a non-key primitive's output length or a number
+     * the family does not define
      */
-    private Integer recordedSizeBits(PqcRuleInput input, boolean parameterSetIsNotASize) {
-        Integer named = parameterSetIsNotASize ? null : truncated(input, withinRatifiedSizeBand(input.parameterSet()));
+    private static Integer recordedSizeBits(PqcRuleInput input, Integer named) {
         if (input.assetType() == CryptographicAssetType.RELATED_CRYPTO_MATERIAL && input.materialSize() != null) {
             return named == null ? input.materialSize() : Math.min(input.materialSize(), named);
         }
         return named;
     }
 
+    /**
+     * A truncated digest is as long as its truncation: {@code SHA-512/224} records 512 as its parameter set and 224 as
+     * a marker, and its output is 224 bits.
+     */
     private Integer truncated(PqcRuleInput input, Integer size) {
         if (size == null) {
             return null;
