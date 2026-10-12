@@ -848,10 +848,10 @@ public record AssetNormalizer(IdentityTables tables) {
      * Holds the parameter set to what the registry enumerates for the family. There is no 64-bit AES and no ML-KEM with
      * parameter set 800: where the family's variant spells an admissible size in the name, that size is the parameter
      * set over a declared one the family does not define, and the declaration is reported. A declared size the family
-     * does define stands, as it always has, even against a different one the name spells; that too is reported. A value
-     * read out of the name that is neither the variant's own size nor one the family defines -- the 96 of
-     * {@code AES-GCM-96} is a tag length -- is not the parameter set and is not recorded. What remains is a value
-     * nothing redeems: it stays in the slot, so the row keys apart from the real algorithm, and the verdict refuses it.
+     * does define stands, even against a different one the name spells; that too is reported. A value read out of the
+     * name that is neither the variant's own size nor one the family defines -- the 96 of {@code AES-GCM-96} is a tag
+     * length -- is not the parameter set and is not recorded. What remains is a value nothing redeems: it stays in the
+     * slot, so the row keys apart from the real algorithm, and the verdict refuses it.
      */
     private void reconcileParameterSetWithRegistry(NormalizedAsset norm) {
         Set<Integer> admissible = admissibleParameterSets(norm.name(), norm.family());
@@ -863,7 +863,6 @@ public record AssetNormalizer(IdentityTables tables) {
         if (admissible.contains(recorded)) {
             if (norm.parameterSetFromPayload() && spelled != null && !spelled.equals(recorded)
                     && admissible.contains(spelled)) {
-                // The declaration stands, as it always has; the disagreement with the name is the producer's to hear.
                 norm
                         .finding("the declared parameter set " + recorded + " contradicts the size the name spells, "
                                 + spelled + "; the declaration is recorded");
