@@ -293,6 +293,22 @@ class NormalizationRulesTest {
         assertThat(normalize("SHA3-256").primitive()).isEqualTo("hash");
     }
 
+    /**
+     * {@code digest} is the only CycloneDX 1.6 function an XOF can declare, and it maps to {@code hash}; the name pins
+     * the primitive, so the declared functions do not move it.
+     */
+    @Test
+    void theRegistryVariantOutranksTheDeclaredFunctions() {
+        NormalizedAsset declaredDigest = normalize(
+                algorithmComponent("SHAKE128", "{\"cryptoFunctions\":[\"digest\"]}"));
+        assertThat(declaredDigest.primitive()).isEqualTo("xof");
+        assertThat(keyOf(algorithmComponent("SHAKE128", "{\"cryptoFunctions\":[\"digest\"]}")))
+                .isEqualTo(keyOfAlgorithm("SHAKE128"));
+        assertThat(normalize(algorithmComponent("SHA3-256", "{\"cryptoFunctions\":[\"digest\"]}")).primitive())
+                .describedAs("where the name pins nothing, the functions still answer")
+                .isEqualTo("hash");
+    }
+
     /** A cipher suite derives no family: reducing it to its bulk cipher throws away key exchange and authentication. */
     @Test
     void aCipherSuiteNameDerivesNoFamily() {

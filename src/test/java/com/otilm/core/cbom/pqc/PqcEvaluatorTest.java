@@ -233,6 +233,15 @@ class PqcEvaluatorTest {
         assertThat(atTheFloor.ruleId()).isEqualTo("PARAMETER-SET-UNREGISTERED");
     }
 
+    /** A SHAKE declaring the {@code digest} function is still an XOF, and reads as the undeclared one does. */
+    @Test
+    void anXofDeclaringDigestReadsAsAnXof() {
+        PqcDecision declared = verdictOf(
+                component("algorithm", "SHAKE128", "{\"algorithmProperties\":{\"cryptoFunctions\":[\"digest\"]}}"));
+        assertThat(declared.verdict()).isEqualTo(PqcVerdict.READY);
+        assertThat(declared.ruleId()).isEqualTo(verdictOf(algorithm("SHAKE128")).ruleId());
+    }
+
     /** The registry variant the name spells fixes the primitive, so a declaration agreeing with it changes nothing. */
     @Test
     void aDeclaredPrimitiveAgreeingWithTheRegistryVariantMovesNoVerdict() {

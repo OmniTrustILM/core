@@ -1358,7 +1358,9 @@ public record AssetNormalizer(IdentityTables tables) {
     }
 
     /**
-     * Declared value, else {@code cryptoFunctions}, else the registry variant the name spells, else the family default.
+     * Declared value, else the registry variant the name spells, else {@code cryptoFunctions}, else the family default.
+     * The variant outranks the functions because it answers only where the name pins the primitive: CycloneDX 1.6 has
+     * no function an XOF can declare but {@code digest}, which would make {@code SHAKE128} a hash.
      *
      * <p>
      * The OID deliberately never supplies it: letting a correct arc contribute {@code block-cipher} where an OID-less
@@ -1393,21 +1395,20 @@ public record AssetNormalizer(IdentityTables tables) {
             }
         }
         String fromFunctions = primitiveFromFunctions(norm, algorithm.get("cryptoFunctions"));
-        if (fromFunctions != null) {
-            norm.setPrimitive(fromFunctions);
-            return;
-        }
         String fromVariant = primitiveFromRegistryVariant(norm.name(), norm.family());
-        norm
-                .setPrimitive(fromVariant != null
-                        ? fromVariant
-                        : norm.family() == null ? null : tables.primitiveDefaults().get(norm.family()));
+        if (fromVariant != null) {
+            norm.setPrimitive(fromVariant);
+        } else if (fromFunctions != null) {
+            norm.setPrimitive(fromFunctions);
+        } else {
+            norm.setPrimitive(norm.family() == null ? null : tables.primitiveDefaults().get(norm.family()));
+        }
     }
 
     /**
      * The primitive of the registry variant the name spells, where it differs from the family's default: SHAKE is an
-     * XOF where SHA-3 defaults to a hash. Read before the default so a producer's declaration of the same value cannot
-     * move what the name already says.
+     * XOF where SHA-3 defaults to a hash. Read before the functions and the default, so neither can move what the name
+     * already says.
      */
     public String primitiveFromRegistryVariant(String name, String family) {
         if (name == null || family == null) {
