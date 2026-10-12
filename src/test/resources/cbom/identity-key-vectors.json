@@ -2856,7 +2856,7 @@
   },
   {
    "id": "gen-191-alg-family",
-   "why": "corpus shape alg:family/110001/esc/fam=name (declaration unvocabularied)/hybrid/var=res+sec|sized/ps/notes=3, first seen at corpora/wild/sbom-tool~sbom-tools~tests~fixtures~cyclonedx~cbom-pqc-transition.cdx.json#2",
+   "why": "corpus shape alg:family/110001/esc/fam=name (declaration unvocabularied)/hybrid/var=res+sec|sized/ps/notes=3, first seen at corpora/wild/sbom-tool~sbom-tools~tests~fixtures~cyclonedx~cbom-pqc-transition.cdx.json#2; the 384 the name reads first is the curve size, not an ML-DSA parameter set, and the size the ML-DSA variant spells is recorded instead",
    "component": {
     "type": "cryptographic-asset",
     "bom-ref": "crypto/algorithm/hybrid-ecdsa-ml-dsa",
@@ -2885,8 +2885,8 @@
    },
    "expected": {
     "chainStep": "alg:family",
-    "preImage": "ALG|ML-DSA|384||||p%7C65+ecdsa",
-    "identityKey": "bd56445e7c5e84ce99e3ee2e83d385a8b60d4cfd23edd5b45334258393c65929"
+    "preImage": "ALG|ML-DSA|65||||p%7C384,p384+ecdsa",
+    "identityKey": "f15d5cb0ce181e005f8fbf45d6d8e19cede15c7173572bfde14fe60165456bd4"
    }
   },
   {

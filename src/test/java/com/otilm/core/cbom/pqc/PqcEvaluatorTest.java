@@ -159,6 +159,16 @@ class PqcEvaluatorTest {
         assertThat(aes64.reason()).contains("AES family defines").contains("128, 192, 256");
         assertThat(aes64.evaluatedFields()).containsEntry("parameterSet", 64);
         assertThat(verdictOf(algorithm("ML-KEM-1000")).reason()).contains("512, 768, 1024");
+        PqcDecision mlDsa99 = verdictOf(algorithm("ML-DSA-99"));
+        assertThat(mlDsa99.ruleId())
+                .describedAs("ML-DSA enumerates its parameter sets below the size whitelist, and 99 is not one")
+                .isEqualTo("PARAMETER-SET-UNREGISTERED");
+        assertThat(mlDsa99.reason()).contains("44, 65, 87");
+        for (String registered : new String[]{"ML-DSA-44", "ML-DSA-65", "ML-DSA-87", "MLDSA65"}) {
+            assertThat(verdictOf(algorithm(registered)).ruleId())
+                    .describedAs("algorithm %s", registered)
+                    .isEqualTo("PQC-STANDARDIZED");
+        }
         for (String registered : new String[]{"ML-KEM-512", "ML-KEM-768", "ML-KEM-1024"}) {
             assertThat(verdictOf(algorithm(registered)).ruleId())
                     .describedAs("algorithm %s", registered)

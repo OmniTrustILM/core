@@ -1146,6 +1146,23 @@ OID_ARC = re.compile(r"[0-9]+(\.[0-9]+)+")
 SIZE_ALTERNATION = re.compile(r"\((\d+(?:\|\d+)+)\)")
 
 
+def size_lists(pattern: str, family: str, size_min: int, size_max: int) -> list[list[int]]:
+    """The alternations of a variant pattern that enumerate the family's parameter sets, in pattern order.
+
+    An alternation inside the size whitelist is one. Outside it, an alternation names something else --
+    ``Ed(25519|448)`` curves, ``CFB(1|8|64|128)`` a feedback width -- unless it directly follows the
+    family's own name: ``ML-DSA-(44|65|87)`` is ML-DSA's parameter sets though 44 is below the whitelist.
+    An alternation is skipped whole rather than trimmed, because a trimmed set would refuse the very sizes
+    the family uses."""
+    lists = []
+    for match in SIZE_ALTERNATION.finditer(pattern):
+        values = [int(value) for value in match.group(1).split("|")]
+        follows_family = pattern[:match.start()].rstrip("-_/[").lower().endswith(family.lower())
+        if follows_family or all(size_min <= value <= size_max for value in values):
+            lists.append(values)
+    return lists
+
+
 REGEX_SPECIALS = set(".^$*+?{}[]\\|()")
 
 
@@ -1218,20 +1235,21 @@ def size_variants(registry: dict, size_min: int, size_max: int) -> dict[str, lis
     """Per family, the registry variants that spell a size and the sizes each admits.
 
     Keyed on the rendered regex rather than the variant, because AES writes its size group into ten
-    patterns that all render ``AES(?:-(\\d+))?``; one entry carries their union. The same whitelist rule as
-    ``admissible_parameter_sets`` decides which alternations are size lists, so the two tables agree."""
+    patterns that all render ``AES(?:-(\\d+))?``; one entry carries their union. ``size_lists`` decides
+    which alternations are size lists for both tables, so the two agree."""
     variants: dict[str, dict[str, set[int]]] = {}
     for algorithm in registry["algorithms"]:
         for variant in algorithm.get("variant", []):
             pattern = variant["pattern"]
-            for group in SIZE_ALTERNATION.findall(pattern):
-                values = [int(value) for value in group.split("|")]
-                if not all(size_min <= value <= size_max for value in values):
-                    break
-                regex = registry_pattern_regex(pattern, stop_at_size_group=True)
-                if regex is not None:
-                    variants.setdefault(algorithm["family"], {}).setdefault(regex, set()).update(values)
-                break
+            first = SIZE_ALTERNATION.search(pattern)
+            lists = size_lists(pattern, algorithm["family"], size_min, size_max)
+            # The rendered regex captures the first alternation, so only a pattern whose first one is a size list
+            # spells a size.
+            if first is None or not lists or [int(v) for v in first.group(1).split("|")] != lists[0]:
+                continue
+            regex = registry_pattern_regex(pattern, stop_at_size_group=True)
+            if regex is not None:
+                variants.setdefault(algorithm["family"], {}).setdefault(regex, set()).update(lists[0])
     return {family: [{"pattern": regex, "sizes": sorted(sizes)} for regex, sizes in sorted(entries.items())]
             for family, entries in sorted(variants.items())}
 
@@ -1288,18 +1306,14 @@ def admissible_parameter_sets(registry: dict, size_min: int, size_max: int) -> d
     The registry is a name grammar, not a size list, so this reads only what it states outright: an
     alternation of plain integers inside a variant pattern. A templated size (``{keyLength}``,
     ``{dkmLength}``) and a size-less pattern contribute nothing, so RSA, the KDFs and RC6 stay
-    unconstrained. An alternation with a member outside the size whitelist is not a size list either --
-    ``Ed(25519|448)`` names curves, ``CFB(1|8|64|128)`` a feedback width, ``ML-DSA-(44|65|87)`` levels
-    below the floor -- and is skipped whole rather than trimmed, because a trimmed set would refuse the
-    very sizes the family uses. What remains is the enumeration that lets a verdict refuse ``AES-64`` and
-    ``ML-KEM-1000`` while leaving ``RC6-64`` a legal, weak instantiation."""
+    unconstrained. Which alternations are size lists is ``size_lists``'s rule. What remains is the
+    enumeration that lets a verdict refuse ``AES-64``, ``ML-KEM-1000`` and ``ML-DSA-99`` while leaving
+    ``RC6-64`` a legal, weak instantiation."""
     sets: dict[str, set[int]] = {}
     for algorithm in registry["algorithms"]:
         for variant in algorithm.get("variant", []):
-            for group in SIZE_ALTERNATION.findall(variant["pattern"]):
-                values = [int(value) for value in group.split("|")]
-                if all(size_min <= value <= size_max for value in values):
-                    sets.setdefault(algorithm["family"], set()).update(values)
+            for values in size_lists(variant["pattern"], algorithm["family"], size_min, size_max):
+                sets.setdefault(algorithm["family"], set()).update(values)
     return {family: sorted(values) for family, values in sorted(sets.items())}
 
 
