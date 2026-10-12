@@ -159,6 +159,12 @@ class PqcEvaluatorTest {
         assertThat(aes64.reason()).contains("AES family defines").contains("128, 192, 256");
         assertThat(aes64.evaluatedFields()).containsEntry("parameterSet", 64);
         assertThat(verdictOf(algorithm("ML-KEM-1000")).reason()).contains("512, 768, 1024");
+        for (String spelling : new String[]{"SHA3-192", "SHA-3-192", "SHA3-128", "SHA-3-128"}) {
+            assertThat(verdictOf(algorithm(spelling)).ruleId())
+                    .describedAs("%s: SHA-3's hash variant defines 224, 256, 384 and 512, however it is separated",
+                            spelling)
+                    .isEqualTo("PARAMETER-SET-UNREGISTERED");
+        }
         PqcDecision mlDsa99 = verdictOf(algorithm("ML-DSA-99"));
         assertThat(mlDsa99.ruleId())
                 .describedAs("ML-DSA enumerates its parameter sets below the size whitelist, and 99 is not one")

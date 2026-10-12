@@ -1182,7 +1182,8 @@ def registry_pattern_regex(pattern: str, stop_at_size_group: bool) -> str | None
     """A registry variant pattern as a java.util.regex, or None when it cannot be rendered.
 
     The registry's own syntax is small: ``[...]`` is optional, ``(a|b)`` an alternation, ``{name}`` a
-    template the registry does not enumerate. A templated pattern is not rendered -- its template would
+    template the registry does not enumerate. A hyphen is optional wherever the registry wrote one, and
+    between a letter and a digit wherever it did not. A templated pattern is not rendered -- its template would
     have to be guessed. With ``stop_at_size_group`` the regex ends right after the first all-numeric
     alternation, captured as ``(\\d+)`` and left optional when the registry wrote it optional, so
     ``AES[-(128|192|256)]...`` renders as ``AES(?:-(\\d+))?``: it finds the size the name spells for the
@@ -1221,6 +1222,10 @@ def registry_pattern_regex(pattern: str, stop_at_size_group: bool) -> str | None
         elif character == "-":
             # `MLKEM512` and `ML-KEM-512` are one spelling to the grammar (`ML-?KEM`), so to these patterns too.
             out.append("-?")
+        elif character.isdigit() and index > 0 and pattern[index - 1].isalpha():
+            # And `SHA3` and `SHA-3` are one spelling to the grammar (`SHA-?3`): a hyphen the registry did not write
+            # between a letter run and a digit is as optional as one it did.
+            out.append("-?" + character)
         elif character in ")|":
             out.append(character)
         elif character in REGEX_SPECIALS:

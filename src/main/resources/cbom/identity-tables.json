@@ -4287,7 +4287,7 @@
     ],
     "BLAKE2": [
       {
-        "pattern": "BLAKE2b[-_/]?(\\d+)",
+        "pattern": "BLAKE-?2b[-_/]?(\\d+)",
         "sizes": [
           160,
           256,
@@ -4296,7 +4296,7 @@
         ]
       },
       {
-        "pattern": "BLAKE2s[-_/]?(\\d+)",
+        "pattern": "BLAKE-?2s[-_/]?(\\d+)",
         "sizes": [
           160,
           256
@@ -4389,6 +4389,15 @@
         ]
       },
       {
+        "pattern": "SHA-?3[-_/]?(\\d+)",
+        "sizes": [
+          224,
+          256,
+          384,
+          512
+        ]
+      },
+      {
         "pattern": "cSHAKE[-_/]?(\\d+)",
         "sizes": [
           128,
@@ -4407,15 +4416,6 @@
         "sizes": [
           128,
           256
-        ]
-      },
-      {
-        "pattern": "SHA3[-_/]?(\\d+)",
-        "sizes": [
-          224,
-          256,
-          384,
-          512
         ]
       }
     ],
@@ -4454,17 +4454,17 @@
   "variantPrimitives": [
     {
       "family": "A5/1",
-      "pattern": "A5/1",
+      "pattern": "A-?5/1",
       "primitive": "stream-cipher"
     },
     {
       "family": "A5/2",
-      "pattern": "A5/2",
+      "pattern": "A-?5/2",
       "primitive": "stream-cipher"
     },
     {
       "family": "AES",
-      "pattern": "AES(?:[-_/]?(?:128|192|256))?-?CTR-?HMAC-?SHA1(?:-?96)?",
+      "pattern": "AES(?:[-_/]?(?:128|192|256))?-?CTR-?HMAC-?SHA-?1(?:-?96)?",
       "primitive": "ae"
     },
     {
@@ -4479,62 +4479,62 @@
     },
     {
       "family": "Ascon",
-      "pattern": "Ascon-?CXOF128",
+      "pattern": "Ascon-?CXOF-?128",
       "primitive": "xof"
     },
     {
       "family": "Ascon",
-      "pattern": "Ascon-?Hash256",
+      "pattern": "Ascon-?Hash-?256",
       "primitive": "hash"
     },
     {
       "family": "Ascon",
-      "pattern": "Ascon-?XOF128",
+      "pattern": "Ascon-?XOF-?128",
       "primitive": "xof"
     },
     {
       "family": "BLAKE2",
-      "pattern": "BLAKE2b[-_/]?(?:160|256|384|512)-?HMAC",
+      "pattern": "BLAKE-?2b[-_/]?(?:160|256|384|512)-?HMAC",
       "primitive": "mac"
     },
     {
       "family": "BLAKE2",
-      "pattern": "BLAKE2s[-_/]?(?:160|256)-?HMAC",
+      "pattern": "BLAKE-?2s[-_/]?(?:160|256)-?HMAC",
       "primitive": "mac"
     },
     {
       "family": "BLS",
-      "pattern": "BLS(?:12-?381|12-?377|BN254)",
+      "pattern": "BLS(?:12-?381|12-?377|BN-?254)",
       "primitive": "signature"
     },
     {
       "family": "ChaCha20",
-      "pattern": "XChaCha20-?Poly1305",
+      "pattern": "XChaCha-?20-?Poly-?1305",
       "primitive": "ae"
     },
     {
       "family": "ChaCha20",
-      "pattern": "ChaCha20-?Poly1305",
+      "pattern": "ChaCha-?20-?Poly-?1305",
       "primitive": "ae"
     },
     {
       "family": "GOST",
-      "pattern": "GOSTR3411_HMAC",
+      "pattern": "GOSTR-?3411_HMAC",
       "primitive": "mac"
     },
     {
       "family": "GOST",
-      "pattern": "GOST28147_MAC",
+      "pattern": "GOST-?28147_MAC",
       "primitive": "mac"
     },
     {
       "family": "GOST",
-      "pattern": "GOSTR3410",
+      "pattern": "GOSTR-?3410",
       "primitive": "signature"
     },
     {
       "family": "GOST",
-      "pattern": "GOSTR3411",
+      "pattern": "GOSTR-?3411",
       "primitive": "hash"
     },
     {
@@ -4589,42 +4589,42 @@
     },
     {
       "family": "SM2",
-      "pattern": "SM2-?(?:KEX|KEYEXCHANGE|KEY-?EXCHANGE|KEYAGREE|KEY-?AGREE|KEYAGREEMENT|KEY-?AGREEMENT)(?:-?256)?",
+      "pattern": "SM-?2-?(?:KEX|KEYEXCHANGE|KEY-?EXCHANGE|KEYAGREE|KEY-?AGREE|KEYAGREEMENT|KEY-?AGREEMENT)(?:-?256)?",
       "primitive": "key-agree"
     },
     {
       "family": "SM2",
-      "pattern": "SM2-?(?:ENC|ENCRYPTION)(?:-?256)?",
+      "pattern": "SM-?2-?(?:ENC|ENCRYPTION)(?:-?256)?",
       "primitive": "pke"
     },
     {
       "family": "SM9",
-      "pattern": "SM9-?(?:KEX|KEYEXCHANGE|KEY-?EXCHANGE|KEYAGREE|KEYAGREEMENT|KEY-?AGREE|KEY-?AGREEMENT)",
+      "pattern": "SM-?9-?(?:KEX|KEYEXCHANGE|KEY-?EXCHANGE|KEYAGREE|KEYAGREEMENT|KEY-?AGREE|KEY-?AGREEMENT)",
       "primitive": "key-agree"
     },
     {
       "family": "SM9",
-      "pattern": "SM9-?(?:ENC|ENCRYPTION|PKE|PUBLICKEY-?ENCRYPTION|PUBLIC-?KEY-?ENCRYPTION)",
+      "pattern": "SM-?9-?(?:ENC|ENCRYPTION|PKE|PUBLICKEY-?ENCRYPTION|PUBLIC-?KEY-?ENCRYPTION)",
       "primitive": "pke"
     },
     {
       "family": "SM9",
-      "pattern": "SM9-?(?:KEM|KEYENCAPSULATION|KEY-?ENCAPSULATION)",
+      "pattern": "SM-?9-?(?:KEM|KEYENCAPSULATION|KEY-?ENCAPSULATION)",
       "primitive": "kem"
     },
     {
       "family": "SNOW3G",
-      "pattern": "128-?EIA1",
+      "pattern": "128-?EIA-?1",
       "primitive": "mac"
     },
     {
       "family": "Salsa20",
-      "pattern": "Salsa20-?Poly1305",
+      "pattern": "Salsa-?20-?Poly-?1305",
       "primitive": "ae"
     },
     {
       "family": "TLS-PRF",
-      "pattern": "TLS1-?PRF(?:-?RFC7627)?",
+      "pattern": "TLS-?1-?PRF(?:-?RFC-?7627)?",
       "primitive": "kdf"
     },
     {
@@ -4634,7 +4634,7 @@
     },
     {
       "family": "ZUC",
-      "pattern": "128-?EIA3",
+      "pattern": "128-?EIA-?3",
       "primitive": "mac"
     }
   ],
