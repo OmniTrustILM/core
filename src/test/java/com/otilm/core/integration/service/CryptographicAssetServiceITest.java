@@ -44,10 +44,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * The list operation ({@link CryptographicAssetExternalService#listCryptographicAssets}) end to end, through the
- * service interface rather than the repository directly: ordering and paging determinism, the 1000-item clamp and
- * paging refusals, the list-row-to-DTO mapping, and the acceptance criteria from the issue itself -- filters that
- * answer across asset types, and a refuted OID that stays out of a default free-text search until the caller opts into
- * the facet.
+ * service interface rather than the repository directly: ordering and paging determinism, paging refusals, the
+ * list-row-to-DTO mapping, and the acceptance criteria from the issue itself -- filters that answer across asset types,
+ * and a refuted OID that stays out of a default free-text search until the caller opts into the facet.
  */
 class CryptographicAssetServiceITest extends BaseSpringBootTest {
 

@@ -162,6 +162,8 @@ public class EventServiceImpl implements EventExternalService {
             // object
             resourceService.getResourceObject(resource, uuid);
         }
+        RequestValidatorHelper.revalidatePaginationRequestDto(request.getPagination());
+        RequestValidatorHelper.revalidatePaginationRequestDto(request.getObjectsPagination());
 
         Page<EventHistory> eventHistories = eventHistoryRepository
                 .findByEventAndResourceAndResourceUuidOrderByStartedAtDesc(event, resource, uuid, PageRequest
