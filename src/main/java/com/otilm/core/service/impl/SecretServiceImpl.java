@@ -8,7 +8,6 @@ import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ConnectorProblemException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.SecretOperationException;
-import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
@@ -62,7 +61,6 @@ import com.otilm.core.dao.entity.Secret_;
 import com.otilm.core.dao.entity.VaultInstance;
 import com.otilm.core.dao.entity.VaultProfile;
 import com.otilm.core.dao.entity.VaultProfile_;
-import com.otilm.core.dao.repository.AcmeProfileRepository;
 import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.Secret2SyncVaultProfileRepository;
 import com.otilm.core.dao.repository.SecretRepository;
@@ -76,6 +74,8 @@ import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.messaging.model.ActionMessage;
 import com.otilm.core.messaging.model.SecretActionData;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.reference.ObjectRef;
+import com.otilm.core.reference.ObjectReferenceGuard;
 import com.otilm.core.security.authn.client.UserManagementApiClient;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
@@ -134,6 +134,8 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     private static final Logger logger = LoggerFactory.getLogger(SecretServiceImpl.class);
 
     private static final ObjectMapper MAPPER = ObjectMapperFactory.storage();
+    /** During a rolling upgrade a Core of a later version may queue the action, with members added since. */
+    private static final ObjectMapper ACTION_DATA_MAPPER = ObjectMapperFactory.lenientStorage();
 
     private AttributeEngine attributeEngine;
     private ConnectorRequestAttributesBuilder connectorRequestAttributesBuilder;
@@ -142,7 +144,7 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     private VaultProfileRepository vaultProfileRepository;
     private VaultInstanceRepository vaultInstanceRepository;
     private SecretRepository secretRepository;
-    private AcmeProfileRepository acmeProfileRepository;
+    private ObjectReferenceGuard referenceGuard;
     private SecretVersionRepository secretVersionRepository;
     private Secret2SyncVaultProfileRepository secret2SyncVaultProfileRepository;
 
@@ -169,8 +171,8 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     }
 
     @Autowired
-    public void setAcmeProfileRepository(AcmeProfileRepository acmeProfileRepository) {
-        this.acmeProfileRepository = acmeProfileRepository;
+    public void setReferenceGuard(ObjectReferenceGuard referenceGuard) {
+        this.referenceGuard = referenceGuard;
     }
 
     @Autowired
@@ -626,33 +628,48 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     @Override
     @ExternalAuthorization(resource = Resource.SECRET, action = ResourceAction.DELETE)
     public void deleteSecret(UUID uuid, boolean deleteInVaults) throws NotFoundException {
+        requestSecretDeletion(uuid, deleteInVaults, null);
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.SECRET, action = ResourceAction.DELETE)
+    public void deleteOwnedSecret(UUID uuid, ObjectRef owner) throws NotFoundException {
+        requestSecretDeletion(uuid, true, owner);
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.SECRET, action = ResourceAction.DELETE)
+    public void checkOwnedSecretDeletion(UUID uuid, ObjectRef owner) throws NotFoundException {
+        checkSecretDeletion(uuid, owner);
+    }
+
+    private void requestSecretDeletion(UUID uuid, boolean deleteInVaults, ObjectRef releasedBy)
+            throws NotFoundException {
+        Secret secret = checkSecretDeletion(uuid, releasedBy);
+        SecretActionData actionData = SecretActionData
+                .builder()
+                .deleteInVault(deleteInVaults)
+                .originalState(secret.getState())
+                .releasedBy(releasedBy)
+                .build();
+        produceActionMessage(actionData, secret.getSourceVaultProfile(), secret, ResourceAction.DELETE);
+    }
+
+    private Secret checkSecretDeletion(UUID uuid, ObjectRef releasedBy) throws NotFoundException {
         Secret secret = secretRepository
                 .findByUuid(SecuredUUID.fromUUID(uuid))
                 .orElseThrow(() -> new NotFoundException(Secret.class, uuid));
         authorizationEnforcer
                 .enforce(Resource.VAULT_PROFILE, ResourceAction.MEMBERS,
                         SecuredUUID.fromUUID(secret.getSourceVaultProfile().getUuid()));
-        refuseWhenBoundToAcmeProfile(uuid, secret.getName());
-        SecretActionData actionData = SecretActionData
-                .builder()
-                .deleteInVault(deleteInVaults)
-                .originalState(secret.getState())
-                .build();
-        produceActionMessage(actionData, secret.getSourceVaultProfile(), secret, ResourceAction.DELETE);
-    }
-
-    /**
-     * An ACME profile holding this secret as an External Account Binding key would keep advertising
-     * externalAccountRequired against a key that no longer exists, locking every client out of account registration.
-     * Disabling the secret is the reversible way to take a key out of service.
-     */
-    private void refuseWhenBoundToAcmeProfile(UUID uuid, String secretName) {
-        List<String> acmeProfiles = acmeProfileRepository.findNamesByEabSecretUuid(uuid);
-        if (!acmeProfiles.isEmpty()) {
-            throw new ValidationException(ValidationError
-                    .create("Cannot delete secret %s: used as an External Account Binding key by ACME Profiles (%d): %s"
-                            .formatted(secretName, acmeProfiles.size(), String.join(", ", acmeProfiles))));
+        // The pending approval holds the state to put back; a delete recorded now would put back PENDING_APPROVAL and
+        // skip the vault.
+        if (secret.getState() == SecretState.PENDING_APPROVAL) {
+            throw new ValidationException("Secret %s is in state %s and cannot be deleted"
+                    .formatted(secret.getName(), secret.getState().getLabel()));
         }
+        referenceGuard.refuseWhileReferenced(new ObjectRef(Resource.SECRET, uuid), secret.getName(), releasedBy);
+        return secret;
     }
 
     @ExternalAuthorization(resource = Resource.SECRET, action = ResourceAction.DELETE)
@@ -661,14 +678,20 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     }
 
     private void deleteSecretAction(UUID secretUuid, boolean isApproved, SecretState originalState,
-            boolean deleteInVaults) throws NotFoundException, SecretOperationException {
+            boolean deleteInVaults, ObjectRef releasedBy) throws NotFoundException, SecretOperationException {
         Secret secret = getSecretEntity(secretUuid);
         if (!isApproved) {
             checkDeleteSecretPermissions();
         }
+        secret.setState(originalState);
         // Repeated here, not only where the delete was requested: the two are separated by the queue and possibly
-        // by an approval, and a profile can claim the secret in between.
-        refuseWhenBoundToAcmeProfile(secretUuid, secret.getName());
+        // by an approval, and something can start using the secret in between.
+        try {
+            referenceGuard
+                    .refuseWhileReferenced(new ObjectRef(Resource.SECRET, secretUuid), secret.getName(), releasedBy);
+        } catch (ValidationException e) {
+            throw new SecretOperationException(e.getMessage());
+        }
         // Delete secret from vaults
         if (!invalidSecretState(secret) && deleteInVaults) {
             List<VaultProfile> vaultProfiles = new ArrayList<>(
@@ -683,7 +706,6 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
                                             .connector(vaultProfile.getVaultInstance().getConnectorUuid())
                                             .build()));
                 } catch (Exception e) {
-                    secret.setState(originalState);
                     throw new SecretOperationException("Failed to delete secret %s from vault profile %s: %s"
                             .formatted(secret.getName(), vaultProfile.getVaultInstance().getName(), e.getMessage()));
                 }
@@ -1133,7 +1155,8 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     public void processSecretAction(ActionMessage actionMessage, boolean hasApproval, boolean isApproved)
             throws ConnectorException, NotFoundException, AttributeException, JsonProcessingException,
             SecretOperationException {
-        SecretActionData secretActionData = MAPPER.convertValue(actionMessage.getData(), SecretActionData.class);
+        SecretActionData secretActionData = ACTION_DATA_MAPPER
+                .convertValue(actionMessage.getData(), SecretActionData.class);
 
         // handle rejected actions
         if (hasApproval && !isApproved) {
@@ -1168,7 +1191,7 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
                         secretActionData.originalState());
             }
             case DELETE -> deleteSecretAction(actionMessage.getResourceUuid(), isApproved,
-                    secretActionData.originalState(), secretActionData.deleteInVault());
+                    secretActionData.originalState(), secretActionData.deleteInVault(), secretActionData.releasedBy());
             case UPDATE_SOURCE_VAULT_PROFILE -> {
                 SecretUpdateObjectsDto secretUpdateObjectsDto = new SecretUpdateObjectsDto();
                 secretUpdateObjectsDto.setSourceVaultProfileUuid(secretActionData.updatedSourceVaultProfileUuid());

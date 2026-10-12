@@ -32,6 +32,16 @@ public final class ConnectorBuilder {
         return this;
     }
 
+    public ConnectorBuilder withUrl(String url) {
+        this.connectorUrl = url;
+        return this;
+    }
+
+    public ConnectorBuilder withVersion(ConnectorVersion version) {
+        this.connectorVersion = version;
+        return this;
+    }
+
     public ConnectorBuilder withGeneratedUuid() {
         this.connectorUuid = null;
         return this;

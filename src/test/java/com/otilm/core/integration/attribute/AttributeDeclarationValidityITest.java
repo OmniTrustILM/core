@@ -4,6 +4,7 @@ import com.otilm.api.exception.AttributeException;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.common.attribute.common.callback.AttributeCallback;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.content.data.ProtectionLevel;
 import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.core.auth.AttributeResource;
@@ -19,9 +20,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 /**
  * #1622 Task 4b — declaration-validity guard at the ingest choke point: dependsOn and callbackContext are mutually
- * exclusive, and dependsOn is forbidden on a RESOURCE-content attribute.
+ * exclusive, and dependsOn is forbidden on a RESOURCE-content attribute, which also cannot be encrypted.
  */
 class AttributeDeclarationValidityITest extends BaseSpringBootTest {
 
@@ -81,6 +85,32 @@ class AttributeDeclarationValidityITest extends BaseSpringBootTest {
         Assertions
                 .assertThrows(AttributeException.class,
                         () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, null, List.of(a)));
+    }
+
+    @Test
+    void rejectsDefinition_whenResourceContentIsEncrypted() {
+        // given
+        var encryptedResource = base(AttributeContentType.RESOURCE);
+        encryptedResource.setAttributeCallback(new AttributeCallback());
+        encryptedResource.getProperties().setProtectionLevel(ProtectionLevel.ENCRYPTED);
+
+        // when / then
+        assertThatThrownBy(
+                () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, null, List.of(encryptedResource)))
+                .isInstanceOf(AttributeException.class)
+                .hasMessageContaining("cannot be encrypted");
+    }
+
+    @Test
+    void ingestsDefinition_whenResourceContentIsPlain() {
+        // given
+        var plainResource = base(AttributeContentType.RESOURCE);
+        plainResource.setAttributeCallback(new AttributeCallback());
+
+        // when / then
+        assertThatCode(
+                () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, null, List.of(plainResource)))
+                .doesNotThrowAnyException();
     }
 
     @Test
