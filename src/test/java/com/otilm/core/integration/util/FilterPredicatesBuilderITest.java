@@ -74,6 +74,7 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.AttributeExternalService;
 import com.otilm.core.service.AuditLogExternalService;
 import com.otilm.core.service.CryptographicKeyExternalService;
+import com.otilm.core.service.CustomOidEntryExternalService;
 import com.otilm.core.service.impl.CertificateServiceImpl;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.FilterPredicatesBuilder;
@@ -162,6 +163,9 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
 
     @Autowired
     private CryptographicKeyRepository cryptographicKeyRepository;
+
+    @Autowired
+    private CustomOidEntryExternalService customOidEntryService;
 
     @Autowired
     private CryptographicKeyItemRepository cryptographicKeyItemRepository;
@@ -2057,6 +2061,22 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
         Assertions
                 .assertTrue(
                         exception.getMessage().contains("Field %s cannot filter this listing.".formatted(field.name())),
+                        exception.getMessage());
+    }
+
+    @Test
+    void theCryptoAssetOidFilterIsRefusedOnTheOidListingNamingTheField() {
+        SearchRequestDto searchRequestDto = new SearchRequestDto();
+        searchRequestDto
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.CBOM_ASSET_OID.name(),
+                                FilterConditionOperator.EQUALS, "1.2.3")));
+
+        ValidationException exception = Assertions
+                .assertThrows(ValidationException.class,
+                        () -> customOidEntryService.listCustomOidEntries(searchRequestDto));
+        Assertions
+                .assertTrue(exception.getMessage().contains("Field CBOM_ASSET_OID cannot filter this listing."),
                         exception.getMessage());
     }
 

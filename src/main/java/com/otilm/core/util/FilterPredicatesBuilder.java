@@ -785,6 +785,9 @@ public class FilterPredicatesBuilder {
         // (the or(isNull, ...) negatives) admit refuted rows too; conditions a NULL oid can never satisfy
         // exclude them. EMPTY/NOT_EMPTY stay untouched -- that an OID was recorded is a true fact.
         if (filterField == FilterField.CBOM_ASSET_OID && !refutedOidsOptedIn) {
+            if (!CryptoAsset.class.isAssignableFrom(from.getJavaType())) {
+                throw fieldNotOnListing(filterField);
+            }
             if (OID_CONDITIONS_A_NULL_OID_SATISFIES.contains(conditionOperator)) {
                 predicate = criteriaBuilder.or(predicate, oidRefuted(criteriaBuilder, from));
             } else if (OID_CONDITIONS_A_NULL_OID_NEVER_SATISFIES.contains(conditionOperator)) {
