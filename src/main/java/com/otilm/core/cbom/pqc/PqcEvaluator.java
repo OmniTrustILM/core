@@ -333,6 +333,8 @@ public class PqcEvaluator {
         private final boolean nonKeyPrimitive;
         private final Set<Integer> admissibleParameterSets;
         private final boolean parameterSetUnregistered;
+        /** A genuine hybrid's post-quantum component that spells a size its family does not define, or {@code null}. */
+        private final UnregisteredComponent unregisteredComponent;
         private final Integer recordedSize;
         /** The input the coded rules record as evidence: the effective family and the genuine hybrid components. */
         private final PqcRuleInput evidence;
@@ -357,6 +359,7 @@ public class PqcEvaluator {
                     : normalizer.admissibleParameterSets(input.name(), family);
             this.parameterSetUnregistered = admissibleParameterSets != null && input.parameterSet() != null
                     && !admissibleParameterSets.contains(input.parameterSet());
+            this.unregisteredComponent = genuineHybrid ? unregisteredComponent(hybridComponents) : null;
             Integer ownSize = construction || nonKeyPrimitive || parameterSetUnregistered
                     ? null
                     : truncated(input, withinRatifiedSizeBand(input.parameterSet()));
@@ -521,20 +524,53 @@ public class PqcEvaluator {
 
     /**
      * There is no 64-bit AES and no ML-KEM-1000: a parameter set outside the family's registry enumeration is not a
-     * weak instantiation but a record of something that does not exist, so no strength rule reads the number.
+     * weak instantiation but a record of something that does not exist, so no strength rule reads the number. A hybrid
+     * is held to it by its post-quantum component, since the family rules do not read a hybrid:
+     * {@code X25519-ML-KEM-1000} is refused as {@code ML-KEM-1000} is.
      */
     private PqcDecision parameterSetUnregistered(Reading reading, Integer level) {
-        if (reading.genuineHybrid || !reading.parameterSetUnregistered) {
+        if (reading.genuineHybrid) {
+            UnregisteredComponent component = reading.unregisteredComponent;
+            if (component == null) {
+                return null;
+            }
+            return decision(PqcVerdict.UNKNOWN, PqcRules.PARAMETER_SET_UNREGISTERED,
+                    "A hybrid construction whose " + component.family() + " component spells parameter set "
+                            + component.spelled() + ", which the " + component.family()
+                            + " family does not define; the registry admits " + admitted(component.admissible()),
+                    HYBRID_FIELDS, reading.evidence, level);
+        }
+        if (!reading.parameterSetUnregistered) {
             return null;
         }
-        String admitted = new TreeSet<>(reading.admissibleParameterSets)
-                .stream()
-                .map(String::valueOf)
-                .collect(Collectors.joining(", "));
         return decision(PqcVerdict.UNKNOWN, PqcRules.PARAMETER_SET_UNREGISTERED,
                 "The recorded parameter set is not one the " + reading.family + " family defines; the registry admits "
-                        + admitted,
+                        + admitted(reading.admissibleParameterSets),
                 List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.PARAMETER_SET, PqcRules.VARIANT), reading.evidence, level);
+    }
+
+    private static String admitted(Set<Integer> admissible) {
+        return new TreeSet<>(admissible).stream().map(String::valueOf).collect(Collectors.joining(", "));
+    }
+
+    private record UnregisteredComponent(String family, int spelled, Set<Integer> admissible) {
+    }
+
+    /** The first post-quantum component spelling a size its family's registry enumeration does not hold. */
+    private UnregisteredComponent unregisteredComponent(List<String> components) {
+        for (String component : components) {
+            String family = ratifiedFamily(FAMILY_SIZE_SUFFIX.matcher(component).replaceFirst(""));
+            FamilyClass disposition = PqcFamilies.of(family);
+            if (disposition == null || !disposition.isPostQuantum()) {
+                continue;
+            }
+            Integer spelled = normalizer.registrySizeSpelled(component, family);
+            Set<Integer> admissible = normalizer.admissibleParameterSets(component, family);
+            if (spelled != null && admissible != null && !admissible.contains(spelled)) {
+                return new UnregisteredComponent(family, spelled, admissible);
+            }
+        }
+        return null;
     }
 
     private PqcDecision symmetricUndersized(Reading reading, Integer level) {

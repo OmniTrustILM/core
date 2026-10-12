@@ -105,6 +105,23 @@ class PqcEvaluatorTest {
         }
     }
 
+    /** A hybrid is held to the registry by its post-quantum component, as that component is on its own. */
+    @Test
+    void aHybridWhosePostQuantumComponentSpellsAnUndefinedSizeIsRefused() {
+        PqcDecision hybrid = verdictOf(algorithm("X25519-ML-KEM-1000"));
+        assertThat(hybrid.verdict()).isEqualTo(PqcVerdict.UNKNOWN);
+        assertThat(hybrid.ruleId()).isEqualTo("PARAMETER-SET-UNREGISTERED");
+        assertThat(hybrid.reason()).contains("ML-KEM").contains("1000").contains("512, 768, 1024");
+        assertThat(verdictOf(algorithm("ML-KEM-1000")).ruleId()).isEqualTo(hybrid.ruleId());
+        assertThat(verdictOf(material("X25519-ML-KEM-1000", "shared-secret", 256)).ruleId())
+                .isEqualTo("PARAMETER-SET-UNREGISTERED");
+        for (String registered : new String[]{"X25519-ML-KEM-768", "X25519MLKEM768", "ECDSA-P256-ML-DSA-65"}) {
+            assertThat(verdictOf(algorithm(registered)).ruleId())
+                    .describedAs(registered)
+                    .isEqualTo("PQC-HYBRID-PQC-STANDARDIZED");
+        }
+    }
+
     /** An unsized algorithm and an unsized key of the same name agree: neither can be affirmed. */
     @Test
     void anUnsizedAlgorithmAndAnUnsizedKeyOfTheSameNameAgree() {
