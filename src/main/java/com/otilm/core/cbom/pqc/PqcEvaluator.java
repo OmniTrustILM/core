@@ -121,6 +121,7 @@ public class PqcEvaluator {
         rules.put(PqcRules.CONSTRUCTION_UNINSTANTIATED, this::constructionUninstantiated);
         rules.put(PqcRules.PARAMETER_SET_UNREGISTERED, this::parameterSetUnregistered);
         rules.put(PqcRules.SYMMETRIC_UNDERSIZED, this::symmetricUndersized);
+        rules.put(PqcRules.SYMMETRIC_UNSIZED, this::symmetricUnsized);
         rules.put(FamilyClass.QUANTUM_RESISTANT_SYMMETRIC.ruleId(), this::symmetricReady);
         rules.put(PqcRules.ONE_TIME_SIGNATURE, this::oneTimeSignature);
         for (FamilyClass disposition : List
@@ -290,11 +291,13 @@ public class PqcEvaluator {
      * Whether the name leaves the key's strength to its size, which gates the ready and unsized arms: the name clears
      * as ready, or names no family at all. The carve-out is the common case -- nearly every secret key in the corpus
      * names no family and resolves to {@code FAMILY-UNRESOLVED}, so without it the arms would be empty. An ambiguous,
-     * uninstantiated or unresolved-hybrid name is a question no key length answers, so the name decides it.
+     * uninstantiated or unresolved-hybrid name is a question no key length answers, so the name decides it. A name that
+     * would clear once a size is known -- an unsized {@code AES} -- leaves it to the size too.
      */
     private boolean nameLeavesStrengthToSize(PqcRuleInput input) {
         PqcDecision byName = nameDecision(input);
-        return byName.verdict() == PqcVerdict.READY || PqcRules.FAMILY_UNRESOLVED.equals(byName.ruleId());
+        return byName.verdict() == PqcVerdict.READY || PqcRules.FAMILY_UNRESOLVED.equals(byName.ruleId())
+                || PqcRules.SYMMETRIC_UNSIZED.equals(byName.ruleId());
     }
 
     // ---- What the coded rules read ------------------------------------------------------------------------------
@@ -356,6 +359,15 @@ public class PqcEvaluator {
 
         private boolean symmetric() {
             return disposition == FamilyClass.QUANTUM_RESISTANT_SYMMETRIC;
+        }
+
+        /**
+         * Recorded with no size, in a family that defines sizes below the floor: {@code AES} may be AES-128, so family
+         * membership no longer vouches for it. A non-key primitive's size is no key size, so it is never unsized.
+         */
+        private boolean unsizedBelowTheFloor() {
+            return recordedSize == null && !nonKeyPrimitive && admissibleParameterSets != null
+                    && admissibleParameterSets.stream().anyMatch(size -> size < PqcRules.MIN_SYMMETRIC_KEY_BITS);
         }
 
         /** A primitive is its own strength; a construction's is its named primitive's, when it names a sound one. */
@@ -527,13 +539,27 @@ public class PqcEvaluator {
                 sizeEvidence(reading.input, reading.construction), reading.evidence, level);
     }
 
+    private PqcDecision symmetricUnsized(Reading reading, Integer level) {
+        if (reading.genuineHybrid || !reading.symmetric() || !reading.instantiated() || reading.parameterSetUnregistered
+                || !reading.unsizedBelowTheFloor()) {
+            return null;
+        }
+        return decision(PqcVerdict.UNKNOWN, PqcRules.SYMMETRIC_UNSIZED,
+                "A symmetric or hash-based primitive recorded without a size, in a family that also defines sizes "
+                        + "below the " + PqcRules.MIN_SYMMETRIC_KEY_BITS + "-bit floor, so its strength cannot be "
+                        + "affirmed",
+                sizeEvidence(reading.input, reading.construction), reading.evidence, level);
+    }
+
     /**
      * Family membership is not a strength claim: a construction cannot make one without naming its primitive, a sized
-     * primitive cannot make one below the floor, and a parameter set the family does not define vouches for nothing. A
-     * KDF, DRBG, MAC or XOF primitive's parameter set is an output or tag length, so it is not read as a size.
+     * primitive cannot make one below the floor, an unsized one cannot where the family has smaller members, and a
+     * parameter set the family does not define vouches for nothing. A KDF, DRBG, MAC or XOF primitive's parameter set
+     * is an output or tag length, so it is not read as a size.
      */
     private PqcDecision symmetricReady(Reading reading, Integer level) {
         if (reading.genuineHybrid || !reading.symmetric() || !reading.instantiated() || reading.parameterSetUnregistered
+                || reading.unsizedBelowTheFloor()
                 || (reading.recordedSize != null && reading.recordedSize < PqcRules.MIN_SYMMETRIC_KEY_BITS)) {
             return null;
         }

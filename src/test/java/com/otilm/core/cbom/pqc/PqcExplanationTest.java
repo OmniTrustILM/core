@@ -143,8 +143,8 @@ class PqcExplanationTest {
         assertThat(PqcRuleCatalog.servedFor(CryptographicAssetType.PROTOCOL)).hasSize(4);
         assertThat(PqcRuleCatalog.servedFor(CryptographicAssetType.UNROUTABLE)).isEmpty();
         assertThat(PqcRuleCatalog.servedFor(null)).isEmpty();
-        assertThat(PqcRuleCatalog.servedFor(CryptographicAssetType.ALGORITHM)).hasSize(20);
-        assertThat(PqcRuleCatalog.servedFor(CryptographicAssetType.RELATED_CRYPTO_MATERIAL)).hasSize(22);
+        assertThat(PqcRuleCatalog.servedFor(CryptographicAssetType.ALGORITHM)).hasSize(21);
+        assertThat(PqcRuleCatalog.servedFor(CryptographicAssetType.RELATED_CRYPTO_MATERIAL)).hasSize(23);
     }
 
     /** No rule is catalogued for the unroutable tier, which ingest no longer stores. */

@@ -80,7 +80,6 @@ class PqcEvaluatorTest {
             assertThat(decision.evaluatedFields()).describedAs("algorithm %s", undersized).containsKey("parameterSet");
         }
         for (String adequate : new String[]{
-                "AES",
                 "AES-256",
                 "AES-256-GCM",
                 "SHA-256",
@@ -92,6 +91,31 @@ class PqcEvaluatorTest {
                     .describedAs("algorithm %s", adequate)
                     .isEqualTo("SYMMETRIC-READY");
         }
+        for (String unsized : new String[]{"AES", "AES/GCM/NoPadding", "SHA3", "Camellia", "BLAKE2b"}) {
+            PqcDecision decision = verdictOf(algorithm(unsized));
+            assertThat(decision.verdict())
+                    .describedAs("algorithm %s: its family defines sizes below the floor", unsized)
+                    .isEqualTo(PqcVerdict.UNKNOWN);
+            assertThat(decision.ruleId()).describedAs("algorithm %s", unsized).isEqualTo("SYMMETRIC-UNSIZED");
+        }
+        for (String unsizedAndUnconstrained : new String[]{"ChaCha20", "SHAKE128"}) {
+            assertThat(verdictOf(algorithm(unsizedAndUnconstrained)).ruleId())
+                    .describedAs("algorithm %s: nothing it may be is below the floor", unsizedAndUnconstrained)
+                    .isEqualTo("SYMMETRIC-READY");
+        }
+    }
+
+    /** An unsized algorithm and an unsized key of the same name agree: neither can be affirmed. */
+    @Test
+    void anUnsizedAlgorithmAndAnUnsizedKeyOfTheSameNameAgree() {
+        PqcDecision algorithm = verdictOf(algorithm("AES/GCM/NoPadding"));
+        PqcDecision key = verdictOf(material("AES/GCM/NoPadding", "secret-key", null));
+        assertThat(algorithm.verdict()).isEqualTo(PqcVerdict.UNKNOWN).isEqualTo(key.verdict());
+        assertThat(key.ruleId()).isEqualTo("MATERIAL-SYMMETRIC-UNSIZED");
+        assertThat(verdictOf(material("AES", "secret-key", 256)).ruleId())
+                .describedAs("the name leaves the strength to the size, and the size clears it")
+                .isEqualTo("MATERIAL-SYMMETRIC-READY");
+        assertThat(verdictOf(material("AES", "secret-key", 128)).ruleId()).isEqualTo("MATERIAL-SYMMETRIC-WEAK");
     }
 
     /** There is no 64-bit AES and no ML-KEM-1000: the record is invalid, not weak, and no strength rule reads it. */
@@ -129,8 +153,8 @@ class PqcEvaluatorTest {
         PqcDecision tagLength = verdictOf(algorithm("AES-GCM-96"));
         assertThat(tagLength.ruleId())
                 .describedAs("96 is neither the size the AES variant spells nor one AES defines, so it is not the "
-                        + "parameter set and the family decides")
-                .isEqualTo("SYMMETRIC-READY");
+                        + "parameter set, and AES recorded without a size cannot be affirmed")
+                .isEqualTo("SYMMETRIC-UNSIZED");
         assertThat(tagLength.evaluatedFields()).doesNotContainKey("parameterSet");
         for (String[] declared : new String[][]{
                 {"ML-KEM-512", "800"},

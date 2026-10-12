@@ -101,6 +101,8 @@ public final class PqcRuleCatalog {
                             List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.PARAMETER_SET, PqcRules.VARIANT)),
                     finding(PqcRules.SYMMETRIC_UNDERSIZED, "Undersized symmetric primitive", ALGORITHM_AND_MATERIAL,
                             SIZE_FIELDS),
+                    finding(PqcRules.SYMMETRIC_UNSIZED, "Unsized symmetric primitive", ALGORITHM_AND_MATERIAL,
+                            SIZE_FIELDS),
                     finding(FamilyClass.QUANTUM_RESISTANT_SYMMETRIC.ruleId(), "Symmetric or hash-based family",
                             ALGORITHM_AND_MATERIAL, SIZE_FIELDS),
                     finding(PqcRules.ONE_TIME_SIGNATURE, "One-time signature", ALGORITHM_AND_MATERIAL, FAMILY_FIELDS),

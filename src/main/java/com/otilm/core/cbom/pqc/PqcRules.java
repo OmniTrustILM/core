@@ -152,6 +152,8 @@ public final class PqcRules {
 
     public static final String SYMMETRIC_UNDERSIZED = "SYMMETRIC-UNDERSIZED";
 
+    public static final String SYMMETRIC_UNSIZED = "SYMMETRIC-UNSIZED";
+
     public static final String ONE_TIME_SIGNATURE = "PQC-ONE-TIME-SIGNATURE";
 
     /** Stamped on a row the rules threw on. Not a rule, so it has no catalogue entry. */
