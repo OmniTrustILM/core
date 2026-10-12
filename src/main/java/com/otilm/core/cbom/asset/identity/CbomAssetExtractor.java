@@ -220,8 +220,20 @@ public final class CbomAssetExtractor {
      * <p>
      * The reason names the failure class and the component's own name, never the payload. A skip that quoted what it
      * could not parse would be a disclosure channel for exactly the documents least worth trusting.
+     *
+     * <p>
+     * {@code findings} are what the pipeline had to tell the producer before the component was skipped -- a withheld
+     * digest, a refuted arc -- so a component that keys but routes to no asset type loses none of them.
      */
-    public record Skip(String componentName, String reason) {
+    public record Skip(String componentName, String reason, List<String> findings) {
+
+        public Skip {
+            findings = List.copyOf(findings);
+        }
+
+        public Skip(String componentName, String reason) {
+            this(componentName, reason, List.of());
+        }
     }
 
     /**
@@ -300,7 +312,10 @@ public final class CbomAssetExtractor {
                 // across the space between them -- a rule about text, applied to text, with no idea what a type is.
                 CryptoAssetIdentity.Identity extracted = identity.of(component, scope, refuted);
                 if (extracted.asset().assetType() == null) {
-                    skips.add(new Skip(encodable(nameOf(component)), unroutableReason(component)));
+                    String reason = unroutableReason(component);
+                    skips
+                            .add(new Skip(encodable(nameOf(component)), reason,
+                                    encodableFindings(extracted.findings(), reason)));
                     continue;
                 }
                 List<JsonNode> occurrences = occurrencesOf(component);
@@ -385,6 +400,19 @@ public final class CbomAssetExtractor {
             readable.add(encodable(ref, UNENCODABLE_REF));
         }
         return List.copyOf(readable);
+    }
+
+    /**
+     * The findings a skip carries beside its reason: the reason itself once, and only those that can be stored. An
+     * asset with an unencodable finding is refused whole by {@link #requireEncodable}; a skip is already the refusal,
+     * so the finding goes and the rest are kept.
+     */
+    private static List<String> encodableFindings(List<String> findings, String reason) {
+        return findings
+                .stream()
+                .filter(finding -> !finding.equals(reason))
+                .filter(CbomAssetExtractor::hasEncoding)
+                .toList();
     }
 
     /** The skipped component's name, or a stand-in when it has none that can be stored. */

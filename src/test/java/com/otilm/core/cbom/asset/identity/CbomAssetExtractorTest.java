@@ -380,6 +380,23 @@ class CbomAssetExtractorTest {
                         "cryptoProperties.assetType is missing, and CycloneDX requires it"));
     }
 
+    /** Skipping an unroutable component must not swallow what the pipeline already had to tell its producer. */
+    @Test
+    void anUnroutableComponentKeepsItsFindingsOnTheSkip() {
+        CbomAssetExtractor.Extraction extraction = EXTRACTOR
+                .extract(read("{\"components\":[{\"type\":\"cryptographic-asset\",\"name\":\"leaky\","
+                        + "\"cryptoProperties\":{\"relatedCryptoMaterialProperties\":{\"type\":\"secret-key\","
+                        + "\"value\":\"c2VjcmV0\"}}}]}"));
+
+        assertThat(extraction.assets()).isEmpty();
+        assertThat(extraction.skips()).singleElement().satisfies(skip -> {
+            assertThat(skip.componentName()).isEqualTo("leaky");
+            assertThat(skip.reason()).isEqualTo("cryptoProperties.assetType is missing, and CycloneDX requires it");
+            assertThat(skip.findings())
+                    .containsExactly("producer inlined a value on material type secret-key under member value");
+        });
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {
             "{}",

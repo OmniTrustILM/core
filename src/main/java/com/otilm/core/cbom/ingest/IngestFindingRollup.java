@@ -94,6 +94,9 @@ public final class IngestFindingRollup {
         }
         final Map<String, Row> skips = new LinkedHashMap<>();
         for (CbomAssetExtractor.Skip skip : extraction.skips()) {
+            for (String finding : skip.findings()) {
+                add(findings, CbomIngestFindingKind.FINDING, skip.componentName(), finding);
+            }
             add(skips, CbomIngestFindingKind.SKIP, skip.componentName(),
                     "the component could not be turned into an asset: " + skip.reason());
         }
