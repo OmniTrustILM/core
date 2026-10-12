@@ -300,8 +300,7 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
         } catch (Exception e) {
             logger.error("Could not load the context of discovery {}", discovery.getUuid(), e);
             ConnectorDto connectorDto = connector != null ? connector.mapToDto() : null;
-            return failedContext(loggedUserUuid, connectorDto, discovery,
-                    PlatformException.safeMessage(e, CONTEXT_NOT_LOADED));
+            return failedContext(loggedUserUuid, connectorDto, discovery, safeReason(e, CONTEXT_NOT_LOADED));
         }
         return new DiscoveryContext(loggedUserUuid, connector.mapToDto(), discovery, dataAttributes);
     }
@@ -327,8 +326,16 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
 
     /** The reason is shown to users, so it is the exception's own text only when that is safe to show. */
     private static String withSafeReason(String prefix, Exception e) {
-        String reason = PlatformException.safeMessage(e, "");
+        String reason = safeReason(e, "");
         return reason.isBlank() ? prefix + "." : prefix + ": " + reason;
+    }
+
+    /**
+     * The exception's own text when Core wrote it, otherwise the fallback. A {@link ConnectorException} is a
+     * {@link PlatformException}, but its message is the connector's response body, so it stays in the log.
+     */
+    private static String safeReason(Exception e, String fallback) {
+        return e instanceof ConnectorException ? fallback : PlatformException.safeMessage(e, fallback);
     }
 
     private record StagedCounts(int certificates, long newlyDiscovered) {

@@ -1,6 +1,9 @@
 package com.otilm.core.service.handler.discovery;
 
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.ConnectorClientException;
 import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ConnectorServerException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.interfaces.client.v1.DiscoverySyncApiClient;
 import com.otilm.api.model.connector.discovery.DiscoveryProviderDto;
@@ -31,6 +34,7 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -51,6 +55,7 @@ class DiscoveryProviderV1AdapterTest {
     private final ConnectorRepository connectorRepository = mock(ConnectorRepository.class);
     private final AttributeEngine attributeEngine = mock(AttributeEngine.class);
     private final CredentialInternalService credentialService = mock(CredentialInternalService.class);
+    private final ResourceInternalService resourceService = mock(ResourceInternalService.class);
     private final DiscoveryDetailCounts detailCounts = mock(DiscoveryDetailCounts.class);
     private final DiscoveryProperties discoveryProperties = mock(DiscoveryProperties.class);
     private final ConnectorApiFactory connectorApiFactory = mock(ConnectorApiFactory.class);
@@ -59,8 +64,11 @@ class DiscoveryProviderV1AdapterTest {
     private final DiscoveryProviderV1Adapter adapter = new DiscoveryProviderV1Adapter(discoveryProperties,
             mock(PlatformTransactionManager.class), discoveryRepository, connectorRepository,
             mock(CertificateRepository.class), mock(DiscoveryCertificateRepository.class), attributeEngine,
-            mock(CertificateHandler.class), credentialService, mock(ResourceInternalService.class), connectorApiFactory,
+            mock(CertificateHandler.class), credentialService, resourceService, connectorApiFactory,
             mock(EventProducer.class), detailCounts, mock(DiscoveryMessageWriter.class), mock(DiscoveryWriter.class));
+
+    /** A legacy connector's error arrives with its response body as the message. */
+    private static final String CONNECTOR_BODY = "<html><body>upstream 10.0.0.5:8443 refused</body></html>";
 
     private final Discovery run = new Discovery();
 
@@ -132,6 +140,54 @@ class DiscoveryProviderV1AdapterTest {
         assertThat(detail.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
         assertThat(detail.getMessage()).isEqualTo("Error in provider during discovery.");
         assertThat(detail.getMessage()).doesNotContain("deserialize");
+    }
+
+    @Test
+    void aConnectorFailureWhileLoadingTheContextEndsTheRunWithTheFixedText()
+            throws NotFoundException, AttributeException, ConnectorException {
+        connectAs();
+        prepareRun();
+        doThrow(new ConnectorServerException(CONNECTOR_BODY, HttpStatus.BAD_GATEWAY))
+                .when(resourceService)
+                .loadResourceObjectContentData(any(List.class));
+
+        var detail = adapter.start(run.getUuid(), null);
+
+        assertThat(detail.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
+        assertThat(detail.getMessage()).isEqualTo("Discovery could not be prepared in Core.");
+    }
+
+    @Test
+    void aConnectorFailureAtStartEndsTheRunWithoutTheConnectorsText() throws ConnectorException {
+        connectAs();
+        prepareRun();
+        when(providerClient.discoverCertificates(any(), any()))
+                .thenThrow(new ConnectorServerException(CONNECTOR_BODY, HttpStatus.BAD_GATEWAY));
+
+        var detail = adapter.start(run.getUuid(), null);
+
+        assertThat(detail.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
+        assertThat(detail.getMessage()).isEqualTo("Failed to run discovery at the provider.");
+    }
+
+    @Test
+    void aConnectorFailureWhilePollingEndsTheRunWithCoreText() throws ConnectorException {
+        connectAs();
+        prepareRun();
+        when(discoveryProperties.sleepTimeMs()).thenReturn(1);
+        DiscoveryProviderDto started = new DiscoveryProviderDto();
+        started.setUuid("provider-run");
+        started.setName("unit-run");
+        started.setStatus(DiscoveryStatus.IN_PROGRESS);
+        when(providerClient.discoverCertificates(any(), any())).thenReturn(started);
+        when(providerClient.getDiscoveryData(any(), any(), any()))
+                .thenThrow(new ConnectorClientException(CONNECTOR_BODY, HttpStatus.BAD_REQUEST));
+
+        var detail = adapter.start(run.getUuid(), null);
+
+        assertThat(detail.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
+        assertThat(detail.getMessage())
+                .isEqualTo("Discovery has failed on connector side while waiting for completion");
     }
 
     private void connectAs() {
