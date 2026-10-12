@@ -192,7 +192,7 @@ class PqcEvaluatorTest {
         assertThat(verdictOf(
                 component("algorithm", "aes-64-cbc", "{\"algorithmProperties\":{\"parameterSetIdentifier\":\"64\"}}"))
                 .ruleId())
-                .describedAs("the develop-02 record: declared and spelled 64, which AES does not define")
+                .describedAs("a record declaring and spelling 64, which AES does not define")
                 .isEqualTo("PARAMETER-SET-UNREGISTERED");
     }
 
