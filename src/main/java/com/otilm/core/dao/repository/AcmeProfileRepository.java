@@ -32,10 +32,10 @@ public interface AcmeProfileRepository extends SecurityFilterRepository<AcmeProf
     Optional<AcmeProfile> findAndLockByUuid(UUID uuid);
 
     /**
-     * Names of the profiles that accept the given secret as an External Account Binding key. Native because the column
-     * is a PostgreSQL array and JPQL has no containment operator for one.
+     * The profiles that accept the given secret as an External Account Binding key. Native because the column is a
+     * PostgreSQL array and JPQL has no containment operator for one.
      */
-    @Query(value = "SELECT p.name FROM {h-schema}acme_profile p WHERE :secretUuid = ANY(p.eab_secret_uuids)",
+    @Query(value = "SELECT p.* FROM {h-schema}acme_profile p WHERE :secretUuid = ANY(p.eab_secret_uuids)",
             nativeQuery = true)
-    List<String> findNamesByEabSecretUuid(@Param("secretUuid") UUID secretUuid);
+    List<AcmeProfile> findByEabSecretUuid(@Param("secretUuid") UUID secretUuid);
 }

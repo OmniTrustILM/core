@@ -34,6 +34,7 @@ import java.util.UUID;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
+import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.SQLJoinTableRestriction;
 import org.hibernate.proxy.HibernateProxy;
@@ -41,6 +42,9 @@ import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "secret")
+// A secret action holds the secret it read across its vault calls; writing only what it changed keeps an enable or
+// disable committed meanwhile.
+@DynamicUpdate
 @Getter
 @Setter
 public class Secret extends UniquelyIdentifiedAndAudited implements ComplianceSubject {

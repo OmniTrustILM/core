@@ -229,6 +229,7 @@ public class VaultInstanceServiceImpl implements VaultInstanceExternalService, V
                     "Vault Instance %s is used in Vault Profiles %s".formatted(uuid, allByVaultInstanceUuid));
         }
         commentService.removeObjectComments(Resource.VAULT, vaultInstance.getUuid());
+        attributeEngine.deleteObjectAttributeContent(Resource.VAULT, vaultInstance.getUuid());
         vaultInstanceRepository.delete(vaultInstance);
     }
 

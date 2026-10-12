@@ -369,6 +369,7 @@ public class NotificationInstanceServiceImpl implements NotificationInstanceExte
                 .debug("Detached {} notification profile version(s) from notification instance {}", detachedCount,
                         notificationInstanceRef.getName());
 
+        attributeEngine.deleteObjectAttributeContent(Resource.NOTIFICATION_INSTANCE, notificationInstanceRef.getUuid());
         notificationInstanceReferenceRepository.delete(notificationInstanceRef);
     }
 }

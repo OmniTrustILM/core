@@ -4,6 +4,7 @@ import com.otilm.api.exception.AttributeException;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.common.attribute.common.callback.AttributeCallback;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.content.data.ProtectionLevel;
 import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.core.auth.AttributeResource;
@@ -21,7 +22,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 /**
  * #1622 Task 4b — declaration-validity guard at the ingest choke point: dependsOn and callbackContext are mutually
- * exclusive, and dependsOn is forbidden on a RESOURCE-content attribute.
+ * exclusive, and dependsOn is forbidden on a RESOURCE-content attribute, which also cannot be encrypted.
  */
 class AttributeDeclarationValidityITest extends BaseSpringBootTest {
 
@@ -80,6 +81,28 @@ class AttributeDeclarationValidityITest extends BaseSpringBootTest {
 
         Assertions
                 .assertThrows(AttributeException.class,
+                        () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, null, List.of(a)));
+    }
+
+    @Test
+    void encryptedResourceContent_rejected() {
+        DataAttributeV2 a = base(AttributeContentType.RESOURCE);
+        a.setAttributeCallback(new AttributeCallback());
+        a.getProperties().setProtectionLevel(ProtectionLevel.ENCRYPTED);
+
+        AttributeException ex = Assertions
+                .assertThrows(AttributeException.class,
+                        () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, null, List.of(a)));
+        Assertions.assertTrue(ex.getMessage().contains("cannot be encrypted"));
+    }
+
+    @Test
+    void plainResourceContent_ingestsCleanly() {
+        DataAttributeV2 a = base(AttributeContentType.RESOURCE);
+        a.setAttributeCallback(new AttributeCallback());
+
+        Assertions
+                .assertDoesNotThrow(
                         () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, null, List.of(a)));
     }
 

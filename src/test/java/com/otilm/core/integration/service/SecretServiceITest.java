@@ -51,6 +51,8 @@ import com.otilm.core.dao.entity.Secret2SyncVaultProfileId;
 import com.otilm.core.dao.entity.SecretVersion;
 import com.otilm.core.dao.entity.VaultInstance;
 import com.otilm.core.dao.entity.VaultProfile;
+import com.otilm.core.dao.entity.signing.TspProfile;
+import com.otilm.core.dao.entity.signing.TspProfileBasicCredential;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.Secret2SyncVaultProfileRepository;
@@ -58,6 +60,8 @@ import com.otilm.core.dao.repository.SecretRepository;
 import com.otilm.core.dao.repository.SecretVersionRepository;
 import com.otilm.core.dao.repository.VaultInstanceRepository;
 import com.otilm.core.dao.repository.VaultProfileRepository;
+import com.otilm.core.dao.repository.signing.TspProfileBasicCredentialRepository;
+import com.otilm.core.dao.repository.signing.TspProfileRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.events.SecretContentUpdatedEvent;
 import com.otilm.core.messaging.jms.listeners.ActionsListener;
@@ -65,6 +69,7 @@ import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.messaging.model.ActionMessage;
 import com.otilm.core.messaging.model.SecretActionData;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.reference.ObjectRef;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -81,6 +86,7 @@ import java.io.Serializable;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -102,6 +108,7 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mockStatic;
 
@@ -138,6 +145,10 @@ class SecretServiceITest extends BaseSpringBootTest {
     private ActionsListener actionListener;
     @Autowired
     private PlatformTransactionManager transactionManager;
+    @Autowired
+    private TspProfileRepository tspProfileRepository;
+    @Autowired
+    private TspProfileBasicCredentialRepository tspCredentialRepository;
     @MockitoBean
     private ActionProducer actionProducer;
     @MockitoBean
@@ -534,6 +545,87 @@ class SecretServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void anApprovedDeleteRemovesTheSecretFromItsVault() throws Exception {
+        // The test schema lacks the migration's ON DELETE SET NULL, so a linked version would block the delete.
+        secret.getLatestVersion().setSecret(null);
+        secretVersionRepository.save(secret.getLatestVersion());
+        secretInternalService.approvalCreatedAction(secret.getUuid());
+        ActionMessage deletion = new ActionMessage();
+        deletion.setResource(Resource.SECRET);
+        deletion.setResourceAction(ResourceAction.DELETE);
+        deletion.setResourceUuid(secret.getUuid());
+        deletion.setData(SecretActionData.builder().originalState(SecretState.ACTIVE).deleteInVault(true).build());
+
+        secretInternalService.processSecretAction(deletion, true, true);
+
+        assertThat(mockServer.findAll(WireMock.deleteRequestedFor(WireMock.anyUrl()))).hasSize(1);
+        assertThat(secretRepository.findById(secret.getUuid())).isEmpty();
+    }
+
+    @Test
+    void aSecretAwaitingApprovalStaysUntilTheApprovalIsDecided() {
+        // The test schema lacks the migration's ON DELETE SET NULL, so a linked version would block the delete.
+        secret.getLatestVersion().setSecret(null);
+        secretVersionRepository.save(secret.getLatestVersion());
+        secret.setState(SecretState.PENDING_APPROVAL);
+        secretRepository.save(secret);
+        UUID secretUuid = secret.getUuid();
+
+        assertThatThrownBy(() -> secretService.deleteSecret(secretUuid, true))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Secret %s is in state %s and cannot be deleted"
+                        .formatted(secret.getName(), SecretState.PENDING_APPROVAL.getLabel()));
+
+        assertThat(secretRepository.findById(secretUuid)).isPresent();
+    }
+
+    @Test
+    void anOwnedDeleteStaysReleasedWhileItsOwnerStillExists() throws Exception {
+        // The test schema lacks the migration's ON DELETE SET NULL, so a linked version would block the delete.
+        secret.getLatestVersion().setSecret(null);
+        secretVersionRepository.save(secret.getLatestVersion());
+        TspProfileBasicCredential owner = persistTspCredential(secret);
+
+        secretService
+                .deleteOwnedSecret(secret.getUuid(),
+                        new ObjectRef(Resource.TSP_PROFILE_BASIC_CREDENTIAL, owner.getUuid()));
+
+        assertThat(secretRepository.findById(secret.getUuid())).isEmpty();
+    }
+
+    @Test
+    void anActionQueuedByANewerCoreIsRead() throws Exception {
+        // The test schema lacks the migration's ON DELETE SET NULL, so a linked version would block the delete.
+        secret.getLatestVersion().setSecret(null);
+        secretVersionRepository.save(secret.getLatestVersion());
+        ActionMessage deletion = new ActionMessage();
+        deletion.setResource(Resource.SECRET);
+        deletion.setResourceAction(ResourceAction.DELETE);
+        deletion.setResourceUuid(secret.getUuid());
+        deletion
+                .setData(Map
+                        .of("originalState", SecretState.ACTIVE.getCode(), "deleteInVault", true, "memberOfANewerCore",
+                                true));
+
+        secretInternalService.processSecretAction(deletion, false, false);
+
+        assertThat(secretRepository.findById(secret.getUuid())).isEmpty();
+    }
+
+    private TspProfileBasicCredential persistTspCredential(Secret password) {
+        TspProfile profile = new TspProfile();
+        profile.setName("tsa");
+        tspProfileRepository.save(profile);
+
+        TspProfileBasicCredential credential = new TspProfileBasicCredential();
+        credential.setTspProfile(profile);
+        credential.setUsername("tsa-client");
+        credential.setSecretUuid(password.getUuid());
+        credential.setMappedUserUuid(UUID.randomUUID());
+        return tspCredentialRepository.save(credential);
+    }
+
+    @Test
     void testEnableSecret() throws NotFoundException {
         secret.setState(SecretState.REJECTED);
         secretRepository.save(secret);
@@ -549,6 +641,47 @@ class SecretServiceITest extends BaseSpringBootTest {
     void testDisableSecret() throws NotFoundException {
         secretService.disableSecret(secret.getUuid());
         Assertions.assertFalse(secretRepository.findById(secret.getUuid()).orElseThrow().isEnabled());
+    }
+
+    @Test
+    void aDisableCommittedWhileAnUpdateTalksToTheVaultSurvivesTheUpdate() throws Exception {
+        BasicAuthSecretContent newContent = new BasicAuthSecretContent("rotatedUsername", "rotatedPassword");
+        ActionMessage update = new ActionMessage();
+        update.setResource(Resource.SECRET);
+        update.setResourceAction(ResourceAction.UPDATE);
+        update.setResourceUuid(secret.getUuid());
+        update
+                .setData(SecretActionData
+                        .builder()
+                        .originalState(SecretState.ACTIVE)
+                        .attributes(List.of())
+                        .encryptedContent(SecretsUtil
+                                .encryptAndEncodeSecretString(new ObjectMapper().writeValueAsString(newContent),
+                                        SecretEncodingVersion.V1))
+                        .build());
+        TransactionTemplate separately = new TransactionTemplate(transactionManager);
+        separately.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            secretRepository.findById(secret.getUuid()).orElseThrow();
+            try {
+                separately.executeWithoutResult(disable -> disableAsAnotherAdmin(secret.getUuid()));
+                secretInternalService.processSecretAction(update, false, false);
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
+        });
+
+        assertThat(secretRepository.findById(secret.getUuid()).orElseThrow().isEnabled()).isFalse();
+        assertThat(secretService.getSecretDetails(secret.getUuid()).getVersion()).isEqualTo(2);
+    }
+
+    private void disableAsAnotherAdmin(UUID secretUuid) {
+        try {
+            secretService.disableSecret(secretUuid);
+        } catch (NotFoundException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     @Test
