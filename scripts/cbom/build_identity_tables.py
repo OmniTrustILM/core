@@ -1184,10 +1184,11 @@ def registry_pattern_regex(pattern: str, stop_at_size_group: bool) -> str | None
     The registry's own syntax is small: ``[...]`` is optional, ``(a|b)`` an alternation, ``{name}`` a
     template the registry does not enumerate. A hyphen is optional wherever the registry wrote one, and
     between a letter and a digit wherever it did not. A templated pattern is not rendered -- its template would
-    have to be guessed. With ``stop_at_size_group`` the regex ends right after the first all-numeric
-    alternation, captured as ``(\\d+)`` and left optional when the registry wrote it optional, so
-    ``AES[-(128|192|256)]...`` renders as ``AES(?:-(\\d+))?``: it finds the size the name spells for the
-    family, or that the name spells none, without rendering the mode and padding tails."""
+    have to be guessed. An all-numeric alternation is a size and always optional, so a name that leaves
+    the size off still names its variant. With ``stop_at_size_group`` the regex ends right after the first
+    one, captured as ``(\\d+)``, so ``AES[-(128|192|256)]...`` renders as ``AES(?:[-_/]?(\\d+))?``: it
+    finds the size the name spells for the family, or that the name spells none, without rendering the
+    mode and padding tails."""
     out: list[str] = []
     optional_depth = 0
     index = 0
@@ -1210,12 +1211,14 @@ def registry_pattern_regex(pattern: str, stop_at_size_group: bool) -> str | None
                 # wrote one; a hyphen the registry did write is already rendered optional below.
                 if out and out[-1] == "-?":
                     out.pop()
-                out.append("[-_/]?")
+                # A variant is named by its spelling with or without its size -- a bare `SHA3` is the SHA3 variant,
+                # a bare `SHAKE` an XOF -- so the size is optional where the registry did not already make it so.
+                already_optional = optional_depth > 0 and out and out[-1] == "(?:"
+                size = r"(\d+)" if stop_at_size_group else "(?:" + inner + ")"
+                out.append("[-_/]?" + size if already_optional else "(?:[-_/]?" + size + ")?")
                 if stop_at_size_group:
-                    out.append(r"(\d+)")
                     out.extend(")?" for _ in range(optional_depth))
                     return "".join(out)
-                out.append("(?:" + inner + ")")
                 index = end + 1
                 continue
             out.append("(?:")

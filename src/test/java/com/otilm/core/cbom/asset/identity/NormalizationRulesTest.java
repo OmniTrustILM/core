@@ -263,6 +263,18 @@ class NormalizationRulesTest {
         assertThat(NORMALIZER.primitiveFromRegistryVariant("TupleHashXOF128", "SHA-3")).isEqualTo("xof");
     }
 
+    /**
+     * A variant is named by its spelling with or without its size, so a bare SHAKE is an XOF and a bare SHA3 a hash.
+     */
+    @Test
+    void aVariantIsNamedWithoutItsSize() {
+        assertThat(NORMALIZER.primitiveFromRegistryVariant("SHAKE", "SHA-3")).isEqualTo("xof");
+        assertThat(normalize("SHAKE").primitive()).isEqualTo("xof");
+        assertThat(NORMALIZER.admissibleParameterSets("SHA3", "SHA-3")).containsExactlyInAnyOrder(224, 256, 384, 512);
+        assertThat(NORMALIZER.admissibleParameterSets("SHAKE", "SHA-3")).containsExactlyInAnyOrder(128, 256);
+        assertThat(NORMALIZER.registrySizeSpelled("SHA3", "SHA-3")).isNull();
+    }
+
     /** A digit run no size can have spells none: it must cost the component neither its row nor its finding. */
     @Test
     void anOverlongDigitRunSpellsNoSize() {

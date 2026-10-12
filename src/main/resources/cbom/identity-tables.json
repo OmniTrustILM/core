@@ -4277,7 +4277,7 @@
     ],
     "ARIA": [
       {
-        "pattern": "ARIA[-_/]?(\\d+)",
+        "pattern": "ARIA(?:[-_/]?(\\d+))?",
         "sizes": [
           128,
           192,
@@ -4287,7 +4287,7 @@
     ],
     "BLAKE2": [
       {
-        "pattern": "BLAKE-?2b[-_/]?(\\d+)",
+        "pattern": "BLAKE-?2b(?:[-_/]?(\\d+))?",
         "sizes": [
           160,
           256,
@@ -4296,7 +4296,7 @@
         ]
       },
       {
-        "pattern": "BLAKE-?2s[-_/]?(\\d+)",
+        "pattern": "BLAKE-?2s(?:[-_/]?(\\d+))?",
         "sizes": [
           160,
           256
@@ -4305,7 +4305,7 @@
     ],
     "CAMELLIA": [
       {
-        "pattern": "CAMELLIA[-_/]?(\\d+)",
+        "pattern": "CAMELLIA(?:[-_/]?(\\d+))?",
         "sizes": [
           128,
           192,
@@ -4315,7 +4315,7 @@
     ],
     "ML-DSA": [
       {
-        "pattern": "HashML-?DSA[-_/]?(\\d+)",
+        "pattern": "HashML-?DSA(?:[-_/]?(\\d+))?",
         "sizes": [
           44,
           65,
@@ -4323,7 +4323,7 @@
         ]
       },
       {
-        "pattern": "ML-?DSA[-_/]?(\\d+)",
+        "pattern": "ML-?DSA(?:[-_/]?(\\d+))?",
         "sizes": [
           44,
           65,
@@ -4333,7 +4333,7 @@
     ],
     "ML-KEM": [
       {
-        "pattern": "ML-?KEM[-_/]?(\\d+)",
+        "pattern": "ML-?KEM(?:[-_/]?(\\d+))?",
         "sizes": [
           512,
           768,
@@ -4343,7 +4343,7 @@
     ],
     "RIPEMD": [
       {
-        "pattern": "RIPEMD[-_/]?(\\d+)",
+        "pattern": "RIPEMD(?:[-_/]?(\\d+))?",
         "sizes": [
           128,
           160,
@@ -4354,42 +4354,42 @@
     ],
     "SHA-3": [
       {
-        "pattern": "ParallelHashXOF[-_/]?(\\d+)",
+        "pattern": "ParallelHashXOF(?:[-_/]?(\\d+))?",
         "sizes": [
           128,
           256
         ]
       },
       {
-        "pattern": "ParallelHash[-_/]?(\\d+)",
+        "pattern": "ParallelHash(?:[-_/]?(\\d+))?",
         "sizes": [
           128,
           256
         ]
       },
       {
-        "pattern": "TupleHashXOF[-_/]?(\\d+)",
+        "pattern": "TupleHashXOF(?:[-_/]?(\\d+))?",
         "sizes": [
           128,
           256
         ]
       },
       {
-        "pattern": "TupleHash[-_/]?(\\d+)",
+        "pattern": "TupleHash(?:[-_/]?(\\d+))?",
         "sizes": [
           128,
           256
         ]
       },
       {
-        "pattern": "KMACXOF[-_/]?(\\d+)",
+        "pattern": "KMACXOF(?:[-_/]?(\\d+))?",
         "sizes": [
           128,
           256
         ]
       },
       {
-        "pattern": "SHA-?3[-_/]?(\\d+)",
+        "pattern": "SHA-?3(?:[-_/]?(\\d+))?",
         "sizes": [
           224,
           256,
@@ -4398,21 +4398,21 @@
         ]
       },
       {
-        "pattern": "cSHAKE[-_/]?(\\d+)",
+        "pattern": "cSHAKE(?:[-_/]?(\\d+))?",
         "sizes": [
           128,
           256
         ]
       },
       {
-        "pattern": "SHAKE[-_/]?(\\d+)",
+        "pattern": "SHAKE(?:[-_/]?(\\d+))?",
         "sizes": [
           128,
           256
         ]
       },
       {
-        "pattern": "KMAC[-_/]?(\\d+)",
+        "pattern": "KMAC(?:[-_/]?(\\d+))?",
         "sizes": [
           128,
           256
@@ -4421,7 +4421,7 @@
     ],
     "Serpent": [
       {
-        "pattern": "Serpent[-_/]?(\\d+)",
+        "pattern": "Serpent(?:[-_/]?(\\d+))?",
         "sizes": [
           128,
           192,
@@ -4431,7 +4431,7 @@
     ],
     "Twofish": [
       {
-        "pattern": "Twofish[-_/]?(\\d+)",
+        "pattern": "Twofish(?:[-_/]?(\\d+))?",
         "sizes": [
           128,
           192,
@@ -4494,12 +4494,12 @@
     },
     {
       "family": "BLAKE2",
-      "pattern": "BLAKE-?2b[-_/]?(?:160|256|384|512)-?HMAC",
+      "pattern": "BLAKE-?2b(?:[-_/]?(?:160|256|384|512))?-?HMAC",
       "primitive": "mac"
     },
     {
       "family": "BLAKE2",
-      "pattern": "BLAKE-?2s[-_/]?(?:160|256)-?HMAC",
+      "pattern": "BLAKE-?2s(?:[-_/]?(?:160|256))?-?HMAC",
       "primitive": "mac"
     },
     {
@@ -4559,32 +4559,32 @@
     },
     {
       "family": "SHA-3",
-      "pattern": "ParallelHashXOF[-_/]?(?:128|256)",
+      "pattern": "ParallelHashXOF(?:[-_/]?(?:128|256))?",
       "primitive": "xof"
     },
     {
       "family": "SHA-3",
-      "pattern": "TupleHashXOF[-_/]?(?:128|256)",
+      "pattern": "TupleHashXOF(?:[-_/]?(?:128|256))?",
       "primitive": "xof"
     },
     {
       "family": "SHA-3",
-      "pattern": "KMACXOF[-_/]?(?:128|256)",
+      "pattern": "KMACXOF(?:[-_/]?(?:128|256))?",
       "primitive": "mac"
     },
     {
       "family": "SHA-3",
-      "pattern": "cSHAKE[-_/]?(?:128|256)",
+      "pattern": "cSHAKE(?:[-_/]?(?:128|256))?",
       "primitive": "xof"
     },
     {
       "family": "SHA-3",
-      "pattern": "SHAKE[-_/]?(?:128|256)",
+      "pattern": "SHAKE(?:[-_/]?(?:128|256))?",
       "primitive": "xof"
     },
     {
       "family": "SHA-3",
-      "pattern": "KMAC[-_/]?(?:128|256)",
+      "pattern": "KMAC(?:[-_/]?(?:128|256))?",
       "primitive": "mac"
     },
     {

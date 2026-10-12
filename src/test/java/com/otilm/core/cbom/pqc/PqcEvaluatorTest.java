@@ -165,6 +165,17 @@ class PqcEvaluatorTest {
                             spelling)
                     .isEqualTo("PARAMETER-SET-UNREGISTERED");
         }
+        PqcDecision bareSha3 = verdictOf(
+                component("algorithm", "SHA3", "{\"algorithmProperties\":{\"parameterSetIdentifier\":\"128\"}}"));
+        assertThat(bareSha3.ruleId())
+                .describedAs("a bare SHA3 names the SHA3 variant, which does not define the 128 SHAKE does")
+                .isEqualTo("PARAMETER-SET-UNREGISTERED");
+        assertThat(bareSha3.reason()).contains("224, 256, 384, 512");
+        PqcDecision bareShake = verdictOf(
+                component("algorithm", "SHAKE", "{\"algorithmProperties\":{\"parameterSetIdentifier\":\"128\"}}"));
+        assertThat(bareShake.ruleId())
+                .describedAs("a bare SHAKE is an XOF that defines 128, its output length")
+                .isEqualTo("SYMMETRIC-READY");
         PqcDecision mlDsa99 = verdictOf(algorithm("ML-DSA-99"));
         assertThat(mlDsa99.ruleId())
                 .describedAs("ML-DSA enumerates its parameter sets below the size whitelist, and 99 is not one")
