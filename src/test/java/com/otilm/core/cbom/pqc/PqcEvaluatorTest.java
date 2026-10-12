@@ -155,6 +155,19 @@ class PqcEvaluatorTest {
                 .isEqualTo("PARAMETER-SET-UNREGISTERED");
     }
 
+    /** A truncated digest is as long as its output, not as the hash it was truncated from. */
+    @Test
+    void aTruncatedDigestIsHeldToTheFloorByItsTruncatedLength() {
+        for (String truncated : new String[]{"SHA-512/224", "SHA-512-224", "BLAKE2b-512/160"}) {
+            PqcDecision decision = verdictOf(algorithm(truncated));
+            assertThat(decision.verdict()).describedAs(truncated).isEqualTo(PqcVerdict.NOT_READY);
+            assertThat(decision.ruleId()).describedAs(truncated).isEqualTo("SYMMETRIC-UNDERSIZED");
+        }
+        for (String atTheFloor : new String[]{"SHA-512/256", "SHA-512-256", "SHA-512"}) {
+            assertThat(verdictOf(algorithm(atTheFloor)).ruleId()).describedAs(atTheFloor).isEqualTo("SYMMETRIC-READY");
+        }
+    }
+
     /**
      * A key's declared size is a fact about the key, whatever its name records: below the floor it is weak even when
      * the name spells a parameter set the family does not define, and only at the floor does the name's refusal decide.
@@ -629,7 +642,7 @@ class PqcEvaluatorTest {
     void aSingleFamilyIsNotAnAlternation() {
         assertThat(verdictOf(algorithm("SHA-512/224")).ruleId())
                 .describedAs("a family whose own spelling carries a slash is not a list")
-                .isEqualTo("SYMMETRIC-READY");
+                .isEqualTo("SYMMETRIC-UNDERSIZED");
         for (String single : new String[]{"3GPP-XOR", "Fortuna", "Fortuna-AES-256", "A5/1", "SHA-512/224"}) {
             assertThat(normalizer.namesAnAlternation(single)).describedAs("single family %s", single).isFalse();
         }

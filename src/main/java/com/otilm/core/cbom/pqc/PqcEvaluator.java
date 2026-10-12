@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -53,6 +54,11 @@ public class PqcEvaluator {
     private static final String ONE_TIME_SIGNATURE = "ots";
 
     private static final Set<String> STATEFUL_HASH_SIGNATURES = Set.of("LMS", "XMSS");
+
+    /**
+     * The marker the normalizer keeps in the variant for a truncated digest: {@code SHA-512/224} carries {@code t224}.
+     */
+    private static final Pattern TRUNCATION_MARKER = Pattern.compile("t(\\d{2,5})");
 
     private static final List<String> FAMILY_FIELDS = List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.VARIANT);
 
@@ -661,17 +667,32 @@ public class PqcEvaluator {
      * {@code materialSize} counts only on a material row. A producer bug stamps the material block onto algorithms too,
      * and there the row's own size is its parameter set -- a strayed size would otherwise decide {@code AES-64} ready
      * and {@code AES-256} undersized. When a key's name spells a size too, the smaller decides: a declared size must
-     * not clear a key its own algorithm name fails.
+     * not clear a key its own algorithm name fails. A truncated digest is as long as its truncation:
+     * {@code SHA-512/224} records 512 as its parameter set and 224 as a marker, and its output is 224 bits.
      *
      * @param parameterSetIsNotASize a construction's digest or tag length, a non-key primitive's output length, or a
      * number the family does not define
      */
     private Integer recordedSizeBits(PqcRuleInput input, boolean parameterSetIsNotASize) {
-        Integer named = parameterSetIsNotASize ? null : withinRatifiedSizeBand(input.parameterSet());
+        Integer named = parameterSetIsNotASize ? null : truncated(input, withinRatifiedSizeBand(input.parameterSet()));
         if (input.assetType() == CryptographicAssetType.RELATED_CRYPTO_MATERIAL && input.materialSize() != null) {
             return named == null ? input.materialSize() : Math.min(input.materialSize(), named);
         }
         return named;
+    }
+
+    private Integer truncated(PqcRuleInput input, Integer size) {
+        if (size == null) {
+            return null;
+        }
+        Integer shortest = size;
+        for (String token : secondaryTokens(input)) {
+            Matcher marker = TRUNCATION_MARKER.matcher(token);
+            if (marker.matches()) {
+                shortest = Math.min(shortest, Integer.parseInt(marker.group(1)));
+            }
+        }
+        return shortest;
     }
 
     /** The slots {@link #recordedSizeBits} reads for this row, so the evidence names only the size that decided. */
