@@ -155,6 +155,21 @@ class PqcEvaluatorTest {
                 .isEqualTo("PARAMETER-SET-UNREGISTERED");
     }
 
+    /**
+     * A key's declared size is a fact about the key, whatever its name records: below the floor it is weak even when
+     * the name spells a parameter set the family does not define, and only at the floor does the name's refusal decide.
+     */
+    @Test
+    void aKeyUnderTheFloorIsWeakEvenWhenItsNameSpellsAnUnregisteredSize() {
+        PqcDecision undersized = verdictOf(material("AES-64", "secret-key", 128));
+        assertThat(undersized.verdict()).isEqualTo(PqcVerdict.NOT_READY);
+        assertThat(undersized.ruleId()).isEqualTo("MATERIAL-SYMMETRIC-WEAK");
+
+        PqcDecision atTheFloor = verdictOf(material("AES-64", "secret-key", 256));
+        assertThat(atTheFloor.verdict()).isEqualTo(PqcVerdict.UNKNOWN);
+        assertThat(atTheFloor.ruleId()).isEqualTo("PARAMETER-SET-UNREGISTERED");
+    }
+
     /** The registry variant the name spells fixes the primitive, so a declaration agreeing with it changes nothing. */
     @Test
     void aDeclaredPrimitiveAgreeingWithTheRegistryVariantMovesNoVerdict() {
