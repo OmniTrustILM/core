@@ -226,8 +226,8 @@ public final class PqcRules {
                                         && input.materialSize() != null
                                         && input.materialSize() < MIN_SYMMETRIC_KEY_BITS,
                                 PqcVerdict.NOT_READY,
-                                "A symmetric key whose declared size is below " + MIN_SYMMETRIC_KEY_BITS
-                                        + " bits, so Grover's algorithm leaves it with no adequate strength",
+                                "A symmetric key whose declared size is below the " + MIN_SYMMETRIC_KEY_BITS
+                                        + "-bit floor this rule set holds symmetric keys to",
                                 SYMMETRIC_MATERIAL_FIELDS),
                         new PqcRule(MATERIAL_SYMMETRIC_UNSIZED,
                                 input -> isMaterial(SYMMETRIC_MATERIAL, input) && nameLeavesStrengthToSize.test(input)

@@ -579,8 +579,9 @@ public class PqcEvaluator {
             return null;
         }
         return decision(PqcVerdict.NOT_READY, PqcRules.SYMMETRIC_UNDERSIZED,
-                "A symmetric or hash-based primitive whose recorded size is below " + PqcRules.MIN_SYMMETRIC_KEY_BITS
-                        + " bits, so Grover's algorithm leaves it with no adequate strength",
+                "A symmetric or hash-based primitive whose recorded size is below the "
+                        + PqcRules.MIN_SYMMETRIC_KEY_BITS
+                        + "-bit floor this rule set holds symmetric and hash sizes to",
                 sizeEvidence(reading.input, reading.construction), reading.evidence, level);
     }
 
