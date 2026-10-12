@@ -48,7 +48,8 @@ public class KeyImportGates {
     public static final String ALGORITHM_NOT_OFFERED = "Token profile %s does not import the %s algorithm for a %s.";
     public static final String PROFILE_CHANGED = "Token profile %s changed while its import was checked. Try again.";
     public static final String NOT_UPDATABLE = "Key %s holds the same public key, and you may not update it.";
-    public static final String HELD_IN_TOKEN = "Key %s holds the same public key in a token without its private key.";
+    public static final String HELD_IN_TOKEN = "Key %s holds the same public key under a token instance, without its "
+            + "private key.";
 
     private final AuthorizationEnforcer authorizationEnforcer;
     private final TokenProfileRepository tokenProfileRepository;
@@ -120,23 +121,39 @@ public class KeyImportGates {
     }
 
     private void requireUpdatable(CryptographicKeyFullModel adoptable) {
+        if (!mayUpdate(adoptable.uuid())) {
+            throw heldOtherwise(adoptable, NOT_UPDATABLE);
+        }
+    }
+
+    /** Whether the caller may update the key, which adding a private key to a public-key-only record requires. */
+    public boolean mayUpdate(UUID keyUuid) {
         try {
             authorizationEnforcer
-                    .enforce(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.UPDATE, SecuredUUID.fromUUID(adoptable.uuid()));
+                    .enforce(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.UPDATE, SecuredUUID.fromUUID(keyUuid));
+            return true;
         } catch (AccessDeniedException denied) {
-            throw heldOtherwise(adoptable, NOT_UPDATABLE);
+            return false;
         }
     }
 
     /** The refusal with the reason given, to a caller who may see the key in detail, and in neutral words otherwise. */
     private ValidationException heldOtherwise(CryptographicKeyFullModel key, String reason) {
-        try {
-            authorizationEnforcer
-                    .enforce(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.DETAIL, SecuredUUID.fromUUID(key.uuid()));
-        } catch (AccessDeniedException hidden) {
-            return heldOtherwise();
+        if (!maySeeInDetail(key.uuid())) {
+            return neutralRefusal();
         }
         return new ValidationException(ValidationError.create(reason.formatted(key.name())));
+    }
+
+    /** Whether the caller may see the key in detail, which a reason naming the key requires. */
+    public boolean maySeeInDetail(UUID keyUuid) {
+        try {
+            authorizationEnforcer
+                    .enforce(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.DETAIL, SecuredUUID.fromUUID(keyUuid));
+            return true;
+        } catch (AccessDeniedException hidden) {
+            return false;
+        }
     }
 
     /**
@@ -159,12 +176,12 @@ public class KeyImportGates {
         if (adoptable.isPresent() && !authorizationEnforcer
                 .isAuthorizedAs(UUID.fromString(requester.getUuid()), Resource.CRYPTOGRAPHIC_KEY, ResourceAction.UPDATE,
                         SecuredUUID.fromUUID(adoptable.get()))) {
-            throw heldOtherwise();
+            throw neutralRefusal();
         }
         return adoptable;
     }
 
-    private static ValidationException heldOtherwise() {
+    private static ValidationException neutralRefusal() {
         return new ValidationException(ValidationError.create(CryptographicKeyWriter.KEY_ALREADY_HELD));
     }
 

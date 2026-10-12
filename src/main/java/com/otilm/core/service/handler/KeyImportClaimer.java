@@ -8,10 +8,7 @@ import com.otilm.core.model.crypto.KeyImportCheck;
 import com.otilm.core.service.writer.KeyImportWriter;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import java.util.Arrays;
 import java.util.Optional;
-import java.util.Set;
-import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
@@ -28,11 +25,6 @@ import org.springframework.transaction.annotation.Transactional;
 public class KeyImportClaimer {
 
     private static final Logger logger = LoggerFactory.getLogger(KeyImportClaimer.class);
-
-    private static final Set<KeyImportState> UNSETTLED = Arrays
-            .stream(KeyImportState.values())
-            .filter(KeyImportState::isUnsettled)
-            .collect(Collectors.toUnmodifiableSet());
 
     private final ClusterOperationSynchronizer clusterSynchronizer;
     private final KeyImportRepository keyImportRepository;
@@ -62,7 +54,7 @@ public class KeyImportClaimer {
         }
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         return keyImportRepository
-                .findForUpdateByStateInAndNextCheckAtLessThanEqualOrderByNextCheckAt(UNSETTLED, now,
+                .findForUpdateByStateInAndNextCheckAtLessThanEqualOrderByNextCheckAt(KeyImportState.UNSETTLED, now,
                         PageRequest.of(0, 1))
                 .stream()
                 .findFirst()

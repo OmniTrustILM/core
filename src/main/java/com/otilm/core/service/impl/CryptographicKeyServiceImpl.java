@@ -24,6 +24,7 @@ import com.otilm.api.model.client.cryptography.key.KeyCompromiseReason;
 import com.otilm.api.model.client.cryptography.key.KeyRequestDto;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.client.cryptography.key.UpdateKeyUsageRequestDto;
+import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
@@ -95,6 +96,7 @@ import com.otilm.core.service.CryptographicKeyExternalService;
 import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.service.ResourceObjectAssociationService;
 import com.otilm.core.service.handler.ConnectorCapabilityService;
+import com.otilm.core.service.handler.KeyListGates;
 import com.otilm.core.service.handler.KeyTransferCapabilityService;
 import com.otilm.core.service.handler.key.KeyCreationValidationCapability;
 import com.otilm.core.service.handler.key.KeyProviderAdapter;
@@ -114,6 +116,7 @@ import jakarta.persistence.criteria.Root;
 import java.security.PublicKey;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -149,6 +152,18 @@ import static java.util.function.Predicate.not;
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 public class CryptographicKeyServiceImpl implements CryptographicKeyExternalService, CryptographicKeyInternalService {
 
+    static final String NOT_REMOVABLE = "Key %s cannot be removed from the inventory. %s";
+    static final String NO_PRIVATE_KEY_IN_TOKEN = "It holds no private key in a token. Delete it instead.";
+    static final String TOKEN_NOT_LISTABLE = "The connector of its token cannot list keys, so it could not be "
+            + "onboarded again. Delete or destroy it instead.";
+    static final String COMPROMISED = "It is compromised and would come back active when onboarded again. Destroy it "
+            + "instead.";
+
+    private static final Set<KeyState> DESTROYED_STATES = EnumSet
+            .of(KeyState.DESTROYED, KeyState.DESTROYED_COMPROMISED);
+    private static final Set<KeyState> COMPROMISED_STATES = EnumSet
+            .of(KeyState.COMPROMISED, KeyState.DESTROYED_COMPROMISED);
+
     private static final Logger logger = LoggerFactory.getLogger(CryptographicKeyServiceImpl.class);
     private static final String ENABLE_OPERATION = "enable";
     private static final String ENABLED_STATE = "enabled";
@@ -173,6 +188,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     private KeyProviderAdapterFactory keyProviderAdapterFactory;
     private CryptographicKeyWriter cryptographicKeyWriter;
     private CertificateKeyWriter certificateKeyWriter;
+    private KeyListGates keyListGates;
     private UserManagementApiClient userManagementApiClient;
     private CacheEvictor cacheEvictor;
     // --------------------------------------------------------------------------------
@@ -266,6 +282,11 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     @Autowired
     public void setCryptographicKeyRepository(CryptographicKeyRepository cryptographicKeyRepository) {
         this.cryptographicKeyRepository = cryptographicKeyRepository;
+    }
+
+    @Autowired
+    public void setKeyListGates(KeyListGates keyListGates) {
+        this.keyListGates = keyListGates;
     }
 
     @Autowired
@@ -686,6 +707,68 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
         KeyDestructionResult result = destroyKeyItemsInternal(key, items);
         result.throwIfFailed();
         logger.atInfo().addArgument(key::toIdentifierString).log("Key destroyed: {}");
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.DELETE,
+            parentResource = Resource.TOKEN, parentAction = ResourceAction.MEMBERS)
+    public void removeKeyFromInventory(SecuredUUID uuid) throws NotFoundException {
+        CryptographicKeyFullModel key = getCryptographicKeyFullModel(uuid.getValue());
+        verifyPermissionsForAssociatedToken(key, "remove", ResourceAction.MEMBERS);
+        Optional<String> refusal = removalRefusal(key);
+        if (refusal.isPresent()) {
+            throw new ValidationException(ValidationError.create(NOT_REMOVABLE.formatted(key.name(), refusal.get())));
+        }
+        removeFromInventory(key);
+        logger.atInfo().addArgument(key::toIdentifierString).log("Key removed from the inventory: {}");
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.DELETE,
+            parentResource = Resource.TOKEN, parentAction = ResourceAction.MEMBERS)
+    public List<BulkActionMessageDto> removeKeysFromInventory(List<String> keyUuids) {
+        List<BulkActionMessageDto> notRemoved = new ArrayList<>();
+        List<CryptographicKeyFullModel> removableKeys = new ArrayList<>();
+        Set<UUID> distinctUuids = keyUuids
+                .stream()
+                .map(UUID::fromString)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        for (UUID uuid : distinctUuids) {
+            Optional<CryptographicKeyFullModel> found = cryptographicKeyRepository.findFullModelByUuid(uuid);
+            if (found.isEmpty()) {
+                notRemoved
+                        .add(BulkActionMessageDto
+                                .failureWithMessage(uuid.toString(), uuid.toString(), "Key not found"));
+                continue;
+            }
+            CryptographicKeyFullModel key = found.get();
+            authorizationEnforcer
+                    .enforce(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.DELETE, SecuredUUID.fromUUID(uuid));
+            verifyPermissionsForAssociatedToken(key, "remove", ResourceAction.MEMBERS);
+            Optional<String> refusal = removalRefusal(key);
+            if (refusal.isPresent()) {
+                notRemoved.add(BulkActionMessageDto.failureWithMessage(uuid.toString(), key.name(), refusal.get()));
+            } else {
+                removableKeys.add(key);
+            }
+        }
+        List<String> removedKeys = new ArrayList<>();
+        for (CryptographicKeyFullModel key : removableKeys) {
+            try {
+                removeFromInventory(key);
+                removedKeys.add(key.toIdentifierString());
+            } catch (RuntimeException e) {
+                logger.warn("Key {} could not be removed from the inventory", key.toIdentifierString(), e);
+                notRemoved
+                        .add(BulkActionMessageDto
+                                .failure(key.uuid().toString(), key.name(), e,
+                                        "Failed to remove the key from the inventory"));
+            }
+        }
+        if (!removedKeys.isEmpty()) {
+            logger.info("Keys removed from the inventory: {}", removedKeys);
+        }
+        return notRemoved;
     }
 
     @Override
@@ -1122,6 +1205,38 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     @Transactional
     public UUID uploadCertificatePublicKey(String name, PublicKey publicKey, int keyLength, String fingerprint) {
         return certificateKeyWriter.uploadCertificatePublicKey(name, publicKey, keyLength, fingerprint);
+    }
+
+    /**
+     * Why the key cannot be removed from the inventory, or nothing when it can: a later listing of its token must find
+     * it again, and a compromised key must never come back active through onboarding.
+     */
+    private Optional<String> removalRefusal(CryptographicKeyFullModel key) {
+        if (key.tokenInstance() == null
+                || key.items().stream().noneMatch(CryptographicKeyServiceImpl::isPrivateKeyInToken)) {
+            return Optional.of(NO_PRIVATE_KEY_IN_TOKEN);
+        }
+        if (!keyListGates.isAvailable(key.tokenInstance())) {
+            return Optional.of(TOKEN_NOT_LISTABLE);
+        }
+        if (key.items().stream().anyMatch(item -> COMPROMISED_STATES.contains(item.state()))) {
+            return Optional.of(COMPROMISED);
+        }
+        return Optional.empty();
+    }
+
+    private static boolean isPrivateKeyInToken(CryptographicKeyItemBasicModel item) {
+        return item.type() == KeyType.PRIVATE_KEY && !DESTROYED_STATES.contains(item.state());
+    }
+
+    /** Deletes the key's records; the key stays in its key storage, where a later listing offers it for onboarding. */
+    private void removeFromInventory(CryptographicKeyFullModel key) {
+        Map<UUID, KeyState> itemStatesRead = key
+                .items()
+                .stream()
+                .collect(Collectors.toMap(CryptographicKeyItemBasicModel::uuid, CryptographicKeyItemBasicModel::state));
+        cryptographicKeyWriter.removeFromInventoryAsRead(key, itemStatesRead);
+        key.items().forEach(item -> evictKeyItemCache(item.uuid()));
     }
 
     private void evictKeyItemCache(UUID keyItemUuid) {

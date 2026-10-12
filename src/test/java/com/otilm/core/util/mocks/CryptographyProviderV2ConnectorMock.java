@@ -39,6 +39,7 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
     private static final String IMPORT_STATUS_SCENARIO = "import status";
     private static final String IMPORT_SCENARIO = "imports";
     private static final String DESTROY_KEY = "/v2/cryptographyProvider/keys/destroy";
+    private static final String LIST_KEY_PAIRS = "/v2/cryptographyProvider/keys/list";
 
     CryptographyProviderV2ConnectorMock() {
         stubV2Info(List.of(ConnectorInterface.CRYPTOGRAPHY));
@@ -537,6 +538,36 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
                         .post(WireMock.urlPathEqualTo(IMPORT_KEY_RESULT))
                         .willReturn(WireMock.aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER)));
         return this;
+    }
+
+    /** Answers every key pair listing with the page, whatever it asks for. */
+    public CryptographyProviderV2ConnectorMock stubKeyPairListing(String responseJson) {
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo(LIST_KEY_PAIRS))
+                        .willReturn(WireMock.okJson(responseJson)));
+        return this;
+    }
+
+    /** Answers a filtered key pair listing with the page. An onboarding sends one to read its selection again. */
+    public CryptographyProviderV2ConnectorMock stubFilteredKeyPairListing(String responseJson) {
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo(LIST_KEY_PAIRS))
+                        .withRequestBody(WireMock.matchingJsonPath("$.keyPairMetaFilter"))
+                        .atPriority(1)
+                        .willReturn(WireMock.okJson(responseJson)));
+        return this;
+    }
+
+    public void verifyKeyPairListingRequests(int count) {
+        server.verify(count, postRequestedFor(WireMock.urlPathEqualTo(LIST_KEY_PAIRS)));
+    }
+
+    public void verifyKeyPairListingRequestContaining(String expectedRequestJson) {
+        server
+                .verify(postRequestedFor(WireMock.urlPathEqualTo(LIST_KEY_PAIRS))
+                        .withRequestBody(WireMock.equalToJson(expectedRequestJson, true, true)));
     }
 
     public CryptographyProviderV2ConnectorMock stubDestroyKey() {

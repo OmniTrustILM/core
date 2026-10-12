@@ -24,11 +24,14 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
+import com.otilm.core.dao.entity.KeyImport;
+import com.otilm.core.dao.entity.KeyImportState;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.entity.UniquelyIdentified;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
+import com.otilm.core.dao.repository.KeyImportRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.model.crypto.CryptographicKeyBasicModel;
 import com.otilm.core.model.crypto.CryptographicKeyFullModel;
@@ -40,6 +43,7 @@ import com.otilm.core.model.crypto.KeyImportMetadata;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.PublicKeyHolder;
 import com.otilm.core.model.crypto.PublicKeyHolder.Holding;
+import com.otilm.core.model.crypto.PublicKeyHolderSummary;
 import com.otilm.core.model.crypto.RegisteredKey;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
@@ -53,8 +57,10 @@ import com.otilm.core.util.CryptographyUtil;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -76,11 +82,14 @@ public class CryptographicKeyWriter {
     /** The refusal of a key whose name another key has. */
     public static final String NAME_TAKEN = "A key named %s already exists.";
 
-    /** The refusal of an import whose public key the platform already holds in a key of its own. */
+    /** The refusal that names no key. */
     public static final String KEY_ALREADY_HELD = "A key with the same public key already exists.";
 
     /** The refusal of an import into a public-key-only record that is no longer active. */
     private static final String KEY_CHANGED = "Key %s changed meanwhile. Try again.";
+
+    /** An onboarded key may come from outside the platform, so Core withholds export from it. */
+    private static final boolean ONBOARDED_EXPORTABLE = false;
 
     public static final String KEY_NOT_ACTIVE = "A key with the same public key exists but is not active, so the key cannot be imported into it.";
 
@@ -94,13 +103,14 @@ public class CryptographicKeyWriter {
     private final CommentWriter commentWriter;
     private final CryptographicKeyEventHistoryService keyEventHistoryService;
     private final CertificateInternalService certificateService;
+    private final KeyImportRepository keyImportRepository;
 
     public CryptographicKeyWriter(CryptographicKeyRepository cryptographicKeyRepository,
             CryptographicKeyItemRepository cryptographicKeyItemRepository,
             TokenProfileRepository tokenProfileRepository, ResourceObjectAssociationService objectAssociationService,
             AttributeEngine attributeEngine, EntityManager entityManager, CertificateRepository certificateRepository,
             CommentWriter commentWriter, CryptographicKeyEventHistoryService keyEventHistoryService,
-            @Lazy CertificateInternalService certificateService) {
+            @Lazy CertificateInternalService certificateService, KeyImportRepository keyImportRepository) {
         this.cryptographicKeyRepository = cryptographicKeyRepository;
         this.cryptographicKeyItemRepository = cryptographicKeyItemRepository;
         this.tokenProfileRepository = tokenProfileRepository;
@@ -111,6 +121,7 @@ public class CryptographicKeyWriter {
         this.commentWriter = commentWriter;
         this.keyEventHistoryService = keyEventHistoryService;
         this.certificateService = certificateService;
+        this.keyImportRepository = keyImportRepository;
     }
 
     /**
@@ -142,6 +153,76 @@ public class CryptographicKeyWriter {
         return savedKey;
     }
 
+    /**
+     * Registers an onboarded key pair as a key of its own, with the custom attributes the onboarding states, and links
+     * it to the certificates carrying its public key. An unsettled import may yet register or destroy the key pair, so
+     * its attempt is locked and refuses the onboarding.
+     *
+     * @param spkiFingerprint the fingerprint of the key pair's public key
+     * @param items the key pair's items, as the connector listed them
+     * @param customAttributes the key's custom attributes, validated already, or {@code null} for none
+     * @return the onboarded key, or nothing while an unsettled import holds its public key
+     * @throws AttributeException if storing an item's metadata or the custom attributes fails
+     * @throws NotFoundException if a custom attribute's definition no longer exists
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Optional<CryptographicKeyBasicModel> onboardUnlessImporting(String name, TokenProfileFullModel profile,
+            String spkiFingerprint, List<ProviderKeyItem> items, List<RequestAttribute> customAttributes)
+            throws AttributeException, NotFoundException {
+        if (!lockUnsettledImportsOf(spkiFingerprint).isEmpty()) {
+            return Optional.empty();
+        }
+        CryptographicKeyBasicModel key = save(name, null, profile.uuid(), profile.tokenInstanceReferenceUuid());
+        KeyItemOrigin origin = onboardingOrigin(profile);
+        boolean enabled = true;
+        for (ProviderKeyItem item : items) {
+            createKeyContent(profile, profile.tokenInstance(), item, key, enabled, ONBOARDED_EXPORTABLE, origin);
+        }
+        if (customAttributes != null) {
+            attributeEngine
+                    .updateObjectCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, key.uuid(), customAttributes);
+        }
+        // The unique fingerprint is the last guard against a key registered meanwhile.
+        cryptographicKeyItemRepository.flush();
+        return Optional.of(key);
+    }
+
+    /**
+     * Onboards a key pair into the public-key-only record that holds its public key, which the caller was shown to be
+     * allowed to update. The record gains the token profile and the private key and keeps everything else, as when an
+     * import adopts it. An unsettled import may yet register or destroy the key pair, so its attempt is locked and
+     * refuses the onboarding.
+     *
+     * @param recordUuid UUID of the record
+     * @param spkiFingerprint the fingerprint of the key pair's public key
+     * @param items the key pair's items, as the connector listed them
+     * @return the record, or nothing while an unsettled import holds its public key
+     * @throws ValidationException when the record gained a token or a private key meanwhile, or is no longer active
+     * @throws AttributeException if storing an item's metadata fails
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Optional<CryptographicKeyBasicModel> onboardIntoRecordUnlessImporting(UUID recordUuid,
+            TokenProfileFullModel profile, String spkiFingerprint, List<ProviderKeyItem> items)
+            throws AttributeException {
+        if (!lockUnsettledImportsOf(spkiFingerprint).isEmpty()) {
+            return Optional.empty();
+        }
+        CryptographicKey record = lockAdoptableRecord(recordUuid);
+        boolean enabled = true;
+        return Optional
+                .of(joinRecord(record, profile, items, enabled, ONBOARDED_EXPORTABLE, onboardingOrigin(profile)));
+    }
+
+    private static KeyItemOrigin onboardingOrigin(TokenProfileFullModel profile) {
+        return new KeyItemOrigin(KeyEvent.ONBOARD, "Key Onboarded to Token Profile " + profile.name()
+                + " from Token Instance " + profile.tokenInstance().name(), null);
+    }
+
+    /** The unsettled import attempts holding the public key, locked until the transaction ends. */
+    private List<KeyImport> lockUnsettledImportsOf(String spkiFingerprint) {
+        return keyImportRepository.findForUpdateBySpkiFingerprintAndStateIn(spkiFingerprint, KeyImportState.UNSETTLED);
+    }
+
     private static KeyItemOrigin creationOrigin(TokenProfileBasicModel tokenProfile,
             TokenInstanceBasicModel tokenInstance, boolean isDiscovered) {
         if (isDiscovered) {
@@ -157,11 +238,11 @@ public class CryptographicKeyWriter {
     /**
      * Registers an imported key: as a key of its own, or by adopting the public-key-only record that holds its public
      * key, which the registration was told its requester may update. The adopted record gains the token profile and the
-     * private key, keeps its certificates, and is changed in nothing else: whose it is, its groups, its custom
-     * attributes, its name and its description stay as they are. A key of its own is owned by the requester, and
-     * registered with the name, description, groups and custom attributes the import states. A secret key has no public
-     * key, so it is always a key of its own, and no certificate is linked to it. A quarantined key's items are
-     * registered deactivated, except an adopted public key, which keeps its state.
+     * private key, and keeps its certificates. Whose it is, its groups, its custom attributes, its name and its
+     * description stay as they are. A key of its own is owned by the requester, and registered with the name,
+     * description, groups and custom attributes the import states. A secret key has no public key, so it is always a
+     * key of its own, and no certificate is linked to it. A quarantined key's items are registered deactivated, except
+     * an adopted public key, which keeps its state.
      *
      * @return the registered key, and whether it is a key of its own or the record the import adopted
      * @throws ValidationException when the platform holds the public key otherwise than as a public-key-only record, or
@@ -241,14 +322,34 @@ public class CryptographicKeyWriter {
     @Transactional
     public Optional<PublicKeyHolder> publicKeyHolder(String spkiFingerprint) {
         Optional<CryptographicKeyItem> held = publicKeyItem(spkiFingerprint);
-        if (held.isEmpty()) {
-            return Optional.empty();
+        held.ifPresent(publicKey -> requireActive(publicKey.getKey()));
+        return held.map(CryptographicKeyWriter::toHolder);
+    }
+
+    /** The keys holding the public keys, in any state, by the fingerprint of the public key each holds. */
+    @Transactional(readOnly = true)
+    public Map<String, PublicKeyHolderSummary> holdersOf(Collection<String> spkiFingerprints) {
+        if (spkiFingerprints.isEmpty()) {
+            return Map.of();
         }
-        CryptographicKey holder = held.get().getKey();
-        requireActive(holder);
-        return Optional
-                .of(new PublicKeyHolder(ImmutableCryptographicKeyFullModel.from(holder), held.get().getUuid(),
-                        holdingOf(holder)));
+        return cryptographicKeyRepository
+                .findWithAllItemsByItemFingerprintIn(spkiFingerprints)
+                .stream()
+                .flatMap(holder -> holder.getItems().stream())
+                .filter(item -> item.getFingerprint() != null && spkiFingerprints.contains(item.getFingerprint()))
+                .collect(Collectors
+                        .toMap(CryptographicKeyItem::getFingerprint, CryptographicKeyWriter::toHolderSummary));
+    }
+
+    private static PublicKeyHolderSummary toHolderSummary(CryptographicKeyItem publicKey) {
+        CryptographicKey holder = publicKey.getKey();
+        return new PublicKeyHolderSummary(holder.getUuid(), holder.getName(), holdingOf(holder), holder.isActive());
+    }
+
+    private static PublicKeyHolder toHolder(CryptographicKeyItem publicKey) {
+        CryptographicKey holder = publicKey.getKey();
+        return new PublicKeyHolder(ImmutableCryptographicKeyFullModel.from(holder), publicKey.getUuid(),
+                holdingOf(holder));
     }
 
     private static Holding holdingOf(CryptographicKey holder) {
@@ -274,29 +375,46 @@ public class CryptographicKeyWriter {
      * so is one the registration was not told its requester may update.
      */
     private UUID adoptPublicKeyRecord(UUID recordUuid, ImportedKeyRegistration registration) throws AttributeException {
-        CryptographicKey adopted = cryptographicKeyRepository
-                .findForUpdateByUuid(recordUuid)
-                .orElseThrow(() -> new ValidationException(ValidationError.create(KEY_ALREADY_HELD)));
-        entityManager.refresh(adopted);
-        adopted.getItems().forEach(item -> entityManager.refresh(item, LockModeType.PESSIMISTIC_WRITE));
-        requireAdoptable(adopted);
+        CryptographicKey adopted = lockAdoptableRecord(recordUuid);
         if (!recordUuid.equals(registration.adoptableRecord())) {
             throw new UncheckedRecordException();
         }
         TokenProfileFullModel profile = registration.profile();
-        adopted.setTokenProfileUuid(profile.uuid());
-        adopted.setTokenInstanceReferenceUuid(profile.tokenInstanceReferenceUuid());
-        CryptographicKeyItem publicKey = adopted.getItems().iterator().next();
-        CryptographicKeyBasicModel key = ImmutableCryptographicKeyBasicModel.from(adopted);
         KeyItemOrigin origin = importOrigin(profile, registration.keyReference(), registration.quarantined());
-        for (ProviderKeyItem item : registration.items()) {
+        joinRecord(adopted, profile, registration.items(), false, registration.exportable(), origin);
+        return adopted.getUuid();
+    }
+
+    /** The public-key-only record read afresh under its lock and the locks of its items, refused unless adoptable. */
+    private CryptographicKey lockAdoptableRecord(UUID recordUuid) {
+        CryptographicKey record = cryptographicKeyRepository
+                .findForUpdateByUuid(recordUuid)
+                .orElseThrow(() -> new ValidationException(ValidationError.create(KEY_ALREADY_HELD)));
+        entityManager.refresh(record);
+        record.getItems().forEach(item -> entityManager.refresh(item, LockModeType.PESSIMISTIC_WRITE));
+        requireAdoptable(record);
+        return record;
+    }
+
+    /**
+     * Gives the record the token profile and the key pair's other items; its public key gains the token's reference to
+     * it and the profile's usages.
+     */
+    private CryptographicKeyBasicModel joinRecord(CryptographicKey record, TokenProfileFullModel profile,
+            List<ProviderKeyItem> items, boolean enabled, boolean exportable, KeyItemOrigin origin)
+            throws AttributeException {
+        record.setTokenProfileUuid(profile.uuid());
+        record.setTokenInstanceReferenceUuid(profile.tokenInstanceReferenceUuid());
+        CryptographicKeyItem publicKey = record.getItems().iterator().next();
+        CryptographicKeyBasicModel key = ImmutableCryptographicKeyBasicModel.from(record);
+        for (ProviderKeyItem item : items) {
             if (item.type() == KeyType.PUBLIC_KEY) {
                 adoptPublicKeyItem(publicKey, item, profile, key, origin);
             } else {
-                createKeyContent(profile, profile.tokenInstance(), item, key, false, registration.exportable(), origin);
+                createKeyContent(profile, profile.tokenInstance(), item, key, enabled, exportable, origin);
             }
         }
-        return adopted.getUuid();
+        return key;
     }
 
     /**
@@ -446,6 +564,34 @@ public class CryptographicKeyWriter {
             if (added) {
                 throw new ValidationException(ValidationError.create(KEY_CHANGED.formatted(key.uuid())));
             }
+        }
+        removeKeyWithAssociations(key.uuid());
+    }
+
+    /**
+     * Deletes a key the caller judged removable from the inventory, unless its items changed since the caller read
+     * them. The items are read afresh under their locks, since an operator compromises or destroys an item under the
+     * item's own lock, and a key compromised meanwhile must stay in the inventory.
+     *
+     * @param key model identifying the key to delete
+     * @param itemStatesRead the state of each of the key's items as the caller read it
+     * @throws ValidationException when an item was added, removed or changed its state since
+     */
+    @Transactional
+    public void removeFromInventoryAsRead(CryptographicKeyBasicModel key, Map<UUID, KeyState> itemStatesRead) {
+        Optional<CryptographicKey> locked = cryptographicKeyRepository.findForUpdateByUuid(key.uuid());
+        if (locked.isEmpty()) {
+            return;
+        }
+        entityManager.refresh(locked.get());
+        locked.get().getItems().forEach(item -> entityManager.refresh(item, LockModeType.PESSIMISTIC_WRITE));
+        Map<UUID, KeyState> itemStates = locked
+                .get()
+                .getItems()
+                .stream()
+                .collect(Collectors.toMap(UniquelyIdentified::getUuid, CryptographicKeyItem::getState));
+        if (!itemStates.equals(itemStatesRead)) {
+            throw new ValidationException(ValidationError.create(KEY_CHANGED.formatted(key.uuid())));
         }
         removeKeyWithAssociations(key.uuid());
     }

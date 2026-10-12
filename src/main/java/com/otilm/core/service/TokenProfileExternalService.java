@@ -36,10 +36,12 @@ public interface TokenProfileExternalService {
      *
      * @param enabled - Boolean state if the profile is enabled or not
      * @param importable - key request type and algorithm pairs the token profile must import, as far as recorded
+     * @param keyListable whether to list only the token profiles whose connector can list keys
      * @param filter Security Filter for Access Control
      * @return List of Token Profiles {@Link TokenProfileDto}
      */
-    List<TokenProfileDto> listTokenProfiles(Optional<Boolean> enabled, List<String> importable, SecurityFilter filter);
+    List<TokenProfileDto> listTokenProfiles(Optional<Boolean> enabled, List<String> importable, boolean keyListable,
+            SecurityFilter filter);
 
     /**
      * Get the details of a token profile which has Token Instance association

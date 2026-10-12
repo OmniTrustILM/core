@@ -7,6 +7,7 @@ import com.otilm.core.model.crypto.ImmutableCryptographicKeyBasicModel;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
 import com.otilm.core.model.crypto.KeyOperationScope;
 import jakarta.persistence.LockModeType;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -59,6 +60,18 @@ public interface CryptographicKeyRepository extends SecurityFilterRepository<Cry
     Optional<CryptographicKey> findWithKeyItemsAndTokenByUuid(UUID uuid);
 
     boolean existsByName(String name);
+
+    /** The keys that hold the given public keys, with all their items. */
+    @Query("""
+            SELECT DISTINCT key FROM CryptographicKey key JOIN FETCH key.items
+            WHERE key.uuid IN (SELECT publicKey.keyUuid FROM CryptographicKeyItem publicKey
+                               WHERE publicKey.fingerprint IN :fingerprints)
+            """)
+    List<CryptographicKey> findWithAllItemsByItemFingerprintIn(@Param("fingerprints") Collection<String> fingerprints);
+
+    /** The names among the given ones that keys have. */
+    @Query("SELECT key.name FROM CryptographicKey key WHERE key.name IN :names")
+    List<String> findNamesIn(@Param("names") Collection<String> names);
 
     @EntityGraph(attributePaths = {"tokenProfile", "items"})
     List<CryptographicKey> findByUuidIn(List<UUID> uuids);

@@ -26,6 +26,14 @@ public interface KeyImportRepository extends JpaRepository<KeyImport, UUID> {
     Optional<KeyImport> findFirstByIdempotencyKeyAndStateInOrderByCreatedAtDesc(String idempotencyKey,
             Collection<KeyImportState> states);
 
+    /** The fingerprints among the given ones that an attempt in one of the states holds. */
+    @Query("SELECT i.spkiFingerprint FROM KeyImport i WHERE i.spkiFingerprint IN :fingerprints AND i.state IN :states")
+    List<String> findImportingSpkiFingerprints(@Param("fingerprints") Collection<String> fingerprints,
+            @Param("states") Collection<KeyImportState> states);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    List<KeyImport> findForUpdateBySpkiFingerprintAndStateIn(String spkiFingerprint, Collection<KeyImportState> states);
+
     /**
      * The attempts in the given states that are due for a look, the longest waiting first, locked: an attempt a retry
      * is sending again meanwhile is read as the retry leaves it.

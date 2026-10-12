@@ -53,9 +53,11 @@ public class TokenProfileControllerImpl implements TokenProfileController {
     @Override
     @AuthEndpoint(resourceName = Resource.TOKEN_PROFILE)
     @AuditLogged(module = Module.CRYPTOGRAPHIC_KEYS, resource = Resource.TOKEN_PROFILE, operation = Operation.LIST)
-    public List<TokenProfileDto> listTokenProfiles(Optional<Boolean> enabled, List<String> importable) {
+    public List<TokenProfileDto> listTokenProfiles(Optional<Boolean> enabled, List<String> importable,
+            boolean keyListable) {
         return tokenProfileService
-                .listTokenProfiles(enabled, importable == null ? List.of() : importable, SecurityFilter.create());
+                .listTokenProfiles(enabled, importable == null ? List.of() : importable, keyListable,
+                        SecurityFilter.create());
     }
 
     @Override
