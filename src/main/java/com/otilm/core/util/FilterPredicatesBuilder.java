@@ -402,6 +402,20 @@ public class FilterPredicatesBuilder {
         }
     }
 
+    /**
+     * The property field the identifier names. Resolved here rather than left to {@link Enum#valueOf} because the
+     * predicate is built inside the repository call, where the persistence layer would wrap the resulting
+     * {@link IllegalArgumentException} into a server fault instead of a rejected request.
+     */
+    private static FilterField resolvePropertyFilterField(final String fieldIdentifier) {
+        return Arrays
+                .stream(FilterField.values())
+                .filter(field -> field.name().equals(fieldIdentifier))
+                .findFirst()
+                .orElseThrow(() -> new ValidationException(
+                        ValidationError.create("Unknown filter field identifier %s.".formatted(fieldIdentifier))));
+    }
+
     private static boolean isDeclaredOnStrictSubtypeOf(final From<?, ?> from, final Attribute<?, ?> fieldAttribute) {
         final Class<?> declaringType = fieldAttribute.getDeclaringType().getJavaType();
         return !declaringType.equals(from.getJavaType()) && from.getJavaType().isAssignableFrom(declaringType);
@@ -410,7 +424,7 @@ public class FilterPredicatesBuilder {
     private static <T> Predicate getPropertyFilterPredicate(final CriteriaBuilder criteriaBuilder,
             final CommonAbstractCriteria query, final Root<T> root, SearchFilterRequestDto filterDto,
             Map<String, From> joinedAssociations, boolean refutedOidsOptedIn) {
-        final FilterField filterField = FilterField.valueOf(filterDto.getFieldIdentifier());
+        final FilterField filterField = resolvePropertyFilterField(filterDto.getFieldIdentifier());
         requireAdvertisedCondition(filterField, filterDto.getCondition());
         if (filterField == FilterField.CBOM_HAS_CONTRIBUTED_ASSETS) {
             if (!Cbom.class.equals(root.getJavaType())) {

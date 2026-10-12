@@ -1986,6 +1986,36 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
     }
 
     @Test
+    void anUnknownPropertyFilterFieldIsRefusedNamingTheField() {
+        CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
+        searchRequestDto
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, "NO_SUCH_FIELD",
+                                FilterConditionOperator.EQUALS, "x")));
+        SecurityFilter securityFilter = new SecurityFilter();
+
+        ValidationException exception = Assertions
+                .assertThrows(ValidationException.class,
+                        () -> certificateService.listCertificates(securityFilter, searchRequestDto));
+        Assertions.assertTrue(exception.getMessage().contains("NO_SUCH_FIELD"), exception.getMessage());
+    }
+
+    @Test
+    void anUnknownPropertyFilterFieldIsRefusedOnAnotherListing() {
+        SearchRequestDto searchRequestDto = new SearchRequestDto();
+        searchRequestDto
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, "NO_SUCH_FIELD",
+                                FilterConditionOperator.EQUALS, "x")));
+        SecurityFilter securityFilter = new SecurityFilter();
+
+        ValidationException exception = Assertions
+                .assertThrows(ValidationException.class,
+                        () -> cryptographicKeyService.listCryptographicKeys(securityFilter, searchRequestDto));
+        Assertions.assertTrue(exception.getMessage().contains("NO_SUCH_FIELD"), exception.getMessage());
+    }
+
+    @Test
     void testAttributeIntegerFilter_invalidValue_throwsValidationException() {
         CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
         searchRequestDto
