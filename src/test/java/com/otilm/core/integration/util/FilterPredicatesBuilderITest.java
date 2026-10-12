@@ -115,6 +115,9 @@ import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
@@ -2015,19 +2018,36 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
         Assertions.assertTrue(exception.getMessage().contains("NO_SUCH_FIELD"), exception.getMessage());
     }
 
-    @Test
-    void aPropertyFilterFieldOfAnotherResourceIsRefusedNamingTheField() {
+    @ParameterizedTest
+    @EnumSource(value = FilterField.class, names = {"COMMON_NAME", "RA_PROFILE_NAME"})
+    void aCertificateFilterFieldIsRefusedOnTheKeyListingNamingTheField(FilterField field) {
         SearchRequestDto searchRequestDto = new SearchRequestDto();
         searchRequestDto
                 .setFilters(List
-                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.COMMON_NAME.name(),
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, field.name(),
                                 FilterConditionOperator.EQUALS, "x")));
         SecurityFilter securityFilter = new SecurityFilter();
 
         ValidationException exception = Assertions
                 .assertThrows(ValidationException.class,
                         () -> cryptographicKeyService.listCryptographicKeys(securityFilter, searchRequestDto));
-        Assertions.assertTrue(exception.getMessage().contains("COMMON_NAME"), exception.getMessage());
+        Assertions.assertTrue(exception.getMessage().contains(field.name()), exception.getMessage());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"CBOM_ASSET_FREE_TEXT, CONTAINS, x", "CBOM_ASSET_TYPE, EMPTY,"})
+    void aCryptoAssetFilterFieldIsRefusedOnTheCertificateListingNamingTheField(FilterField field,
+            FilterConditionOperator condition, String value) {
+        CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
+        searchRequestDto
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, field.name(), condition, value)));
+        SecurityFilter securityFilter = new SecurityFilter();
+
+        ValidationException exception = Assertions
+                .assertThrows(ValidationException.class,
+                        () -> certificateService.listCertificates(securityFilter, searchRequestDto));
+        Assertions.assertTrue(exception.getMessage().contains(field.name()), exception.getMessage());
     }
 
     @Test

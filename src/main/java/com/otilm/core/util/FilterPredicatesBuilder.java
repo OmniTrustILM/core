@@ -26,6 +26,7 @@ import com.otilm.core.dao.entity.GroupAssociation_;
 import com.otilm.core.dao.entity.ResourceObjectAssociation_;
 import com.otilm.core.dao.entity.ScheduledJobHistory;
 import com.otilm.core.dao.entity.UniquelyIdentified_;
+import com.otilm.core.dao.entity.cbom.CryptoAsset;
 import com.otilm.core.dao.entity.cbom.CryptoAssetSource;
 import com.otilm.core.dao.entity.cbom.CryptoAssetSource_;
 import com.otilm.core.dao.entity.cbom.CryptoAsset_;
@@ -480,14 +481,21 @@ public class FilterPredicatesBuilder {
         // fieldAttribute declares on Cbom, not on the crypto-asset root, so the generic from.get(...) below would
         // throw for it. Both are therefore built by dedicated branches before that generic resolution runs.
         if (filterField.getType() == SearchFieldTypeEnum.FREE_TEXT) {
-            return getCryptoAssetFreeTextPredicate(criteriaBuilder, root, filterField, filterDto, filterValues,
-                    refutedOidsOptedIn);
+            try {
+                return getCryptoAssetFreeTextPredicate(criteriaBuilder, root, filterField, filterDto, filterValues,
+                        refutedOidsOptedIn);
+            } catch (IllegalArgumentException e) {
+                throw fieldNotOnListing(filterField);
+            }
         }
         if (filterField == FilterField.CBOM_ASSET_SOURCE_CBOM) {
             return getCryptoAssetSourceCbomPredicate(criteriaBuilder, query, root, filterDto, filterValues);
         }
         if (filterField == FilterField.CBOM_ASSET_TYPE && (filterDto.getCondition() == FilterConditionOperator.EMPTY
                 || filterDto.getCondition() == FilterConditionOperator.NOT_EMPTY)) {
+            if (!CryptoAsset.class.isAssignableFrom(from.getJavaType())) {
+                throw fieldNotOnListing(filterField);
+            }
             return untypedCryptoAssetPredicate(criteriaBuilder, from, filterDto.getCondition());
         }
 
