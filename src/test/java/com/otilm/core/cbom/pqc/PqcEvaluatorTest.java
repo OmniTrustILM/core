@@ -233,6 +233,32 @@ class PqcEvaluatorTest {
         assertThat(atTheFloor.ruleId()).isEqualTo("PARAMETER-SET-UNREGISTERED");
     }
 
+    /**
+     * A row stored before variant primitives were derived holds the family default, {@code hash}, for a SHAKE; the
+     * upsert keeps it, so the evaluator reads the variant the name spells instead.
+     */
+    @Test
+    void aStoredFamilyDefaultYieldsToTheVariantTheNameSpells() {
+        CryptoAssetIdentityFields fresh = storedRow(normalizer.normalize(algorithm("SHAKE128")).asset());
+        CryptoAssetIdentityFields stale = new CryptoAssetIdentityFields(fresh.assetType(), fresh.name(), fresh.oid(),
+                fresh.algorithmFamily(), "hash", fresh.parameterSet(), fresh.curve(), fresh.mode(), fresh.padding(),
+                fresh.variant());
+        PqcRuleInput input = evaluator.fromStoredRow(stale, null);
+        assertThat(input.primitive()).isEqualTo("xof");
+        assertThat(evaluator.evaluate(input, null).verdict()).isEqualTo(PqcVerdict.READY);
+
+        CryptoAssetIdentityFields sha3 = storedRow(normalizer.normalize(algorithm("SHA3-256")).asset());
+        assertThat(evaluator.fromStoredRow(sha3, null).primitive())
+                .describedAs("a name that spells no variant of its own keeps the stored default")
+                .isEqualTo("hash");
+        CryptoAssetIdentityFields declaredMac = new CryptoAssetIdentityFields(fresh.assetType(), fresh.name(),
+                fresh.oid(), fresh.algorithmFamily(), "mac", fresh.parameterSet(), fresh.curve(), fresh.mode(),
+                fresh.padding(), fresh.variant());
+        assertThat(evaluator.fromStoredRow(declaredMac, null).primitive())
+                .describedAs("only the family default yields; any other stored value is a declaration")
+                .isEqualTo("mac");
+    }
+
     /** A SHAKE declaring the {@code digest} function is still an XOF, and reads as the undeclared one does. */
     @Test
     void anXofDeclaringDigestReadsAsAnXof() {

@@ -837,12 +837,29 @@ public class PqcEvaluator {
                 : ratifiedFamily(fields.algorithmFamily());
         Integer parameterSet = material ? sizeFromName(fields.name(), family) : parameterSet(fields.parameterSet());
         String curve = material ? null : fields.curve();
-        String primitive = material ? null : fields.primitive();
+        String primitive = material ? null : storedPrimitive(fields, family);
         String secondary = normalizer.secondaryTokens(fields.name(), family);
         List<String> hybrid = normalizer.hybridComponents(fields.name(), family, secondary);
         return new PqcRuleInput(fields.assetType(), family, parameterSet, curve, fields.mode(), fields.padding(),
                 variantOf(fields, secondary), fields.name(), hybrid, materialType(mergedCryptoProperties),
                 materialSize(mergedCryptoProperties), primitive);
+    }
+
+    /**
+     * The stored primitive, unless it is only the family's default where the name spells a registry variant with its
+     * own: a row stored before variant primitives were derived holds {@code hash} for {@code SHAKE128}, and the upsert
+     * keeps a stored primitive, so a re-ingest cannot repair it. A row whose producer declared the default on such a
+     * name cannot be told apart from a stale one and reads the same way: the name is what pins the primitive.
+     */
+    private String storedPrimitive(CryptoAssetIdentityFields fields, String family) {
+        String stored = fields.primitive();
+        String fromVariant = normalizer.primitiveFromRegistryVariant(fields.name(), family);
+        String familyDefault = family == null ? null : normalizer.tables().primitiveDefaults().get(family);
+        if (stored != null && fromVariant != null && familyDefault != null
+                && AsciiText.fold(stored).equals(AsciiText.fold(familyDefault))) {
+            return fromVariant;
+        }
+        return stored;
     }
 
     /**
