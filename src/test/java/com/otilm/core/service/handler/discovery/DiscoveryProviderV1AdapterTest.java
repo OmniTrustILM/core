@@ -101,8 +101,7 @@ class DiscoveryProviderV1AdapterTest {
     }
 
     @Test
-    void aStartFailureThatIsNotACorePlatformExceptionEndsTheRunWithTheFixedText()
-            throws NotFoundException, ConnectorException {
+    void aStartFailureThatIsNotACorePlatformExceptionEndsTheRunWithTheFixedText() throws ConnectorException {
         connectAs();
         prepareRun();
         when(providerClient.discoverCertificates(any(), any()))
@@ -116,8 +115,7 @@ class DiscoveryProviderV1AdapterTest {
     }
 
     @Test
-    void aPollFailureThatIsNotACorePlatformExceptionEndsTheRunWithTheFixedText()
-            throws NotFoundException, ConnectorException {
+    void aPollFailureThatIsNotACorePlatformExceptionEndsTheRunWithTheFixedText() throws ConnectorException {
         connectAs();
         prepareRun();
         when(discoveryProperties.sleepTimeMs()).thenReturn(1);
@@ -144,7 +142,7 @@ class DiscoveryProviderV1AdapterTest {
     }
 
     /** A run whose context loads cleanly and whose provider client is {@link #providerClient}. */
-    private void prepareRun() throws NotFoundException {
+    private void prepareRun() {
         UUID connectorUuid = UUID.randomUUID();
         run.setUuid(UUID.randomUUID());
         run.setName("unit-run");

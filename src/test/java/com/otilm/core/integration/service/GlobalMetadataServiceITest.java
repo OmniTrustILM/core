@@ -344,10 +344,12 @@ class GlobalMetadataServiceITest extends BaseSpringBootTest {
         clashing.setConnectorUuid(connector.getUuid());
         clashing.setLabel("Clash");
         clashing = attributeDefinitionRepository.save(clashing);
+        UUID clashUuid = clashing.getAttributeUuid();
+        UUID connectorUuid = connector.getUuid();
 
         Assertions
-                .assertThrows(ValidationException.class, () -> attributeService
-                        .promoteConnectorMetadata(UUID.fromString(clash.getUuid()), connector.getUuid()));
+                .assertThrows(ValidationException.class,
+                        () -> attributeService.promoteConnectorMetadata(clashUuid, connectorUuid));
 
         Assertions.assertEquals(1, attributeService.listGlobalMetadata().size());
         assertThat(attributeDefinitionRepository.findByUuid(clashing.getUuid()).orElseThrow().getGlobal())

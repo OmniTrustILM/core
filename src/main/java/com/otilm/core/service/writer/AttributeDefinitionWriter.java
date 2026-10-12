@@ -7,6 +7,7 @@ import com.otilm.core.serialization.AttributeDefinitionJson;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.UUID;
 import org.hibernate.query.NativeQuery;
 import org.hibernate.type.StandardBasicTypes;
@@ -56,7 +57,7 @@ public class AttributeDefinitionWriter {
      */
     @Transactional
     public boolean insertIfAbsent(AttributeDefinition definition) {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
         NativeQuery<?> insert = entityManager.createNativeQuery(INSERT_IF_ABSENT).unwrap(NativeQuery.class);
         return insert
                 .addSynchronizedEntityClass(AttributeDefinition.class)
