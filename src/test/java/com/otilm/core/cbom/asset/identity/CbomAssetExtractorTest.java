@@ -380,6 +380,18 @@ class CbomAssetExtractorTest {
                         "cryptoProperties.assetType is missing, and CycloneDX requires it"));
     }
 
+    /** A name spelling an overlong size is extracted like any other, not skipped on a parse failure. */
+    @Test
+    void anOverlongSpelledSizeDoesNotCostTheComponentItsRow() {
+        CbomAssetExtractor.Extraction extraction = EXTRACTOR
+                .extract(read("{\"components\":[{\"type\":\"cryptographic-asset\",\"name\":\"AES-99999999999\","
+                        + "\"cryptoProperties\":{\"assetType\":\"algorithm\",\"algorithmProperties\":"
+                        + "{\"parameterSetIdentifier\":\"64\"}}}]}"));
+
+        assertThat(extraction.skips()).isEmpty();
+        assertThat(extraction.assets()).hasSize(1);
+    }
+
     /** Skipping an unroutable component must not swallow what the pipeline already had to tell its producer. */
     @Test
     void anUnroutableComponentKeepsItsFindingsOnTheSkip() {

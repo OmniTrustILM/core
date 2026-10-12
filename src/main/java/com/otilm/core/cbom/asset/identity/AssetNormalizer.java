@@ -173,6 +173,9 @@ public record AssetNormalizer(IdentityTables tables) {
 
     private static final Pattern DIGIT_RUN_2_TO_5 = Pattern.compile("\\d{2,5}");
 
+    /** The longest digit run a name may spell a size with, as {@link #DIGIT_RUN_2_TO_5} bounds the name's own parse. */
+    private static final int MAX_SPELLED_SIZE_DIGITS = 5;
+
     private static final Pattern SEPARATORS = Pattern.compile("[-_\\s]+");
 
     private static final Pattern TRUNCATION = Pattern.compile("[/-](\\d{2,5})\\s*$");
@@ -907,14 +910,20 @@ public record AssetNormalizer(IdentityTables tables) {
         return variant != null ? variant.sizes() : tables.admissibleParameterSets().get(family);
     }
 
-    /** The size the family's matching registry variant spells in the name, or {@code null} when it spells none. */
+    /**
+     * The size the family's matching registry variant spells in the name, or {@code null} when it spells none. A digit
+     * run longer than any size, as the other name parsers bound theirs, spells none rather than overflowing.
+     */
     public Integer registrySizeSpelled(String name, String family) {
         IdentityTables.SizeVariant variant = sizeVariant(name, family);
         if (variant == null) {
             return null;
         }
         Matcher matcher = variant.pattern().matcher(name);
-        return matcher.find() && matcher.group(1) != null ? Integer.valueOf(matcher.group(1)) : null;
+        if (!matcher.find() || matcher.group(1) == null || matcher.group(1).length() > MAX_SPELLED_SIZE_DIGITS) {
+            return null;
+        }
+        return Integer.valueOf(matcher.group(1));
     }
 
     private IdentityTables.SizeVariant sizeVariant(String name, String family) {

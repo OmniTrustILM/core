@@ -254,6 +254,15 @@ class NormalizationRulesTest {
         assertThat(NORMALIZER.registrySizeSpelled("MLKEM512", "ML-KEM")).isEqualTo(512);
     }
 
+    /** A digit run no size can have spells none: it must cost the component neither its row nor its finding. */
+    @Test
+    void anOverlongDigitRunSpellsNoSize() {
+        assertThat(NORMALIZER.registrySizeSpelled("AES-99999999999", "AES")).isNull();
+        NormalizedAsset asset = normalize(algorithmComponent("AES-99999999999", "{\"parameterSetIdentifier\":\"64\"}"));
+        assertThat(asset.parameterSet()).isEqualTo(64);
+        assertThat(asset.findings()).singleElement().asString().contains("64").contains("128, 192, 256");
+    }
+
     /** A parameter set the registry does not enumerate for the family stays in the slot and is reported. */
     @Test
     void aParameterSetTheFamilyDoesNotDefineIsReportedToTheProducer() {
