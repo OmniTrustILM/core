@@ -743,9 +743,9 @@ public record AssetNormalizer(IdentityTables tables) {
      * <p>
      * Agreement and subsumption both settle; a genuine disagreement is the only case that records a conflict, and it
      * keeps the name because a refuted arc is the weaker witness -- the arc is one token a producer may have copied,
-     * while the name is the string the asset is actually called. Letting the arc win was tried and reverted: it never
-     * merged the two spellings, because the name's token stays in the variant, and it keyed an {@code ML-DSA-65}
-     * carrying a copied ecdsa-with-SHA256 arc as ECDSA. The contradiction is reported to the producer either way.
+     * while the name is the string the asset is actually called. Letting the arc win would not merge the two spellings,
+     * because the name's token stays in the variant, and would key an {@code ML-DSA-65} carrying a copied
+     * ecdsa-with-SHA256 arc as ECDSA. The contradiction is reported to the producer.
      *
      * <p>
      * Every null test here is its own: the callers pass whatever the arc and the grammar produced, including nothing
