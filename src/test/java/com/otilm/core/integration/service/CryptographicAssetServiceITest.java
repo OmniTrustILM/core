@@ -102,10 +102,10 @@ class CryptographicAssetServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void clampsOversizedPageAndRefusesInvalidPaging() {
+    void refusesInvalidPaging() {
         SearchRequestDto oversized = new SearchRequestDto();
         oversized.setItemsPerPage(5000);
-        assertThat(list(oversized).getItemsPerPage()).isEqualTo(1000);
+        assertThatThrownBy(() -> list(oversized)).isInstanceOf(ValidationException.class);
 
         SearchRequestDto zeroPage = new SearchRequestDto();
         zeroPage.setPageNumber(0);
