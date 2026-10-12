@@ -75,7 +75,10 @@ import com.otilm.core.service.AttributeExternalService;
 import com.otilm.core.service.AuditLogExternalService;
 import com.otilm.core.service.CryptographicKeyExternalService;
 import com.otilm.core.service.CustomOidEntryExternalService;
+import com.otilm.core.service.SecretExternalService;
+import com.otilm.core.service.VaultProfileExternalService;
 import com.otilm.core.service.impl.CertificateServiceImpl;
+import com.otilm.core.service.v2.ConnectorExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import com.otilm.core.util.WireMockPorts;
@@ -166,6 +169,15 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
 
     @Autowired
     private CustomOidEntryExternalService customOidEntryService;
+
+    @Autowired
+    private SecretExternalService secretService;
+
+    @Autowired
+    private ConnectorExternalService connectorService;
+
+    @Autowired
+    private VaultProfileExternalService vaultProfileService;
 
     @Autowired
     private CryptographicKeyItemRepository cryptographicKeyItemRepository;
@@ -2046,7 +2058,7 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
     }
 
     @ParameterizedTest
-    @CsvSource({"CBOM_ASSET_FREE_TEXT, CONTAINS, x", "CBOM_ASSET_TYPE, EMPTY,"})
+    @CsvSource({"CBOM_ASSET_FREE_TEXT, CONTAINS, x", "CBOM_ASSET_TYPE, EMPTY,", "CBOM_ASSET_SOURCE_CBOM, EQUALS, x"})
     void aCryptoAssetFilterFieldIsRefusedOnTheCertificateListingNamingTheField(FilterField field,
             FilterConditionOperator condition, String value) {
         CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
@@ -2061,6 +2073,72 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
         Assertions
                 .assertTrue(
                         exception.getMessage().contains("Field %s cannot filter this listing.".formatted(field.name())),
+                        exception.getMessage());
+    }
+
+    @Test
+    void theSourceCbomFilterIsRefusedOnTheAuditLogListingNamingTheField() {
+        SearchRequestDto searchRequestDto = new SearchRequestDto();
+        searchRequestDto
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY,
+                                FilterField.CBOM_ASSET_SOURCE_CBOM.name(), FilterConditionOperator.EQUALS, "x")));
+
+        ValidationException exception = Assertions
+                .assertThrows(ValidationException.class, () -> auditLogService.listAuditLogs(searchRequestDto));
+        Assertions
+                .assertTrue(exception.getMessage().contains("Field CBOM_ASSET_SOURCE_CBOM cannot filter this listing."),
+                        exception.getMessage());
+    }
+
+    @Test
+    void aCertificateGroupFilterIsRefusedOnTheSecretListingDespiteTheSharedAttributeName() {
+        SearchRequestDto searchRequestDto = new SearchRequestDto();
+        searchRequestDto
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.GROUP_NAME.name(),
+                                FilterConditionOperator.NOT_EQUALS, (Serializable) List.of("x"))));
+        SecurityFilter securityFilter = SecurityFilter.create();
+
+        ValidationException exception = Assertions
+                .assertThrows(ValidationException.class,
+                        () -> secretService.listSecrets(searchRequestDto, securityFilter));
+        Assertions
+                .assertTrue(exception.getMessage().contains("Field GROUP_NAME cannot filter this listing."),
+                        exception.getMessage());
+    }
+
+    @Test
+    void aSecretFilterIsRefusedOnTheVaultProfileListingDespiteTheSharedAttributeName() {
+        SearchRequestDto searchRequestDto = new SearchRequestDto();
+        searchRequestDto
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.SECRET_NAME.name(),
+                                FilterConditionOperator.EQUALS, "x")));
+        SecurityFilter securityFilter = SecurityFilter.create();
+
+        ValidationException exception = Assertions
+                .assertThrows(ValidationException.class,
+                        () -> vaultProfileService.listVaultProfiles(searchRequestDto, securityFilter));
+        Assertions
+                .assertTrue(exception.getMessage().contains("Field SECRET_NAME cannot filter this listing."),
+                        exception.getMessage());
+    }
+
+    @Test
+    void aCbomVersionFilterIsRefusedOnTheConnectorListingDespiteTheSharedAttributeName() {
+        SearchRequestDto searchRequestDto = new SearchRequestDto();
+        searchRequestDto
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.CBOM_VERSION.name(),
+                                FilterConditionOperator.EQUALS, 1)));
+        SecurityFilter securityFilter = SecurityFilter.create();
+
+        ValidationException exception = Assertions
+                .assertThrows(ValidationException.class,
+                        () -> connectorService.listConnectors(securityFilter, searchRequestDto));
+        Assertions
+                .assertTrue(exception.getMessage().contains("Field CBOM_VERSION cannot filter this listing."),
                         exception.getMessage());
     }
 

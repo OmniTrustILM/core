@@ -26,7 +26,8 @@ import com.otilm.core.dao.entity.GroupAssociation_;
 import com.otilm.core.dao.entity.ResourceObjectAssociation_;
 import com.otilm.core.dao.entity.ScheduledJobHistory;
 import com.otilm.core.dao.entity.UniquelyIdentified_;
-import com.otilm.core.dao.entity.cbom.CryptoAsset;
+import com.otilm.core.dao.entity.VaultInstance;
+import com.otilm.core.dao.entity.VaultProfile;
 import com.otilm.core.dao.entity.cbom.CryptoAssetSource;
 import com.otilm.core.dao.entity.cbom.CryptoAssetSource_;
 import com.otilm.core.dao.entity.cbom.CryptoAsset_;
@@ -418,20 +419,31 @@ public class FilterPredicatesBuilder {
     }
 
     /**
-     * The path of a property filter field on the listing's entity. A field of another resource does not resolve there,
-     * and the persistence layer would turn the resulting {@link IllegalArgumentException} into a server fault.
+     * Refuses a field another resource declares. The identifier is unique across every resource, but the attribute path
+     * behind it need not be, so a field of another resource can resolve against the listing's entity and filter the
+     * wrong column, or fail inside the repository call as a server fault. An entity that maps to no resource has no
+     * catalogue to check against.
      */
-    private static <Y> Path<Y> resolvePropertyFilterPath(final From from, final FilterField filterField) {
-        try {
-            return resolveFieldPath(from, filterField.getFieldAttribute());
-        } catch (IllegalArgumentException e) {
-            throw fieldNotOnListing(filterField);
+    private static void requireFieldOfListing(final Root<?> root, final FilterField filterField) {
+        final Resource resource = listingResourceOf(root);
+        if (resource != null && filterField.getRootResource() != resource) {
+            throw new ValidationException(
+                    ValidationError.create("Field %s cannot filter this listing.".formatted(filterField.name())));
         }
     }
 
-    private static ValidationException fieldNotOnListing(final FilterField filterField) {
-        return new ValidationException(
-                ValidationError.create("Field %s cannot filter this listing.".formatted(filterField.name())));
+    /**
+     * The resource whose property fields a listing of the entity advertises. Vault instances and profiles are absent
+     * from {@link ResourceToClass}, so they are named here rather than by the attribute mapping.
+     */
+    private static Resource listingResourceOf(final Root<?> root) {
+        if (root.getJavaType().equals(VaultInstance.class)) {
+            return Resource.VAULT;
+        }
+        if (root.getJavaType().equals(VaultProfile.class)) {
+            return Resource.VAULT_PROFILE;
+        }
+        return attributeResourceOf(root);
     }
 
     private static boolean isDeclaredOnStrictSubtypeOf(final From<?, ?> from, final Attribute<?, ?> fieldAttribute) {
@@ -443,6 +455,7 @@ public class FilterPredicatesBuilder {
             final CommonAbstractCriteria query, final Root<T> root, SearchFilterRequestDto filterDto,
             Map<String, From> joinedAssociations, boolean refutedOidsOptedIn) {
         final FilterField filterField = resolvePropertyFilterField(filterDto.getFieldIdentifier());
+        requireFieldOfListing(root, filterField);
         requireAdvertisedCondition(filterField, filterDto.getCondition());
         if (filterField == FilterField.CBOM_HAS_CONTRIBUTED_ASSETS) {
             if (!Cbom.class.equals(root.getJavaType())) {
@@ -462,12 +475,7 @@ public class FilterPredicatesBuilder {
                     ? contributed
                     : criteriaBuilder.not(contributed);
         }
-        From from;
-        try {
-            from = getJoinedAssociation(root, joinedAssociations, filterField, filterDto.getCondition());
-        } catch (IllegalArgumentException e) {
-            throw fieldNotOnListing(filterField);
-        }
+        From from = getJoinedAssociation(root, joinedAssociations, filterField, filterDto.getCondition());
 
         // prepare filter values, expression and set filter characteristics
         List<Object> filterValues = preparePropertyFilterValues(filterDto, filterField);
@@ -481,21 +489,14 @@ public class FilterPredicatesBuilder {
         // fieldAttribute declares on Cbom, not on the crypto-asset root, so the generic from.get(...) below would
         // throw for it. Both are therefore built by dedicated branches before that generic resolution runs.
         if (filterField.getType() == SearchFieldTypeEnum.FREE_TEXT) {
-            try {
-                return getCryptoAssetFreeTextPredicate(criteriaBuilder, root, filterField, filterDto, filterValues,
-                        refutedOidsOptedIn);
-            } catch (IllegalArgumentException e) {
-                throw fieldNotOnListing(filterField);
-            }
+            return getCryptoAssetFreeTextPredicate(criteriaBuilder, root, filterField, filterDto, filterValues,
+                    refutedOidsOptedIn);
         }
         if (filterField == FilterField.CBOM_ASSET_SOURCE_CBOM) {
             return getCryptoAssetSourceCbomPredicate(criteriaBuilder, query, root, filterDto, filterValues);
         }
         if (filterField == FilterField.CBOM_ASSET_TYPE && (filterDto.getCondition() == FilterConditionOperator.EMPTY
                 || filterDto.getCondition() == FilterConditionOperator.NOT_EMPTY)) {
-            if (!CryptoAsset.class.isAssignableFrom(from.getJavaType())) {
-                throw fieldNotOnListing(filterField);
-            }
             return untypedCryptoAssetPredicate(criteriaBuilder, from, filterDto.getCondition());
         }
 
@@ -525,7 +526,7 @@ public class FilterPredicatesBuilder {
 
         Expression expression = null;
         if (filterField.getFieldAttribute() != null && !isCountOperator(filterDto.getCondition())) {
-            expression = resolvePropertyFilterPath(from, filterField);
+            expression = resolveFieldPath(from, filterField.getFieldAttribute());
         }
 
         boolean isJsonArray = false;
@@ -533,28 +534,29 @@ public class FilterPredicatesBuilder {
             isJsonArray = isJsonArray(filterField);
             if (isJsonArray) {
                 expression = criteriaBuilder
-                        .function("jsonb_path_query_array", String.class, resolvePropertyFilterPath(from, filterField),
+                        .function("jsonb_path_query_array", String.class,
+                                resolveFieldPath(from, filterField.getFieldAttribute()),
                                 criteriaBuilder.literal(getArrayJsonPath(filterField.getJsonPath())));
             } else {
                 expression = switch (filterField.getJsonPath().length) {
                     case 1 -> criteriaBuilder
                             .function(JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME, String.class,
-                                    resolvePropertyFilterPath(from, filterField),
+                                    resolveFieldPath(from, filterField.getFieldAttribute()),
                                     criteriaBuilder.literal(filterField.getJsonPath()[0]));
                     case 2 -> criteriaBuilder
                             .function(JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME, String.class,
-                                    resolvePropertyFilterPath(from, filterField),
+                                    resolveFieldPath(from, filterField.getFieldAttribute()),
                                     criteriaBuilder.literal(filterField.getJsonPath()[0]),
                                     criteriaBuilder.literal(filterField.getJsonPath()[1]));
                     case 3 -> criteriaBuilder
                             .function(JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME, String.class,
-                                    resolvePropertyFilterPath(from, filterField),
+                                    resolveFieldPath(from, filterField.getFieldAttribute()),
                                     criteriaBuilder.literal(filterField.getJsonPath()[0]),
                                     criteriaBuilder.literal(filterField.getJsonPath()[1]),
                                     criteriaBuilder.literal(filterField.getJsonPath()[2]));
                     case 4 -> criteriaBuilder
                             .function(JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME, String.class,
-                                    resolvePropertyFilterPath(from, filterField),
+                                    resolveFieldPath(from, filterField.getFieldAttribute()),
                                     criteriaBuilder.literal(filterField.getJsonPath()[0]),
                                     criteriaBuilder.literal(filterField.getJsonPath()[1]),
                                     criteriaBuilder.literal(filterField.getJsonPath()[2]),
@@ -785,9 +787,6 @@ public class FilterPredicatesBuilder {
         // (the or(isNull, ...) negatives) admit refuted rows too; conditions a NULL oid can never satisfy
         // exclude them. EMPTY/NOT_EMPTY stay untouched -- that an OID was recorded is a true fact.
         if (filterField == FilterField.CBOM_ASSET_OID && !refutedOidsOptedIn) {
-            if (!CryptoAsset.class.isAssignableFrom(from.getJavaType())) {
-                throw fieldNotOnListing(filterField);
-            }
             if (OID_CONDITIONS_A_NULL_OID_SATISFIES.contains(conditionOperator)) {
                 predicate = criteriaBuilder.or(predicate, oidRefuted(criteriaBuilder, from));
             } else if (OID_CONDITIONS_A_NULL_OID_NEVER_SATISFIES.contains(conditionOperator)) {
