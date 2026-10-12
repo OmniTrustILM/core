@@ -254,6 +254,15 @@ class NormalizationRulesTest {
         assertThat(NORMALIZER.registrySizeSpelled("MLKEM512", "ML-KEM")).isEqualTo(512);
     }
 
+    /** A variant found inside a longer one that extends it is tried after it: GOSTR3411_HMAC is a MAC, not a hash. */
+    @Test
+    void theLongerOfTwoOverlappingVariantsIsTriedFirst() {
+        assertThat(NORMALIZER.primitiveFromRegistryVariant("GOSTR3411_HMAC", "GOST")).isEqualTo("mac");
+        assertThat(NORMALIZER.primitiveFromRegistryVariant("GOSTR3411", "GOST")).isEqualTo("hash");
+        assertThat(NORMALIZER.primitiveFromRegistryVariant("KMACXOF256", "SHA-3")).isEqualTo("mac");
+        assertThat(NORMALIZER.primitiveFromRegistryVariant("TupleHashXOF128", "SHA-3")).isEqualTo("xof");
+    }
+
     /** A digit run no size can have spells none: it must cost the component neither its row nor its finding. */
     @Test
     void anOverlongDigitRunSpellsNoSize() {

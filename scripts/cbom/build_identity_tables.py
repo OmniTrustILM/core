@@ -1231,6 +1231,13 @@ def registry_pattern_regex(pattern: str, stop_at_size_group: bool) -> str | None
     return None if stop_at_size_group else "".join(out)
 
 
+def longest_first(pattern: str) -> tuple[int, str]:
+    """The order the normalizer tries variant patterns in, which takes the first that is found: a pattern is
+    found inside a longer one that extends it -- ``GOSTR3411`` inside ``GOSTR3411_HMAC`` -- so the longer
+    goes first."""
+    return -len(pattern), pattern
+
+
 def size_variants(registry: dict, size_min: int, size_max: int) -> dict[str, list[dict]]:
     """Per family, the registry variants that spell a size and the sizes each admits.
 
@@ -1250,7 +1257,8 @@ def size_variants(registry: dict, size_min: int, size_max: int) -> dict[str, lis
             regex = registry_pattern_regex(pattern, stop_at_size_group=True)
             if regex is not None:
                 variants.setdefault(algorithm["family"], {}).setdefault(regex, set()).update(lists[0])
-    return {family: [{"pattern": regex, "sizes": sorted(sizes)} for regex, sizes in sorted(entries.items())]
+    return {family: [{"pattern": regex, "sizes": sorted(sizes)}
+                     for regex, sizes in sorted(entries.items(), key=lambda entry: longest_first(entry[0]))]
             for family, entries in sorted(variants.items())}
 
 
@@ -1297,7 +1305,7 @@ def variant_primitives(registry: dict, legal: set[str]) -> list[dict]:
             regex = registry_pattern_regex(variant["pattern"], stop_at_size_group=False)
             if regex is not None:
                 rendered.append({"family": family, "pattern": regex, "primitive": primitive})
-    return sorted(rendered, key=lambda entry: (entry["family"], entry["pattern"]))
+    return sorted(rendered, key=lambda entry: (entry["family"], *longest_first(entry["pattern"])))
 
 
 def admissible_parameter_sets(registry: dict, size_min: int, size_max: int) -> dict[str, list[int]]:

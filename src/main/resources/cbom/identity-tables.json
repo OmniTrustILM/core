@@ -4354,20 +4354,6 @@
     ],
     "SHA-3": [
       {
-        "pattern": "KMACXOF[-_/]?(\\d+)",
-        "sizes": [
-          128,
-          256
-        ]
-      },
-      {
-        "pattern": "KMAC[-_/]?(\\d+)",
-        "sizes": [
-          128,
-          256
-        ]
-      },
-      {
         "pattern": "ParallelHashXOF[-_/]?(\\d+)",
         "sizes": [
           128,
@@ -4376,22 +4362,6 @@
       },
       {
         "pattern": "ParallelHash[-_/]?(\\d+)",
-        "sizes": [
-          128,
-          256
-        ]
-      },
-      {
-        "pattern": "SHA3[-_/]?(\\d+)",
-        "sizes": [
-          224,
-          256,
-          384,
-          512
-        ]
-      },
-      {
-        "pattern": "SHAKE[-_/]?(\\d+)",
         "sizes": [
           128,
           256
@@ -4412,10 +4382,40 @@
         ]
       },
       {
+        "pattern": "KMACXOF[-_/]?(\\d+)",
+        "sizes": [
+          128,
+          256
+        ]
+      },
+      {
         "pattern": "cSHAKE[-_/]?(\\d+)",
         "sizes": [
           128,
           256
+        ]
+      },
+      {
+        "pattern": "SHAKE[-_/]?(\\d+)",
+        "sizes": [
+          128,
+          256
+        ]
+      },
+      {
+        "pattern": "KMAC[-_/]?(\\d+)",
+        "sizes": [
+          128,
+          256
+        ]
+      },
+      {
+        "pattern": "SHA3[-_/]?(\\d+)",
+        "sizes": [
+          224,
+          256,
+          384,
+          512
         ]
       }
     ],
@@ -4509,13 +4509,18 @@
     },
     {
       "family": "ChaCha20",
-      "pattern": "ChaCha20-?Poly1305",
+      "pattern": "XChaCha20-?Poly1305",
       "primitive": "ae"
     },
     {
       "family": "ChaCha20",
-      "pattern": "XChaCha20-?Poly1305",
+      "pattern": "ChaCha20-?Poly1305",
       "primitive": "ae"
+    },
+    {
+      "family": "GOST",
+      "pattern": "GOSTR3411_HMAC",
+      "primitive": "mac"
     },
     {
       "family": "GOST",
@@ -4531,11 +4536,6 @@
       "family": "GOST",
       "pattern": "GOSTR3411",
       "primitive": "hash"
-    },
-    {
-      "family": "GOST",
-      "pattern": "GOSTR3411_HMAC",
-      "primitive": "mac"
     },
     {
       "family": "HC",
@@ -4559,22 +4559,7 @@
     },
     {
       "family": "SHA-3",
-      "pattern": "KMACXOF[-_/]?(?:128|256)",
-      "primitive": "mac"
-    },
-    {
-      "family": "SHA-3",
-      "pattern": "KMAC[-_/]?(?:128|256)",
-      "primitive": "mac"
-    },
-    {
-      "family": "SHA-3",
       "pattern": "ParallelHashXOF[-_/]?(?:128|256)",
-      "primitive": "xof"
-    },
-    {
-      "family": "SHA-3",
-      "pattern": "SHAKE[-_/]?(?:128|256)",
       "primitive": "xof"
     },
     {
@@ -4584,8 +4569,28 @@
     },
     {
       "family": "SHA-3",
+      "pattern": "KMACXOF[-_/]?(?:128|256)",
+      "primitive": "mac"
+    },
+    {
+      "family": "SHA-3",
       "pattern": "cSHAKE[-_/]?(?:128|256)",
       "primitive": "xof"
+    },
+    {
+      "family": "SHA-3",
+      "pattern": "SHAKE[-_/]?(?:128|256)",
+      "primitive": "xof"
+    },
+    {
+      "family": "SHA-3",
+      "pattern": "KMAC[-_/]?(?:128|256)",
+      "primitive": "mac"
+    },
+    {
+      "family": "SM2",
+      "pattern": "SM2-?(?:KEX|KEYEXCHANGE|KEY-?EXCHANGE|KEYAGREE|KEY-?AGREE|KEYAGREEMENT|KEY-?AGREEMENT)(?:-?256)?",
+      "primitive": "key-agree"
     },
     {
       "family": "SM2",
@@ -4593,8 +4598,8 @@
       "primitive": "pke"
     },
     {
-      "family": "SM2",
-      "pattern": "SM2-?(?:KEX|KEYEXCHANGE|KEY-?EXCHANGE|KEYAGREE|KEY-?AGREE|KEYAGREEMENT|KEY-?AGREEMENT)(?:-?256)?",
+      "family": "SM9",
+      "pattern": "SM9-?(?:KEX|KEYEXCHANGE|KEY-?EXCHANGE|KEYAGREE|KEYAGREEMENT|KEY-?AGREE|KEY-?AGREEMENT)",
       "primitive": "key-agree"
     },
     {
@@ -4606,11 +4611,6 @@
       "family": "SM9",
       "pattern": "SM9-?(?:KEM|KEYENCAPSULATION|KEY-?ENCAPSULATION)",
       "primitive": "kem"
-    },
-    {
-      "family": "SM9",
-      "pattern": "SM9-?(?:KEX|KEYEXCHANGE|KEY-?EXCHANGE|KEYAGREE|KEYAGREEMENT|KEY-?AGREE|KEY-?AGREEMENT)",
-      "primitive": "key-agree"
     },
     {
       "family": "SNOW3G",
