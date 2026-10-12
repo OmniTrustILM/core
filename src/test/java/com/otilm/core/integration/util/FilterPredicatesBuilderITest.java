@@ -2000,7 +2000,9 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
         ValidationException exception = Assertions
                 .assertThrows(ValidationException.class,
                         () -> certificateService.listCertificates(securityFilter, searchRequestDto));
-        Assertions.assertTrue(exception.getMessage().contains("NO_SUCH_FIELD"), exception.getMessage());
+        Assertions
+                .assertTrue(exception.getMessage().contains("Unknown filter field identifier NO_SUCH_FIELD."),
+                        exception.getMessage());
     }
 
     @Test
@@ -2015,7 +2017,9 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
         ValidationException exception = Assertions
                 .assertThrows(ValidationException.class,
                         () -> cryptographicKeyService.listCryptographicKeys(securityFilter, searchRequestDto));
-        Assertions.assertTrue(exception.getMessage().contains("NO_SUCH_FIELD"), exception.getMessage());
+        Assertions
+                .assertTrue(exception.getMessage().contains("Unknown filter field identifier NO_SUCH_FIELD."),
+                        exception.getMessage());
     }
 
     @ParameterizedTest
@@ -2031,7 +2035,10 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
         ValidationException exception = Assertions
                 .assertThrows(ValidationException.class,
                         () -> cryptographicKeyService.listCryptographicKeys(securityFilter, searchRequestDto));
-        Assertions.assertTrue(exception.getMessage().contains(field.name()), exception.getMessage());
+        Assertions
+                .assertTrue(
+                        exception.getMessage().contains("Field %s cannot filter this listing.".formatted(field.name())),
+                        exception.getMessage());
     }
 
     @ParameterizedTest
@@ -2047,7 +2054,10 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
         ValidationException exception = Assertions
                 .assertThrows(ValidationException.class,
                         () -> certificateService.listCertificates(securityFilter, searchRequestDto));
-        Assertions.assertTrue(exception.getMessage().contains(field.name()), exception.getMessage());
+        Assertions
+                .assertTrue(
+                        exception.getMessage().contains("Field %s cannot filter this listing.".formatted(field.name())),
+                        exception.getMessage());
     }
 
     @Test
