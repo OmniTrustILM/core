@@ -14,6 +14,11 @@
 -- up by name when there is one, otherwise the oldest promoted row. Any other promoted row is demoted rather than
 -- merged: it keeps its connector and values and loses only the global flag.
 --
+-- An edited promotion stores the same declaration as a global its connector declares, so nothing tells the two apart.
+-- A global with a connector is therefore kept over one without, which is found by name only and folds safely into it.
+-- Where two globals of different connectors or attribute UUIDs fold, the folded one is listed: if it was an edited
+-- promotion, its connector's next registration starts a new definition.
+--
 -- A duplicate folds into the kept row only when it reads its values the same way: the same content type, version and
 -- protection level. A metadata duplicate that differs is detached instead: its connector is cleared, as deleting the
 -- connector would, and so is its global flag, so the global-name key holds. Its values stay on the objects that hold
@@ -227,9 +232,10 @@ END
 $$ LANGUAGE plpgsql;
 
 -- First pass: global definitions, one per type and name. A row is shared when the engine looks it up by name, and
--- promoted otherwise. The kept row is a shared one when the group has any, then a data row with an operation, then
--- the oldest. Every other shared row folds into it, or is detached when it reads its values differently. Every other
--- promoted row is demoted instead and never enters the fold; a promoted row alone under its name stays global.
+-- promoted otherwise. The kept row is a shared one when the group has any, then a data row with an operation, then a
+-- row with a connector, then the oldest. Every other shared row folds into it, or is detached when it reads its values
+-- differently. Every other promoted row is demoted instead and never enters the fold; a promoted row alone under its
+-- name stays global.
 CREATE FUNCTION pg_temp.collect_global_attribute_definitions() RETURNS VOID AS $$
 DECLARE
     "demoted_uuids" TEXT;
@@ -238,7 +244,8 @@ BEGIN
         SELECT "uuid", "promoted",
                first_value("uuid") OVER (
                    PARTITION BY "type", "name"
-                   ORDER BY "promoted", ("type" = 'DATA' AND "operation" IS NULL), "created_at", "uuid"
+                   ORDER BY "promoted", ("type" = 'DATA' AND "operation" IS NULL), ("connector_uuid" IS NULL),
+                            "created_at", "uuid"
                ) AS "keep_uuid"
           FROM (SELECT *,
                        "connector_uuid" IS NOT NULL
@@ -271,8 +278,30 @@ BEGIN
 END
 $$ LANGUAGE plpgsql;
 
+-- Lists the global rows with a connector that the first pass folds into a row of another connector or attribute UUID.
+CREATE FUNCTION pg_temp.report_global_folds_across_connectors() RETURNS VOID AS $$
+DECLARE
+    "folded_uuids" TEXT;
+BEGIN
+    SELECT string_agg("folded"."duplicate_uuid"::TEXT || ' (kept ' || "folded"."keep_uuid"::TEXT || ')', ', '
+                      ORDER BY "folded"."duplicate_uuid")
+      INTO "folded_uuids"
+      FROM "attribute_definition_merge" AS "folded"
+      JOIN "attribute_definition" AS "duplicate" ON "duplicate"."uuid" = "folded"."duplicate_uuid"
+      JOIN "attribute_definition" AS "kept" ON "kept"."uuid" = "folded"."keep_uuid"
+     WHERE "duplicate"."connector_uuid" IS NOT NULL
+       AND ("duplicate"."connector_uuid", "duplicate"."attribute_uuid")
+           IS DISTINCT FROM ("kept"."connector_uuid", "kept"."attribute_uuid");
+
+    IF "folded_uuids" IS NOT NULL THEN
+        RAISE NOTICE 'Global metadata folded into the global definition of another connector or attribute UUID; if an operator had edited it after promoting it, its connector registers its next values to a new definition: %', "folded_uuids";
+    END IF;
+END
+$$ LANGUAGE plpgsql;
+
 SELECT pg_temp.collect_global_attribute_definitions();
 SELECT pg_temp.split_incompatible_attribute_definitions();
+SELECT pg_temp.report_global_folds_across_connectors();
 SELECT pg_temp.fold_attribute_definitions();
 
 -- Second pass: every definition with a connector key, globals kept by the first pass and promoted rows it demoted
@@ -312,5 +341,6 @@ ALTER TABLE "attribute_definition"
 
 DROP FUNCTION pg_temp.fold_attribute_definitions();
 DROP FUNCTION pg_temp.collect_global_attribute_definitions();
+DROP FUNCTION pg_temp.report_global_folds_across_connectors();
 DROP FUNCTION pg_temp.split_incompatible_attribute_definitions();
 DROP FUNCTION pg_temp.rebind_list_view_entries(JSONB);

@@ -15,9 +15,12 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.SQLWarning;
 import java.sql.Savepoint;
 import java.sql.Statement;
 import java.sql.Types;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
@@ -304,21 +307,55 @@ class AttributeDefinitionUniqueKeyMigrationITest extends BaseSpringBootTest {
         });
     }
 
-    /** A global without a connector is found by name whatever its stored definition says. */
+    /**
+     * A global without a connector is found by name only, whatever its stored definition says, so it folds into a
+     * global on a connector even when it is older: that one may be an edited promotion its connector still looks up.
+     */
     @Test
-    void aGlobalWithoutAConnectorAndOneDeclaredGlobalOnAConnectorFold() throws Exception {
+    void aGlobalWithoutAConnectorFoldsIntoOneOnAConnector() throws Exception {
         String declaredGlobal = storedMetadataDefinition(true);
         inScratchSchema(statement -> {
-            definition(statement, KEPT, "META", null, ATTRIBUTE, "source", true, "STRING", null, EARLIER);
-            definition(statement, DUPLICATE, "META", CONNECTOR_ONE, OTHER_ATTRIBUTE, "source", true, "STRING", null,
-                    LATER, declaredGlobal);
-            value(statement, DUPLICATE_VALUE, DUPLICATE, "{\"data\": \"x\"}");
+            definition(statement, DUPLICATE, "META", null, ATTRIBUTE, "source", true, "STRING", null, EARLIER);
+            definition(statement, KEPT, "META", CONNECTOR_ONE, OTHER_ATTRIBUTE, "source", true, "STRING", null, LATER,
+                    declaredGlobal);
+            value(statement, KEPT_VALUE, KEPT, "{\"data\": \"x\"}");
+            value(statement, DUPLICATE_VALUE, DUPLICATE, "{\"data\": \"y\"}");
 
             migrate(statement);
 
-            assertThat(count(statement, "SELECT count(*) FROM attribute_definition")).isEqualTo(1);
+            assertThat(definitionOf(statement, KEPT_VALUE)).isEqualTo(KEPT);
             assertThat(definitionOf(statement, DUPLICATE_VALUE)).isEqualTo(KEPT);
-            assertThat(scope(statement, KEPT)).isEqualTo(new Scope(null, true));
+            assertThat(scope(statement, KEPT)).isEqualTo(new Scope(CONNECTOR_ONE, true));
+            assertThat(scope(statement, DUPLICATE)).isNull();
+        });
+    }
+
+    /**
+     * A global on another connector reads alike whether that connector declared it or an operator edited a promotion,
+     * so the fold names it: if it was a promotion, its connector no longer finds it. A duplicate under the kept row's
+     * own connector and attribute UUID is found either way.
+     */
+    @Test
+    void aGlobalFoldedIntoOneOfAnotherConnectorIsReported() throws Exception {
+        String declaredGlobal = storedMetadataDefinition(true);
+        inScratchSchema(statement -> {
+            definition(statement, KEPT, "META", CONNECTOR_ONE, ATTRIBUTE, "source", true, "STRING", null, EARLIER,
+                    declaredGlobal);
+            definition(statement, DUPLICATE, "META", CONNECTOR_TWO, OTHER_ATTRIBUTE, "source", true, "STRING", null,
+                    LATER, declaredGlobal);
+            definition(statement, THIRD, "META", CONNECTOR_ONE, ATTRIBUTE, "source", true, "STRING", null, LATEST,
+                    declaredGlobal);
+            // The test database sends warnings only.
+            statement.execute("SET client_min_messages TO notice");
+
+            migrate(statement);
+
+            assertThat(notices(statement))
+                    .filteredOn(notice -> notice.contains("another connector"))
+                    .singleElement()
+                    .satisfies(notice -> assertThat(notice)
+                            .contains(DUPLICATE + " (kept " + KEPT + ")")
+                            .doesNotContain(THIRD));
         });
     }
 
@@ -612,9 +649,10 @@ class AttributeDefinitionUniqueKeyMigrationITest extends BaseSpringBootTest {
                 statement.execute(TABLE_STUBS);
                 work.run(statement);
             } finally {
-                // The connection goes back to a pool shared with the rest of the suite: the session's search_path
-                // must not point at the schema this drops.
+                // The connection goes back to a pool shared with the rest of the suite, so the session settings a
+                // test changes are reset: the search_path must not point at the schema this drops.
                 statement.execute("RESET search_path");
+                statement.execute("RESET client_min_messages");
                 statement.execute("DROP SCHEMA IF EXISTS " + SCRATCH_SCHEMA + " CASCADE");
             }
         }
@@ -737,6 +775,15 @@ class AttributeDefinitionUniqueKeyMigrationITest extends BaseSpringBootTest {
                         "SELECT attribute_definition_uuid FROM attribute_content_item WHERE uuid = '" + value + "'")) {
             return rows.next() ? rows.getString(1) : null;
         }
+    }
+
+    /** The notices the statement's last execution raised, in order. */
+    private static List<String> notices(Statement statement) throws SQLException {
+        List<String> notices = new ArrayList<>();
+        for (SQLWarning warning = statement.getWarnings(); warning != null; warning = warning.getNextWarning()) {
+            notices.add(warning.getMessage());
+        }
+        return notices;
     }
 
     private static long count(Statement statement, String sql) throws SQLException {
