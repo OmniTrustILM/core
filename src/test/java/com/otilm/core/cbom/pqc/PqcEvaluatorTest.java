@@ -314,6 +314,22 @@ class PqcEvaluatorTest {
                 .isEqualTo("mac");
     }
 
+    /**
+     * A key's primitive column is projected from the algorithm it references, so it is not read; the key's own name
+     * still pins one. The 128 of a key named {@code SHAKE128} is an output strength, not its length.
+     */
+    @Test
+    void aKeyNamedForANonKeyVariantIsSizedByItsOwnLength() {
+        PqcDecision key = verdictOf(material("SHAKE128", "secret-key", 256));
+        assertThat(key.verdict()).isEqualTo(PqcVerdict.READY);
+        assertThat(key.ruleId()).isEqualTo("MATERIAL-SYMMETRIC-READY");
+        assertThat(verdictOf(material("SHAKE128", "secret-key", 64)).ruleId()).isEqualTo("MATERIAL-SYMMETRIC-WEAK");
+        assertThat(verdictOf(material("KMAC128", "secret-key", 256)).verdict()).isEqualTo(PqcVerdict.READY);
+        assertThat(verdictOf(material("AES-128", "secret-key", 256)).ruleId())
+                .describedAs("a key-length primitive still holds the key to the size its name spells")
+                .isEqualTo("SYMMETRIC-UNDERSIZED");
+    }
+
     /** A SHAKE declaring the {@code digest} function is still an XOF, and reads as the undeclared one does. */
     @Test
     void anXofDeclaringDigestReadsAsAnXof() {
@@ -412,11 +428,14 @@ class PqcEvaluatorTest {
         PqcRuleInput kdfRow = evaluator
                 .fromStoredRow(storedRow(normalizer.normalize(algorithm("scrypt")).asset()), null);
         assertThat(PqcEvaluator.inputsOf(kdfRow, null, PqcReferences.NONE)).containsEntry("primitive", "kdf");
-        assertThat(evaluator
-                .fromStoredRow(storedRow(normalizer.normalize(material("scrypt", "secret-key", 256)).asset()), null)
-                .primitive())
-                .describedAs("a material row's primitive column is its referenced algorithm's, a filter slot")
-                .isNull();
+        CryptoAssetIdentityFields key = storedRow(normalizer.normalize(material("scrypt", "secret-key", 256)).asset());
+        CryptoAssetIdentityFields projected = new CryptoAssetIdentityFields(key.assetType(), key.name(), key.oid(),
+                key.algorithmFamily(), "kem", key.parameterSet(), key.curve(), key.mode(), key.padding(),
+                key.variant());
+        assertThat(evaluator.fromStoredRow(projected, null).primitive())
+                .describedAs("a material row's primitive column is its referenced algorithm's, a filter slot; its "
+                        + "own name decides")
+                .isEqualTo("kdf");
     }
 
     /** An exclusion decides ahead of every finding: a salt is not a key, however it is named. */

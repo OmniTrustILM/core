@@ -864,7 +864,8 @@ public class PqcEvaluator {
      * own declared {@code size}: filter slots, not evidence. Read here, half an algorithm decided the key -- the family
      * of {@code X25519-Kyber768} is {@code ECDH} and its hybrid components have no column, so a shared secret under it
      * read {@code CLASSICAL-SHOR} on the classical half alone -- and a referenced size outranked the one the key's own
-     * name spells. So the family and the size come from the name. Confined to material: on an algorithm row a null
+     * name spells. So the family, the size and the primitive come from the name: a key named {@code SHAKE128} is an
+     * XOF's, and its 128 is an output strength rather than its length. Confined to material: on an algorithm row a null
      * family is the normalizer's decision, a cipher suite above all, and stands.
      */
     public PqcRuleInput fromStoredRow(CryptoAssetIdentityFields fields, JsonNode mergedCryptoProperties) {
@@ -874,7 +875,7 @@ public class PqcEvaluator {
                 : ratifiedFamily(fields.algorithmFamily());
         Integer parameterSet = material ? sizeFromName(fields.name(), family) : parameterSet(fields.parameterSet());
         String curve = material ? null : fields.curve();
-        String primitive = material ? null : storedPrimitive(fields, family);
+        String primitive = material ? primitiveTheNameSpells(fields.name(), family) : storedPrimitive(fields, family);
         String secondary = normalizer.secondaryTokens(fields.name(), family);
         List<String> hybrid = normalizer.hybridComponents(fields.name(), family, secondary);
         return new PqcRuleInput(fields.assetType(), family, parameterSet, curve, fields.mode(), fields.padding(),
@@ -897,6 +898,15 @@ public class PqcEvaluator {
             return fromVariant;
         }
         return stored;
+    }
+
+    /** The primitive an undeclared algorithm of this name would derive: the registry variant's, else the family's. */
+    private String primitiveTheNameSpells(String name, String family) {
+        String fromVariant = normalizer.primitiveFromRegistryVariant(name, family);
+        if (fromVariant != null) {
+            return fromVariant;
+        }
+        return family == null ? null : normalizer.tables().primitiveDefaults().get(family);
     }
 
     /**

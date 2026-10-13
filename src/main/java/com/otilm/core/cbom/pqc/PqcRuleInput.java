@@ -17,8 +17,8 @@ import java.util.List;
  *
  * @param hybridComponents folded, and possibly sized ({@code ml-kem-768}) -- not a bare family spelling
  * @param materialSize {@code null} for most rows, which is why an unsized symmetric key cannot be called ready
- * @param primitive the stored CycloneDX primitive of an algorithm row; {@code null} on a material row, whose column
- * holds the referenced algorithm's and is a filter slot
+ * @param primitive the stored CycloneDX primitive of an algorithm row; on a material row the one its own name spells,
+ * because its column holds the referenced algorithm's and is a filter slot
  */
 public record PqcRuleInput(CryptographicAssetType assetType, String algorithmFamily, Integer parameterSet, String curve,
         String mode, String padding, String variant, String name, List<String> hybridComponents, String materialType,
