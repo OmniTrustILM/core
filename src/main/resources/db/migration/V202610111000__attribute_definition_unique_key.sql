@@ -22,8 +22,10 @@
 -- A duplicate folds into the kept row only when it reads its values the same way: the same content type, version and
 -- protection level. A metadata duplicate that differs is detached instead: its connector is cleared, as deleting the
 -- connector would, and so is its global flag, so the global-name key holds. Its values stay on the objects that hold
--- them and it stops matching lookups. A data or group duplicate that differs is not one the fold can decide, so it
--- is refused rather than guessed at.
+-- them and it stops matching lookups. A data or group duplicate that differs but holds nothing (no value, relation,
+-- notification mapping or list-view binding) is dropped, which loses nothing: a connector's attribute listing registers
+-- definitions without values, so racing listings of two connector versions leave such a row. One that holds something
+-- is not one the fold can decide, so it is refused rather than guessed at.
 
 -- Old pods keep running through a rolling upgrade: their writes and reads of definitions wait until the fold and both
 -- keys are in place, so none of them inserts a duplicate, or binds a value to one, behind the fold.
@@ -67,12 +69,60 @@ CREATE FUNCTION pg_temp.rebind_list_view_entries(entries JSONB) RETURNS JSONB AS
     FROM jsonb_array_elements(entries) WITH ORDINALITY AS "stored"("entry", "position")
 $$ LANGUAGE SQL STABLE;
 
+-- Whether a stored list view binds the definition: in a column, a filter or the sort, as the rebinding below reads them.
+CREATE FUNCTION pg_temp.list_view_binds(definition UUID) RETURNS BOOLEAN AS $$
+    SELECT EXISTS (
+        SELECT 1
+          FROM "list_view" AS "view"
+         WHERE "view"."sort_attribute_definition_uuids" @> ARRAY[definition]
+            OR EXISTS (
+                SELECT 1
+                  FROM jsonb_array_elements(
+                           CASE WHEN jsonb_typeof("view"."columns") = 'array' THEN "view"."columns" ELSE '[]'::JSONB END
+                           || CASE WHEN jsonb_typeof("view"."filters") = 'array' THEN "view"."filters" ELSE '[]'::JSONB END
+                       ) AS "stored"("entry")
+                 WHERE jsonb_typeof("stored"."entry" -> 'attributeDefinitionUuids') = 'array'
+                   AND "stored"."entry" -> 'attributeDefinitionUuids' @> jsonb_build_array(definition::TEXT)))
+$$ LANGUAGE SQL STABLE;
+
 -- Takes every duplicate the pass collected that reads its values differently from its kept row out of the fold.
 CREATE FUNCTION pg_temp.split_incompatible_attribute_definitions() RETURNS VOID AS $$
 DECLARE
+    "dropped_uuids" TEXT;
     "refused" TEXT;
     "detached_uuids" TEXT;
 BEGIN
+    WITH "unused" AS (
+        DELETE FROM "attribute_definition_merge" AS "folded"
+         USING "attribute_definition" AS "duplicate", "attribute_definition" AS "kept"
+         WHERE "duplicate"."uuid" = "folded"."duplicate_uuid"
+           AND "kept"."uuid" = "folded"."keep_uuid"
+           AND "duplicate"."type" <> 'META'
+           AND ("duplicate"."content_type" IS DISTINCT FROM "kept"."content_type"
+                OR "duplicate"."version" <> "kept"."version"
+                OR COALESCE("duplicate"."protection_level", 'NONE') <> COALESCE("kept"."protection_level", 'NONE'))
+           AND NOT EXISTS (SELECT 1 FROM "attribute_content_item" AS "item"
+                            WHERE "item"."attribute_definition_uuid" = "duplicate"."uuid")
+           AND NOT EXISTS (SELECT 1 FROM "attribute_relation" AS "relation"
+                            WHERE "relation"."attribute_definition_uuid" = "duplicate"."uuid")
+           AND NOT EXISTS (SELECT 1 FROM "notification_instance_mapped_attributes" AS "mapped"
+                            WHERE "mapped"."attribute_definition_uuid" = "duplicate"."uuid")
+           AND NOT pg_temp.list_view_binds("duplicate"."uuid")
+        RETURNING "folded"."duplicate_uuid", "folded"."keep_uuid"
+    ), "dropped" AS (
+        DELETE FROM "attribute_definition"
+         WHERE "uuid" IN (SELECT "duplicate_uuid" FROM "unused")
+        RETURNING 1
+    )
+    SELECT string_agg("unused"."duplicate_uuid"::TEXT || ' (kept ' || "unused"."keep_uuid"::TEXT || ')', ', '
+                      ORDER BY "unused"."duplicate_uuid")
+      INTO "dropped_uuids"
+      FROM "unused";
+
+    IF "dropped_uuids" IS NOT NULL THEN
+        RAISE NOTICE 'Attribute definitions dropped, as they read their values differently from the definition kept and hold nothing: %', "dropped_uuids";
+    END IF;
+
     SELECT string_agg("folded"."duplicate_uuid"::TEXT || ' (kept ' || "folded"."keep_uuid"::TEXT || ')', ', ')
       INTO "refused"
       FROM "attribute_definition_merge" AS "folded"
@@ -344,3 +394,4 @@ DROP FUNCTION pg_temp.collect_global_attribute_definitions();
 DROP FUNCTION pg_temp.report_global_folds_across_connectors();
 DROP FUNCTION pg_temp.split_incompatible_attribute_definitions();
 DROP FUNCTION pg_temp.rebind_list_view_entries(JSONB);
+DROP FUNCTION pg_temp.list_view_binds(UUID);

@@ -415,11 +415,49 @@ class AttributeDefinitionUniqueKeyMigrationITest extends BaseSpringBootTest {
         });
     }
 
+    /**
+     * A connector's attribute listing registers definitions without values, so racing listings of two connector
+     * versions leave a differing duplicate that holds nothing; dropping it loses nothing.
+     */
+    @Test
+    void aDifferingDataDuplicateThatHoldsNothingIsDropped() throws Exception {
+        inScratchSchema(statement -> {
+            definition(statement, KEPT, "DATA", CONNECTOR_ONE, ATTRIBUTE, "port", false, "STRING", null, EARLIER);
+            definition(statement, DUPLICATE, "DATA", CONNECTOR_ONE, ATTRIBUTE, "port", false, "INTEGER", null, LATER);
+            value(statement, KEPT_VALUE, KEPT, "{\"data\": \"443\"}");
+
+            migrate(statement);
+
+            assertThat(scope(statement, DUPLICATE)).isNull();
+            assertThat(scope(statement, KEPT)).isEqualTo(new Scope(CONNECTOR_ONE, false));
+            assertThat(definitionOf(statement, KEPT_VALUE)).isEqualTo(KEPT);
+        });
+    }
+
+    @Test
+    void aDifferingDataDuplicateBoundOnlyByAListViewStopsTheMigration() throws Exception {
+        inScratchSchema(statement -> {
+            definition(statement, KEPT, "DATA", CONNECTOR_ONE, ATTRIBUTE, "port", false, "STRING", null, EARLIER);
+            definition(statement, DUPLICATE, "DATA", CONNECTOR_ONE, ATTRIBUTE, "port", false, "INTEGER", null, LATER);
+            statement.execute("""
+                    INSERT INTO list_view (uuid, resource, columns, filters, sort_attribute_definition_uuids)
+                    VALUES (gen_random_uuid(), 'CERTIFICATE', '[]',
+                        '[{"fieldIdentifier": "port|integer", "attributeDefinitionUuids": ["%s"]}]', NULL)
+                    """.formatted(DUPLICATE));
+
+            assertThatThrownBy(() -> migrate(statement))
+                    .isInstanceOf(SQLException.class)
+                    .hasMessageContaining(REFUSED)
+                    .hasMessageContaining(DUPLICATE);
+        });
+    }
+
     @Test
     void aDataPairThatReadsItsValuesDifferentlyStopsTheMigration() throws Exception {
         inScratchSchema(statement -> {
             definition(statement, KEPT, "DATA", CONNECTOR_ONE, ATTRIBUTE, "port", false, "STRING", null, EARLIER);
             definition(statement, DUPLICATE, "DATA", CONNECTOR_ONE, ATTRIBUTE, "port", false, "INTEGER", null, LATER);
+            value(statement, DUPLICATE_VALUE, DUPLICATE, "{\"data\": 443}");
 
             assertThatThrownBy(() -> migrate(statement))
                     .isInstanceOf(SQLException.class)
@@ -433,6 +471,7 @@ class AttributeDefinitionUniqueKeyMigrationITest extends BaseSpringBootTest {
             definition(statement, KEPT, "DATA", CONNECTOR_ONE, ATTRIBUTE, "port", false, "STRING", null, EARLIER);
             definition(statement, DUPLICATE, "DATA", CONNECTOR_ONE, ATTRIBUTE, "port", false, "STRING", null, LATER);
             update(statement, DUPLICATE, "version = 3");
+            value(statement, DUPLICATE_VALUE, DUPLICATE, "{\"data\": \"443\"}");
 
             assertThatThrownBy(() -> migrate(statement))
                     .isInstanceOf(SQLException.class)
@@ -483,6 +522,7 @@ class AttributeDefinitionUniqueKeyMigrationITest extends BaseSpringBootTest {
             definition(statement, DUPLICATE, "DATA", CONNECTOR_ONE, ATTRIBUTE, "port", false, "STRING", null, LATER);
             update(statement, KEPT, "protection_level = 'NONE'");
             update(statement, DUPLICATE, "protection_level = 'ENCRYPTED'");
+            encryptedValue(statement, DUPLICATE_VALUE, DUPLICATE);
 
             assertThatThrownBy(() -> migrate(statement))
                     .isInstanceOf(SQLException.class)
