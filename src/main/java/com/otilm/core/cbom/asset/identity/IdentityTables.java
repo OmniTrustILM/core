@@ -24,7 +24,7 @@ import java.util.stream.Stream;
  * <p>
  * The tables are <em>data, never code</em>: they load from {@code cbom/identity-tables.json}, the same artifact the
  * reference implementation reads, so a vocabulary change is a reviewed data change rather than a code change in two
- * languages. The shipped file's SHA-256 is {@code 79ddb8063e3b...}. Every published cross-implementation agreement
+ * languages. The shipped file's SHA-256 is {@code c6791750bfe3...}. Every published cross-implementation agreement
  * figure predates it and was measured against {@code 1331969bb507...} -- quote an agreement number only with the
  * artifact hash it was taken against, because a number measured before a table change is a historical number, not a
  * current one.
@@ -71,6 +71,7 @@ public final class IdentityTables {
     private final Map<String, String> dnAttributeOids;
     private final Map<String, Integer> nameIntrinsicSizes;
     private final Map<String, Set<Integer>> admissibleParameterSets;
+    private final Map<String, Map<Integer, Set<Integer>>> admissibleTruncations;
     private final Map<String, List<SizeVariant>> sizeVariants;
     private final List<VariantPrimitive> variantPrimitives;
     private final List<String> curveSpellingsByLength;
@@ -181,6 +182,12 @@ public final class IdentityTables {
                         .put(entry.getKey(),
                                 Set.copyOf(entry.getValue().elements().stream().map(Node::integer).toList())));
         this.admissibleParameterSets = Collections.unmodifiableMap(admissible);
+        Map<String, Map<Integer, Set<Integer>>> truncations = new LinkedHashMap<>();
+        root
+                .field("admissibleTruncations")
+                .entries()
+                .forEach(entry -> truncations.put(entry.getKey(), truncationsBySize(entry.getValue())));
+        this.admissibleTruncations = Collections.unmodifiableMap(truncations);
         Map<String, List<SizeVariant>> variants = new LinkedHashMap<>();
         root
                 .field("sizeVariants")
@@ -397,6 +404,15 @@ public final class IdentityTables {
         return admissibleParameterSets;
     }
 
+    /**
+     * The truncated forms the registry enumerates for a family -- SHA-2's {@code 512/224} and {@code 512/256} -- keyed
+     * on the family's ratified spelling, then on the size truncated. A family that enumerates none is absent, as in
+     * {@link #admissibleParameterSets()}: only an enumeration can refuse a truncation.
+     */
+    public Map<String, Map<Integer, Set<Integer>>> admissibleTruncations() {
+        return admissibleTruncations;
+    }
+
     /** The size-spelling registry variants of a family, keyed on the family's ratified spelling. */
     public Map<String, List<SizeVariant>> sizeVariants() {
         return sizeVariants;
@@ -518,6 +534,15 @@ public final class IdentityTables {
     /** Left-guarded like a grammar rule, so {@code SHAKE} is not found inside {@code handshake}. */
     private static Pattern variantPattern(String regex) {
         return Pattern.compile("(?<![A-Za-z0-9])" + regex, Pattern.CASE_INSENSITIVE);
+    }
+
+    private static Map<Integer, Set<Integer>> truncationsBySize(Node node) {
+        Map<Integer, Set<Integer>> bySize = new LinkedHashMap<>();
+        for (Map.Entry<String, Node> entry : node.entries()) {
+            Set<Integer> truncations = Set.copyOf(entry.getValue().elements().stream().map(Node::integer).toList());
+            bySize.put(node.integerKey(entry.getKey()), truncations);
+        }
+        return Collections.unmodifiableMap(bySize);
     }
 
     private static List<SizeVariant> sizeVariants(Node node) {
@@ -645,6 +670,15 @@ public final class IdentityTables {
                 throw shape("an integer");
             }
             return json.intValue();
+        }
+
+        /** A key of this object that spells an integer, which JSON can only carry as text. */
+        int integerKey(String key) {
+            try {
+                return Integer.parseInt(key);
+            } catch (NumberFormatException e) {
+                throw new IllegalStateException(RESOURCE + ": table `" + at(key) + "` must be keyed on an integer");
+            }
         }
 
         String optionalText(String key) {

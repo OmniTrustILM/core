@@ -4270,6 +4270,14 @@
       128
     ]
   },
+  "admissibleTruncations": {
+    "SHA-2": {
+      "512": [
+        224,
+        256
+      ]
+    }
+  },
   "sizeVariants": {
     "AES": [
       {

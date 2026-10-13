@@ -1144,30 +1144,41 @@ OID_ARC = re.compile(r"[0-9]+(\.[0-9]+)+")
 
 # A literal size enumeration inside a registry variant pattern: `AES[-(128|192|256)]`, `ML-KEM-(512|768|1024)`.
 SIZE_ALTERNATION = re.compile(r"\((\d+(?:\|\d+)+)\)")
-# The same, admitting a truncated form beside a plain size: `SHA-(224|256|384|512|512/224|512/256)`. Only the
-# admissible sets read it; a size variant is rendered from a plain enumeration alone, since a truncated form
-# cannot be captured as one digit run.
+# The same, admitting a truncated form beside a plain size: `SHA-(224|256|384|512|512/224|512/256)`. The
+# admissible sets and truncations read it; a size variant is rendered from a plain enumeration alone, since a
+# truncated form cannot be captured as one digit run.
 SIZE_OR_TRUNCATION_ALTERNATION = re.compile(r"\((\d+(?:/\d+)?(?:\|\d+(?:/\d+)?)+)\)")
 
 
-def size_lists(pattern: str, family: str, size_min: int, size_max: int) -> list[list[int]]:
-    """The alternations of a variant pattern that enumerate the family's parameter sets, in pattern order.
+def size_alternations(pattern: str, family: str, size_min: int, size_max: int) -> list[list[str]]:
+    """The alternations of a variant pattern that enumerate the family's parameter sets, in pattern order,
+    each as the forms it spells: ``["224", "256", "384", "512", "512/224", "512/256"]``.
 
     An alternation inside the size whitelist is one. Outside it, an alternation names something else --
     ``Ed(25519|448)`` curves, ``CFB(1|8|64|128)`` a feedback width -- unless it directly follows the
     family's own name: ``ML-DSA-(44|65|87)`` is ML-DSA's parameter sets though 44 is below the whitelist.
     An alternation is skipped whole rather than trimmed, because a trimmed set would refuse the very sizes
-    the family uses. A truncated form counts for the size it truncates: ``512/224`` is a 512."""
-    lists = []
+    the family uses. A truncated form is judged by the size it truncates: ``512/224`` is a 512."""
+    alternations = []
     for match in SIZE_OR_TRUNCATION_ALTERNATION.finditer(pattern):
-        values = []
-        for part in match.group(1).split("|"):
-            value = int(part.split("/")[0])
-            if value not in values:
-                values.append(value)
+        forms = match.group(1).split("|")
+        values = {int(form.split("/")[0]) for form in forms}
         follows_family = pattern[:match.start()].rstrip("-_/[").lower().endswith(family.lower())
         if follows_family or all(size_min <= value <= size_max for value in values):
-            lists.append(values)
+            alternations.append(forms)
+    return alternations
+
+
+def size_lists(pattern: str, family: str, size_min: int, size_max: int) -> list[list[int]]:
+    """``size_alternations`` as the sizes each enumerates, a truncated form counting for the size it truncates."""
+    lists = []
+    for forms in size_alternations(pattern, family, size_min, size_max):
+        values = []
+        for form in forms:
+            value = int(form.split("/")[0])
+            if value not in values:
+                values.append(value)
+        lists.append(values)
     return lists
 
 
@@ -1341,6 +1352,24 @@ def admissible_parameter_sets(registry: dict, size_min: int, size_max: int) -> d
     return {family: sorted(values) for family, values in sorted(sets.items())}
 
 
+def admissible_truncations(registry: dict, size_min: int, size_max: int) -> dict[str, dict[str, list[int]]]:
+    """The truncated forms the registry enumerates beside a family's sizes, per size truncated: SHA-2's
+    ``512/224`` and ``512/256``, and nothing for the other families, whose enumerations spell no truncation.
+    The rules refuse a truncation outside its family's enumeration, as they refuse a parameter set, and
+    only where the family enumerates one: BLAKE2 enumerates sizes alone, and its truncations stay
+    unconstrained as a templated family's sizes do."""
+    sets: dict[str, dict[int, set[int]]] = {}
+    for algorithm in registry["algorithms"]:
+        for variant in algorithm.get("variant", []):
+            for forms in size_alternations(variant["pattern"], algorithm["family"], size_min, size_max):
+                for form in forms:
+                    if "/" in form:
+                        truncated, truncation = (int(value) for value in form.split("/"))
+                        sets.setdefault(algorithm["family"], {}).setdefault(truncated, set()).add(truncation)
+    return {family: {str(truncated): sorted(truncations) for truncated, truncations in sorted(by_size.items())}
+            for family, by_size in sorted(sets.items())}
+
+
 def strand_offenders(oid_strand: dict, canonical: dict[str, str], aliases: dict[str, str]) -> list[str]:
     """Enrichment the loader would accept and the pipeline would then key on unexamined.
 
@@ -1434,6 +1463,7 @@ TABLE_SHAPES = {
     "primitivesExpressibleIn16": ["str"],
     "nameIntrinsicSizes": {"*": "int"},
     "admissibleParameterSets": {"*": ["int"]},
+    "admissibleTruncations": {"*": {"*": ["int"]}},
     "sizeVariants": {"*": [{"pattern": "str", "sizes": ["int"]}]},
     "variantPrimitives": [{"family": "str", "pattern": "str", "primitive": "str"}],
     "dnShortNames": {"*": "str"},
@@ -1558,6 +1588,7 @@ def main() -> None:
         "primitivesExpressibleIn16": PRIMITIVES_1_6,
         "nameIntrinsicSizes": NAME_INTRINSIC_SIZES,
         "admissibleParameterSets": admissible_parameter_sets(registry, SIZE_MIN, SIZE_MAX),
+        "admissibleTruncations": admissible_truncations(registry, SIZE_MIN, SIZE_MAX),
         "sizeVariants": size_variants(registry, SIZE_MIN, SIZE_MAX),
         "variantPrimitives": variant_primitives(registry, legal),
         "dnShortNames": DN_SHORT_NAMES,
@@ -1572,6 +1603,7 @@ def main() -> None:
     print(f"  grammar rules         : {len(NAME_GRAMMAR)}")
     print(f"  primitive defaults    : {len(PRIMITIVE_DEFAULTS)}")
     print(f"  admissible param sets : {len(tables['admissibleParameterSets'])} families")
+    print(f"  admissible truncations: {len(tables['admissibleTruncations'])} families")
     print(f"  size variants         : {sum(len(v) for v in tables['sizeVariants'].values())} patterns")
     print(f"  variant primitives    : {len(tables['variantPrimitives'])} patterns")
     # Closed-vocabulary tokens must be printable ASCII. Measured: all 129 families, 197

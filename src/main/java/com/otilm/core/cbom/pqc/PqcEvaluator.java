@@ -332,6 +332,8 @@ public class PqcEvaluator {
         private final String namedPrimitiveFamily;
         private final boolean nonKeyPrimitive;
         private final Set<Integer> admissibleParameterSets;
+        /** A truncation the name spells that its family enumerates its truncations without, or {@code null}. */
+        private final AssetNormalizer.UnregisteredTruncation unregisteredTruncation;
         private final boolean parameterSetUnregistered;
         /** A genuine hybrid's post-quantum component that spells a size its family does not define, or {@code null}. */
         private final UnregisteredComponent unregisteredComponent;
@@ -357,8 +359,12 @@ public class PqcEvaluator {
             this.admissibleParameterSets = disposition == null || construction
                     ? null
                     : normalizer.admissibleParameterSets(input.name(), family);
-            this.parameterSetUnregistered = admissibleParameterSets != null && input.parameterSet() != null
+            boolean sizeUnregistered = admissibleParameterSets != null && input.parameterSet() != null
                     && !admissibleParameterSets.contains(input.parameterSet());
+            this.unregisteredTruncation = sizeUnregistered || admissibleParameterSets == null
+                    ? null
+                    : normalizer.unregisteredTruncation(input.name(), family);
+            this.parameterSetUnregistered = sizeUnregistered || unregisteredTruncation != null;
             this.unregisteredComponent = genuineHybrid ? unregisteredComponent(hybridComponents) : null;
             Integer ownSize = construction || nonKeyPrimitive || parameterSetUnregistered
                     ? null
@@ -526,7 +532,8 @@ public class PqcEvaluator {
      * There is no 64-bit AES and no ML-KEM-1000: a parameter set outside the family's registry enumeration is not a
      * weak instantiation but a record of something that does not exist, so no strength rule reads the number. A hybrid
      * is held to it by its post-quantum component, since the family rules do not read a hybrid:
-     * {@code X25519-ML-KEM-1000} is refused as {@code ML-KEM-1000} is.
+     * {@code X25519-ML-KEM-1000} is refused as {@code ML-KEM-1000} is. A truncation outside the family's enumeration is
+     * refused the same way, where the family enumerates its truncations: there is no {@code SHA-512/999}.
      */
     private PqcDecision parameterSetUnregistered(Reading reading, Integer level) {
         if (reading.genuineHybrid) {
@@ -542,6 +549,15 @@ public class PqcEvaluator {
         }
         if (!reading.parameterSetUnregistered) {
             return null;
+        }
+        if (reading.unregisteredTruncation != null) {
+            AssetNormalizer.UnregisteredTruncation truncation = reading.unregisteredTruncation;
+            return decision(PqcVerdict.UNKNOWN, PqcRules.PARAMETER_SET_UNREGISTERED,
+                    "The name truncates " + truncation.truncated() + " to " + truncation.truncation()
+                            + ", which is not a truncation the " + reading.family
+                            + " family defines; the registry admits " + truncation.admitted(),
+                    List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.PARAMETER_SET, PqcRules.VARIANT), reading.evidence,
+                    level);
         }
         return decision(PqcVerdict.UNKNOWN, PqcRules.PARAMETER_SET_UNREGISTERED,
                 "The recorded parameter set is not one the " + reading.family + " family defines; the registry admits "

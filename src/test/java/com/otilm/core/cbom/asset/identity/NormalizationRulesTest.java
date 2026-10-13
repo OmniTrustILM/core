@@ -336,6 +336,29 @@ class NormalizationRulesTest {
         assertThat(normalize("X25519-ML-KEM-99999").hybridComponents()).contains("ml-kem-99999");
     }
 
+    /** A truncation the registry does not enumerate for the family is reported, as a parameter set is. */
+    @Test
+    void aTruncationTheFamilyDoesNotDefineIsReportedToTheProducer() {
+        NormalizedAsset truncated = normalize("SHA-512/999");
+        assertThat(truncated.parameterSet()).isEqualTo(512);
+        assertThat(truncated.findings())
+                .singleElement()
+                .asString()
+                .contains("512")
+                .contains("999")
+                .contains("SHA-2")
+                .contains("512/224, 512/256");
+        assertThat(normalize("SHA-256/224").findings()).singleElement().asString().contains("256").contains("224");
+        for (String enumerated : new String[]{
+                "SHA-512/224",
+                "SHA-512-224",
+                "SHA-512/256",
+                "BLAKE2b-512/160",
+                "HMAC-SHA-512/999"}) {
+            assertThat(normalize(enumerated).findings()).describedAs(enumerated).isEmpty();
+        }
+    }
+
     /** A parameter set the registry does not enumerate for the family stays in the slot and is reported. */
     @Test
     void aParameterSetTheFamilyDoesNotDefineIsReportedToTheProducer() {

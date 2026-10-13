@@ -14,6 +14,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -306,6 +307,7 @@ public record AssetNormalizer(IdentityTables tables) {
         derivePrimitive(norm, algorithm);
         foldAuthenticatedEncryption(norm);
         reconcileParameterSetWithRegistry(norm);
+        reportUnregisteredTruncation(norm);
 
         List<String> dropped = new ArrayList<>();
         String residue = variantResidue(norm.name(), norm.parameterSet(), norm.mode(), norm.family(),
@@ -917,6 +919,48 @@ public record AssetNormalizer(IdentityTables tables) {
         norm
                 .finding("the recorded parameter set " + recorded + " is not one the " + norm.family()
                         + " family defines; the registry admits " + admitted);
+    }
+
+    private void reportUnregisteredTruncation(NormalizedAsset norm) {
+        UnregisteredTruncation unregistered = unregisteredTruncation(norm.name(), norm.family());
+        if (unregistered != null) {
+            norm
+                    .finding("the name truncates " + unregistered.truncated() + " to " + unregistered.truncation()
+                            + ", which is not a truncation the " + norm.family() + " family defines; the registry "
+                            + "admits " + unregistered.admitted());
+        }
+    }
+
+    /** A truncation the name spells that the family enumerates its truncations without: the 999 of SHA-512/999. */
+    public record UnregisteredTruncation(int truncated, int truncation, String admitted) {
+    }
+
+    /**
+     * The truncation the name spells beside the size it truncates, where the family enumerates its truncations and that
+     * is not one of them; {@code null} where the family enumerates none, as BLAKE2 does, so only an enumeration refuses
+     * a truncation. The truncated size is the first the name spells, as the parameter set parse reads it.
+     */
+    public UnregisteredTruncation unregisteredTruncation(String name, String family) {
+        Map<Integer, Set<Integer>> enumerated = family == null ? null : tables.admissibleTruncations().get(family);
+        if (enumerated == null || name == null) {
+            return null;
+        }
+        List<String> sizeRuns = sizeRunsSpelled(name);
+        String truncation = truncationSpelled(name, family, sizeRuns);
+        if (truncation == null || sizeRuns.get(0).length() > MAX_SPELLED_SIZE_DIGITS) {
+            return null;
+        }
+        int truncated = Integer.parseInt(sizeRuns.get(0));
+        int size = Integer.parseInt(truncation);
+        if (enumerated.getOrDefault(truncated, Set.of()).contains(size)) {
+            return null;
+        }
+        String admitted = new TreeMap<>(enumerated)
+                .entrySet()
+                .stream()
+                .flatMap(entry -> new TreeSet<>(entry.getValue()).stream().map(t -> entry.getKey() + "/" + t))
+                .collect(Collectors.joining(", "));
+        return new UnregisteredTruncation(truncated, size, admitted);
     }
 
     /**
@@ -1548,29 +1592,44 @@ public record AssetNormalizer(IdentityTables tables) {
                 kept.add(runs.group());
             }
         }
-        addTruncationMarker(kept, name, family, floor);
+        addTruncationMarker(kept, name, family);
         addLevelMarkers(kept, stripped, parameterSet);
         return kept;
+    }
+
+    private void addTruncationMarker(Set<String> kept, String name, String family) {
+        String truncation = truncationSpelled(name, family, sizeRunsSpelled(name));
+        if (truncation != null) {
+            kept.add("t" + truncation);
+        }
+    }
+
+    /** The digit runs at or above the size floor, in name order, as the name spells them. */
+    private List<String> sizeRunsSpelled(String name) {
+        BigInteger floor = BigInteger.valueOf(tables.sizeMin());
+        List<String> runs = new ArrayList<>();
+        Matcher nameRuns = DIGITS.matcher(name);
+        while (nameRuns.find()) {
+            if (new BigInteger(nameRuns.group()).compareTo(floor) >= 0) {
+                runs.add(nameRuns.group());
+            }
+        }
+        return runs;
     }
 
     /**
      * A trailing separator-delimited digest length is a TRUNCATION marker, but only when the name carries a base length
      * too -- otherwise {@code SHA-256} would read its own only digit run as a truncation of itself. Both spellings must
-     * produce the same marker: NIST writes {@code SHA-512/224} and producers write {@code SHA-512-224}.
+     * produce the same marker: NIST writes {@code SHA-512/224} and producers write {@code SHA-512-224}. The digits as
+     * the name spells them, or {@code null}.
      */
-    private void addTruncationMarker(Set<String> kept, String name, String family, BigInteger floor) {
-        int runsAtOrAboveFloor = 0;
-        Matcher nameRuns = DIGITS.matcher(name);
-        while (nameRuns.find()) {
-            if (new BigInteger(nameRuns.group()).compareTo(floor) >= 0) {
-                runsAtOrAboveFloor++;
-            }
-        }
+    private String truncationSpelled(String name, String family, List<String> sizeRuns) {
         Matcher truncation = TRUNCATION.matcher(AsciiText.strip(name));
-        if (truncation.find() && family != null && tables.truncatableFamilies().contains(family)
-                && runsAtOrAboveFloor >= 2 && Integer.parseInt(truncation.group(1)) >= tables.sizeMin()) {
-            kept.add("t" + truncation.group(1));
+        if (truncation.find() && family != null && tables.truncatableFamilies().contains(family) && sizeRuns.size() >= 2
+                && Integer.parseInt(truncation.group(1)) >= tables.sizeMin()) {
+            return truncation.group(1);
         }
+        return null;
     }
 
     /**

@@ -59,6 +59,12 @@ whose pattern templates the size or carries none. The PQC rules refuse a
 recorded parameter set outside its family's enumeration, so the set is generated, never
 hand-typed.
 
+`admissibleTruncations` is read out of the same patterns: the truncated forms a family
+enumerates, keyed on the size they truncate (SHA-2's `512/224` and `512/256`, and no
+other family enumerates one). The PQC rules refuse a truncation outside its family's
+enumeration as they refuse a parameter set, and leave a family that enumerates none
+unconstrained, so `BLAKE2b-512/160` is judged by its length alone.
+
 The remaining grammar, sentinel, pseudo-family, primitive-default, DN short-name,
 and intrinsic-size decisions live in `scripts/cbom/build_identity_tables.py`.
 They are local policy decisions or corpus-ratified repairs, not complete upstream

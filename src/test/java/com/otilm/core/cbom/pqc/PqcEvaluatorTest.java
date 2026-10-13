@@ -297,6 +297,43 @@ class PqcEvaluatorTest {
     }
 
     /**
+     * SHA-2 enumerates its truncations beside its sizes, and a truncation it does not enumerate is as unregistered as a
+     * size it does not: there is no SHA-512/999 and no SHA-256/224. A family that enumerates none is held to its length
+     * alone, and a construction's trailing number is a tag.
+     */
+    @Test
+    void aTruncationTheFamilyDoesNotDefineIsRefusedRatherThanScored() {
+        for (String unregistered : new String[]{"SHA-512/999", "SHA-512/384", "SHA-256/224", "SHA512-384"}) {
+            PqcDecision decision = verdictOf(algorithm(unregistered));
+            assertThat(decision.verdict()).describedAs(unregistered).isEqualTo(PqcVerdict.UNKNOWN);
+            assertThat(decision.ruleId()).describedAs(unregistered).isEqualTo("PARAMETER-SET-UNREGISTERED");
+        }
+        PqcDecision decision = verdictOf(algorithm("SHA-512/999"));
+        assertThat(decision.reason()).contains("512").contains("999").contains("SHA-2").contains("512/224, 512/256");
+        assertThat(decision.evaluatedFields()).containsEntry("parameterSet", 512);
+        assertThat(verdictOf(material("SHA-512/384", "secret-key", 256)).ruleId())
+                .describedAs("a key named for the truncation is refused as the algorithm is")
+                .isEqualTo("PARAMETER-SET-UNREGISTERED");
+        assertThat(verdictOf(
+                component("algorithm", "SHA-512/999", "{\"algorithmProperties\":{\"parameterSetIdentifier\":\"512\"}}"))
+                .ruleId())
+                .describedAs("a declared 512 does not redeem the truncation")
+                .isEqualTo("PARAMETER-SET-UNREGISTERED");
+        for (String enumerated : new String[]{"SHA-512/224", "SHA-512-224", "SHA512/224"}) {
+            assertThat(verdictOf(algorithm(enumerated)).ruleId())
+                    .describedAs(enumerated)
+                    .isEqualTo("SYMMETRIC-UNDERSIZED");
+        }
+        assertThat(verdictOf(algorithm("SHA-512/256")).ruleId()).isEqualTo("SYMMETRIC-READY");
+        assertThat(verdictOf(algorithm("BLAKE2b-512/160")).ruleId())
+                .describedAs("BLAKE2 enumerates no truncation, so none is refused")
+                .isEqualTo("SYMMETRIC-UNDERSIZED");
+        assertThat(verdictOf(algorithm("HMAC-SHA-512/999")).ruleId())
+                .describedAs("a construction's trailing number is a tag")
+                .isEqualTo("SYMMETRIC-READY");
+    }
+
+    /**
      * A key's declared size is a fact about the key, whatever its name records: below the floor it is weak even when
      * the name spells a parameter set the family does not define, and only at the floor does the name's refusal decide.
      */
