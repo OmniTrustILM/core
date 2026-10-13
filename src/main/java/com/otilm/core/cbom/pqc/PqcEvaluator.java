@@ -332,6 +332,8 @@ public class PqcEvaluator {
         private final String namedPrimitiveFamily;
         private final boolean nonKeyPrimitive;
         private final Set<Integer> admissibleParameterSets;
+        /** The sizes a construction's keyed cipher defines, or {@code null}: the AES sets behind {@code AES-CMAC}. */
+        private final Set<Integer> cipherParameterSets;
         /** A truncation the name spells that its family enumerates its truncations without, or {@code null}. */
         private final AssetNormalizer.UnregisteredTruncation unregisteredTruncation;
         private final boolean parameterSetUnregistered;
@@ -359,6 +361,7 @@ public class PqcEvaluator {
             this.admissibleParameterSets = disposition == null || construction
                     ? null
                     : normalizer.admissibleParameterSets(input.name(), family);
+            this.cipherParameterSets = construction ? cipherParameterSets(input, namedPrimitiveFamily) : null;
             boolean sizeUnregistered = admissibleParameterSets != null && input.parameterSet() != null
                     && !admissibleParameterSets.contains(input.parameterSet());
             this.unregisteredTruncation = sizeUnregistered || admissibleParameterSets == null
@@ -381,11 +384,14 @@ public class PqcEvaluator {
 
         /**
          * Recorded with no size, in a family that defines sizes below the floor: {@code AES} may be AES-128, so family
-         * membership no longer vouches for it. A non-key primitive's size is no key size, so it is never unsized.
+         * membership no longer vouches for it, and neither does {@code AES-CMAC}, whose key is the cipher's. A non-key
+         * primitive's size is no key size, so it is never unsized; a construction's key is its cipher's, whatever its
+         * primitive.
          */
         private boolean unsizedBelowTheFloor() {
-            return recordedSize == null && !nonKeyPrimitive && admissibleParameterSets != null
-                    && admissibleParameterSets.stream().anyMatch(size -> size < PqcRules.MIN_SYMMETRIC_KEY_BITS);
+            Set<Integer> keySizes = construction ? cipherParameterSets : admissibleParameterSets;
+            return recordedSize == null && (construction || !nonKeyPrimitive) && keySizes != null
+                    && keySizes.stream().anyMatch(size -> size < PqcRules.MIN_SYMMETRIC_KEY_BITS);
         }
 
         /** A primitive is its own strength; a construction's is its named primitive's, when it names a sound one. */
@@ -750,13 +756,21 @@ public class PqcEvaluator {
      * primitive's number is a digest length, not a key, so an HMAC reads none.
      */
     private Integer cipherKeySize(PqcRuleInput input, String cipherFamily) {
+        Set<Integer> admissible = cipherParameterSets(input, cipherFamily);
+        if (admissible == null) {
+            return null;
+        }
+        Integer spelled = normalizer.registrySizeSpelled(input.name(), cipherFamily);
+        return spelled != null && admissible.contains(spelled) ? spelled : null;
+    }
+
+    /** The key sizes the registry admits for a construction's keyed cipher, or {@code null} where it names none. */
+    private Set<Integer> cipherParameterSets(PqcRuleInput input, String cipherFamily) {
         if (cipherFamily == null
                 || !KEYED_CIPHERS.contains(normalizer.tables().primitiveDefaults().get(cipherFamily))) {
             return null;
         }
-        Integer spelled = normalizer.registrySizeSpelled(input.name(), cipherFamily);
-        Set<Integer> admissible = normalizer.admissibleParameterSets(input.name(), cipherFamily);
-        return spelled != null && admissible != null && admissible.contains(spelled) ? spelled : null;
+        return normalizer.admissibleParameterSets(input.name(), cipherFamily);
     }
 
     /**

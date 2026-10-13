@@ -273,14 +273,26 @@ class PqcEvaluatorTest {
             assertThat(decision.verdict()).describedAs(undersized).isEqualTo(PqcVerdict.NOT_READY);
             assertThat(decision.ruleId()).describedAs(undersized).isEqualTo("SYMMETRIC-UNDERSIZED");
         }
-        for (String ready : new String[]{
-                "AES-256-CMAC",
-                "AES-256-CMAC-96",
-                "AES-CMAC-96",
-                "CMAC-AES-64",
-                "HMAC-SHA3-224"}) {
+        for (String ready : new String[]{"AES-256-CMAC", "AES-256-CMAC-96", "HMAC-SHA3-224"}) {
             assertThat(verdictOf(algorithm(ready)).ruleId()).describedAs(ready).isEqualTo("SYMMETRIC-READY");
         }
+    }
+
+    /**
+     * A construction over a cipher that spells no key size is unsized as the bare cipher is: {@code AES-CMAC} may be
+     * AES-128. A tag length still spells no key, so {@code AES-CMAC-96} is unsized too. A hash construction's number is
+     * a digest length, so HMAC keeps its reading.
+     */
+    @Test
+    void aConstructionOverAnUnsizedCipherIsUnsizedAsTheCipherIs() {
+        for (String unsized : new String[]{"AES-CMAC", "CMAC-AES", "AES-GMAC", "AES-CMAC-96", "CMAC-AES-64"}) {
+            PqcDecision decision = verdictOf(algorithm(unsized));
+            assertThat(decision.verdict()).describedAs(unsized).isEqualTo(PqcVerdict.UNKNOWN);
+            assertThat(decision.ruleId()).describedAs(unsized).isEqualTo("SYMMETRIC-UNSIZED");
+        }
+        assertThat(verdictOf(algorithm("AES")).ruleId()).isEqualTo("SYMMETRIC-UNSIZED");
+        assertThat(verdictOf(algorithm("HMAC-SHA256")).ruleId()).isEqualTo("SYMMETRIC-READY");
+        assertThat(verdictOf(material("AES-CMAC", "key", 256)).ruleId()).isEqualTo("SYMMETRIC-READY");
     }
 
     /** A truncated digest is as long as its output, not as the hash it was truncated from. */
@@ -579,7 +591,7 @@ class PqcEvaluatorTest {
         for (String instantiated : new String[]{
                 "HMAC-SHA256",
                 "hmacsha2",
-                "AES-CMAC",
+                "AES-256-CMAC",
                 "HKDF-SHA256",
                 "PBKDF2-HMAC-SHA256"}) {
             assertThat(verdictOf(algorithm(instantiated)).ruleId())
@@ -738,10 +750,15 @@ class PqcEvaluatorTest {
                     .isEqualTo("SYMMETRIC-READY");
         }
         assertThat(verdictOf(material("HMAC-SHA256", "secret-key", 64)).ruleId()).isEqualTo("MATERIAL-SYMMETRIC-WEAK");
-        for (String tagged : new String[]{"AES-CMAC-96", "CMAC-AES-64", "HMAC-SHA256-96", "HMAC-SHA-512/256"}) {
+        for (String tagged : new String[]{"HMAC-SHA256-96", "HMAC-SHA-512/256"}) {
             assertThat(verdictOf(algorithm(tagged)).ruleId())
                     .describedAs("algorithm %s", tagged)
                     .isEqualTo("SYMMETRIC-READY");
+        }
+        for (String tagged : new String[]{"AES-CMAC-96", "CMAC-AES-64"}) {
+            assertThat(verdictOf(algorithm(tagged)).ruleId())
+                    .describedAs("algorithm %s, whose tag length is no key", tagged)
+                    .isEqualTo("SYMMETRIC-UNSIZED");
         }
     }
 
@@ -1152,7 +1169,7 @@ class PqcEvaluatorTest {
                     .describedAs("name %s", name)
                     .isEqualTo("CLASSICAL-LEGACY-COMPONENT");
         }
-        assertThat(verdictOf(algorithm("AES-CMAC")).ruleId())
+        assertThat(verdictOf(algorithm("AES-256-CMAC")).ruleId())
                 .describedAs("a sound component must not drag a sound family down")
                 .isEqualTo("SYMMETRIC-READY");
     }
