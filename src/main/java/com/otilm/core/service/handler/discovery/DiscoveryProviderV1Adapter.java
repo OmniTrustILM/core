@@ -445,7 +445,7 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
                         .getDiscoveryData(context.getConnectorDto(), getRequest, response.getUuid());
             } catch (ConnectorException e) {
                 context.setDiscoveryFailed("Discovery has failed on connector side while waiting for completion");
-                throw new DiscoveryException(discovery.getName(), context.getMessage());
+                throw new DiscoveryException(discovery.getName(), context.getMessage(), e);
             }
 
             logger

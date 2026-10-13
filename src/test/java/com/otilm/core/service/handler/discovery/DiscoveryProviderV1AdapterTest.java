@@ -212,6 +212,26 @@ class DiscoveryProviderV1AdapterTest {
     }
 
     @Test
+    void aConnectorFailureWhilePollingIsLoggedByTypeOnly() throws ConnectorException {
+        connectAs();
+        prepareRun();
+        when(discoveryProperties.sleepTimeMs()).thenReturn(1);
+        DiscoveryProviderDto started = new DiscoveryProviderDto();
+        started.setUuid("provider-run");
+        started.setName("unit-run");
+        started.setStatus(DiscoveryStatus.IN_PROGRESS);
+        when(providerClient.discoverCertificates(any(), any())).thenReturn(started);
+        when(providerClient.getDiscoveryData(any(), any(), any()))
+                .thenThrow(new ConnectorClientException(CONNECTOR_BODY, HttpStatus.BAD_REQUEST));
+
+        adapter.start(run.getUuid(), null);
+
+        assertThat(logged.list)
+                .noneSatisfy(event -> assertThat(rendered(event)).contains(CONNECTOR_BODY))
+                .anySatisfy(event -> assertThat(rendered(event)).contains("ConnectorClientException"));
+    }
+
+    @Test
     void aRunTheLastResortEndedStaysEndedWhenItsDetailCannotBeRead() throws ConnectorException {
         connectAs();
         prepareRun();
