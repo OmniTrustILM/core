@@ -26,6 +26,11 @@ public class DiscoveryContext {
 
     private List<MetadataAttribute> metadata;
 
+    /** The run's metadata has been offered to the engine, whatever came of it; it is stored once per run. */
+    private boolean runMetadataHandled;
+    /** The engine could not store the run's metadata. Advisory: the run's outcome stands, its message says so. */
+    private boolean runMetadataNotStored;
+
     public DiscoveryContext(UUID loggedUserUuid, ConnectorDto connectorDto, Discovery discovery,
             List<DataAttribute> dataAttributes) {
         this.loggedUserUuid = loggedUserUuid;
