@@ -22,6 +22,7 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.service.EventExternalService;
 import com.otilm.core.service.ResourceInternalService;
+import com.otilm.core.util.RequestValidatorHelper;
 import jakarta.transaction.Transactional;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -74,6 +75,7 @@ public class EventServiceImpl implements EventExternalService {
         // Check if object is present for the given resource and uuid and if user has permissions for details of the
         // object
         resourceService.getResourceObject(resource, uuid);
+        RequestValidatorHelper.revalidatePaginationRequestDto(pagination);
         Page<TriggerHistory> triggerHistoryPage = triggerHistoryRepository
                 .findByObjectUuidAndObjectResourceOrderByTriggeredAtDesc(uuid, resource,
                         PageRequest.of(pagination.getPageNumber() - 1, pagination.getItemsPerPage()));
@@ -160,6 +162,8 @@ public class EventServiceImpl implements EventExternalService {
             // object
             resourceService.getResourceObject(resource, uuid);
         }
+        RequestValidatorHelper.revalidatePaginationRequestDto(request.getPagination());
+        RequestValidatorHelper.revalidatePaginationRequestDto(request.getObjectsPagination());
 
         Page<EventHistory> eventHistories = eventHistoryRepository
                 .findByEventAndResourceAndResourceUuidOrderByStartedAtDesc(event, resource, uuid, PageRequest

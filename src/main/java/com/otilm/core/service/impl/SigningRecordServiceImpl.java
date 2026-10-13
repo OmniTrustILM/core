@@ -42,6 +42,7 @@ import com.otilm.core.service.SigningRecordExternalService;
 import com.otilm.core.service.SigningRecordInternalService;
 import com.otilm.core.service.writer.signingrecord.SigningRecordWriter;
 import com.otilm.core.util.FilterPredicatesBuilder;
+import com.otilm.core.util.RequestValidatorHelper;
 import com.otilm.core.util.SearchHelper;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
@@ -355,6 +356,7 @@ public class SigningRecordServiceImpl implements SigningRecordExternalService, S
      */
     private PaginationResponseDto<SigningRecordListDto> listRecords(SearchRequestDto request, SecurityFilter filter,
             UUID signingProfileUuid) {
+        RequestValidatorHelper.revalidateSearchRequestDto(request);
         filter.setParentRefProperty(SIGNING_PROFILE_PARENT_REF);
         Pageable p = PageRequest.of(request.getPageNumber() - 1, request.getItemsPerPage());
         final Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();

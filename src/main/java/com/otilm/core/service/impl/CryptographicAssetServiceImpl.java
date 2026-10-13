@@ -1,7 +1,6 @@
 package com.otilm.core.service.impl;
 
 import com.otilm.api.exception.NotFoundException;
-import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.client.dashboard.CryptographicAssetStatisticsDto;
@@ -118,9 +117,6 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
     // keeps carrying the true total, the same served-vs-true pattern occurrenceCount already uses.
     private static final int MAX_SERVED_SOURCES = 100;
 
-    // The OpenAPI schema documents 1000 as the maximum items per page; this is where it is actually enforced.
-    private static final int MAX_ITEMS_PER_PAGE = 1000;
-
     private CryptoAssetRepository cryptoAssetRepository;
 
     private CryptoAssetSourceRepository cryptoAssetSourceRepository;
@@ -204,7 +200,6 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
             TriFunction<Root<CryptoAsset>, CriteriaBuilder, CriteriaQuery<?>, Predicate> scope,
             Function<List<UUID>, List<T>> rowsOf) {
         RequestValidatorHelper.revalidateSearchRequestDto(request, Resource.CRYPTO_ASSET);
-        validatePaging(request);
         final Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
         TriFunction<Root<CryptoAsset>, CriteriaBuilder, CriteriaQuery<?>, Predicate> where = (root, cb, query) -> {
             Predicate filters = FilterPredicatesBuilder
@@ -612,26 +607,6 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
     @ExternalAuthorization(resource = Resource.CRYPTO_ASSET, action = ResourceAction.DETAIL)
     public void evaluatePermissionChain(SecuredUUID uuid) throws NotFoundException {
         cryptoAssetRepository.findByUuid(uuid).orElseThrow(() -> new NotFoundException(CryptoAsset.class, uuid));
-    }
-
-    private static void validatePaging(SearchRequestDto request) {
-        // PageRequest would otherwise turn an out-of-range value into a 500 rather than a shaped 422.
-        if (request.getPageNumber() < 1) {
-            throw new ValidationException("Page number must be at least 1, but was " + request.getPageNumber());
-        }
-        if (request.getItemsPerPage() < 1) {
-            throw new ValidationException("Items per page must be at least 1, but was " + request.getItemsPerPage());
-        }
-        if (request.getItemsPerPage() > MAX_ITEMS_PER_PAGE) {
-            request.setItemsPerPage(MAX_ITEMS_PER_PAGE);
-        }
-        // The JPA offset is an int. An unchecked (pageNumber - 1) * itemsPerPage either throws deep in Hibernate
-        // (a 400, not the shaped 422) or -- worse -- wraps positive and silently serves the wrong page while
-        // echoing the requested page number.
-        if ((long) (request.getPageNumber() - 1) * request.getItemsPerPage() > Integer.MAX_VALUE) {
-            throw new ValidationException("Page number " + request.getPageNumber() + " with "
-                    + request.getItemsPerPage() + " items per page exceeds the addressable offset.");
-        }
     }
 
     /**
