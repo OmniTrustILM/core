@@ -349,12 +349,19 @@ class NormalizationRulesTest {
                 .contains("SHA-2")
                 .contains("512/224, 512/256");
         assertThat(normalize("SHA-256/224").findings()).singleElement().asString().contains("256").contains("224");
+        assertThat(normalize("SHA-512/32").findings())
+                .describedAs("a truncation below the size floor is refused, not read as SHA-512")
+                .singleElement()
+                .asString()
+                .contains("512 to 32");
         for (String enumerated : new String[]{
                 "SHA-512/224",
                 "SHA-512-224",
                 "SHA-512/256",
                 "BLAKE2b-512/160",
-                "HMAC-SHA-512/999"}) {
+                "HMAC-SHA-512/999",
+                "SHA-256",
+                "SHA-2-256"}) {
             assertThat(normalize(enumerated).findings()).describedAs(enumerated).isEmpty();
         }
     }

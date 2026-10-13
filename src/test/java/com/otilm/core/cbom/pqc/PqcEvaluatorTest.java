@@ -303,7 +303,15 @@ class PqcEvaluatorTest {
      */
     @Test
     void aTruncationTheFamilyDoesNotDefineIsRefusedRatherThanScored() {
-        for (String unregistered : new String[]{"SHA-512/999", "SHA-512/384", "SHA-256/224", "SHA512-384"}) {
+        for (String unregistered : new String[]{
+                "SHA-512/999",
+                "SHA-512/384",
+                "SHA-256/224",
+                "SHA512-384",
+                "SHA-512/32",
+                "SHA-512/63",
+                "SHA-512/8",
+                "SHA-512/123456"}) {
             PqcDecision decision = verdictOf(algorithm(unregistered));
             assertThat(decision.verdict()).describedAs(unregistered).isEqualTo(PqcVerdict.UNKNOWN);
             assertThat(decision.ruleId()).describedAs(unregistered).isEqualTo("PARAMETER-SET-UNREGISTERED");

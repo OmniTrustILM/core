@@ -181,6 +181,8 @@ public record AssetNormalizer(IdentityTables tables) {
 
     private static final Pattern TRUNCATION = Pattern.compile("[/-](\\d{2,5})\\s*$");
 
+    private static final Pattern ANY_TRUNCATION = Pattern.compile("[/-](\\d+)\\s*$");
+
     private static final Pattern LEVEL_MARKER = Pattern
             .compile("(?<![A-Za-z0-9])([A-Za-z]{1,3}\\d{1,4})(?![A-Za-z0-9])");
 
@@ -932,27 +934,37 @@ public record AssetNormalizer(IdentityTables tables) {
     }
 
     /** A truncation the name spells that the family enumerates its truncations without: the 999 of SHA-512/999. */
-    public record UnregisteredTruncation(int truncated, int truncation, String admitted) {
+    public record UnregisteredTruncation(int truncated, String truncation, String admitted) {
     }
 
     /**
      * The truncation the name spells beside the size it truncates, where the family enumerates its truncations and that
      * is not one of them; {@code null} where the family enumerates none, as BLAKE2 does, so only an enumeration refuses
-     * a truncation. The truncated size is the first the name spells, as the parameter set parse reads it.
+     * a truncation. The truncated size is the first the name spells, as the parameter set parse reads it. The
+     * truncation is read without the size floor the marker applies, so {@code SHA-512/32} is refused rather than read
+     * as SHA-512.
      */
     public UnregisteredTruncation unregisteredTruncation(String name, String family) {
         Map<Integer, Set<Integer>> enumerated = family == null ? null : tables.admissibleTruncations().get(family);
-        if (enumerated == null || name == null) {
+        if (enumerated == null || name == null || !tables.truncatableFamilies().contains(family)) {
             return null;
         }
-        List<String> sizeRuns = sizeRunsSpelled(name);
-        String truncation = truncationSpelled(name, family, sizeRuns);
-        if (truncation == null || sizeRuns.get(0).length() > MAX_SPELLED_SIZE_DIGITS) {
+        String stripped = AsciiText.strip(name);
+        Matcher truncation = ANY_TRUNCATION.matcher(stripped);
+        if (!truncation.find()) {
+            return null;
+        }
+        List<String> sizeRuns = sizeRunsSpelled(stripped.substring(0, truncation.start()));
+        if (sizeRuns.isEmpty() || sizeRuns.get(0).length() > MAX_SPELLED_SIZE_DIGITS) {
             return null;
         }
         int truncated = Integer.parseInt(sizeRuns.get(0));
-        int size = Integer.parseInt(truncation);
-        if (enumerated.getOrDefault(truncated, Set.of()).contains(size)) {
+        String spelled = truncation.group(1);
+        BigInteger size = new BigInteger(spelled);
+        if (enumerated
+                .getOrDefault(truncated, Set.of())
+                .stream()
+                .anyMatch(admitted -> BigInteger.valueOf(admitted).equals(size))) {
             return null;
         }
         String admitted = new TreeMap<>(enumerated)
@@ -960,7 +972,7 @@ public record AssetNormalizer(IdentityTables tables) {
                 .stream()
                 .flatMap(entry -> new TreeSet<>(entry.getValue()).stream().map(t -> entry.getKey() + "/" + t))
                 .collect(Collectors.joining(", "));
-        return new UnregisteredTruncation(truncated, size, admitted);
+        return new UnregisteredTruncation(truncated, spelled, admitted);
     }
 
     /**
