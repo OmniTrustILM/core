@@ -1,6 +1,7 @@
 package com.otilm.core.integration.service;
 
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.client.dashboard.SigningRecordStatisticsDto;
 import com.otilm.api.model.client.dashboard.SigningRecordStatisticsPeriod;
@@ -288,6 +289,15 @@ class SigningRecordServiceITest extends BaseSpringBootTest {
             // then
             assertEquals(3, response.getTotalItems());
             assertEquals(2, response.getItems().size());
+        }
+
+        @Test
+        void refusesPageSizeAboveMaximum() {
+            SearchRequestDto oversizedPage = SearchRequestDtoBuilder.aSearchRequest().withItemsPerPage(1001).build();
+            SecurityFilter filter = SecurityFilter.create();
+
+            assertThrows(ValidationException.class,
+                    () -> signingRecordService.listSigningRecords(oversizedPage, filter));
         }
     }
 

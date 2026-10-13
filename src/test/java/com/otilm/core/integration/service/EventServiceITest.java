@@ -238,7 +238,46 @@ class EventServiceITest extends BaseSpringBootTest {
         Assertions.assertNull(response.getItems().getFirst().getNotificationsSent());
     }
 
+    @Test
+    void testGetObjectEventHistoryRefusesPageSizeAboveMaximum() {
+        PaginationRequestDto oversizedPage = pagination(1001, 1);
+        Assertions
+                .assertThrows(ValidationException.class,
+                        () -> eventService.getEventHistory(Resource.CERTIFICATE, certificateUuid, oversizedPage));
+    }
+
+    @Test
+    void testGetObjectEventHistoryReportsUnknownObjectBeforeInvalidPaging() {
+        PaginationRequestDto oversizedPage = pagination(1001, 1);
+        UUID unknownUuid = UUID.randomUUID();
+        Assertions
+                .assertThrows(NotFoundException.class,
+                        () -> eventService.getEventHistory(Resource.CERTIFICATE, unknownUuid, oversizedPage));
+    }
+
     // ── getEventHistory(ResourceEvent, Resource, UUID, EventHistoryRequestDto) ──
+
+    @Test
+    void testGetEventHistoryRefusesPageSizeAboveMaximum() {
+        EventHistoryRequestDto request = eventHistoryRequest();
+        request.getPagination().setItemsPerPage(1001);
+        Assertions
+                .assertThrows(ValidationException.class,
+                        () -> eventService
+                                .getEventHistory(ResourceEvent.CERTIFICATE_DISCOVERED, Resource.CERTIFICATE,
+                                        certificateUuid, request));
+    }
+
+    @Test
+    void testGetEventHistoryRefusesObjectsPageSizeAboveMaximum() {
+        EventHistoryRequestDto request = eventHistoryRequest();
+        request.getObjectsPagination().setItemsPerPage(1001);
+        Assertions
+                .assertThrows(ValidationException.class,
+                        () -> eventService
+                                .getEventHistory(ResourceEvent.CERTIFICATE_DISCOVERED, Resource.CERTIFICATE,
+                                        certificateUuid, request));
+    }
 
     @Test
     void testGetEventHistoryThrowsWhenOnlyResourceProvided() {
