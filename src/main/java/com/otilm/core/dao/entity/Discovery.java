@@ -28,10 +28,12 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
+import org.hibernate.annotations.Formula;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.SQLJoinTableRestriction;
 import org.hibernate.proxy.HibernateProxy;
@@ -80,11 +82,12 @@ public class Discovery extends UniquelyIdentifiedAndAudited implements Serializa
     private ConnectorInterfaceEntity connectorInterface;
 
     // What the run targets. TEXT[] of enum member names, the platform's shape for a flat enum list
-    // (connector_interface.features). Null on a v1 run, which targets certificates by definition.
+    // (connector_interface.features). Certificates until a v2 create sets its own: a v1 run can target nothing else,
+    // and the listing filters every run on this column alike.
     @Enumerated(EnumType.STRING)
-    @Column(name = "resources", columnDefinition = "text[]")
+    @Column(name = "resources", columnDefinition = "text[]", nullable = false)
     @JdbcTypeCode(SqlTypes.ARRAY)
-    private List<Resource> resources;
+    private List<Resource> resources = new ArrayList<>(List.of(Resource.CERTIFICATE));
 
     // ---- Where it has got to ----
 
@@ -158,6 +161,15 @@ public class Discovery extends UniquelyIdentifiedAndAudited implements Serializa
     // Certificate items the connector reported, repeats included, so it can exceed the distinct count staged.
     @Column(name = "connector_total_certificates_discovered")
     private Integer connectorTotalCertificatesDiscovered;
+
+    // Items found across every resource, what the listing shows and filters on. Derived rather than stored, so it
+    // cannot drift from the figures it reads. A v2 run's drain cursor counts the items received; a v1 run never moves
+    // its cursor and finds certificates only. Read off the cursor rather than the interface: a connector's delete
+    // releases its ended runs from their interface, and they must keep their total.
+    @Formula("CASE WHEN last_applied_sequence > 0 THEN last_applied_sequence"
+            + " ELSE COALESCE(total_certificates_discovered, 0) END")
+    @Setter(AccessLevel.NONE)
+    private long totalItemsDiscovered;
 
     // ---- Who asked for it ----
 

@@ -845,7 +845,8 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
         discovery.setName(request.getName());
         discovery.setConnectorName(connector.getName());
         // The association is what routes every later operation to the v2 adapter; without it the run is a v1 run
-        // no matter what the connector implements.
+        // no matter what the connector implements. A v1 run keeps the entity's resources, certificates, which is all
+        // it can target.
         if (discoveryInterface != null) {
             discovery.setConnectorInterface(discoveryInterface);
             discovery.setResources(List.copyOf(request.getResources()));
@@ -961,6 +962,8 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
                         SearchHelper.prepareSearch(FilterField.DISCOVERY_START_TIME),
                         SearchHelper.prepareSearch(FilterField.DISCOVERY_END_TIME),
                         SearchHelper.prepareSearch(FilterField.DISCOVERY_TOTAL_CERT_DISCOVERED),
+                        SearchHelper.prepareSearch(FilterField.DISCOVERY_TOTAL_ITEMS_DISCOVERED),
+                        SearchHelper.prepareSearch(FilterField.DISCOVERY_RESOURCES),
                         SearchHelper
                                 .prepareSearch(FilterField.DISCOVERY_CONNECTOR_NAME,
                                         discoveryRepository.findDistinctConnectorName()),

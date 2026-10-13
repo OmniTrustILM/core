@@ -61,6 +61,7 @@ class PropertyColumnDisplayabilityITest extends BaseSpringBootTest {
                                 .of(FilterField.DISCOVERY_NAME, FilterField.DISCOVERY_START_TIME,
                                         FilterField.DISCOVERY_END_TIME, FilterField.DISCOVERY_STATUS,
                                         FilterField.DISCOVERY_TOTAL_CERT_DISCOVERED,
+                                        FilterField.DISCOVERY_TOTAL_ITEMS_DISCOVERED, FilterField.DISCOVERY_RESOURCES,
                                         FilterField.DISCOVERY_CONNECTOR_NAME, FilterField.DISCOVERY_KIND));
 
         offeredColumns
