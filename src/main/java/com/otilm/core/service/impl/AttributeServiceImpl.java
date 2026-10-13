@@ -3,6 +3,8 @@ package com.otilm.core.service.impl;
 import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationError;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.AttributeDefinitionDto;
 import com.otilm.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
 import com.otilm.api.model.client.attribute.custom.CustomAttributeDefinitionDetailDto;
@@ -350,6 +352,14 @@ public class AttributeServiceImpl implements AttributeExternalService, Attribute
         AttributeDefinition definition = attributeDefinitionRepository
                 .findByConnectorUuidAndAttributeUuid(connectorUUid, uuid)
                 .orElseThrow(() -> new NotFoundException(AttributeDefinition.class, uuid.toString()));
+        // One global definition per name: promoting onto a taken name would leave two, and a connector that declares
+        // this metadata global looks it up by name. The unique key backstops two promotions at once.
+        if (!Boolean.TRUE.equals(definition.getGlobal()) && Boolean.TRUE
+                .equals(attributeDefinitionRepository
+                        .existsByTypeAndNameAndGlobalTrue(AttributeType.META, definition.getName()))) {
+            throw new ValidationException(ValidationError
+                    .create("Global metadata named '%s' already exists".formatted(definition.getName())));
+        }
         definition.setGlobal(true);
         attributeDefinitionRepository.save(definition);
         return getGlobalMetadata(definition.getUuid());

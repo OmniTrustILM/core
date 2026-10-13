@@ -109,4 +109,28 @@ public class DiscoveryWriter {
         });
     }
 
+    /**
+     * Ends a v1 run Core failed to finish unless it has an end time, so a run parked in a mid-run {@code WARNING} is
+     * ended too. The caller runs it in a transaction of its own; the row lock keeps a concurrent ending, and it reads
+     * nothing else, so no failing read can roll the ending back.
+     *
+     * @return whether it ended the run; false when the run is gone or has already ended
+     */
+    @Transactional
+    public boolean markFailedUnlessEnded(UUID discoveryUuid, String message) {
+        return discoveryRepository
+                .findWithLockByUuid(discoveryUuid)
+                .filter(discovery -> discovery.getEndTime() == null)
+                .map(discovery -> {
+                    discovery.setStatus(DiscoveryStatus.FAILED);
+                    if (!DiscoveryRunLifecycle.isTerminal(discovery.getConnectorStatus())) {
+                        discovery.setConnectorStatus(DiscoveryStatus.FAILED);
+                    }
+                    discovery.setMessage(message);
+                    discovery.setEndTime(OffsetDateTime.now(ZoneOffset.UTC));
+                    return true;
+                })
+                .orElse(false);
+    }
+
 }
