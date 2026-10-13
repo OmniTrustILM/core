@@ -41,8 +41,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
 /**
- * Two registrations of the same new attribute definition at once must leave one row and fail neither. Before the unique
- * keys and the insert that tolerates them, both inserted, and every later lookup of the definition failed.
+ * Two registrations of the same new attribute definition at once must leave one row and fail neither: with two rows,
+ * every later lookup of the definition fails.
  */
 class AttributeDefinitionUniquenessITest extends BaseSpringBootTest {
 

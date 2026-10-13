@@ -702,10 +702,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
                 .containsExactly(DiscoveryMessageCode.RUN_METADATA_NOT_RECORDED.code());
     }
 
-    /**
-     * A failure the engine does not report as a refusal, such as a database fault, must not cost the run its answer:
-     * the statement is dropped with a message and the connector's state still applies.
-     */
+    /** A database fault arrives unchecked, unlike the engine's checked refusal, and is caught all the same. */
     @Test
     void aStatementTheDatabaseRefuses_isDroppedWithAMessageAndTheAnswerApplies() throws Exception {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);

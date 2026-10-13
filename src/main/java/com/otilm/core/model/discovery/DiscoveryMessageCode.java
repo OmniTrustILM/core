@@ -9,7 +9,7 @@ package com.otilm.core.model.discovery;
  * (see {@link DiscoveryMessageDraft}).
  *
  * <p>
- * Each code has exactly one producer, which owns the severity and the curated text that go with it.
+ * A code's producers all write it with the same severity; each writes its own curated text.
  */
 public enum DiscoveryMessageCode {
 

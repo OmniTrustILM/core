@@ -352,8 +352,8 @@ public class AttributeServiceImpl implements AttributeExternalService, Attribute
         AttributeDefinition definition = attributeDefinitionRepository
                 .findByConnectorUuidAndAttributeUuid(connectorUUid, uuid)
                 .orElseThrow(() -> new NotFoundException(AttributeDefinition.class, uuid.toString()));
-        // One global definition per name: promoting onto a taken name would leave two, and the lookup by name that
-        // every connector sending it goes through would fail. The unique key backstops two promotions at once.
+        // One global definition per name: promoting onto a taken name would leave two, and a connector that declares
+        // this metadata global looks it up by name. The unique key backstops two promotions at once.
         if (!Boolean.TRUE.equals(definition.getGlobal()) && Boolean.TRUE
                 .equals(attributeDefinitionRepository
                         .existsByTypeAndNameAndGlobalTrue(AttributeType.META, definition.getName()))) {
