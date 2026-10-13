@@ -142,6 +142,10 @@ public class CryptoAsset extends UniquelyIdentifiedAndAudited {
     @Column(name = "pqc_verdict", columnDefinition = "TEXT")
     private PqcVerdict pqcVerdict;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "pqc_last_decided_verdict", columnDefinition = "TEXT")
+    private PqcVerdict pqcLastDecidedVerdict;
+
     @Column(name = "pqc_rule_id", columnDefinition = "TEXT")
     private String pqcRuleId;
 

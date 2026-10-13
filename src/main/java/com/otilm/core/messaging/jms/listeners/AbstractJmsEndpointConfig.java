@@ -56,25 +56,26 @@ public abstract class AbstractJmsEndpointConfig<T> {
                         endpointId, destination, routingKey, messagingProperties.brokerType(),
                         messagingProperties.virtualHost());
 
-        SimpleJmsListenerEndpoint endpoint = new SimpleJmsListenerEndpoint() {
-            @Override
-            public void setupListenerContainer(@NonNull MessageListenerContainer listenerContainer) {
-                super.setupListenerContainer(listenerContainer);
-                if (messagingProperties.brokerType() == MessagingProperties.BrokerType.SERVICEBUS
-                        && listenerContainer instanceof DefaultMessageListenerContainer container) {
-                    container.setSubscriptionShared(true);// Shared must be set to allow concurrency
-                    container.setSubscriptionDurable(true);
-                    container.setDurableSubscriptionName(subscription);
-                }
-                configureListenerContainer(listenerContainer);
-            }
-        };
+        SimpleJmsListenerEndpoint endpoint;
         if (messagingProperties.brokerType() == MessagingProperties.BrokerType.SERVICEBUS) {
+            endpoint = new SimpleJmsListenerEndpoint() {
+                @Override
+                public void setupListenerContainer(@NonNull MessageListenerContainer listenerContainer) {
+                    super.setupListenerContainer(listenerContainer);
+                    if (listenerContainer instanceof DefaultMessageListenerContainer container) {
+                        container.setSubscriptionShared(true);// Shared must be set to allow concurrency
+                        container.setSubscriptionDurable(true);
+                        container.setDurableSubscriptionName(subscription);
+                    }
+                }
+            };
             endpoint.setSubscription(subscription);
 
             if (routingKey != null && !routingKey.isBlank()) {
                 endpoint.setSelector(ROUTING_KEY + " = '" + routingKey + "'");
             }
+        } else {
+            endpoint = new SimpleJmsListenerEndpoint();
         }
 
         endpoint.setId(endpointId);
@@ -97,10 +98,16 @@ public abstract class AbstractJmsEndpointConfig<T> {
                             .debug("Message received in endpoint {}: type={} size={}", endpointId,
                                     messageClass.getSimpleName(), json.length());
                     T message = objectMapper.readValue(json, messageClass);
-                    validateMessage(message);
                     listenerMessageProcessor.processMessage(message);
+                } catch (JmsException | JMSException | IOException e) {
+                    // Retryable - network, broker issues
+                    throw new MessagingException("Message processing failed in endpoint: " + endpointId, e);
+                } catch (IllegalArgumentException e) {
+                    // Non-retryable - bad message format, validation
+                    logger.error("Invalid message in endpoint '{}', will not retry: {}", endpointId, e.getMessage());
+                    throw e; // Don't wrap, don't retry
                 } catch (Exception e) {
-                    handleProcessingFailure(endpointId, e);
+                    logger.error("Unexpected error in endpoint '{}'", endpointId, e);
                 } finally {
                     // Invoker threads are long-lived: an identity installed for one message would otherwise be
                     // inherited by the next and stamped onto its JPA-audited rows.
@@ -113,23 +120,6 @@ public abstract class AbstractJmsEndpointConfig<T> {
         });
 
         return endpoint;
-    }
-
-    protected void configureListenerContainer(MessageListenerContainer listenerContainer) {
-    }
-
-    protected void validateMessage(T message) {
-    }
-
-    protected void handleProcessingFailure(String endpointId, Exception failure) {
-        if (failure instanceof JmsException || failure instanceof JMSException || failure instanceof IOException) {
-            throw new MessagingException("Message processing failed in endpoint: " + endpointId, failure);
-        }
-        if (failure instanceof IllegalArgumentException invalid) {
-            logger.error("Invalid message in endpoint '{}', will not retry: {}", endpointId, invalid.getMessage());
-            throw invalid;
-        }
-        logger.error("Unexpected error in endpoint '{}'", endpointId, failure);
     }
 
     private String extractMessageText(jakarta.jms.Message jmsMessage, String endpointId) throws JMSException {

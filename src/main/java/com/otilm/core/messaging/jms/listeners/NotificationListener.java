@@ -22,7 +22,7 @@ import com.otilm.api.model.common.events.data.CertificateNotCompliantEventData;
 import com.otilm.api.model.common.events.data.CertificateRegisteredEventData;
 import com.otilm.api.model.common.events.data.CertificateStatusChangedEventData;
 import com.otilm.api.model.common.events.data.CommentEventData;
-import com.otilm.api.model.common.events.data.CryptoAssetAddedEventData;
+import com.otilm.api.model.common.events.data.CryptoAssetPqcNotReadyEventData;
 import com.otilm.api.model.common.events.data.DiscoveryFinishedEventData;
 import com.otilm.api.model.common.events.data.EventData;
 import com.otilm.api.model.common.events.data.InternalNotificationEventData;
@@ -979,12 +979,16 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
                 yield new InternalNotificationEventData("CBOM '%s' version %d has finished cryptographic asset sync"
                         .formatted(data.getSerialNumber(), data.getVersion()), null);
             }
-            case CRYPTO_ASSET_ADDED -> {
-                CryptoAssetAddedEventData data = (CryptoAssetAddedEventData) eventData;
-                yield new InternalNotificationEventData("Cryptographic asset '%s' has been added from CBOM %s"
-                        .formatted(data.getName() == null ? data.getCryptoAssetUuid() : data.getName(),
-                                data.getCbomUuid()),
-                        null);
+            case CRYPTO_ASSET_PQC_NOT_READY -> {
+                CryptoAssetPqcNotReadyEventData data = (CryptoAssetPqcNotReadyEventData) eventData;
+                String name = StringUtils.isBlank(data.getName())
+                        ? uuidText(data.getCryptoAssetUuid())
+                        : data.getName();
+                String reason = StringUtils.isBlank(data.getPqcReason())
+                        ? "No PQC reason is available"
+                        : data.getPqcReason();
+                yield new InternalNotificationEventData(
+                        "Cryptographic asset '%s' is not post-quantum ready: %s".formatted(name, reason), null);
             }
         };
     }

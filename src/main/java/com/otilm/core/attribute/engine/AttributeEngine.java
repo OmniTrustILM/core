@@ -1512,7 +1512,7 @@ public class AttributeEngine {
         return getResponseAttributes(objectContents);
     }
 
-    private List<ResponseAttribute> getObjectCustomAttributesContent(Resource objectType, UUID objectUuid,
+    public List<ResponseAttribute> getObjectCustomAttributesContent(Resource objectType, UUID objectUuid,
             SecurityResourceFilter securityResourceFilter) {
         CustomAttributeContentFilter contentFilter = toContentFilter(securityResourceFilter);
 
@@ -1909,9 +1909,19 @@ public class AttributeEngine {
         }
     }
 
+    // Permission denials precede writes; a trigger must still commit its failure history.
+    @Transactional(noRollbackFor = ValidationException.class)
     public void updateObjectCustomAttributeContent(Resource objectType, UUID objectUuid, UUID definitionUuid,
             String attributeName, List<? extends AttributeContent> attributeContentItems)
             throws NotFoundException, AttributeException {
+        updateObjectCustomAttributeContent(objectType, objectUuid, definitionUuid, attributeName, attributeContentItems,
+                loadCustomAttributesSecurityResourceFilter());
+    }
+
+    @Transactional(noRollbackFor = ValidationException.class)
+    public void updateObjectCustomAttributeContent(Resource objectType, UUID objectUuid, UUID definitionUuid,
+            String attributeName, List<? extends AttributeContent> attributeContentItems,
+            SecurityResourceFilter securityResourceFilter) throws NotFoundException, AttributeException {
         AttributeDefinition attributeDefinition;
         if (definitionUuid != null) {
             attributeDefinition = attributeDefinitionRepository
@@ -1945,7 +1955,7 @@ public class AttributeEngine {
                         attributeDefinition.getType(), null));
 
         // filter out updating
-        processSecurityFilter(definitionUuid, attributeDefinition);
+        processSecurityFilter(securityResourceFilter, attributeDefinition);
 
         // Validated before the stored content goes: a rejection is a checked AttributeException, which rolls nothing
         // back, so a rejection after the delete would leave the object without its previous value.
@@ -1962,20 +1972,16 @@ public class AttributeEngine {
         }
     }
 
-    private void processSecurityFilter(UUID definitionUuid, AttributeDefinition attributeDefinition)
-            throws AttributeException {
-        SecurityResourceFilter securityResourceFilter = loadCustomAttributesSecurityResourceFilter();
+    private static void processSecurityFilter(SecurityResourceFilter securityResourceFilter,
+            AttributeDefinition attributeDefinition) {
         if (securityResourceFilter != null) {
-            if ((securityResourceFilter.areOnlySpecificObjectsAllowed())) {
-                if (!securityResourceFilter.getAllowedObjects().contains(definitionUuid)) {
-                    throw new AttributeException(String
-                            .format("Updating custom attribute `%s` is not allowed", attributeDefinition.getName()));
-                }
-            } else {
-                if (securityResourceFilter.getForbiddenObjects().contains(definitionUuid)) {
-                    throw new AttributeException(String
-                            .format("Updating custom attribute `%s` is not allowed", attributeDefinition.getName()));
-                }
+            UUID resolvedUuid = attributeDefinition.getUuid();
+            boolean forbidden = securityResourceFilter.areOnlySpecificObjectsAllowed()
+                    ? !securityResourceFilter.getAllowedObjects().contains(resolvedUuid)
+                    : securityResourceFilter.getForbiddenObjects().contains(resolvedUuid);
+            if (forbidden) {
+                throw new ValidationException(ValidationError
+                        .create("Not allowed to set custom attributes: {}", attributeDefinition.getName()));
             }
         }
     }

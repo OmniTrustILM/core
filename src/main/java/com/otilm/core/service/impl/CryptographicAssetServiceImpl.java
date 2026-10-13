@@ -604,10 +604,9 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = NotFoundException.class)
     @ExternalAuthorization(resource = Resource.CRYPTO_ASSET, action = ResourceAction.UPDATE)
     public void evaluatePermissionChain(SecuredUUID uuid) throws NotFoundException {
-        cryptoAssetRepository.findByUuid(uuid).orElseThrow(() -> new NotFoundException(CryptoAsset.class, uuid));
         cryptoAssetRepository
                 .findForUpdateByUuid(uuid.getValue())
                 .orElseThrow(() -> new NotFoundException(CryptoAsset.class, uuid));

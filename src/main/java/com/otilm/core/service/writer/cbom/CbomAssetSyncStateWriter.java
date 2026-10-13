@@ -4,10 +4,13 @@ import com.otilm.api.model.core.cbom.CbomAssetSyncState;
 import com.otilm.core.cbom.ingest.CbomAssetIngestService;
 import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.dao.repository.CbomRepository;
+import com.otilm.core.events.handlers.CbomSyncedEventHandler;
+import com.otilm.core.util.AuthHelper;
 import java.time.OffsetDateTime;
 import java.util.EnumSet;
 import java.util.Set;
 import java.util.UUID;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,10 +28,13 @@ public class CbomAssetSyncStateWriter {
 
     private final CbomRepository cbomRepository;
     private final ClusterOperationSynchronizer clusterSynchronizer;
+    private final ApplicationEventPublisher applicationEventPublisher;
 
-    public CbomAssetSyncStateWriter(CbomRepository cbomRepository, ClusterOperationSynchronizer clusterSynchronizer) {
+    public CbomAssetSyncStateWriter(CbomRepository cbomRepository, ClusterOperationSynchronizer clusterSynchronizer,
+            ApplicationEventPublisher applicationEventPublisher) {
         this.cbomRepository = cbomRepository;
         this.clusterSynchronizer = clusterSynchronizer;
+        this.applicationEventPublisher = applicationEventPublisher;
     }
 
     /**
@@ -111,12 +117,13 @@ public class CbomAssetSyncStateWriter {
     public static final String DELETION_WITHDREW_THE_INVENTORY = "A deletion withdrew this CBOM's cryptographic assets and then failed; they will be ingested again.";
 
     /**
-     * Records the first successful ingest transition, unless a deletion withdrew the inventory.
+     * Records a successful ingest and publishes only for this CBOM's first completed ingest.
      *
      * <p>
      * A repeated success or a later version that already synced leaves the row untouched and returns zero, so
      * concurrent attempts cannot announce a stale CBOM sync. A deletion's withdrawal is also protected -- see
-     * {@link CbomRepository#updateAssetSyncStateUnlessError}.
+     * {@link CbomRepository#updateAssetSyncStateUnlessError}. A recovery updates the sync timestamp but does not
+     * publish again when this CBOM already completed an ingest.
      *
      * @return 1 if the state transitioned to SYNCED, 0 if already synced, superseded, or withdrawn
      */
@@ -129,9 +136,16 @@ public class CbomAssetSyncStateWriter {
         // Versions share the first lock; batches and withdrawals share the second. Keep this acquisition order.
         clusterSynchronizer.lock("cbom-asset-sync-serial:" + serialNumber);
         clusterSynchronizer.lock(CbomAssetIngestService.assetSyncLockKey(cbomUuid));
-        return cbomRepository
+        boolean completedBefore = cbomRepository.hasCompletedAssetSync(cbomUuid);
+        int transitioned = cbomRepository
                 .updateAssetSyncStateUnlessError(cbomUuid, CbomAssetSyncState.SYNCED, syncedAt,
                         DELETION_WITHDREW_THE_INVENTORY);
+        if (transitioned == 1 && !completedBefore) {
+            applicationEventPublisher
+                    .publishEvent(CbomSyncedEventHandler
+                            .constructEventMessage(cbomUuid, AuthHelper.getActingUserUuidOrNull()));
+        }
+        return transitioned;
     }
 
     /**

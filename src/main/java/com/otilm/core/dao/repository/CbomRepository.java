@@ -26,6 +26,9 @@ public interface CbomRepository extends SecurityFilterRepository<Cbom, UUID> {
     @Query("SELECT c.serialNumber FROM Cbom c WHERE c.uuid = :uuid")
     Optional<String> findSerialNumberByUuid(@Param("uuid") UUID uuid);
 
+    @Query("SELECT COUNT(c) > 0 FROM Cbom c WHERE c.uuid = :uuid AND c.assetsSyncedAt IS NOT NULL")
+    boolean hasCompletedAssetSync(@Param("uuid") UUID uuid);
+
     @Query("""
             SELECT c2
             FROM Cbom c1
@@ -60,12 +63,6 @@ public interface CbomRepository extends SecurityFilterRepository<Cbom, UUID> {
             ORDER BY older.version
             """)
     List<UUID> findSupersededVersionUuids(@Param("uuid") UUID uuid);
-
-    @Query("""
-            SELECT older.uuid FROM Cbom self, Cbom older
-            WHERE self.uuid = :uuid AND older.serialNumber = self.serialNumber AND older.version < self.version
-            """)
-    List<UUID> findOlderVersionUuids(@Param("uuid") UUID uuid);
 
     /**
      * Whether a later version of the same serial number has itself been ingested. Such a document is obsolete on
@@ -294,18 +291,17 @@ public interface CbomRepository extends SecurityFilterRepository<Cbom, UUID> {
      * Records a success, unless the row is carrying the one error a success must not overwrite.
      *
      * <p>
-     * A state guard cannot express this. Success is written unconditionally on purpose -- the run that ingested the
-     * assets is the one entitled to say so -- but a deletion that withdrew the inventory and then failed to remove the
-     * header writes {@code FAILED} from outside any ingest, and an ingest run already past its last batch when that
-     * happened would put the row straight back to {@code SYNCED} with the error cleared. The row would then claim an
-     * inventory contribution that has been deleted, and sit on neither work list.
+     * The state and version guards suppress repeated or superseded successes. A deletion that withdrew the inventory
+     * and then failed to remove the header writes {@code FAILED} from outside any ingest. The error guard also stops an
+     * ingest run already past its last batch from putting that row back to {@code SYNCED} with the error cleared: it
+     * would claim an inventory contribution that has been deleted, and sit on neither work list.
      *
      * <p>
      * It does not deadlock the row into {@code FAILED}: the next backlog pass claims it through {@code markInProgress},
      * which clears the error, so the re-ingest that follows records its success normally.
      *
      * @param notOverError the error text this write refuses to displace
-     * @return 1 if the row transitioned to the requested state, 0 if it was already there or carried that error
+     * @return 1 if the row transitioned to the requested state, 0 if already there, superseded, or carrying that error
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""

@@ -51,6 +51,20 @@ Operations can be automated by the `Core`, but also can be performed manually by
 
 `Core` supports the following PQC algorithms: `ML-DSA`, `SLH-DSA`, `ML-KEM` and `FALCON (FN-DSA)`.
 
+## CBOM inventory events
+
+`CBOM_SYNCED` is raised after the first successful asset ingest of each CBOM UUID. A new document version has its own UUID and event. Skipped or superseded documents emit no sync event; retries and recovery of an already completed CBOM do not emit it again.
+
+`CRYPTO_ASSET_PQC_NOT_READY` is raised when an asset is first decided NOT_READY or changes from READY or NOT_APPLICABLE to NOT_READY. UNKNOWN preserves the last decided verdict, so NOT_READY → UNKNOWN → NOT_READY emits no second event. The payload carries the asset's properties, rule, reason and previous decided verdict at the write. An asset deleted before consumption is skipped.
+
+A committed verdict batch can emit asset events even if later CBOM ingest fails or is superseded. There is no guaranteed delivery order between asset verdict and CBOM sync events. A deleted asset that later re-enters inventory has a new UUID and verdict history.
+
+Inventory attribute actions verify and lock their parent in a short, independent transaction after permissions are loaded. Deletion before the write prevents new attribute content. A successful attribute action remains committed if saving event history later fails.
+
+Configure document-summary notifications on `CBOM_SYNCED`: the first ingest of a mostly classical inventory can emit one not-ready event per asset. Use the asset event for selective rules and actions. Neither event sends a notification without a configured action.
+
+The nullable verdict-history column requires no backfill and emits nothing during migration. Normal sweeps after upgrade apply the same transition rule. Both events use the existing after-commit sender and its best-effort delivery behavior.
+
 ## Protocol support
 
 `Core` support the following protocols for certificate management:

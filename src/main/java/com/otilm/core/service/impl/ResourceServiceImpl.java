@@ -39,6 +39,7 @@ import com.otilm.core.security.authz.ObjectFilterAspect;
 import com.otilm.core.security.authz.SecuredResource;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
+import com.otilm.core.security.authz.SecurityResourceFilter;
 import com.otilm.core.service.AttributeResourceService;
 import com.otilm.core.service.ResourceExtensionService;
 import com.otilm.core.service.ResourceExternalService;
@@ -173,7 +174,7 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
     }
 
     @Override
-    @Transactional(rollbackOn = AttributeException.class)
+    @Transactional(rollbackOn = {AttributeException.class, NotFoundException.class})
     @ExternalAuthorizationDynamic(action = ResourceAction.UPDATE)
     public List<ResponseAttribute> updateAttributeContentForObject(SecuredResource securedResource,
             SecuredUUID objectUuid, UUID attributeUuid, List<? extends AttributeContent> attributeContentItems)
@@ -187,12 +188,13 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
             throw new NotSupportedException(
                     "Cannot update custom attribute for requested resource: " + resource.getCode());
         }
+        SecurityResourceFilter attributeFilter = attributeEngine.loadCustomAttributesSecurityResourceFilter();
         resourceExtensionService.evaluatePermissionChain(objectUuid);
 
         attributeEngine
                 .updateObjectCustomAttributeContent(resource, objectUuid.getValue(), attributeUuid, null,
-                        attributeContentItems);
-        return attributeEngine.getObjectCustomAttributesContent(resource, objectUuid.getValue());
+                        attributeContentItems, attributeFilter);
+        return attributeEngine.getObjectCustomAttributesContent(resource, objectUuid.getValue(), attributeFilter);
     }
 
     @Override

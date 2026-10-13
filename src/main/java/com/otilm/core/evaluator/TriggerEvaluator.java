@@ -26,7 +26,6 @@ import com.otilm.core.attribute.engine.AttributeVersionHelper;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.ComplianceInternalRule;
 import com.otilm.core.dao.entity.UniquelyIdentifiedObject;
-import com.otilm.core.dao.entity.cbom.CryptoAsset;
 import com.otilm.core.dao.entity.workflows.Action;
 import com.otilm.core.dao.entity.workflows.Condition;
 import com.otilm.core.dao.entity.workflows.ConditionItem;
@@ -38,7 +37,6 @@ import com.otilm.core.dao.entity.workflows.Trigger;
 import com.otilm.core.dao.entity.workflows.TriggerAssociation;
 import com.otilm.core.dao.entity.workflows.TriggerHistory;
 import com.otilm.core.dao.entity.workflows.TriggerHistoryRecord;
-import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.enums.ResourceToClass;
 import com.otilm.core.messaging.model.NotificationMessage;
@@ -84,14 +82,7 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
     protected static final Logger logger = LoggerFactory.getLogger(TriggerEvaluator.class);
     private static final String DATETIME_FORMAT = "yyyy-MM-dd'T'HH:mm:ss.SSSXXX";
 
-    private AttributeEngine attributeEngine;
-    private CryptoAssetRepository cryptoAssetRepository;
-
-    @Autowired
-    public void setCryptoAssetRepository(CryptoAssetRepository cryptoAssetRepository) {
-        this.cryptoAssetRepository = cryptoAssetRepository;
-    }
-
+    protected AttributeEngine attributeEngine;
     private TriggerInternalService triggerService;
     private ApplicationEventPublisher applicationEventPublisher;
 
@@ -238,7 +229,7 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         return false;
     }
 
-    private boolean evaluatePropertyConditionItem(T object, Resource resource, String fieldIdentifier,
+    protected boolean evaluatePropertyConditionItem(T object, Resource resource, String fieldIdentifier,
             FilterConditionOperator operator, Object conditionValue) throws RuleException {
         Object objectValue;
         FilterField filterField;
@@ -246,27 +237,6 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
             filterField = Enum.valueOf(FilterField.class, fieldIdentifier);
         } catch (IllegalArgumentException e) {
             throw new RuleException("Field identifier '" + fieldIdentifier + "' is not supported.");
-        }
-
-        if (object instanceof CryptoAsset asset && filterField == FilterField.CBOM_ASSET_FREE_TEXT) {
-            if (operator != FilterConditionOperator.CONTAINS || !(conditionValue instanceof String literal)) {
-                throw new RuleException("Text Search requires a text value and the CONTAINS operator.");
-            }
-            return cryptoAssetRepository
-                    .matchesFreeText(asset.getUuid(), FilterPredicatesBuilder.escapeLikeWildcards(literal));
-        }
-        if (object instanceof CryptoAsset asset && filterField == FilterField.CBOM_ASSET_SOURCE_CBOM) {
-            List<String> serialNumbers = cryptoAssetRepository.findSourceCbomSerialNumbers(asset.getUuid());
-            boolean matches = conditionValue instanceof Collection<?> values
-                    ? values.stream().map(String::valueOf).anyMatch(serialNumbers::contains)
-                    : conditionValue != null && serialNumbers.contains(conditionValue.toString());
-            return switch (operator) {
-                case EQUALS -> matches;
-                case NOT_EQUALS -> !matches;
-                case EMPTY -> serialNumbers.isEmpty();
-                case NOT_EMPTY -> !serialNumbers.isEmpty();
-                default -> throw new RuleException("Source CBOM does not support operator " + operator.getLabel());
-            };
         }
 
         List<Attribute> nestedJoinAttributes = null;
@@ -648,7 +618,7 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
                 AttributeDefinitionUtils.convertContentItemsFromObject(actionData), object);
     }
 
-    private void performSetFieldAttributeExecution(Resource resource, String fieldIdentifier,
+    protected void performSetFieldAttributeExecution(Resource resource, String fieldIdentifier,
             List<BaseAttributeContentV3<?>> attributeContents, T object)
             throws RuleException, NotFoundException, AttributeException {
         UUID objectUuid;
@@ -742,7 +712,7 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         return true;
     }
 
-    private static String[] parseNameAndContentType(String fieldIdentifier) throws RuleException {
+    protected static String[] parseNameAndContentType(String fieldIdentifier) throws RuleException {
         String[] parts = fieldIdentifier.split("\\|", 2);
         if (parts.length < 2 || parts[0].isEmpty() || parts[1].isEmpty()) {
             throw new RuleException(

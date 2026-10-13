@@ -10,15 +10,19 @@ import com.otilm.core.cbom.asset.CryptoAssetIdentityFields;
 import com.otilm.core.cbom.asset.JsonColumnText;
 import com.otilm.core.cbom.asset.identity.IdentityRuleset;
 import com.otilm.core.cbom.pqc.PqcDecision;
+import com.otilm.core.cbom.pqc.PqcVerdictTransition;
 import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.dao.CryptoAssetConstraintTranslator;
 import com.otilm.core.dao.repository.cbom.CryptoAssetAliasRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
+import com.otilm.core.events.handlers.CryptoAssetPqcNotReadyEventHandler;
 import com.otilm.core.model.cbom.CryptoAssetIdentityGuard;
+import com.otilm.core.model.cbom.PqcStaleVerdictRow;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Pattern;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,13 +40,16 @@ public class CryptoAssetWriter {
     private final CryptoAssetAliasRepository aliasRepository;
     private final ClusterOperationSynchronizer clusterOperationSynchronizer;
     private final AttributeEngine attributeEngine;
+    private final ApplicationEventPublisher applicationEventPublisher;
 
     public CryptoAssetWriter(CryptoAssetRepository assetRepository, CryptoAssetAliasRepository aliasRepository,
-            ClusterOperationSynchronizer clusterOperationSynchronizer, AttributeEngine attributeEngine) {
+            ClusterOperationSynchronizer clusterOperationSynchronizer, AttributeEngine attributeEngine,
+            ApplicationEventPublisher applicationEventPublisher) {
         this.assetRepository = assetRepository;
         this.aliasRepository = aliasRepository;
         this.clusterOperationSynchronizer = clusterOperationSynchronizer;
         this.attributeEngine = attributeEngine;
+        this.applicationEventPublisher = applicationEventPublisher;
     }
 
     /**
@@ -85,16 +92,6 @@ public class CryptoAssetWriter {
      */
     @Transactional
     public UUID upsertIdentity(String identityKey, CryptoAssetIdentityFields fields, CryptoAssetIdentityGuard guard) {
-        return upsertIdentityWithOutcome(identityKey, fields, guard).uuid();
-    }
-
-    public record UpsertOutcome(UUID uuid, boolean inserted) {
-    }
-
-    /** Whether the caller's insert won the identity-key arbiter, without a racing pre-insert read. */
-    @Transactional
-    public UpsertOutcome upsertIdentityWithOutcome(String identityKey, CryptoAssetIdentityFields fields,
-            CryptoAssetIdentityGuard guard) {
         CryptoAssetIdentityFields stored = fields.normalized();
         requireIdentityKeyShape(identityKey);
         requireWithinLengthBounds(stored);
@@ -112,7 +109,7 @@ public class CryptoAssetWriter {
                 // Deliberately says nothing about the key: this text can reach an operator.
                 .orElseThrow(() -> new IllegalStateException(
                         "The cryptographic asset row disappeared between its upsert and its lookup"));
-        return new UpsertOutcome(storedUuid, proposedUuid.equals(storedUuid));
+        return storedUuid;
     }
 
     /**
@@ -133,9 +130,10 @@ public class CryptoAssetWriter {
     @Transactional
     public void applyPqcVerdict(UUID assetUuid, PqcVerdict verdict, String ruleId, String reason,
             Map<String, Object> evaluatedFields) {
-        assetRepository
-                .applyPqcVerdict(assetUuid, verdict == null ? null : verdict.name(), ruleId, reason,
-                        JsonColumnText.render(evaluatedFields), null, null);
+        if (assetRepository.findForUpdateByUuid(assetUuid).isPresent()) {
+            PqcStaleVerdictRow row = assetRepository.verdictRowsByUuids(List.of(assetUuid)).getFirst();
+            apply(row, verdict, ruleId, reason, evaluatedFields, null, null);
+        }
     }
 
     /**
@@ -146,10 +144,32 @@ public class CryptoAssetWriter {
      */
     @Transactional
     public void applyPqcVerdict(UUID assetUuid, PqcDecision decision, String referenceBasis) {
-        assetRepository
-                .applyPqcVerdict(assetUuid, decision.verdict().name(), decision.ruleId(), decision.reason(),
-                        JsonColumnText.render(decision.evaluatedFields()), decision.referencedAssetUuid(),
-                        referenceBasis);
+        if (assetRepository.findForUpdateByUuid(assetUuid).isPresent()) {
+            PqcStaleVerdictRow row = assetRepository.verdictRowsByUuids(List.of(assetUuid)).getFirst();
+            applyPqcVerdict(row, decision, referenceBasis);
+        }
+    }
+
+    /** Joins the ingest batch, whose identity upsert already holds this asset's row lock. */
+    @Transactional
+    public void applyPqcVerdict(PqcStaleVerdictRow row, PqcDecision decision, String referenceBasis) {
+        apply(row, decision.verdict(), decision.ruleId(), decision.reason(), decision.evaluatedFields(),
+                decision.referencedAssetUuid(), referenceBasis);
+    }
+
+    private void apply(PqcStaleVerdictRow row, PqcVerdict verdict, String ruleId, String reason,
+            Map<String, Object> evaluatedFields, UUID referencedAssetUuid, String referenceBasis) {
+        PqcVerdictTransition transition = PqcVerdictTransition
+                .decide(row.pqcVerdict(), row.pqcLastDecidedVerdict(), verdict);
+        int written = assetRepository
+                .applyPqcVerdict(row.uuid(), verdict == null ? null : verdict.name(), ruleId, reason,
+                        JsonColumnText.render(evaluatedFields), referencedAssetUuid, referenceBasis,
+                        transition.lastDecidedVerdict() == null ? null : transition.lastDecidedVerdict().name());
+        if (written == 1 && transition.shouldPublish()) {
+            applicationEventPublisher
+                    .publishEvent(CryptoAssetPqcNotReadyEventHandler
+                            .constructEventMessage(transition.eventData(row, ruleId, reason), null));
+        }
     }
 
     /**

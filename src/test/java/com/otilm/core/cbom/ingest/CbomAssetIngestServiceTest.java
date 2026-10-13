@@ -29,8 +29,6 @@ import com.otilm.core.service.writer.cbom.CryptoAssetAliasWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetReferenceWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetSourceWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetWriter;
-import com.otilm.core.service.writer.cbom.CryptoAssetWriter.UpsertOutcome;
-import com.otilm.core.service.writer.cbom.InventoryEventOutboxWriter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.OffsetDateTime;
 import java.util.HashMap;
@@ -86,8 +84,6 @@ class CbomAssetIngestServiceTest {
     private final ClusterOperationSynchronizer synchronizer = mock(ClusterOperationSynchronizer.class);
     private final CbomAssetDetachService detachService = mock(CbomAssetDetachService.class);
     private final CbomIngestFindingWriter findingWriter = mock(CbomIngestFindingWriter.class);
-    private final InventoryEventOutboxWriter eventOutboxWriter = mock(InventoryEventOutboxWriter.class);
-    private final InventoryEventOutboxDispatcher eventDispatcher = mock(InventoryEventOutboxDispatcher.class);
     private final CbomHeaderCountsWriter headerCountsWriter = mock(CbomHeaderCountsWriter.class);
 
     @Test
@@ -98,81 +94,47 @@ class CbomAssetIngestServiceTest {
         CbomAssetIngestService.IngestOutcome outcome = ingest(twoAlgorithms(), 100);
 
         assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
-        verify(assetWriter, times(2)).upsertIdentityWithOutcome(anyString(), any(), any());
+        verify(assetWriter, times(2)).upsertIdentity(anyString(), any(), any());
         verify(sourceWriter, times(2)).upsertSource(any(), eq(CBOM), any(), any(), anyInt(), any(), eq(SEEN_AT));
         verify(stateWriter).markInProgress(CBOM);
         verify(stateWriter).markSynced(CBOM, SEEN_AT);
         verify(stateWriter, never()).markFailed(any(), anyString());
         verify(headerCountsWriter).replace(CBOM, new CbomHeaderCounts(2, 0, 0, 0, 2));
-        ArgumentCaptor<List<UUID>> newAssets = ArgumentCaptor.forClass(List.class);
-        verify(eventOutboxWriter).recordAddedAssets(eq(CBOM), newAssets.capture());
-        assertThat(newAssets.getValue()).hasSize(2);
-        InOrder order = inOrder(stateWriter, eventOutboxWriter, eventDispatcher);
-        order.verify(stateWriter).markSynced(CBOM, SEEN_AT);
-        order.verify(eventOutboxWriter).recordCbomSynced(eq(CBOM), any());
-        order.verify(eventDispatcher).dispatchCbom(CBOM);
     }
 
     @Test
-    void aCompletedVersionKeepsItsOwnSyncEventWhenAnotherVersionLaterSucceeds() {
+    void aCompletedVersionKeepsItsSyncWhenAnotherVersionLaterSucceeds() {
         when(synchronizer.tryLock(LOCK_KEY)).thenReturn(true);
         whenUpsertReturnsAFreshUuid();
         when(cbomRepository.hasIngestedLaterVersion(CBOM)).thenReturn(false, false, false, true);
 
         assertThat(ingest(oneAlgorithm(), 100)).isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
 
-        verify(eventOutboxWriter).recordCbomSynced(eq(CBOM), any());
+        verify(stateWriter).markSynced(CBOM, SEEN_AT);
         verify(stateWriter, never()).markSuperseded(CBOM);
     }
 
     @Test
-    void aSuccessfulVersionMakesOlderSurvivingAssetEventsReady() {
-        UUID older = UUID.randomUUID();
-        when(cbomRepository.findOlderVersionUuids(CBOM)).thenReturn(List.of(older));
-        when(synchronizer.tryLock(LOCK_KEY)).thenReturn(true);
-        whenUpsertReturnsAFreshUuid();
-
-        assertThat(ingest(oneAlgorithm(), 100)).isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
-
-        verify(eventOutboxWriter).markAssetsReady(older);
-    }
-
-    @Test
-    void existingAssetsAreExcludedFromTheBulkAddedEvent() {
-        when(synchronizer.tryLock(LOCK_KEY)).thenReturn(true);
-        UUID existing = UUID.randomUUID();
-        when(assetWriter.upsertIdentityWithOutcome(anyString(), any(), any()))
-                .thenReturn(new UpsertOutcome(existing, false));
-
-        assertThat(ingest(oneAlgorithm(), 100)).isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
-
-        ArgumentCaptor<List<UUID>> newAssets = ArgumentCaptor.forClass(List.class);
-        verify(eventOutboxWriter).recordAddedAssets(eq(CBOM), newAssets.capture());
-        assertThat(newAssets.getValue()).isEmpty();
-        verify(eventOutboxWriter).recordCbomSynced(eq(CBOM), any());
-    }
-
-    @Test
-    void anAlreadySyncedCbomDoesNotPublishItsEventsAgain() {
+    void anAlreadySyncedCbomDoesNotWriteAgain() {
         when(cbomRepository.findAssetSyncState(CBOM)).thenReturn(Optional.of(CbomAssetSyncState.SYNCED));
 
         assertThat(ingest(oneAlgorithm(), 100)).isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
 
-        verify(eventDispatcher, never()).dispatchCbom(any());
-        verify(assetWriter, never()).upsertIdentityWithOutcome(anyString(), any(), any());
+        verify(stateWriter, never()).markInProgress(any());
+        verify(stateWriter, never()).markSynced(any(), any());
+        verify(assetWriter, never()).upsertIdentity(anyString(), any(), any());
     }
 
     @Test
-    void aSyncThatLostTheStateTransitionDoesNotPublishACbomEvent() {
+    void aDeletedCbomIsNotReportedAsIngestedAfterTheStateTransitionIsLost() {
         when(synchronizer.tryLock(LOCK_KEY)).thenReturn(true);
         whenUpsertReturnsAFreshUuid();
         CbomAssetIngestService service = service(realExtractor());
         when(stateWriter.markSynced(CBOM, SEEN_AT)).thenReturn(0);
 
-        service.ingest(CBOM, oneAlgorithm(), SEEN_AT, POLICY);
-
-        verify(eventOutboxWriter, never()).recordCbomSynced(any(), any());
-        verify(eventDispatcher, never()).dispatchCbom(CBOM);
+        assertThat(service.ingest(CBOM, oneAlgorithm(), SEEN_AT, POLICY))
+                .isEqualTo(CbomAssetIngestService.IngestOutcome.DELETED);
+        verify(stateWriter).markSynced(CBOM, SEEN_AT);
     }
 
     @Test
@@ -187,29 +149,23 @@ class CbomAssetIngestServiceTest {
 
         assertThat(service.ingest(CBOM, oneAlgorithm(), SEEN_AT, POLICY))
                 .isEqualTo(CbomAssetIngestService.IngestOutcome.FAILED);
-
-        verify(eventOutboxWriter, never()).recordCbomSynced(any(), any());
-        verify(eventDispatcher).dispatchCbom(CBOM);
+        verify(stateWriter).markSynced(CBOM, SEEN_AT);
     }
 
     @Test
-    void aFailedLaterBatchMakesCommittedAssetsAvailableToEventDispatch() {
+    void aFailedLaterBatchDoesNotMarkTheDocumentSynced() {
         when(synchronizer.tryLock(LOCK_KEY)).thenReturn(true);
         AtomicInteger writes = new AtomicInteger();
-        when(assetWriter.upsertIdentityWithOutcome(anyString(), any(), any())).thenAnswer(call -> {
+        when(assetWriter.upsertIdentity(anyString(), any(), any())).thenAnswer(call -> {
             if (writes.incrementAndGet() == 2) {
                 throw new IllegalStateException("second batch failed");
             }
-            return new UpsertOutcome(UUID.randomUUID(), true);
+            return UUID.randomUUID();
         });
 
         assertThat(ingest(twoAlgorithms(), 1)).isEqualTo(CbomAssetIngestService.IngestOutcome.FAILED);
 
-        ArgumentCaptor<List<UUID>> newAssets = ArgumentCaptor.forClass(List.class);
-        verify(eventOutboxWriter).recordAddedAssets(eq(CBOM), newAssets.capture());
-        assertThat(newAssets.getValue()).hasSize(1);
-        verify(eventOutboxWriter).markAssetsReady(CBOM);
-        verify(eventDispatcher).dispatchCbom(CBOM);
+        verify(stateWriter).markFailed(eq(CBOM), anyString());
         verify(stateWriter, never()).markSynced(any(), any());
     }
 
@@ -226,10 +182,7 @@ class CbomAssetIngestServiceTest {
         assertThat(service.ingest(CBOM, oneAlgorithm(), SEEN_AT, POLICY))
                 .isEqualTo(CbomAssetIngestService.IngestOutcome.SUPERSEDED);
 
-        verify(eventDispatcher).dispatchCbom(CBOM);
         verify(stateWriter).markSuperseded(CBOM);
-        verify(eventOutboxWriter).markAssetsReady(CBOM);
-        verify(eventOutboxWriter, never()).recordCbomSynced(any(), any());
     }
 
     /**
@@ -262,7 +215,7 @@ class CbomAssetIngestServiceTest {
 
         InOrder order = inOrder(synchronizer, assetWriter);
         order.verify(synchronizer).lock(CryptoAssetAliasWriter.ALIAS_DECISION_LOCK);
-        order.verify(assetWriter, atLeastOnce()).upsertIdentityWithOutcome(anyString(), any(), any());
+        order.verify(assetWriter, atLeastOnce()).upsertIdentity(anyString(), any(), any());
     }
 
     /**
@@ -349,7 +302,7 @@ class CbomAssetIngestServiceTest {
 
         assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.LOCKED_ELSEWHERE);
         verify(stateWriter).releaseClaim(CBOM, CbomAssetSyncState.PENDING);
-        verify(assetWriter, never()).upsertIdentityWithOutcome(anyString(), any(), any());
+        verify(assetWriter, never()).upsertIdentity(anyString(), any(), any());
         verify(stateWriter, never()).markSynced(any(), any());
         verify(stateWriter, never()).markFailed(any(), anyString());
     }
@@ -370,7 +323,7 @@ class CbomAssetIngestServiceTest {
                 .ingest(CBOM, twoAlgorithms(), SEEN_AT, POLICY);
 
         assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.REFUSED);
-        verify(assetWriter, never()).upsertIdentityWithOutcome(anyString(), any(), any());
+        verify(assetWriter, never()).upsertIdentity(anyString(), any(), any());
         ArgumentCaptor<String> reason = ArgumentCaptor.forClass(String.class);
         verify(stateWriter).markRefusedForContent(eq(CBOM), reason.capture());
         assertThat(reason.getValue()).contains("cross-component scope");
@@ -385,7 +338,7 @@ class CbomAssetIngestServiceTest {
     @Test
     void aRefusedWriteLeavesTheCbomFailedWithTextNoDriverWrote() {
         when(synchronizer.tryLock(anyString())).thenReturn(true);
-        when(assetWriter.upsertIdentityWithOutcome(anyString(), any(), any()))
+        when(assetWriter.upsertIdentity(anyString(), any(), any()))
                 .thenThrow(new DataIntegrityViolationException(
                         "ERROR: duplicate key value violates unique constraint \"crypto_asset_identity_key_key\" "
                                 + "DETAIL: Key (identity_key)=(ALG|AES|256||||) already exists."));
@@ -407,7 +360,7 @@ class CbomAssetIngestServiceTest {
     @Test
     void aWriterRefusalKeepsTheSentenceTheWriterShaped() {
         when(synchronizer.tryLock(anyString())).thenReturn(true);
-        when(assetWriter.upsertIdentityWithOutcome(anyString(), any(), any()))
+        when(assetWriter.upsertIdentity(anyString(), any(), any()))
                 .thenThrow(new ValidationException(
                         ValidationError.create("An alias already merges this cryptographic asset into another one.")));
 
@@ -429,14 +382,13 @@ class CbomAssetIngestServiceTest {
     void theVerdictIsStampedFromTheMergedRowRatherThanTheDocument() {
         when(synchronizer.tryLock(anyString())).thenReturn(true);
         UUID assetUuid = UUID.randomUUID();
-        when(assetWriter.upsertIdentityWithOutcome(anyString(), any(), any()))
-                .thenReturn(new UpsertOutcome(assetUuid, true));
+        when(assetWriter.upsertIdentity(anyString(), any(), any())).thenReturn(assetUuid);
         when(assetRepository.verdictRowsByUuids(any())).thenReturn(List.of(mergedRsaRow(assetUuid)));
 
         ingest(oneAlgorithm(), 100);
 
         verify(assetRepository, never()).findById(any());
-        verify(assetWriter, times(1)).applyPqcVerdict(eq(assetUuid), any(PqcDecision.class), any());
+        verify(assetWriter, times(1)).applyPqcVerdict(eq(mergedRsaRow(assetUuid)), any(PqcDecision.class), any());
     }
 
     /**
@@ -447,8 +399,7 @@ class CbomAssetIngestServiceTest {
     void anUnevaluableAssetDoesNotFailTheDocument() {
         when(synchronizer.tryLock(anyString())).thenReturn(true);
         UUID assetUuid = UUID.randomUUID();
-        when(assetWriter.upsertIdentityWithOutcome(anyString(), any(), any()))
-                .thenReturn(new UpsertOutcome(assetUuid, true));
+        when(assetWriter.upsertIdentity(anyString(), any(), any())).thenReturn(assetUuid);
         when(assetRepository.verdictRowsByUuids(any())).thenReturn(List.of(mergedRsaRow(assetUuid)));
         doThrowFromVerdictStamp();
 
@@ -463,8 +414,7 @@ class CbomAssetIngestServiceTest {
     void anEvaluationFailureRecordsAnUnknownVerdictForTheNewAsset() {
         when(synchronizer.tryLock(anyString())).thenReturn(true);
         UUID assetUuid = UUID.randomUUID();
-        when(assetWriter.upsertIdentityWithOutcome(anyString(), any(), any()))
-                .thenReturn(new UpsertOutcome(assetUuid, true));
+        when(assetWriter.upsertIdentity(anyString(), any(), any())).thenReturn(assetUuid);
         when(assetRepository.verdictRowsByUuids(any())).thenReturn(List.of(mergedRsaRow(assetUuid)));
         PqcEvaluator failingEvaluator = mock(PqcEvaluator.class);
         when(failingEvaluator.fromStoredRow(any(), any())).thenThrow(new IllegalStateException("evaluation failed"));
@@ -473,7 +423,7 @@ class CbomAssetIngestServiceTest {
                 .ingest(CBOM, oneAlgorithm(), SEEN_AT, POLICY);
 
         assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
-        verify(assetWriter).applyPqcVerdict(eq(assetUuid), eq(PqcDecision.evaluationFailed()), any());
+        verify(assetWriter).applyPqcVerdict(eq(mergedRsaRow(assetUuid)), eq(PqcDecision.evaluationFailed()), any());
     }
 
     /**
@@ -578,7 +528,7 @@ class CbomAssetIngestServiceTest {
         ArgumentCaptor<List<Map<String, Object>>> evidence = ArgumentCaptor.forClass(List.class);
         verify(sourceWriter, times(1))
                 .upsertSource(any(), eq(CBOM), any(), evidence.capture(), occurrences.capture(), any(), eq(SEEN_AT));
-        verify(assetWriter, times(1)).upsertIdentityWithOutcome(anyString(), any(), any());
+        verify(assetWriter, times(1)).upsertIdentity(anyString(), any(), any());
         assertThat(occurrences.getValue()).isEqualTo(2);
         assertThat(evidence.getValue()).hasSize(2);
     }
@@ -613,9 +563,8 @@ class CbomAssetIngestServiceTest {
     void aRefTooLongToStoreIsLeftOffTheRowAndStillResolvesAReference() {
         when(synchronizer.tryLock(anyString())).thenReturn(true);
         final Map<String, UUID> uuidByKey = new HashMap<>();
-        when(assetWriter.upsertIdentityWithOutcome(anyString(), any(), any()))
-                .thenAnswer(call -> new UpsertOutcome(
-                        uuidByKey.computeIfAbsent(call.getArgument(0), key -> UUID.randomUUID()), true));
+        when(assetWriter.upsertIdentity(anyString(), any(), any()))
+                .thenAnswer(call -> uuidByKey.computeIfAbsent(call.getArgument(0), key -> UUID.randomUUID()));
         when(assetRepository.findUuidByIdentityKey(anyString()))
                 .thenAnswer(call -> Optional.ofNullable(uuidByKey.get(call.<String>getArgument(0))));
         final String tooLong = "a".repeat(CbomAssetExtractor.ExtractedAsset.MAX_BOM_REF_LENGTH + 1);
@@ -651,12 +600,12 @@ class CbomAssetIngestServiceTest {
                 sourceWriter, referenceWriter, detachService, stateWriter, findingWriter, headerCountsWriter,
                 cbomRepository, assetRepository, new PqcEvaluator(new AssetNormalizer(IdentityTables.load())),
                 new PqcReferenceReader(mock(CryptoAssetReferenceRepository.class)), synchronizer,
-                new TransactionHandler(), new SimpleMeterRegistry(), eventOutboxWriter, eventDispatcher)
+                new TransactionHandler(), new SimpleMeterRegistry())
                 .ingest(CBOM, twoAlgorithms(), SEEN_AT, CbomIngestTestFixtures.policyWithIngestDisabled());
 
         assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.DISABLED);
         verify(stateWriter, never()).markInProgress(any());
-        verify(assetWriter, never()).upsertIdentityWithOutcome(anyString(), any(), any());
+        verify(assetWriter, never()).upsertIdentity(anyString(), any(), any());
         verify(synchronizer, never()).tryLock(anyString());
     }
 
@@ -676,7 +625,7 @@ class CbomAssetIngestServiceTest {
 
         assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.SUPERSEDED);
         verify(extractor, never()).extract(any(JsonNode.class));
-        verify(assetWriter, never()).upsertIdentityWithOutcome(anyString(), any(), any());
+        verify(assetWriter, never()).upsertIdentity(anyString(), any(), any());
         verify(stateWriter, never()).markInProgress(any());
         verify(stateWriter).markSuperseded(CBOM);
         verify(stateWriter, never()).markSynced(any(), any());
@@ -697,7 +646,7 @@ class CbomAssetIngestServiceTest {
         CbomAssetIngestService.IngestOutcome outcome = ingest(twoAlgorithms(), 100);
 
         assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
-        verify(assetWriter, atLeastOnce()).upsertIdentityWithOutcome(anyString(), any(), any());
+        verify(assetWriter, atLeastOnce()).upsertIdentity(anyString(), any(), any());
     }
 
     /**
@@ -776,7 +725,7 @@ class CbomAssetIngestServiceTest {
         CbomAssetIngestService.IngestOutcome outcome = ingest(twoAlgorithmsSharingARef(), 100);
 
         assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.REFUSED);
-        verify(assetWriter, never()).upsertIdentityWithOutcome(anyString(), any(), any());
+        verify(assetWriter, never()).upsertIdentity(anyString(), any(), any());
         ArgumentCaptor<String> reason = ArgumentCaptor.forClass(String.class);
         verify(stateWriter).markRefusedForContent(eq(CBOM), reason.capture());
         assertThat(reason.getValue()).contains("1 bom-ref value more than once");
@@ -834,7 +783,7 @@ class CbomAssetIngestServiceTest {
         CbomAssetIngestService.IngestOutcome outcome = ingest(anAlgorithmSharingTheMetadataRef(), 100);
 
         assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.REFUSED);
-        verify(assetWriter, never()).upsertIdentityWithOutcome(anyString(), any(), any());
+        verify(assetWriter, never()).upsertIdentity(anyString(), any(), any());
         verify(findingWriter)
                 .record(eq(CBOM), eq("FINDING"), eq(null), contains("bom-ref app is defined more than once"), eq(1),
                         any());
@@ -868,7 +817,7 @@ class CbomAssetIngestServiceTest {
         CbomAssetIngestService.IngestOutcome outcome = ingest(twoAlgorithms(), 100);
 
         assertThat(outcome).isEqualTo(CbomAssetIngestService.IngestOutcome.FAILED);
-        verify(assetWriter, never()).upsertIdentityWithOutcome(anyString(), any(), any());
+        verify(assetWriter, never()).upsertIdentity(anyString(), any(), any());
         ArgumentCaptor<String> reason = ArgumentCaptor.forClass(String.class);
         verify(stateWriter).markFailed(eq(CBOM), reason.capture());
         assertThat(reason.getValue()).doesNotContain("btree").doesNotContain("index row size");
@@ -947,14 +896,14 @@ class CbomAssetIngestServiceTest {
         return new CbomAssetIngestService(extractor, assetWriter, sourceWriter, referenceWriter, detachService,
                 stateWriter, findingWriter, headerCountsWriter, cbomRepository, assetRepository, evaluator,
                 new PqcReferenceReader(mock(CryptoAssetReferenceRepository.class)), synchronizer,
-                new TransactionHandler(), new SimpleMeterRegistry(), eventOutboxWriter, eventDispatcher);
+                new TransactionHandler(), new SimpleMeterRegistry());
     }
 
     private void doThrowFromVerdictStamp() {
         org.mockito.Mockito
                 .doThrow(new IllegalStateException("the rules could not evaluate this row"))
                 .when(assetWriter)
-                .applyPqcVerdict(any(), any(PqcDecision.class), any());
+                .applyPqcVerdict(any(PqcStaleVerdictRow.class), any(PqcDecision.class), any());
     }
 
     private static CbomAssetExtractor realExtractor() {
@@ -974,15 +923,15 @@ class CbomAssetIngestServiceTest {
     }
 
     private void whenUpsertReturnsAFreshUuid() {
-        when(assetWriter.upsertIdentityWithOutcome(anyString(), any(), any()))
-                .thenAnswer(call -> new UpsertOutcome(UUID.randomUUID(), true));
+        when(assetWriter.upsertIdentity(anyString(), any(), any())).thenAnswer(call -> UUID.randomUUID());
     }
 
     /** A row as the database holds it after the merge, with a payload the document being ingested does not carry. */
     private static PqcStaleVerdictRow mergedRsaRow(UUID uuid) {
         return new PqcStaleVerdictRow(uuid, CryptographicAssetType.ALGORITHM, "RSA-2048", null, "RSA", null, "2048",
                 null, null, null, null,
-                "{\"assetType\":\"algorithm\",\"algorithmProperties\":{\"parameterSetIdentifier\":\"2048\"}}", 1L);
+                "{\"assetType\":\"algorithm\",\"algorithmProperties\":{\"parameterSetIdentifier\":\"2048\"}}", 1L, null,
+                null);
     }
 
     private static JsonNode oneAlgorithm() {

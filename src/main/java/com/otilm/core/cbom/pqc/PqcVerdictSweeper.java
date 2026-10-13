@@ -128,7 +128,7 @@ public class PqcVerdictSweeper {
             if (decision == EVALUATION_FAILED) {
                 unevaluable.add(row.uuid());
             }
-            writes.add(new PqcVerdictWrite(row.uuid(), row.rowVersion(), decision, read.basis()));
+            writes.add(new PqcVerdictWrite(row, decision, read.basis()));
         }
         tally.read += rows.size();
         tally.batches++;

@@ -3,7 +3,6 @@ package com.otilm.core.dao.repository.cbom;
 import com.otilm.core.dao.entity.cbom.CryptoAsset;
 import com.otilm.core.dao.repository.SecurityFilterRepository;
 import com.otilm.core.model.cbom.CryptoAssetCounts;
-import com.otilm.core.model.cbom.CryptoAssetEventRow;
 import com.otilm.core.model.cbom.CryptoAssetListRow;
 import com.otilm.core.model.cbom.PqcStaleVerdictRow;
 import jakarta.persistence.LockModeType;
@@ -37,66 +36,6 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
 
     @Query("SELECT a.uuid FROM CryptoAsset a WHERE a.identityKey = :key")
     Optional<UUID> findUuidByIdentityKey(@Param("key") String key);
-
-    /** Newly inserted assets that still have a source after a CBOM's outcome settles. */
-    @Query("SELECT a FROM CryptoAsset a WHERE a.uuid IN :uuids "
-            + "AND EXISTS (SELECT s FROM CryptoAssetSource s WHERE s.assetUuid = a.uuid)")
-    List<CryptoAsset> findSourcedAssets(@Param("uuids") Collection<UUID> uuids);
-
-    /** Event fields and elected-reference graph freshness, read together under one database snapshot. */
-    @Query(value = """
-            WITH RECURSIVE roots AS (
-                SELECT a.uuid, a.asset_type, a.name, a.algorithm_family, a.pqc_verdict
-                FROM {h-schema}crypto_asset a
-                WHERE a.uuid IN (:uuids)
-                  AND EXISTS (SELECT 1 FROM {h-schema}crypto_asset_source s WHERE s.asset_uuid = a.uuid)
-            ), dependencies(root_uuid, asset_uuid) AS (
-                SELECT uuid, uuid FROM roots
-                UNION
-                SELECT d.root_uuid, r.target_asset_uuid
-                FROM dependencies d
-                JOIN {h-schema}crypto_asset a ON a.uuid = d.asset_uuid
-                JOIN {h-schema}crypto_asset_reference r ON r.source_uuid = a.properties_source_uuid
-                WHERE a.asset_type IN ('CERTIFICATE', 'PROTOCOL') AND r.target_asset_uuid IS NOT NULL
-            )
-            SELECT root.uuid, root.asset_type, root.name, root.algorithm_family, root.pqc_verdict,
-                   NOT EXISTS (
-                       SELECT 1
-                       FROM dependencies d
-                       LEFT JOIN {h-schema}crypto_asset a ON a.uuid = d.asset_uuid
-                       WHERE d.root_uuid = root.uuid
-                         AND (a.uuid IS NULL OR a.pqc_verdict IS NULL
-                              OR a.pqc_evaluated_revision IS DISTINCT FROM a.input_revision
-                              OR (a.asset_type IN ('CERTIFICATE', 'PROTOCOL')
-                                  AND a.pqc_reference_basis IS DISTINCT FROM (
-                                      SELECT string_agg(COALESCE(CAST(r.target_asset_uuid AS TEXT), '') || ':'
-                                              || COALESCE(t.pqc_verdict, '') || ':' || COALESCE(t.pqc_rule_id, '') || ':'
-                                              || COALESCE(t.primitive, ''), ',' ORDER BY r.kind, r.ordinal)
-                                      FROM {h-schema}crypto_asset_reference r
-                                      LEFT JOIN {h-schema}crypto_asset t ON t.uuid = r.target_asset_uuid
-                                      WHERE r.source_uuid = a.properties_source_uuid)))
-                   ) AS current_verdict
-            FROM roots root
-            ORDER BY root.uuid
-            """,
-            nativeQuery = true)
-    List<Tuple> findSourcedEventRows(@Param("uuids") Collection<UUID> uuids);
-
-    default List<CryptoAssetEventRow> sourcedEventRows(Collection<UUID> uuids) {
-        if (uuids.isEmpty()) {
-            return List.of();
-        }
-        return findSourcedEventRows(uuids).stream().map(CryptoAssetEventRow::fromEventRow).toList();
-    }
-
-    /** Sourced roots whose own verdict or an elected-reference dependency is stale. */
-    default List<UUID> findStaleVerdictUuids(Collection<UUID> uuids) {
-        return sourcedEventRows(uuids)
-                .stream()
-                .filter(row -> !row.currentVerdict())
-                .map(CryptoAssetEventRow::uuid)
-                .toList();
-    }
 
     @Query(value = """
             SELECT EXISTS (
@@ -326,6 +265,7 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
     @Query(value = """
             UPDATE {h-schema}crypto_asset
             SET pqc_verdict = :verdict,
+                pqc_last_decided_verdict = :lastDecidedVerdict,
                 pqc_rule_id = :ruleId,
                 pqc_reason = :reason,
                 pqc_evaluated_fields = CAST(:evaluatedFields AS jsonb),
@@ -340,9 +280,10 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
                 i_upd = CURRENT_TIMESTAMP
             WHERE uuid = :uuid
             """, nativeQuery = true)
-    void applyPqcVerdict(@Param("uuid") UUID uuid, @Param("verdict") String verdict, @Param("ruleId") String ruleId,
+    int applyPqcVerdict(@Param("uuid") UUID uuid, @Param("verdict") String verdict, @Param("ruleId") String ruleId,
             @Param("reason") String reason, @Param("evaluatedFields") String evaluatedFields,
-            @Param("referencedAssetUuid") UUID referencedAssetUuid, @Param("referenceBasis") String referenceBasis);
+            @Param("referencedAssetUuid") UUID referencedAssetUuid, @Param("referenceBasis") String referenceBasis,
+            @Param("lastDecidedVerdict") String lastDecidedVerdict);
 
     /**
      * The sweep's work list, one keyset page of it. See {@link #staleVerdictRows} for what a caller uses.
@@ -387,6 +328,8 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
                    padding,
                    variant,
                    merged_crypto_properties::text AS merged_crypto_properties,
+                   pqc_verdict,
+                   pqc_last_decided_verdict,
                    xmin::text::bigint AS row_version
             FROM {h-schema}crypto_asset
             WHERE (pqc_evaluated_revision IS DISTINCT FROM input_revision
@@ -444,6 +387,8 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
                    padding,
                    variant,
                    merged_crypto_properties::text AS merged_crypto_properties,
+                   pqc_verdict,
+                   pqc_last_decided_verdict,
                    xmin::text::bigint AS row_version
             FROM {h-schema}crypto_asset
             WHERE uuid IN :uuids
@@ -482,6 +427,7 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
     @Query(value = """
             UPDATE {h-schema}crypto_asset
             SET pqc_verdict = :verdict,
+                pqc_last_decided_verdict = :lastDecidedVerdict,
                 pqc_rule_id = :ruleId,
                 pqc_reason = :reason,
                 pqc_evaluated_fields = CAST(:evaluatedFields AS jsonb),
@@ -510,7 +456,7 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
     int applyPqcVerdictIfStale(@Param("uuid") UUID uuid, @Param("rowVersion") long rowVersion,
             @Param("verdict") String verdict, @Param("ruleId") String ruleId, @Param("reason") String reason,
             @Param("evaluatedFields") String evaluatedFields, @Param("referencedAssetUuid") UUID referencedAssetUuid,
-            @Param("referenceBasis") String referenceBasis);
+            @Param("referenceBasis") String referenceBasis, @Param("lastDecidedVerdict") String lastDecidedVerdict);
 
     /**
      * Collects an orphan, and only while it still is one.

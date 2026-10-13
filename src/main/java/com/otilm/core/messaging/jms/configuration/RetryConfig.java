@@ -7,9 +7,6 @@ import java.util.Map;
 import org.messaginghub.pooled.jms.JmsPoolConnectionFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.dao.DataAccessResourceFailureException;
-import org.springframework.dao.RecoverableDataAccessException;
-import org.springframework.dao.TransientDataAccessException;
 import org.springframework.jms.JmsException;
 import org.springframework.retry.RetryPolicy;
 import org.springframework.retry.annotation.EnableRetry;
@@ -17,7 +14,6 @@ import org.springframework.retry.backoff.ExponentialBackOffPolicy;
 import org.springframework.retry.policy.NeverRetryPolicy;
 import org.springframework.retry.policy.SimpleRetryPolicy;
 import org.springframework.retry.support.RetryTemplate;
-import org.springframework.transaction.CannotCreateTransactionException;
 
 @Configuration
 @EnableRetry
@@ -29,14 +25,7 @@ public class RetryConfig {
      */
     @Bean
     public RetryTemplate jmsRetryTemplate(MessagingProperties messagingProperties) {
-        RetryTemplate template = createRetryTemplate(messagingProperties, false);
-        template.registerListener(new JmsRetryListener());
-        return template;
-    }
-
-    @Bean
-    public RetryTemplate eventRetryTemplate(MessagingProperties messagingProperties) {
-        RetryTemplate template = createRetryTemplate(messagingProperties, true);
+        RetryTemplate template = createRetryTemplate(messagingProperties);
         template.registerListener(new JmsRetryListener());
         return template;
     }
@@ -48,13 +37,12 @@ public class RetryConfig {
     @Bean
     public RetryTemplate producerRetryTemplate(MessagingProperties messagingProperties,
             JmsPoolConnectionFactory producerConnectionFactory) {
-        RetryTemplate template = createRetryTemplate(messagingProperties, false);
+        RetryTemplate template = createRetryTemplate(messagingProperties);
         template.registerListener(new ProducerRetryListener(producerConnectionFactory));
         return template;
     }
 
-    private RetryTemplate createRetryTemplate(MessagingProperties messagingProperties,
-            boolean retryEventInfrastructure) {
+    private RetryTemplate createRetryTemplate(MessagingProperties messagingProperties) {
         RetryTemplate template = new RetryTemplate();
 
         if (messagingProperties.producer() != null && messagingProperties.producer().retry() != null
@@ -64,12 +52,6 @@ public class RetryConfig {
             retryableExceptions.put(JmsException.class, true); // Spring JMS wrapper
             retryableExceptions.put(JMSException.class, true); // raw jakarta.jms (e.g. getJMSMessageID())
             retryableExceptions.put(IOException.class, true); // network / deserialization
-            if (retryEventInfrastructure) {
-                retryableExceptions.put(TransientDataAccessException.class, true);
-                retryableExceptions.put(RecoverableDataAccessException.class, true);
-                retryableExceptions.put(DataAccessResourceFailureException.class, true);
-                retryableExceptions.put(CannotCreateTransactionException.class, true);
-            }
 
             SimpleRetryPolicy retryPolicy = new SimpleRetryPolicy(messagingProperties.producer().retry().maxAttempts(),
                     retryableExceptions, true);

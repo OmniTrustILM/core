@@ -35,7 +35,7 @@ class PqcVerdictExplainerTest {
         when(repository.verdictRowsByUuids(List.of(ASSET)))
                 .thenReturn(List
                         .of(new PqcStaleVerdictRow(ASSET, CryptographicAssetType.ALGORITHM, "aes", null, null, null,
-                                null, null, null, null, null, "{not json", 1L)));
+                                null, null, null, null, null, "{not json", 1L, null, null)));
 
         PqcVerdictExplainer.Result result = explainer.explain(ASSET).orElseThrow();
 
@@ -54,7 +54,7 @@ class PqcVerdictExplainerTest {
         when(repository.verdictRowsByUuids(List.of(ASSET)))
                 .thenReturn(List
                         .of(new PqcStaleVerdictRow(ASSET, CryptographicAssetType.CERTIFICATE, "example.com", null, null,
-                                null, null, null, null, null, null, "{}", 1L)));
+                                null, null, null, null, null, null, "{}", 1L, null, null)));
         when(references.findElectedReferences(List.of(ASSET)))
                 .thenThrow(new QueryTimeoutException("statement timeout"));
 
