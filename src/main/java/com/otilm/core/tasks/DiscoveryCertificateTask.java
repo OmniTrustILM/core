@@ -108,8 +108,8 @@ public class DiscoveryCertificateTask implements ScheduledJobTask {
         // run that has just been handed to its tick workers -- reports when it ends, through DISCOVERY_FINISHED.
         // Returning a result now would close the job as succeeded before the run had discovered anything.
         if (DiscoveryRunLifecycle.isTerminal(discovery.getStatus())) {
-            // A run already over by the time it is handed back ended on its own, at its start: no user has had it to
-            // cancel yet.
+            // A run already over here almost always ended at its own start. One a user cancelled within that window is
+            // still reported as a failed execution: the run does not record who ended it.
             return new ScheduledTaskResult(DiscoveryRunLifecycle.executionStatusOf(discovery.getStatus(), false),
                     discovery.getMessage(), Resource.DISCOVERY, discovery.getUuid());
         }

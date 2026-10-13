@@ -8,7 +8,7 @@ import java.util.Set;
 
 /**
  * Run-level bookkeeping shared by the ingestor and the tick workers: which statuses are final, and what a run's ending
- * means for its message log.
+ * means for its message log and its scheduled job.
  */
 public final class DiscoveryRunLifecycle {
 

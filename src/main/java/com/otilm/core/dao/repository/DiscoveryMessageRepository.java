@@ -102,6 +102,8 @@ public interface DiscoveryMessageRepository extends JpaRepository<DiscoveryMessa
     /** The run's log, oldest first. Ordered by the identity column; see {@code DiscoveryMessage.id}. */
     List<DiscoveryMessage> findByDiscoveryUuidOrderByIdAsc(UUID discoveryUuid);
 
+    boolean existsByDiscoveryUuidAndCode(UUID discoveryUuid, String code);
+
     /** One page of the same, so paging is stable while a live run keeps appending. */
     Page<DiscoveryMessage> findByDiscoveryUuidOrderByIdAsc(UUID discoveryUuid, Pageable pageable);
 

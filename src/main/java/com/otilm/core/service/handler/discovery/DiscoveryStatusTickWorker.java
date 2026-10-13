@@ -16,6 +16,7 @@ import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.Discovery;
+import com.otilm.core.dao.repository.DiscoveryMessageRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.messaging.jms.configuration.DiscoveryWorkProperties;
@@ -59,15 +60,18 @@ public class DiscoveryStatusTickWorker {
     private final TransactionHandler transactionHandler;
     private final AttributeEngine attributeEngine;
     private final DiscoveryMessageWriter messageWriter;
+    private final DiscoveryMessageRepository messageRepository;
     private final Duration stoppedPollInterval;
 
     public DiscoveryStatusTickWorker(DiscoveryRepository discoveryRepository, DiscoveryV2Client client,
             DiscoveryWorkWriter workWriter, DiscoveryRunTerminator terminator, DiscoveryTickBudget budget,
             DiscoveryWorkProperties workProperties, TransactionHandler transactionHandler,
             AttributeEngine attributeEngine, DiscoveryMessageWriter messageWriter,
+            DiscoveryMessageRepository messageRepository,
             @Value("${discovery.work.stopped-poll-interval:PT5M}") Duration stoppedPollInterval) {
         this.attributeEngine = attributeEngine;
         this.messageWriter = messageWriter;
+        this.messageRepository = messageRepository;
         this.stoppedPollInterval = stoppedPollInterval;
         this.discoveryRepository = discoveryRepository;
         this.client = client;
@@ -338,7 +342,7 @@ public class DiscoveryStatusTickWorker {
                 // spend it and a permanently failing drain would never end the run.
                 if (!DiscoveryRunState.COMPLETED.getCode().equals(previousConnectorState)) {
                     workWriter.schedule(run.getUuid(), DiscoveryWorkType.DRAIN, OffsetDateTime.now(ZoneOffset.UTC));
-                    recordTargetsNotExamined(run);
+                    recordFailedTargets(run);
                 }
             }
             default -> throw new IllegalStateException("Unhandled live discovery run state " + state);
@@ -346,19 +350,20 @@ public class DiscoveryStatusTickWorker {
     }
 
     /**
-     * Filed once, when the connector finishes and its counters are final. A target it expected to read and could not is
-     * part of what the run was asked to examine, so the run must not end as if it had covered everything; the warning
-     * is what makes it end WARNING. A target with nothing on it is a normal outcome and files nothing.
+     * Filed when the connector finishes and its counters are final. A target it expected to read and could not is part
+     * of what the run was asked to examine, so the run must not end as if it had covered everything; the warning is
+     * what makes it end WARNING. A target with nothing on it is a normal outcome and files nothing. Filed once: a
+     * connector that reports the run completed again would otherwise add the same targets to the count a second time.
      */
-    private void recordTargetsNotExamined(Discovery run) {
+    private void recordFailedTargets(Discovery run) {
         Long failed = run.getProgress() == null ? null : run.getProgress().getTargetsFailed();
-        if (failed == null || failed < 1) {
+        if (failed == null || failed < 1 || messageRepository
+                .existsByDiscoveryUuidAndCode(run.getUuid(), DiscoveryMessageCode.TARGETS_FAILED.code())) {
             return;
         }
         messageWriter
                 .append(run.getUuid(),
-                        new DiscoveryMessageDraft(DiscoveryMessageSeverity.WARNING,
-                                DiscoveryMessageCode.TARGETS_NOT_EXAMINED,
+                        new DiscoveryMessageDraft(DiscoveryMessageSeverity.WARNING, DiscoveryMessageCode.TARGETS_FAILED,
                                 "A target the Discovery Provider was asked to examine could not be read.", failed));
     }
 

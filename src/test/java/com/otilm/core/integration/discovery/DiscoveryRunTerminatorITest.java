@@ -5,6 +5,7 @@ import com.otilm.api.model.connector.discovery.v2.DiscoveryResourceProgressDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.discovery.DiscoveryMessageSeverity;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
+import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.Discovery;
@@ -16,6 +17,8 @@ import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
 import com.otilm.core.dao.repository.DiscoveryMessageRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
+import com.otilm.core.events.data.DiscoveryResult;
+import com.otilm.core.messaging.model.EventMessage;
 import com.otilm.core.model.discovery.DiscoveryMessageCode;
 import com.otilm.core.service.handler.discovery.DiscoveryRunTerminator;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -36,6 +39,8 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.orm.jpa.EntityManagerHolder;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -47,8 +52,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Ending a run is a decision taken under the row lock, and an ending committed while the caller was at the connector
  * has to be visible to that locked read; {@link DiscoveryRunTerminator} says why it would not be by default.
  */
+@RecordApplicationEvents
 class DiscoveryRunTerminatorITest extends BaseSpringBootTest {
 
+    @Autowired
+    private ApplicationEvents events;
     @Autowired
     private DiscoveryRunTerminator terminator;
     @Autowired
@@ -145,6 +153,22 @@ class DiscoveryRunTerminatorITest extends BaseSpringBootTest {
      * together: runs ended in transactions of their own would stay cancelled, their endings announced, under a
      * connector that is still there.
      */
+    @Test
+    void aUsersCancel_tellsTheSchedulerItWasTheirs() {
+        Discovery run = v2Run();
+
+        terminator
+                .endWith(run.getUuid(), locked -> new DiscoveryRunTerminator.Ending(DiscoveryStatus.CANCELLED,
+                        "Discovery cancelled", true));
+
+        assertThat(events.stream(EventMessage.class))
+                .filteredOn(message -> message.getEvent() == ResourceEvent.DISCOVERY_FINISHED)
+                .singleElement()
+                .extracting(message -> ((DiscoveryResult) message.getData()).isEndedByUser())
+                .as("the scheduler closes a user's cancel as Cancelled only if the ending says whose it was")
+                .isEqualTo(true);
+    }
+
     @Test
     void endingTheRunsBoundToInterfaces_standsOrFallsWithTheCaller() {
         Discovery run = v2Run();

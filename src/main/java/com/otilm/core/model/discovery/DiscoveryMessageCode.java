@@ -46,11 +46,11 @@ public enum DiscoveryMessageCode {
     /** A processing batch that failed once its rows were already imported, so nothing is left to retry. */
     BATCH_PROCESSING_ABANDONED("batchProcessingAbandoned"),
 
-    /** How the run ended; the message is the terminal reason and the severity follows the terminal status. */
+    /** How the run ended; the message is the terminal reason, and the severity follows why the run ended. */
     RUN_ENDED("runEnded"),
 
     /** Targets the connector was asked to examine and could not read; the count is how many. */
-    TARGETS_NOT_EXAMINED("targetsNotExamined"),
+    TARGETS_FAILED("targetsFailed"),
 
     /** Run metadata Core did not record: a statement over the size cap or malformed, or storing it failed. */
     RUN_METADATA_NOT_RECORDED("runMetadataNotRecorded"),

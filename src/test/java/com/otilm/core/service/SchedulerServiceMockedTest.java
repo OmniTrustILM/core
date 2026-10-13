@@ -820,7 +820,6 @@ class SchedulerServiceMockedTest {
 
         schedulerService.runScheduledJob(JOB_NAME);
 
-        // Whoever cancelled the one run of a one-time job does not want it attempted again.
         verify(schedulerApiClient).deleteScheduledJob(JOB_NAME);
     }
 

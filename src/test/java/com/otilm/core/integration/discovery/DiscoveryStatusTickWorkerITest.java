@@ -485,10 +485,29 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
                 .as("filed when the connector finishes, not on every answer that repeats it")
                 .singleElement()
                 .satisfies(message -> {
-                    assertThat(message.getCode()).isEqualTo(DiscoveryMessageCode.TARGETS_NOT_EXAMINED.code());
+                    assertThat(message.getCode()).isEqualTo(DiscoveryMessageCode.TARGETS_FAILED.code());
                     assertThat(message.getSeverity()).isEqualTo(DiscoveryMessageSeverity.WARNING);
                     assertThat(message.getOccurrences()).isEqualTo(3);
                 });
+    }
+
+    @Test
+    void aConnectorThatCompletesAgain_filesTheTargetsWarningOnce() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        answers(completedWithTargets(10, 5, 3));
+        worker.tick(run.getUuid(), 0);
+        answers(statusResponse(DiscoveryRunState.RUNNING));
+        worker.tick(run.getUuid(), 0);
+        answers(completedWithTargets(10, 5, 3));
+
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(messageRepository.findByDiscoveryUuidOrderByIdAsc(run.getUuid()))
+                .as("the same failed targets are not counted a second time")
+                .singleElement()
+                .extracting(DiscoveryMessage::getOccurrences)
+                .isEqualTo(3L);
     }
 
     @Test
