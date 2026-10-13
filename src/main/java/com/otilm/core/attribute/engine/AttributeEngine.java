@@ -126,15 +126,14 @@ public class AttributeEngine {
     private static final ObjectMapper ATTRIBUTES_OBJECT_MAPPER = ObjectMapperFactory.attributeContent();
 
     /**
-     * The order metadata is written in, so two writes of the same definitions lock them and their new values alike. A
-     * global definition is found by its name, which every connector sending it shares while each may give it a UUID of
-     * its own; a connector's own definition is found by its UUID.
+     * The order metadata is written in, so two writes of the same definitions lock them and their new values alike.
+     * Name first, then UUID, whatever the scope: a global definition is unique by name, while a global and a
+     * connector's own definition can collide on the connector's key, so two writers that disagree on which definitions
+     * are global still take them in one order.
      */
     public static final Comparator<MetadataAttribute> METADATA_WRITE_ORDER = Comparator
-            .comparing((MetadataAttribute attribute) -> !isGlobalMetadata(attribute))
-            .thenComparing(attribute -> isGlobalMetadata(attribute) ? attribute.getName() : uuidKey(attribute),
-                    Comparator.nullsLast(Comparator.naturalOrder()))
-            .thenComparing(MetadataAttribute::getName, Comparator.nullsLast(Comparator.naturalOrder()));
+            .comparing(MetadataAttribute::getName, Comparator.nullsLast(Comparator.<String>naturalOrder()))
+            .thenComparing(AttributeEngine::uuidKey, Comparator.nullsLast(Comparator.naturalOrder()));
 
     /**
      * The order connector and platform definitions are registered in, so two registrations of the same new definitions
@@ -1395,10 +1394,6 @@ public class AttributeEngine {
                 throw new IllegalStateException("Unsupported MetadataAttribute version for properties normalization: "
                         + definitionCopy.getVersion());
         }
-    }
-
-    private static boolean isGlobalMetadata(MetadataAttribute attribute) {
-        return attribute.getProperties() != null && attribute.getProperties().isGlobal();
     }
 
     /**

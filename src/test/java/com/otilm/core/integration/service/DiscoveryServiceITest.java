@@ -1988,7 +1988,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
                         stringMetadata("ffffffff-ffff-ffff-ffff-fffffffffff1", "laterRefused"), connector.getUuid());
         UUID discoveryUuid = createRunnableDiscovery();
         stubDiscoveryStart(
-                startResponseWithMeta(0, integerRunMeta("00000000-0000-0000-0000-0000000000a1", "storedFirst") + ", "
+                startResponseWithMeta(0, integerRunMeta("00000000-0000-0000-0000-0000000000a1", "aStoredFirst") + ", "
                         + integerRunMeta("ffffffff-ffff-ffff-ffff-fffffffffff1", "laterRefused")));
 
         discoveryInternalService.runDiscovery(discoveryUuid, null);

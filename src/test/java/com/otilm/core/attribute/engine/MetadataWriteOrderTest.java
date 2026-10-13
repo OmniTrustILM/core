@@ -37,12 +37,20 @@ class MetadataWriteOrderTest {
      */
     @Test
     void metadataIsWrittenInUuidOrderWhateverTheCase() {
-        List<String> mixedCase = names(AttributeEngine.METADATA_WRITE_ORDER, metadata(UPPER_B, "b"),
-                metadata(LOWER_A, "a"));
-        List<String> lowerCase = names(AttributeEngine.METADATA_WRITE_ORDER, metadata(UPPER_B.toLowerCase(), "b"),
-                metadata(LOWER_A, "a"));
+        List<String> mixedCase = uuids(AttributeEngine.METADATA_WRITE_ORDER, metadata(UPPER_B, "same"),
+                metadata(LOWER_A, "same"));
+        List<String> lowerCase = uuids(AttributeEngine.METADATA_WRITE_ORDER, metadata(UPPER_B.toLowerCase(), "same"),
+                metadata(LOWER_A, "same"));
 
         assertThat(mixedCase).isEqualTo(lowerCase);
+    }
+
+    /** A global and a connector's own definition collide on the connector key, so scope must not change the order. */
+    @Test
+    void metadataIsWrittenByNameWhateverItsScope() {
+        List<String> names = names(AttributeEngine.METADATA_WRITE_ORDER, global(LOWER_A, "y"), metadata(UPPER_B, "x"));
+
+        assertThat(names).containsExactly("x", "y");
     }
 
     @Test
@@ -57,6 +65,18 @@ class MetadataWriteOrderTest {
     @SafeVarargs
     private static <T extends BaseAttribute> List<String> names(Comparator<? super T> order, T... attributes) {
         return Stream.of(attributes).sorted(order).map(BaseAttribute::getName).toList();
+    }
+
+    /** Each UUID lowercased, in the order given, so two spellings of one UUID compare equal. */
+    @SafeVarargs
+    private static <T extends BaseAttribute> List<String> uuids(Comparator<? super T> order, T... attributes) {
+        return Stream.of(attributes).sorted(order).map(attribute -> attribute.getUuid().toLowerCase()).toList();
+    }
+
+    private static MetadataAttribute global(String uuid, String name) {
+        MetadataAttribute global = metadata(uuid, name);
+        global.getProperties().setGlobal(true);
+        return global;
     }
 
     private static DataAttributeV2 data(String uuid, String name) {
