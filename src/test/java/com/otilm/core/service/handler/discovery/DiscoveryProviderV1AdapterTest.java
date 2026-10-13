@@ -31,6 +31,7 @@ import com.otilm.core.service.handler.CertificateHandler;
 import com.otilm.core.service.writer.DiscoveryWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -43,6 +44,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -60,12 +62,14 @@ class DiscoveryProviderV1AdapterTest {
     private final DiscoveryProperties discoveryProperties = mock(DiscoveryProperties.class);
     private final ConnectorApiFactory connectorApiFactory = mock(ConnectorApiFactory.class);
     private final DiscoverySyncApiClient providerClient = mock(DiscoverySyncApiClient.class);
+    private final EventProducer eventProducer = mock(EventProducer.class);
+    private final DiscoveryWriter discoveryWriter = mock(DiscoveryWriter.class);
 
     private final DiscoveryProviderV1Adapter adapter = new DiscoveryProviderV1Adapter(discoveryProperties,
             mock(PlatformTransactionManager.class), discoveryRepository, connectorRepository,
             mock(CertificateRepository.class), mock(DiscoveryCertificateRepository.class), attributeEngine,
-            mock(CertificateHandler.class), credentialService, resourceService, connectorApiFactory,
-            mock(EventProducer.class), detailCounts, mock(DiscoveryMessageWriter.class), mock(DiscoveryWriter.class));
+            mock(CertificateHandler.class), credentialService, resourceService, connectorApiFactory, eventProducer,
+            detailCounts, mock(DiscoveryMessageWriter.class), discoveryWriter);
 
     /** A legacy connector's error arrives with its response body as the message. */
     private static final String CONNECTOR_BODY = "<html><body>upstream 10.0.0.5:8443 refused</body></html>";
@@ -190,6 +194,25 @@ class DiscoveryProviderV1AdapterTest {
                 .isEqualTo("Discovery has failed on connector side while waiting for completion");
     }
 
+    @Test
+    void aRunTheLastResortEndedStaysEndedWhenItsDetailCannotBeRead() throws ConnectorException {
+        connectAs();
+        prepareRun();
+        when(providerClient.discoverCertificates(any(), any())).thenThrow(new IllegalStateException("provider failed"));
+        IllegalStateException failure = new IllegalStateException("save refused");
+        when(discoveryRepository.save(any())).thenThrow(failure);
+        when(discoveryWriter.markFailedUnlessEnded(run.getUuid(), "Discovery failed in Core.")).thenReturn(true);
+        when(discoveryRepository.findByUuid(run.getUuid())).thenReturn(Optional.of(run));
+        when(detailCounts.forRun(run)).thenThrow(new IllegalStateException("counts unreadable"));
+
+        assertThatThrownBy(() -> adapter.start(run.getUuid(), null))
+                .isSameAs(failure)
+                .satisfies(e -> assertThat(e.getSuppressed())
+                        .extracting(Throwable::getMessage)
+                        .containsExactly("counts unreadable"));
+        verify(eventProducer).produceMessage(any());
+    }
+
     private void connectAs() {
         SecurityContextHolder
                 .getContext()
@@ -207,7 +230,7 @@ class DiscoveryProviderV1AdapterTest {
         when(connector.getUuid()).thenReturn(connectorUuid);
         when(connector.mapToDto()).thenReturn(new ConnectorDto());
         when(discoveryRepository.findWithTriggersByUuid(run.getUuid())).thenReturn(run);
-        when(connectorRepository.findByUuid(connectorUuid)).thenReturn(java.util.Optional.of(connector));
+        when(connectorRepository.findByUuid(connectorUuid)).thenReturn(Optional.of(connector));
         when(attributeEngine
                 .getDefinitionObjectAttributeContent(any(), any(), any(), any(Resource.class), any(UUID.class)))
                 .thenReturn(List.of());

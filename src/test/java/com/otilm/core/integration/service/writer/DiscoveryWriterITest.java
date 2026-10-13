@@ -8,6 +8,7 @@ import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.events.transaction.TransactionHandler;
+import com.otilm.core.service.handler.discovery.DiscoveryDetailCounts;
 import com.otilm.core.service.writer.DiscoveryWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import java.time.OffsetDateTime;
@@ -23,6 +24,10 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class DiscoveryWriterITest extends BaseSpringBootTest {
 
@@ -168,9 +173,8 @@ class DiscoveryWriterITest extends BaseSpringBootTest {
         run.setConnectorStatus(DiscoveryStatus.IN_PROGRESS);
         discoveryRepository.save(run);
 
-        var detail = discoveryWriter.markFailedUnlessEnded(run.getUuid(), "Core failed").orElseThrow();
+        assertThat(discoveryWriter.markFailedUnlessEnded(run.getUuid(), "Core failed")).isTrue();
 
-        assertThat(detail.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
         Discovery persisted = discoveryRepository.findByUuid(run.getUuid()).orElseThrow();
         assertThat(persisted.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
         assertThat(persisted.getConnectorStatus()).isEqualTo(DiscoveryStatus.FAILED);
@@ -188,7 +192,7 @@ class DiscoveryWriterITest extends BaseSpringBootTest {
             run.setEndTime(OffsetDateTime.now(ZoneOffset.UTC));
             discoveryRepository.save(run);
 
-            assertThat(discoveryWriter.markFailedUnlessEnded(run.getUuid(), "Core failed")).isEmpty();
+            assertThat(discoveryWriter.markFailedUnlessEnded(run.getUuid(), "Core failed")).isFalse();
 
             Discovery persisted = discoveryRepository.findByUuid(run.getUuid()).orElseThrow();
             assertThat(persisted.getStatus()).isEqualTo(ended);
@@ -196,9 +200,26 @@ class DiscoveryWriterITest extends BaseSpringBootTest {
         }
     }
 
+    /** The last resort runs after Core has already failed, so nothing else that can fail may roll its ending back. */
+    @Test
+    void markFailedUnlessEndedCommitsTheEndingWhenTheDetailCountsCannotBeRead() {
+        Discovery run = givenDiscovery();
+        DiscoveryDetailCounts unreadable = mock(DiscoveryDetailCounts.class);
+        when(unreadable.forRun(any())).thenThrow(new IllegalStateException("counts unreadable"));
+        DiscoveryWriter writer = new DiscoveryWriter(discoveryCertificateRepository, discoveryRepository, unreadable);
+
+        Throwable thrown = catchThrowable(() -> newTransaction()
+                .executeWithoutResult(status -> writer.markFailedUnlessEnded(run.getUuid(), "Core failed")));
+
+        Discovery persisted = discoveryRepository.findByUuid(run.getUuid()).orElseThrow();
+        assertThat(persisted.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
+        assertThat(persisted.getEndTime()).isNotNull();
+        assertThat(thrown).isNull();
+    }
+
     @Test
     void markFailedUnlessEndedIsEmptyForAnUnknownRun() {
-        assertThat(discoveryWriter.markFailedUnlessEnded(UUID.randomUUID(), "Core failed")).isEmpty();
+        assertThat(discoveryWriter.markFailedUnlessEnded(UUID.randomUUID(), "Core failed")).isFalse();
     }
 
     private Discovery givenDiscovery() {

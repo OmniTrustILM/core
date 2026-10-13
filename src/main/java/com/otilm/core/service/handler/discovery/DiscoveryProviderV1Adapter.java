@@ -57,7 +57,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -148,22 +147,33 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
 
     /**
      * Ends the run as Failed when Core itself could not finish it, so it never stays In progress. The message is fixed
-     * text, so no internal detail reaches the user; the exception goes to the log.
+     * text, so no internal detail reaches the user; the exception goes to the log. The ending commits before the detail
+     * is read, so a read that fails as well leaves the run ended and rethrows the original failure.
      */
     private DiscoveryDetailDto endAfterCoreFailure(UUID discoveryUuid, RuntimeException failure) {
         logger.error("Discovery {} failed in Core", discoveryUuid, failure);
         String message = "Discovery failed in Core.";
-        Optional<DiscoveryDetailDto> ended = Objects
-                .requireNonNull(newTransactions
+        boolean ended = Boolean.TRUE
+                .equals(newTransactions
                         .execute(status -> discoveryWriter.markFailedUnlessEnded(discoveryUuid, message)));
-        if (ended.isEmpty()) {
+        if (!ended) {
             throw failure;
         }
         eventProducer
                 .produceMessage(DiscoveryFinishedEventHandler
                         .constructEventMessage(discoveryUuid, AuthHelper.getActingUserUuidOrNull(), null,
                                 new DiscoveryResult(DiscoveryStatus.FAILED, message)));
-        return ended.get();
+        try {
+            return Objects
+                    .requireNonNull(newTransactions
+                            .execute(status -> discoveryRepository
+                                    .findByUuid(discoveryUuid)
+                                    .map(run -> DiscoveryDtoMapper.toDetailDto(run, detailCounts.forRun(run)))
+                                    .orElseThrow()));
+        } catch (RuntimeException detailFailure) {
+            failure.addSuppressed(detailFailure);
+            throw failure;
+        }
     }
 
     private DiscoveryDetailDto run(UUID discoveryUuid, ScheduledJobInfo scheduledJobInfo) {

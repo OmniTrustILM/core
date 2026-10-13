@@ -113,12 +113,12 @@ public class DiscoveryWriter {
      * Ends a v1 run that Core itself failed to finish, unless it already ended. A run has ended once it has an end
      * time; one parked in a mid-run {@code WARNING} has none, so this ends it too. The caller's transactions have
      * rolled back by then, so the caller runs it in a transaction of its own; it locks the row so a concurrent ending
-     * is not overwritten.
+     * is not overwritten. It reads nothing else, so no other failing read can roll the ending back.
      *
-     * @return the run's detail, or empty when the run is gone or has already ended
+     * @return whether it ended the run; false when the run is gone or has already ended
      */
     @Transactional
-    public Optional<DiscoveryDetailDto> markFailedUnlessEnded(UUID discoveryUuid, String message) {
+    public boolean markFailedUnlessEnded(UUID discoveryUuid, String message) {
         return discoveryRepository
                 .findWithLockByUuid(discoveryUuid)
                 .filter(discovery -> discovery.getEndTime() == null)
@@ -129,8 +129,9 @@ public class DiscoveryWriter {
                     }
                     discovery.setMessage(message);
                     discovery.setEndTime(OffsetDateTime.now(ZoneOffset.UTC));
-                    return DiscoveryDtoMapper.toDetailDto(discovery, detailCounts.forRun(discovery));
-                });
+                    return true;
+                })
+                .orElse(false);
     }
 
 }
