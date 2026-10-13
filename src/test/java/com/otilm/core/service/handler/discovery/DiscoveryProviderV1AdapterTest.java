@@ -10,6 +10,8 @@ import com.otilm.api.exception.ConnectorClientException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ConnectorServerException;
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationError;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.client.v1.DiscoverySyncApiClient;
 import com.otilm.api.model.connector.discovery.DiscoveryProviderDto;
 import com.otilm.api.model.core.auth.Resource;
@@ -234,6 +236,36 @@ class DiscoveryProviderV1AdapterTest {
                         .extracting(Throwable::getMessage)
                         .containsExactly("counts unreadable"));
         verify(eventProducer).produceMessage(any());
+    }
+
+    /** A legacy connector's 422 arrives as a ValidationException carrying the connector's own sentences. */
+    private static ValidationException legacy422() {
+        return new ValidationException(List.of(ValidationError.create("Secret " + SECRET_FRAGMENT + " is invalid")));
+    }
+
+    @Test
+    void aConnectorValidationFailureWhileLoadingTheContextEndsTheRunWithTheFixedText()
+            throws NotFoundException, AttributeException, ConnectorException {
+        connectAs();
+        prepareRun();
+        doThrow(legacy422()).when(resourceService).loadResourceObjectContentData(any(List.class));
+
+        var detail = adapter.start(run.getUuid(), null);
+
+        assertThat(detail.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
+        assertThat(detail.getMessage()).isEqualTo("Discovery could not be prepared in Core.");
+    }
+
+    @Test
+    void aConnectorValidationFailureAtStartEndsTheRunWithoutTheConnectorsText() throws ConnectorException {
+        connectAs();
+        prepareRun();
+        when(providerClient.discoverCertificates(any(), any())).thenThrow(legacy422());
+
+        var detail = adapter.start(run.getUuid(), null);
+
+        assertThat(detail.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
+        assertThat(detail.getMessage()).isEqualTo("Failed to run discovery at the provider.");
     }
 
     @Test

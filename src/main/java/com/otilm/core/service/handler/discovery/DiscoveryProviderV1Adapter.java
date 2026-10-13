@@ -6,6 +6,7 @@ import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.DiscoveryException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.PlatformException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.client.v1.DiscoverySyncApiClient;
 import com.otilm.api.model.client.discovery.DiscoveryDetailDto;
 import com.otilm.api.model.common.attribute.common.AttributeContent;
@@ -289,7 +290,7 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
             // Out here, so the template has rolled back: a runtime failure that crossed a transactional service has
             // marked it rollback-only, and handling it inside would turn into an UnexpectedRollbackException on commit.
             logFailure("Could not load the context of discovery {}", discoveryUuid, e);
-            return failedContext(loggedUserUuid, null, discovery, PlatformException.safeMessage(e, CONTEXT_NOT_LOADED));
+            return failedContext(loggedUserUuid, null, discovery, safeReason(e, CONTEXT_NOT_LOADED));
         }
     }
 
@@ -363,11 +364,14 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
     }
 
     /**
-     * The exception's own text when Core wrote it, otherwise the fallback. A {@link ConnectorException} is a
-     * {@link PlatformException}, but its message is the connector's response body, so it stays in the log.
+     * The exception's own text when Core wrote it, otherwise the fallback. A {@link ConnectorException} and a
+     * {@link ValidationException} are {@link PlatformException}s, but a connector can write either: the first carries
+     * its response body, the second a legacy 422's sentences. Their text stays in the log, as in the v2 adapter.
      */
     private static String safeReason(Exception e, String fallback) {
-        return e instanceof ConnectorException ? fallback : PlatformException.safeMessage(e, fallback);
+        return e instanceof ConnectorException || e instanceof ValidationException
+                ? fallback
+                : PlatformException.safeMessage(e, fallback);
     }
 
     private record StagedCounts(int certificates, long newlyDiscovered) {

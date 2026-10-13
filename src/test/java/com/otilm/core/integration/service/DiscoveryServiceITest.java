@@ -2024,10 +2024,11 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
 
     /**
      * A runtime failure that crosses a transactional service marks the loading transaction rollback-only. The run must
-     * still end FAILED with that failure's message, not with the commit's {@code UnexpectedRollbackException}.
+     * still end FAILED with Core's fixed text, not with the commit's {@code UnexpectedRollbackException}. The failure
+     * here is a validation one, which a connector can also raise, so its own text stays in the log.
      */
     @Test
-    void aRuntimeFailureLoadingTheContextEndsTheRunFailedWithItsOwnMessage() throws Exception {
+    void aRuntimeFailureLoadingTheContextEndsTheRunFailedWithTheFixedText() throws Exception {
         WireMock
                 .stubFor(WireMock
                         .get(WireMock.urlPathMatching("/v1/discoveryProvider/[^/]+/attributes"))
@@ -2051,7 +2052,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         Discovery persisted = discoveryRepository.findByUuid(discoveryUuid).orElseThrow();
         Assertions.assertEquals(DiscoveryStatus.FAILED, persisted.getStatus());
         Assertions.assertEquals(DiscoveryStatus.FAILED, persisted.getConnectorStatus());
-        Assertions.assertEquals("Invalid UUID not-a-uuid in the request", persisted.getMessage());
+        Assertions.assertEquals("Discovery could not be prepared in Core.", persisted.getMessage());
         Assertions.assertNotNull(persisted.getEndTime());
     }
 
