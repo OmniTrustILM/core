@@ -786,6 +786,16 @@ class SecretServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void testListSecretsRefusesPageSizeAboveMaximum() {
+        SearchRequestDto searchRequest = new SearchRequestDto();
+        searchRequest.setItemsPerPage(1001);
+        SecurityFilter securityFilter = SecurityFilter.create();
+        Assertions
+                .assertThrows(ValidationException.class,
+                        () -> secretService.listSecrets(searchRequest, securityFilter));
+    }
+
+    @Test
     void getSecretContent_whenFingerprintCalcThrows_shouldThrowValidationException() {
         try (MockedStatic<SecretsUtil> mocked = mockStatic(SecretsUtil.class)) {
             mocked
