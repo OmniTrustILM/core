@@ -745,7 +745,7 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
     }
 
     /** Stands in for each link of a failure's chain in the log: its type and frames, never its message. */
-    private static final class RedactedFailure extends RuntimeException {
+    private static final class RedactedFailure extends RuntimeException implements PlatformException {
         private RedactedFailure(Throwable original, RedactedFailure cause) {
             super(original.getClass().getName(), cause, false, true);
             setStackTrace(original.getStackTrace());
