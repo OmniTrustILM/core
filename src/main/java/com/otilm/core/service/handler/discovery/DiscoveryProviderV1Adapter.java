@@ -1,5 +1,6 @@
 package com.otilm.core.service.handler.discovery;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.DiscoveryException;
@@ -63,6 +64,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
+import java.util.stream.Collectors;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -151,7 +154,7 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
      * is read, so a read that fails as well leaves the run ended and rethrows the original failure.
      */
     private DiscoveryDetailDto endAfterCoreFailure(UUID discoveryUuid, RuntimeException failure) {
-        logger.error("Discovery {} failed in Core", discoveryUuid, failure);
+        logFailure("Discovery {} failed in Core", discoveryUuid, failure);
         String message = "Discovery failed in Core.";
         boolean ended = Boolean.TRUE
                 .equals(newTransactions
@@ -189,7 +192,7 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
         try {
             providerResponse = discoverCertificatesByProvider(context);
         } catch (DiscoveryException e) {
-            logger.error("Discovery {} did not complete at the provider", discoveryUuid, e);
+            logFailure("Discovery {} did not complete at the provider", discoveryUuid, e);
             storeRunMetadata(context);
             return finalizeDiscoveryInTx(context, null);
         } catch (InterruptedException e) {
@@ -212,7 +215,7 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
             context.setDiscoveryStatus(DiscoveryStatus.IN_PROGRESS);
             context.setMessage("Discovered certificates downloaded from provider");
         } catch (DiscoveryException e) {
-            logger.error("Discovery {} could not download all certificates", discoveryUuid, e);
+            logFailure("Discovery {} could not download all certificates", discoveryUuid, e);
         }
 
         // Each duplicate's metadata is written in a transaction of its own, so one that fails cannot take the counts
@@ -285,7 +288,7 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
         } catch (RuntimeException e) {
             // Out here, so the template has rolled back: a runtime failure that crossed a transactional service has
             // marked it rollback-only, and handling it inside would turn into an UnexpectedRollbackException on commit.
-            logger.error("Could not load the context of discovery {}", discoveryUuid, e);
+            logFailure("Could not load the context of discovery {}", discoveryUuid, e);
             return failedContext(loggedUserUuid, null, discovery, PlatformException.safeMessage(e, CONTEXT_NOT_LOADED));
         }
     }
@@ -308,7 +311,7 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
-            logger.error("Could not load the context of discovery {}", discovery.getUuid(), e);
+            logFailure("Could not load the context of discovery {}", discovery.getUuid(), e);
             ConnectorDto connectorDto = connector != null ? connector.mapToDto() : null;
             return failedContext(loggedUserUuid, connectorDto, discovery, safeReason(e, CONTEXT_NOT_LOADED));
         }
@@ -325,13 +328,32 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
     }
 
     private DiscoveryDetailDto failAtProvider(DiscoveryContext context, Exception e) {
-        logger.error("Error in discovery '{}' at provider", context.getDiscovery().getName(), e);
+        logFailure("Error in discovery '{}' at provider", context.getDiscovery().getName(), e);
         context
                 .setDiscoveryFailed(e instanceof InterruptedException
                         ? "Discovery was interrupted."
                         : withSafeReason("Error in provider during discovery", e));
         storeRunMetadata(context);
         return finalizeDiscoveryInTx(context, null);
+    }
+
+    /**
+     * Logs a failure with its stack, unless a connector answer Core could not parse is in its chain: Jackson quotes
+     * that answer in its message, which can carry key or secret material, so only the types are logged, as
+     * BaseApiClient logs them.
+     */
+    private static void logFailure(String message, Object subject, Throwable failure) {
+        if (ExceptionUtils.indexOfType(failure, JsonProcessingException.class) >= 0) {
+            logger
+                    .error(message + "; failure types: {}", subject,
+                            ExceptionUtils
+                                    .getThrowableList(failure)
+                                    .stream()
+                                    .map(t -> t.getClass().getName())
+                                    .collect(Collectors.joining(" <- ")));
+        } else {
+            logger.error(message, subject, failure);
+        }
     }
 
     /** The reason is shown to users, so it is the exception's own text only when that is safe to show. */
@@ -399,7 +421,7 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
                             discovery.getUuid(), response.getStatus(), response.getTotalCertificatesDiscovered());
             discovery.setDiscoveryConnectorReference(response.getUuid());
         } catch (Exception e) {
-            logger.error("Discovery {} could not be started at the provider", discovery.getUuid(), e);
+            logFailure("Discovery {} could not be started at the provider", discovery.getUuid(), e);
             context.setDiscoveryFailed(withSafeReason("Failed to run discovery at the provider", e));
             throw new DiscoveryException(discovery.getName(), context.getMessage());
         }

@@ -1,5 +1,10 @@
 package com.otilm.core.service.handler.discovery;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.spi.ThrowableProxyUtil;
+import ch.qos.logback.core.read.ListAppender;
+import com.fasterxml.jackson.core.JsonParseException;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorClientException;
 import com.otilm.api.exception.ConnectorException;
@@ -34,7 +39,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -75,6 +82,22 @@ class DiscoveryProviderV1AdapterTest {
     private static final String CONNECTOR_BODY = "<html><body>upstream 10.0.0.5:8443 refused</body></html>";
 
     private final Discovery run = new Discovery();
+
+    /** Text a connector answer could carry that must never reach the log. */
+    private static final String SECRET_FRAGMENT = "-----BEGIN PRIVATE KEY-----MIIEvQIBADANBgkqhkiG9w0BAQEFAASC";
+
+    private final ListAppender<ILoggingEvent> logged = new ListAppender<>();
+
+    @BeforeEach
+    void captureLogs() {
+        logged.start();
+        ((Logger) LoggerFactory.getLogger(DiscoveryProviderV1Adapter.class)).addAppender(logged);
+    }
+
+    @AfterEach
+    void releaseLogs() {
+        ((Logger) LoggerFactory.getLogger(DiscoveryProviderV1Adapter.class)).detachAppender(logged);
+    }
 
     @AfterEach
     void clearSecurityContext() {
@@ -211,6 +234,27 @@ class DiscoveryProviderV1AdapterTest {
                         .extracting(Throwable::getMessage)
                         .containsExactly("counts unreadable"));
         verify(eventProducer).produceMessage(any());
+    }
+
+    @Test
+    void aConnectorAnswerCoreCouldNotParseIsLoggedByTypeOnly() throws ConnectorException {
+        connectAs();
+        prepareRun();
+        when(providerClient.discoverCertificates(any(), any()))
+                .thenThrow(new ConnectorServerException("Connector returned a response that could not be parsed",
+                        new JsonParseException(null, "Unexpected character in " + SECRET_FRAGMENT),
+                        HttpStatus.BAD_GATEWAY));
+
+        adapter.start(run.getUuid(), null);
+
+        assertThat(logged.list).noneSatisfy(event -> assertThat(rendered(event)).contains(SECRET_FRAGMENT));
+        assertThat(logged.list).anySatisfy(event -> assertThat(rendered(event)).contains("JsonParseException"));
+    }
+
+    /** What a log line shows: its message and, when it carries one, the whole throwable chain. */
+    private static String rendered(ILoggingEvent event) {
+        return event.getFormattedMessage()
+                + (event.getThrowableProxy() == null ? "" : ThrowableProxyUtil.asString(event.getThrowableProxy()));
     }
 
     private void connectAs() {
