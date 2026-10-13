@@ -300,6 +300,19 @@ class NormalizationRulesTest {
         assertThat(asset.findings()).singleElement().asString().contains("64").contains("128, 192, 256");
     }
 
+    /** A hybrid component reads an overlong digit run as the bare family, not cut to a size's length. */
+    @Test
+    void anOverlongDigitRunSpellsNoSizeOnAHybridComponent() {
+        assertThat(NORMALIZER.sizedFamilyToken("ML-KEM", "MLKEM", "999999")).isEqualTo("ml-kem");
+        assertThat(NORMALIZER.sizedFamilyToken("ML-KEM", "MLKEM999999", "")).isEqualTo("ml-kem");
+        assertThat(NORMALIZER.sizedFamilyToken("ML-KEM", "MLKEM", "99999")).isEqualTo("ml-kem-99999");
+        assertThat(NORMALIZER.sizedFamilyToken("SHA-2", "SHA", "256withRSA")).isEqualTo("sha-2-256");
+        assertThat(normalize("X25519-ML-KEM-999999").hybridComponents())
+                .contains("ml-kem")
+                .doesNotContain("ml-kem-99999");
+        assertThat(normalize("X25519-ML-KEM-99999").hybridComponents()).contains("ml-kem-99999");
+    }
+
     /** A parameter set the registry does not enumerate for the family stays in the slot and is reported. */
     @Test
     void aParameterSetTheFamilyDoesNotDefineIsReportedToTheProducer() {

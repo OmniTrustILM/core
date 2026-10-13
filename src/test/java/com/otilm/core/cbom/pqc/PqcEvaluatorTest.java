@@ -120,6 +120,9 @@ class PqcEvaluatorTest {
                     .describedAs(registered)
                     .isEqualTo("PQC-HYBRID-PQC-STANDARDIZED");
         }
+        assertThat(verdictOf(algorithm("X25519-ML-KEM-999999")).ruleId())
+                .describedAs("an overlong digit run spells no size on the hybrid's component, as on the bare name")
+                .isEqualTo("PQC-HYBRID-PQC-STANDARDIZED");
     }
 
     /** A size the registry does not define is refused whether or not the key-size whitelist would accept it. */

@@ -199,9 +199,14 @@ public record AssetNormalizer(IdentityTables tables) {
 
     private static final String JCA_PADDING_SUFFIX = "(?:" + JCA_PADDING_WORD + ")?";
 
-    private static final Pattern LOCAL_SIZE_RUN = Pattern.compile("[^A-Za-z0-9]*[A-Za-z]*[-_/]?(\\d{1,5})");
+    /**
+     * The digit runs {@link #sizedFamilyToken} reads a size from, in the matched text and just after it. Each refuses a
+     * following digit, as {@link #registrySizeSpelled} does: a run longer than any size spells none, and cutting it to
+     * five digits would give a hybrid's component a size its bare spelling does not have.
+     */
+    private static final Pattern LOCAL_SIZE_RUN = Pattern.compile("[^A-Za-z0-9]*[A-Za-z]*[-_/]?(\\d{1,5})(?![0-9])");
 
-    private static final Pattern ADJACENT_SIZE_RUN = Pattern.compile("[-_/]?(\\d{2,5})");
+    private static final Pattern ADJACENT_SIZE_RUN = Pattern.compile("[-_/]?(\\d{2,5})(?![0-9])");
 
     private static final Pattern ADJACENT_KEY_SIZE = Pattern.compile("[-_/]?(\\d{2,5})(?![A-Za-z0-9])");
 
