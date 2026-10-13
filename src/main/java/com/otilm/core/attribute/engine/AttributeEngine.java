@@ -73,7 +73,9 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
 import com.otilm.core.security.authz.SecurityResourceFilter;
+import com.otilm.core.serialization.AttributeContentJson;
 import com.otilm.core.serialization.ObjectMapperFactory;
+import com.otilm.core.service.writer.AttributeContentItemWriter;
 import com.otilm.core.service.writer.AttributeDefinitionWriter;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.AuthHelper;
@@ -95,6 +97,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
@@ -120,6 +123,16 @@ public class AttributeEngine {
 
     private static final ObjectMapper ATTRIBUTES_OBJECT_MAPPER = ObjectMapperFactory.attributeContent();
 
+    /**
+     * The order metadata is written in, so two writes of the same definitions lock them and their new values alike. A
+     * global definition is found by its name, which every connector sending it shares while each may give it a UUID of
+     * its own; a connector's own definition is found by its UUID.
+     */
+    public static final Comparator<MetadataAttribute> METADATA_WRITE_ORDER = Comparator
+            .comparing((MetadataAttribute attribute) -> !isGlobalMetadata(attribute))
+            .thenComparing(attribute -> isGlobalMetadata(attribute) ? attribute.getName() : attribute.getUuid(),
+                    Comparator.nullsLast(Comparator.naturalOrder()));
+
     @PersistenceContext
     private EntityManager entityManager;
     private AttributeDefinitionRepository attributeDefinitionRepository;
@@ -127,6 +140,7 @@ public class AttributeEngine {
     private AttributeContentItemRepository attributeContentItemRepository;
     private AttributeContent2ObjectRepository attributeContent2ObjectRepository;
     private AttributeDefinitionWriter attributeDefinitionWriter;
+    private AttributeContentItemWriter attributeContentItemWriter;
     private AttributeSearchFieldCatalogue attributeSearchFieldCatalogue;
 
     private AuthHelper authHelper;
@@ -144,6 +158,11 @@ public class AttributeEngine {
     @Autowired
     public void setAttributeDefinitionWriter(AttributeDefinitionWriter attributeDefinitionWriter) {
         this.attributeDefinitionWriter = attributeDefinitionWriter;
+    }
+
+    @Autowired
+    public void setAttributeContentItemWriter(AttributeContentItemWriter attributeContentItemWriter) {
+        this.attributeContentItemWriter = attributeContentItemWriter;
     }
 
     @Autowired
@@ -773,17 +792,28 @@ public class AttributeEngine {
             }
             if (newProtectionLevel != ProtectionLevel.ENCRYPTED
                     && attributeDefinition.getProtectionLevel() == ProtectionLevel.ENCRYPTED) {
-                // if changing from ENCRYPTED to NONE, we need to decrypt existing content
-                List<AttributeContentItem> contents = attributeContentItemRepository
-                        .findByAttributeDefinitionUuid(attributeDefinition.getUuid());
-                for (AttributeContentItem contentItem : contents) {
-                    contentItem
-                            .setJson(AttributeVersionHelper
-                                    .decryptContent(contentItem.getJson(), attributeDefinition.getVersion(),
-                                            attributeDefinition.getContentType(), contentItem.getEncryptedData()));
-                    contentItem.setEncryptedData(null);
-                    attributeContentItemRepository.save(contentItem);
+                // if changing from ENCRYPTED to NONE, we need to decrypt existing content. Encrypted values are stored
+                // once per object, so rows decrypting alike fold onto the value's one plaintext row. Rows are read as
+                // values and written with statements: held in the session, each statement would walk them all again.
+                Set<UUID> survivors = new HashSet<>();
+                for (AttributeContentItemRepository.StoredValue encrypted : attributeContentItemRepository
+                        .findByAttributeDefinitionUuidAndEncryptedDataIsNotNullOrderByUuid(
+                                attributeDefinition.getUuid())) {
+                    AttributeContent plaintext = AttributeVersionHelper
+                            .decryptContent(encrypted.getJson(), attributeDefinition.getVersion(),
+                                    attributeDefinition.getContentType(), encrypted.getEncryptedData());
+                    UUID existing = attributeContentItemRepository
+                            .findPlaintextUuid(attributeDefinition.getUuid(), AttributeContentJson.render(plaintext));
+                    if (existing == null) {
+                        attributeContentItemWriter.storePlaintext(encrypted.getUuid(), plaintext);
+                    } else if (!existing.equals(encrypted.getUuid())) {
+                        // equal when a concurrent switch already stored this very row as plaintext
+                        attributeContentItemWriter.foldInto(encrypted.getUuid(), existing);
+                        survivors.add(existing);
+                    }
                 }
+                // Once per surviving row, after every fold into it, rather than over its growing mappings per fold.
+                survivors.forEach(attributeContentItemWriter::dropRepeatedMappings);
             }
         }
     }
@@ -843,10 +873,10 @@ public class AttributeEngine {
 
         // load missing data attributes definitions from DB
         for (RequestAttribute RequestAttribute : requestAttributes) {
-            if (definitionsMapping.get(RequestAttribute.getName()) == null) {
+            if (definitionsMapping.get(RequestAttribute.getName()) == null && RequestAttribute.getUuid() != null) {
                 AttributeDefinition missingDefinition = attributeDefinitionRepository
                         .findByTypeAndConnectorUuidAndAttributeUuidAndName(AttributeType.DATA, connectorUuid,
-                                UUID.fromString(String.valueOf(RequestAttribute.getUuid())), RequestAttribute.getName())
+                                UUID.fromString(RequestAttribute.getUuid().toString()), RequestAttribute.getName())
                         .orElse(null);
                 if (missingDefinition != null) {
                     claimUnknownOperation(missingDefinition, operation);
@@ -1300,6 +1330,10 @@ public class AttributeEngine {
         }
     }
 
+    private static boolean isGlobalMetadata(MetadataAttribute attribute) {
+        return attribute.getProperties() != null && attribute.getProperties().isGlobal();
+    }
+
     /**
      * Compares definitions by their serialized form. The attribute model has no value-based equals on its nested types.
      */
@@ -1327,7 +1361,8 @@ public class AttributeEngine {
             return;
         }
 
-        for (MetadataAttribute metadataAttribute : attributes) {
+        List<MetadataAttribute> ordered = attributes.stream().sorted(METADATA_WRITE_ORDER).toList();
+        for (MetadataAttribute metadataAttribute : ordered) {
             if (metadataAttribute.getType() != AttributeType.META) {
                 continue;
             }
@@ -1397,22 +1432,6 @@ public class AttributeEngine {
         }
 
         return mapping.values().stream().toList();
-    }
-
-    public void registerAttributeContentItems(UUID attributeDefinitionUuid,
-            Collection<AttributeContent> attributeContentItems) {
-        for (AttributeContent attributeContentItem : attributeContentItems) {
-            AttributeContentItem contentItemEntity = attributeContentItemRepository
-                    .findByJsonAndAttributeDefinitionUuid(attributeContentItem, attributeDefinitionUuid);
-
-            // check if content item for this attribute definition exists to don't create duplicate items
-            if (contentItemEntity == null) {
-                contentItemEntity = new AttributeContentItem();
-                contentItemEntity.setJson(attributeContentItem);
-                contentItemEntity.setAttributeDefinitionUuid(attributeDefinitionUuid);
-                attributeContentItemRepository.save(contentItemEntity);
-            }
-        }
     }
 
     public List<ResponseAttribute> loadResponseAttributes(AttributeType attributeType, UUID connectorUuid,
@@ -1692,12 +1711,16 @@ public class AttributeEngine {
         }
 
         deleteOperationObjectAttributesContent(AttributeType.DATA, info);
+        List<ContentWrite> writes = new ArrayList<>();
         for (RequestAttribute requestAttribute : requestAttributes) {
             AttributeDefinition attributeDefinition = attributeDefinitionRepository
                     .findByTypeAndConnectorUuidAndAttributeUuidAndName(AttributeType.DATA, info.connectorUuid(),
                             requestAttribute.getUuid(), requestAttribute.getName())
                     .orElseThrow(() -> new NotFoundException(AttributeDefinition.class, requestAttribute.getName()));
-            createObjectAttributeContent(attributeDefinition, info, requestAttribute.getContent());
+            writes.add(new ContentWrite(attributeDefinition, requestAttribute.getContent()));
+        }
+        for (var write : inDefinitionOrder(writes)) {
+            createObjectAttributeContent(write.definition(), info, write.content());
         }
 
         return getObjectDataAttributesContent(info);
@@ -1751,12 +1774,16 @@ public class AttributeEngine {
                         deleted, info.objectType().getLabel(), info.objectUuid(), info.objectVersion(),
                         info.operation(), info.purpose());
 
+        List<ContentWrite> writes = new ArrayList<>();
         for (RequestAttribute requestAttribute : requestAttributes) {
             AttributeDefinition attributeDefinition = attributeDefinitionRepository
                     .findByTypeAndConnectorUuidAndAttributeUuidAndName(AttributeType.DATA, info.connectorUuid(),
                             requestAttribute.getUuid(), requestAttribute.getName())
                     .orElseThrow(() -> new NotFoundException(AttributeDefinition.class, requestAttribute.getName()));
-            createObjectAttributeContent(attributeDefinition, info, requestAttribute.getContent());
+            writes.add(new ContentWrite(attributeDefinition, requestAttribute.getContent()));
+        }
+        for (var write : inDefinitionOrder(writes)) {
+            createObjectAttributeContent(write.definition(), info, write.content());
         }
 
         return getObjectDataAttributesContent(info);
@@ -1788,6 +1815,7 @@ public class AttributeEngine {
                 && securityResourceFilter.getForbiddenObjects().isEmpty())) {
             // custom attributes content is automatically replaced
             deleteObjectAttributeContentByType(AttributeType.CUSTOM, objectType, objectUuid);
+            List<ContentWrite> writes = new ArrayList<>();
             for (RequestAttribute requestAttribute : requestAttributes) {
                 AttributeDefinition attributeDefinition = attributeDefinitionRepository
                         .findByTypeAndName(AttributeType.CUSTOM, requestAttribute.getName())
@@ -1801,27 +1829,69 @@ public class AttributeEngine {
                                 .map(ac -> AttributeVersionHelper
                                         .convertAttributeContentToV3(ac, requestAttribute.getContentType()))
                                 .toList();
-                createObjectAttributeContent(attributeDefinition,
-                        ObjectAttributeContentInfo.builder(objectType, objectUuid).build(), attributeContent);
+                writes.add(new ContentWrite(attributeDefinition, attributeContent));
+            }
+            for (var write : inDefinitionOrder(writes)) {
+                createObjectAttributeContent(write.definition(),
+                        ObjectAttributeContentInfo.builder(objectType, objectUuid).build(), write.content());
             }
         } else {
             // delete only content of allowed attributes
             deleteObjectAllowedCustomAttributeContent(securityResourceFilter, objectType, objectUuid);
 
+            List<ContentWrite> writes = new ArrayList<>();
             for (RequestAttribute requestAttribute : requestAttributes) {
                 AttributeDefinition attributeDefinition = attributeDefinitionRepository
                         .findByTypeAndName(AttributeType.CUSTOM, requestAttribute.getName())
                         .orElseThrow(
                                 () -> new NotFoundException(AttributeDefinition.class, requestAttribute.getName()));
                 checkCustomAttributeUpdatePermissions(securityResourceFilter, attributeDefinition);
-
-                createObjectAttributeContent(attributeDefinition,
-                        ObjectAttributeContentInfo.builder(objectType, objectUuid).build(),
-                        requestAttribute.getContent());
+                writes.add(new ContentWrite(attributeDefinition, requestAttribute.getContent()));
+            }
+            for (var write : inDefinitionOrder(writes)) {
+                createObjectAttributeContent(write.definition(),
+                        ObjectAttributeContentInfo.builder(objectType, objectUuid).build(), write.content());
             }
         }
 
         return getObjectCustomAttributesContent(objectType, objectUuid, securityResourceFilter);
+    }
+
+    /** One attribute's content in a write of several, which may be null for an attribute the request leaves unset. */
+    private record ContentWrite(AttributeDefinition definition, List<? extends AttributeContent> content) {
+    }
+
+    /** Orders the writes by definition, so concurrent writes lock shared new values in one order. */
+    private static List<ContentWrite> inDefinitionOrder(List<ContentWrite> writes) {
+        return writes.stream().sorted(Comparator.comparing(write -> write.definition().getUuid())).toList();
+    }
+
+    /**
+     * Runs the per-attribute update permission check without writing anything, so a caller that submits an attribute it
+     * may not edit can be refused before it reaches a side effect. The write applies the same check, but only after it
+     * has already cleared the content it is allowed to replace.
+     */
+    public void validateCustomAttributesUpdatePermissions(List<RequestAttribute> requestAttributes)
+            throws NotFoundException, AttributeException {
+        SecurityResourceFilter securityResourceFilter = loadCustomAttributesSecurityResourceFilter();
+        if (requestAttributes == null || securityResourceFilter == null
+                || (!securityResourceFilter.areOnlySpecificObjectsAllowed()
+                        && securityResourceFilter.getForbiddenObjects().isEmpty())) {
+            return;
+        }
+        for (RequestAttribute requestAttribute : requestAttributes) {
+            AttributeDefinition attributeDefinition = attributeDefinitionRepository
+                    .findByTypeAndName(AttributeType.CUSTOM, requestAttribute.getName())
+                    .orElseThrow(() -> new NotFoundException(AttributeDefinition.class, requestAttribute.getName()));
+            // Content validation filters on the submitted uuid while the write resolves by name, so an attribute
+            // carrying one definition's uuid under another's name slips past validation and is written anyway.
+            if (!attributeDefinition.getUuid().equals(requestAttribute.getUuid())) {
+                throw new AttributeException(String
+                        .format("Custom attribute `%s` does not match the submitted attribute UUID",
+                                requestAttribute.getName()));
+            }
+            checkCustomAttributeUpdatePermissions(securityResourceFilter, attributeDefinition);
+        }
     }
 
     private static void checkCustomAttributeUpdatePermissions(SecurityResourceFilter securityResourceFilter,
@@ -1877,13 +1947,14 @@ public class AttributeEngine {
         // filter out updating
         processSecurityFilter(definitionUuid, attributeDefinition);
 
+        // Validated before the stored content goes: a rejection is a checked AttributeException, which rolls nothing
+        // back, so a rejection after the delete would leave the object without its previous value.
         List<BaseAttributeContentV3<?>> contentV3s = null;
         if (attributeContentItems != null && !attributeContentItems.isEmpty()) {
             contentV3s = AttributeVersionHelper.getBaseAttributeContentV3s(attributeContentItems, attributeDefinition);
             validateAttributeContent(attributeDefinition, contentV3s);
         }
 
-        // custom attributes content is automatically replaced after the new content has been validated
         deleteObjectAttributeDefinitionContent(attributeDefinition.getUuid(), objectType, objectUuid);
         if (contentV3s != null) {
             createObjectAttributeContent(attributeDefinition,
@@ -2696,6 +2767,10 @@ public class AttributeEngine {
                 .getProtectionLevel() == ProtectionLevel.ENCRYPTED
                         ? loadDecryptedMappedItems(attributeDefinition, objectAttributeContentInfo)
                         : List.of();
+        Map<String, AttributeContentItem> plaintextRows = attributeDefinition
+                .getProtectionLevel() == ProtectionLevel.ENCRYPTED
+                        ? Map.of()
+                        : findOrCreateContentItems(attributeDefinition.getUuid(), attributeContentItems);
 
         for (int i = 0; i < attributeContentItems.size(); i++) {
             AttributeContent attributeContentItem = attributeContentItems.get(i);
@@ -2711,13 +2786,10 @@ public class AttributeEngine {
                                     attributeDefinition.getVersion());
                 }
             } else {
-                // For non-encrypted attributes, try to find existing content item, since json will be different for
-                // different content
-                contentItemEntity = attributeContentItemRepository
-                        .findByJsonAndAttributeDefinitionUuid(attributeContentItem, attributeDefinition.getUuid());
+                contentItemEntity = plaintextRows.get(AttributeContentJson.canonical(attributeContentItem));
             }
 
-            // check if content item for this attribute definition exists to don't create duplicate items
+            // an existing row may already be mapped to this object; only an encrypted value reaches the insert below
             if (contentItemEntity != null) {
                 // check if that content item is not already assigned to same object+version for meta attribute
                 // TODO: do we need to allow duplicate content items for one attribute definition? Maybe if attribute is
@@ -2756,6 +2828,61 @@ public class AttributeEngine {
             objectContentItem.setAttributeContentItem(contentItemEntity);
             attributeContent2ObjectRepository.save(objectContentItem);
         }
+    }
+
+    /**
+     * Stores the plaintext values a page of discovered metadata carries.
+     *
+     * <p>
+     * The caller must commit them before importing the page's rows in parallel. The imports then find these rows
+     * instead of inserting them, so they never wait on each other over a shared new value. An encrypted definition's
+     * values are left to the import, which stores them encrypted, one row per object. Values are stored in canonical
+     * order, so two registrations sharing values lock them in the same order.
+     */
+    public void registerAttributeContentItems(AttributeDefinition attributeDefinition,
+            Collection<AttributeContent> attributeContentItems) {
+        if (attributeContentItems == null || attributeDefinition.getProtectionLevel() == ProtectionLevel.ENCRYPTED) {
+            return;
+        }
+        attributeContentItems
+                .stream()
+                .sorted(Comparator.comparing(AttributeContentJson::canonical))
+                .forEach(content -> attributeContentItemWriter.insertIfAbsent(attributeDefinition.getUuid(), content));
+    }
+
+    /**
+     * The definition's row for each plaintext value, keyed by the value's {@link AttributeContentJson#canonical
+     * canonical} rendering. A plaintext value has one row per definition, shared by every object holding it. Values the
+     * definition does not hold yet are stored in the order {@link #registerAttributeContentItems} uses, so two writes
+     * storing the same new values wait on each other in that order instead of each holding one value the other needs.
+     */
+    private Map<String, AttributeContentItem> findOrCreateContentItems(UUID definitionUuid,
+            List<? extends AttributeContent> contents) {
+        Map<String, AttributeContent> byRendering = new TreeMap<>();
+        contents.forEach(content -> byRendering.putIfAbsent(AttributeContentJson.canonical(content), content));
+        Map<String, AttributeContentItem> rows = new HashMap<>();
+        byRendering
+                .forEach((rendering, content) -> rows.put(rendering, findOrCreateContentItem(definitionUuid, content)));
+        return rows;
+    }
+
+    /**
+     * The definition's row for a plaintext value, stored first when the definition does not hold it yet. Writers racing
+     * to store the same new value converge on one row: the insert yields to {@code uq_attribute_content_item_value}
+     * instead of failing, and the row is read back.
+     */
+    private AttributeContentItem findOrCreateContentItem(UUID definitionUuid, AttributeContent content) {
+        AttributeContentItem existing = attributeContentItemWriter.findPlaintext(definitionUuid, content);
+        if (existing != null) {
+            return existing;
+        }
+        attributeContentItemWriter.insertIfAbsent(definitionUuid, content);
+        AttributeContentItem stored = attributeContentItemWriter.findPlaintext(definitionUuid, content);
+        if (stored == null) {
+            throw new IllegalStateException(
+                    "An attribute value of definition %s was stored but cannot be read back".formatted(definitionUuid));
+        }
+        return stored;
     }
 
     /**
@@ -2858,9 +2985,13 @@ public class AttributeEngine {
             AttributeDefinition definition = definitionsMapping.get(attribute.getName());
             if (definition == null) {
                 errors
-                        .add(ValidationError
-                                .create("Content for attribute {} is provided but definition is not found",
-                                        attribute.getName()));
+                        .add(attribute.getUuid() == null
+                                ? ValidationError
+                                        .create("Attribute {} has no uuid and its name does not match any definition; "
+                                                + "provide the uuid of the attribute", attribute.getName())
+                                : ValidationError
+                                        .create("Content for attribute {} is provided but definition is not found",
+                                                attribute.getName()));
                 continue;
             }
             try {

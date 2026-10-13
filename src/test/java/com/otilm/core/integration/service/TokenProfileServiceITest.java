@@ -37,6 +37,7 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.TokenProfileExternalService;
 import com.otilm.core.service.TokenProfileInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import jakarta.persistence.EntityManager;
 import java.util.List;
 import java.util.Optional;
@@ -90,13 +91,13 @@ class TokenProfileServiceITest extends BaseSpringBootTest {
 
     @BeforeEach
     void setUp() {
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
 
-        WireMock.configureFor("localhost", mockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
 
         connector = new Connector();
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector = connectorRepository.save(connector);

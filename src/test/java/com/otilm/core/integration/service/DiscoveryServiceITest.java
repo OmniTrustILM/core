@@ -76,6 +76,7 @@ import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.tasks.ScheduledJobInfo;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.DiscoveryCheckpointFixture;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -148,15 +149,15 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
 
     @BeforeEach
     void setUp() {
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
 
-        WireMock.configureFor("localhost", mockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
         stubConnectorEndpoints();
 
         connector = new Connector();
         connector.setName("discoveryProviderConnector");
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector = connectorRepository.save(connector);
@@ -1562,6 +1563,27 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         Assertions.assertEquals(DiscoveryStatus.PROCESSING, persisted.getStatus());
         Assertions.assertTrue(persisted.getMessage().contains("Retrieved only"), persisted.getMessage());
         Assertions.assertEquals(1, discoveryCertificateRepository.countByDiscovery(persisted));
+    }
+
+    @Test
+    void aV1RunTargetsCertificatesAndCountsThemAsItsItems()
+            throws AlreadyExistException, ConnectorException, AttributeException, NotFoundException {
+        DiscoveryDto dto = new DiscoveryDto();
+        dto.setName("V1ItemTotalIT-" + UUID.randomUUID());
+        dto.setKind("IpAndPort");
+        dto.setConnectorUuid(connector.getUuid().toString());
+        dto.setAttributes(List.of());
+
+        UUID discoveryUuid = UUID.fromString(discoveryService.createDiscovery(dto, true).getUuid());
+        Assertions
+                .assertEquals(List.of(Resource.CERTIFICATE),
+                        discoveryRepository.findByUuid(discoveryUuid).orElseThrow().getResources());
+
+        discoveryInternalService.runDiscovery(discoveryUuid, null);
+
+        Discovery persisted = discoveryRepository.findByUuid(discoveryUuid).orElseThrow();
+        Assertions.assertEquals(1, persisted.getTotalCertificatesDiscovered());
+        Assertions.assertEquals(1, persisted.getTotalItemsDiscovered());
     }
 
     @Test

@@ -6,6 +6,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.otilm.api.model.core.logging.Sensitive;
 import com.otilm.api.model.core.secret.SecretRequestDto;
+import com.otilm.core.util.ApplicationMessageConverters;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.AfterEach;
@@ -55,6 +56,7 @@ class TraceBodyAdviceTest {
         adviceLogger.addAppender(logged);
         mockMvc = MockMvcBuilders
                 .standaloneSetup(new ProbeController())
+                .setMessageConverters(ApplicationMessageConverters.get())
                 .setControllerAdvice(new TraceBodyAdvice())
                 .build();
     }

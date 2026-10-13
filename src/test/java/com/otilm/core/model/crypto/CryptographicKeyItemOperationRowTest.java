@@ -30,7 +30,7 @@ class CryptographicKeyItemOperationRowTest {
         int signAndVerify = BitMaskEnum.convertSetToBitMask(EnumSet.of(KeyUsage.SIGN, KeyUsage.VERIFY));
         CryptographicKeyItemOperationRow row = new CryptographicKeyItemOperationRow(UUID.randomUUID(), true,
                 KeyAlgorithm.RSA, KeyState.ACTIVE, KeyType.PRIVATE_KEY, signAndVerify, null, reference, null, keyUuid,
-                UUID.randomUUID(), tokenInstanceUuid, null, null);
+                UUID.randomUUID(), tokenInstanceUuid, null, null, UUID.randomUUID(), UUID.randomUUID());
 
         // when
         CryptographicKeyItemOperationModel model = row.toModel();
@@ -50,9 +50,11 @@ class CryptographicKeyItemOperationRowTest {
         MetadataAttributeV3 handle = new MetadataAttributeV3();
         handle.setName("provider-handle");
         List<MetadataAttribute> keyMeta = List.of(handle);
+        UUID tokenReferenceUuid = UUID.randomUUID();
+        UUID tokenProfileUuid = UUID.randomUUID();
         CryptographicKeyItemOperationRow row = new CryptographicKeyItemOperationRow(UUID.randomUUID(), true,
                 KeyAlgorithm.MLDSA, KeyState.ACTIVE, KeyType.PRIVATE_KEY, 0, null, null, keyMeta, UUID.randomUUID(),
-                UUID.randomUUID(), null, ConnectorInterface.CRYPTOGRAPHY, "v2");
+                UUID.randomUUID(), null, ConnectorInterface.CRYPTOGRAPHY, "v2", tokenReferenceUuid, tokenProfileUuid);
 
         // when
         CryptographicKeyItemOperationModel model = row.toModel();
@@ -60,6 +62,8 @@ class CryptographicKeyItemOperationRowTest {
         // then
         assertEquals(new RemoteKeyReference.MetadataReference(keyMeta), model.reference());
         assertNull(model.tokenInstanceUuid());
+        assertEquals(tokenReferenceUuid, model.tokenInstanceReferenceUuid());
+        assertEquals(tokenProfileUuid, model.tokenProfileUuid());
         assertTrue(model.hasConnectorInterface());
         assertEquals(ConnectorInterface.CRYPTOGRAPHY, model.connectorInterfaceCode());
         assertEquals("v2", model.connectorInterfaceVersion());
@@ -71,7 +75,7 @@ class CryptographicKeyItemOperationRowTest {
         UUID keyItemUuid = UUID.randomUUID();
         CryptographicKeyItemOperationRow row = new CryptographicKeyItemOperationRow(keyItemUuid, true, KeyAlgorithm.RSA,
                 KeyState.ACTIVE, KeyType.PRIVATE_KEY, 0, "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC", null, null,
-                UUID.randomUUID(), UUID.randomUUID(), null, null, null);
+                UUID.randomUUID(), UUID.randomUUID(), null, null, null, UUID.randomUUID(), UUID.randomUUID());
 
         // when
         String text = row.toString();

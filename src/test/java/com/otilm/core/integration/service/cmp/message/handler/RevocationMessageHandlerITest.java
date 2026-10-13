@@ -11,6 +11,7 @@ import com.otilm.api.model.core.cmp.CmpTransactionState;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.api.model.core.cryptography.key.KeyState;
+import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
@@ -45,6 +46,7 @@ import com.otilm.core.service.cmp.message.handler.RevocationMessageHandler;
 import com.otilm.core.service.v2.impl.ClientOperationServiceImpl;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.mockbeans.PollMocks;
 import java.math.BigInteger;
@@ -66,6 +68,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.transaction.TestTransaction;
 import org.springframework.transaction.annotation.Transactional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -77,6 +80,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 
+/**
+ * Exercises CMP revocation responses, requested reasons and safe error messages.
+ */
 @Import(PollMocks.class)
 class RevocationMessageHandlerITest extends BaseSpringBootTest {
 
@@ -147,7 +153,7 @@ class RevocationMessageHandlerITest extends BaseSpringBootTest {
         // -- create customer/client profile (signature-based)
         Connector connector = new Connector();
         connector.setName("authorityInstanceConnector");
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector = connectorRepository.save(connector);
@@ -224,6 +230,13 @@ class RevocationMessageHandlerITest extends BaseSpringBootTest {
 
         // -- create customer/client profile (macpwd-based)
         cmpProfileMacPrt = cmpProfileRepository.save(CmpEntityUtil.createCmpProfile(raProfile, sharedSecret));
+
+        // Signing-key snapshots are loaded outside the transaction used by transactional tests.
+        if (TestTransaction.isActive()) {
+            TestTransaction.flagForCommit();
+            TestTransaction.end();
+            TestTransaction.start();
+        }
 
     }
 
@@ -634,14 +647,14 @@ class RevocationMessageHandlerITest extends BaseSpringBootTest {
     // -- entities
     private Certificate createSigningCertificateEntity(WireMockServer mockServer) {
         Connector connector = new Connector();
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector = connectorRepository.save(connector);
 
         TokenInstanceReference tokenInstanceReference = new TokenInstanceReference();
         tokenInstanceReference.setStatus(TokenInstanceStatus.CONNECTED);
-        tokenInstanceReference.setTokenInstanceUuid("1l");
+        tokenInstanceReference.setTokenInstanceUuid(UUID.randomUUID().toString());
         tokenInstanceReference.setConnector(connector);
         tokenInstanceReferenceRepository.save(tokenInstanceReference);
 
@@ -658,6 +671,7 @@ class RevocationMessageHandlerITest extends BaseSpringBootTest {
         ckPrivateKey.setType(KeyType.PRIVATE_KEY);
         ckPrivateKey.setFingerprint("7d903217b49fcf947f9b45ba239d4236b99fb75baf7ede08ce53a55c06678f1e");
         ckPrivateKey.setEnabled(true);
+        ckPrivateKey.setUsage(List.of(KeyUsage.SIGN));
         ckPrivateKey.setKey(key);
         ckPrivateKey.setKeyAlgorithm(KeyAlgorithm.ECDSA);
         cryptographicKeyItemRepository.save(ckPrivateKey);

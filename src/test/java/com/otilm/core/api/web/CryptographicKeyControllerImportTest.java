@@ -10,6 +10,7 @@ import com.otilm.api.model.core.secret.UploadedFile;
 import com.otilm.core.api.ExceptionHandlingAdvice;
 import com.otilm.core.model.crypto.ImportedKeyDetail;
 import com.otilm.core.service.CryptographicKeyImportExternalService;
+import com.otilm.core.util.ApplicationMessageConverters;
 import java.util.Base64;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,7 +42,11 @@ class CryptographicKeyControllerImportTest {
     @BeforeEach
     void setUp() {
         controller.setCryptographicKeyImportExternalService(importService);
-        mvc = MockMvcBuilders.standaloneSetup(controller).setControllerAdvice(new ExceptionHandlingAdvice()).build();
+        mvc = MockMvcBuilders
+                .standaloneSetup(controller)
+                .setMessageConverters(ApplicationMessageConverters.get())
+                .setControllerAdvice(new ExceptionHandlingAdvice())
+                .build();
     }
 
     @Test

@@ -470,7 +470,7 @@ public class KeyImportSaga {
 
     private static boolean isSecretKeyOf(ProviderKeyItem item, NormalizedKey key) {
         return item.type() == KeyType.SECRET_KEY && item.algorithm() == key.algorithm()
-                && item.length() == key.length();
+                && Objects.equals(item.length(), key.length());
     }
 
     /**

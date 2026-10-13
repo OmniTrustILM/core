@@ -10,6 +10,7 @@ import com.otilm.core.dao.repository.FunctionGroupRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.builders.AuthorityFixtures;
 import com.otilm.core.util.builders.V3ConnectorStubs;
 import java.util.List;
@@ -68,9 +69,9 @@ class V3OptionalSchemaITest extends BaseSpringBootTest {
 
     @BeforeEach
     void setUp() {
-        wireMockServer = new WireMockServer(0);
+        wireMockServer = new WireMockServer(LoopbackWireMock.options());
         wireMockServer.start();
-        WireMock.configureFor("localhost", wireMockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, wireMockServer.port());
         fixture = AuthorityFixtures
                 .v3Authority(new AuthorityFixtures.Repos(connectorRepository, functionGroupRepository,
                         connector2FunctionGroupRepository, authorityInstanceReferenceRepository, raProfileRepository,

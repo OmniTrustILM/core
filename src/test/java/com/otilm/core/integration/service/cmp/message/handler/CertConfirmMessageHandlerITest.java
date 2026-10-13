@@ -9,6 +9,7 @@ import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.cmp.CmpTransactionState;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.cryptography.key.KeyState;
+import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.Connector;
@@ -33,10 +34,12 @@ import com.otilm.core.service.cmp.message.CertificateKeyServiceImpl;
 import com.otilm.core.service.cmp.message.CmpTransactionService;
 import com.otilm.core.service.cmp.message.handler.CertConfirmMessageHandler;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import java.math.BigInteger;
 import java.security.KeyPair;
 import java.security.SecureRandom;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -50,6 +53,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.transaction.TestTransaction;
 import org.springframework.transaction.annotation.Transactional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -57,6 +61,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/**
+ * Exercises CMP certificate confirmation with signature and shared-secret protection.
+ */
 @Transactional
 public class CertConfirmMessageHandlerITest extends BaseSpringBootTest {
 
@@ -107,6 +114,11 @@ public class CertConfirmMessageHandlerITest extends BaseSpringBootTest {
                 .save(CmpEntityUtil.createCmpProfile(raProfile, createSigningCertificateEntity(mockServer)));
         // -- create customer/client profile (macpwd-based)
         cmpProfileMacPrt = cmpProfileRepository.save(CmpEntityUtil.createCmpProfile(raProfile, sharedSecret));
+
+        // Signing-key snapshots are loaded outside the test transaction.
+        TestTransaction.flagForCommit();
+        TestTransaction.end();
+        TestTransaction.start();
 
         // -- create certificate - x509
         KeyPair kp = CmpTestUtil.generateKeyPairEC();
@@ -272,14 +284,14 @@ public class CertConfirmMessageHandlerITest extends BaseSpringBootTest {
     // -- entities
     private Certificate createSigningCertificateEntity(WireMockServer mockServer) {
         Connector connector = new Connector();
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector = connectorRepository.save(connector);
 
         TokenInstanceReference tokenInstanceReference = new TokenInstanceReference();
         tokenInstanceReference.setStatus(TokenInstanceStatus.CONNECTED);
-        tokenInstanceReference.setTokenInstanceUuid("1l");
+        tokenInstanceReference.setTokenInstanceUuid(UUID.randomUUID().toString());
         tokenInstanceReference.setConnector(connector);
         tokenInstanceReferenceRepository.save(tokenInstanceReference);
 
@@ -296,6 +308,7 @@ public class CertConfirmMessageHandlerITest extends BaseSpringBootTest {
         ckPrivateKey.setType(KeyType.PRIVATE_KEY);
         ckPrivateKey.setFingerprint("7d903217b49fcf947f9b45ba239d4236b99fb75baf7ede08ce53a55c06678f1e");
         ckPrivateKey.setEnabled(true);
+        ckPrivateKey.setUsage(List.of(KeyUsage.SIGN));
         ckPrivateKey.setKey(key);
         ckPrivateKey.setKeyAlgorithm(KeyAlgorithm.ECDSA);
         cryptographicKeyItemRepository.save(ckPrivateKey);

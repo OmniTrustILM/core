@@ -6,6 +6,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.core.api.ExceptionHandlingAdvice;
+import com.otilm.core.util.ApplicationMessageConverters;
 import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -42,6 +43,7 @@ class RequestResponseInterceptorTest {
         interceptorLogger.addAppender(logged);
         mockMvc = MockMvcBuilders
                 .standaloneSetup(new ProbeController())
+                .setMessageConverters(ApplicationMessageConverters.get())
                 .setControllerAdvice(new ExceptionHandlingAdvice())
                 .addInterceptors(new RequestResponseInterceptor())
                 .build();

@@ -10,6 +10,7 @@ import com.otilm.core.service.CertificateKeystoreExternalService;
 import com.otilm.core.service.CryptographicKeyExportExternalService;
 import com.otilm.core.service.CryptographicKeyImportExternalService;
 import com.otilm.core.service.FileInspectionExternalService;
+import com.otilm.core.util.ApplicationMessageConverters;
 import com.otilm.core.util.SecretLeakProbe;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -66,6 +67,7 @@ class SensitiveRequestRedactionTest {
         keyController.setCryptographicKeyExportExternalService(cryptographicKeyExportService);
         mvc = MockMvcBuilders
                 .standaloneSetup(inspectionController, certificateController, keyController)
+                .setMessageConverters(ApplicationMessageConverters.get())
                 .setControllerAdvice(new ExceptionHandlingAdvice())
                 .build();
     }

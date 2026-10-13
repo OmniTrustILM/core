@@ -130,6 +130,7 @@ import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateTestData;
 import com.otilm.core.util.CertificateTestUtil;
 import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.WireMockPorts;
 import com.otilm.core.util.X509ObjectToString;
@@ -315,14 +316,14 @@ class CertificateServiceITest extends BaseSpringBootTest {
 
     @BeforeEach
     void createCertificateFixture() throws GeneralSecurityException, IOException, AttributeException {
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
 
-        WireMock.configureFor("localhost", mockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
 
         connector = new Connector();
         connector.setName("authorityInstanceConnector");
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector = connectorRepository.save(connector);

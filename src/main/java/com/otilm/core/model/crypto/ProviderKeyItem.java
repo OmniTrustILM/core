@@ -9,16 +9,20 @@ import java.util.List;
  * Created or discovered provider key item before Core assigns its identity and wrapper.
  *
  * @param name provider name, or null when Core must assign one
+ * @param type kind of key item
+ * @param algorithm provider-reported algorithm
+ * @param length key length in bits, or null when the algorithm does not require a length
  * @param reference provider reference, independent of Core's item UUID
  * @param material returned key material for key, or null when the key should stay private
  * @param metadata descriptive metadata, separate from the remote key reference
  * @param association provider grouping identifier for related items; null or empty for an individual item
  */
-public record ProviderKeyItem(String name, KeyType type, KeyAlgorithm algorithm, int length,
+public record ProviderKeyItem(String name, KeyType type, KeyAlgorithm algorithm, Integer length,
         RemoteKeyReference reference, KeyMaterial material, List<MetadataAttribute> metadata, String association) {
 
-    public ProviderKeyItem(String name, KeyType type, KeyAlgorithm algorithm, int length, RemoteKeyReference reference,
-            KeyMaterial material, List<MetadataAttribute> metadata) {
+    /** Describes an individual provider key item, one with no association. */
+    public ProviderKeyItem(String name, KeyType type, KeyAlgorithm algorithm, Integer length,
+            RemoteKeyReference reference, KeyMaterial material, List<MetadataAttribute> metadata) {
         this(name, type, algorithm, length, reference, material, metadata, null);
     }
 }

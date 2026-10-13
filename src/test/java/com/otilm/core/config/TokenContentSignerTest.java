@@ -1,6 +1,7 @@
 package com.otilm.core.config;
 
 import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
@@ -14,8 +15,8 @@ import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.core.attribute.RsaSignatureAttributes;
 import com.otilm.core.model.crypto.CryptographicKeyItemModelFixtures;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.service.handler.key.KeyProviderAdapter;
-import com.otilm.core.service.handler.key.OperationKeyContext;
 import java.io.OutputStream;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -51,10 +52,10 @@ class TokenContentSignerTest {
             PKCSObjectIdentifiers.sha256WithRSAEncryption, DERNull.INSTANCE);
 
     private final KeyProviderAdapter keyProvider = mock(KeyProviderAdapter.class);
-    private final OperationKeyContext signingKey = OperationKeyContext
-            .legacy(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA));
-    private final OperationKeyContext verificationKey = OperationKeyContext
-            .legacy(CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA));
+    private final CryptographicKeyItemOperationModel signingKey = CryptographicKeyItemModelFixtures
+            .activeSigningPrivateKey(KeyAlgorithm.RSA);
+    private final CryptographicKeyItemOperationModel verificationKey = CryptographicKeyItemModelFixtures
+            .publicKey(KeyAlgorithm.RSA);
     private final List<RequestAttribute> attributes = List
             .of(RsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_256));
 
@@ -113,6 +114,39 @@ class TokenContentSignerTest {
         // then
         ValidationException failure = assertThrows(ValidationException.class, sign);
         assertEquals(List.of("Error when communicating with the connector."), descriptions(failure));
+    }
+
+    @Test
+    void getSignature_reportsMissingKeyOrProfile_whenSigningScopeCannotBeResolved() throws Exception {
+        // given
+        when(keyProvider.signData(eq(signingKey), any())).thenThrow(new NotFoundException("internal lookup detail"));
+        TokenContentSigner signer = signer((data, signature) -> true);
+
+        // when
+        Executable sign = () -> sign(signer, DATA);
+
+        // then
+        ValidationException failure = assertThrows(ValidationException.class, sign);
+        assertEquals(List.of("Cannot complete signing because the key or its token profile was not found."),
+                descriptions(failure));
+    }
+
+    @Test
+    void getSignature_reportsMissingKeyOrProfile_whenVerificationScopeCannotBeResolved() throws Exception {
+        // given
+        when(keyProvider.signData(eq(signingKey), any())).thenReturn(signatures(SIGNATURE));
+        when(keyProvider.verifyData(eq(verificationKey), any()))
+                .thenThrow(new NotFoundException("internal lookup detail"));
+        TokenContentSigner signer = signer(
+                TokenContentSigner.verifiedByProvider(keyProvider, verificationKey, attributes));
+
+        // when
+        Executable sign = () -> sign(signer, DATA);
+
+        // then
+        ValidationException failure = assertThrows(ValidationException.class, sign);
+        assertEquals(List.of("Cannot complete signing because the key or its token profile was not found."),
+                descriptions(failure));
     }
 
     @Test

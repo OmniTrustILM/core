@@ -7,7 +7,6 @@ import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ScepException;
 import com.otilm.api.exception.ValidationException;
-import com.otilm.api.interfaces.client.v1.CryptographicOperationsSyncApiClient;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
@@ -30,7 +29,6 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
-import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
@@ -55,6 +53,7 @@ import com.otilm.core.service.CertificateEventHistoryInternalService;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.service.handler.CertificateValidationStatusPoller;
+import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import com.otilm.core.service.registration.RegistrationChallengeStore;
 import com.otilm.core.service.registration.RegistrationIdentityMatcher;
 import com.otilm.core.service.scep.ScepExternalService;
@@ -159,7 +158,7 @@ public class ScepServiceImpl implements ScepExternalService {
     private CertificateInternalService certificateService;
     private CertificateValidationStatusPoller validationStatusPoller;
     private CryptographicKeyInternalService cryptographicKeyService;
-    private ConnectorApiFactory connectorApiFactory;
+    private KeyProviderAdapterFactory keyProviderAdapterFactory;
     private AttributeEngine attributeEngine;
 
     @Autowired
@@ -240,8 +239,8 @@ public class ScepServiceImpl implements ScepExternalService {
     }
 
     @Autowired
-    public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
-        this.connectorApiFactory = connectorApiFactory;
+    public void setKeyProviderAdapterFactory(KeyProviderAdapterFactory keyProviderAdapterFactory) {
+        this.keyProviderAdapterFactory = keyProviderAdapterFactory;
     }
 
     public void setRecipient(String certificateContent) {
@@ -532,16 +531,20 @@ public class ScepServiceImpl implements ScepExternalService {
     private void decryptRequestData(ScepRequest scepRequest) throws ScepException, CMSException {
         CryptographicKey key = scepProfile.getCaCertificate().getKey();
         CryptographicKeyItem item = cryptographicKeyService.getKeyItemFromKey(key, KeyType.PRIVATE_KEY);
-        var connectorDto = key.getTokenInstanceReference().getConnector().mapToDto();
-        // Get the private key from the configuration of SCEP Profile
-        PlatformPrivateKey privateKey = new PlatformPrivateKey(key.getTokenInstanceReference().getTokenInstanceUuid(),
-                item.getKeyReferenceUuid().toString(), connectorDto, item.getKeyAlgorithm().getLabel());
-
-        CryptographicOperationsSyncApiClient cryptoApiClient = connectorApiFactory
-                .getCryptographicOperationsApiClient(connectorDto);
-        PlatformProvider provider = PlatformProvider.getInstance(scepProfile.getName(), true, cryptoApiClient);
+        PlatformPrivateKey privateKey = getPlatformPrivateKey(item);
+        PlatformProvider provider = PlatformProvider
+                .getInstance(scepProfile.getName(), true, keyProviderAdapterFactory);
 
         scepRequest.decryptData(privateKey, provider, item.getKeyAlgorithm(), scepProfile.getChallengePassword());
+    }
+
+    private PlatformPrivateKey getPlatformPrivateKey(CryptographicKeyItem item) throws ScepException {
+        try {
+            return new PlatformPrivateKey(cryptographicKeyService.getKeyItemModel(item.getUuid()));
+        } catch (NotFoundException e) {
+            throw new ScepException("The SCEP certificate's private key or connector was not found.", e,
+                    FailInfo.BAD_REQUEST);
+        }
     }
 
     /** Produces the response body for a request that has been decrypted and, where applicable, authenticated. */
@@ -632,14 +635,10 @@ public class ScepServiceImpl implements ScepExternalService {
             throws ScepException {
         prepareMessage(scepRequest, scepResponse);
         CryptographicKey key = scepProfile.getCaCertificate().getKey();
-        var connectorDto = key.getTokenInstanceReference().getConnector().mapToDto();
-        CryptographicOperationsSyncApiClient cryptoApiClient = connectorApiFactory
-                .getCryptographicOperationsApiClient(connectorDto);
-        PlatformProvider provider = PlatformProvider.getInstance(scepProfile.getName(), true, cryptoApiClient);
+        PlatformProvider provider = PlatformProvider
+                .getInstance(scepProfile.getName(), true, keyProviderAdapterFactory);
         CryptographicKeyItem item = cryptographicKeyService.getKeyItemFromKey(key, KeyType.PRIVATE_KEY);
-        // Get the private key from the configuration of SCEP Profile
-        PlatformPrivateKey privateKey = new PlatformPrivateKey(key.getTokenInstanceReference().getTokenInstanceUuid(),
-                item.getKeyReferenceUuid().toString(), connectorDto, item.getKeyAlgorithm().getLabel());
+        PlatformPrivateKey privateKey = getPlatformPrivateKey(item);
         try {
             scepResponse
                     .setSigningAttributes(CertificateUtil

@@ -90,6 +90,7 @@ import com.otilm.core.tasks.DiscoveryCertificateTask;
 import com.otilm.core.tasks.ScheduledJobInfo;
 import com.otilm.core.tasks.SystemScheduledJobs;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.WireMockPorts;
 import java.io.IOException;
@@ -242,14 +243,14 @@ class SchedulerServiceITest extends BaseSpringBootTest {
         triggerRequest.setActionsUuids(List.of());
         TriggerDetailDto triggerIgnore = triggerService.createTrigger(triggerRequest);
 
-        WireMockServer mockServer = new WireMockServer(0);
+        WireMockServer mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
-        WireMock.configureFor("localhost", mockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
 
         // create connector
         Connector connector = new Connector();
         connector.setName("discoveryProviderConnector");
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector = connectorRepository.save(connector);

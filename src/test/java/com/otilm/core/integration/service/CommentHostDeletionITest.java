@@ -10,6 +10,7 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CertificateExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CommentableHostObjects;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.mockbeans.ProducerMocks;
 import java.util.List;
 import java.util.UUID;
@@ -52,13 +53,13 @@ class CommentHostDeletionITest extends BaseSpringBootTest {
     void setUp() {
         hostObjects = new CommentableHostObjects(applicationContext);
 
-        entityProviderMock = new WireMockServer(0);
+        entityProviderMock = new WireMockServer(LoopbackWireMock.options());
         entityProviderMock.start();
         entityProviderMock
                 .stubFor(WireMock
                         .delete(WireMock.urlPathMatching("/v1/entityProvider/entities/.*"))
                         .willReturn(WireMock.noContent()));
-        hostObjects.setEntityConnectorUrl(entityProviderMock.baseUrl());
+        hostObjects.setEntityConnectorUrl(LoopbackWireMock.url(entityProviderMock));
     }
 
     @AfterEach

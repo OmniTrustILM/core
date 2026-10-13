@@ -413,6 +413,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
                 .map(Object::toString)
                 .filter(s -> StringUtils.isNotBlank(s))
                 .orElseThrow(() -> new ValidationException("specVersion must not be empty"));
+        CbomUtil.validateVersion(content);
 
         List<RequestAttribute> requestedAttributes = request.getCustomAttributes() == null
                 ? List.of()

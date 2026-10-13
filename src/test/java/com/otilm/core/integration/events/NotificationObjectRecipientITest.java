@@ -40,6 +40,7 @@ import com.otilm.core.messaging.model.NotificationMessage;
 import com.otilm.core.service.AttributeExternalService;
 import com.otilm.core.service.NotificationProfileExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.WireMockPorts;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -87,9 +88,9 @@ class NotificationObjectRecipientITest extends BaseSpringBootTest {
 
     @BeforeEach
     void setUp() throws AlreadyExistException, AttributeException, NotFoundException {
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
-        WireMock.configureFor("localhost", mockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
 
         // Connector declares one string mapping attribute
         mockServer
@@ -116,7 +117,7 @@ class NotificationObjectRecipientITest extends BaseSpringBootTest {
         // Connector and notification instance
         Connector connector = new Connector();
         connector.setName("testObjectRecipientConnector");
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector = connectorRepository.save(connector);

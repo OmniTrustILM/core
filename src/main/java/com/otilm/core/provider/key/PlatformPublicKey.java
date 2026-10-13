@@ -1,33 +1,23 @@
 package com.otilm.core.provider.key;
 
-import com.otilm.api.model.core.connector.ConnectorDto;
-
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import java.security.PublicKey;
+import java.util.Objects;
 
-public class PlatformPublicKey implements PublicKey {
-
-    private final String keyUuid;
-
-    private final String tokenInstanceUuid;
-
-    private final ConnectorDto connectorDto;
-
-    private byte[] data;
-
-    public PlatformPublicKey(String tokenInstanceUuid, String keyUuid, ConnectorDto connectorDto) {
-        this.keyUuid = keyUuid;
-        this.connectorDto = connectorDto;
-        this.tokenInstanceUuid = tokenInstanceUuid;
+/** Request-scoped handle to a platform key; the adapter owns its connector-specific representation. */
+public record PlatformPublicKey(CryptographicKeyItemOperationModel keyItem) implements PublicKey {
+    public PlatformPublicKey(CryptographicKeyItemOperationModel keyItem) {
+        this.keyItem = Objects.requireNonNull(keyItem, "keyItem must not be null");
     }
 
     @Override
     public String getAlgorithm() {
-        return "RSA";
+        return keyItem.keyAlgorithm().getLabel();
     }
 
     @Override
     public String getFormat() {
-        return "PKCS#8";
+        return "Platform";
     }
 
     @Override
@@ -36,22 +26,6 @@ public class PlatformPublicKey implements PublicKey {
     }
 
     public String getKeyUuid() {
-        return keyUuid;
-    }
-
-    public ConnectorDto getConnectorDto() {
-        return connectorDto;
-    }
-
-    public String getTokenInstanceUuid() {
-        return tokenInstanceUuid;
-    }
-
-    public byte[] getData() {
-        return data;
-    }
-
-    public void setData(byte[] data) {
-        this.data = data;
+        return keyItem.keyItemUuid().toString();
     }
 }

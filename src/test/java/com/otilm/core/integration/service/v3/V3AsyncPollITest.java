@@ -21,6 +21,7 @@ import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.service.writer.statuspoll.CertificateStatusPollWriter;
 import com.otilm.core.util.BaseMessagingIntTest;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.builders.AuthorityFixtures;
 import com.otilm.core.util.builders.V3ConnectorStubs;
 import java.time.OffsetDateTime;
@@ -110,9 +111,9 @@ class V3AsyncPollITest extends BaseMessagingIntTest {
 
     @BeforeEach
     public void setUpWireMock() {
-        wireMockServer = new WireMockServer(0);
+        wireMockServer = new WireMockServer(LoopbackWireMock.options());
         wireMockServer.start();
-        WireMock.configureFor("localhost", wireMockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, wireMockServer.port());
     }
 
     @AfterEach

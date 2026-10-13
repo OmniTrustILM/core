@@ -11,13 +11,15 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Immutable snapshot of a {@code CryptographicKeyItem} used on the signing / crypto hot path.
+ * Immutable snapshot of a {@code CryptographicKeyItem} used on the signing / crypto hot path. The token reference and
+ * profile UUIDs identify Core associations; {@code tokenInstanceUuid} identifies the remote token.
  */
 public record CryptographicKeyItemOperationModel(UUID keyItemUuid, boolean enabled, KeyAlgorithm keyAlgorithm,
         KeyState keyState, KeyType keyType, List<KeyUsage> keyUsage, String pqcParameterSpecName, // set only for PQC
                                                                                                   // public keys
         RemoteKeyReference reference, UUID connectorUuid, UUID tokenInstanceUuid, UUID keyUuid,
-        ConnectorInterface connectorInterfaceCode, String connectorInterfaceVersion) implements IdentifiableModel {
+        ConnectorInterface connectorInterfaceCode, String connectorInterfaceVersion, UUID tokenInstanceReferenceUuid,
+        UUID tokenProfileUuid) implements IdentifiableModel {
 
     @Override
     public UUID uuid() {

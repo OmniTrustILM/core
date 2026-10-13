@@ -22,6 +22,7 @@ import com.otilm.api.model.client.cryptography.operations.VerificationResponseDa
 import com.otilm.api.model.client.cryptography.operations.VerifyDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.VerifyDataResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.common.DataAttribute;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
@@ -56,6 +57,7 @@ import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.CryptographicHelper;
 import com.otilm.core.util.CryptographyUtil;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 
@@ -194,12 +196,12 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
     }
 
     @Override
-    public List<BaseAttribute> listExportKeyAttributes(OperationKeyContext context) {
+    public List<BaseAttribute> listExportKeyAttributes(CryptographicKeyItemOperationModel key) {
         return List.of();
     }
 
     @Override
-    public byte[] exportKey(OperationKeyContext context, HeldKey heldKey, Passphrase passphrase,
+    public byte[] exportKey(CryptographicKeyItemOperationModel key, HeldKey heldKey, Passphrase passphrase,
             List<RequestAttribute> attributes) {
         throw new ValidationException(
                 ValidationError.create("Key export is not part of the v1 cryptography provider contract."));
@@ -251,9 +253,24 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
     }
 
     @Override
-    public EncryptDataResponseDto encryptData(OperationKeyContext context, CipherDataRequestDto request)
+    public List<RequestAttribute> signatureAttributesFor(String algorithm) {
+        return LegacyJcaAttributes.signature(algorithm);
+    }
+
+    @Override
+    public List<RequestAttribute> cipherAttributesFor(String cipherAlgorithm) {
+        return LegacyJcaAttributes.cipher(cipherAlgorithm);
+    }
+
+    @Override
+    public boolean areSignatureAttributesSupportedByKey(CryptographicKeyItemOperationModel keyItem,
+            List<RequestAttribute> signatureAttributes) {
+        return true;
+    }
+
+    @Override
+    public EncryptDataResponseDto encryptData(CryptographicKeyItemOperationModel key, CipherDataRequestDto request)
             throws ConnectorException {
-        CryptographicKeyItemOperationModel key = context.keyItem();
         var connectorRequest = LegacyOperationCodec
                 .cipherRequest(cipherItems(request.getCipherData()), request.getCipherAttributes());
         var response = operationsApiClient
@@ -266,9 +283,8 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
     }
 
     @Override
-    public DecryptDataResponseDto decryptData(OperationKeyContext context, CipherDataRequestDto request)
+    public DecryptDataResponseDto decryptData(CryptographicKeyItemOperationModel key, CipherDataRequestDto request)
             throws ConnectorException {
-        CryptographicKeyItemOperationModel key = context.keyItem();
         var connectorRequest = LegacyOperationCodec
                 .cipherRequest(cipherItems(request.getCipherData()), request.getCipherAttributes());
         var response = operationsApiClient
@@ -281,13 +297,13 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
     }
 
     /**
-     * Core's own signature registry is a legacy provider's signing schema, so it both validates the attributes, as
-     * signing does, and names the algorithm.
+     * Resolves the algorithm through Core's signature registry. Unlike raw execution, RSA and ECDSA resolution requires
+     * a digest to name the algorithm.
      */
     @Override
     public ResolvedSignatureAlgorithm resolveSignatureAlgorithm(CryptographicKeyItemOperationModel privateKeyItem,
             CryptographicKeyItemOperationModel publicKeyItem, List<RequestAttribute> signatureAttributes) {
-        validateSignatureAttributes(privateKeyItem.keyAlgorithm(), signatureAttributes);
+        validateSignatureAttributes(privateKeyItem.keyAlgorithm(), signatureAttributes, true);
         String name = CryptographyUtil
                 .resolveSignatureAlgorithmName(privateKeyItem.keyAlgorithm(), signatureAttributes,
                         publicKeyItem.pqcParameterSpecName());
@@ -295,10 +311,9 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
     }
 
     @Override
-    public SignDataResponseDto signData(OperationKeyContext context, SignDataRequestDto request)
+    public SignDataResponseDto signData(CryptographicKeyItemOperationModel key, SignDataRequestDto request)
             throws ConnectorException {
-        CryptographicKeyItemOperationModel key = context.keyItem();
-        validateSignatureAttributes(key.keyAlgorithm(), request.getSignatureAttributes());
+        validateSignatureAttributes(key.keyAlgorithm(), request.getSignatureAttributes(), false);
         var connectorRequest = LegacyOperationCodec
                 .signRequest(signatureItems(request.getData()), request.getSignatureAttributes());
         var response = operationsApiClient
@@ -321,10 +336,9 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
     }
 
     @Override
-    public VerifyDataResponseDto verifyData(OperationKeyContext context, VerifyDataRequestDto request)
+    public VerifyDataResponseDto verifyData(CryptographicKeyItemOperationModel key, VerifyDataRequestDto request)
             throws ConnectorException {
-        CryptographicKeyItemOperationModel key = context.keyItem();
-        validateSignatureAttributes(key.keyAlgorithm(), request.getSignatureAttributes());
+        validateSignatureAttributes(key.keyAlgorithm(), request.getSignatureAttributes(), false);
         var connectorRequest = LegacyOperationCodec
                 .verifyRequest(request.getData() == null ? null : signatureItems(request.getData()),
                         signatureItems(request.getSignatures()), request.getSignatureAttributes());
@@ -349,23 +363,23 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
     }
 
     @Override
-    public List<BaseAttribute> listEncryptAttributes(OperationKeyContext context) {
-        return cipherAttributes(context.keyItem().keyAlgorithm());
+    public List<BaseAttribute> listEncryptAttributes(CryptographicKeyItemOperationModel key) {
+        return cipherAttributes(key.keyAlgorithm());
     }
 
     @Override
-    public List<BaseAttribute> listDecryptAttributes(OperationKeyContext context) {
-        return cipherAttributes(context.keyItem().keyAlgorithm());
+    public List<BaseAttribute> listDecryptAttributes(CryptographicKeyItemOperationModel key) {
+        return cipherAttributes(key.keyAlgorithm());
     }
 
     @Override
-    public List<BaseAttribute> listSignAttributes(OperationKeyContext context) {
-        return signatureAttributes(context.keyItem().keyAlgorithm());
+    public List<BaseAttribute> listSignAttributes(CryptographicKeyItemOperationModel key) {
+        return signatureAttributes(key.keyAlgorithm());
     }
 
     @Override
-    public List<BaseAttribute> listVerifyAttributes(OperationKeyContext context) {
-        return signatureAttributes(context.keyItem().keyAlgorithm());
+    public List<BaseAttribute> listVerifyAttributes(CryptographicKeyItemOperationModel key) {
+        return signatureAttributes(key.keyAlgorithm());
     }
 
     /** Core-internal cipher schema served for legacy providers, which publish none of their own. */
@@ -386,20 +400,32 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
         };
     }
 
-    private static void validateSignatureAttributes(KeyAlgorithm keyAlgorithm, List<RequestAttribute> attributes) {
-        if (attributes == null) {
+    /** Execution accepts pre-hashed input without a digest; resolving an algorithm still requires a digest. */
+    private static void validateSignatureAttributes(KeyAlgorithm keyAlgorithm, List<RequestAttribute> attributes,
+            boolean requireDigest) {
+        Objects.requireNonNull(keyAlgorithm, "keyAlgorithm must not be null");
+        List<BaseAttribute> definitions = switch (keyAlgorithm) {
+            case RSA -> RsaSignatureAttributes.getRsaSignatureAttributes();
+            case ECDSA -> EcdsaSignatureAttributes.getEcdsaSignatureAttributes();
+            case FALCON, MLDSA, SLHDSA -> // key-intrinsic algorithms carry no request attributes
+                List.of();
+            default -> throw new ValidationException(ValidationError.create(UNSUPPORTED_KEY_ALGORITHM));
+        };
+        if (definitions.isEmpty()) {
             return;
         }
-        switch (keyAlgorithm) {
-            case RSA -> AttributeDefinitionUtils
-                    .validateAttributes(RsaSignatureAttributes.getRsaSignatureAttributes(), attributes);
-            case ECDSA -> AttributeDefinitionUtils
-                    .validateAttributes(EcdsaSignatureAttributes.getEcdsaSignatureAttributes(), attributes);
-            case FALCON, MLDSA, SLHDSA -> {
-                // key-intrinsic algorithms carry no request attributes
+        if (!requireDigest) {
+            for (BaseAttribute definition : definitions) {
+                if (definition instanceof DataAttribute dataAttribute
+                        && RsaSignatureAttributes.ATTRIBUTE_DATA_SIG_DIGEST.equals(definition.getName())) {
+                    // NONEwithRSA, NONEwithRSA/PSS and NONEwithECDSA receive already-hashed data. Their requests omit
+                    // data_sigDigest because the digest algorithm is not known, so requiring it would reject these
+                    // requests before they reach the connector.
+                    dataAttribute.getProperties().setRequired(false);
+                }
             }
-            default -> throw new ValidationException(ValidationError.create(UNSUPPORTED_KEY_ALGORITHM));
         }
+        AttributeDefinitionUtils.validateAttributes(definitions, attributes == null ? List.of() : attributes);
     }
 
     private static String requireV1KeyReference(CryptographicKeyItemOperationModel key) throws ConnectorException {

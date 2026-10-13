@@ -9,6 +9,7 @@ import com.otilm.api.model.core.logging.records.ActorRecord;
 import com.otilm.api.model.core.logging.records.ResourceRecord;
 import com.otilm.core.api.ExceptionHandlingAdvice;
 import com.otilm.core.logging.LoggingHelper;
+import com.otilm.core.util.ApplicationMessageConverters;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.ServletRequest;
@@ -51,6 +52,7 @@ class MdcRequestFilterTest {
     void setUp() {
         mockMvc = MockMvcBuilders
                 .standaloneSetup(probe)
+                .setMessageConverters(ApplicationMessageConverters.get())
                 .setControllerAdvice(new ExceptionHandlingAdvice())
                 .addInterceptors(new RequestResponseInterceptor())
                 .addFilters(new MdcRequestFilter())

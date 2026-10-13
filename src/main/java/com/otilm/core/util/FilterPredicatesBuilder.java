@@ -26,6 +26,8 @@ import com.otilm.core.dao.entity.GroupAssociation_;
 import com.otilm.core.dao.entity.ResourceObjectAssociation_;
 import com.otilm.core.dao.entity.ScheduledJobHistory;
 import com.otilm.core.dao.entity.UniquelyIdentified_;
+import com.otilm.core.dao.entity.VaultInstance;
+import com.otilm.core.dao.entity.VaultProfile;
 import com.otilm.core.dao.entity.cbom.CryptoAssetSource;
 import com.otilm.core.dao.entity.cbom.CryptoAssetSource_;
 import com.otilm.core.dao.entity.cbom.CryptoAsset_;
@@ -52,6 +54,7 @@ import jakarta.persistence.metamodel.Attribute;
 import jakarta.persistence.metamodel.PluralAttribute;
 import jakarta.persistence.metamodel.SingularAttribute;
 import java.io.Serializable;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -401,6 +404,48 @@ public class FilterPredicatesBuilder {
         }
     }
 
+    /**
+     * The property field the identifier names. Resolved here rather than left to {@link Enum#valueOf} because the
+     * predicate is built inside the repository call, where the persistence layer would wrap the resulting
+     * {@link IllegalArgumentException} into a server fault instead of a rejected request.
+     */
+    private static FilterField resolvePropertyFilterField(final String fieldIdentifier) {
+        return Arrays
+                .stream(FilterField.values())
+                .filter(field -> field.name().equals(fieldIdentifier))
+                .findFirst()
+                .orElseThrow(() -> new ValidationException(
+                        ValidationError.create("Unknown filter field identifier %s.".formatted(fieldIdentifier))));
+    }
+
+    /**
+     * Refuses a field another resource declares. The identifier is unique across every resource, but the attribute path
+     * behind it need not be, so a field of another resource can resolve against the listing's entity and filter the
+     * wrong column, or fail inside the repository call as a server fault. An entity that maps to no resource has no
+     * catalogue to check against.
+     */
+    private static void requireFieldOfListing(final Root<?> root, final FilterField filterField) {
+        final Resource resource = listingResourceOf(root);
+        if (resource != null && filterField.getRootResource() != resource) {
+            throw new ValidationException(
+                    ValidationError.create("Field %s cannot filter this listing.".formatted(filterField.name())));
+        }
+    }
+
+    /**
+     * The resource whose property fields a listing of the entity advertises. Vault instances and profiles are absent
+     * from {@link ResourceToClass}, so they are named here rather than by the attribute mapping.
+     */
+    private static Resource listingResourceOf(final Root<?> root) {
+        if (root.getJavaType().equals(VaultInstance.class)) {
+            return Resource.VAULT;
+        }
+        if (root.getJavaType().equals(VaultProfile.class)) {
+            return Resource.VAULT_PROFILE;
+        }
+        return attributeResourceOf(root);
+    }
+
     private static boolean isDeclaredOnStrictSubtypeOf(final From<?, ?> from, final Attribute<?, ?> fieldAttribute) {
         final Class<?> declaringType = fieldAttribute.getDeclaringType().getJavaType();
         return !declaringType.equals(from.getJavaType()) && from.getJavaType().isAssignableFrom(declaringType);
@@ -409,7 +454,8 @@ public class FilterPredicatesBuilder {
     private static <T> Predicate getPropertyFilterPredicate(final CriteriaBuilder criteriaBuilder,
             final CommonAbstractCriteria query, final Root<T> root, SearchFilterRequestDto filterDto,
             Map<String, From> joinedAssociations, boolean refutedOidsOptedIn) {
-        final FilterField filterField = FilterField.valueOf(filterDto.getFieldIdentifier());
+        final FilterField filterField = resolvePropertyFilterField(filterDto.getFieldIdentifier());
+        requireFieldOfListing(root, filterField);
         requireAdvertisedCondition(filterField, filterDto.getCondition());
         if (filterField == FilterField.CBOM_HAS_CONTRIBUTED_ASSETS) {
             if (!Cbom.class.equals(root.getJavaType())) {
@@ -523,7 +569,7 @@ public class FilterPredicatesBuilder {
             if (expression == null) {
                 throw new ValidationException("Invalid filter configuration: no expression for field " + filterField);
             }
-            expression = ((JpaExpression) expression).cast(filterField.getType().getExpressionClass());
+            expression = ((JpaExpression) expression).cast(expressionClassOf(filterField));
         }
 
         boolean multipleValues = filterValues.size() > 1;
@@ -559,6 +605,11 @@ public class FilterPredicatesBuilder {
                     + " with operator " + conditionOperator);
         }
         final Expression finalExpression = expression;
+        // A number is inlined, as the range comparisons inline it. Bound, a fraction would first have to coerce to the
+        // integer the expression is cast to, which Hibernate refuses before the query runs.
+        final List<?> equalityOperands = filterField.getType() == SearchFieldTypeEnum.NUMBER
+                ? filterValues.stream().map(criteriaBuilder::literal).toList()
+                : filterValues;
         switch (conditionOperator) {
             case EQUALS -> {
                 if (bitEnumProperty) {
@@ -573,8 +624,8 @@ public class FilterPredicatesBuilder {
                     predicate = getNativeArrayEqualsExpression(criteriaBuilder, filterValues, finalExpression);
                 } else {
                     predicate = multipleValues
-                            ? expression.in(filterValues)
-                            : criteriaBuilder.equal(expression, filterValues.getFirst());
+                            ? expression.in(equalityOperands)
+                            : criteriaBuilder.equal(expression, equalityOperands.getFirst());
                 }
             }
             case NOT_EQUALS -> {
@@ -608,9 +659,9 @@ public class FilterPredicatesBuilder {
                                         .or(getNotPresentPredicate(criteriaBuilder, from, expression, hasParent,
                                                 isParentCollection, false, isJsonArray),
                                                 multipleValues
-                                                        ? criteriaBuilder.not(expression.in(filterValues))
+                                                        ? criteriaBuilder.not(expression.in(equalityOperands))
                                                         : criteriaBuilder
-                                                                .notEqual(expression, filterValues.getFirst()));
+                                                                .notEqual(expression, equalityOperands.getFirst()));
                     }
                 }
             }
@@ -1043,6 +1094,16 @@ public class FilterPredicatesBuilder {
                 || condition == FilterConditionOperator.COUNT_LESS_THAN;
     }
 
+    // A number compares as an integer, except one held in a long: an integer cast fails the whole query on the first
+    // row past the integer range.
+    private static Class<?> expressionClassOf(FilterField filterField) {
+        Class<?> javaType = filterField.getFieldAttribute().getJavaType();
+        if (filterField.getType() == SearchFieldTypeEnum.NUMBER && (javaType == long.class || javaType == Long.class)) {
+            return Long.class;
+        }
+        return filterField.getType().getExpressionClass();
+    }
+
     private static List<Object> preparePropertyFilterValues(final SearchFilterRequestDto filterDto,
             final FilterField filterField) {
         Serializable filterValue = filterDto.getValue();
@@ -1080,9 +1141,17 @@ public class FilterPredicatesBuilder {
                     }
                 } else if (filterField.getType() == SearchFieldTypeEnum.NUMBER) {
                     try {
-                        preparedFilterValue = stringValue.contains(".")
-                                ? Float.parseFloat(stringValue)
-                                : Integer.parseInt(stringValue);
+                        boolean fractional = stringValue.contains(".");
+                        if (expressionClassOf(filterField) == Long.class) {
+                            // A float rounds past 2^24, so a threshold on a long keeps every digit it was given.
+                            preparedFilterValue = fractional
+                                    ? new BigDecimal(stringValue)
+                                    : Long.parseLong(stringValue);
+                        } else {
+                            preparedFilterValue = fractional
+                                    ? Float.parseFloat(stringValue)
+                                    : Integer.parseInt(stringValue);
+                        }
                     } catch (NumberFormatException e) {
                         throw new ValidationException(
                                 "Filter field value " + stringValue + " cannot be parsed as a Number.");

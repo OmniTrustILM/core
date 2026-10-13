@@ -1,6 +1,7 @@
 package com.otilm.core.config;
 
 import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
@@ -9,8 +10,8 @@ import com.otilm.api.model.client.cryptography.operations.SignDataResponseDto;
 import com.otilm.api.model.client.cryptography.operations.SignatureRequestData;
 import com.otilm.api.model.client.cryptography.operations.VerifyDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.VerifyDataResponseDto;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.service.handler.key.KeyProviderAdapter;
-import com.otilm.core.service.handler.key.OperationKeyContext;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -35,7 +36,7 @@ public class TokenContentSigner implements ContentSigner {
     private static final Logger logger = LoggerFactory.getLogger(TokenContentSigner.class);
 
     private final KeyProviderAdapter keyProvider;
-    private final OperationKeyContext signingKey;
+    private final CryptographicKeyItemOperationModel signingKey;
     private final List<RequestAttribute> signatureAttributes;
     private final AlgorithmIdentifier algorithmIdentifier;
     private final SignatureCheck signatureCheck;
@@ -46,7 +47,7 @@ public class TokenContentSigner implements ContentSigner {
      * @param algorithmIdentifier the algorithm the signature attributes select, resolved before anything is signed
      * @param signatureCheck decides whether the provider's signature is valid before it is used
      */
-    public TokenContentSigner(KeyProviderAdapter keyProvider, OperationKeyContext signingKey,
+    public TokenContentSigner(KeyProviderAdapter keyProvider, CryptographicKeyItemOperationModel signingKey,
             List<RequestAttribute> signatureAttributes, AlgorithmIdentifier algorithmIdentifier,
             SignatureCheck signatureCheck) {
         this.keyProvider = keyProvider;
@@ -74,7 +75,7 @@ public class TokenContentSigner implements ContentSigner {
         request.setSignatureAttributes(signatureAttributes);
         request.setData(List.of(data(dataToSign)));
         try {
-            logger.debug("Signing using key item: {}", signingKey.keyItem().keyItemUuid());
+            logger.debug("Signing using key item: {}", signingKey.keyItemUuid());
             SignDataResponseDto response = keyProvider.signData(signingKey, request);
             if (response == null || response.getSignatures() == null || response.getSignatures().isEmpty()
                     || response.getSignatures().getFirst().getData() == null) {
@@ -86,8 +87,12 @@ public class TokenContentSigner implements ContentSigner {
                         .create("Validation of the signature from connector failed. Cannot proceed with the request"));
             }
             return signature;
+        } catch (NotFoundException e) {
+            logger.warn("Key or token profile not found while signing with key item {}", signingKey.keyItemUuid(), e);
+            throw new ValidationException(ValidationError
+                    .create("Cannot complete signing because the key or its token profile was not found."));
         } catch (ConnectorException e) {
-            logger.warn("Signing with key item {} through the connector failed", signingKey.keyItem().keyItemUuid(), e);
+            logger.warn("Signing with key item {} through the connector failed", signingKey.keyItemUuid(), e);
             throw new ValidationException(ValidationError.create("Error when communicating with the connector."));
         }
     }
@@ -95,12 +100,12 @@ public class TokenContentSigner implements ContentSigner {
     /** Whether a signature the provider returned is a valid signature over the data it was given. */
     @FunctionalInterface
     public interface SignatureCheck {
-        boolean verify(byte[] data, byte[] signature) throws ConnectorException;
+        boolean verify(byte[] data, byte[] signature) throws ConnectorException, NotFoundException;
     }
 
     /** Asks the provider itself to verify the signature with the key pair's public key item. */
-    public static SignatureCheck verifiedByProvider(KeyProviderAdapter keyProvider, OperationKeyContext verificationKey,
-            List<RequestAttribute> signatureAttributes) {
+    public static SignatureCheck verifiedByProvider(KeyProviderAdapter keyProvider,
+            CryptographicKeyItemOperationModel verificationKey, List<RequestAttribute> signatureAttributes) {
         return (data, signature) -> {
             VerifyDataRequestDto request = new VerifyDataRequestDto();
             request.setSignatureAttributes(signatureAttributes);

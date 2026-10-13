@@ -6,6 +6,7 @@ import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.core.api.ExceptionHandlingAdvice;
 import com.otilm.core.service.CallbackExternalService;
+import com.otilm.core.util.ApplicationMessageConverters;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -49,6 +50,7 @@ class CallbackControllerErrorTest {
         controller.setCallbackService(callbackService);
         mockMvc = MockMvcBuilders
                 .standaloneSetup(controller)
+                .setMessageConverters(ApplicationMessageConverters.get())
                 .setControllerAdvice(new ExceptionHandlingAdvice())
                 .build();
     }

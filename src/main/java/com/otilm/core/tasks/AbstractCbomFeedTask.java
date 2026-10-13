@@ -5,6 +5,7 @@ import com.otilm.api.exception.PlatformException;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
 import com.otilm.core.api.ScheduledJobSkippedException;
+import com.otilm.core.cbom.client.CbomRepositoryNotDeployedException;
 import com.otilm.core.model.ScheduledTaskResult;
 import com.otilm.core.service.CbomInternalService;
 import org.slf4j.Logger;
@@ -84,6 +85,9 @@ public abstract class AbstractCbomFeedTask implements ScheduledJobTask {
         try {
             runResultMessage = runPass();
         } catch (Exception e) {
+            if (e instanceof CbomRepositoryNotDeployedException) {
+                throw new ScheduledJobSkippedException("No CBOM repository answers at the configured URL");
+            }
             if (e instanceof CbomRepositoryException ex && ex.getProblemDetail() != null
                     && ex.getProblemDetail().getStatus() == HttpStatus.SERVICE_UNAVAILABLE.value()) {
                 // Fixed text: the repository's own words never reach the job row.

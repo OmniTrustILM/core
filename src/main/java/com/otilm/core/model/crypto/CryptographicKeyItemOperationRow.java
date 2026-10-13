@@ -14,7 +14,8 @@ import java.util.UUID;
 public record CryptographicKeyItemOperationRow(UUID keyItemUuid, boolean enabled, KeyAlgorithm keyAlgorithm,
         KeyState keyState, KeyType keyType, int usageBitmask, String keyData, UUID keyReferenceUuid,
         List<MetadataAttribute> keyMeta, UUID keyUuid, UUID connectorUuid, String tokenInstanceUuid,
-        ConnectorInterface connectorInterfaceCode, String connectorInterfaceVersion) {
+        ConnectorInterface connectorInterfaceCode, String connectorInterfaceVersion, UUID tokenInstanceReferenceUuid,
+        UUID tokenProfileUuid) {
 
     @Override
     public String toString() {
@@ -33,6 +34,6 @@ public record CryptographicKeyItemOperationRow(UUID keyItemUuid, boolean enabled
         UUID remoteTokenUuid = tokenInstanceUuid == null ? null : UUID.fromString(tokenInstanceUuid);
         return new CryptographicKeyItemOperationModel(keyItemUuid, enabled, keyAlgorithm, keyState, keyType, usages,
                 pqcParameterSpecName, reference, connectorUuid, remoteTokenUuid, keyUuid, connectorInterfaceCode,
-                connectorInterfaceVersion);
+                connectorInterfaceVersion, tokenInstanceReferenceUuid, tokenProfileUuid);
     }
 }

@@ -14,6 +14,7 @@ import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDt
 import com.otilm.core.logging.LogRedaction;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.settings.SettingsCache;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.OAuth2Constants;
 import com.otilm.core.util.OAuth2Util;
 import java.nio.charset.StandardCharsets;
@@ -157,12 +158,12 @@ class OAuth2UtilTest {
         when(oidcUser.getIdToken().getTokenValue()).thenReturn("id-token-value");
 
         // Prepare AuthenticationSettingsDto and OAuth2ProviderSettingsDto
-        WireMockServer mockServer = new WireMockServer(0);
+        WireMockServer mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
         Map<String, OAuth2ProviderSettingsDto> providers = new HashMap<>();
         providers.put("test-client", providerSettings);
         when(authSettings.getOAuth2Providers()).thenReturn(providers);
-        when(providerSettings.getLogoutUrl()).thenReturn("http://localhost:" + mockServer.port());
+        when(providerSettings.getLogoutUrl()).thenReturn(LoopbackWireMock.url(mockServer));
         when(providerSettings.getName()).thenReturn("TestProvider");
 
         // Mock static SettingsCache
@@ -174,7 +175,7 @@ class OAuth2UtilTest {
             SecurityContext springSecurityContext = session.getAttribute("SPRING_SECURITY_CONTEXT");
             Assertions.assertDoesNotThrow(() -> OAuth2Util.endUserSession(springSecurityContext));
 
-            WireMock.configureFor("localhost", mockServer.port());
+            WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
             mockServer
                     .stubFor(WireMock
                             .get(WireMock.urlPathEqualTo("/"))
@@ -206,10 +207,10 @@ class OAuth2UtilTest {
     void testGetAllClaimsAvailable_UserInfoClaimsOverrideAccessTokenClaims()
             throws NoSuchAlgorithmException, JOSEException {
         String accessToken = createAccessToken("from-token");
-        WireMockServer mockServer = new WireMockServer(0);
+        WireMockServer mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
         try {
-            WireMock.configureFor("localhost", mockServer.port());
+            WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
             mockServer
                     .stubFor(WireMock
                             .get(WireMock.urlPathEqualTo("/userinfo"))
@@ -218,9 +219,8 @@ class OAuth2UtilTest {
                                             .formatted(OAuth2Constants.TOKEN_USERNAME_CLAIM_NAME))));
 
             Map<String, Object> claims = OAuth2Util
-                    .getAllClaimsAvailable(
-                            providerWithUserInfoUrl("http://localhost:" + mockServer.port() + "/userinfo"), accessToken,
-                            null);
+                    .getAllClaimsAvailable(providerWithUserInfoUrl(LoopbackWireMock.url(mockServer) + "/userinfo"),
+                            accessToken, null);
 
             Assertions.assertEquals("from-userinfo", claims.get(OAuth2Constants.TOKEN_USERNAME_CLAIM_NAME));
             Assertions.assertEquals("user@example.com", claims.get("email"));
@@ -239,12 +239,12 @@ class OAuth2UtilTest {
     void testGetAllClaimsAvailable_UserInfoFailureFallsBackToAccessTokenClaims()
             throws NoSuchAlgorithmException, JOSEException {
         String accessToken = createAccessToken("from-token");
-        WireMockServer mockServer = new WireMockServer(0);
+        WireMockServer mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
         try {
-            WireMock.configureFor("localhost", mockServer.port());
+            WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
             OAuth2ProviderSettingsDto provider = providerWithUserInfoUrl(
-                    "http://localhost:" + mockServer.port() + "/userinfo");
+                    LoopbackWireMock.url(mockServer) + "/userinfo");
 
             mockServer
                     .stubFor(WireMock

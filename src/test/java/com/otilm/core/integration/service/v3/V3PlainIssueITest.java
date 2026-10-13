@@ -21,6 +21,7 @@ import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.service.acme.AcmeTestUtil;
 import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.builders.AuthorityFixtures;
 import com.otilm.core.util.builders.V3ConnectorStubs;
 import java.security.KeyPair;
@@ -87,9 +88,9 @@ class V3PlainIssueITest extends BaseSpringBootTest {
 
     @BeforeEach
     void startWireMockServer() {
-        wireMockServer = new WireMockServer(0);
+        wireMockServer = new WireMockServer(LoopbackWireMock.options());
         wireMockServer.start();
-        WireMock.configureFor("localhost", wireMockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, wireMockServer.port());
     }
 
     @AfterEach

@@ -20,6 +20,9 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+/**
+ * Stores key items and reads their authorization and operation snapshots.
+ */
 @Repository
 public interface CryptographicKeyItemRepository extends ComplianceSubjectRepository<CryptographicKeyItem> {
 
@@ -217,7 +220,7 @@ public interface CryptographicKeyItemRepository extends ComplianceSubjectReposit
             SELECT new com.otilm.core.model.crypto.CryptographicKeyItemOperationRow(
                 item.uuid, item.enabled, item.keyAlgorithm, item.state, item.type, item.usage, item.keyData,
                 item.keyReferenceUuid, item.keyMeta, key.uuid, token.connectorUuid, token.tokenInstanceUuid,
-                iface.interfaceCode, iface.version)
+                iface.interfaceCode, iface.version, token.uuid, key.tokenProfileUuid)
             FROM CryptographicKeyItem item
             JOIN item.key key
             JOIN key.tokenInstanceReference token
@@ -230,7 +233,7 @@ public interface CryptographicKeyItemRepository extends ComplianceSubjectReposit
             SELECT new com.otilm.core.model.crypto.CryptographicKeyItemOperationRow(
                 item.uuid, item.enabled, item.keyAlgorithm, item.state, item.type, item.usage, item.keyData,
                 item.keyReferenceUuid, item.keyMeta, key.uuid, token.connectorUuid, token.tokenInstanceUuid,
-                iface.interfaceCode, iface.version)
+                iface.interfaceCode, iface.version, token.uuid, key.tokenProfileUuid)
             FROM CryptographicKeyItem item
             JOIN item.key key
             JOIN key.tokenInstanceReference token

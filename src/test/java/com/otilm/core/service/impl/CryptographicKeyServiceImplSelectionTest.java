@@ -227,7 +227,7 @@ class CryptographicKeyServiceImplSelectionTest {
         UUID keyUuid = UUID.randomUUID();
         CryptographicKeyItemOperationRow row = new CryptographicKeyItemOperationRow(UUID.randomUUID(), true,
                 KeyAlgorithm.RSA, KeyState.ACTIVE, KeyType.PRIVATE_KEY, 0, null, UUID.randomUUID(), null, keyUuid, null,
-                null, null, null);
+                null, null, null, UUID.randomUUID(), UUID.randomUUID());
         when(itemRepository.findPrivateOperationRowByKeyUuid(keyUuid)).thenReturn(Optional.of(row));
 
         // when

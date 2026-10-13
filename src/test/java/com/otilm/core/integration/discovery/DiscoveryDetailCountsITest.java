@@ -174,6 +174,6 @@ class DiscoveryDetailCountsITest extends BaseSpringBootTest {
         itemRepository
                 .stage(UUID.randomUUID(), run.getUuid(), resource, sequence, uniqueRef,
                         "{\"resource\":\"" + resource + "\",\"keyData\":\"" + uniqueRef + "\"}",
-                        OffsetDateTime.now(ZoneOffset.UTC), newlyDiscovered, null);
+                        OffsetDateTime.now(ZoneOffset.UTC), newlyDiscovered, null, null);
     }
 }

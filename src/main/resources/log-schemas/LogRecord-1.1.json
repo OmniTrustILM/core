@@ -35,7 +35,7 @@
     },
     "Module" : {
       "type" : "string",
-      "enum" : [ "approvals", "auth", "certificates", "keys", "compliance", "core", "discovery", "entities", "protocols", "scheduler", "secrets", "workflows" ]
+      "enum" : [ "approvals", "auth", "certificates", "keys", "compliance", "core", "discovery", "entities", "protocols", "scheduler", "secrets", "signing", "workflows" ]
     },
     "Operation" : {
       "type" : "string",
@@ -49,6 +49,8 @@
         "forceDelete",
         "add",
         "remove",
+        "resolve",
+        "unresolve",
         "request",
         "register",
         "enable",
@@ -69,6 +71,8 @@
         "rekey",
         "revoke",
         "export",
+        "import",
+        "inspect",
         "getStatus",
         "getContent",
         "getChain",
@@ -90,8 +94,10 @@
         "cmpConfirm",
         "upload",
         "sync",
+        "retry",
         "compromise",
         "destroy",
+        "listKeyUsages",
         "updateKeyUsage",
         "listKeyRequestTypes",
         "encrypt",
@@ -125,6 +131,7 @@
         "updateObjectPermissions",
         "schedule",
         "listAttributes",
+        "listResources",
         "validateAttributes",
         "attributeCallback",
         "updateAttributeResources",
@@ -133,8 +140,14 @@
         "promoteMetadata",
         "archive",
         "unarchive",
+        "finalizeIssue",
+        "confirmRevoke",
+        "stop",
+        "resume",
+        "cancel",
         "getAssociations",
         "listVersions",
+        "getProxyInstallation",
         "listCertificateProfiles",
         "listCas"
       ]
@@ -145,7 +158,7 @@
     },
     "Resource" : {
       "type" : "string",
-      "enum" : [ "NONE", "ANY", "dashboard", "settings", "auditLogs", "credentials", "connectors", "attributes", "jobs", "users", "roles", "acmeAccounts", "acmeProfiles", "cboms", "scepProfiles", "cmpProfiles", "authorities", "raProfiles", "certificates", "certificateRequests", "groups", "complianceProfiles", "discoveries", "oids", "entities", "locations", "tokenProfiles", "tokens", "keys", "approvalProfiles", "approvals", "notificationProfiles", "notificationInstances", "rules", "actions", "triggers", "resources", "resourceEvents", "searchFilters", "keyItems", "platformEnums", "notifications", "conditions", "executions", "complianceRules", "complianceGroups", "customAttributes", "globalMetadata", "acmeOrders", "acmeAuthorizations", "acmeChallenges", "cmpTransactions", "endEntityProfiles", "authenticationProviders", "vaults", "vaultProfiles", "secrets" ]
+      "enum" : [ "NONE", "ANY", "dashboard", "settings", "auditLogs", "credentials", "connectors", "attributes", "jobs", "proxies", "users", "roles", "acmeAccounts", "acmeProfiles", "cboms", "cryptoAssets", "scepProfiles", "cmpProfiles", "authorities", "raProfiles", "certificates", "certificateRequests", "groups", "complianceProfiles", "discoveries", "oids", "entities", "locations", "tokenProfiles", "tokens", "keys", "approvalProfiles", "approvals", "comments", "notificationProfiles", "notificationInstances", "rules", "actions", "triggers", "resources", "resourceEvents", "searchFilters", "listViews", "keyItems", "platformEnums", "notifications", "conditions", "executions", "complianceRules", "complianceGroups", "customAttributes", "globalMetadata", "acmeOrders", "acmeAuthorizations", "acmeChallenges", "cmpTransactions", "endEntityProfiles", "authenticationProviders", "trustedCertificates", "vaults", "vaultProfiles", "secrets", "signingProfiles", "signingRecords", "timeQualityConfigurations", "tspProfiles", "tspProfileBasicCredentials" ]
     },
     "ResourceObjectIdentity" : {
       "type" : "object",

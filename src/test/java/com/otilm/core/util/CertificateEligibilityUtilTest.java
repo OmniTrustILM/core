@@ -220,6 +220,6 @@ class CertificateEligibilityUtilTest {
         RemoteKeyReference reference = new RemoteKeyReference.UuidReference(UUID.randomUUID());
         return new CryptographicKeyItemOperationModel(UUID.randomUUID(), true, keyData.algorithm(), keyData.state(),
                 keyData.type(), keyData.usage(), null, reference, UUID.randomUUID(), UUID.randomUUID(),
-                UUID.randomUUID(), null, null);
+                UUID.randomUUID(), null, null, UUID.randomUUID(), UUID.randomUUID());
     }
 }

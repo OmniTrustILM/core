@@ -53,6 +53,7 @@ import com.otilm.core.attribute.engine.OutboundSecretContainment;
 import com.otilm.core.attribute.engine.OutboundSecretLeakException;
 import com.otilm.core.client.CryptographyV2ApiClients;
 import com.otilm.core.dao.entity.KeyImportState;
+import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.key.normalization.NormalizedKey;
 import com.otilm.core.messaging.proxy.ConnectorAuthConverter;
 import com.otilm.core.messaging.proxy.CoreMessageProducer;
@@ -70,6 +71,7 @@ import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.OperationAttributeResolver;
+import com.otilm.core.util.PqcKeyFixtures;
 import jakarta.validation.Validation;
 import java.io.IOException;
 import java.security.KeyPairGenerator;
@@ -106,6 +108,65 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class KeyProviderV2AdapterImportTest {
+
+    @Test
+    void importKey_preservesAbsentLength_forSynchronousPqcPair() throws Exception {
+        // given
+        KeyPairDataResponseV2Dto response = PqcKeyFixtures.response(PqcKeyFixtures.keyPair());
+        when(client.importKey(eq(connector), any())).thenReturn(ResponseEntity.ok(response));
+
+        // when
+        ImportAnswer answer = adapter
+                .importKey(terms(List.of(FeatureFlag.KEY_IMPORT), false), attempt(), normalizedKey(), "pqc");
+
+        // then
+        assertPqcWithoutLength(answer);
+    }
+
+    @Test
+    void importKeyStatus_preservesAbsentLength_forCompletedPqcPair() throws Exception {
+        // given
+        KeyPairOperationStatusResponseV2Dto response = completedPqcImport();
+        when(client.getImportKeyStatus(eq(connector), any())).thenReturn(response);
+
+        // when
+        ImportAnswer answer = adapter
+                .importKeyStatus(profile(List.of(FeatureFlag.KEY_IMPORT)), metadata("operation"), sentSecretDigests(),
+                        "pqc");
+
+        // then
+        assertPqcWithoutLength(answer);
+    }
+
+    @Test
+    void importKeyResult_preservesAbsentLength_forRecoveredPqcPair() throws Exception {
+        // given
+        KeyPairOperationStatusResponseV2Dto response = completedPqcImport();
+        when(client.getImportKeyResult(eq(connector), any())).thenReturn(response);
+
+        // when
+        ImportAnswer answer = adapter
+                .importKeyResult(profile(List.of(FeatureFlag.KEY_IMPORT)), UUID.randomUUID(), sentSecretDigests(),
+                        "pqc");
+
+        // then
+        assertPqcWithoutLength(answer);
+    }
+
+    private static KeyPairOperationStatusResponseV2Dto completedPqcImport() throws Exception {
+        KeyPairOperationStatusResponseV2Dto response = new KeyPairOperationStatusResponseV2Dto();
+        response.setStatus(OperationStatus.COMPLETED);
+        response.setResult(PqcKeyFixtures.response(PqcKeyFixtures.keyPair()));
+        return response;
+    }
+
+    private static void assertPqcWithoutLength(ImportAnswer answer) {
+        assertThat(answer).isInstanceOf(ImportAnswer.Imported.class);
+        assertThat(((ImportAnswer.Imported) answer).items()).hasSize(2).allSatisfy(item -> {
+            assertThat(item.algorithm()).isEqualTo(KeyAlgorithm.MLDSA);
+            assertThat(item.length()).isNull();
+        });
+    }
 
     private static final char[] TRANSPORT_PASSPHRASE = "transport-passphrase-of-forty-three-chars-x".toCharArray();
     private static final OperationResponseValidator RESPONSE_VALIDATOR = new OperationResponseValidator(
@@ -743,8 +804,9 @@ class KeyProviderV2AdapterImportTest {
         AttributeEngine attributes = mock(AttributeEngine.class);
         when(attributes.getRequestObjectDataAttributesContent(any())).thenReturn(List.of());
         return new KeyProviderV2Adapter(apiClients, target, attributes, resolver,
-                new OutboundSecretContainment(new ObjectMapper()), new ConnectorCapabilityService(),
-                RESPONSE_VALIDATOR);
+                new OutboundSecretContainment(new ObjectMapper()), new ConnectorCapabilityService(), RESPONSE_VALIDATOR,
+                mock(CryptographicKeyRepository.class), scope -> {
+                });
     }
 
     /**

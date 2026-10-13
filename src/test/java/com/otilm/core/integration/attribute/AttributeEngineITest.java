@@ -2061,6 +2061,27 @@ class AttributeEngineITest extends BaseSpringBootTest {
     }
 
     @Test
+    void requestAttributeWithoutUuidAndUnmatchedNameIsReportedAsValidationError() {
+        RequestAttributeV2 noUuid = new RequestAttributeV2(null, "unknownAttribute", AttributeContentType.STRING,
+                List.of(new StringAttributeContentV2("value")));
+        List<BaseAttribute> definitions = List.of();
+        List<RequestAttribute> values = List.of(noUuid);
+
+        ValidationException thrown = Assertions
+                .assertThrows(ValidationException.class, () -> attributeEngine
+                        .validateUpdateDataAttributes(UUID.randomUUID(), null, definitions, values));
+
+        Assertions
+                .assertTrue(
+                        thrown
+                                .getErrors()
+                                .stream()
+                                .anyMatch(e -> e.getErrorDescription().contains("unknownAttribute")
+                                        && e.getErrorDescription().contains("no uuid")),
+                        "expected a missing-uuid error, got: " + thrown.getErrors());
+    }
+
+    @Test
     void testUpdateAttributeDefinition() throws AttributeException {
         DataAttributeV3 validAttribute = new DataAttributeV3();
         validAttribute.setUuid(UUID.randomUUID().toString());

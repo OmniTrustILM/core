@@ -6,37 +6,63 @@
     <property name="LOG_FILE" value="/dev/stdout"/>
     <!--    <include resource="org/springframework/boot/logging/logback/file-appender.xml" />-->
 
-    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
-        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
-            <level>${CONSOLE_LOG_THRESHOLD}</level>
-        </filter>
-        <filter class="com.otilm.core.tasks.ScheduledLoggingFilter" />
-        <encoder>
-            <pattern>${CONSOLE_LOG_PATTERN}</pattern>
-            <charset>${CONSOLE_LOG_CHARSET}</charset>
-        </encoder>
-    </appender>
-
-    <if condition='property("otel.sdk.disabled").equals("false")'>
-        <appender name="OpenTelemetry" class="io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender">
-            <captureExperimentalAttributes>true</captureExperimentalAttributes>
-            <captureCodeAttributes>true</captureCodeAttributes>
-            <captureMarkerAttribute>false</captureMarkerAttribute>
-            <captureKeyValuePairAttributes>false</captureKeyValuePairAttributes>
-            <captureLoggerContext>false</captureLoggerContext>
-        </appender>
-
-        <appender name="SpanEvents" class="com.otilm.core.config.SpanEventsAppender">
-        </appender>
+    <!-- The format picks the whole appender: logback does not support <if> nested inside an <appender>.
+         CONSOLE_LOG_STRUCTURED_FORMAT is unset for the text format (ConsoleLogFormatEnvironmentPostProcessor); text or
+         an empty value set through Boot's own property keeps the pattern too.
+         Logback takes the branch from a <condition> placed right before its <if>; one inside the <if> is ignored. -->
+    <condition class="ch.qos.logback.core.boolex.ExpressionPropertyCondition">
+        <expression>isNull("CONSOLE_LOG_STRUCTURED_FORMAT") || propertyEquals("CONSOLE_LOG_STRUCTURED_FORMAT", "") || propertyEquals("CONSOLE_LOG_STRUCTURED_FORMAT", "text")</expression>
+    </condition>
+    <if>
+        <then>
+            <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+                <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+                    <level>${CONSOLE_LOG_THRESHOLD}</level>
+                </filter>
+                <filter class="com.otilm.core.tasks.ScheduledLoggingFilter" />
+                <encoder>
+                    <pattern>${CONSOLE_LOG_PATTERN}</pattern>
+                    <charset>${CONSOLE_LOG_CHARSET}</charset>
+                </encoder>
+            </appender>
+        </then>
+        <else>
+            <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+                <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+                    <level>${CONSOLE_LOG_THRESHOLD}</level>
+                </filter>
+                <filter class="com.otilm.core.tasks.ScheduledLoggingFilter" />
+                <encoder class="com.otilm.core.logging.LogRecordStructuredLogEncoder">
+                    <format>${CONSOLE_LOG_STRUCTURED_FORMAT}</format>
+                    <charset>${CONSOLE_LOG_CHARSET}</charset>
+                </encoder>
+            </appender>
+        </else>
     </if>
+
+    <!-- Adds log lines to the active span; with OpenTelemetry off there is no span, so it does nothing -->
+    <appender name="SpanEvents" class="com.otilm.core.config.SpanEventsAppender" />
 
     <root level="INFO">
         <appender-ref ref="CONSOLE" />
         <!--        <appender-ref ref="FILE" />-->
-        <if condition='property("otel.sdk.disabled").equals("false")'>
-            <appender-ref ref="OpenTelemetry" />
-            <appender-ref ref="SpanEvents" />
-        </if>
+        <appender-ref ref="SpanEvents" />
     </root>
+
+    <!-- Only when the OpenTelemetry starter will install its SDK into the appender (OpenTelemetryAppenderCondition) -->
+    <condition class="com.otilm.core.logging.OpenTelemetryAppenderCondition" />
+    <if>
+        <then>
+            <appender name="OpenTelemetry" class="io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender">
+                <captureExperimentalAttributes>true</captureExperimentalAttributes>
+                <captureCodeAttributes>true</captureCodeAttributes>
+                <captureMarkerAttribute>false</captureMarkerAttribute>
+            </appender>
+
+            <root>
+                <appender-ref ref="OpenTelemetry" />
+            </root>
+        </then>
+    </if>
     <logger name="com.otilm" level="INFO"/>
 </configuration>

@@ -31,6 +31,7 @@ import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.service.CallbackExternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import java.io.Serializable;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -66,17 +67,17 @@ class CallbackServiceITest extends BaseSpringBootTest {
 
     @BeforeEach
     void setUp() {
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
 
-        WireMock.configureFor("localhost", mockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
         mockServer
                 .stubFor(WireMock
                         .get(WireMock.urlPathMatching("/callback"))
                         .willReturn(WireMock.okJson("{\"property\": \"value\"}")));
 
         connector = new Connector();
-        connector.setUrl(mockServer.baseUrl());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connectorRepository.save(connector);
