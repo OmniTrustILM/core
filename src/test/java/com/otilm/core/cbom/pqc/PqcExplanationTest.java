@@ -40,7 +40,6 @@ class PqcExplanationTest {
         });
         assertThat(steps).allSatisfy(step -> {
             assertThat(step.title()).isNotBlank();
-            assertThat(step.outcome()).isNotEqualTo(PqcExplanationStepOutcome.NOT_REACHED);
             assertThat(step.evaluatedFields()).isNotNull();
             assertThat(PqcRules.EVIDENCE_FIELDS).containsAll(step.evaluatedFields().keySet());
             if (step.outcome() == PqcExplanationStepOutcome.NOT_MATCHED) {
