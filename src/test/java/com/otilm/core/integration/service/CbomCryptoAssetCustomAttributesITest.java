@@ -45,6 +45,7 @@ import com.otilm.core.service.writer.cbom.CryptoAssetSourceWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetWriter;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import java.time.OffsetDateTime;
@@ -126,8 +127,7 @@ class CbomCryptoAssetCustomAttributesITest extends BaseSpringBootTest {
 
     @BeforeAll
     static void startRepository() {
-        repositoryServer = new WireMockServer(0);
-        repositoryServer.start();
+        repositoryServer = LoopbackWireMock.start();
     }
 
     @AfterAll
@@ -140,7 +140,7 @@ class CbomCryptoAssetCustomAttributesITest extends BaseSpringBootTest {
         originalSettings = SettingsCache.getSettings(SettingsSection.PLATFORM);
         PlatformSettingsDto settings = new PlatformSettingsDto();
         settings.setUtils(new UtilsSettingsDto());
-        settings.getUtils().setCbomRepositoryUrl("http://localhost:" + repositoryServer.port());
+        settings.getUtils().setCbomRepositoryUrl(LoopbackWireMock.url(repositoryServer));
         settingsCache.cacheSettings(SettingsSection.PLATFORM, settings);
 
         attributeUuid = UUID.randomUUID();

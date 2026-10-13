@@ -1,5 +1,6 @@
 package com.otilm.core.cbom.ingest;
 
+import com.otilm.api.model.core.cryptoasset.CryptographicAssetType;
 import com.otilm.api.model.core.cryptoasset.PqcVerdict;
 import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.core.cbom.sync.CbomSyncPolicy;
@@ -236,6 +237,7 @@ class InventoryEventOutboxDispatcherTest {
     private static CryptoAsset asset(UUID uuid) {
         CryptoAsset asset = new CryptoAsset();
         asset.setUuid(uuid);
+        asset.setAssetType(CryptographicAssetType.ALGORITHM);
         asset.setPqcVerdict(PqcVerdict.READY);
         asset.setInputRevision(1L);
         asset.setPqcEvaluatedRevision(1L);

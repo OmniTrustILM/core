@@ -25,6 +25,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 
@@ -41,6 +43,38 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class InventoryEventHandlerTest {
+
+    @Test
+    void anUntypedAssetDoesNotExposeItsStoredRoutingTierInEventData() {
+        CryptoAsset asset = asset(UUID.randomUUID());
+        asset.setAssetType(CryptographicAssetType.UNROUTABLE);
+        asset.setPqcVerdict(PqcVerdict.UNKNOWN);
+
+        CryptoAssetAddedEventData snapshot = CryptoAssetAddedEventHandler.snapshot(asset, UUID.randomUUID());
+
+        assertThat(snapshot.getAssetType()).isNull();
+        var json = new ObjectMapper().valueToTree(snapshot);
+        assertThat(json.has("assetType")).isFalse();
+        assertThat(json.get("pqcVerdict").asText()).isEqualTo("unknown");
+        assertThat(asset.getAssetType()).isEqualTo(CryptographicAssetType.UNROUTABLE);
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "ALGORITHM, algorithm",
+            "CERTIFICATE, certificate",
+            "PROTOCOL, protocol",
+            "RELATED_CRYPTO_MATERIAL, related-crypto-material"})
+    void aTypedAssetKeepsItsPublicTypeInEventData(CryptographicAssetType type, String expectedType) {
+        CryptoAsset asset = asset(UUID.randomUUID());
+        asset.setAssetType(type);
+        asset.setPqcVerdict(PqcVerdict.READY);
+
+        var json = new ObjectMapper().valueToTree(CryptoAssetAddedEventHandler.snapshot(asset, UUID.randomUUID()));
+
+        assertThat(json.get("assetType").asText()).isEqualTo(expectedType);
+        assertThat(json.get("pqcVerdict").asText()).isEqualTo("ready");
+    }
 
     @Test
     void oneAssetMessagePreparesEveryNewAssetWithItsCbom() throws Exception {

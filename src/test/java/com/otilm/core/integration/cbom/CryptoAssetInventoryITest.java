@@ -16,6 +16,7 @@ import com.otilm.core.cbom.ingest.CbomAssetDetachService;
 import com.otilm.core.cbom.ingest.CbomAssetIngestService;
 import com.otilm.core.cbom.ingest.CbomIngestTestFixtures;
 import com.otilm.core.cbom.ingest.InventoryEventOutboxDispatcher;
+import com.otilm.core.cbom.pqc.PqcVerdictSweeper;
 import com.otilm.core.cbom.sync.CbomSyncPolicy;
 import com.otilm.core.dao.CryptoAssetConstraintTranslator;
 import com.otilm.core.dao.entity.Cbom;
@@ -132,6 +133,9 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
     private InventoryEventOutboxRepository eventOutboxRepository;
 
     @Autowired
+    private PqcVerdictSweeper verdictSweeper;
+
+    @Autowired
     private PlatformTransactionManager transactionManager;
 
     private Cbom leanCbom;
@@ -242,6 +246,10 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
         assertThat(assetRepository.findSourcedAssets(List.of(removed, retained)))
                 .extracting(CryptoAsset::getUuid)
                 .containsExactly(retained);
+        eventOutboxDispatcher.dispatchCbom(leanCbom.getUuid());
+        assertThat(eventOutboxRepository.existsById(leanCbom.getUuid())).isTrue();
+
+        verdictSweeper.sweep();
         eventOutboxDispatcher.dispatchCbom(leanCbom.getUuid());
         assertThat(eventOutboxRepository.existsById(leanCbom.getUuid())).isFalse();
         assertThat(assetRepository.findById(removed)).isEmpty();
@@ -1421,20 +1429,24 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
     }
 
     /**
-     * A newer observation carrying different refs replaces the stored list whole: the refs of components the document
-     * no longer carries are gone, not kept beside the new ones and not frozen at the first insert.
+     * A newer version carrying different refs replaces the source list whole: the refs of components the document no
+     * longer carries are gone, not kept beside the new ones and not frozen at the first insert.
      */
     @Test
-    void aNewerObservationReplacesTheRefsWhole() {
+    void aNewerVersionReplacesTheRefsWhole() {
         ingestService.ingest(leanCbom.getUuid(), threeComponentsTwoAssets(), NOW, POLICY);
         JsonNode renamedRefs = CbomIngestTestFixtures
                 .documentOf(CbomIngestTestFixtures.algorithmWithRef("AES-256", "a3"),
                         CbomIngestTestFixtures.algorithmWithRef("RSA-2048", "b2"));
 
-        ingestService.ingest(leanCbom.getUuid(), renamedRefs, NOW.plusSeconds(1), POLICY);
+        Cbom newer = cbom(leanCbom.getSerialNumber(), leanCbom.getVersion() + 1);
+        assertThat(ingestService.ingest(newer.getUuid(), renamedRefs, NOW.plusSeconds(1), POLICY))
+                .isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
 
-        assertThat(storedRefs(assetNamed("aes-256"), leanCbom.getUuid())).containsExactly("a3");
-        assertThat(storedRefs(assetNamed("rsa-2048"), leanCbom.getUuid())).containsExactly("b2");
+        assertThat(storedRefs(assetNamed("aes-256"), newer.getUuid())).containsExactly("a3");
+        assertThat(storedRefs(assetNamed("rsa-2048"), newer.getUuid())).containsExactly("b2");
+        assertThat(sourceRepository.findByAssetUuidAndCbomUuid(assetNamed("aes-256"), leanCbom.getUuid())).isEmpty();
+        assertThat(sourceRepository.findByAssetUuidAndCbomUuid(assetNamed("rsa-2048"), leanCbom.getUuid())).isEmpty();
     }
 
     /** The refs follow the payload's recency rule: an older observation widens the window and changes nothing. */

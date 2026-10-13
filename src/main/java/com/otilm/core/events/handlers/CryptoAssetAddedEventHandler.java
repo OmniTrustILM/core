@@ -5,6 +5,7 @@ import com.otilm.api.exception.EventException;
 import com.otilm.api.model.common.events.data.CryptoAssetAddedEventData;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.other.ResourceEvent;
+import com.otilm.core.cbom.asset.ServedAssetType;
 import com.otilm.core.dao.entity.cbom.CryptoAsset;
 import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
 import com.otilm.core.evaluator.TriggerEvaluator;
@@ -52,7 +53,7 @@ public class CryptoAssetAddedEventHandler extends EventHandler<CryptoAsset> {
         CryptoAssetAddedEventData data = new CryptoAssetAddedEventData();
         data.setCryptoAssetUuid(asset.getUuid());
         data.setCbomUuid(cbomUuid);
-        data.setAssetType(asset.getAssetType());
+        data.setAssetType(ServedAssetType.of(asset.getAssetType()));
         data.setName(asset.getName());
         data.setAlgorithmFamily(asset.getAlgorithmFamily());
         data.setPqcVerdict(asset.getPqcVerdict());
