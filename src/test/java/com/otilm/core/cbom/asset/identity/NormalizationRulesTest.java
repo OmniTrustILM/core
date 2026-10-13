@@ -584,6 +584,19 @@ class NormalizationRulesTest {
     }
 
     /**
+     * A size the registry variant spells is recorded even where the name parse could not read it: 44 is below the
+     * key-size whitelist and {@code MLDSA44} offers no separator for a parameter level, so it keyed as a bare ML-DSA.
+     */
+    @Test
+    void aSpelledAdmissibleSizeIsRecordedWhereTheNameParseReadNone() {
+        assertThat(normalize("MLDSA44").parameterSet()).isEqualTo(44);
+        assertThat(keyOfAlgorithm("MLDSA44")).isEqualTo(keyOfAlgorithm("ML-DSA-44"));
+        assertThat(normalize("MLDSA44").findings()).isEmpty();
+        assertThat(normalize("ML-DSA").parameterSet()).isNull();
+        assertThat(keyOfAlgorithm("MLDSA44")).isNotEqualTo(keyOfAlgorithm("ML-DSA"));
+    }
+
+    /**
      * A mode an arc contributes goes through the vocabulary a field or a name goes through. The shipped strand carried
      * {@code POLY1305} on the ChaCha20-Poly1305 arc and the slot took it verbatim, so the asset keyed one way with the
      * CMS arc and another without it. The generator refuses such a row now; the loader-side rule is driven through a

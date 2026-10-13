@@ -859,9 +859,9 @@ public record AssetNormalizer(IdentityTables tables) {
      * does define stands, even against a different one the name spells; that too is reported. A value read out of the
      * name that is neither the variant's own size nor one the family defines -- the 96 of {@code AES-GCM-96} is a tag
      * length -- is not the parameter set and is not recorded. What remains is a value nothing redeems: it stays in the
-     * slot, so the row keys apart from the real algorithm, and the verdict refuses it. The variant's own size is such a
-     * value even where the key-size whitelist refused it before it was recorded: {@code ML-KEM-99999} is not a bare
-     * ML-KEM.
+     * slot, so the row keys apart from the real algorithm, and the verdict refuses it. The variant's own size is
+     * recorded even where the name parse read none: {@code ML-KEM-99999} is not a bare ML-KEM, and {@code MLDSA44} is
+     * {@code ML-DSA-44}.
      */
     private void reconcileParameterSetWithRegistry(NormalizedAsset norm) {
         Set<Integer> admissible = admissibleParameterSets(norm.name(), norm.family());
@@ -876,6 +876,8 @@ public record AssetNormalizer(IdentityTables tables) {
                 norm
                         .finding("the size the name spells, " + spelled + ", is not one the " + norm.family()
                                 + " family defines; the registry admits " + admitted);
+            }
+            if (spelled != null) {
                 norm.setParameterSet(spelled);
             }
             return;
