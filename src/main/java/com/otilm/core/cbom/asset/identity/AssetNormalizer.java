@@ -881,11 +881,14 @@ public record AssetNormalizer(IdentityTables tables) {
             return;
         }
         if (admissible.contains(recorded)) {
-            if (norm.parameterSetFromPayload() && spelled != null && !spelled.equals(recorded)
-                    && admissible.contains(spelled)) {
+            if (norm.parameterSetFromPayload() && spelled != null && !spelled.equals(recorded)) {
+                String spelledStanding = admissible.contains(spelled)
+                        ? ""
+                        : ", which is not one the " + norm.family() + " family defines (the registry admits " + admitted
+                                + ")";
                 norm
                         .finding("the declared parameter set " + recorded + " contradicts the size the name spells, "
-                                + spelled + "; the declaration is recorded");
+                                + spelled + spelledStanding + "; the declaration is recorded");
             }
             return;
         }

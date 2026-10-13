@@ -237,6 +237,29 @@ class NormalizationRulesTest {
                 .isEmpty();
     }
 
+    /** The clash is reported whether or not the family defines the size the name spells. */
+    @Test
+    void aDeclaredAdmissibleSizeAgainstAnUndefinedSpelledOneIsReported() {
+        for (String spelling : new String[]{"ML-KEM-800", "ML-KEM-99999"}) {
+            NormalizedAsset declared = normalize(algorithmComponent(spelling, "{\"parameterSetIdentifier\":\"768\"}"));
+            assertThat(declared.parameterSet()).describedAs(spelling).isEqualTo(768);
+            assertThat(declared.findings())
+                    .describedAs(spelling)
+                    .singleElement()
+                    .asString()
+                    .contains("768")
+                    .contains(spelling.substring("ML-KEM-".length()))
+                    .contains("ML-KEM")
+                    .contains("512, 768, 1024");
+            assertThat(keyOf(algorithmComponent(spelling, "{\"parameterSetIdentifier\":\"768\"}")))
+                    .describedAs("%s keeps the size it spells and keys apart from ML-KEM-768", spelling)
+                    .isNotEqualTo(keyOfAlgorithm("ML-KEM-768"));
+        }
+        assertThat(normalize(algorithmComponent("ML-KEM-999999", "{\"parameterSetIdentifier\":\"768\"}")).findings())
+                .describedAs("an overlong digit run spells no size to contradict")
+                .isEmpty();
+    }
+
     /** A registry variant is found as a word: {@code handshake-128} spells no SHAKE, {@code myaes128} no AES size. */
     @Test
     void aRegistryVariantIsReadAsAWordNotASubstring() {
