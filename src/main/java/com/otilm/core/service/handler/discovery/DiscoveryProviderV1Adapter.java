@@ -150,9 +150,9 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
     }
 
     /**
-     * Ends the run as Failed when Core itself could not finish it, so it never stays In progress. The message is fixed
-     * text, so no internal detail reaches the user; the exception goes to the log. The ending commits before the detail
-     * is read, so a read that fails as well leaves the run ended and rethrows the original failure.
+     * Ends the run Failed with fixed text when Core could not finish it; the exception goes to the log. The ending
+     * commits before the detail is read, so a failing read still leaves the run ended and rethrows the original
+     * failure.
      */
     private DiscoveryDetailDto endAfterCoreFailure(UUID discoveryUuid, RuntimeException failure) {
         logFailure("Discovery {} failed in Core", discoveryUuid, failure);
@@ -670,9 +670,9 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
     }
 
     /**
-     * Stores the metadata the connector reported about the run, once, in a transaction of its own. It is advisory: a
-     * failure, a checked refusal included (rethrown unchecked inside the transaction), takes back whatever was written,
-     * leaves the run's outcome alone, and stays on the run as a warning that no later message replaces.
+     * Stores the metadata the connector reported about the run, once, in a transaction of its own. It is advisory: any
+     * failure, a checked refusal included, takes back whatever was written, leaves the run's outcome alone, and stays
+     * on the run as a warning that no later message replaces.
      */
     private void storeRunMetadata(DiscoveryContext context) {
         if (context.isRunMetadataHandled()) {

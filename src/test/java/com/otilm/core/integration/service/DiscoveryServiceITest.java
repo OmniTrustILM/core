@@ -2023,9 +2023,9 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
     }
 
     /**
-     * A runtime failure that crosses a transactional service marks the loading transaction rollback-only. The run must
-     * still end FAILED with Core's fixed text, not with the commit's {@code UnexpectedRollbackException}. The failure
-     * here is a validation one, which a connector can also raise, so its own text stays in the log.
+     * A runtime failure that crosses a transactional service marks the load rollback-only; the run must still end
+     * FAILED with Core's fixed text, not the commit's {@code UnexpectedRollbackException}. A validation failure gets
+     * the fixed text too, since a connector can raise one.
      */
     @Test
     void aRuntimeFailureLoadingTheContextEndsTheRunFailedWithTheFixedText() throws Exception {

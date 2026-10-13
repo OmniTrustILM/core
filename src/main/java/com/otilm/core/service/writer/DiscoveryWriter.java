@@ -110,10 +110,9 @@ public class DiscoveryWriter {
     }
 
     /**
-     * Ends a v1 run that Core itself failed to finish, unless it already ended. A run has ended once it has an end
-     * time; one parked in a mid-run {@code WARNING} has none, so this ends it too. The caller's transactions have
-     * rolled back by then, so the caller runs it in a transaction of its own; it locks the row so a concurrent ending
-     * is not overwritten. It reads nothing else, so no other failing read can roll the ending back.
+     * Ends a v1 run Core failed to finish unless it has an end time, so a run parked in a mid-run {@code WARNING} is
+     * ended too. The caller runs it in a transaction of its own; the row lock keeps a concurrent ending, and it reads
+     * nothing else, so no failing read can roll the ending back.
      *
      * @return whether it ended the run; false when the run is gone or has already ended
      */

@@ -1,6 +1,5 @@
--- Keep one attribute definition per key. Two transactions registering the same new definition at once could both
--- insert it, after which every lookup of that definition failed: discoveries through the connector never finished, and
--- every write of its metadata or attributes failed. Fold existing duplicates, then let two unique keys keep it so.
+-- Keep one attribute definition per key: fold existing duplicates, then add two unique keys. Two concurrent first
+-- registrations could each insert a row, and a duplicate makes every lookup of its definition fail.
 --
 -- A connector's definitions are unique by connector, attribute UUID and name; global metadata by name. A definition of
 -- any other type without a connector is the platform's own and is keyed under one fixed connector UUID. A metadata
@@ -10,9 +9,8 @@
 -- Global metadata folds by name only where the engine looks it up by name: a row without a connector, or one whose
 -- stored definition declares it global. Metadata an operator promoted to global keeps the connector's own declaration
 -- unless an operator has since edited it, so the engine still looks it up by its connector; folding it away would split
--- that connector's values over a fresh row. Under each name the global flag stays with one row: a row the engine looks
--- up by name when there is one, otherwise the oldest promoted row. Any other promoted row is demoted rather than
--- merged: it keeps its connector and values and loses only the global flag.
+-- that connector's values over a fresh row. Any other promoted row under the name is demoted rather than merged: it
+-- keeps its connector and values and loses only the global flag.
 --
 -- An edited promotion stores the same declaration as a global its connector declares, so nothing tells the two apart.
 -- A global with a connector is therefore kept over one without, which is found by name only and folds safely into it.

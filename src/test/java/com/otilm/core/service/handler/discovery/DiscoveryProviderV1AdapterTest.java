@@ -56,10 +56,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/**
- * Pins that the v1 interface rejects the lifecycle operations it never supported, and what text a run that cannot be
- * prepared ends with.
- */
 class DiscoveryProviderV1AdapterTest {
 
     private final DiscoveryRepository discoveryRepository = mock(DiscoveryRepository.class);
