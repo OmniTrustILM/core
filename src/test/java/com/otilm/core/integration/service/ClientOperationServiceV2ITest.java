@@ -488,6 +488,64 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
+    void issueCertificate_runsTheBeforeDispatchStepWithTheNewCertificate() throws Exception {
+        stubIssueEndpoints();
+        List<UUID> seen = new ArrayList<>();
+        List<CertificateState> stateWhenRun = new ArrayList<>();
+
+        ClientCertificateDataResponseDto response = clientOperationInternalService
+                .issueCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                        issueRequest(), null, uuid -> {
+                            seen.add(uuid);
+                            stateWhenRun.add(certificateRepository.findByUuid(uuid).orElseThrow().getState());
+                        });
+
+        Assertions.assertEquals(List.of(UUID.fromString(response.getUuid())), seen);
+        Assertions.assertEquals(List.of(CertificateState.REQUESTED), stateWhenRun);
+    }
+
+    @Test
+    void issueCertificate_stillReturnsTheCertificate_whenTheBeforeDispatchStepFails() throws Exception {
+        stubIssueEndpoints();
+
+        ClientCertificateDataResponseDto response = clientOperationInternalService
+                .issueCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                        issueRequest(), null, uuid -> {
+                            throw new IllegalStateException("link failed");
+                        });
+
+        Assertions.assertNotNull(response.getUuid());
+        Assertions.assertTrue(certificateRepository.findByUuid(UUID.fromString(response.getUuid())).isPresent());
+    }
+
+    private void stubIssueEndpoints() throws Exception {
+        String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue"))
+                        .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock
+                                .urlPathMatching(
+                                        "/v2/authorityProvider/authorities/[^/]+/certificates/issue/attributes"))
+                        .willReturn(WireMock.okJson("[]")));
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock
+                                .urlPathMatching(
+                                        "/v2/authorityProvider/authorities/[^/]+/certificates/issue/attributes/validate"))
+                        .willReturn(WireMock.okJson("true")));
+    }
+
+    private ClientCertificateIssueRequestDto issueRequest() {
+        ClientCertificateIssueRequestDto request = new ClientCertificateIssueRequestDto();
+        request.setRequest(SAMPLE_PKCS10);
+        request.setAttributes(List.of());
+        return request;
+    }
+
+    @Test
     void issueCertificate_mergesIssueAttributesOutsideTransaction() throws Exception {
         String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
         mockServer

@@ -41,6 +41,7 @@ import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CertificateLocation;
+import com.otilm.core.dao.entity.CertificateLocationId;
 import com.otilm.core.dao.entity.CertificateRegistrationAuthorization;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.EntityInstanceReference;
@@ -72,6 +73,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -744,7 +746,17 @@ class LocationServiceITest extends BaseSpringBootTest {
         ClientCertificateDataResponseDto responseDto = new ClientCertificateDataResponseDto();
 
         responseDto.setUuid(certificate.getUuid().toString());
-        when(clientOperationService.issueCertificate(any(), any(), any(), any())).thenReturn(responseDto);
+        when(clientOperationService.issueCertificate(any(), any(), any(), any(), any())).thenAnswer(inv -> {
+            UUID issuedUuid = UUID.fromString(responseDto.getUuid());
+            Consumer<UUID> beforeDispatch = inv.getArgument(4);
+            beforeDispatch.accept(issuedUuid);
+            // the issue action must find the link committed once it is queued
+            Assertions
+                    .assertTrue(certificateLocationRepository
+                            .findById(new CertificateLocationId(location.getUuid(), issuedUuid))
+                            .isPresent());
+            return responseDto;
+        });
         mockServer
                 .stubFor(WireMock
                         .get(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/push/attributes"))

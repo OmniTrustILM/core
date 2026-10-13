@@ -150,6 +150,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 import javax.security.auth.x500.X500Principal;
 import org.apache.commons.lang3.StringUtils;
 import org.bouncycastle.asn1.x500.X500Name;
@@ -572,6 +573,17 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             final SecuredUUID raProfileUuid, final ClientCertificateIssueRequestDto request,
             final CertificateProtocolInfo protocolInfo) throws NotFoundException, CertificateException,
             NoSuchAlgorithmException, CertificateOperationException, CertificateRequestException {
+        return issueCertificate(authorityUuid, raProfileUuid, request, protocolInfo, null);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.DETAIL,
+            parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
+    public ClientCertificateDataResponseDto issueCertificate(final SecuredParentUUID authorityUuid,
+            final SecuredUUID raProfileUuid, final ClientCertificateIssueRequestDto request,
+            final CertificateProtocolInfo protocolInfo, final Consumer<UUID> beforeDispatch) throws NotFoundException,
+            CertificateException, NoSuchAlgorithmException, CertificateOperationException, CertificateRequestException {
         // validate RA profile
         RaProfile raProfile = raProfileRepository
                 .findByUuid(raProfileUuid.getValue())
@@ -610,6 +622,16 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 CertificateEvent.ISSUE)) {
             logger.warn("Certificate request is not compliant, not issuing certificate {}", certificate.getUuid());
             return response;
+        }
+
+        if (beforeDispatch != null) {
+            try {
+                beforeDispatch.accept(UUID.fromString(certificate.getUuid()));
+            } catch (RuntimeException e) {
+                logger
+                        .warn("Step before queuing the issue of certificate {} failed: {}", certificate.getUuid(),
+                                e.getMessage(), e);
+            }
         }
 
         final ActionMessage actionMessage = new ActionMessage();

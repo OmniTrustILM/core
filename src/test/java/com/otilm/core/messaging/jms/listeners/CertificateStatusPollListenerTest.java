@@ -2,6 +2,7 @@ package com.otilm.core.messaging.jms.listeners;
 
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.LocationException;
 import com.otilm.api.exception.MessageHandlingException;
 import com.otilm.api.model.connector.v3.certificate.CertificateOperationStatus;
 import com.otilm.api.model.core.auth.Resource;
@@ -258,6 +259,30 @@ class CertificateStatusPollListenerTest {
         listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
 
         verify(locationInternalService).pushRequestedCertificateToLocationAction(locationId, false);
+    }
+
+    @Test
+    void completedIssueKeepsPushingToTheRemainingLocations_whenOnePushFails() throws Exception {
+        Certificate cert = certInState(CertificateState.PENDING_ISSUE);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.ISSUE))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, "PEMDATA", null, "OK"));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        CertificateLocationId failingId = new CertificateLocationId(UUID.randomUUID(), CERT_UUID);
+        CertificateLocationId otherId = new CertificateLocationId(UUID.randomUUID(), CERT_UUID);
+        CertificateLocation failing = mock(CertificateLocation.class);
+        when(failing.getId()).thenReturn(failingId);
+        CertificateLocation other = mock(CertificateLocation.class);
+        when(other.getId()).thenReturn(otherId);
+        when(certificateLocationRepository.findByCertificateUuid(CERT_UUID)).thenReturn(List.of(failing, other));
+        doThrow(new LocationException("keytool error"))
+                .when(locationInternalService)
+                .pushRequestedCertificateToLocationAction(failingId, false);
+
+        listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
+
+        verify(locationInternalService).pushRequestedCertificateToLocationAction(otherId, false);
+        verify(pollWriter).delete(CERT_UUID);
     }
 
     // -----------------------------------------------------------------------

@@ -72,6 +72,7 @@ import com.otilm.core.dao.repository.LocationRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.events.transaction.CertificateValidationEvent;
+import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
@@ -105,6 +106,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.function.TriFunction;
@@ -130,6 +132,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
     private ConnectorApiFactory connectorApiFactory;
     private ConnectorInternalService connectorService;
     private CertificateInternalService certificateService;
+    private TransactionHandler transactionHandler;
     private ClientOperationInternalService clientOperationService;
     private RegistrationChallengeGate registrationChallengeGate;
     private CertificateEventHistoryInternalService certificateEventHistoryService;
@@ -183,6 +186,11 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
     @Autowired
     public void setCertificateService(CertificateInternalService certificateService) {
         this.certificateService = certificateService;
+    }
+
+    @Autowired
+    public void setTransactionHandler(TransactionHandler transactionHandler) {
+        this.transactionHandler = transactionHandler;
     }
 
     @Autowired
@@ -788,7 +796,9 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         ClientCertificateDataResponseDto clientCertificateDataResponseDto = null;
         try {
             clientCertificateDataResponseDto = issueCertificateForLocation(location, generateCsrResponseDto.getCsr(),
-                    request.getIssueAttributes(), raProfileUuid, request.getCertificateCustomAttributes());
+                    request.getIssueAttributes(), raProfileUuid, request.getCertificateCustomAttributes(),
+                    certificateUuid -> linkIssuedCertificateInNewTransaction(location.getUuid(), certificateUuid,
+                            generateCsrResponseDto, request.getCsrAttributes()));
             certificate = certificateService
                     .getCertificateEntity(SecuredUUID.fromString(clientCertificateDataResponseDto.getUuid()));
         } catch (Exception e) {
@@ -1148,7 +1158,8 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
 
     private ClientCertificateDataResponseDto issueCertificateForLocation(Location location, String csr,
             List<RequestAttribute> issueAttributes, String raProfileUuid,
-            List<RequestAttribute> certificateCustomAttributes) throws LocationException {
+            List<RequestAttribute> certificateCustomAttributes, Consumer<UUID> beforeDispatch)
+            throws LocationException {
         ClientCertificateIssueRequestDto clientCertificateIssueRequestDto = new ClientCertificateIssueRequestDto();
         clientCertificateIssueRequestDto.setAttributes(issueAttributes);
         // TODO: support for different types of certificate
@@ -1168,7 +1179,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
             }
             clientCertificateDataResponseDto = clientOperationService
                     .issueCertificate(SecuredParentUUID.fromUUID(raProfile.get().getAuthorityInstanceReferenceUuid()),
-                            raProfile.get().getSecuredUuid(), clientCertificateIssueRequestDto, null);
+                            raProfile.get().getSecuredUuid(), clientCertificateIssueRequestDto, null, beforeDispatch);
         } catch (NotFoundException | java.security.cert.CertificateException | CertificateOperationException
                 | InvalidKeyException | IOException | NoSuchAlgorithmException | CertificateRequestException e) {
             logger
@@ -1213,6 +1224,25 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         return clientCertificateDataResponseDto;
     }
 
+    /**
+     * Commits the link before the issue action is queued, so the action cannot finish ahead of it and miss the push.
+     */
+    private void linkIssuedCertificateInNewTransaction(UUID locationUuid, UUID certificateUuid,
+            GenerateCsrResponseDto generateCsrResponseDto, List<RequestAttribute> csrAttributes) {
+        transactionHandler.runInNewTransaction(() -> {
+            try {
+                Location linkedLocation = locationRepository
+                        .findByUuidAndEnabledIsTrue(locationUuid)
+                        .orElseThrow(() -> new NotFoundException(Location.class, locationUuid));
+                Certificate issued = certificateService.getCertificateEntity(SecuredUUID.fromUUID(certificateUuid));
+                addCertificateToLocation(linkedLocation, issued, generateCsrResponseDto.getPushAttributes(),
+                        csrAttributes, generateCsrResponseDto.getMetadata());
+            } catch (NotFoundException | LocationException | AttributeException e) {
+                throw new IllegalStateException(e);
+            }
+        });
+    }
+
     private void addCertificateToLocation(Location location, Certificate certificate,
             List<RequestAttribute> pushAttributes, List<RequestAttribute> csrAttributes,
             List<MetadataAttribute> certificateMetadata) throws LocationException, AttributeException {
@@ -1252,6 +1282,8 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
             certificateLocation = new CertificateLocation();
             certificateLocation.setLocation(location);
             certificateLocation.setCertificate(certificate);
+        }
+        if (!location.getCertificates().contains(certificateLocation)) {
             location.getCertificates().add(certificateLocation);
         }
 

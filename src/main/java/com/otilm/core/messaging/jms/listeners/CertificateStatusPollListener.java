@@ -538,13 +538,23 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
                 || status.certificateData() == null || status.certificateData().isEmpty()) {
             return;
         }
+        List<CertificateLocation> certificateLocations;
         try {
-            for (CertificateLocation certificateLocation : certificateLocationRepository
-                    .findByCertificateUuid(certificateUuid)) {
+            certificateLocations = certificateLocationRepository.findByCertificateUuid(certificateUuid);
+        } catch (RuntimeException e) {
+            logger
+                    .error("Failed to look up the locations of issued certificate {}: {}", certificateUuid,
+                            e.getMessage());
+            return;
+        }
+        for (CertificateLocation certificateLocation : certificateLocations) {
+            try {
                 locationInternalService.pushRequestedCertificateToLocationAction(certificateLocation.getId(), false);
+            } catch (Exception e) {
+                logger
+                        .error("Failed to push issued certificate {} to location {}: {}", certificateUuid,
+                                certificateLocation.getId().getLocationUuid(), e.getMessage());
             }
-        } catch (Exception e) {
-            logger.error("Failed to push issued certificate {} to its locations: {}", certificateUuid, e.getMessage());
         }
     }
 
