@@ -1,6 +1,8 @@
 package com.otilm.core.service.writer.cbom;
 
 import com.otilm.api.model.core.cbom.CbomAssetSyncState;
+import com.otilm.core.cbom.ingest.CbomAssetIngestService;
+import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.dao.repository.CbomRepository;
 import java.time.OffsetDateTime;
 import java.util.EnumSet;
@@ -22,9 +24,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class CbomAssetSyncStateWriter {
 
     private final CbomRepository cbomRepository;
+    private final ClusterOperationSynchronizer clusterSynchronizer;
 
-    public CbomAssetSyncStateWriter(CbomRepository cbomRepository) {
+    public CbomAssetSyncStateWriter(CbomRepository cbomRepository, ClusterOperationSynchronizer clusterSynchronizer) {
         this.cbomRepository = cbomRepository;
+        this.clusterSynchronizer = clusterSynchronizer;
     }
 
     /**
@@ -118,6 +122,13 @@ public class CbomAssetSyncStateWriter {
      */
     @Transactional
     public int markSynced(UUID cbomUuid, OffsetDateTime syncedAt) {
+        String serialNumber = cbomRepository.findSerialNumberByUuid(cbomUuid).orElse(null);
+        if (serialNumber == null) {
+            return 0;
+        }
+        // Versions share the first lock; batches and withdrawals share the second. Keep this acquisition order.
+        clusterSynchronizer.lock("cbom-asset-sync-serial:" + serialNumber);
+        clusterSynchronizer.lock(CbomAssetIngestService.assetSyncLockKey(cbomUuid));
         return cbomRepository
                 .updateAssetSyncStateUnlessError(cbomUuid, CbomAssetSyncState.SYNCED, syncedAt,
                         DELETION_WITHDREW_THE_INVENTORY);

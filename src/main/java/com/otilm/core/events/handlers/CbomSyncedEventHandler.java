@@ -34,13 +34,16 @@ public class CbomSyncedEventHandler extends EventHandler<Cbom> {
     @Override
     public void handleEvent(EventMessage message) throws EventException {
         CbomSyncedEventPayload payload = objectMapper.convertValue(message.getData(), CbomSyncedEventPayload.class);
+        if (payload == null || payload.cbom() == null || payload.assets() == null) {
+            throw new IllegalArgumentException("CBOM snapshot and added assets are required");
+        }
         if (!payload.assets().isEmpty()) {
             try {
                 assetAddedHandler
                         .handleEvent(CryptoAssetAddedEventHandler
                                 .constructEventMessage(message.getObjectUuid(), payload.assets(),
                                         message.getUserUuid()));
-            } catch (Exception e) {
+            } catch (EventException e) {
                 log.error("Could not process added asset events for CBOM {}", message.getObjectUuid(), e);
             }
         }

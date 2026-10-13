@@ -4,7 +4,6 @@ import com.otilm.api.model.common.events.data.CryptoAssetAddedEventData;
 import com.otilm.api.model.core.cbom.CbomAssetSyncState;
 import com.otilm.core.cbom.sync.CbomSyncPolicyProvider;
 import com.otilm.core.dao.entity.Cbom;
-import com.otilm.core.dao.entity.cbom.CryptoAsset;
 import com.otilm.core.dao.entity.cbom.InventoryEventOutbox;
 import com.otilm.core.dao.repository.CbomRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
@@ -12,6 +11,7 @@ import com.otilm.core.dao.repository.cbom.InventoryEventOutboxRepository;
 import com.otilm.core.events.handlers.CbomSyncedEventHandler;
 import com.otilm.core.events.handlers.CryptoAssetAddedEventHandler;
 import com.otilm.core.messaging.jms.producers.EventProducer;
+import com.otilm.core.model.cbom.CryptoAssetEventRow;
 import com.otilm.core.service.writer.cbom.InventoryEventOutboxWriter;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
@@ -130,14 +130,11 @@ public class InventoryEventOutboxDispatcher {
         if (assetUuids.isEmpty()) {
             return Optional.of(List.of());
         }
-        Map<UUID, CryptoAsset> assets = assetRepository
-                .findSourcedAssets(assetUuids)
+        Map<UUID, CryptoAssetEventRow> assets = assetRepository
+                .sourcedEventRows(assetUuids)
                 .stream()
-                .collect(Collectors.toMap(CryptoAsset::getUuid, Function.identity()));
-        if (assets.values().stream().anyMatch(asset -> !hasCurrentVerdict(asset))) {
-            return Optional.empty();
-        }
-        if (!assets.isEmpty() && !assetRepository.findStaleVerdictUuids(assetUuids).isEmpty()) {
+                .collect(Collectors.toMap(CryptoAssetEventRow::uuid, Function.identity()));
+        if (assets.values().stream().anyMatch(asset -> !asset.currentVerdict())) {
             return Optional.empty();
         }
         return Optional
@@ -147,10 +144,5 @@ public class InventoryEventOutboxDispatcher {
                         .filter(asset -> asset != null)
                         .map(asset -> CryptoAssetAddedEventHandler.snapshot(asset, cbomUuid))
                         .toList());
-    }
-
-    private static boolean hasCurrentVerdict(CryptoAsset asset) {
-        return asset.getPqcVerdict() != null && asset.getPqcEvaluatedRevision() != null
-                && asset.getPqcEvaluatedRevision() == asset.getInputRevision();
     }
 }

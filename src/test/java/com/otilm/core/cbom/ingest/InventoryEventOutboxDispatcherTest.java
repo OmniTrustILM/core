@@ -1,12 +1,13 @@
 package com.otilm.core.cbom.ingest;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.otilm.api.model.common.events.data.CryptoAssetAddedEventData;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetType;
 import com.otilm.api.model.core.cryptoasset.PqcVerdict;
 import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.core.cbom.sync.CbomSyncPolicy;
 import com.otilm.core.cbom.sync.CbomSyncPolicyProvider;
 import com.otilm.core.dao.entity.Cbom;
-import com.otilm.core.dao.entity.cbom.CryptoAsset;
 import com.otilm.core.dao.entity.cbom.InventoryEventOutbox;
 import com.otilm.core.dao.repository.CbomRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
@@ -14,8 +15,8 @@ import com.otilm.core.dao.repository.cbom.InventoryEventOutboxRepository;
 import com.otilm.core.events.handlers.CbomSyncedEventPayload;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.model.EventMessage;
+import com.otilm.core.model.cbom.CryptoAssetEventRow;
 import com.otilm.core.service.writer.cbom.InventoryEventOutboxWriter;
-import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -53,7 +54,11 @@ class InventoryEventOutboxDispatcherTest {
         UUID second = UUID.randomUUID();
         givenRow(true, List.of(first, second));
         givenCbom();
-        when(assets.findSourcedAssets(List.of(first, second))).thenReturn(List.of(asset(first), asset(second)));
+        when(assets.sourcedEventRows(List.of(first, second)))
+                .thenReturn(List
+                        .of(asset(second),
+                                new CryptoAssetEventRow(first, CryptographicAssetType.RELATED_CRYPTO_MATERIAL,
+                                        "RSA key", "RSA", PqcVerdict.NOT_READY, true)));
 
         dispatcher.dispatchCbom(cbomUuid);
 
@@ -64,6 +69,12 @@ class InventoryEventOutboxDispatcherTest {
         assertThat(event.getValue().getEvent()).isEqualTo(ResourceEvent.CBOM_SYNCED);
         CbomSyncedEventPayload payload = (CbomSyncedEventPayload) event.getValue().getData();
         assertThat(payload.assets()).extracting("cryptoAssetUuid").containsExactly(first, second);
+        assertThat(payload.assets().getFirst())
+                .extracting(CryptoAssetAddedEventData::getCbomUuid, CryptoAssetAddedEventData::getAssetType,
+                        CryptoAssetAddedEventData::getName, CryptoAssetAddedEventData::getAlgorithmFamily,
+                        CryptoAssetAddedEventData::getPqcVerdict)
+                .containsExactly(cbomUuid, CryptographicAssetType.RELATED_CRYPTO_MATERIAL, "RSA key", "RSA",
+                        PqcVerdict.NOT_READY);
         assertThat(payload.cbom().getSource()).isEqualTo("scanner");
         assertThat(payload.cbom().getTotalAssets()).isEqualTo(2);
     }
@@ -96,9 +107,10 @@ class InventoryEventOutboxDispatcherTest {
         UUID newAsset = UUID.randomUUID();
         givenRow(true, List.of(newAsset));
         givenCbom();
-        CryptoAsset asset = asset(newAsset);
-        asset.setPqcVerdict(null);
-        when(assets.findSourcedAssets(List.of(newAsset))).thenReturn(List.of(asset));
+        when(assets.sourcedEventRows(List.of(newAsset)))
+                .thenReturn(List
+                        .of(new CryptoAssetEventRow(newAsset, CryptographicAssetType.ALGORITHM, null, null, null,
+                                false)));
 
         dispatcher.dispatchCbom(cbomUuid);
 
@@ -108,13 +120,14 @@ class InventoryEventOutboxDispatcherTest {
     }
 
     @Test
-    void aVerdictForAnOldInputRevisionKeepsTheEventPending() {
+    void aStaleVerdictGraphKeepsTheEventPending() {
         UUID newAsset = UUID.randomUUID();
         givenRow(true, List.of(newAsset));
         givenCbom();
-        CryptoAsset asset = asset(newAsset);
-        asset.setPqcEvaluatedRevision(0L);
-        when(assets.findSourcedAssets(List.of(newAsset))).thenReturn(List.of(asset));
+        when(assets.sourcedEventRows(List.of(newAsset)))
+                .thenReturn(List
+                        .of(new CryptoAssetEventRow(newAsset, CryptographicAssetType.ALGORITHM, null, null,
+                                PqcVerdict.READY, false)));
 
         dispatcher.dispatchCbom(cbomUuid);
 
@@ -123,32 +136,23 @@ class InventoryEventOutboxDispatcherTest {
     }
 
     @Test
-    void aVerdictForAPreviousAssetMergeKeepsTheEventPending() {
+    void anUntypedProjectionOmitsItsInternalRoutingTypeFromThePublishedEvent() {
         UUID newAsset = UUID.randomUUID();
         givenRow(true, List.of(newAsset));
         givenCbom();
-        CryptoAsset asset = asset(newAsset);
-        asset.setInputRevision(2L);
-        when(assets.findSourcedAssets(List.of(newAsset))).thenReturn(List.of(asset));
+        when(assets.sourcedEventRows(List.of(newAsset)))
+                .thenReturn(List
+                        .of(new CryptoAssetEventRow(newAsset, CryptographicAssetType.UNROUTABLE, "untyped", null,
+                                PqcVerdict.UNKNOWN, true)));
 
         dispatcher.dispatchCbom(cbomUuid);
 
-        verify(producer, never()).produceMessage(any());
-        verify(writer).release(eq(cbomUuid), any());
-    }
-
-    @Test
-    void aVerdictWithChangedReferencedAssetKeepsTheEventPending() {
-        UUID newAsset = UUID.randomUUID();
-        givenRow(true, List.of(newAsset));
-        givenCbom();
-        when(assets.findSourcedAssets(List.of(newAsset))).thenReturn(List.of(asset(newAsset)));
-        when(assets.findStaleVerdictUuids(List.of(newAsset))).thenReturn(List.of(newAsset));
-
-        dispatcher.dispatchCbom(cbomUuid);
-
-        verify(producer, never()).produceMessage(any());
-        verify(writer).release(eq(cbomUuid), any());
+        ArgumentCaptor<EventMessage> event = ArgumentCaptor.forClass(EventMessage.class);
+        verify(producer).produceMessage(event.capture());
+        CbomSyncedEventPayload payload = (CbomSyncedEventPayload) event.getValue().getData();
+        var json = new ObjectMapper().valueToTree(payload.assets().getFirst());
+        assertThat(json.has("assetType")).isFalse();
+        assertThat(json.get("pqcVerdict").asText()).isEqualTo("unknown");
     }
 
     @Test
@@ -157,7 +161,7 @@ class InventoryEventOutboxDispatcherTest {
         UUID removed = UUID.randomUUID();
         givenRow(false, List.of(surviving, removed));
         givenCbom();
-        when(assets.findSourcedAssets(List.of(surviving, removed))).thenReturn(List.of(asset(surviving)));
+        when(assets.sourcedEventRows(List.of(surviving, removed))).thenReturn(List.of(asset(surviving)));
         when(cboms.hasIngestedLaterVersion(cbomUuid)).thenReturn(true);
         when(policyProvider.current()).thenReturn(CbomSyncPolicy.DEFAULTS);
         when(repository.findById(cbomUuid)).thenAnswer(call -> {
@@ -234,16 +238,7 @@ class InventoryEventOutboxDispatcherTest {
         when(cboms.findById(cbomUuid)).thenReturn(Optional.of(cbom));
     }
 
-    private static CryptoAsset asset(UUID uuid) {
-        CryptoAsset asset = new CryptoAsset();
-        asset.setUuid(uuid);
-        asset.setAssetType(CryptographicAssetType.ALGORITHM);
-        asset.setPqcVerdict(PqcVerdict.READY);
-        asset.setInputRevision(1L);
-        asset.setPqcEvaluatedRevision(1L);
-        OffsetDateTime now = OffsetDateTime.now();
-        asset.setUpdated(now);
-        asset.setPqcEvaluatedAt(now);
-        return asset;
+    private static CryptoAssetEventRow asset(UUID uuid) {
+        return new CryptoAssetEventRow(uuid, CryptographicAssetType.ALGORITHM, null, null, PqcVerdict.READY, true);
     }
 }

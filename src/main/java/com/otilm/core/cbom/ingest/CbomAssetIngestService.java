@@ -382,8 +382,6 @@ public class CbomAssetIngestService {
         }
 
         int transitioned = transactionHandler.runInNewTransaction(() -> {
-            // A concurrent batch must finish before SYNCED is recorded; later batches see the state and stop.
-            clusterSynchronizer.lock(assetSyncLockKey(cbomUuid));
             int stateTransition = stateWriter.markSynced(cbomUuid, seenAt);
             if (stateTransition == 1) {
                 eventOutboxWriter.recordCbomSynced(cbomUuid, AuthHelper.getActingUserUuidOrNull());

@@ -6,12 +6,21 @@ import com.otilm.core.messaging.jms.listeners.EventListener;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.model.EventMessage;
 import com.otilm.core.util.BaseMessagingIntTest;
+import jakarta.jms.JMSException;
+import jakarta.jms.MessageListener;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.jms.config.JmsListenerEndpointRegistry;
+import org.springframework.jms.listener.DefaultMessageListenerContainer;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
@@ -45,6 +54,9 @@ class JmsListenerITest extends BaseMessagingIntTest {
     @Autowired
     private EventProducer eventProducer;
 
+    @Autowired
+    private JmsListenerEndpointRegistry endpointRegistry;
+
     // @MockitoBean (not @MockitoSpyBean) is intentional: EventListener is @Transactional, so Spring
     // wraps it in an AOP proxy. A spy wraps the underlying bean but the AOP proxy (injected into
     // EventJmsEndpointConfig.listenerMessageProcessor) bypasses the spy. @MockitoBean replaces the
@@ -71,6 +83,52 @@ class JmsListenerITest extends BaseMessagingIntTest {
         assertThat(received).as("EventListener should receive the message within 5 seconds").isTrue();
 
         verify(eventListener).processMessage(any(EventMessage.class));
+    }
+
+    @Test
+    @Timeout(value = 30, unit = TimeUnit.SECONDS)
+    void exhaustedDatabaseRetryIsRedeliveredByRabbitMq() throws Exception {
+        DefaultMessageListenerContainer container = (DefaultMessageListenerContainer) endpointRegistry
+                .getListenerContainer("eventListener");
+        MessageListener original = (MessageListener) container.getMessageListener();
+        CountDownLatch handled = new CountDownLatch(1);
+        AtomicBoolean redelivered = new AtomicBoolean();
+        AtomicInteger attempts = new AtomicInteger();
+        List<Boolean> deliveries = new CopyOnWriteArrayList<>();
+        UUID objectUuid = UUID.randomUUID();
+        doAnswer(invocation -> {
+            EventMessage message = invocation.getArgument(0);
+            if (!objectUuid.equals(message.getObjectUuid())) {
+                return null;
+            }
+            attempts.incrementAndGet();
+            if (!redelivered.get()) {
+                throw new DataAccessResourceFailureException("Database unavailable on the first delivery");
+            }
+            handled.countDown();
+            return null;
+        }).when(eventListener).processMessage(any(EventMessage.class));
+        container.setMessageListener((MessageListener) message -> {
+            try {
+                boolean isRedelivery = message.getJMSRedelivered();
+                redelivered.set(isRedelivery);
+                deliveries.add(isRedelivery);
+            } catch (JMSException e) {
+                throw new IllegalStateException(e);
+            }
+            original.onMessage(message);
+        });
+        try {
+            eventProducer.produceMessage(new EventMessage(ResourceEvent.CBOM_SYNCED, Resource.CBOM, objectUuid, null));
+
+            assertThat(handled.await(25, TimeUnit.SECONDS))
+                    .as("RabbitMQ must redeliver after the first delivery exhausts its retries")
+                    .isTrue();
+            assertThat(deliveries).containsExactly(false, true);
+            assertThat(attempts).hasValue(4);
+        } finally {
+            container.setMessageListener(original);
+        }
     }
 
 }

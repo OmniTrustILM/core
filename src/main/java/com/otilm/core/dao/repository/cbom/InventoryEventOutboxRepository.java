@@ -44,7 +44,7 @@ public interface InventoryEventOutboxRepository extends JpaRepository<InventoryE
                 OR (c.asset_sync_state = 'FAILED' AND cardinality(o.asset_uuids) > 0)
                 OR c.uuid IS NULL)
               AND (o.claimed_until IS NULL OR o.claimed_until < CURRENT_TIMESTAMP)
-            ORDER BY o.created_at
+            ORDER BY COALESCE(o.last_attempt_at, o.created_at), o.cbom_uuid
             LIMIT :limit
             """, nativeQuery = true)
     List<UUID> findReadyBatch(@Param("limit") int limit);
@@ -60,7 +60,7 @@ public interface InventoryEventOutboxRepository extends JpaRepository<InventoryE
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(value = """
             UPDATE {h-schema}inventory_event_outbox
-            SET claimed_until = :leaseUntil
+            SET claimed_until = :leaseUntil, last_attempt_at = CURRENT_TIMESTAMP
             WHERE cbom_uuid = :cbomUuid
               AND (claimed_until IS NULL OR claimed_until < CURRENT_TIMESTAMP)
             """, nativeQuery = true)

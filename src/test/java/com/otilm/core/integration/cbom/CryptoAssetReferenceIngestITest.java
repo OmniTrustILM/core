@@ -15,6 +15,8 @@ import com.otilm.core.dao.repository.CbomRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetReferenceRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetSourceRepository;
+import com.otilm.core.events.handlers.CryptoAssetAddedEventHandler;
+import com.otilm.core.model.cbom.CryptoAssetEventRow;
 import com.otilm.core.model.cbom.CryptoAssetReferenceKind;
 import com.otilm.core.model.cbom.PqcStaleVerdictRow;
 import com.otilm.core.service.writer.cbom.CryptoAssetSourceWriter;
@@ -30,6 +32,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
@@ -92,6 +96,9 @@ class CryptoAssetReferenceIngestITest extends BaseSpringBootTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     private Cbom cbom;
 
@@ -158,6 +165,124 @@ class CryptoAssetReferenceIngestITest extends BaseSpringBootTest {
 
         assertThat(workList()).contains(certificate);
         assertThat(assetRepository.findStaleVerdictUuids(List.of(certificate, key))).containsExactly(certificate);
+    }
+
+    @Test
+    void aCertificateWaitsForItsReferencedKeysCurrentInputRevision() {
+        ingest(certificate("\"subjectPublicKeyRef\":\"key-rsa\""), KEY);
+        UUID certificate = only(CryptographicAssetType.CERTIFICATE).getUuid();
+        UUID key = named("rsa-2048 public key");
+        assertThat(assetRepository.findStaleVerdictUuids(List.of(certificate))).isEmpty();
+
+        advanceInputRevision(key);
+
+        assertThat(assetRepository.findStaleVerdictUuids(List.of(certificate))).containsExactly(certificate);
+
+        sweeper.sweep();
+
+        assertThat(assetRepository.findStaleVerdictUuids(List.of(certificate))).isEmpty();
+    }
+
+    @Test
+    void aProtocolWaitsForATransitivelyReferencedKeysCurrentInputRevision() {
+        ingest(certificate("\"subjectPublicKeyRef\":\"key-rsa\""), KEY,
+                PROTOCOL.replace("alg-aes", "cert").replace(",\"not-in-this-document\"", ""));
+        UUID protocol = only(CryptographicAssetType.PROTOCOL).getUuid();
+        setReferenceBasis(protocol, only(CryptographicAssetType.CERTIFICATE));
+        assertThat(assetRepository.findStaleVerdictUuids(List.of(protocol))).isEmpty();
+
+        advanceInputRevision(named("rsa-2048 public key"));
+
+        assertThat(assetRepository.findStaleVerdictUuids(List.of(protocol))).containsExactly(protocol);
+    }
+
+    @Test
+    void referenceCyclesTerminateAndStillCheckTheirTargetsInputRevisions() {
+        ingest(certificate("\"subjectPublicKeyRef\":\"tls\""),
+                PROTOCOL.replace("alg-aes", "cert").replace(",\"not-in-this-document\"", ""));
+        CryptoAsset certificate = only(CryptographicAssetType.CERTIFICATE);
+        CryptoAsset protocol = only(CryptographicAssetType.PROTOCOL);
+        setReferenceBasis(certificate.getUuid(), protocol);
+        setReferenceBasis(protocol.getUuid(), certificate);
+        assertThat(assetRepository.findStaleVerdictUuids(List.of(protocol.getUuid()))).isEmpty();
+
+        advanceInputRevision(certificate.getUuid());
+
+        assertThat(assetRepository.findStaleVerdictUuids(List.of(protocol.getUuid())))
+                .containsExactly(protocol.getUuid());
+    }
+
+    @Test
+    void aRetainedAssetWithoutSourcesDoesNotBlockAnotherAssetsEvent() {
+        ingest(KEY, AES);
+        UUID retained = named("rsa-2048 public key");
+        UUID survivor = named("aes-128-gcm");
+        jdbcTemplate.update("DELETE FROM " + dbSchema + ".crypto_asset_source WHERE asset_uuid = ?", retained);
+        advanceInputRevision(retained);
+
+        assertThat(assetRepository.findStaleVerdictUuids(List.of(retained, survivor))).isEmpty();
+    }
+
+    @Test
+    void aReferencedRetainedAssetMustHaveACurrentVerdictEvenWithoutItsOwnSources() {
+        ingest(certificate("\"subjectPublicKeyRef\":\"key-rsa\""), KEY);
+        UUID certificate = only(CryptographicAssetType.CERTIFICATE).getUuid();
+        UUID key = named("rsa-2048 public key");
+        jdbcTemplate.update("DELETE FROM " + dbSchema + ".crypto_asset_source WHERE asset_uuid = ?", key);
+        advanceInputRevision(key);
+
+        assertThat(assetRepository.findStaleVerdictUuids(List.of(certificate))).containsExactly(certificate);
+    }
+
+    @Test
+    void eventFieldsAndFreshnessReadTheCurrentRowDespiteAnOlderManagedAsset() {
+        ingest(KEY);
+        UUID key = named("rsa-2048 public key");
+
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            CryptoAsset managed = assetRepository.findById(key).orElseThrow();
+            jdbcTemplate
+                    .update("UPDATE " + dbSchema + ".crypto_asset SET name = 'updated key', "
+                            + "algorithm_family = 'ML-KEM', pqc_verdict = 'READY', input_revision = input_revision + 1, "
+                            + "pqc_evaluated_revision = input_revision + 1 WHERE uuid = ?", key);
+
+            CryptoAssetEventRow row = assetRepository.sourcedEventRows(List.of(key)).getFirst();
+            var snapshot = CryptoAssetAddedEventHandler.snapshot(row, cbom.getUuid());
+
+            assertThat(managed.getPqcVerdict()).isEqualTo(PqcVerdict.NOT_READY);
+            assertThat(row.currentVerdict()).isTrue();
+            assertThat(snapshot.getCryptoAssetUuid()).isEqualTo(key);
+            assertThat(snapshot.getCbomUuid()).isEqualTo(cbom.getUuid());
+            assertThat(snapshot.getAssetType()).isEqualTo(CryptographicAssetType.RELATED_CRYPTO_MATERIAL);
+            assertThat(snapshot.getName()).isEqualTo("updated key");
+            assertThat(snapshot.getAlgorithmFamily()).isEqualTo("ML-KEM");
+            assertThat(snapshot.getPqcVerdict()).isEqualTo(PqcVerdict.READY);
+        });
+    }
+
+    @Test
+    void anUnevaluatedEventRowHasNoVerdictAndIsNotCurrent() {
+        ingest(KEY);
+        UUID key = named("rsa-2048 public key");
+        jdbcTemplate.update("UPDATE " + dbSchema + ".crypto_asset SET pqc_verdict = NULL WHERE uuid = ?", key);
+
+        CryptoAssetEventRow row = assetRepository.sourcedEventRows(List.of(key)).getFirst();
+
+        assertThat(row.pqcVerdict()).isNull();
+        assertThat(row.currentVerdict()).isFalse();
+    }
+
+    private void advanceInputRevision(UUID uuid) {
+        jdbcTemplate
+                .update("UPDATE " + dbSchema + ".crypto_asset SET input_revision = input_revision + 1 WHERE uuid = ?",
+                        uuid);
+    }
+
+    private void setReferenceBasis(UUID uuid, CryptoAsset target) {
+        String basis = target.getUuid() + ":" + target.getPqcVerdict().name() + ":" + target.getPqcRuleId() + ":"
+                + (target.getPrimitive() == null ? "" : target.getPrimitive());
+        jdbcTemplate
+                .update("UPDATE " + dbSchema + ".crypto_asset SET pqc_reference_basis = ? WHERE uuid = ?", basis, uuid);
     }
 
     /**

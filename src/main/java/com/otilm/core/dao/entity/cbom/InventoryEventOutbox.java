@@ -38,6 +38,9 @@ public class InventoryEventOutbox {
     @Column(name = "claimed_until")
     private OffsetDateTime claimedUntil;
 
+    @Column(name = "last_attempt_at")
+    private OffsetDateTime lastAttemptAt;
+
     @Column(name = "revision", nullable = false)
     private long revision;
 

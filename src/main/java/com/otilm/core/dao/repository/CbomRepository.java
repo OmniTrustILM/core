@@ -23,6 +23,9 @@ public interface CbomRepository extends SecurityFilterRepository<Cbom, UUID> {
     @Query("SELECT c FROM Cbom c WHERE c.uuid = :uuid")
     Optional<Cbom> findForUpdateByUuid(@Param("uuid") UUID uuid);
 
+    @Query("SELECT c.serialNumber FROM Cbom c WHERE c.uuid = :uuid")
+    Optional<String> findSerialNumberByUuid(@Param("uuid") UUID uuid);
+
     @Query("""
             SELECT c2
             FROM Cbom c1

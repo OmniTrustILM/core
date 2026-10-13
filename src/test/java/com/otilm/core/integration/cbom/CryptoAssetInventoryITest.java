@@ -54,16 +54,21 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
+import static org.awaitility.Awaitility.await;
 
 /**
  * The cryptographic asset inventory against real PostgreSQL: the upsert paths, the merge election, the foreign-key
@@ -138,6 +143,9 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
     @Autowired
     private PlatformTransactionManager transactionManager;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     private Cbom leanCbom;
     private Cbom richCbom;
 
@@ -173,6 +181,7 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
 
     @Test
     void onlyTheFirstSyncedStateTransitionCanPublishTheCbomEvent() {
+        assertThat(syncStateWriter.markSynced(UUID.randomUUID(), NOW)).isZero();
         assertThat(syncStateWriter.markSynced(leanCbom.getUuid(), NOW)).isEqualTo(1);
         assertThat(syncStateWriter.markSynced(leanCbom.getUuid(), NOW.plusMinutes(1))).isZero();
         assertThat(cbomRepository.findById(leanCbom.getUuid()).orElseThrow().getAssetsSyncedAt()).isEqualTo(NOW);
@@ -186,6 +195,71 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
         assertThat(syncStateWriter.markSynced(leanCbom.getUuid(), NOW)).isZero();
         assertThat(cbomRepository.findById(leanCbom.getUuid()).orElseThrow().getAssetSyncState())
                 .isEqualTo(CbomAssetSyncState.PENDING);
+    }
+
+    @Test
+    void concurrentVersionsSerializeTheirFirstSyncAndEventIntent() throws Exception {
+        Cbom newer = cbom(leanCbom.getSerialNumber(), leanCbom.getVersion() + 1);
+        CountDownLatch newerWritten = new CountDownLatch(1);
+        CountDownLatch commitNewer = new CountDownLatch(1);
+        try (var workers = Executors.newFixedThreadPool(2)) {
+            var newerResult = workers.submit(() -> new TransactionTemplate(transactionManager).execute(status -> {
+                int transitioned = syncStateWriter.markSynced(newer.getUuid(), NOW);
+                eventOutboxWriter.recordCbomSynced(newer.getUuid(), null);
+                newerWritten.countDown();
+                await().atMost(10, TimeUnit.SECONDS).until(() -> commitNewer.getCount() == 0);
+                return transitioned;
+            }));
+            try {
+                assertThat(newerWritten.await(10, TimeUnit.SECONDS)).isTrue();
+                var olderResult = workers.submit(() -> new TransactionTemplate(transactionManager).execute(status -> {
+                    int transitioned = syncStateWriter.markSynced(leanCbom.getUuid(), NOW);
+                    if (transitioned == 1) {
+                        eventOutboxWriter.recordCbomSynced(leanCbom.getUuid(), null);
+                    }
+                    return transitioned;
+                }));
+                await()
+                        .atMost(10, TimeUnit.SECONDS)
+                        .until(() -> olderResult.isDone() || Boolean.TRUE
+                                .equals(jdbcTemplate
+                                        .queryForObject(
+                                                "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted)",
+                                                Boolean.class)));
+                assertThat(olderResult.isDone())
+                        .as("the older transition waits for the newer version to commit")
+                        .isFalse();
+                commitNewer.countDown();
+                assertThat(newerResult.get(10, TimeUnit.SECONDS)).isEqualTo(1);
+                assertThat(olderResult.get(10, TimeUnit.SECONDS)).isZero();
+            } finally {
+                commitNewer.countDown();
+            }
+        }
+        assertThat(eventOutboxRepository.existsById(newer.getUuid())).isTrue();
+        assertThat(eventOutboxRepository.existsById(leanCbom.getUuid())).isFalse();
+        assertThat(cbomRepository.findById(leanCbom.getUuid()).orElseThrow().getAssetsSyncedAt()).isNull();
+    }
+
+    @Test
+    void deferredOutboxBatchLetsUntouchedRowsHaveATurn() {
+        List<UUID> queued = new ArrayList<>();
+        for (int i = 0; i < 101; i++) {
+            UUID cbomUuid = UUID.randomUUID();
+            queued.add(cbomUuid);
+            eventOutboxWriter.recordCbomSynced(cbomUuid, null);
+            jdbcTemplate
+                    .update("UPDATE inventory_event_outbox SET created_at = ? WHERE cbom_uuid = ?", NOW.plusSeconds(i),
+                            cbomUuid);
+        }
+        List<UUID> firstBatch = eventOutboxRepository.findReadyBatch(100);
+        assertThat(firstBatch).containsExactlyElementsOf(queued.subList(0, 100));
+        OffsetDateTime lease = OffsetDateTime.now().plusMinutes(5).truncatedTo(ChronoUnit.MICROS);
+        for (UUID cbomUuid : firstBatch) {
+            assertThat(eventOutboxWriter.claim(cbomUuid, lease)).isEqualTo(1);
+            eventOutboxWriter.release(cbomUuid, lease);
+        }
+        assertThat(eventOutboxRepository.findReadyBatch(100)).hasSize(100).startsWith(queued.get(100));
     }
 
     @Test

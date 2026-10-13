@@ -1,6 +1,7 @@
 package com.otilm.core.events.handlers;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.otilm.api.exception.EventException;
 import com.otilm.api.model.common.events.data.CbomSyncedEventData;
 import com.otilm.api.model.common.events.data.CryptoAssetAddedEventData;
 import com.otilm.api.model.core.auth.Resource;
@@ -21,16 +22,21 @@ import com.otilm.core.evaluator.TriggerEvaluator;
 import com.otilm.core.events.EventContext;
 import com.otilm.core.messaging.model.EventMessage;
 import com.otilm.core.security.authz.SecuredUUID;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
+import org.springframework.dao.DataAccessResourceFailureException;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -40,6 +46,7 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class InventoryEventHandlerTest {
@@ -163,7 +170,7 @@ class InventoryEventHandlerTest {
     }
 
     @Test
-    void cbomTriggersRunAfterAssetTriggersEvenIfAssetHandlingFails() throws Exception {
+    void cbomTriggersRunAfterATerminalAssetEventFailure() throws Exception {
         CbomRepository repository = mock(CbomRepository.class);
         CryptoAssetAddedEventHandler assets = mock(CryptoAssetAddedEventHandler.class);
         CbomSyncedEventHandler handler = new CbomSyncedEventHandler(repository, mock(TriggerEvaluator.class), assets);
@@ -182,7 +189,9 @@ class InventoryEventHandlerTest {
         cbom.setSource("updated later");
         when(repository.findByUuid(argThat(id -> id != null && id.getValue().equals(cbomUuid))))
                 .thenReturn(Optional.of(cbom));
-        doThrow(new IllegalStateException("trigger failed")).when(assets).handleEvent(any(EventMessage.class));
+        doThrow(new EventException(ResourceEvent.CRYPTO_ASSET_ADDED, "Asset was deleted"))
+                .when(assets)
+                .handleEvent(any(EventMessage.class));
 
         handler
                 .handleEvent(CbomSyncedEventHandler
@@ -197,6 +206,86 @@ class InventoryEventHandlerTest {
         order.verify(assets).handleEvent(any(EventMessage.class));
         order.verify(repository).findByUuid(argThat(id -> id != null && id.getValue().equals(cbomUuid)));
         verify(repository).findByUuid(argThat(id -> id != null && id.getValue().equals(cbomUuid)));
+    }
+
+    @Test
+    void assetRepositoryFailureEscapesWithoutRunningCbomTriggers() {
+        CryptoAssetRepository assets = mock(CryptoAssetRepository.class);
+        CryptoAssetAddedEventHandler assetHandler = new CryptoAssetAddedEventHandler(assets,
+                mock(TriggerEvaluator.class));
+        assetHandler.setObjectMapper(new ObjectMapper());
+        TriggerAssociationRepository associations = mock(TriggerAssociationRepository.class);
+        when(associations.findAllByEventAndResourceAndObjectUuidOrderByTriggerOrderAsc(any(), any(), any()))
+                .thenReturn(List.of());
+        assetHandler.setTriggerAssociationRepository(associations);
+        DataAccessResourceFailureException unavailable = new DataAccessResourceFailureException("Database unavailable");
+        when(assets.findByUuid(any())).thenThrow(unavailable);
+        CbomRepository cboms = mock(CbomRepository.class);
+        CbomSyncedEventHandler handler = new CbomSyncedEventHandler(cboms, mock(TriggerEvaluator.class), assetHandler);
+        handler.setObjectMapper(new ObjectMapper());
+        handler.setTriggerAssociationRepository(associations);
+        when(cboms.findByUuid(any())).thenReturn(Optional.empty());
+        UUID cbomUuid = UUID.randomUUID();
+        CbomSyncedEventData cbom = new CbomSyncedEventData();
+        cbom.setCbomUuid(cbomUuid);
+        EventMessage message = CbomSyncedEventHandler
+                .constructEventMessage(cbomUuid, cbom,
+                        List.of(CryptoAssetAddedEventHandler.snapshot(asset(UUID.randomUUID()), cbomUuid)), null);
+
+        assertThatThrownBy(() -> handler.handleEvent(message)).isSameAs(unavailable);
+
+        verifyNoInteractions(cboms);
+    }
+
+    @ParameterizedTest
+    @MethodSource("malformedCbomPayloads")
+    void malformedCbomPayloadIsRejectedBeforeRepositoryAccess(CbomSyncedEventPayload payload) {
+        CbomRepository cboms = mock(CbomRepository.class);
+        CryptoAssetRepository assets = mock(CryptoAssetRepository.class);
+        TriggerAssociationRepository associations = mock(TriggerAssociationRepository.class);
+        CryptoAssetAddedEventHandler assetHandler = new CryptoAssetAddedEventHandler(assets,
+                mock(TriggerEvaluator.class));
+        assetHandler.setObjectMapper(new ObjectMapper());
+        assetHandler.setTriggerAssociationRepository(associations);
+        CbomSyncedEventHandler handler = new CbomSyncedEventHandler(cboms, mock(TriggerEvaluator.class), assetHandler);
+        handler.setObjectMapper(new ObjectMapper());
+        handler.setTriggerAssociationRepository(associations);
+        EventMessage message = new EventMessage(ResourceEvent.CBOM_SYNCED, Resource.CBOM, UUID.randomUUID(), payload);
+
+        assertThatThrownBy(() -> handler.handleEvent(message)).isInstanceOf(IllegalArgumentException.class);
+
+        verifyNoInteractions(cboms, assets, associations);
+    }
+
+    private static Stream<CbomSyncedEventPayload> malformedCbomPayloads() {
+        CbomSyncedEventData cbom = new CbomSyncedEventData();
+        return Stream
+                .of(null, new CbomSyncedEventPayload(cbom, null), new CbomSyncedEventPayload(null, List.of()),
+                        new CbomSyncedEventPayload(cbom, Collections.singletonList(null)),
+                        new CbomSyncedEventPayload(cbom, List.of(new CryptoAssetAddedEventData())));
+    }
+
+    @ParameterizedTest
+    @MethodSource("malformedAssetPayloads")
+    void malformedAssetPayloadIsRejectedBeforeRepositoryAccess(List<CryptoAssetAddedEventData> payload) {
+        CryptoAssetRepository assets = mock(CryptoAssetRepository.class);
+        TriggerAssociationRepository associations = mock(TriggerAssociationRepository.class);
+        CryptoAssetAddedEventHandler handler = new CryptoAssetAddedEventHandler(assets, mock(TriggerEvaluator.class));
+        handler.setObjectMapper(new ObjectMapper());
+        handler.setTriggerAssociationRepository(associations);
+        EventMessage message = new EventMessage(ResourceEvent.CRYPTO_ASSET_ADDED, Resource.CRYPTO_ASSET, null, payload);
+
+        assertThatThrownBy(() -> handler.prepareContext(message)).isInstanceOf(IllegalArgumentException.class);
+
+        verifyNoInteractions(assets, associations);
+    }
+
+    private static Stream<List<CryptoAssetAddedEventData>> malformedAssetPayloads() {
+        return Stream
+                .of(null, Collections.singletonList(null), List.of(new CryptoAssetAddedEventData()),
+                        List
+                                .of(CryptoAssetAddedEventHandler.snapshot(asset(UUID.randomUUID()), UUID.randomUUID()),
+                                        new CryptoAssetAddedEventData()));
     }
 
     private static CryptoAsset asset(UUID uuid) {

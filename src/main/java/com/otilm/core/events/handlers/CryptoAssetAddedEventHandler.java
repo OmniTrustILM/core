@@ -13,6 +13,7 @@ import com.otilm.core.events.EventContext;
 import com.otilm.core.events.EventContextTriggers;
 import com.otilm.core.events.EventHandler;
 import com.otilm.core.messaging.model.EventMessage;
+import com.otilm.core.model.cbom.CryptoAssetEventRow;
 import com.otilm.core.security.authz.SecuredUUID;
 import java.util.List;
 import java.util.UUID;
@@ -32,9 +33,13 @@ public class CryptoAssetAddedEventHandler extends EventHandler<CryptoAsset> {
     @Override
     protected EventContext<CryptoAsset> prepareContext(EventMessage message) throws EventException {
         EventContext<CryptoAsset> context = new EventContext<>(message, triggerEvaluator, null, null);
-        fetchEventTriggers(context, null, null);
         List<CryptoAssetAddedEventData> snapshots = objectMapper.convertValue(message.getData(), new TypeReference<>() {
         });
+        if (snapshots == null
+                || snapshots.stream().anyMatch(snapshot -> snapshot == null || snapshot.getCryptoAssetUuid() == null)) {
+            throw new IllegalArgumentException("Added asset snapshots and their UUIDs are required");
+        }
+        fetchEventTriggers(context, null, null);
         for (CryptoAssetAddedEventData snapshot : snapshots) {
             repository.findByUuid(SecuredUUID.fromUUID(snapshot.getCryptoAssetUuid())).ifPresent(asset -> {
                 context.getResourceObjects().add(asset);
@@ -57,6 +62,17 @@ public class CryptoAssetAddedEventHandler extends EventHandler<CryptoAsset> {
         data.setName(asset.getName());
         data.setAlgorithmFamily(asset.getAlgorithmFamily());
         data.setPqcVerdict(asset.getPqcVerdict());
+        return data;
+    }
+
+    public static CryptoAssetAddedEventData snapshot(CryptoAssetEventRow asset, UUID cbomUuid) {
+        CryptoAssetAddedEventData data = new CryptoAssetAddedEventData();
+        data.setCryptoAssetUuid(asset.uuid());
+        data.setCbomUuid(cbomUuid);
+        data.setAssetType(ServedAssetType.of(asset.assetType()));
+        data.setName(asset.name());
+        data.setAlgorithmFamily(asset.algorithmFamily());
+        data.setPqcVerdict(asset.pqcVerdict());
         return data;
     }
 
