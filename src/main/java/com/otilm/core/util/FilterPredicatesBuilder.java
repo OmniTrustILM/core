@@ -486,32 +486,28 @@ public class FilterPredicatesBuilder {
 
         boolean isJsonArray = false;
         if (filterField.getJsonPath() != null) {
+            final Expression jsonSource = resolveJsonSource(criteriaBuilder, from, filterField);
             isJsonArray = isJsonArray(filterField);
             if (isJsonArray) {
                 expression = criteriaBuilder
-                        .function("jsonb_path_query_array", String.class,
-                                resolveFieldPath(from, filterField.getFieldAttribute()),
+                        .function("jsonb_path_query_array", String.class, jsonSource,
                                 criteriaBuilder.literal(getArrayJsonPath(filterField.getJsonPath())));
             } else {
                 expression = switch (filterField.getJsonPath().length) {
                     case 1 -> criteriaBuilder
-                            .function(JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME, String.class,
-                                    resolveFieldPath(from, filterField.getFieldAttribute()),
+                            .function(JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME, String.class, jsonSource,
                                     criteriaBuilder.literal(filterField.getJsonPath()[0]));
                     case 2 -> criteriaBuilder
-                            .function(JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME, String.class,
-                                    resolveFieldPath(from, filterField.getFieldAttribute()),
+                            .function(JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME, String.class, jsonSource,
                                     criteriaBuilder.literal(filterField.getJsonPath()[0]),
                                     criteriaBuilder.literal(filterField.getJsonPath()[1]));
                     case 3 -> criteriaBuilder
-                            .function(JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME, String.class,
-                                    resolveFieldPath(from, filterField.getFieldAttribute()),
+                            .function(JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME, String.class, jsonSource,
                                     criteriaBuilder.literal(filterField.getJsonPath()[0]),
                                     criteriaBuilder.literal(filterField.getJsonPath()[1]),
                                     criteriaBuilder.literal(filterField.getJsonPath()[2]));
                     case 4 -> criteriaBuilder
-                            .function(JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME, String.class,
-                                    resolveFieldPath(from, filterField.getFieldAttribute()),
+                            .function(JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME, String.class, jsonSource,
                                     criteriaBuilder.literal(filterField.getJsonPath()[0]),
                                     criteriaBuilder.literal(filterField.getJsonPath()[1]),
                                     criteriaBuilder.literal(filterField.getJsonPath()[2]),
@@ -854,6 +850,14 @@ public class FilterPredicatesBuilder {
         }
     }
 
+    private static Expression resolveJsonSource(final CriteriaBuilder criteriaBuilder, final From from,
+            final FilterField filterField) {
+        final Expression source = resolveFieldPath(from, filterField.getFieldAttribute());
+        return filterField.getFieldAttribute().getJavaType() == String.class
+                ? criteriaBuilder.function(PostgresFunctionContributor.TEXT_TO_JSONB, String.class, source)
+                : source;
+    }
+
     public static boolean isJsonArray(FilterField filterField) {
         return Arrays.stream(filterField.getJsonPath()).anyMatch(pathPart -> pathPart.contains("*"));
     }
@@ -1080,6 +1084,9 @@ public class FilterPredicatesBuilder {
                     }
                 } else {
                     preparedFilterValue = findEnumByCustomValue(value, filterField.getEnumClass());
+                    if (preparedFilterValue != null && filterField.getJsonPath() != null) {
+                        preparedFilterValue = ((IPlatformEnum) preparedFilterValue).getCode();
+                    }
                     if (preparedFilterValue == null && filterField.isNativeArrayField()) {
                         throw new ValidationException(
                                 "Unknown filter value '%s' for field %s".formatted(value, filterField));
