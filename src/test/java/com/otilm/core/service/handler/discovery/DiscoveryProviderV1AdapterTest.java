@@ -279,6 +279,20 @@ class DiscoveryProviderV1AdapterTest {
         assertThat(logged.list).anySatisfy(event -> assertThat(rendered(event)).contains("JsonParseException"));
     }
 
+    @Test
+    void aConnectorErrorTextIsLoggedByTypeOnly() throws ConnectorException {
+        connectAs();
+        prepareRun();
+        when(providerClient.discoverCertificates(any(), any()))
+                .thenThrow(
+                        new ConnectorServerException("Rejected credential " + SECRET_FRAGMENT, HttpStatus.BAD_GATEWAY));
+
+        adapter.start(run.getUuid(), null);
+
+        assertThat(logged.list).noneSatisfy(event -> assertThat(rendered(event)).contains(SECRET_FRAGMENT));
+        assertThat(logged.list).anySatisfy(event -> assertThat(rendered(event)).contains("ConnectorServerException"));
+    }
+
     /** What a log line shows: its message and, when it carries one, the whole throwable chain. */
     private static String rendered(ILoggingEvent event) {
         return event.getFormattedMessage()

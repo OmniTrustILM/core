@@ -339,12 +339,14 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
     }
 
     /**
-     * Logs a failure with its stack, unless a connector answer Core could not parse is in its chain: Jackson quotes
-     * that answer in its message, which can carry key or secret material, so only the types are logged, as
-     * BaseApiClient logs them.
+     * Logs a failure with its stack, unless a connector wrote part of its chain: a connector's error text, or Jackson's
+     * quote of an answer Core could not parse, can echo the secrets the request carried, so only the types are logged,
+     * as BaseApiClient logs them.
      */
     private static void logFailure(String message, Object subject, Throwable failure) {
-        if (ExceptionUtils.indexOfType(failure, JsonProcessingException.class) >= 0) {
+        if (ExceptionUtils.indexOfType(failure, JsonProcessingException.class) >= 0
+                || ExceptionUtils.indexOfType(failure, ConnectorException.class) >= 0
+                || ExceptionUtils.indexOfType(failure, ValidationException.class) >= 0) {
             logger
                     .error(message + "; failure types: {}", subject,
                             ExceptionUtils
