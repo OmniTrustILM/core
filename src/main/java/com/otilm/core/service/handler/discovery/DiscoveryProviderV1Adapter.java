@@ -65,7 +65,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
-import java.util.stream.Collectors;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -339,24 +338,15 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
     }
 
     /**
-     * Logs a failure with its stack, unless a connector wrote part of its chain: a connector's error text, or Jackson's
-     * quote of an answer Core could not parse, can echo the secrets the request carried, so only the types are logged,
-     * as BaseApiClient logs them.
+     * Logs a failure with its stack. When a connector wrote part of its chain, the chain is logged without messages: a
+     * connector's error text, or Jackson's quote of an answer Core could not parse, can echo the secrets the request
+     * carried, so only types and frames are logged, as BaseApiClient logs only types.
      */
     private static void logFailure(String message, Object subject, Throwable failure) {
-        if (ExceptionUtils.indexOfType(failure, JsonProcessingException.class) >= 0
+        boolean connectorWritten = ExceptionUtils.indexOfType(failure, JsonProcessingException.class) >= 0
                 || ExceptionUtils.indexOfType(failure, ConnectorException.class) >= 0
-                || ExceptionUtils.indexOfType(failure, ValidationException.class) >= 0) {
-            logger
-                    .error(message + "; failure types: {}", subject,
-                            ExceptionUtils
-                                    .getThrowableList(failure)
-                                    .stream()
-                                    .map(t -> t.getClass().getName())
-                                    .collect(Collectors.joining(" <- ")));
-        } else {
-            logger.error(message, subject, failure);
-        }
+                || ExceptionUtils.indexOfType(failure, ValidationException.class) >= 0;
+        logger.error(message, subject, connectorWritten ? RedactedFailure.of(failure) : failure);
     }
 
     /** The reason is shown to users, so it is the exception's own text only when that is safe to show. */
@@ -751,6 +741,23 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
     private static final class MetadataNotStored extends RuntimeException implements PlatformException {
         private MetadataNotStored(Exception cause) {
             super(cause);
+        }
+    }
+
+    /** Stands in for each link of a failure's chain in the log: its type and frames, never its message. */
+    private static final class RedactedFailure extends RuntimeException {
+        private RedactedFailure(Throwable original, RedactedFailure cause) {
+            super(original.getClass().getName(), cause, false, true);
+            setStackTrace(original.getStackTrace());
+        }
+
+        private static RedactedFailure of(Throwable failure) {
+            List<Throwable> chain = ExceptionUtils.getThrowableList(failure);
+            RedactedFailure redacted = null;
+            for (int i = chain.size() - 1; i >= 0; i--) {
+                redacted = new RedactedFailure(chain.get(i), redacted);
+            }
+            return redacted;
         }
     }
 

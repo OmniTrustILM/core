@@ -93,12 +93,8 @@ class DiscoveryProviderV1AdapterTest {
     }
 
     @AfterEach
-    void releaseLogs() {
+    void releaseLogsAndSecurityContext() {
         ((Logger) LoggerFactory.getLogger(DiscoveryProviderV1Adapter.class)).detachAppender(logged);
-    }
-
-    @AfterEach
-    void clearSecurityContext() {
         SecurityContextHolder.clearContext();
     }
 
@@ -275,8 +271,9 @@ class DiscoveryProviderV1AdapterTest {
 
         adapter.start(run.getUuid(), null);
 
-        assertThat(logged.list).noneSatisfy(event -> assertThat(rendered(event)).contains(SECRET_FRAGMENT));
-        assertThat(logged.list).anySatisfy(event -> assertThat(rendered(event)).contains("JsonParseException"));
+        assertThat(logged.list)
+                .noneSatisfy(event -> assertThat(rendered(event)).contains(SECRET_FRAGMENT))
+                .anySatisfy(event -> assertThat(rendered(event)).contains("JsonParseException"));
     }
 
     @Test
@@ -289,8 +286,9 @@ class DiscoveryProviderV1AdapterTest {
 
         adapter.start(run.getUuid(), null);
 
-        assertThat(logged.list).noneSatisfy(event -> assertThat(rendered(event)).contains(SECRET_FRAGMENT));
-        assertThat(logged.list).anySatisfy(event -> assertThat(rendered(event)).contains("ConnectorServerException"));
+        assertThat(logged.list)
+                .noneSatisfy(event -> assertThat(rendered(event)).contains(SECRET_FRAGMENT))
+                .anySatisfy(event -> assertThat(rendered(event)).contains("ConnectorServerException"));
     }
 
     /** What a log line shows: its message and, when it carries one, the whole throwable chain. */
