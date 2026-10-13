@@ -12,6 +12,8 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.CertificateLocation;
+import com.otilm.core.dao.repository.CertificateLocationRepository;
 import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository;
 import com.otilm.core.dao.repository.CertificateRelationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -21,6 +23,7 @@ import com.otilm.core.messaging.jms.configuration.StatusPollProperties;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.model.CertificateStatusPollMessage;
 import com.otilm.core.service.CertificateInternalService;
+import com.otilm.core.service.LocationInternalService;
 import com.otilm.core.service.handler.authority.AsyncOperationCapability;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
@@ -83,6 +86,8 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     private CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository;
     private CertificateRegistrationAuthorizationWriter registrationAuthorizationWriter;
     private CertificateRelationRepository certificateRelationRepository;
+    private CertificateLocationRepository certificateLocationRepository;
+    private LocationInternalService locationInternalService;
 
     @Override
     public void processMessage(CertificateStatusPollMessage msg) throws MessageHandlingException {
@@ -189,6 +194,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             // (a completed REVOKE must still destroy the key).
             revocationFinalizer.destroyKeyIfRequested(resolution.keyCleanup(), cert.getUuid());
             updateMetaAfterCommit(cert, op, status);
+            pushIssuedCertificateToLocations(cert.getUuid(), op, status);
             fireRegistrationEventIfCompleted(cert.getUuid(), op, status.status());
         }
         // Stop polling — safe even when a racing actor resolved it: the unique constraint means one poll row per cert.
@@ -522,6 +528,26 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     // Fire the Certificate Registered event when an async pre-registration completes — only for challenge-protected
     // registrations (those with an authorization row). This region is post-commit (the terminal transition already
     // committed), so the event is never emitted for a registration that rolled back.
+    /**
+     * Best-effort post-commit push of an asynchronously issued certificate to the locations it was linked to while the
+     * issuance was pending.
+     */
+    private void pushIssuedCertificateToLocations(UUID certificateUuid, CertificateOperation op,
+            StatusPollResult status) {
+        if (op != CertificateOperation.ISSUE || status.status() != CertificateOperationStatus.COMPLETED
+                || status.certificateData() == null || status.certificateData().isEmpty()) {
+            return;
+        }
+        try {
+            for (CertificateLocation certificateLocation : certificateLocationRepository
+                    .findByCertificateUuid(certificateUuid)) {
+                locationInternalService.pushRequestedCertificateToLocationAction(certificateLocation.getId(), false);
+            }
+        } catch (Exception e) {
+            logger.error("Failed to push issued certificate {} to its locations: {}", certificateUuid, e.getMessage());
+        }
+    }
+
     private void fireRegistrationEventIfCompleted(UUID certificateUuid, CertificateOperation op,
             CertificateOperationStatus status) {
         if (op == CertificateOperation.REGISTER && status == CertificateOperationStatus.COMPLETED) {
@@ -536,5 +562,15 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
                 logger.warn("Failed to produce CERTIFICATE_REGISTERED event for cert {}", certificateUuid, e);
             }
         }
+    }
+
+    @Autowired
+    public void setCertificateLocationRepository(CertificateLocationRepository certificateLocationRepository) {
+        this.certificateLocationRepository = certificateLocationRepository;
+    }
+
+    @Autowired
+    public void setLocationInternalService(LocationInternalService locationInternalService) {
+        this.locationInternalService = locationInternalService;
     }
 }

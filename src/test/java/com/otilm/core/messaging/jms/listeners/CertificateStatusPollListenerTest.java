@@ -11,8 +11,11 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.CertificateLocation;
+import com.otilm.core.dao.entity.CertificateLocationId;
 import com.otilm.core.dao.entity.CertificateRelation;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.repository.CertificateLocationRepository;
 import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository;
 import com.otilm.core.dao.repository.CertificateRelationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -21,6 +24,7 @@ import com.otilm.core.messaging.jms.configuration.StatusPollProperties;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.model.CertificateStatusPollMessage;
 import com.otilm.core.service.CertificateInternalService;
+import com.otilm.core.service.LocationInternalService;
 import com.otilm.core.service.handler.authority.AsyncOperationCapability;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
@@ -88,6 +92,10 @@ class CertificateStatusPollListenerTest {
     private CertificateRegistrationAuthorizationWriter registrationAuthorizationWriter;
     @Mock
     private CertificateRelationRepository certificateRelationRepository;
+    @Mock
+    private CertificateLocationRepository certificateLocationRepository;
+    @Mock
+    private LocationInternalService locationInternalService;
 
     /**
      * Combined mock implementing both AuthorityProviderAdapter and AsyncOperationCapability. The listener casts the
@@ -122,6 +130,8 @@ class CertificateStatusPollListenerTest {
         listener.setRegistrationAuthorizationRepository(registrationAuthorizationRepository);
         listener.setRegistrationAuthorizationWriter(registrationAuthorizationWriter);
         listener.setCertificateRelationRepository(certificateRelationRepository);
+        listener.setCertificateLocationRepository(certificateLocationRepository);
+        listener.setLocationInternalService(locationInternalService);
 
         StatusPollProperties.PollSchedule schedule = mock(StatusPollProperties.PollSchedule.class);
         lenient().when(schedule.maxAttempts()).thenReturn(3);
@@ -231,6 +241,23 @@ class CertificateStatusPollListenerTest {
         verify(certificateService).issueRequestedCertificate(CERT_UUID, "PEMDATA", List.of());
         verify(stateMachine, never()).transition(any(), any(), any(), any());
         verify(pollWriter).delete(CERT_UUID);
+    }
+
+    @Test
+    void completedIssuePushesCertificateToItsLocations() throws Exception {
+        Certificate cert = certInState(CertificateState.PENDING_ISSUE);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.ISSUE))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, "PEMDATA", null, "OK"));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        CertificateLocationId locationId = new CertificateLocationId(UUID.randomUUID(), CERT_UUID);
+        CertificateLocation certificateLocation = mock(CertificateLocation.class);
+        when(certificateLocation.getId()).thenReturn(locationId);
+        when(certificateLocationRepository.findByCertificateUuid(CERT_UUID)).thenReturn(List.of(certificateLocation));
+
+        listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
+
+        verify(locationInternalService).pushRequestedCertificateToLocationAction(locationId, false);
     }
 
     // -----------------------------------------------------------------------

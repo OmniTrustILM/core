@@ -65,7 +65,6 @@ import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateLocation;
-import com.otilm.core.dao.entity.CertificateLocationId;
 import com.otilm.core.dao.entity.CertificateRegistration;
 import com.otilm.core.dao.entity.CertificateRegistrationAuthorization;
 import com.otilm.core.dao.entity.CertificateRelation;
@@ -73,6 +72,7 @@ import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.Location;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.RegistrationState;
+import com.otilm.core.dao.repository.CertificateLocationRepository;
 import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository;
 import com.otilm.core.dao.repository.CertificateRegistrationRepository;
 import com.otilm.core.dao.repository.CertificateRelationRepository;
@@ -218,6 +218,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private CertificateStatusPollWriter pollWriter;
     private CertificateRegistrationWriter certificateRegistrationWriter;
     private CertificateRegistrationRepository certificateRegistrationRepository;
+    private CertificateLocationRepository certificateLocationRepository;
     private AuthorityProviderAdapterFactory adapterFactory;
     private CertificateStateMachine stateMachine;
     private ConnectorCapabilityService capabilityService;
@@ -275,6 +276,11 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     @Autowired
     public void setCertificateRegistrationWriter(CertificateRegistrationWriter certificateRegistrationWriter) {
         this.certificateRegistrationWriter = certificateRegistrationWriter;
+    }
+
+    @Autowired
+    public void setCertificateLocationRepository(CertificateLocationRepository certificateLocationRepository) {
+        this.certificateLocationRepository = certificateLocationRepository;
     }
 
     @Autowired
@@ -1300,7 +1306,6 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         Certificate certificate;
         AuthorityInstanceReference authority;
         ClientCertificateIssueRequestDto req = new ClientCertificateIssueRequestDto();
-        List<CertificateLocationId> locationIds;
         TransactionStatus tx = transactionManager.getTransaction(new DefaultTransactionDefinition());
         try {
             certificate = certificateRepository
@@ -1344,10 +1349,6 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // Force-load the CSR content while the session is still open.
             certificate.getCertificateRequest().getContent();
 
-            // Materialize location ids for the post-commit push loop while the collection is still attached to the
-            // session.
-            locationIds = certificate.getLocations().stream().map(CertificateLocation::getId).toList();
-
             // Move to PENDING_ISSUE before calling the connector so every path (sync 200 or async
             // 202) reaches issueRequestedCertificate / the poll cycle from a uniform PENDING_ISSUE
             // state via the state machine. The sync path creates no poll row, so a crash before the
@@ -1361,7 +1362,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             throw e;
         }
 
-        callConnectorAndFinalizeIssue(certificateUuid, certificate, req, authority, locationIds);
+        callConnectorAndFinalizeIssue(certificateUuid, certificate, req, authority);
     }
 
     /**
@@ -1369,8 +1370,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * certificate is now detached), then finalize.
      */
     private void callConnectorAndFinalizeIssue(final UUID certificateUuid, Certificate certificate,
-            ClientCertificateIssueRequestDto req, AuthorityInstanceReference authority,
-            List<CertificateLocationId> locationIds) throws CertificateOperationException, NotFoundException {
+            ClientCertificateIssueRequestDto req, AuthorityInstanceReference authority)
+            throws CertificateOperationException, NotFoundException {
         AdapterOperationResult result;
         try {
             result = adapterFactory.forAuthority(authority).issue(certificate, req);
@@ -1396,7 +1397,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         }
 
         try {
-            finalizeIssuance(certificateUuid, certificate, result, locationIds);
+            finalizeIssuance(certificateUuid, certificate, result);
         } catch (CertificateOperationException e) {
             certificateEventHistoryService
                     .addEventHistory(certificateUuid, CertificateEvent.ISSUE, CertificateEventStatus.FAILED,
@@ -1407,8 +1408,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         }
     }
 
-    private void finalizeIssuance(final UUID certificateUuid, Certificate certificate, AdapterOperationResult result,
-            List<CertificateLocationId> locationIds) throws CertificateOperationException, NotFoundException {
+    private void finalizeIssuance(final UUID certificateUuid, Certificate certificate, AdapterOperationResult result)
+            throws CertificateOperationException, NotFoundException {
         if (result.isAsync() || result.outcome() == AdapterOperationOutcome.SYNC_NO_CONTENT) {
             onAsyncAccepted(certificate, result.meta(), ResourceAction.ISSUE);
             return;
@@ -1430,7 +1431,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                     "Certificate %s was issued by the authority but completing local state failed; reconcile manually. Cause: "
                             .formatted(certificateUuid) + safeMessage(e, "issuance completion failed"));
         }
-        afterSynchronousIssue(certificateUuid, locationIds);
+        afterSynchronousIssue(certificateUuid);
     }
 
     /** Re-reads the claimed cert under a short row lock and transitions PENDING_ISSUE -> FAILED. */
@@ -1564,7 +1565,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             throws CertificateOperationException {
         final UUID certUuid = certificate.getUuid();
         try {
-            finalizeIssuance(certUuid, certificate, result, List.of());
+            finalizeIssuance(certUuid, certificate, result);
         } catch (Exception e) {
             logger
                     .warn("Connector accepted the register-bound issue for cert {} but completing local state failed; "
@@ -1596,13 +1597,14 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
     /**
      * Post-issuance side effects shared by the v2 and sync register-bound paths: push to the certificate's locations
-     * (best-effort), then raise {@code CERTIFICATE_ACTION_PERFORMED}. Takes ids captured while the entity was attached,
-     * so it stays safe after the claim transaction commits and detaches the entity.
+     * (best-effort), then raise {@code CERTIFICATE_ACTION_PERFORMED}. The locations are read after the connector call,
+     * because a certificate issued through a Location is linked to it only after its issue action has been queued.
      */
-    private void afterSynchronousIssue(UUID certificateUuid, List<CertificateLocationId> locationIds) {
-        for (CertificateLocationId locationId : locationIds) {
+    private void afterSynchronousIssue(UUID certificateUuid) {
+        for (CertificateLocation certificateLocation : certificateLocationRepository
+                .findByCertificateUuid(certificateUuid)) {
             try {
-                locationInternalService.pushRequestedCertificateToLocationAction(locationId, false);
+                locationInternalService.pushRequestedCertificateToLocationAction(certificateLocation.getId(), false);
             } catch (Exception e) {
                 logger.error("Failed to push issued certificate to location: {}", e.getMessage());
             }
