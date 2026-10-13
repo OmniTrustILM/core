@@ -136,6 +136,26 @@ class PqcEvaluatorTest {
         assertThat(verdictOf(algorithm("AES-20000")).ruleId()).isEqualTo("PARAMETER-SET-UNREGISTERED");
     }
 
+    /**
+     * SHA-2 enumerates its sizes with truncated forms ({@code 512/224}) beside the plain ones, and is held to them like
+     * AES: a declared size it does not define is refused, and a bare family name may be SHA-224.
+     */
+    @Test
+    void sha2IsHeldToItsEnumeratedSizes() {
+        PqcDecision declared = verdictOf(
+                component("algorithm", "SHA-384", "{\"algorithmProperties\":{\"parameterSetIdentifier\":\"999\"}}"));
+        assertThat(declared.verdict()).isEqualTo(PqcVerdict.UNKNOWN);
+        assertThat(declared.ruleId()).isEqualTo("PARAMETER-SET-UNREGISTERED");
+        assertThat(declared.reason()).contains("SHA-2").contains("224, 256, 384, 512");
+        PqcDecision bare = verdictOf(algorithm("SHA-2"));
+        assertThat(bare.verdict()).isEqualTo(PqcVerdict.UNKNOWN);
+        assertThat(bare.ruleId()).isEqualTo("SYMMETRIC-UNSIZED");
+        assertThat(verdictOf(algorithm("SHA-256")).ruleId()).isEqualTo("SYMMETRIC-READY");
+        assertThat(verdictOf(algorithm("SHA-512/224")).ruleId())
+                .describedAs("a truncated digest records its full size and is judged by its truncation")
+                .isEqualTo("SYMMETRIC-UNDERSIZED");
+    }
+
     /** An unsized algorithm and an unsized key of the same name agree: neither can be affirmed. */
     @Test
     void anUnsizedAlgorithmAndAnUnsizedKeyOfTheSameNameAgree() {

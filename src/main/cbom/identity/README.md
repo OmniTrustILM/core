@@ -53,8 +53,9 @@ repo-local, reviewable inputs. Treat it as a ratified local decision strand unti
 an independently sourced OID registry extraction replaces it.
 
 `admissibleParameterSets` is read out of the registry's variant patterns: the sizes a
-family enumerates literally (`AES[-(128|192|256)]`, `ML-KEM-(512|768|1024)`), and nothing
-for a family whose pattern templates the size or carries none. The PQC rules refuse a
+family enumerates literally (`AES[-(128|192|256)]`, `ML-KEM-(512|768|1024)`, with a
+truncated form such as SHA-2's `512/224` counting for its 512), and nothing for a family
+whose pattern templates the size or carries none. The PQC rules refuse a
 recorded parameter set outside its family's enumeration, so the set is generated, never
 hand-typed.
 

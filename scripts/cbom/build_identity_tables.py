@@ -1144,6 +1144,10 @@ OID_ARC = re.compile(r"[0-9]+(\.[0-9]+)+")
 
 # A literal size enumeration inside a registry variant pattern: `AES[-(128|192|256)]`, `ML-KEM-(512|768|1024)`.
 SIZE_ALTERNATION = re.compile(r"\((\d+(?:\|\d+)+)\)")
+# The same, admitting a truncated form beside a plain size: `SHA-(224|256|384|512|512/224|512/256)`. Only the
+# admissible sets read it; a size variant is rendered from a plain enumeration alone, since a truncated form
+# cannot be captured as one digit run.
+SIZE_OR_TRUNCATION_ALTERNATION = re.compile(r"\((\d+(?:/\d+)?(?:\|\d+(?:/\d+)?)+)\)")
 
 
 def size_lists(pattern: str, family: str, size_min: int, size_max: int) -> list[list[int]]:
@@ -1153,10 +1157,14 @@ def size_lists(pattern: str, family: str, size_min: int, size_max: int) -> list[
     ``Ed(25519|448)`` curves, ``CFB(1|8|64|128)`` a feedback width -- unless it directly follows the
     family's own name: ``ML-DSA-(44|65|87)`` is ML-DSA's parameter sets though 44 is below the whitelist.
     An alternation is skipped whole rather than trimmed, because a trimmed set would refuse the very sizes
-    the family uses."""
+    the family uses. A truncated form counts for the size it truncates: ``512/224`` is a 512."""
     lists = []
-    for match in SIZE_ALTERNATION.finditer(pattern):
-        values = [int(value) for value in match.group(1).split("|")]
+    for match in SIZE_OR_TRUNCATION_ALTERNATION.finditer(pattern):
+        values = []
+        for part in match.group(1).split("|"):
+            value = int(part.split("/")[0])
+            if value not in values:
+                values.append(value)
         follows_family = pattern[:match.start()].rstrip("-_/[").lower().endswith(family.lower())
         if follows_family or all(size_min <= value <= size_max for value in values):
             lists.append(values)
