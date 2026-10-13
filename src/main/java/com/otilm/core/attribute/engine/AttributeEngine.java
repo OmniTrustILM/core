@@ -94,6 +94,7 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -131,7 +132,7 @@ public class AttributeEngine {
      */
     public static final Comparator<MetadataAttribute> METADATA_WRITE_ORDER = Comparator
             .comparing((MetadataAttribute attribute) -> !isGlobalMetadata(attribute))
-            .thenComparing(attribute -> isGlobalMetadata(attribute) ? attribute.getName() : attribute.getUuid(),
+            .thenComparing(attribute -> isGlobalMetadata(attribute) ? attribute.getName() : uuidKey(attribute),
                     Comparator.nullsLast(Comparator.naturalOrder()))
             .thenComparing(MetadataAttribute::getName, Comparator.nullsLast(Comparator.naturalOrder()));
 
@@ -139,10 +140,15 @@ public class AttributeEngine {
      * The order connector and platform definitions are registered in, so two registrations of the same new definitions
      * insert them in one order and the second waits on the first rather than deadlocking.
      */
-    private static final Comparator<BaseAttribute> DEFINITION_WRITE_ORDER = Comparator
+    static final Comparator<BaseAttribute> DEFINITION_WRITE_ORDER = Comparator
             .comparing(BaseAttribute::getType, Comparator.nullsLast(Comparator.naturalOrder()))
-            .thenComparing(BaseAttribute::getUuid, Comparator.nullsLast(Comparator.naturalOrder()))
+            .thenComparing(AttributeEngine::uuidKey, Comparator.nullsLast(Comparator.naturalOrder()))
             .thenComparing(BaseAttribute::getName, Comparator.nullsLast(Comparator.naturalOrder()));
+
+    /** A UUID as the database compares it, whatever case the caller wrote it in. */
+    private static String uuidKey(BaseAttribute attribute) {
+        return attribute.getUuid() == null ? null : attribute.getUuid().toLowerCase(Locale.ROOT);
+    }
 
     @PersistenceContext
     private EntityManager entityManager;
