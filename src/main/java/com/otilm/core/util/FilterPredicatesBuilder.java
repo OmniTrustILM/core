@@ -26,6 +26,8 @@ import com.otilm.core.dao.entity.GroupAssociation_;
 import com.otilm.core.dao.entity.ResourceObjectAssociation_;
 import com.otilm.core.dao.entity.ScheduledJobHistory;
 import com.otilm.core.dao.entity.UniquelyIdentified_;
+import com.otilm.core.dao.entity.VaultInstance;
+import com.otilm.core.dao.entity.VaultProfile;
 import com.otilm.core.dao.entity.cbom.CryptoAssetSource;
 import com.otilm.core.dao.entity.cbom.CryptoAssetSource_;
 import com.otilm.core.dao.entity.cbom.CryptoAsset_;
@@ -402,6 +404,48 @@ public class FilterPredicatesBuilder {
         }
     }
 
+    /**
+     * The property field the identifier names. Resolved here rather than left to {@link Enum#valueOf} because the
+     * predicate is built inside the repository call, where the persistence layer would wrap the resulting
+     * {@link IllegalArgumentException} into a server fault instead of a rejected request.
+     */
+    private static FilterField resolvePropertyFilterField(final String fieldIdentifier) {
+        return Arrays
+                .stream(FilterField.values())
+                .filter(field -> field.name().equals(fieldIdentifier))
+                .findFirst()
+                .orElseThrow(() -> new ValidationException(
+                        ValidationError.create("Unknown filter field identifier %s.".formatted(fieldIdentifier))));
+    }
+
+    /**
+     * Refuses a field another resource declares. The identifier is unique across every resource, but the attribute path
+     * behind it need not be, so a field of another resource can resolve against the listing's entity and filter the
+     * wrong column, or fail inside the repository call as a server fault. An entity that maps to no resource has no
+     * catalogue to check against.
+     */
+    private static void requireFieldOfListing(final Root<?> root, final FilterField filterField) {
+        final Resource resource = listingResourceOf(root);
+        if (resource != null && filterField.getRootResource() != resource) {
+            throw new ValidationException(
+                    ValidationError.create("Field %s cannot filter this listing.".formatted(filterField.name())));
+        }
+    }
+
+    /**
+     * The resource whose property fields a listing of the entity advertises. Vault instances and profiles are absent
+     * from {@link ResourceToClass}, so they are named here rather than by the attribute mapping.
+     */
+    private static Resource listingResourceOf(final Root<?> root) {
+        if (root.getJavaType().equals(VaultInstance.class)) {
+            return Resource.VAULT;
+        }
+        if (root.getJavaType().equals(VaultProfile.class)) {
+            return Resource.VAULT_PROFILE;
+        }
+        return attributeResourceOf(root);
+    }
+
     private static boolean isDeclaredOnStrictSubtypeOf(final From<?, ?> from, final Attribute<?, ?> fieldAttribute) {
         final Class<?> declaringType = fieldAttribute.getDeclaringType().getJavaType();
         return !declaringType.equals(from.getJavaType()) && from.getJavaType().isAssignableFrom(declaringType);
@@ -410,7 +454,8 @@ public class FilterPredicatesBuilder {
     private static <T> Predicate getPropertyFilterPredicate(final CriteriaBuilder criteriaBuilder,
             final CommonAbstractCriteria query, final Root<T> root, SearchFilterRequestDto filterDto,
             Map<String, From> joinedAssociations, boolean refutedOidsOptedIn) {
-        final FilterField filterField = FilterField.valueOf(filterDto.getFieldIdentifier());
+        final FilterField filterField = resolvePropertyFilterField(filterDto.getFieldIdentifier());
+        requireFieldOfListing(root, filterField);
         requireAdvertisedCondition(filterField, filterDto.getCondition());
         if (filterField == FilterField.CBOM_HAS_CONTRIBUTED_ASSETS) {
             if (!Cbom.class.equals(root.getJavaType())) {
