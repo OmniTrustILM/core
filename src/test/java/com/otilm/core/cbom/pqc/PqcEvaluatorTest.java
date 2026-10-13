@@ -122,6 +122,17 @@ class PqcEvaluatorTest {
         }
     }
 
+    /** A size the registry does not define is refused whether or not the key-size whitelist would accept it. */
+    @Test
+    void aSpelledSizeAboveTheWhitelistIsRefusedAsUnregistered() {
+        PqcDecision decision = verdictOf(algorithm("ML-KEM-99999"));
+        assertThat(decision.verdict()).isEqualTo(PqcVerdict.UNKNOWN);
+        assertThat(decision.ruleId()).isEqualTo("PARAMETER-SET-UNREGISTERED");
+        assertThat(decision.reason()).contains("512, 768, 1024");
+        assertThat(decision.evaluatedFields()).containsEntry("parameterSet", 99999);
+        assertThat(verdictOf(algorithm("AES-20000")).ruleId()).isEqualTo("PARAMETER-SET-UNREGISTERED");
+    }
+
     /** An unsized algorithm and an unsized key of the same name agree: neither can be affirmed. */
     @Test
     void anUnsizedAlgorithmAndAnUnsizedKeyOfTheSameNameAgree() {

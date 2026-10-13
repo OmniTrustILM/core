@@ -254,6 +254,22 @@ class NormalizationRulesTest {
         assertThat(NORMALIZER.registrySizeSpelled("MLKEM512", "ML-KEM")).isEqualTo(512);
     }
 
+    /**
+     * A size the registry variant spells above the key-size whitelist is still the size the name spells: it stays in
+     * the slot so the row keys apart from the bare family and the verdict refuses it, as a spelled {@code 800} does.
+     */
+    @Test
+    void aSpelledSizeAboveTheWhitelistIsRecordedAsTheUnregisteredParameterSet() {
+        NormalizedAsset asset = normalize("ML-KEM-99999");
+        assertThat(asset.parameterSet()).isEqualTo(99999);
+        assertThat(asset.findings()).singleElement().asString().contains("99999").contains("512, 768, 1024");
+        assertThat(keyOfAlgorithm("ML-KEM-99999")).isNotEqualTo(keyOfAlgorithm("ML-KEM"));
+        assertThat(normalize("AES-20000").parameterSet()).isEqualTo(20000);
+        assertThat(normalize("ML-KEM-999999").parameterSet())
+                .describedAs("a digit run longer than any size spells none")
+                .isNull();
+    }
+
     /** A variant found inside a longer one that extends it is tried after it: GOSTR3411_HMAC is a MAC, not a hash. */
     @Test
     void theLongerOfTwoOverlappingVariantsIsTriedFirst() {
