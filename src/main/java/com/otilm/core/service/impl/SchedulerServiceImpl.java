@@ -469,8 +469,9 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
             throw e;
         }
 
-        // deregister one-time job
-        if (SchedulerJobExecutionStatus.SUCCESS.equals(result.getStatus()) && scheduledJob.isOneTime()) {
+        // deregister one-time job: done, or cancelled by someone who does not want it attempted again
+        if ((SchedulerJobExecutionStatus.SUCCESS.equals(result.getStatus())
+                || SchedulerJobExecutionStatus.CANCELLED.equals(result.getStatus())) && scheduledJob.isOneTime()) {
             try {
                 schedulerApiClient.deleteScheduledJob(scheduledJob.getJobName());
                 logger

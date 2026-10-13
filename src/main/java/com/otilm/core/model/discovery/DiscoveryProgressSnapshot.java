@@ -22,8 +22,8 @@ public final class DiscoveryProgressSnapshot {
         // updatedAt is deliberately not part of this test: Core sets it, so a snapshot carrying only that one still
         // reports nothing.
         return progress != null && (progress.getTargetsProcessed() != null || progress.getTargetsTotal() != null
-                || progress.getTargetsFailed() != null || progress.getPhase() != null
-                || progress.getByResource() != null);
+                || progress.getTargetsFailed() != null || progress.getTargetsEmpty() != null
+                || progress.getPhase() != null || progress.getByResource() != null);
     }
 
     /**

@@ -462,6 +462,66 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
 
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.CANCELLED);
         assertThat(agenda(run)).isEmpty();
+        assertThat(messageRepository.findByDiscoveryUuidOrderByIdAsc(run.getUuid()))
+                .singleElement()
+                .satisfies(ending -> {
+                    assertThat(ending.getCode()).isEqualTo(DiscoveryMessageCode.RUN_ENDED.code());
+                    assertThat(ending.getSeverity())
+                            .as("nobody here asked for this cancel, so the run lost its work without anything failing")
+                            .isEqualTo(DiscoveryMessageSeverity.WARNING);
+                });
+    }
+
+    @Test
+    void completedAnswerReportingFailedTargets_filesOneWarningCountingThem() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        answers(completedWithTargets(10, 5, 3));
+
+        worker.tick(run.getUuid(), 0);
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(messageRepository.findByDiscoveryUuidOrderByIdAsc(run.getUuid()))
+                .as("filed when the connector finishes, not on every answer that repeats it")
+                .singleElement()
+                .satisfies(message -> {
+                    assertThat(message.getCode()).isEqualTo(DiscoveryMessageCode.TARGETS_NOT_EXAMINED.code());
+                    assertThat(message.getSeverity()).isEqualTo(DiscoveryMessageSeverity.WARNING);
+                    assertThat(message.getOccurrences()).isEqualTo(3);
+                });
+    }
+
+    @Test
+    void completedAnswerWhoseTargetsWereOnlyEmpty_filesNothing() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        answers(completedWithTargets(10, 10, 0));
+
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(messageRepository.findByDiscoveryUuidOrderByIdAsc(run.getUuid()))
+                .as("a target with nothing on it is a normal outcome")
+                .isEmpty();
+        assertThat(reload(run).getProgress().getTargetsEmpty()).isEqualTo(10L);
+    }
+
+    @Test
+    void progressReportingOnlyEmptyTargets_isRecorded() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        DiscoveryStatusResponseDto response = statusResponse(DiscoveryRunState.RUNNING);
+        DiscoveryProgressDto progress = new DiscoveryProgressDto();
+        progress.setTargetsEmpty(4L);
+        response.setProgress(progress);
+        answers(response);
+
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(reload(run).getProgress())
+                .as("a report of empty targets alone still says something")
+                .isNotNull()
+                .extracting(DiscoveryProgressDto::getTargetsEmpty)
+                .isEqualTo(4L);
     }
 
     @Test
@@ -781,6 +841,16 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         DiscoveryStatusResponseDto response = new DiscoveryStatusResponseDto();
         response.setState(state);
         response.setHighestSequence(0L);
+        return response;
+    }
+
+    private static DiscoveryStatusResponseDto completedWithTargets(long processed, long empty, long failed) {
+        DiscoveryStatusResponseDto response = statusResponse(DiscoveryRunState.COMPLETED);
+        DiscoveryProgressDto progress = new DiscoveryProgressDto();
+        progress.setTargetsProcessed(processed);
+        progress.setTargetsEmpty(empty);
+        progress.setTargetsFailed(failed);
+        response.setProgress(progress);
         return response;
     }
 

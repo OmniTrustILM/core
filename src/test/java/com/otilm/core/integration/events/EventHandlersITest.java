@@ -67,6 +67,7 @@ import com.otilm.core.dao.entity.Group;
 import com.otilm.core.dao.entity.GroupAssociation;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.ScheduledJob;
+import com.otilm.core.dao.entity.ScheduledJobHistory;
 import com.otilm.core.dao.entity.notifications.NotificationInstanceReference;
 import com.otilm.core.dao.entity.notifications.PendingNotification;
 import com.otilm.core.dao.entity.workflows.EventHistory;
@@ -82,6 +83,7 @@ import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.GroupAssociationRepository;
 import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
+import com.otilm.core.dao.repository.ScheduledJobHistoryRepository;
 import com.otilm.core.dao.repository.ScheduledJobsRepository;
 import com.otilm.core.dao.repository.notifications.NotificationInstanceReferenceRepository;
 import com.otilm.core.dao.repository.notifications.PendingNotificationRepository;
@@ -119,7 +121,9 @@ import com.otilm.core.service.RuleExternalService;
 import com.otilm.core.service.TriggerExternalService;
 import com.otilm.core.service.handler.CertificateHandler;
 import com.otilm.core.service.impl.CertificateServiceImpl;
+import com.otilm.core.service.writer.scheduler.ScheduledJobHistoryWriter;
 import com.otilm.core.tasks.DiscoveryCertificateTask;
+import com.otilm.core.tasks.ScheduledJobInfo;
 import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.AuthServiceWireMockStubs;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -233,6 +237,10 @@ class EventHandlersITest extends BaseSpringBootTest {
 
     @Autowired
     private ScheduledJobsRepository scheduledJobsRepository;
+    @Autowired
+    private ScheduledJobHistoryRepository scheduledJobHistoryRepository;
+    @Autowired
+    private ScheduledJobHistoryWriter scheduledJobHistoryWriter;
     @Autowired
     private ScheduledJobFinishedEventHandler scheduledJobFinishedEventHandler;
 
@@ -629,6 +637,62 @@ class EventHandlersITest extends BaseSpringBootTest {
         Discovery persisted = discoveryRepository.findByUuid(discovery.getUuid()).orElseThrow();
         Assertions.assertEquals(DiscoveryStatus.CANCELLED, persisted.getStatus());
         Assertions.assertEquals("Discovery cancelled", persisted.getMessage());
+    }
+
+    @Test
+    void testDiscoveryFinishedEventClosesAScheduledRunTheUserCancelledAsCancelled() throws EventException {
+        ScheduledJobHistory execution = scheduledDiscoveryExecution();
+
+        endScheduledDiscovery(execution, new DiscoveryResult(DiscoveryStatus.CANCELLED, "Discovery cancelled", true));
+
+        Assertions
+                .assertEquals(SchedulerJobExecutionStatus.CANCELLED,
+                        scheduledJobHistoryRepository
+                                .findById(execution.getUuid())
+                                .orElseThrow()
+                                .getSchedulerExecutionStatus(),
+                        "someone stopping the run is not the schedule failing");
+    }
+
+    @Test
+    void testDiscoveryFinishedEventClosesAScheduledRunCancelledWithoutBeingAskedAsFailed() throws EventException {
+        ScheduledJobHistory execution = scheduledDiscoveryExecution();
+
+        endScheduledDiscovery(execution,
+                new DiscoveryResult(DiscoveryStatus.CANCELLED, "Stop expired: the run was not resumed in time"));
+
+        Assertions
+                .assertEquals(SchedulerJobExecutionStatus.FAILED,
+                        scheduledJobHistoryRepository
+                                .findById(execution.getUuid())
+                                .orElseThrow()
+                                .getSchedulerExecutionStatus(),
+                        "nobody chose to lose this run, so the schedule did not deliver");
+    }
+
+    private ScheduledJobHistory scheduledDiscoveryExecution() {
+        ScheduledJob job = new ScheduledJob();
+        job.setJobName("ScheduledDiscovery-" + UUID.randomUUID());
+        job.setJobClassName(DiscoveryCertificateTask.class.getName());
+        job.setCronExpression("0 0 * ? * *");
+        job.setEnabled(true);
+        job.setOneTime(false);
+        job.setSystem(false);
+        scheduledJobsRepository.save(job);
+        return scheduledJobHistoryWriter.recordStarted(job);
+    }
+
+    private void endScheduledDiscovery(ScheduledJobHistory execution, DiscoveryResult result) throws EventException {
+        Discovery discovery = persistProcessingDiscovery();
+        discovery.setStatus(result.getDiscoveryStatus());
+        discovery.setMessage(result.getMessage());
+        discoveryRepository.save(discovery);
+
+        discoveryFinishedEventHandler
+                .handleEvent(DiscoveryFinishedEventHandler
+                        .constructEventMessage(discovery.getUuid(), null,
+                                new ScheduledJobInfo(null, execution.getScheduledJobUuid(), execution.getUuid()),
+                                result));
     }
 
     @Test

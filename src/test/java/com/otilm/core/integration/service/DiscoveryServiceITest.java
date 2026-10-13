@@ -146,6 +146,8 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
 
     @Autowired
     private DiscoveryMessageWriter messageWriter;
+    @Autowired
+    private DiscoveryMessageRepository messageRepository;
 
     @Autowired
     private DiscoveryProviderAdapterFactory adapterFactory;
@@ -1433,6 +1435,14 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         WireMock
                 .verify(1,
                         WireMock.postRequestedFor(WireMock.urlPathEqualTo("/v2/discoveryProvider/discoveries/cancel")));
+        Assertions
+                .assertEquals(List.of(DiscoveryMessageSeverity.INFO),
+                        messageRepository
+                                .findByDiscoveryUuidOrderByIdAsc(discovery.getUuid())
+                                .stream()
+                                .map(DiscoveryMessage::getSeverity)
+                                .toList(),
+                        "a cancel the user asked for is the run doing what it was told, not an error");
     }
 
     private void giveInterfaceStopResumeFlag() {

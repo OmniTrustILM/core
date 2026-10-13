@@ -3,6 +3,7 @@ package com.otilm.core.integration.discovery;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryProgressDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryResourceProgressDto;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.discovery.DiscoveryMessageSeverity;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
@@ -15,6 +16,7 @@ import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
 import com.otilm.core.dao.repository.DiscoveryMessageRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
+import com.otilm.core.model.discovery.DiscoveryMessageCode;
 import com.otilm.core.service.handler.discovery.DiscoveryRunTerminator;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.DiscoveryCheckpointFixture;
@@ -158,6 +160,24 @@ class DiscoveryRunTerminatorITest extends BaseSpringBootTest {
         assertThat(discoveryRepository.findByUuid(run.getUuid()).orElseThrow().getStatus())
                 .as("the caller rolled back, so the ending never happened")
                 .isEqualTo(DiscoveryStatus.IN_PROGRESS);
+    }
+
+    @Test
+    void aRunEndedByItsConnectorsForceDelete_recordsTheLossAsAWarning() {
+        Discovery run = v2Run();
+
+        new TransactionTemplate(transactionManager)
+                .executeWithoutResult(status -> terminator
+                        .endRunsBoundTo(List.of(run.getConnectorInterfaceUuid()), "connector deleted"));
+
+        assertThat(messageRepository.findByDiscoveryUuidOrderByIdAsc(run.getUuid()))
+                .singleElement()
+                .satisfies(ending -> {
+                    assertThat(ending.getCode()).isEqualTo(DiscoveryMessageCode.RUN_ENDED.code());
+                    assertThat(ending.getSeverity())
+                            .as("deleting the connector was someone's choice, cancelling this run was not")
+                            .isEqualTo(DiscoveryMessageSeverity.WARNING);
+                });
     }
 
     @Test

@@ -808,6 +808,23 @@ class SchedulerServiceMockedTest {
     }
 
     @Test
+    void testRunScheduledJob_WhenOneTimeCancelled_DeletesScheduledJob() throws Exception {
+        scheduledJob.setOneTime(true);
+
+        TestTask testTask = spy(
+                new TestTask(new ScheduledTaskResult(SchedulerJobExecutionStatus.CANCELLED, "cancelled")));
+
+        when(scheduledJobsRepository.findByJobName(JOB_NAME)).thenReturn(Optional.of(scheduledJob));
+        when(historyWriter.recordStarted(scheduledJob)).thenReturn(scheduledJobHistory);
+        when(applicationContext.getBean(eq(TestTask.class))).thenReturn(testTask);
+
+        schedulerService.runScheduledJob(JOB_NAME);
+
+        // Whoever cancelled the one run of a one-time job does not want it attempted again.
+        verify(schedulerApiClient).deleteScheduledJob(JOB_NAME);
+    }
+
+    @Test
     void testRunScheduledJob_WhenOneTimeSuccessfulAndDeleteFails_SwallowsException() throws Exception {
         scheduledJob.setOneTime(true);
 

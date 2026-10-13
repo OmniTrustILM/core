@@ -20,6 +20,7 @@ import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.messaging.jms.configuration.DiscoveryWorkProperties;
 import com.otilm.core.model.discovery.DiscoveryMessageCode;
+import com.otilm.core.model.discovery.DiscoveryMessageDraft;
 import com.otilm.core.model.discovery.DiscoveryProgressSnapshot;
 import com.otilm.core.model.discovery.DiscoveryRunLifecycle;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
@@ -337,10 +338,28 @@ public class DiscoveryStatusTickWorker {
                 // spend it and a permanently failing drain would never end the run.
                 if (!DiscoveryRunState.COMPLETED.getCode().equals(previousConnectorState)) {
                     workWriter.schedule(run.getUuid(), DiscoveryWorkType.DRAIN, OffsetDateTime.now(ZoneOffset.UTC));
+                    recordTargetsNotExamined(run);
                 }
             }
             default -> throw new IllegalStateException("Unhandled live discovery run state " + state);
         }
+    }
+
+    /**
+     * Filed once, when the connector finishes and its counters are final. A target it expected to read and could not is
+     * part of what the run was asked to examine, so the run must not end as if it had covered everything; the warning
+     * is what makes it end WARNING. A target with nothing on it is a normal outcome and files nothing.
+     */
+    private void recordTargetsNotExamined(Discovery run) {
+        Long failed = run.getProgress() == null ? null : run.getProgress().getTargetsFailed();
+        if (failed == null || failed < 1) {
+            return;
+        }
+        messageWriter
+                .append(run.getUuid(),
+                        new DiscoveryMessageDraft(DiscoveryMessageSeverity.WARNING,
+                                DiscoveryMessageCode.TARGETS_NOT_EXAMINED,
+                                "A target the Discovery Provider was asked to examine could not be read.", failed));
     }
 
     /**
