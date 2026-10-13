@@ -26,8 +26,9 @@ public interface ScheduledJobHistoryRepository extends SecurityFilterRepository<
             String jobName, SchedulerJobExecutionStatus status);
 
     /**
-     * Closes a run in one statement. The row count is the point: a row that vanished (the job was deleted, cascading
-     * its history) shows as 0, where a detached-entity save would write nothing and say nothing.
+     * Closes a run in one statement, if it is still open. The row count is the point: a row that vanished (the job was
+     * deleted, cascading its history) or that another finisher closed first shows as 0, where a detached-entity save
+     * would write nothing and say nothing.
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
@@ -38,6 +39,7 @@ public interface ScheduledJobHistoryRepository extends SecurityFilterRepository<
                    h.resultObjectType = :objectType,
                    h.resultObjectIdentification = :objectIdentification
              WHERE h.uuid = :uuid
+               AND h.jobEndTime IS NULL
             """)
     int closeRun(@Param("uuid") UUID uuid, @Param("endTime") Date endTime,
             @Param("status") SchedulerJobExecutionStatus status, @Param("message") String message,

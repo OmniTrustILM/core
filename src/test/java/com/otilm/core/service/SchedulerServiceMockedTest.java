@@ -78,6 +78,7 @@ import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -138,6 +139,7 @@ class SchedulerServiceMockedTest {
         scheduledJobHistory.setScheduledJobUuid(JOB_UUID);
         scheduledJobHistory.setJobExecution(new Date());
         scheduledJobHistory.setSchedulerExecutionStatus(SchedulerJobExecutionStatus.STARTED);
+        lenient().when(historyWriter.recordFinished(any(), any())).thenReturn(true);
     }
 
     @Test
@@ -869,6 +871,21 @@ class SchedulerServiceMockedTest {
         assertEquals(SchedulerJobExecutionStatus.SUCCESS, resultCaptor.getValue().getStatus());
         assertEquals("event-finished", resultCaptor.getValue().getResultMessage());
         verify(eventProducer).produceMessage(any());
+    }
+
+    @Test
+    void testHandleScheduledJobFinishedEvent_WhenTheRunWasAlreadyClosed_KeepsItsFirstOutcome() throws Exception {
+        scheduledJob.setOneTime(true);
+        ScheduledJobFinishedEvent event = new ScheduledJobFinishedEvent(
+                new ScheduledJobInfo(JOB_NAME, JOB_UUID, HISTORY_UUID),
+                new ScheduledTaskResult(SchedulerJobExecutionStatus.CANCELLED, "cancelled"));
+        when(scheduledJobsRepository.findByUuid(any(SecuredUUID.class))).thenReturn(Optional.of(scheduledJob));
+        when(historyWriter.recordFinished(eq(HISTORY_UUID), any())).thenReturn(false);
+
+        schedulerService.handleScheduledJobFinishedEvent(event);
+
+        verify(eventProducer, never()).produceMessage(any());
+        verify(schedulerApiClient, never()).deleteScheduledJob(anyString());
     }
 
     @Test
