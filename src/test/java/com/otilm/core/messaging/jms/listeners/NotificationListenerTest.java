@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.otilm.api.interfaces.client.v1.NotificationInstanceSyncApiClient;
 import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.events.data.CbomSyncedEventData;
 import com.otilm.api.model.common.events.data.CertificateRegisteredEventData;
 import com.otilm.api.model.common.events.data.CommentEventData;
 import com.otilm.api.model.common.events.data.CryptoAssetPqcNotReadyEventData;
@@ -123,6 +124,28 @@ class NotificationListenerTest {
         assertTrue(text.getValue().contains(assetUuid.toString()));
         assertTrue(text.getValue().contains("No PQC reason is available"));
         assertFalse(text.getValue().contains("null"));
+    }
+
+    @Test
+    void cbomSyncedNotificationNamesTheSerialNumberAndVersion() {
+        UUID cbomUuid = UUID.randomUUID();
+        UUID recipientUuid = UUID.randomUUID();
+        CbomSyncedEventData data = new CbomSyncedEventData();
+        data.setCbomUuid(cbomUuid);
+        data.setSerialNumber("urn:uuid:3e671687-395b-41f5-a30f-a58921a69b79");
+        data.setVersion(2);
+        NotificationMessage message = new NotificationMessage(ResourceEvent.CBOM_SYNCED, Resource.CBOM, cbomUuid, null,
+                List.of(new NotificationRecipient(RecipientType.USER, recipientUuid)), data);
+
+        listener().processMessage(message);
+
+        ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
+        verify(notificationService)
+                .createNotificationForUser(text.capture(), isNull(), eq(recipientUuid.toString()), eq(Resource.CBOM),
+                        eq(cbomUuid.toString()), isNull());
+        assertEquals(
+                "CBOM 'urn:uuid:3e671687-395b-41f5-a30f-a58921a69b79' version 2 has finished cryptographic asset sync",
+                text.getValue());
     }
 
     @Test
