@@ -5,6 +5,7 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.otilm.api.clients.SchedulerApiClient;
+import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.ConnectionServiceException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.SchedulerException;
@@ -56,6 +57,7 @@ import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationContext;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import reactor.core.Exceptions;
@@ -580,6 +582,62 @@ class SchedulerServiceMockedTest {
             assertNull(savedJob.getUserUuid());
             assertEquals(TestTask.class.getName(), savedJob.getJobClassName());
         }
+    }
+
+    @Test
+    void testRegisterScheduledJob_WithExplicitValues_WhenJobNameIsTaken_ThrowsAlreadyExist() throws Exception {
+        TestTask task = new TestTask(new ScheduledTaskResult(SchedulerJobExecutionStatus.SUCCESS, "ok"));
+        when(applicationContext.getBean(TestTask.class)).thenReturn(task);
+        when(scheduledJobsRepository.findByJobName(JOB_NAME)).thenReturn(Optional.of(scheduledJob));
+
+        AlreadyExistException e = assertThrows(AlreadyExistException.class, () -> schedulerService
+                .registerScheduledJob(TestTask.class, JOB_NAME, "0 0 4 2 2 ? 2098", true, "other payload"));
+
+        assertTrue(e.getMessage().contains(JOB_NAME));
+        // A finished one-time job has no trigger left, so asking the scheduler first would create one that fires
+        // into the existing job.
+        verify(schedulerApiClient, never()).schedulerCreate(any());
+        verify(scheduledJobsRepository, never()).save(any());
+    }
+
+    @Test
+    void testRegisterScheduledJob_WithExplicitValues_WhenInsertLosesTheRace_ThrowsAlreadyExist() throws Exception {
+        TestTask task = new TestTask(new ScheduledTaskResult(SchedulerJobExecutionStatus.SUCCESS, "ok"));
+        when(applicationContext.getBean(TestTask.class)).thenReturn(task);
+        when(scheduledJobsRepository.findByJobName("CustomJob"))
+                .thenReturn(Optional.empty(), Optional.of(scheduledJob));
+        when(scheduledJobsRepository.save(any(ScheduledJob.class)))
+                .thenThrow(new DataIntegrityViolationException(
+                        "duplicate key value violates unique constraint \"uq_scheduled_job_job_name\""));
+
+        try (MockedStatic<AuthHelper> authHelperMock = mockStatic(AuthHelper.class)) {
+            authHelperMock.when(AuthHelper::getUserIdentification).thenThrow(new ValidationException("no auth"));
+
+            assertThrows(AlreadyExistException.class, () -> schedulerService
+                    .registerScheduledJob(TestTask.class, "CustomJob", "0 10 * * * ?", true, "payload"));
+        }
+        // The insert decides who gets the name, so the losing request never puts its schedule in the scheduler.
+        verify(schedulerApiClient, never()).schedulerCreate(any());
+    }
+
+    @Test
+    void testRegisterScheduledJob_WithExplicitValues_WhenSchedulerRefuses_RemovesTheJob() throws Exception {
+        TestTask task = new TestTask(new ScheduledTaskResult(SchedulerJobExecutionStatus.SUCCESS, "ok"));
+        when(applicationContext.getBean(TestTask.class)).thenReturn(task);
+        when(scheduledJobsRepository.findByJobName("CustomJob")).thenReturn(Optional.empty());
+        doThrow(new SchedulerException("Invalid format of CRON expression"))
+                .when(schedulerApiClient)
+                .schedulerCreate(any());
+
+        try (MockedStatic<AuthHelper> authHelperMock = mockStatic(AuthHelper.class)) {
+            authHelperMock.when(AuthHelper::getUserIdentification).thenThrow(new ValidationException("no auth"));
+
+            assertThrows(SchedulerException.class, () -> schedulerService
+                    .registerScheduledJob(TestTask.class, "CustomJob", "not a cron", true, "payload"));
+        }
+        ArgumentCaptor<ScheduledJob> jobCaptor = ArgumentCaptor.forClass(ScheduledJob.class);
+        verify(scheduledJobsRepository).save(jobCaptor.capture());
+        verify(scheduledJobsRepository).delete(jobCaptor.getValue());
     }
 
     @Test
