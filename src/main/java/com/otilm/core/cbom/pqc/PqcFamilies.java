@@ -79,10 +79,10 @@ public final class PqcFamilies {
         // -- Pre-standard post-quantum candidates -------------------------------------------------------------------
         put(map, FamilyClass.PQC_PRESTANDARD, "Kyber", "Dilithium", "Falcon", "SPHINCS+", "NTRU", "NTRU-Prime",
                 "FrodoKEM", "BIKE", "HQC", "Classic McEliece", "Picnic", "SQIsign", "LESS", "PERK", "RYDE", "MIRATH",
-                "QR-UOV", "HAWK", "Raccoon", "AIMer", "MAYO", "UOV", "SNOVA", "CROSS", "MQOM");
+                "QR-UOV", "Raccoon", "AIMer", "MAYO", "UOV", "SNOVA", "CROSS", "MQOM");
 
         // -- Post-quantum candidates broken by cryptanalysis --------------------------------------------------------
-        put(map, FamilyClass.PQC_BROKEN, "SIKE", "Rainbow", "GeMSS");
+        put(map, FamilyClass.PQC_BROKEN, "SIKE", "Rainbow", "GeMSS", "HAWK");
 
         // -- Named hybrids -----------------------------------------------------------------------------------------
         put(map, FamilyClass.PQC_HYBRID, "X-Wing");

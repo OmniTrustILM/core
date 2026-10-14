@@ -92,10 +92,11 @@ public record CryptoAssetIdentity(AssetNormalizer normalizer) {
      * bare-CN subject -- are visible only inside the certificate tier.
      *
      * <p>
-     * {@code findings} is what the pipeline has to tell the producer: the redaction findings, and one line for every
-     * occurrence whose stated location rendered as no location -- see {@link Occurrences#triples(JsonNode, List)}. They
-     * are gathered here rather than by the caller because the occurrence pass runs here, once, for the tiers that key
-     * on it, and a caller re-running it to learn what was refused would sanitize every location a second time.
+     * {@code findings} is what the pipeline has to tell the producer: the redaction findings, the normalizer's own --
+     * an arc its name contradicts, a parameter set its family does not define -- and one line for every occurrence
+     * whose stated location rendered as no location -- see {@link Occurrences#triples(JsonNode, List)}. They are
+     * gathered here rather than by the caller because the occurrence pass runs here, once, for the tiers that key on
+     * it, and a caller re-running it to learn what was refused would sanitize every location a second time.
      *
      * <p>
      * <b>The generated {@code toString} is overridden deliberately.</b> A record prints every component, so the default
@@ -129,6 +130,7 @@ public record CryptoAssetIdentity(AssetNormalizer normalizer) {
         NormalizedAsset asset = normalized.asset();
         JsonNode properties = normalized.redaction().keyedPayload();
         List<String> findings = new ArrayList<>(normalized.redaction().findings());
+        findings.addAll(asset.findings());
         // Computed once, before the tier is known: the occurrence tiers hash it, and every tier owes the producer the
         // record of a location that rendered as nothing, since the stored evidence renders it that way whatever tier
         // keyed the row. One pass over the occurrences serves both.
@@ -353,10 +355,10 @@ public record CryptoAssetIdentity(AssetNormalizer normalizer) {
      * with no {@code cryptoProperties} object at all.
      *
      * <p>
-     * Such a component is <b>not skipped</b>. The name is part of the key because without it the projection digest of
-     * an absent properties object is the SAME for every such component, so every broken asset in the estate collapses
-     * into one row whose elected payload is whichever arrived first. That is an over-merge, the direction the
-     * prefer-a-visible-split rule exists to forbid.
+     * Keyed, so the chain answers for every component the conformance vectors carry, but not inventoried:
+     * {@link CbomAssetExtractor} reports such a component as a skip rather than storing a row with no algorithm to
+     * assess. The name is part of the key because without it the projection digest of an absent properties object is
+     * the SAME for every such component.
      */
     private String backstop(NormalizedAsset asset, JsonNode properties) {
         return "RAW|" + PreImageSlot.of(asset.assetType()) + "|" + CanonicalJson.projectionDigest(properties) + "|"
