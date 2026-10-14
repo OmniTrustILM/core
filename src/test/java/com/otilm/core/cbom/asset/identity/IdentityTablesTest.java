@@ -58,8 +58,16 @@ class IdentityTablesTest {
             assertThat(stream).isNotNull();
             assertThat(IdentityDigests.sha256HexOfBytes(stream.readAllBytes()))
                     .describedAs("the decision tables are ratified data; editing them re-keys the inventory")
-                    .isEqualTo("474e3dc95c5e155f9dea80ee0f1620081f8170e20a9dc9f29e1e2ac09337e1d1");
+                    .isEqualTo("c6791750bfe3193b107466f5c37e6ae45572a5ac9099dd1ddadac9a2b163336e");
         }
+    }
+
+    /** The truncations the registry enumerates are consumed from the tables, keyed on the size they truncate. */
+    @Test
+    void theAdmissibleTruncationsAreConsumedFromTheTables() {
+        assertThat(IdentityTables.load().admissibleTruncations())
+                .containsOnlyKeys("SHA-2")
+                .containsEntry("SHA-2", Map.of(512, Set.of(224, 256)));
     }
 
     /**

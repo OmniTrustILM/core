@@ -24,7 +24,7 @@ import java.util.stream.Stream;
  * <p>
  * The tables are <em>data, never code</em>: they load from {@code cbom/identity-tables.json}, the same artifact the
  * reference implementation reads, so a vocabulary change is a reviewed data change rather than a code change in two
- * languages. The shipped file's SHA-256 is {@code 474e3dc95c5e...}. Every published cross-implementation agreement
+ * languages. The shipped file's SHA-256 is {@code c6791750bfe3...}. Every published cross-implementation agreement
  * figure predates it and was measured against {@code 1331969bb507...} -- quote an agreement number only with the
  * artifact hash it was taken against, because a number measured before a table change is a historical number, not a
  * current one.
@@ -70,6 +70,10 @@ public final class IdentityTables {
     private final Map<String, String> familyTokens;
     private final Map<String, String> dnAttributeOids;
     private final Map<String, Integer> nameIntrinsicSizes;
+    private final Map<String, Set<Integer>> admissibleParameterSets;
+    private final Map<String, Map<Integer, Set<Integer>>> admissibleTruncations;
+    private final Map<String, List<SizeVariant>> sizeVariants;
+    private final List<VariantPrimitive> variantPrimitives;
     private final List<String> curveSpellingsByLength;
     private final List<CurveSpelling> curveSpellingPatterns;
     private final int sizeMin;
@@ -91,6 +95,17 @@ public final class IdentityTables {
 
     /** A secondary construction token the name carries beside its family. */
     public record SecondaryMarker(String label, Pattern pattern) {
+    }
+
+    /**
+     * A registry variant that spells a size, as a pattern whose one group captures it -- {@code AES(?:-(\d+))?} -- and
+     * the sizes the registry enumerates for that variant.
+     */
+    public record SizeVariant(Pattern pattern, Set<Integer> sizes) {
+    }
+
+    /** A registry variant whose primitive differs from its family's default, as the name pattern that selects it. */
+    public record VariantPrimitive(String family, Pattern pattern, String primitive) {
     }
 
     /**
@@ -159,6 +174,27 @@ public final class IdentityTables {
         Node sizeWhitelist = root.field("sizeWhitelist");
         this.sizeMin = sizeWhitelist.field("min").integer();
         this.sizeMax = sizeWhitelist.field("max").integer();
+        Map<String, Set<Integer>> admissible = new LinkedHashMap<>();
+        root
+                .field("admissibleParameterSets")
+                .entries()
+                .forEach(entry -> admissible
+                        .put(entry.getKey(),
+                                Set.copyOf(entry.getValue().elements().stream().map(Node::integer).toList())));
+        this.admissibleParameterSets = Collections.unmodifiableMap(admissible);
+        Map<String, Map<Integer, Set<Integer>>> truncations = new LinkedHashMap<>();
+        root
+                .field("admissibleTruncations")
+                .entries()
+                .forEach(entry -> truncations.put(entry.getKey(), truncationsBySize(entry.getValue())));
+        this.admissibleTruncations = Collections.unmodifiableMap(truncations);
+        Map<String, List<SizeVariant>> variants = new LinkedHashMap<>();
+        root
+                .field("sizeVariants")
+                .entries()
+                .forEach(entry -> variants.put(entry.getKey(), sizeVariants(entry.getValue())));
+        this.sizeVariants = Collections.unmodifiableMap(variants);
+        this.variantPrimitives = variantPrimitives(root.field("variantPrimitives"));
 
         this.familyTokens = familyTokens(pseudo.keys(), familyList);
 
@@ -359,6 +395,33 @@ public final class IdentityTables {
         return nameIntrinsicSizes;
     }
 
+    /**
+     * The parameter sets the registry enumerates literally for a family -- {@code AES[-(128|192|256)]} -- keyed on the
+     * family's ratified spelling. A family whose registry variants template the size, or carry none, is absent: only an
+     * enumeration can refuse a value.
+     */
+    public Map<String, Set<Integer>> admissibleParameterSets() {
+        return admissibleParameterSets;
+    }
+
+    /**
+     * The truncated forms the registry enumerates for a family -- SHA-2's {@code 512/224} and {@code 512/256} -- keyed
+     * on the family's ratified spelling, then on the size truncated. A family that enumerates none is absent, as in
+     * {@link #admissibleParameterSets()}: only an enumeration can refuse a truncation.
+     */
+    public Map<String, Map<Integer, Set<Integer>>> admissibleTruncations() {
+        return admissibleTruncations;
+    }
+
+    /** The size-spelling registry variants of a family, keyed on the family's ratified spelling. */
+    public Map<String, List<SizeVariant>> sizeVariants() {
+        return sizeVariants;
+    }
+
+    public List<VariantPrimitive> variantPrimitives() {
+        return variantPrimitives;
+    }
+
     public int sizeMin() {
         return sizeMin;
     }
@@ -468,6 +531,39 @@ public final class IdentityTables {
         return List.copyOf(rules);
     }
 
+    /** Left-guarded like a grammar rule, so {@code SHAKE} is not found inside {@code handshake}. */
+    private static Pattern variantPattern(String regex) {
+        return Pattern.compile("(?<![A-Za-z0-9])" + regex, Pattern.CASE_INSENSITIVE);
+    }
+
+    private static Map<Integer, Set<Integer>> truncationsBySize(Node node) {
+        Map<Integer, Set<Integer>> bySize = new LinkedHashMap<>();
+        for (Map.Entry<String, Node> entry : node.entries()) {
+            Set<Integer> truncations = Set.copyOf(entry.getValue().elements().stream().map(Node::integer).toList());
+            bySize.put(node.integerKey(entry.getKey()), truncations);
+        }
+        return Collections.unmodifiableMap(bySize);
+    }
+
+    private static List<SizeVariant> sizeVariants(Node node) {
+        List<SizeVariant> variants = new ArrayList<>();
+        for (Node variant : node.elements()) {
+            Set<Integer> sizes = Set.copyOf(variant.field("sizes").elements().stream().map(Node::integer).toList());
+            variants.add(new SizeVariant(variantPattern(variant.field("pattern").text()), sizes));
+        }
+        return List.copyOf(variants);
+    }
+
+    private static List<VariantPrimitive> variantPrimitives(Node node) {
+        List<VariantPrimitive> variants = new ArrayList<>();
+        for (Node variant : node.elements()) {
+            variants
+                    .add(new VariantPrimitive(variant.field("family").text(),
+                            variantPattern(variant.field("pattern").text()), variant.field("primitive").text()));
+        }
+        return List.copyOf(variants);
+    }
+
     private static List<SecondaryMarker> markers(Node node) {
         List<SecondaryMarker> markers = new ArrayList<>();
         for (Node marker : node.elements()) {
@@ -574,6 +670,15 @@ public final class IdentityTables {
                 throw shape("an integer");
             }
             return json.intValue();
+        }
+
+        /** A key of this object that spells an integer, which JSON can only carry as text. */
+        int integerKey(String key) {
+            try {
+                return Integer.parseInt(key);
+            } catch (NumberFormatException e) {
+                throw new IllegalStateException(RESOURCE + ": table `" + at(key) + "` must be keyed on an integer");
+            }
         }
 
         String optionalText(String key) {

@@ -30,6 +30,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -54,7 +55,11 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 @ToString
 @RequiredArgsConstructor
 @Entity
-@Table(name = "attribute_definition")
+@Table(name = "attribute_definition",
+        uniqueConstraints = {
+                @UniqueConstraint(name = "uq_attribute_definition_key",
+                        columnNames = {"type", "connector_key", "attribute_uuid", "name"}),
+                @UniqueConstraint(name = "uq_attribute_definition_global_name", columnNames = {"type", "global_name"})})
 @EntityListeners(AuditingEntityListener.class)
 public class AttributeDefinition extends UniquelyIdentified implements ObjectAccessControlMapper<NameAndUuidDto> {
 
@@ -140,6 +145,23 @@ public class AttributeDefinition extends UniquelyIdentified implements ObjectAcc
     @Column(name = "protection_level")
     @Enumerated(EnumType.STRING)
     private ProtectionLevel protectionLevel;
+
+    /**
+     * The connector a definition is unique within, computed by the database: NULL for a metadata definition without a
+     * connector, since a deleted connector's leftovers may repeat, and a fixed UUID for the platform's own definitions,
+     * so their copies collide. Mapped only so the test schema carries the column; V202610111000 adds it in production.
+     */
+    @Setter(AccessLevel.NONE)
+    @Column(name = "connector_key",
+            columnDefinition = "uuid generated always as (case when type = 'META' then connector_uuid else coalesce(connector_uuid, '00000000-0000-0000-0000-000000000000'::uuid) end) stored",
+            insertable = false, updatable = false)
+    private UUID connectorKey;
+
+    /** The name of a global definition and NULL otherwise, so a global name is unique per type. Database-computed. */
+    @Setter(AccessLevel.NONE)
+    @Column(name = "global_name", columnDefinition = "text generated always as (case when global then name end) stored",
+            insertable = false, updatable = false)
+    private String globalName;
 
     @Column(name = "encrypted_data", length = Integer.MAX_VALUE)
     @JdbcTypeCode(SqlTypes.ARRAY)

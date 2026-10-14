@@ -152,10 +152,14 @@ public class AttributeDefinitionResolver {
             throws ValidationException {
         try {
             if (type == AttributeType.META) {
-                for (BaseAttribute definition : definitions) {
-                    if (definition instanceof MetadataAttribute metadataAttribute) {
-                        attributeEngine.updateMetadataAttributeDefinition(metadataAttribute, connectorUuid);
-                    }
+                List<MetadataAttribute> ordered = definitions
+                        .stream()
+                        .filter(MetadataAttribute.class::isInstance)
+                        .map(MetadataAttribute.class::cast)
+                        .sorted(AttributeEngine.METADATA_WRITE_ORDER)
+                        .toList();
+                for (MetadataAttribute metadataAttribute : ordered) {
+                    attributeEngine.updateMetadataAttributeDefinition(metadataAttribute, connectorUuid);
                 }
             } else {
                 // DATA + GROUP ingest by name/uuid via the shared definition writer.
