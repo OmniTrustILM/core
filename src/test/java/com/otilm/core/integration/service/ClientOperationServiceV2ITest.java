@@ -512,15 +512,16 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     void issueCertificate_failsTheCertificateAndQueuesNothing_whenTheBeforeDispatchStepFails() throws Exception {
         stubIssueEndpoints();
         List<UUID> seen = new ArrayList<>();
+        SecuredParentUUID authorityUuid = authorityInstanceReference.getSecuredParentUuid();
+        SecuredUUID raProfileUuid = raProfile.getSecuredUuid();
+        ClientCertificateIssueRequestDto request = issueRequest();
 
         Assertions
-                .assertThrows(CertificateOperationException.class,
-                        () -> clientOperationInternalService
-                                .issueCertificate(authorityInstanceReference.getSecuredParentUuid(),
-                                        raProfile.getSecuredUuid(), issueRequest(), null, uuid -> {
-                                            seen.add(uuid);
-                                            throw new IllegalStateException("link failed");
-                                        }));
+                .assertThrows(CertificateOperationException.class, () -> clientOperationInternalService
+                        .issueCertificate(authorityUuid, raProfileUuid, request, null, uuid -> {
+                            seen.add(uuid);
+                            throw new IllegalStateException("link failed");
+                        }));
 
         Assertions.assertEquals(1, seen.size());
         Assertions
@@ -533,12 +534,13 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         stubIssueEndpoints();
         doThrow(new IllegalStateException("broker down")).when(actionProducer).produceMessage(any());
         List<UUID> seen = new ArrayList<>();
+        SecuredParentUUID authorityUuid = authorityInstanceReference.getSecuredParentUuid();
+        SecuredUUID raProfileUuid = raProfile.getSecuredUuid();
+        ClientCertificateIssueRequestDto request = issueRequest();
 
         Assertions
-                .assertThrows(IllegalStateException.class,
-                        () -> clientOperationInternalService
-                                .issueCertificate(authorityInstanceReference.getSecuredParentUuid(),
-                                        raProfile.getSecuredUuid(), issueRequest(), null, seen::add));
+                .assertThrows(IllegalStateException.class, () -> clientOperationInternalService
+                        .issueCertificate(authorityUuid, raProfileUuid, request, null, seen::add));
 
         Assertions.assertEquals(1, seen.size());
         Assertions

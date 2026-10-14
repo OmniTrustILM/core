@@ -573,7 +573,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             final SecuredUUID raProfileUuid, final ClientCertificateIssueRequestDto request,
             final CertificateProtocolInfo protocolInfo) throws NotFoundException, CertificateException,
             NoSuchAlgorithmException, CertificateOperationException, CertificateRequestException {
-        return submitAndQueueIssue(authorityUuid, raProfileUuid, request, protocolInfo, null);
+        return submitAndQueueIssue(raProfileUuid, request, protocolInfo, null);
     }
 
     @Override
@@ -584,13 +584,12 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             final SecuredUUID raProfileUuid, final ClientCertificateIssueRequestDto request,
             final CertificateProtocolInfo protocolInfo, final Consumer<UUID> beforeDispatch) throws NotFoundException,
             CertificateException, NoSuchAlgorithmException, CertificateOperationException, CertificateRequestException {
-        return submitAndQueueIssue(authorityUuid, raProfileUuid, request, protocolInfo, beforeDispatch);
+        return submitAndQueueIssue(raProfileUuid, request, protocolInfo, beforeDispatch);
     }
 
-    private ClientCertificateDataResponseDto submitAndQueueIssue(final SecuredParentUUID authorityUuid,
-            final SecuredUUID raProfileUuid, final ClientCertificateIssueRequestDto request,
-            final CertificateProtocolInfo protocolInfo, final Consumer<UUID> beforeDispatch) throws NotFoundException,
-            CertificateException, NoSuchAlgorithmException, CertificateOperationException, CertificateRequestException {
+    private ClientCertificateDataResponseDto submitAndQueueIssue(final SecuredUUID raProfileUuid,
+            final ClientCertificateIssueRequestDto request, final CertificateProtocolInfo protocolInfo,
+            final Consumer<UUID> beforeDispatch) throws NotFoundException, CertificateOperationException {
         // validate RA profile
         RaProfile raProfile = raProfileRepository
                 .findByUuid(raProfileUuid.getValue())
