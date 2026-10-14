@@ -959,6 +959,23 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
         assertThat(assetRepository.count()).isZero();
     }
 
+    /** The verdict history keeps only decided verdicts; an inconclusive one must not be written into it. */
+    @Test
+    void theVerdictHistoryColumnRefusesAnUndecidedVerdict() {
+        UUID assetUuid = upsert(new CryptoAssetIdentityFields(CryptographicAssetType.ALGORITHM, "rsa-history", null,
+                null, null, null, null, null, null, null), null);
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+
+        assertThatThrownBy(() -> transaction
+                .executeWithoutResult(status -> assetRepository
+                        .applyPqcVerdict(assetUuid, PqcVerdict.UNKNOWN.name(), "rule", "reason", "{}", null, null,
+                                PqcVerdict.UNKNOWN.name())))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .satisfies(failure -> assertThat(CryptoAssetConstraintTranslator.constraintNameOf(failure))
+                        .describedAs("the refusal must come from the verdict history check")
+                        .contains("ck_crypto_asset_pqc_last_decided_verdict"));
+    }
+
     @Test
     void aNameAtTheLimitIsAccepted() {
         CryptoAssetIdentityFields atLimit = new CryptoAssetIdentityFields(CryptographicAssetType.ALGORITHM,

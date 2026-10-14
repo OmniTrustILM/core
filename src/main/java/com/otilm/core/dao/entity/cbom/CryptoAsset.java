@@ -58,6 +58,8 @@ import org.hibernate.type.SqlTypes;
         constraints = "identity_guard IN ('REFUTED_CERTIFICATE_DIGEST', 'BARE_CN_SUBJECT', 'REFUTED_OID')")
 @Check(name = "ck_crypto_asset_pqc_verdict",
         constraints = "pqc_verdict IN ('READY', 'NOT_READY', 'NOT_APPLICABLE', 'UNKNOWN')")
+@Check(name = "ck_crypto_asset_pqc_last_decided_verdict",
+        constraints = "pqc_last_decided_verdict IN ('READY', 'NOT_READY', 'NOT_APPLICABLE')")
 @Check(name = "ck_crypto_asset_oid_length", constraints = "length(oid) <= 255")
 @Check(name = "ck_crypto_asset_name_length", constraints = "length(name) <= 1024")
 public class CryptoAsset extends UniquelyIdentifiedAndAudited {

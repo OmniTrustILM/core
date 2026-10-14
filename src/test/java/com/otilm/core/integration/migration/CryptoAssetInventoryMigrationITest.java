@@ -50,6 +50,9 @@ class CryptoAssetInventoryMigrationITest extends BaseSpringBootTest {
     /** And the PQC references migration, which drops the rule-set version column and its index. */
     private static final String PQC_REFERENCES_MIGRATION_RESOURCE = "db/migration/V202609291200__crypto_asset_pqc_references.sql";
 
+    /** And the verdict history column with its check, which only the migration declares outside the entity. */
+    private static final String PQC_LAST_DECIDED_MIGRATION_RESOURCE = "db/migration/V202610132200__crypto_asset_pqc_last_decided_verdict.sql";
+
     private static final String SCRATCH_SCHEMA = "crypto_asset_migration_check";
 
     /** Only the columns the migration's ALTER touches: it adds columns and reads nothing else about the table. */
@@ -80,9 +83,9 @@ class CryptoAssetInventoryMigrationITest extends BaseSpringBootTest {
                     "ck_crypto_asset_properties_leaf_count", "ck_crypto_asset_source_occurrence_count",
                     "ck_crypto_asset_source_properties_leaf_count", "ck_crypto_asset_alias_not_self",
                     "ck_crypto_asset_asset_type", "ck_crypto_asset_identity_guard", "ck_crypto_asset_pqc_verdict",
-                    "ck_crypto_asset_oid_length", "ck_crypto_asset_name_length", "ck_cbom_asset_sync_state",
-                    "ck_cbom_asset_sync_content_refusals", "ck_crypto_asset_reference_kind",
-                    "ck_crypto_asset_reference_ordinal");
+                    "ck_crypto_asset_pqc_last_decided_verdict", "ck_crypto_asset_oid_length",
+                    "ck_crypto_asset_name_length", "ck_cbom_asset_sync_state", "ck_cbom_asset_sync_content_refusals",
+                    "ck_crypto_asset_reference_kind", "ck_crypto_asset_reference_ordinal");
 
     private static final String CBOM_UUID = "11111111-0000-4000-8000-000000000001";
     private static final String ASSET_UUID = "22222222-0000-4000-8000-000000000001";
@@ -183,6 +186,12 @@ class CryptoAssetInventoryMigrationITest extends BaseSpringBootTest {
 
     private void applyMigrationToScratchSchema(Connection connection) throws Exception {
         applyMigrationsUpTo(connection, true);
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("SET search_path TO " + SCRATCH_SCHEMA);
+            statement
+                    .execute(new ClassPathResource(PQC_LAST_DECIDED_MIGRATION_RESOURCE)
+                            .getContentAsString(StandardCharsets.UTF_8));
+        }
     }
 
     private void applyPqcReferencesMigration(Connection connection) throws Exception {
