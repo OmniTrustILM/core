@@ -1,21 +1,18 @@
 package com.otilm.core.security.authn;
 
 import com.otilm.api.model.core.logging.enums.AuthMethod;
+import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
 import com.otilm.core.security.authn.client.PlatformAuthenticationClient;
 import com.otilm.core.util.AuthHelper;
-import com.otilm.core.util.CertificateUtil;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.net.InetAddress;
-import java.net.URLDecoder;
 import java.net.UnknownHostException;
-import java.nio.charset.StandardCharsets;
 import java.security.NoSuchAlgorithmException;
-import java.util.Base64;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -48,13 +45,18 @@ public class PlatformAuthenticationFilter extends OncePerRequestFilter {
         if (isAuthenticationNeeded(request)) {
             log.trace("Going to authenticate the '{}' request on '{}'.", request.getMethod(), request.getRequestURI());
 
+            String rawCertHeader = request.getHeader(certificateHeaderName);
             try {
                 AuthenticationInfo authInfo;
-                String rawCertHeader = request.getHeader(certificateHeaderName);
                 if (rawCertHeader != null) {
-                    authInfo = authenticateByCertificate(rawCertHeader);
+                    authInfo = authenticateByCertificate(request);
                 } else {
                     authInfo = authClient.authenticate(AuthMethod.NONE, null, isLocalhostAddress(request));
+                }
+
+                if (rawCertHeader != null && authInfo.isAnonymous()) {
+                    rejectCertificate(response);
+                    return;
                 }
 
                 Authentication authentication;
@@ -69,6 +71,11 @@ public class PlatformAuthenticationFilter extends OncePerRequestFilter {
 
             } catch (AuthenticationException e) {
                 SecurityContextHolder.clearContext();
+                if (rawCertHeader != null) {
+                    log.warn("Certificate authentication request for '{}' failed.", request.getRequestURI());
+                    rejectCertificate(response);
+                    return;
+                }
                 if (e instanceof PlatformAuthenticationException) {
                     log.warn("Authentication request for '{}' failed: {}", request.getRequestURI(), e.getMessage());
                 } else {
@@ -77,6 +84,12 @@ public class PlatformAuthenticationFilter extends OncePerRequestFilter {
             }
         }
         filterChain.doFilter(request, response);
+    }
+
+    private static void rejectCertificate(HttpServletResponse response) throws IOException {
+        SecurityContextHolder.clearContext();
+        LoggingHelper.clearActorInfo();
+        response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
     }
 
     private static void updateSecurityContext(Authentication authentication) {
@@ -93,17 +106,15 @@ public class PlatformAuthenticationFilter extends OncePerRequestFilter {
         }
     }
 
-    private AuthenticationInfo authenticateByCertificate(String rawCertHeader) {
+    private AuthenticationInfo authenticateByCertificate(HttpServletRequest request) {
         AuthenticationInfo authInfo;
         try {
-            String decoded = URLDecoder.decode(rawCertHeader, StandardCharsets.UTF_8);
-            byte[] derBytes = Base64.getDecoder().decode(CertificateUtil.normalizeCertificateContent(decoded));
-            String thumbprint = CertificateUtil.getThumbprint(derBytes);
-            authInfo = authClient.authenticateByCertificate(rawCertHeader, thumbprint);
+            var certificate = ForwardedClientCertificateParser.parse(request, certificateHeaderName);
+            authInfo = authClient.authenticateByCertificate(certificate);
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 algorithm not available", e);
         } catch (IllegalArgumentException e) {
-            throw new PlatformAuthenticationException("Invalid certificate header: " + e.getMessage(), e);
+            throw new PlatformAuthenticationException("Invalid certificate header.", e);
         }
         return authInfo;
     }

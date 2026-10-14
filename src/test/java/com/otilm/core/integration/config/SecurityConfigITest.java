@@ -46,6 +46,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oidcLogin;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -68,6 +71,9 @@ class SecurityConfigITest extends BaseSpringBootTestNoAuth {
     @Autowired
     AuthenticationCache authenticationCache;
 
+    @Autowired
+    org.springframework.cache.CacheManager cacheManager;
+
     @MockitoBean
     private JdbcIndexedSessionRepository sessionRepository;
 
@@ -78,7 +84,7 @@ class SecurityConfigITest extends BaseSpringBootTestNoAuth {
     public SessionRepositoryFilter springSessionRepositoryFilter;
 
     static final String CERTIFICATE_USER_USERNAME = "certificate-user";
-    static final String CERTIFICATE_HEADER_VALUE = "certificate";
+    static final String CERTIFICATE_HEADER_VALUE = com.otilm.core.security.authn.ForwardedCertificateFixtures.LEAF_DER;
     static final String TOKEN_USER_USERNAME = "token-user";
 
     Jwt mockJwt;
@@ -144,7 +150,99 @@ class SecurityConfigITest extends BaseSpringBootTestNoAuth {
     }
 
     @Test
+    void rfcCompanionReachesAuthAndProtectedResponseDisablesHttpCaching() throws Exception {
+        mvc
+                .perform(get("/v1/auth/profile")
+                        .header("X-APP-CERTIFICATE", ":" + CERTIFICATE_HEADER_VALUE + ":")
+                        .header("Client-Cert-Chain",
+                                ":" + com.otilm.core.security.authn.ForwardedCertificateFixtures.ISSUER_DER + ":"))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                        .header()
+                        .string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")));
+        mockServer
+                .verify(WireMock
+                        .postRequestedFor(WireMock.urlEqualTo("/auth"))
+                        .withRequestBody(WireMock
+                                .matchingJsonPath("$.certificateChain[0]", WireMock
+                                        .equalTo(
+                                                com.otilm.core.security.authn.ForwardedCertificateFixtures.ISSUER_DER))));
+    }
+
+    @Test
+    void malformedCompanionRejectsAWarmedLeafWithoutAnotherAuthCall() throws Exception {
+        enableValidBearer();
+        mvc
+                .perform(get("/v1/auth/profile").header("X-APP-CERTIFICATE", CERTIFICATE_HEADER_VALUE))
+                .andExpect(status().isOk());
+        mvc
+                .perform(get("/v1/auth/profile")
+                        .header("X-APP-CERTIFICATE", ":" + CERTIFICATE_HEADER_VALUE + ":")
+                        .header("Client-Cert-Chain", ":dGVzdA==:")
+                        .header("Authorization", tokenHeaderValue))
+                .andExpect(status().isUnauthorized())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                        .header()
+                        .string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")));
+        mockServer.verify(1, WireMock.postRequestedFor(WireMock.urlEqualTo("/auth")));
+        verify(jwtDecoder, never()).decode(Mockito.anyString());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {":dGVzdA==:", "Cert=\"invalid\""})
+    void malformedSelectedCertificateCannotFallBackToValidBearer(String certificate) throws Exception {
+        enableValidBearer();
+        mvc
+                .perform(get("/v1/auth/profile")
+                        .header("X-APP-CERTIFICATE", certificate)
+                        .header("Authorization", tokenHeaderValue))
+                .andExpect(status().isUnauthorized())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                        .header()
+                        .string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")));
+        verify(jwtDecoder, never()).decode(Mockito.anyString());
+        mockServer.verify(0, WireMock.postRequestedFor(WireMock.urlEqualTo("/auth")));
+        assertCertificateNotCached();
+    }
+
+    @Test
+    void unrecognizedOrDisabledCertificateUserCannotFallBackToValidBearer() throws Exception {
+        enableValidBearer();
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/auth"))
+                        .withRequestBody(WireMock
+                                .matchingJsonPath("$.certificateContent", WireMock.equalTo(CERTIFICATE_HEADER_VALUE)))
+                        .atPriority(1)
+                        .willReturn(WireMock.okJson("{\"authenticated\":false}")));
+        mvc
+                .perform(get("/v1/auth/profile")
+                        .header("X-APP-CERTIFICATE", CERTIFICATE_HEADER_VALUE)
+                        .header("Authorization", tokenHeaderValue))
+                .andExpect(status().isUnauthorized())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                        .header()
+                        .string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")));
+        verify(jwtDecoder, never()).decode(Mockito.anyString());
+        mockServer.verify(1, WireMock.postRequestedFor(WireMock.urlEqualTo("/auth")));
+        assertCertificateNotCached();
+    }
+
+    private void enableValidBearer() {
+        cacheProviderSettings(null, "http://issuer");
+        when(jwtDecoder.decode(tokenValue)).thenReturn(mockJwt);
+    }
+
+    private void assertCertificateNotCached() {
+        Assertions
+                .assertNull(cacheManager
+                        .getCache(com.otilm.core.config.cache.CacheConfig.CERTIFICATE_AUTH_CACHE)
+                        .get(com.otilm.core.security.authn.ForwardedCertificateFixtures.THUMBPRINT));
+    }
+
+    @Test
     void authorizeProtocolEndpoint() throws Exception {
+        addAuthPostStub("\"systemUsername\":\"acme\"", UUID.randomUUID().toString(), "acme");
         mvc
                 .perform(get(ServletUriComponentsBuilder.fromCurrentContextPath().build().getPath()
                         + "/v1/protocols/acme/raProfile/RA Profile/directory"))
@@ -154,7 +252,7 @@ class SecurityConfigITest extends BaseSpringBootTestNoAuth {
     @Test
     void authorizeUsingJwtToken() throws Exception {
         cacheProviderSettings(null, "http://issuer");
-        Mockito.when(jwtDecoder.decode(tokenValue)).thenReturn(mockJwt);
+        when(jwtDecoder.decode(tokenValue)).thenReturn(mockJwt);
         MvcResult result = mvc
                 .perform(
                         get(ServletUriComponentsBuilder.fromCurrentContextPath().build().getPath() + "/v1/auth/profile")
@@ -166,7 +264,7 @@ class SecurityConfigITest extends BaseSpringBootTestNoAuth {
 
     @Test
     void authorizeWithCertificateAndToken() throws Exception {
-        Mockito.when(jwtDecoder.decode(tokenValue)).thenReturn(null);
+        when(jwtDecoder.decode(tokenValue)).thenReturn(null);
         MvcResult result = mvc
                 .perform(
                         get(ServletUriComponentsBuilder.fromCurrentContextPath().build().getPath() + "/v1/auth/profile")

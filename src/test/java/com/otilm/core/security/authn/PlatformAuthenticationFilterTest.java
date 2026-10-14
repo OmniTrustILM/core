@@ -8,6 +8,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockFilterChain;
@@ -19,6 +21,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -26,9 +29,11 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -38,10 +43,10 @@ class PlatformAuthenticationFilterTest {
 
     private static final String CERT_HEADER_NAME = "ssl-client-cert";
 
-    // PEM wrapping base64("test") — after normalize+decode yields DER bytes [0x74, 0x65, 0x73, 0x74]
-    // expected thumbprint = SHA-256("test") = 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
-    private static final String CERT_HEADER = "-----BEGIN CERTIFICATE-----\ndGVzdA==\n-----END CERTIFICATE-----\n";
-    private static final String CERT_THUMBPRINT = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
+    private static final String CERT_HEADER = java.net.URLEncoder
+            .encode(com.otilm.core.security.authn.ForwardedCertificateFixtures.LEAF_PEM,
+                    java.nio.charset.StandardCharsets.UTF_8);
+    private static final String CERT_THUMBPRINT = com.otilm.core.security.authn.ForwardedCertificateFixtures.THUMBPRINT;
 
     @Mock
     private PlatformAuthenticationClient authClient;
@@ -58,7 +63,7 @@ class PlatformAuthenticationFilterTest {
         request = new MockHttpServletRequest();
         request.setRemoteAddr("10.0.0.1"); // non-loopback so isLocalhostAddress = false
         response = new MockHttpServletResponse();
-        filterChain = new MockFilterChain();
+        filterChain = spy(new MockFilterChain());
         SecurityContextHolder.clearContext();
     }
 
@@ -79,21 +84,69 @@ class PlatformAuthenticationFilterTest {
 
         // then
         verify(authClient).authenticate(AuthMethod.NONE, null, false);
-        verify(authClient, never()).authenticateByCertificate(any(), any());
+        verify(authClient, never()).authenticateByCertificate(any());
     }
 
     @Test
     void certHeader_present_callsCertificateAuthWithComputedThumbprint() throws Exception {
         // given
         request.addHeader(CERT_HEADER_NAME, CERT_HEADER);
-        when(authClient.authenticateByCertificate(CERT_HEADER, CERT_THUMBPRINT)).thenReturn(authenticatedInfo());
+        when(authClient.authenticateByCertificate(argThat(cert -> CERT_THUMBPRINT.equals(cert.thumbprint()))))
+                .thenReturn(authenticatedInfo());
 
         // when
         filter.doFilter(request, response, filterChain);
 
-        // then - thumbprint is the SHA-256 of the DER bytes derived from the PEM content
-        verify(authClient).authenticateByCertificate(CERT_HEADER, CERT_THUMBPRINT);
+        // then - thumbprint identifies the leaf certificate
+        verify(authClient).authenticateByCertificate(argThat(cert -> CERT_THUMBPRINT.equals(cert.thumbprint())));
         verify(authClient, never()).authenticate(any(), any(), anyBoolean());
+    }
+
+    @ParameterizedTest
+    @MethodSource("com.otilm.core.security.authn.ForwardedCertificateFixtures#supportedHeaders")
+    void authenticatesSupportedCertificateHeaders(String header, String content, String thumbprint) throws Exception {
+        request.addHeader(CERT_HEADER_NAME, header);
+        when(authClient
+                .authenticateByCertificate(
+                        argThat(cert -> content.equals(cert.content()) && thumbprint.equals(cert.thumbprint()))))
+                .thenReturn(authenticatedInfo());
+        filter.doFilter(request, response, filterChain);
+        assertInstanceOf(PlatformAuthenticationToken.class, SecurityContextHolder.getContext().getAuthentication());
+        verify(authClient)
+                .authenticateByCertificate(
+                        argThat(cert -> content.equals(cert.content()) && thumbprint.equals(cert.thumbprint())));
+    }
+
+    @ParameterizedTest
+    @MethodSource("com.otilm.core.security.authn.ForwardedCertificateFixtures#malformedHeaders")
+    void refusesMalformedCertificateHeaders(String header) {
+        request.addHeader(CERT_HEADER_NAME, header);
+        assertDoesNotThrow(() -> filter.doFilter(request, response, filterChain));
+        assertNull(SecurityContextHolder.getContext().getAuthentication());
+        assertEquals(401, response.getStatus());
+        verifyNoInteractions(authClient, filterChain);
+    }
+
+    @Test
+    void rfcCompanionCandidatesReachAuthThroughConfiguredHeader() throws Exception {
+        filter = new PlatformAuthenticationFilter(authClient, "Custom-Cert", "");
+        request.addHeader("Custom-Cert", ":" + ForwardedCertificateFixtures.LEAF_DER + ":");
+        request.addHeader("Client-Cert-Chain", ":" + ForwardedCertificateFixtures.ISSUER_DER + ":");
+        when(authClient.authenticateByCertificate(any())).thenReturn(authenticatedInfo());
+        filter.doFilter(request, response, filterChain);
+        verify(authClient)
+                .authenticateByCertificate(argThat(cert -> cert.content().equals(ForwardedCertificateFixtures.LEAF_DER)
+                        && cert.chain().equals(List.of(ForwardedCertificateFixtures.ISSUER_DER))));
+    }
+
+    @Test
+    void malformedRfcCompanionPreventsCertificateAndAnonymousFallback() throws Exception {
+        request.addHeader(CERT_HEADER_NAME, ":" + ForwardedCertificateFixtures.LEAF_DER + ":");
+        request.addHeader("Client-Cert-Chain", ":dGVzdA==:");
+        request.addHeader("Authorization", "Bearer token");
+        filter.doFilter(request, response, filterChain);
+        assertNull(SecurityContextHolder.getContext().getAuthentication());
+        verifyNoInteractions(authClient);
     }
 
     // --- SecurityContext outcome ---
@@ -126,6 +179,37 @@ class PlatformAuthenticationFilterTest {
         assertInstanceOf(PlatformAnonymousToken.class, auth);
     }
 
+    @Test
+    void anonymousCertificateResultTerminatesChain() throws Exception {
+        request.addHeader(CERT_HEADER_NAME, CERT_HEADER);
+        when(authClient.authenticateByCertificate(any()))
+                .thenReturn(AuthenticationInfo.getAnonymousAuthenticationInfo());
+        filter.doFilter(request, response, filterChain);
+        assertNull(SecurityContextHolder.getContext().getAuthentication());
+        org.junit.jupiter.api.Assertions.assertEquals(401, response.getStatus());
+        assertNull(filterChain.getRequest());
+    }
+
+    @Test
+    void certificateAuthenticationExceptionTerminatesChain() throws Exception {
+        request.addHeader(CERT_HEADER_NAME, CERT_HEADER);
+        when(authClient.authenticateByCertificate(any())).thenThrow(new BadCredentialsException("refused"));
+        filter.doFilter(request, response, filterChain);
+        assertNull(SecurityContextHolder.getContext().getAuthentication());
+        org.junit.jupiter.api.Assertions.assertEquals(401, response.getStatus());
+        assertNull(filterChain.getRequest());
+    }
+
+    @Test
+    void oauthEndpointWithoutPriorAuthenticationKeepsItsSelectionWithCertificateHeader() throws Exception {
+        request.setRequestURI("/oauth2/authorization/test");
+        request.addHeader(CERT_HEADER_NAME, "invalid");
+        filter.doFilter(request, response, filterChain);
+        verifyNoInteractions(authClient);
+        assertInstanceOf(PlatformAnonymousToken.class, SecurityContextHolder.getContext().getAuthentication());
+        assertSame(request, filterChain.getRequest());
+    }
+
     // --- exception handling ---
 
     @Test
@@ -142,7 +226,7 @@ class PlatformAuthenticationFilterTest {
     }
 
     @Test
-    void malformedCertHeader_clearsContextAndContinuesChain() {
+    void malformedCertHeader_clearsContextAndTerminatesChain() {
         // given - cert header present but Base64 content is garbage (not valid DER)
         request
                 .addHeader(CERT_HEADER_NAME,
@@ -153,7 +237,9 @@ class PlatformAuthenticationFilterTest {
 
         // then - no auth was stored and the auth client was never called
         assertNull(SecurityContextHolder.getContext().getAuthentication());
-        verify(authClient, never()).authenticateByCertificate(any(), any());
+        assertEquals(401, response.getStatus());
+        verify(authClient, never()).authenticateByCertificate(any());
+        verifyNoInteractions(filterChain);
     }
 
     @Test
@@ -171,6 +257,7 @@ class PlatformAuthenticationFilterTest {
     void permitAllEndpoint_setsAnonymousTokenWithPermitAllFlagAndSkipsAuth() throws Exception {
         // given - /v1/health/live matches the /v?/health/** permit-all pattern
         request.setRequestURI("/v1/health/live");
+        request.addHeader(CERT_HEADER_NAME, "invalid");
 
         // when
         filter.doFilter(request, response, filterChain);
@@ -216,13 +303,14 @@ class PlatformAuthenticationFilterTest {
         // given
         request.addHeader("Authorization", "Bearer some.jwt.token");
         request.addHeader(CERT_HEADER_NAME, CERT_HEADER);
-        when(authClient.authenticateByCertificate(CERT_HEADER, CERT_THUMBPRINT)).thenReturn(authenticatedInfo());
+        when(authClient.authenticateByCertificate(argThat(cert -> CERT_THUMBPRINT.equals(cert.thumbprint()))))
+                .thenReturn(authenticatedInfo());
 
         // when
         filter.doFilter(request, response, filterChain);
 
         // then - cert path is chosen even when an Authorization header is present
-        verify(authClient).authenticateByCertificate(CERT_HEADER, CERT_THUMBPRINT);
+        verify(authClient).authenticateByCertificate(argThat(cert -> CERT_THUMBPRINT.equals(cert.thumbprint())));
         verify(authClient, never()).authenticate(any(), any(), anyBoolean());
     }
 

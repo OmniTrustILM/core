@@ -60,7 +60,7 @@ class TspSecurityChainITest extends BaseSpringBootTestNoAuth {
 
     WireMockServer mockServer;
 
-    static final String CERTIFICATE_HEADER_VALUE = "certificate";
+    static final String CERTIFICATE_HEADER_VALUE = com.otilm.core.security.authn.ForwardedCertificateFixtures.LEAF_DER;
     static final String CERTIFICATE_USER_USERNAME = "certificate-user";
 
     @BeforeEach
@@ -130,6 +130,7 @@ class TspSecurityChainITest extends BaseSpringBootTestNoAuth {
                 .andExpect(status().isUnauthorized())
                 .andReturn();
 
+        assertThat(result.getResponse().getHeader("Cache-Control")).contains("no-store");
         // then — a TSP request establishes no session cookie
         assertThat(result.getResponse().getCookie(CookieConfig.COOKIE_NAME))
                 .as("TSP chain must not set a session cookie")

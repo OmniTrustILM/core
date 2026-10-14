@@ -219,6 +219,11 @@
             <artifactId>commons-lang3</artifactId>
         </dependency>
         <dependency>
+            <groupId>org.greenbytes.http</groupId>
+            <artifactId>structured-fields</artifactId>
+            <version>0.6</version>
+        </dependency>
+        <dependency>
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcprov-jdk18on</artifactId>
         </dependency>

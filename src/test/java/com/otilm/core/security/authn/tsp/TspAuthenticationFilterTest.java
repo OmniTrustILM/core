@@ -32,6 +32,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -63,10 +65,10 @@ class TspAuthenticationFilterTest {
 
     private static final String CERT_HEADER_NAME = "ssl-client-cert";
 
-    // PEM wrapping base64("test") — after normalize+decode yields DER bytes [0x74, 0x65, 0x73, 0x74]
-    // expected thumbprint = SHA-256("test") = 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
-    private static final String CERT_HEADER = "-----BEGIN CERTIFICATE-----\ndGVzdA==\n-----END CERTIFICATE-----\n";
-    private static final String CERT_THUMBPRINT = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
+    private static final String CERT_HEADER = java.net.URLEncoder
+            .encode(com.otilm.core.security.authn.ForwardedCertificateFixtures.LEAF_PEM,
+                    java.nio.charset.StandardCharsets.UTF_8);
+    private static final String CERT_THUMBPRINT = com.otilm.core.security.authn.ForwardedCertificateFixtures.THUMBPRINT;
 
     @Mock
     private TspProfileInternalService tspProfileService;
@@ -208,7 +210,8 @@ class TspAuthenticationFilterTest {
             when(signingProfileService.resolveTspProfileForSigningProfileAuthentication("sp1"))
                     .thenReturn(Optional.of(modelWith(List.of(TspAuthenticationMethod.CLIENT_CERTIFICATE))));
             request.addHeader(CERT_HEADER_NAME, CERT_HEADER);
-            when(authClient.authenticateByCertificate(CERT_HEADER, CERT_THUMBPRINT)).thenReturn(authenticatedInfo());
+            when(authClient.authenticateByCertificate(argThat(cert -> CERT_THUMBPRINT.equals(cert.thumbprint()))))
+                    .thenReturn(authenticatedInfo());
 
             // when
             filter.doFilter(request, response, chain);
@@ -226,7 +229,8 @@ class TspAuthenticationFilterTest {
             when(tspProfileService.resolveTspProfileForAuthentication("signingProfiles"))
                     .thenReturn(modelWith(List.of(TspAuthenticationMethod.CLIENT_CERTIFICATE)));
             request.addHeader(CERT_HEADER_NAME, CERT_HEADER);
-            when(authClient.authenticateByCertificate(CERT_HEADER, CERT_THUMBPRINT)).thenReturn(authenticatedInfo());
+            when(authClient.authenticateByCertificate(argThat(cert -> CERT_THUMBPRINT.equals(cert.thumbprint()))))
+                    .thenReturn(authenticatedInfo());
 
             // when
             filter.doFilter(request, response, chain);
@@ -331,6 +335,72 @@ class TspAuthenticationFilterTest {
     @Nested
     class ClientCertificate {
 
+        @ParameterizedTest
+        @MethodSource("com.otilm.core.security.authn.ForwardedCertificateFixtures#supportedHeaders")
+        void authenticatesSupportedCertificateHeaders(String header, String content, String thumbprint)
+                throws Exception {
+            setPath("/v1/protocols/tsp/p1");
+            when(tspProfileService.resolveTspProfileForAuthentication("p1"))
+                    .thenReturn(modelWith(List.of(TspAuthenticationMethod.CLIENT_CERTIFICATE)));
+            request.addHeader(CERT_HEADER_NAME, header);
+            when(authClient
+                    .authenticateByCertificate(
+                            argThat(cert -> content.equals(cert.content()) && thumbprint.equals(cert.thumbprint()))))
+                    .thenReturn(authenticatedInfo());
+            filter.doFilter(request, response, chain);
+            assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
+            verify(authClient)
+                    .authenticateByCertificate(
+                            argThat(cert -> content.equals(cert.content()) && thumbprint.equals(cert.thumbprint())));
+        }
+
+        @ParameterizedTest
+        @MethodSource("com.otilm.core.security.authn.ForwardedCertificateFixtures#malformedHeaders")
+        void refusesMalformedCertificateHeaders(String header) throws Exception {
+            setPath("/v1/protocols/tsp/p1");
+            when(tspProfileService.resolveTspProfileForAuthentication("p1"))
+                    .thenReturn(modelWith(List.of(TspAuthenticationMethod.CLIENT_CERTIFICATE)));
+            request.addHeader(CERT_HEADER_NAME, header);
+            filter.doFilter(request, response, chain);
+            assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+            assertThat(response.getStatus()).isEqualTo(401);
+            verifyNoInteractions(authClient);
+        }
+
+        @Test
+        void rfcCompanionCandidatesReachAuth() throws Exception {
+            setPath("/v1/protocols/tsp/p1");
+            when(tspProfileService.resolveTspProfileForAuthentication("p1"))
+                    .thenReturn(modelWith(List.of(TspAuthenticationMethod.CLIENT_CERTIFICATE)));
+            request
+                    .addHeader(CERT_HEADER_NAME,
+                            ":" + com.otilm.core.security.authn.ForwardedCertificateFixtures.LEAF_DER + ":");
+            request
+                    .addHeader("Client-Cert-Chain",
+                            ":" + com.otilm.core.security.authn.ForwardedCertificateFixtures.ISSUER_DER + ":");
+            when(authClient.authenticateByCertificate(any())).thenReturn(authenticatedInfo());
+            filter.doFilter(request, response, chain);
+            verify(authClient)
+                    .authenticateByCertificate(argThat(cert -> cert
+                            .chain()
+                            .equals(List.of(com.otilm.core.security.authn.ForwardedCertificateFixtures.ISSUER_DER))));
+            assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
+        }
+
+        @Test
+        void malformedRfcCompanionDoesNotReachAuth() throws Exception {
+            setPath("/v1/protocols/tsp/p1");
+            when(tspProfileService.resolveTspProfileForAuthentication("p1"))
+                    .thenReturn(modelWith(List.of(TspAuthenticationMethod.CLIENT_CERTIFICATE)));
+            request
+                    .addHeader(CERT_HEADER_NAME,
+                            ":" + com.otilm.core.security.authn.ForwardedCertificateFixtures.LEAF_DER + ":");
+            request.addHeader("Client-Cert-Chain", ":dGVzdA==:");
+            filter.doFilter(request, response, chain);
+            assertThat(response.getStatus()).isEqualTo(401);
+            verifyNoInteractions(authClient);
+        }
+
         @Test
         void setsContextFromConnector() throws Exception {
             // given
@@ -338,13 +408,14 @@ class TspAuthenticationFilterTest {
             when(tspProfileService.resolveTspProfileForAuthentication("p1"))
                     .thenReturn(modelWith(List.of(TspAuthenticationMethod.CLIENT_CERTIFICATE)));
             request.addHeader(CERT_HEADER_NAME, CERT_HEADER);
-            when(authClient.authenticateByCertificate(CERT_HEADER, CERT_THUMBPRINT)).thenReturn(authenticatedInfo());
+            when(authClient.authenticateByCertificate(argThat(cert -> CERT_THUMBPRINT.equals(cert.thumbprint()))))
+                    .thenReturn(authenticatedInfo());
 
             // when
             filter.doFilter(request, response, chain);
 
             // then
-            verify(authClient).authenticateByCertificate(CERT_HEADER, CERT_THUMBPRINT);
+            verify(authClient).authenticateByCertificate(argThat(cert -> CERT_THUMBPRINT.equals(cert.thumbprint())));
             assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
             assertThat(chain.getRequest()).isNotNull();
             assertActorIsPrincipal("uuid-1", "alice");
@@ -607,7 +678,7 @@ class TspAuthenticationFilterTest {
             when(tspProfileService.resolveTspProfileForAuthentication("p1"))
                     .thenReturn(modelWith(List.of(TspAuthenticationMethod.CLIENT_CERTIFICATE)));
             request.addHeader(CERT_HEADER_NAME, CERT_HEADER);
-            when(authClient.authenticateByCertificate(CERT_HEADER, CERT_THUMBPRINT))
+            when(authClient.authenticateByCertificate(argThat(cert -> CERT_THUMBPRINT.equals(cert.thumbprint()))))
                     .thenThrow(new PlatformAuthenticationException("upstream auth failure"));
 
             // when

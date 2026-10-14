@@ -121,6 +121,9 @@ Application supports two types of message brokers:
 | `SETTINGS_CACHE_REFRESH_INTERVAL`     | Interval of scheduled settings cache refresh from DB (in seconds)                                                                                | ![](https://img.shields.io/badge/-NO-red.svg)             | `30`                |
 | `PLATFORM_LOG_FORMAT`                 | Console log format: `text` for the pattern, `ecs` or `logstash` for one JSON object per line                                                     | ![](https://img.shields.io/badge/-NO-red.svg)             | `text`              |
 
+### Client certificate authentication
+
+See [Client certificate authentication](https://docs.otilm.com/docs/certificate-key/installation-guide/deployment/client-certificate-authentication) for setup with a gateway or reverse proxy.
 
 ### OpenTelemetry settings
 

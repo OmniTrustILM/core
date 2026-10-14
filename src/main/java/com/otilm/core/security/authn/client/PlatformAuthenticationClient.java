@@ -8,6 +8,8 @@ import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
 import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.model.auth.AuthenticationRequestDto;
+import com.otilm.core.security.authn.ForwardedClientCertificateParser;
+import com.otilm.core.security.authn.ForwardedClientCertificateParser.ParsedCertificate;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.security.authn.client.dto.AuthenticationResponseDto;
 import com.otilm.core.security.authn.client.dto.UserDetailsDto;
@@ -15,9 +17,6 @@ import com.otilm.core.security.exception.AuthenticationServiceException;
 import com.otilm.core.service.AuditLogInternalService;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.AuthHelper;
-import com.otilm.core.util.CertificateUtil;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -44,9 +43,6 @@ public class PlatformAuthenticationClient extends PlatformBaseAuthenticationClie
     private final String customAuthServiceBaseUrl;
     private final AuthenticationCache authenticationCache;
 
-    @Value("${server.ssl.certificate-header-name}")
-    private String certificateHeaderName;
-
     private final AuditLogInternalService auditLogService;
 
     public PlatformAuthenticationClient(@Autowired AuditLogInternalService auditLogService,
@@ -68,10 +64,10 @@ public class PlatformAuthenticationClient extends PlatformBaseAuthenticationClie
                 .getOrAuthenticateByUserUuid(userUuid, () -> authenticate(AuthMethod.USER_PROXY, userUuid, false)));
     }
 
-    public AuthenticationInfo authenticateByCertificate(String rawCertHeader, String certificateThumbprint) {
+    public AuthenticationInfo authenticateByCertificate(ParsedCertificate certificate) {
         return restoreActorMdc(authenticationCache
-                .getOrAuthenticateByCertificate(certificateThumbprint,
-                        () -> authenticate(AuthMethod.CERTIFICATE, rawCertHeader, false)));
+                .getOrAuthenticateByCertificate(certificate.thumbprint(),
+                        () -> authenticate(AuthMethod.CERTIFICATE, certificate, false)));
     }
 
     public AuthenticationInfo authenticateByToken(Map<String, Object> claims, long settingsGeneration) {
@@ -150,15 +146,11 @@ public class PlatformAuthenticationClient extends PlatformBaseAuthenticationClie
         switch (authMethod) {
             case NONE -> checkLocalhostUser(requestDto, isLocalhostRequest);
             case CERTIFICATE -> {
-                try {
-                    String certificateInHeader = URLDecoder.decode((String) authData, StandardCharsets.UTF_8);
-                    requestDto.setCertificateContent(CertificateUtil.normalizeCertificateContent(certificateInHeader));
-                } catch (Exception e) {
-                    LoggingHelper.putActorInfoWhenNull(ActorType.USER, AuthMethod.CERTIFICATE);
-                    String message = "Could not parse certificate for authentication. Certificate: " + authData;
-                    AuthHelper.logAndAuditAuthFailure(logger, auditLogService, message, authData.toString());
-                    throw new PlatformAuthenticationException(message);
-                }
+                ParsedCertificate certificate = authData instanceof ParsedCertificate parsed
+                        ? parsed
+                        : parseCertificate(authData);
+                requestDto.setCertificateContent(certificate.content());
+                requestDto.setCertificateChain(certificate.chain());
             }
             case TOKEN -> requestDto.setAuthenticationTokenUserClaims((Map<String, Object>) authData);
             case USER_PROXY -> {
@@ -177,6 +169,17 @@ public class PlatformAuthenticationClient extends PlatformBaseAuthenticationClie
         LoggingHelper.putActorInfoWhenNull(ActorType.USER, requestDto.getAuthMethod());
 
         return requestDto;
+    }
+
+    private ParsedCertificate parseCertificate(Object authData) {
+        try {
+            return ForwardedClientCertificateParser.parse((String) authData);
+        } catch (Exception e) {
+            LoggingHelper.putActorInfoWhenNull(ActorType.USER, AuthMethod.CERTIFICATE);
+            String message = "Could not parse certificate for authentication.";
+            AuthHelper.logAndAuditAuthFailure(logger, auditLogService, message, null);
+            throw new PlatformAuthenticationException(message);
+        }
     }
 
     private void checkLocalhostUser(AuthenticationRequestDto requestDto, boolean isLocalhostRequest) {
