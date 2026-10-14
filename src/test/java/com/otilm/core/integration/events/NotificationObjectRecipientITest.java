@@ -159,7 +159,8 @@ class NotificationObjectRecipientITest extends BaseSpringBootTest {
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificateUuid,
                         UUID.fromString(customAttr.getUuid()), customAttr.getName(),
-                        List.of(new StringAttributeContentV3(CONTACT_VALUE)));
+                        List.of(new StringAttributeContentV3(CONTACT_VALUE)),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         NotificationMessage message = new NotificationMessage(ResourceEvent.CERTIFICATE_STATUS_CHANGED,
                 Resource.CERTIFICATE, certificateUuid, List.of(UUID.fromString(profile.getUuid())), List.of(), null);
@@ -404,7 +405,8 @@ class NotificationObjectRecipientITest extends BaseSpringBootTest {
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificateUuid,
                         UUID.fromString(customAttr.getUuid()), customAttr.getName(),
-                        List.of(new StringAttributeContentV3(CONTACT_VALUE)));
+                        List.of(new StringAttributeContentV3(CONTACT_VALUE)),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         Assertions
                 .assertDoesNotThrow(() -> notificationListener
@@ -433,7 +435,8 @@ class NotificationObjectRecipientITest extends BaseSpringBootTest {
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.SECRET, secretTargetUuid,
                         UUID.fromString(secretAttr.getUuid()), secretAttr.getName(),
-                        List.of(new StringAttributeContentV3(secretMarker)));
+                        List.of(new StringAttributeContentV3(secretMarker)),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         NotificationInstanceMappedAttributes secretMapping = new NotificationInstanceMappedAttributes();
         secretMapping.setAttributeDefinitionUuid(UUID.fromString(secretAttr.getUuid()));
@@ -562,7 +565,8 @@ class NotificationObjectRecipientITest extends BaseSpringBootTest {
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificateUuid,
                         UUID.fromString(customAttr.getUuid()), customAttr.getName(),
-                        List.of(new StringAttributeContentV3(CONTACT_VALUE)));
+                        List.of(new StringAttributeContentV3(CONTACT_VALUE)),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         Trigger trigger = new Trigger();
         trigger.setName("testActionsTrigger");

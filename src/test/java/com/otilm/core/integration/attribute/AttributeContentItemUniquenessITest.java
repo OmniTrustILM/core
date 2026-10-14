@@ -191,7 +191,8 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
                 try {
                     attributeEngine
                             .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificateUuid, definitionUuid,
-                                    null, List.of(sortsSecond, sortsFirst));
+                                    null, List.of(sortsSecond, sortsFirst),
+                                    attributeEngine.loadCustomAttributesSecurityResourceFilter());
                 } catch (NotFoundException | AttributeException e) {
                     throw new IllegalStateException(e);
                 }
@@ -243,7 +244,8 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
                 try {
                     attributeEngine
                             .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificateUuid, definitionUuid,
-                                    null, List.of(b, aKeysReversed));
+                                    null, List.of(b, aKeysReversed),
+                                    attributeEngine.loadCustomAttributesSecurityResourceFilter());
                 } catch (NotFoundException | AttributeException e) {
                     throw new IllegalStateException(e);
                 }
@@ -432,7 +434,8 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
         for (int i = 0; i < 2; i++) {
             attributeEngine
                     .updateObjectCustomAttributeContent(Resource.CERTIFICATE, newCertificate(), definitionUuid, null,
-                            List.of(new TextAttributeContentV3(value)));
+                            List.of(new TextAttributeContentV3(value)),
+                            attributeEngine.loadCustomAttributesSecurityResourceFilter());
         }
 
         Assertions.assertEquals(1, attributeContentItemRepository.count());
@@ -678,7 +681,8 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
                     .updateObjectCustomAttributeContent(Resource.CERTIFICATE, newCertificate(), definitionUuid, null,
                             List
                                     .of(new CodeBlockAttributeContentV3(null,
-                                            new CodeBlockAttributeContentData(ProgrammingLanguageEnum.PYTHON, code))));
+                                            new CodeBlockAttributeContentData(ProgrammingLanguageEnum.PYTHON, code))),
+                            attributeEngine.loadCustomAttributesSecurityResourceFilter());
         }
         new JdbcTemplate(dataSource)
                 .update("UPDATE attribute_content_item SET encrypted_data = ?",
@@ -741,7 +745,8 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
         try {
             attributeEngine
                     .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificateUuid, definitionUuid, null,
-                            List.of(new StringAttributeContentV3(value)));
+                            List.of(new StringAttributeContentV3(value)),
+                            attributeEngine.loadCustomAttributesSecurityResourceFilter());
         } catch (NotFoundException | AttributeException e) {
             throw new IllegalStateException(e);
         }
@@ -759,7 +764,8 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
         try {
             attributeEngine
                     .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificateUuid, definitionUuid, null,
-                            List.of(new ObjectAttributeContentV3(data)));
+                            List.of(new ObjectAttributeContentV3(data)),
+                            attributeEngine.loadCustomAttributesSecurityResourceFilter());
         } catch (NotFoundException | AttributeException e) {
             throw new IllegalStateException(e);
         }

@@ -5,11 +5,13 @@ import com.otilm.core.dao.repository.SecurityFilterRepository;
 import com.otilm.core.model.cbom.CryptoAssetCounts;
 import com.otilm.core.model.cbom.CryptoAssetListRow;
 import com.otilm.core.model.cbom.PqcStaleVerdictRow;
+import jakarta.persistence.LockModeType;
 import jakarta.persistence.Tuple;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -26,10 +28,28 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAsset, UUID> {
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT a FROM CryptoAsset a WHERE a.uuid = :uuid")
+    Optional<CryptoAsset> findForUpdateByUuid(@Param("uuid") UUID uuid);
+
     Optional<CryptoAsset> findByIdentityKey(String identityKey);
 
     @Query("SELECT a.uuid FROM CryptoAsset a WHERE a.identityKey = :key")
     Optional<UUID> findUuidByIdentityKey(@Param("key") String key);
+
+    @Query(value = """
+            SELECT EXISTS (
+                SELECT 1 FROM {h-schema}crypto_asset a
+                WHERE a.uuid = :uuid
+                  AND (lower(a.name) LIKE lower('%' || :literal || '%') ESCAPE '\\'
+                    OR (a.identity_guard IS DISTINCT FROM 'REFUTED_OID'
+                        AND lower(a.oid) LIKE lower('%' || :literal || '%') ESCAPE '\\'))
+                )
+            """, nativeQuery = true)
+    boolean matchesFreeText(@Param("uuid") UUID uuid, @Param("literal") String escapedLiteral);
+
+    @Query("SELECT s.cbom.serialNumber FROM CryptoAssetSource s WHERE s.assetUuid = :uuid")
+    List<String> findSourceCbomSerialNumbers(@Param("uuid") UUID uuid);
 
     /**
      * Assets keyed by a rule-set generation older than {@code version} -- the re-keying sweep's work list, and the
@@ -245,6 +265,7 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
     @Query(value = """
             UPDATE {h-schema}crypto_asset
             SET pqc_verdict = :verdict,
+                pqc_last_decided_verdict = :lastDecidedVerdict,
                 pqc_rule_id = :ruleId,
                 pqc_reason = :reason,
                 pqc_evaluated_fields = CAST(:evaluatedFields AS jsonb),
@@ -259,9 +280,10 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
                 i_upd = CURRENT_TIMESTAMP
             WHERE uuid = :uuid
             """, nativeQuery = true)
-    void applyPqcVerdict(@Param("uuid") UUID uuid, @Param("verdict") String verdict, @Param("ruleId") String ruleId,
+    int applyPqcVerdict(@Param("uuid") UUID uuid, @Param("verdict") String verdict, @Param("ruleId") String ruleId,
             @Param("reason") String reason, @Param("evaluatedFields") String evaluatedFields,
-            @Param("referencedAssetUuid") UUID referencedAssetUuid, @Param("referenceBasis") String referenceBasis);
+            @Param("referencedAssetUuid") UUID referencedAssetUuid, @Param("referenceBasis") String referenceBasis,
+            @Param("lastDecidedVerdict") String lastDecidedVerdict);
 
     /**
      * The sweep's work list, one keyset page of it. See {@link #staleVerdictRows} for what a caller uses.
@@ -306,6 +328,8 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
                    padding,
                    variant,
                    merged_crypto_properties::text AS merged_crypto_properties,
+                   pqc_verdict,
+                   pqc_last_decided_verdict,
                    xmin::text::bigint AS row_version
             FROM {h-schema}crypto_asset
             WHERE (pqc_evaluated_revision IS DISTINCT FROM input_revision
@@ -363,6 +387,8 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
                    padding,
                    variant,
                    merged_crypto_properties::text AS merged_crypto_properties,
+                   pqc_verdict,
+                   pqc_last_decided_verdict,
                    xmin::text::bigint AS row_version
             FROM {h-schema}crypto_asset
             WHERE uuid IN :uuids
@@ -401,6 +427,7 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
     @Query(value = """
             UPDATE {h-schema}crypto_asset
             SET pqc_verdict = :verdict,
+                pqc_last_decided_verdict = :lastDecidedVerdict,
                 pqc_rule_id = :ruleId,
                 pqc_reason = :reason,
                 pqc_evaluated_fields = CAST(:evaluatedFields AS jsonb),
@@ -429,7 +456,7 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
     int applyPqcVerdictIfStale(@Param("uuid") UUID uuid, @Param("rowVersion") long rowVersion,
             @Param("verdict") String verdict, @Param("ruleId") String ruleId, @Param("reason") String reason,
             @Param("evaluatedFields") String evaluatedFields, @Param("referencedAssetUuid") UUID referencedAssetUuid,
-            @Param("referenceBasis") String referenceBasis);
+            @Param("referenceBasis") String referenceBasis, @Param("lastDecidedVerdict") String lastDecidedVerdict);
 
     /**
      * Collects an orphan, and only while it still is one.
@@ -462,9 +489,8 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
     /**
      * Distinct stored values of one normalized filter column, for the searchable-fields value lists. The columns hold
      * the stored normalized spelling (case/whitespace/Unicode-folded), so the lists collapse casing variants of one
-     * token. Class-level canonicalization -- folding P-256 and secp256r1 into one secg/* representative -- is the
-     * ingest pipeline's obligation (core#2072): these lists offer exactly what that pipeline stores, one entry per
-     * stored spelling, and become the ratified class representatives the moment it writes them.
+     * token. Class-level canonicalization -- folding P-256 and secp256r1 into one secg/* representative -- belongs to
+     * the ingest pipeline; these lists offer exactly what it stores, one entry per stored spelling.
      *
      * <p>
      * Native recursive CTEs -- a loose index scan. Postgres has no btree skip scan, so {@code SELECT DISTINCT} walks
