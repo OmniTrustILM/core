@@ -3,6 +3,7 @@ package com.otilm.core.integration.service;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.CbomRepositoryException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.RuleException;
 import com.otilm.api.exception.ValidationException;
@@ -35,9 +36,11 @@ import com.otilm.api.model.core.workflows.ExecutionType;
 import com.otilm.api.model.core.workflows.RuleRequestDto;
 import com.otilm.api.model.core.workflows.TriggerRequestDto;
 import com.otilm.api.model.core.workflows.TriggerType;
+import com.otilm.core.api.ExceptionHandlingAdvice;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.cbom.asset.AssetRowKeys;
 import com.otilm.core.cbom.asset.CryptoAssetIdentityFields;
+import com.otilm.core.cbom.client.CbomRepositoryClient;
 import com.otilm.core.cbom.ingest.CbomAssetIngestService;
 import com.otilm.core.cbom.ingest.CbomIngestTestFixtures;
 import com.otilm.core.cbom.sync.CbomSyncPolicy;
@@ -60,6 +63,7 @@ import com.otilm.core.service.ResourceExtensionService;
 import com.otilm.core.service.ResourceExternalService;
 import com.otilm.core.service.RuleExternalService;
 import com.otilm.core.service.TriggerExternalService;
+import com.otilm.core.service.impl.CbomServiceImpl;
 import com.otilm.core.service.writer.cbom.CryptoAssetSourceWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetWriter;
 import com.otilm.core.service.writer.cbom.InventoryCustomAttributeWriter;
@@ -68,6 +72,7 @@ import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CommittedEventCapture;
 import com.otilm.core.util.LoopbackWireMock;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.LockModeType;
 import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
@@ -80,19 +85,28 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import javax.sql.DataSource;
+import org.hibernate.engine.spi.SharedSessionContractImplementor;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.orm.jpa.EntityManagerHolder;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.test.util.AopTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.UnexpectedRollbackException;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aCustomAttributeFilter;
@@ -147,7 +161,13 @@ class CbomCryptoAssetCustomAttributesITest extends BaseSpringBootTest {
     private EntityManager entityManager;
 
     @Autowired
+    private EntityManagerFactory entityManagerFactory;
+
+    @Autowired
     private PlatformTransactionManager transactionManager;
+
+    @Autowired
+    private DataSource dataSource;
 
     @Autowired
     private ConfigurableApplicationContext applicationContext;
@@ -257,7 +277,7 @@ class CbomCryptoAssetCustomAttributesITest extends BaseSpringBootTest {
     }
 
     @Test
-    void lateAttributeWriteFailureRollsBackTheUploadedCbomRow() {
+    void lateAttributeWriteFailurePreservesTheUploadedCbomAndReportsPartialFailure() {
         String serial = "urn:uuid:" + UUID.randomUUID();
         repositoryServer
                 .stubFor(WireMock
@@ -292,12 +312,292 @@ class CbomCryptoAssetCustomAttributesITest extends BaseSpringBootTest {
         upload.setContent(new LinkedHashMap<>(Map.of("serialNumber", serial, "version", 1, "specVersion", "1.6")));
         upload.setCustomAttributes(List.of(requestContent("alice")));
 
-        ValidationException error = assertThrows(ValidationException.class, () -> cbomService.createCbom(upload));
+        Exception failure = assertThrows(Exception.class, () -> cbomService.createCbom(upload));
 
-        assertTrue(error.getMessage().contains("Not allowed to set custom attributes: " + ATTRIBUTE_NAME));
         assertTrue(attributeWriteSawSavedCbom.get());
         repositoryServer.verify(1, WireMock.postRequestedFor(WireMock.urlPathEqualTo("/api/v1/bom")));
-        assertFalse(cbomRepository.existsBySerialNumberAndVersion(serial, 1));
+        assertTrue(cbomRepository.existsBySerialNumberAndVersion(serial, 1));
+        Cbom persisted = cbomRepository
+                .findAll()
+                .stream()
+                .filter(cbom -> serial.equals(cbom.getSerialNumber()))
+                .findFirst()
+                .orElseThrow();
+        CbomRepositoryException error = assertInstanceOf(CbomRepositoryException.class, failure);
+        var response = new ExceptionHandlingAdvice().handleCbomRepositoryException(error);
+        assertEquals(422, response.getStatusCode().value());
+        assertTrue(response.getBody().getMessage().contains(persisted.getUuid().toString()));
+        assertTrue(response.getBody().getMessage().contains("was stored"));
+        assertTrue(response.getBody().getMessage().contains("Not allowed to set custom attributes: " + ATTRIBUTE_NAME));
+        assertTrue(attributeEngine
+                .getObjectCustomAttributesContentForSystemContext(Resource.CBOM, persisted.getUuid())
+                .isEmpty());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void repositoryUploadAndConflictRecoveryDoNotHoldADatabaseTransaction(boolean alreadyInRepository)
+            throws Exception {
+        String serial = "urn:uuid:" + UUID.randomUUID();
+        repositoryServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo("/api/v1/bom"))
+                        .willReturn(WireMock
+                                .aResponse()
+                                .withStatus(alreadyInRepository ? 409 : 201)
+                                .withHeader("Content-Type", "application/json")
+                                .withBody(alreadyInRepository
+                                        ? "{\"status\":409,\"detail\":\"Already exists\"}"
+                                        : "{\"serialNumber\":\"" + serial + "\",\"version\":1}")));
+        repositoryServer
+                .stubFor(WireMock
+                        .get(WireMock.urlPathMatching("/api/v1/bom/.*/versions"))
+                        .willReturn(WireMock
+                                .aResponse()
+                                .withHeader("Content-Type", "application/json")
+                                .withBody("[{\"serialNumber\":\"" + serial + "\",\"version\":\"1\"}]")));
+        CbomRepositoryClient actualClient = applicationContext.getBean(CbomRepositoryClient.class);
+        CbomRepositoryClient observedClient = Mockito.spy(actualClient);
+        AtomicBoolean transactionSeen = new AtomicBoolean();
+        AtomicBoolean connectionSeen = new AtomicBoolean();
+        AtomicInteger observedCalls = new AtomicInteger();
+        Mockito.doAnswer(call -> {
+            observedCalls.incrementAndGet();
+            transactionSeen.compareAndSet(false, TransactionSynchronizationManager.isActualTransactionActive());
+            connectionSeen.compareAndSet(false, TransactionSynchronizationManager.hasResource(dataSource));
+            return call.callRealMethod();
+        }).when(observedClient).create(Mockito.any());
+        Mockito.doAnswer(call -> {
+            observedCalls.incrementAndGet();
+            transactionSeen.compareAndSet(false, TransactionSynchronizationManager.isActualTransactionActive());
+            connectionSeen.compareAndSet(false, TransactionSynchronizationManager.hasResource(dataSource));
+            return call.callRealMethod();
+        }).when(observedClient).versions(Mockito.any());
+        CbomServiceImpl service = AopTestUtils.getUltimateTargetObject(cbomService);
+        service.setCbomRepositoryClient(observedClient);
+        CbomUploadRequestDto upload = new CbomUploadRequestDto();
+        upload.setContent(new LinkedHashMap<>(Map.of("serialNumber", serial, "version", 1, "specVersion", "1.6")));
+        upload.setCustomAttributes(List.of(requestContent("alice")));
+        try {
+            UUID uuid = cbomService.createCbom(upload).getUuid();
+            assertTrue(cbomRepository.existsById(uuid));
+            assertEquals("alice",
+                    firstValue(attributeEngine.getObjectCustomAttributesContentForSystemContext(Resource.CBOM, uuid)));
+        } finally {
+            service.setCbomRepositoryClient(actualClient);
+        }
+        assertEquals(alreadyInRepository ? 2 : 1, observedCalls.get());
+        assertFalse(transactionSeen.get(), "Repository HTTP must run outside a database transaction");
+        assertFalse(connectionSeen.get(), "Repository HTTP must not retain the caller's database connection");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void permissionLookupAfterUploadDoesNotRetainAnOpenInViewConnection(boolean latePermissionDenied) throws Exception {
+        String serial = "urn:uuid:" + UUID.randomUUID();
+        repositoryServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo("/api/v1/bom"))
+                        .willReturn(WireMock
+                                .aResponse()
+                                .withStatus(201)
+                                .withHeader("Content-Type", "application/json")
+                                .withBody("{\"serialNumber\":\"" + serial + "\",\"version\":1}")));
+        OpaObjectAccessResult allowed = new OpaObjectAccessResult();
+        allowed.setActionAllowedForGroupOfObjects(true);
+        allowed.setAllowedObjects(List.of());
+        allowed.setForbiddenObjects(List.of());
+        OpaObjectAccessResult forbidden = new OpaObjectAccessResult();
+        forbidden.setActionAllowedForGroupOfObjects(false);
+        forbidden.setAllowedObjects(List.of());
+        forbidden.setForbiddenObjects(List.of(attributeUuid.toString()));
+        AtomicInteger permissionCalls = new AtomicInteger();
+        Map<Integer, Boolean> connectionByPermissionCall = new LinkedHashMap<>();
+        AtomicBoolean transactionSeen = new AtomicBoolean();
+        EntityManager requestEntityManager = entityManagerFactory.createEntityManager();
+        CbomRepositoryClient actualClient = applicationContext.getBean(CbomRepositoryClient.class);
+        CbomRepositoryClient observedClient = Mockito.spy(actualClient);
+        AtomicInteger uploadCalls = new AtomicInteger();
+        AtomicBoolean uploadConnectionSeen = new AtomicBoolean();
+        Mockito.doAnswer(call -> {
+            uploadCalls.incrementAndGet();
+            uploadConnectionSeen
+                    .set(requestEntityManager
+                            .unwrap(SharedSessionContractImplementor.class)
+                            .getJdbcCoordinator()
+                            .getLogicalConnection()
+                            .isPhysicallyConnected());
+            return call.callRealMethod();
+        }).when(observedClient).create(Mockito.any());
+        CbomServiceImpl service = AopTestUtils.getUltimateTargetObject(cbomService);
+        service.setCbomRepositoryClient(observedClient);
+        when(opaClient
+                .checkObjectAccess(Mockito.any(),
+                        Mockito
+                                .argThat(req -> req != null && req.getProperties() != null
+                                        && Resource.ATTRIBUTE.getCode().equals(req.getProperties().get("name"))
+                                        && ResourceAction.MEMBERS.getCode().equals(req.getProperties().get("action"))),
+                        Mockito.any(), Mockito.any()))
+                .thenAnswer(call -> {
+                    connectionByPermissionCall
+                            .put(permissionCalls.incrementAndGet(),
+                                    requestEntityManager
+                                            .unwrap(SharedSessionContractImplementor.class)
+                                            .getJdbcCoordinator()
+                                            .getLogicalConnection()
+                                            .isPhysicallyConnected());
+                    transactionSeen.compareAndSet(false, TransactionSynchronizationManager.isActualTransactionActive());
+                    return latePermissionDenied && permissionCalls.get() == 2 ? forbidden : allowed;
+                });
+        CbomUploadRequestDto upload = new CbomUploadRequestDto();
+        upload.setContent(new LinkedHashMap<>(Map.of("serialNumber", serial, "version", 1, "specVersion", "1.6")));
+        upload.setCustomAttributes(List.of(requestContent("alice")));
+        assertFalse(TransactionSynchronizationManager.hasResource(entityManagerFactory));
+        TransactionSynchronizationManager
+                .bindResource(entityManagerFactory, new EntityManagerHolder(requestEntityManager));
+        try {
+            if (latePermissionDenied) {
+                assertThrows(CbomRepositoryException.class, () -> cbomService.createCbom(upload));
+            } else {
+                cbomService.createCbom(upload);
+            }
+            assertEquals(requestEntityManager,
+                    ((EntityManagerHolder) TransactionSynchronizationManager.getResource(entityManagerFactory))
+                            .getEntityManager());
+        } finally {
+            service.setCbomRepositoryClient(actualClient);
+            TransactionSynchronizationManager.unbindResource(entityManagerFactory);
+            requestEntityManager.close();
+        }
+        assertEquals(1, uploadCalls.get());
+        assertFalse(uploadConnectionSeen.get(), "Repository HTTP must not retain the request's JDBC connection");
+        assertEquals(2, permissionCalls.get());
+        assertFalse(transactionSeen.get(), "Attribute permission HTTP must not hold a transaction");
+        assertEquals(Map.of(1, false, 2, false), connectionByPermissionCall,
+                "Attribute permission HTTP must not retain the request's JDBC connection");
+    }
+
+    @Test
+    void unexpectedLateAttributeFailurePreservesTheCbomWithoutExposingRuntimeDetails() {
+        String serial = "urn:uuid:" + UUID.randomUUID();
+        repositoryServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo("/api/v1/bom"))
+                        .willReturn(WireMock
+                                .aResponse()
+                                .withStatus(201)
+                                .withHeader("Content-Type", "application/json")
+                                .withBody("{\"serialNumber\":\"" + serial + "\",\"version\":1}")));
+        OpaObjectAccessResult allowed = new OpaObjectAccessResult();
+        allowed.setActionAllowedForGroupOfObjects(true);
+        allowed.setAllowedObjects(List.of());
+        allowed.setForbiddenObjects(List.of());
+        when(opaClient
+                .checkObjectAccess(Mockito.any(),
+                        Mockito
+                                .argThat(req -> req != null && req.getProperties() != null
+                                        && Resource.ATTRIBUTE.getCode().equals(req.getProperties().get("name"))
+                                        && ResourceAction.MEMBERS.getCode().equals(req.getProperties().get("action"))),
+                        Mockito.any(), Mockito.any()))
+                .thenAnswer(call -> {
+                    if (cbomRepository.existsBySerialNumberAndVersion(serial, 1)) {
+                        throw new IllegalStateException("PRIVATE_RUNTIME_DETAIL_2532");
+                    }
+                    return allowed;
+                });
+        CbomUploadRequestDto upload = new CbomUploadRequestDto();
+        upload.setContent(new LinkedHashMap<>(Map.of("serialNumber", serial, "version", 1, "specVersion", "1.6")));
+        upload.setCustomAttributes(List.of(requestContent("alice")));
+
+        Exception failure = assertThrows(Exception.class, () -> cbomService.createCbom(upload));
+
+        assertTrue(cbomRepository.existsBySerialNumberAndVersion(serial, 1));
+        Cbom persisted = cbomRepository
+                .findAll()
+                .stream()
+                .filter(cbom -> serial.equals(cbom.getSerialNumber()))
+                .findFirst()
+                .orElseThrow();
+        CbomRepositoryException error = assertInstanceOf(CbomRepositoryException.class, failure);
+        var response = new ExceptionHandlingAdvice().handleCbomRepositoryException(error);
+        assertEquals(500, response.getStatusCode().value());
+        assertTrue(response.getBody().getMessage().contains(persisted.getUuid().toString()));
+        assertTrue(response.getBody().getMessage().contains("was stored"));
+        assertFalse(response.getBody().getMessage().contains("PRIVATE_RUNTIME_DETAIL_2532"));
+        assertTrue(attributeEngine
+                .getObjectCustomAttributesContentForSystemContext(Resource.CBOM, persisted.getUuid())
+                .isEmpty());
+    }
+
+    @Test
+    void aCbomDeletedDuringLatePermissionLookupDoesNotAcquireOrphanAttributes() throws Exception {
+        String serial = "urn:uuid:" + UUID.randomUUID();
+        repositoryServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo("/api/v1/bom"))
+                        .willReturn(WireMock
+                                .aResponse()
+                                .withStatus(201)
+                                .withHeader("Content-Type", "application/json")
+                                .withBody("{\"serialNumber\":\"" + serial + "\",\"version\":1}")));
+        CountDownLatch permissionLookupStarted = new CountDownLatch(1);
+        CountDownLatch resumePermissionLookup = new CountDownLatch(1);
+        AtomicReference<UUID> storedUuid = new AtomicReference<>();
+        OpaObjectAccessResult allowed = new OpaObjectAccessResult();
+        allowed.setActionAllowedForGroupOfObjects(true);
+        allowed.setAllowedObjects(List.of());
+        allowed.setForbiddenObjects(List.of());
+        when(opaClient
+                .checkObjectAccess(Mockito.any(),
+                        Mockito
+                                .argThat(req -> req != null && req.getProperties() != null
+                                        && Resource.ATTRIBUTE.getCode().equals(req.getProperties().get("name"))
+                                        && ResourceAction.MEMBERS.getCode().equals(req.getProperties().get("action"))),
+                        Mockito.any(), Mockito.any()))
+                .thenAnswer(call -> {
+                    Cbom stored = cbomRepository
+                            .findAll()
+                            .stream()
+                            .filter(cbom -> serial.equals(cbom.getSerialNumber()))
+                            .findFirst()
+                            .orElse(null);
+                    if (stored != null) {
+                        storedUuid.set(stored.getUuid());
+                        permissionLookupStarted.countDown();
+                        if (!resumePermissionLookup.await(15, TimeUnit.SECONDS)) {
+                            throw new IllegalStateException("Attribute permission lookup was not resumed");
+                        }
+                    }
+                    return allowed;
+                });
+        CbomUploadRequestDto upload = new CbomUploadRequestDto();
+        upload.setContent(new LinkedHashMap<>(Map.of("serialNumber", serial, "version", 1, "specVersion", "1.6")));
+        upload.setCustomAttributes(List.of(requestContent("alice")));
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        try (var workers = Executors.newVirtualThreadPerTaskExecutor()) {
+            CompletableFuture<Throwable> create = CompletableFuture.supplyAsync(() -> {
+                SecurityContextHolder.getContext().setAuthentication(authentication);
+                try {
+                    cbomService.createCbom(upload);
+                    return null;
+                } catch (Exception error) {
+                    return error;
+                } finally {
+                    SecurityContextHolder.clearContext();
+                }
+            }, workers);
+            try {
+                assertTrue(permissionLookupStarted.await(5, TimeUnit.SECONDS));
+                cbomRepository.deleteById(storedUuid.get());
+            } finally {
+                resumePermissionLookup.countDown();
+            }
+            assertInstanceOf(CbomRepositoryException.class, create.get(5, TimeUnit.SECONDS));
+        }
+        assertFalse(cbomRepository.existsById(storedUuid.get()));
+        assertTrue(attributeEngine
+                .getObjectCustomAttributesContentForSystemContext(Resource.CBOM, storedUuid.get())
+                .isEmpty());
     }
 
     @Test

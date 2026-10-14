@@ -53,6 +53,8 @@ Operations can be automated by the `Core`, but also can be performed manually by
 
 ## CBOM inventory events
 
+CBOM uploads validate custom attributes before sending the document to the repository. After repository acceptance, Core commits the CBOM record before applying attributes in a separate transaction. A late attribute failure preserves the record and returns an explicit partial-failure error containing its UUID: 422 for permission or validation failures, 500 for unexpected failures. Update attributes on that record to retry.
+
 `CBOM_SYNCED` is raised after the first successful asset ingest of each CBOM UUID. A new document version has its own UUID and event. Skipped or superseded documents emit no sync event; retries and recovery of an already completed CBOM do not emit it again.
 
 `CRYPTO_ASSET_PQC_NOT_READY` is raised when an asset is first decided NOT_READY or changes from READY or NOT_APPLICABLE to NOT_READY. UNKNOWN preserves the last decided verdict, so NOT_READY → UNKNOWN → NOT_READY emits no second event. The payload carries the asset's properties, rule, reason and previous decided verdict at the write. An asset deleted before consumption is skipped.

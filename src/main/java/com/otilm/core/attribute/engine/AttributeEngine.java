@@ -2533,7 +2533,7 @@ public class AttributeEngine {
         validateWritableCustomAttributesContent(resource, attributes, loadCustomAttributesSecurityResourceFilter());
     }
 
-    private void validateWritableCustomAttributesContent(Resource resource, List<RequestAttribute> attributes,
+    public void validateWritableCustomAttributesContent(Resource resource, List<RequestAttribute> attributes,
             SecurityResourceFilter securityResourceFilter) throws ValidationException {
         List<RequestAttribute> requestedAttributes = attributes == null ? List.of() : attributes;
         if (securityResourceFilter != null && !requestedAttributes.isEmpty()) {

@@ -65,18 +65,21 @@ import com.otilm.core.model.cbom.CryptoStatsDto;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
+import com.otilm.core.security.authz.SecurityResourceFilter;
 import com.otilm.core.service.CbomExternalService;
 import com.otilm.core.service.CbomInternalService;
 import com.otilm.core.service.CryptographicAssetExternalService;
 import com.otilm.core.service.writer.cbom.CbomAssetSyncStateWriter;
 import com.otilm.core.service.writer.cbom.CbomSyncSkipWriter;
 import com.otilm.core.service.writer.cbom.CbomTombstoneWriter;
+import com.otilm.core.service.writer.cbom.InventoryCustomAttributeWriter;
 import com.otilm.core.tasks.CbomSyncTask;
 import com.otilm.core.util.CbomUtil;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import com.otilm.core.util.RequestValidatorHelper;
 import com.otilm.core.util.SchemaHistory;
 import com.otilm.core.util.SearchHelper;
+import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Predicate;
@@ -113,6 +116,7 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service(Resource.Codes.CBOM)
 @Transactional
@@ -178,6 +182,8 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
     private ScheduledJobHistoryRepository scheduledJobHistoryRepository;
 
     private TransactionHandler transactionHandler;
+    private InventoryCustomAttributeWriter inventoryAttributeWriter;
+    private EntityManagerFactory entityManagerFactory;
 
     private AttributeColumnProjector attributeColumnProjector;
 
@@ -240,6 +246,16 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
     @Autowired
     public void setTransactionHandler(TransactionHandler transactionHandler) {
         this.transactionHandler = transactionHandler;
+    }
+
+    @Autowired
+    public void setInventoryAttributeWriter(InventoryCustomAttributeWriter inventoryAttributeWriter) {
+        this.inventoryAttributeWriter = inventoryAttributeWriter;
+    }
+
+    @Autowired
+    public void setEntityManagerFactory(EntityManagerFactory entityManagerFactory) {
+        this.entityManagerFactory = entityManagerFactory;
     }
 
     @Autowired
@@ -399,8 +415,22 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
     }
 
     @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @ExternalAuthorization(resource = Resource.CBOM, action = ResourceAction.CREATE)
     public CbomDto createCbom(CbomUploadRequestDto request)
+            throws AlreadyExistException, CbomRepositoryException, ValidationException {
+        // Each short transaction must own its EntityManager to release its connection before the next HTTP call.
+        Object requestEntityManager = TransactionSynchronizationManager.unbindResourceIfPossible(entityManagerFactory);
+        try {
+            return uploadCbom(request);
+        } finally {
+            if (requestEntityManager != null) {
+                TransactionSynchronizationManager.bindResource(entityManagerFactory, requestEntityManager);
+            }
+        }
+    }
+
+    private CbomDto uploadCbom(CbomUploadRequestDto request)
             throws AlreadyExistException, CbomRepositoryException, ValidationException {
         Map<String, Object> content = request.getContent();
         if (content == null) {
@@ -418,7 +448,8 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         List<RequestAttribute> requestedAttributes = request.getCustomAttributes() == null
                 ? List.of()
                 : request.getCustomAttributes();
-        attributeEngine.validateWritableCustomAttributesContent(Resource.CBOM, requestedAttributes);
+        SecurityResourceFilter attributeFilter = attributeEngine.loadCustomAttributesSecurityResourceFilter();
+        attributeEngine.validateWritableCustomAttributesContent(Resource.CBOM, requestedAttributes, attributeFilter);
 
         // upload JSON to cbom-repository
         CryptoStatsDto cryptoStats = null;
@@ -487,30 +518,60 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         }
         CbomHeaderCounts.from(cryptoStats).applyTo(cbom);
 
-        // save into the database only in case it does not exists
-        if (cbomRepository.existsBySerialNumberAndVersion(serialNumber, version)) {
-            throw new AlreadyExistException(
-                    "CBOM with serialNumber %s and version %s already exists".formatted(serialNumber, version));
-        }
         try {
-            cbomRepository.save(cbom);
+            boolean stored = transactionHandler.runInNewTransaction(() -> {
+                if (cbomRepository.existsBySerialNumberAndVersion(cbom.getSerialNumber(), cbom.getVersion())) {
+                    return false;
+                }
+                cbomRepository.saveAndFlush(cbom);
+                return true;
+            });
+            if (!stored) {
+                throw new AlreadyExistException(
+                        "CBOM with serialNumber %s and version %s already exists".formatted(serialNumber, version));
+            }
         } catch (DataIntegrityViolationException e) {
             throw new AlreadyExistException(
                     "CBOM with serialNumber %s and version %s already exists".formatted(serialNumber, version));
         }
-        try {
-            attributeEngine.updateObjectCustomAttributesContent(Resource.CBOM, cbom.getUuid(), requestedAttributes);
-        } catch (NotFoundException e) {
-            throw new ValidationException(ValidationError.create("Custom attribute definition not found"));
-        } catch (AttributeException e) {
-            throw new ValidationException(ValidationError.create(e.getMessage()));
-        }
+        storeUploadedCustomAttributes(cbom, requestedAttributes);
         logger
                 .logEvent(Operation.CREATE, OperationResult.SUCCESS, null,
                         List.of(new ResourceObjectIdentity(cbom.getSerialNumber(), cbom.getUuid())),
                         "CBOM record created with serialNumber %s and version %s"
                                 .formatted(cbom.getSerialNumber(), cbom.getVersion()));
         return cbom.mapToDto();
+    }
+
+    private void storeUploadedCustomAttributes(Cbom cbom, List<RequestAttribute> attributes)
+            throws CbomRepositoryException {
+        if (attributes.isEmpty()) {
+            return;
+        }
+        try {
+            SecurityResourceFilter attributeFilter = attributeEngine.loadCustomAttributesSecurityResourceFilter();
+            inventoryAttributeWriter
+                    .updateAttributesContent(Resource.CBOM, cbom.getUuid(), attributes, attributeFilter);
+        } catch (NotFoundException | AttributeException | RuntimeException e) {
+            throw uploadedAttributeFailure(cbom, e);
+        }
+    }
+
+    private static CbomRepositoryException uploadedAttributeFailure(Cbom cbom, Exception failure) {
+        HttpStatus status = HttpStatus.INTERNAL_SERVER_ERROR;
+        String reason = "Retry updating the custom attributes on the stored CBOM.";
+        if (failure instanceof ValidationException || failure instanceof AttributeException) {
+            status = HttpStatus.UNPROCESSABLE_ENTITY;
+            reason = StringUtils.defaultIfBlank(failure.getMessage(), reason);
+        } else if (failure instanceof NotFoundException) {
+            status = HttpStatus.UNPROCESSABLE_ENTITY;
+            reason = "The CBOM or a custom attribute definition is no longer available.";
+        }
+        ProblemDetail problem = ProblemDetail
+                .forStatusAndDetail(status,
+                        "CBOM with UUID %s was stored, but its custom attributes could not be stored. %s"
+                                .formatted(cbom.getUuid(), reason));
+        return new CbomRepositoryException(problem, failure);
     }
 
     /**
