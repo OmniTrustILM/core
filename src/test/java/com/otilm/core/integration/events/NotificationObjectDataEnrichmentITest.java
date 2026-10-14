@@ -151,7 +151,8 @@ class NotificationObjectDataEnrichmentITest extends BaseSpringBootTest {
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificateUuid,
                         UUID.fromString(protectedAttr.getUuid()), protectedAttr.getName(),
-                        List.of(new StringAttributeContentV3(PROTECTED_VALUE)));
+                        List.of(new StringAttributeContentV3(PROTECTED_VALUE)),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
         // The protection column is what the fail-closed filter consults; declare it protected.
         AttributeDefinition definition = attributeDefinitionRepository
                 .findByUuid(UUID.fromString(protectedAttr.getUuid()))
@@ -253,7 +254,8 @@ class NotificationObjectDataEnrichmentITest extends BaseSpringBootTest {
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificateUuid,
                         UUID.fromString(departmentAttr.getUuid()), departmentAttr.getName(),
-                        List.of(new StringAttributeContentV3(DEPARTMENT_VALUE)));
+                        List.of(new StringAttributeContentV3(DEPARTMENT_VALUE)),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
         return certificateUuid;
     }
 

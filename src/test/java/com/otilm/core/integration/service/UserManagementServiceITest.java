@@ -1,6 +1,5 @@
 package com.otilm.core.integration.service;
 
-import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
@@ -291,8 +290,8 @@ class UserManagementServiceITest extends BaseSpringBootTest {
                 "High");
         RequestAttribute userAttribute = registerCustomAttribute(Resource.USER, "departmentForbidden", "Sales");
         when(userManagementApiClient.createUser(any())).thenReturn(userDetailDto());
-        // The caller may edit the certificate attribute but not the user one, which the content validation filters
-        // out silently -- so the refusal only happens once the user attributes are written.
+        // Content validation filters out the forbidden user attribute; the permission check rejects it when the
+        // user attribute update is attempted, after the certificate attributes have been stored.
         restrictObjectAccess(Resource.ATTRIBUTE, ResourceAction.MEMBERS, List.of(certificateAttribute.getUuid()));
 
         AddUserRequestDto request = new AddUserRequestDto();
@@ -301,7 +300,7 @@ class UserManagementServiceITest extends BaseSpringBootTest {
         request.setCertificateCustomAttributes(List.of(certificateAttribute));
         request.setCustomAttributes(List.of(userAttribute));
 
-        Assertions.assertThrows(AttributeException.class, () -> userManagementService.createUser(request));
+        Assertions.assertThrows(ValidationException.class, () -> userManagementService.createUser(request));
 
         Assertions
                 .assertEquals(List.of("High"),

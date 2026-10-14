@@ -3,7 +3,6 @@ package com.otilm.core.cbom.pqc;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.otilm.api.model.core.cryptoasset.PqcVerdict;
 import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
 import com.otilm.core.model.cbom.PqcStaleVerdictRow;
@@ -48,8 +47,7 @@ public class PqcVerdictSweeper {
      * What a row gets when evaluation throws: stamped current so the sweep moves past it instead of finding it at the
      * head of the work list forever. No evidence, because the inputs are what failed.
      */
-    private static final PqcDecision EVALUATION_FAILED = new PqcDecision(PqcVerdict.UNKNOWN, PqcRules.EVALUATION_FAILED,
-            PqcRules.EVALUATION_FAILED_REASON, Map.of());
+    private static final PqcDecision EVALUATION_FAILED = PqcDecision.evaluationFailed();
 
     private final CryptoAssetRepository assetRepository;
     private final CryptoAssetPqcVerdictWriter verdictWriter;
@@ -130,7 +128,7 @@ public class PqcVerdictSweeper {
             if (decision == EVALUATION_FAILED) {
                 unevaluable.add(row.uuid());
             }
-            writes.add(new PqcVerdictWrite(row.uuid(), row.rowVersion(), decision, read.basis()));
+            writes.add(new PqcVerdictWrite(row, decision, read.basis()));
         }
         tally.read += rows.size();
         tally.batches++;

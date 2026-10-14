@@ -1186,7 +1186,8 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
                         listAttribute.getName(),
                         List
                                 .of(new StringAttributeContentV3("ref", "data1"),
-                                        new StringAttributeContentV3("ref", "data")));
+                                        new StringAttributeContentV3("ref", "data")),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         ConditionItem newCondition = new ConditionItem();
         newCondition.setFieldSource(FilterFieldSource.CUSTOM);
@@ -1307,7 +1308,8 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
                 .createCustomAttribute(singleAttributeRequest);
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, newCertificate.getUuid(), null,
-                        singleAttribute.getName(), List.of(new StringAttributeContentV3("ref", "data")));
+                        singleAttribute.getName(), List.of(new StringAttributeContentV3("ref", "data")),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         ConditionItem newCondition = new ConditionItem();
         newCondition.setFieldSource(FilterFieldSource.CUSTOM);
@@ -1534,7 +1536,8 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
                 .createCustomAttribute(categoryAttributeRequest);
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, newCertificate.getUuid(), null,
-                        categoryAttribute.getName(), List.of(new StringAttributeContentV3("ref", "Approved")));
+                        categoryAttribute.getName(), List.of(new StringAttributeContentV3("ref", "Approved")),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         RequestAttributeV3 pendingAttribute = new RequestAttributeV3();
         pendingAttribute.setUuid(UUID.randomUUID());
@@ -1868,7 +1871,8 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
         attributeEngine.updateCustomAttributeDefinition(pillar, List.of(Resource.CERTIFICATE));
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate.getUuid(), null, "pillarTarget",
-                        List.of(new StringAttributeContentV3("Retail")));
+                        List.of(new StringAttributeContentV3("Retail")),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         Connector connector = new Connector();
         connector.setVersion(ConnectorVersion.V1);
@@ -1920,7 +1924,8 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
         attributeService.createCustomAttribute(sourceDto);
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate.getUuid(), null, "customSource",
-                        List.of(new StringAttributeContentV3("ref", "sourceValue")));
+                        List.of(new StringAttributeContentV3("ref", "sourceValue")),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         CustomAttributeCreateRequestDto targetDto = new CustomAttributeCreateRequestDto();
         targetDto.setName("customTarget2");
