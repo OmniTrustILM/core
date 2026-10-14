@@ -461,7 +461,7 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
         // because the terminator keeps a terminal status the connector reported, and this cancel was acknowledged.
         terminator.endWith(discoveryUuid, run -> {
             run.setConnectorStatus(DiscoveryStatus.CANCELLED);
-            return new DiscoveryRunTerminator.Ending(DiscoveryStatus.CANCELLED, "Discovery cancelled");
+            return new DiscoveryRunTerminator.Ending(DiscoveryStatus.CANCELLED, "Discovery cancelled", true);
         });
     }
 

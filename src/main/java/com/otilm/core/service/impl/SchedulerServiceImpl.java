@@ -453,8 +453,9 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
     private void finalizeFinishedScheduledJob(ScheduledJob scheduledJob, UUID historyUuid, ScheduledTaskResult result) {
         logger.debug("Finalizing finished scheduled job '{}'", scheduledJob.getJobName());
 
+        boolean closed;
         try {
-            historyWriter.recordFinished(historyUuid, result);
+            closed = historyWriter.recordFinished(historyUuid, result);
         } catch (RuntimeException e) {
             // The close write failed -- a failover, a pooler restart. The row must not stay STARTED, so a second close
             // marks it FAILED and names the real outcome; the outside is told nothing the history cannot confirm, and
@@ -468,9 +469,14 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
             }
             throw e;
         }
+        // Another finisher closed this run first; its outcome stands, and it has already been announced.
+        if (!closed) {
+            return;
+        }
 
-        // deregister one-time job
-        if (SchedulerJobExecutionStatus.SUCCESS.equals(result.getStatus()) && scheduledJob.isOneTime()) {
+        // deregister one-time job: done, or cancelled by someone who does not want it attempted again
+        if ((SchedulerJobExecutionStatus.SUCCESS.equals(result.getStatus())
+                || SchedulerJobExecutionStatus.CANCELLED.equals(result.getStatus())) && scheduledJob.isOneTime()) {
             try {
                 schedulerApiClient.deleteScheduledJob(scheduledJob.getJobName());
                 logger

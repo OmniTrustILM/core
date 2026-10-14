@@ -142,7 +142,7 @@ public class DiscoveryRunTerminator {
                 logger.debug("Discovery {} is not ready to end after all; leaving it alone", discoveryUuid);
                 return false;
             }
-            applyTerminalState(run, decided.status(), decided.reason());
+            applyTerminalState(run, decided);
             workWriter.deleteForRun(discoveryUuid);
             if (withCaller) {
                 // The ended run leaves the caller's persistence context. The caller goes on to release and delete
@@ -159,8 +159,16 @@ public class DiscoveryRunTerminator {
                         : transactionHandler.runInNewTransaction(ending));
     }
 
-    /** The status and reason a run ends with. */
-    public record Ending(DiscoveryStatus status, String reason) {
+    /**
+     * The status and reason a run ends with, and whether a user asked for it.
+     *
+     * @param endedByUser set only by a user's own cancel; how serious the ending is depends on it
+     */
+    public record Ending(DiscoveryStatus status, String reason, boolean endedByUser) {
+
+        public Ending(DiscoveryStatus status, String reason) {
+            this(status, reason, false);
+        }
     }
 
     /**
@@ -168,6 +176,12 @@ public class DiscoveryRunTerminator {
      * already hold the run row's lock and would deadlock against {@link #end}'s own.
      */
     public void applyTerminalState(Discovery run, DiscoveryStatus status, String reason) {
+        applyTerminalState(run, new Ending(status, reason));
+    }
+
+    private void applyTerminalState(Discovery run, Ending ending) {
+        DiscoveryStatus status = ending.status();
+        String reason = ending.reason();
         run.setStatus(status);
         // An ending Core decides while the connector last reported the run live is the connector's ending too: it
         // refused the run, forgot it, or stopped answering for it, and a live connector status beside a terminal run
@@ -179,9 +193,10 @@ public class DiscoveryRunTerminator {
         run.setEndTime(OffsetDateTime.now(ZoneOffset.UTC));
         recordCertificateCounts(run);
         run.setCheckpoint(null);
-        messageWriter.appendRunEnded(run.getUuid(), DiscoveryRunLifecycle.severityOf(status), reason);
+        messageWriter
+                .appendRunEnded(run.getUuid(), DiscoveryRunLifecycle.severityOf(status, ending.endedByUser()), reason);
         logger.info("Discovery {} ended as {}: {}", run.getUuid(), status, reason);
-        announceEnding(run, status, reason);
+        announceEnding(run, ending);
     }
 
     /**
@@ -216,11 +231,11 @@ public class DiscoveryRunTerminator {
      * Published through the event bus rather than the producer because the listener is {@code AFTER_COMMIT}: this runs
      * while holding the run's row, and a rolled-back ending must not announce itself.
      */
-    private void announceEnding(Discovery run, DiscoveryStatus status, String reason) {
+    private void announceEnding(Discovery run, Ending ending) {
         eventPublisher
                 .publishEvent(DiscoveryFinishedEventHandler
                         .constructEventMessage(run.getUuid(), run.getStartedByUserUuid(), scheduledJobOf(run),
-                                new DiscoveryResult(status, reason)));
+                                new DiscoveryResult(ending.status(), ending.reason(), ending.endedByUser())));
     }
 
     /**
