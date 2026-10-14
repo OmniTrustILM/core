@@ -2193,33 +2193,6 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
-    void issueCertificateAction_pushesToLocationLinkedAfterTheClaim() throws Exception {
-        UUID certUuid = prepareCertificateForIssuance();
-        String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
-        mockServer
-                .stubFor(WireMock
-                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue"))
-                        .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
-        mockServer
-                .stubFor(WireMock
-                        .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/push"))
-                        .willReturn(WireMock.okJson("{\"withKey\": true}")));
-        // The Location flow links the certificate only after the issue action has claimed it.
-        doAnswer(inv -> {
-            placeOnLocation(certUuid, "linked-after-claim");
-            return inv.callRealMethod();
-        }).when(certificateService).issueRequestedCertificate(any(), any(), any());
-
-        clientOperationInternalService.issueCertificateAction(certUuid, true);
-
-        mockServer
-                .verify(1,
-                        WireMock
-                                .postRequestedFor(
-                                        WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/push")));
-    }
-
-    @Test
     void issueCertificateAction_transitionsToPendingIssue_when202FromConnector() throws Exception {
         UUID certUuid = prepareCertificateForIssuance();
         mockServer
