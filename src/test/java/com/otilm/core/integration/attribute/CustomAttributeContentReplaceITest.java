@@ -63,7 +63,8 @@ class CustomAttributeContentReplaceITest extends BaseSpringBootTest {
 
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificateUuid, definitionUuid, null,
-                        List.of(new StringAttributeContentV3("Retail")));
+                        List.of(new StringAttributeContentV3("Retail")),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
     }
 
     @Test
@@ -93,7 +94,7 @@ class CustomAttributeContentReplaceITest extends BaseSpringBootTest {
     void emptyContentStillClearsTheStoredValue() throws AttributeException, NotFoundException {
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificateUuid, definitionUuid, null,
-                        List.of());
+                        List.of(), attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         Assertions.assertEquals(List.of(), storedValues());
     }

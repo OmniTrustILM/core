@@ -315,15 +315,21 @@ class CryptoAssetReferenceIngestITest extends BaseSpringBootTest {
     }
 
     @Test
-    void aReIngestReplacesTheReferencesTheDocumentNoLongerMakes() {
+    void aNewVersionReplacesTheReferencesTheDocumentNoLongerMakes() {
         ingest(certificate("\"subjectPublicKeyRef\":\"key-rsa\",\"signatureAlgorithmRef\":\"alg-sig\""), KEY,
                 SIGNATURE);
 
+        Cbom newer = new Cbom();
+        newer.setSerialNumber(cbom.getSerialNumber());
+        newer.setVersion(cbom.getVersion() + 1);
+        newer.setSpecVersion(cbom.getSpecVersion());
+        cbom = cbomRepository.save(newer);
         ingest(certificate("\"subjectPublicKeyRef\":\"key-rsa\""), KEY, SIGNATURE);
 
         assertThat(referencesOf(CryptographicAssetType.CERTIFICATE))
                 .extracting(CryptoAssetReference::getKind)
                 .containsExactly(CryptoAssetReferenceKind.SUBJECT_PUBLIC_KEY);
+        assertThat(referenceRepository.findAll()).hasSize(1);
     }
 
     @Test

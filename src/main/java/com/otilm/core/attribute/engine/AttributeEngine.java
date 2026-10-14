@@ -1574,7 +1574,7 @@ public class AttributeEngine {
         return getResponseAttributes(objectContents);
     }
 
-    private List<ResponseAttribute> getObjectCustomAttributesContent(Resource objectType, UUID objectUuid,
+    public List<ResponseAttribute> getObjectCustomAttributesContent(Resource objectType, UUID objectUuid,
             SecurityResourceFilter securityResourceFilter) {
         CustomAttributeContentFilter contentFilter = toContentFilter(securityResourceFilter);
 
@@ -1851,6 +1851,7 @@ public class AttributeEngine {
         return getObjectDataAttributesContent(info);
     }
 
+    @Transactional(rollbackFor = {NotFoundException.class, AttributeException.class})
     public List<ResponseAttribute> updateObjectCustomAttributesContent(Resource objectType, UUID objectUuid,
             List<RequestAttribute> requestAttributes)
             throws ValidationException, NotFoundException, AttributeException {
@@ -1858,6 +1859,7 @@ public class AttributeEngine {
         return updateObjectCustomAttributesContent(objectType, objectUuid, requestAttributes, securityResourceFilter);
     }
 
+    @Transactional(rollbackFor = {NotFoundException.class, AttributeException.class})
     public List<ResponseAttribute> updateObjectCustomAttributesContent(Resource objectType, UUID objectUuid,
             List<RequestAttribute> requestAttributes, SecurityResourceFilter securityResourceFilter)
             throws ValidationException, NotFoundException, AttributeException {
@@ -1868,7 +1870,7 @@ public class AttributeEngine {
             requestAttributes = new ArrayList<>();
         }
 
-        validateCustomAttributesContent(objectType, requestAttributes, securityResourceFilter);
+        validateWritableCustomAttributesContent(objectType, requestAttributes, securityResourceFilter);
 
         // if protocol user or has all permissions for attributes
         if (securityResourceFilter == null || (!securityResourceFilter.areOnlySpecificObjectsAllowed()
@@ -1969,9 +1971,11 @@ public class AttributeEngine {
         }
     }
 
+    // Permission denials precede writes; a trigger must still commit its failure history.
+    @Transactional(noRollbackFor = ValidationException.class)
     public void updateObjectCustomAttributeContent(Resource objectType, UUID objectUuid, UUID definitionUuid,
-            String attributeName, List<? extends AttributeContent> attributeContentItems)
-            throws NotFoundException, AttributeException {
+            String attributeName, List<? extends AttributeContent> attributeContentItems,
+            SecurityResourceFilter securityResourceFilter) throws NotFoundException, AttributeException {
         AttributeDefinition attributeDefinition;
         if (definitionUuid != null) {
             attributeDefinition = attributeDefinitionRepository
@@ -2005,7 +2009,7 @@ public class AttributeEngine {
                         attributeDefinition.getType(), null));
 
         // filter out updating
-        processSecurityFilter(definitionUuid, attributeDefinition);
+        processSecurityFilter(securityResourceFilter, attributeDefinition);
 
         // Validated before the stored content goes: a rejection is a checked AttributeException, which rolls nothing
         // back, so a rejection after the delete would leave the object without its previous value.
@@ -2022,20 +2026,16 @@ public class AttributeEngine {
         }
     }
 
-    private void processSecurityFilter(UUID definitionUuid, AttributeDefinition attributeDefinition)
-            throws AttributeException {
-        SecurityResourceFilter securityResourceFilter = loadCustomAttributesSecurityResourceFilter();
+    private static void processSecurityFilter(SecurityResourceFilter securityResourceFilter,
+            AttributeDefinition attributeDefinition) {
         if (securityResourceFilter != null) {
-            if ((securityResourceFilter.areOnlySpecificObjectsAllowed())) {
-                if (!securityResourceFilter.getAllowedObjects().contains(definitionUuid)) {
-                    throw new AttributeException(String
-                            .format("Updating custom attribute `%s` is not allowed", attributeDefinition.getName()));
-                }
-            } else {
-                if (securityResourceFilter.getForbiddenObjects().contains(definitionUuid)) {
-                    throw new AttributeException(String
-                            .format("Updating custom attribute `%s` is not allowed", attributeDefinition.getName()));
-                }
+            UUID resolvedUuid = attributeDefinition.getUuid();
+            boolean forbidden = securityResourceFilter.areOnlySpecificObjectsAllowed()
+                    ? !securityResourceFilter.getAllowedObjects().contains(resolvedUuid)
+                    : securityResourceFilter.getForbiddenObjects().contains(resolvedUuid);
+            if (forbidden) {
+                throw new ValidationException(ValidationError
+                        .create("Not allowed to set custom attributes: {}", attributeDefinition.getName()));
             }
         }
     }
@@ -2520,6 +2520,40 @@ public class AttributeEngine {
         validateCustomAttributesContent(resource, attributes, securityResourceFilter);
     }
 
+    public void validateWritableCustomAttributesContent(Resource resource, List<RequestAttribute> attributes,
+            SecurityResourceFilter securityResourceFilter) throws ValidationException {
+        List<RequestAttribute> requestedAttributes = attributes == null ? List.of() : attributes;
+        if (securityResourceFilter != null && !requestedAttributes.isEmpty()) {
+            Map<String, UUID> definitionUuidsByName = attributeRelationRepository
+                    .findByResourceAndAttributeDefinitionType(resource, AttributeType.CUSTOM)
+                    .stream()
+                    .collect(Collectors
+                            .toMap(relation -> relation.getAttributeDefinition().getName(),
+                                    relation -> relation.getAttributeDefinition().getUuid()));
+            List<ValidationError> unknownAttributes = requestedAttributes
+                    .stream()
+                    .filter(attribute -> !definitionUuidsByName.containsKey(attribute.getName()))
+                    .map(attribute -> ValidationError
+                            .create("Content for custom attribute {} is provided but resource {} is not associated with it",
+                                    attribute.getName(), resource.getLabel()))
+                    .toList();
+            if (!unknownAttributes.isEmpty()) {
+                throw new ValidationException(unknownAttributes);
+            }
+            List<String> forbiddenNames = requestedAttributes.stream().filter(attribute -> {
+                UUID definitionUuid = definitionUuidsByName.get(attribute.getName());
+                return securityResourceFilter.areOnlySpecificObjectsAllowed()
+                        ? !securityResourceFilter.getAllowedObjects().contains(definitionUuid)
+                        : securityResourceFilter.getForbiddenObjects().contains(definitionUuid);
+            }).map(RequestAttribute::getName).distinct().toList();
+            if (!forbiddenNames.isEmpty()) {
+                throw new ValidationException(ValidationError
+                        .create("Not allowed to set custom attributes: {}", String.join(", ", forbiddenNames)));
+            }
+        }
+        validateCustomAttributesContent(resource, requestedAttributes, securityResourceFilter);
+    }
+
     private void validateCustomAttributesContent(Resource resource, List<RequestAttribute> attributes,
             SecurityResourceFilter securityResourceFilter) throws ValidationException {
         if (attributes == null) {
@@ -2528,6 +2562,10 @@ public class AttributeEngine {
 
         List<AttributeRelation> relations = attributeRelationRepository
                 .findByResourceAndAttributeDefinitionType(resource, AttributeType.CUSTOM);
+        Set<String> relatedNames = relations
+                .stream()
+                .map(relation -> relation.getAttributeDefinition().getName())
+                .collect(Collectors.toSet());
 
         // filter definitions that are not allowed for user
         Map<String, AttributeDefinition> definitionsMapping;
@@ -2543,7 +2581,7 @@ public class AttributeEngine {
                                         AttributeRelation::getAttributeDefinition));
                 attributes = attributes
                         .stream()
-                        .filter(a -> securityResourceFilter.getAllowedObjects().contains(a.getUuid()))
+                        .filter(a -> !relatedNames.contains(a.getName()) || definitionsMapping.containsKey(a.getName()))
                         .toList();
             } else {
                 definitionsMapping = relations
@@ -2556,7 +2594,7 @@ public class AttributeEngine {
                                         AttributeRelation::getAttributeDefinition));
                 attributes = attributes
                         .stream()
-                        .filter(a -> !securityResourceFilter.getForbiddenObjects().contains(a.getUuid()))
+                        .filter(a -> !relatedNames.contains(a.getName()) || definitionsMapping.containsKey(a.getName()))
                         .toList();
             }
         } else {
