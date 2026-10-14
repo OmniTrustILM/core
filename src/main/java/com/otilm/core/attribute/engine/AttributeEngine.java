@@ -1974,14 +1974,6 @@ public class AttributeEngine {
     // Permission denials precede writes; a trigger must still commit its failure history.
     @Transactional(noRollbackFor = ValidationException.class)
     public void updateObjectCustomAttributeContent(Resource objectType, UUID objectUuid, UUID definitionUuid,
-            String attributeName, List<? extends AttributeContent> attributeContentItems)
-            throws NotFoundException, AttributeException {
-        updateObjectCustomAttributeContent(objectType, objectUuid, definitionUuid, attributeName, attributeContentItems,
-                loadCustomAttributesSecurityResourceFilter());
-    }
-
-    @Transactional(noRollbackFor = ValidationException.class)
-    public void updateObjectCustomAttributeContent(Resource objectType, UUID objectUuid, UUID definitionUuid,
             String attributeName, List<? extends AttributeContent> attributeContentItems,
             SecurityResourceFilter securityResourceFilter) throws NotFoundException, AttributeException {
         AttributeDefinition attributeDefinition;
@@ -2526,11 +2518,6 @@ public class AttributeEngine {
         logger.debug("Validating custom attributes: {}", attributes);
         SecurityResourceFilter securityResourceFilter = loadCustomAttributesSecurityResourceFilter();
         validateCustomAttributesContent(resource, attributes, securityResourceFilter);
-    }
-
-    public void validateWritableCustomAttributesContent(Resource resource, List<RequestAttribute> attributes)
-            throws ValidationException {
-        validateWritableCustomAttributesContent(resource, attributes, loadCustomAttributesSecurityResourceFilter());
     }
 
     public void validateWritableCustomAttributesContent(Resource resource, List<RequestAttribute> attributes,

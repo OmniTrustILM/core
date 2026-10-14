@@ -98,18 +98,16 @@ public class CryptoAssetWriter {
         if (guard != null) {
             requireNoAlias(identityKey, guard);
         }
-        UUID proposedUuid = UUID.randomUUID();
         assetRepository
-                .upsertIdentity(proposedUuid, identityKey, IdentityRuleset.VERSION,
+                .upsertIdentity(UUID.randomUUID(), identityKey, IdentityRuleset.VERSION,
                         stored.assetType() == null ? null : stored.assetType().name(), stored.name(), stored.oid(),
                         stored.algorithmFamily(), stored.primitive(), stored.parameterSet(), curveMembers(stored),
                         stored.mode(), stored.padding(), stored.variant(), guard == null ? null : guard.name());
-        UUID storedUuid = assetRepository
+        return assetRepository
                 .findUuidByIdentityKey(identityKey)
                 // Deliberately says nothing about the key: this text can reach an operator.
                 .orElseThrow(() -> new IllegalStateException(
                         "The cryptographic asset row disappeared between its upsert and its lookup"));
-        return storedUuid;
     }
 
     /**
@@ -146,7 +144,8 @@ public class CryptoAssetWriter {
     public void applyPqcVerdict(UUID assetUuid, PqcDecision decision, String referenceBasis) {
         if (assetRepository.findForUpdateByUuid(assetUuid).isPresent()) {
             PqcStaleVerdictRow row = assetRepository.verdictRowsByUuids(List.of(assetUuid)).getFirst();
-            applyPqcVerdict(row, decision, referenceBasis);
+            apply(row, decision.verdict(), decision.ruleId(), decision.reason(), decision.evaluatedFields(),
+                    decision.referencedAssetUuid(), referenceBasis);
         }
     }
 

@@ -55,6 +55,7 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.SecuredResource;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
+import com.otilm.core.security.authz.SecurityResourceFilter;
 import com.otilm.core.security.authz.opa.dto.OpaObjectAccessResult;
 import com.otilm.core.service.ActionExternalService;
 import com.otilm.core.service.CbomExternalService;
@@ -917,7 +918,9 @@ class CbomCryptoAssetCustomAttributesITest extends BaseSpringBootTest {
 
         RequestAttributeV3 attribute = requestContent("alice");
         attribute.setUuid(null);
-        attributeEngine.validateWritableCustomAttributesContent(Resource.CBOM, List.of(attribute));
+        attributeEngine
+                .validateWritableCustomAttributesContent(Resource.CBOM, List.of(attribute),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
     }
 
     @Test
@@ -951,7 +954,8 @@ class CbomCryptoAssetCustomAttributesITest extends BaseSpringBootTest {
 
         assertDoesNotThrow(() -> attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CRYPTO_ASSET, assetUuid, null, ATTRIBUTE_NAME,
-                        List.of(new TextAttributeContentV3(null, "alice"))));
+                        List.of(new TextAttributeContentV3(null, "alice")),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter()));
 
         assertEquals("alice", firstValue(
                 attributeEngine.getObjectCustomAttributesContentForSystemContext(Resource.CRYPTO_ASSET, assetUuid)));
@@ -965,11 +969,12 @@ class CbomCryptoAssetCustomAttributesITest extends BaseSpringBootTest {
                 .updateObjectCustomAttributesContent(Resource.CRYPTO_ASSET, assetUuid,
                         List.of(requestContent("alice")));
         restrictAttributeAccess(false);
+        SecurityResourceFilter attributeFilter = attributeEngine.loadCustomAttributesSecurityResourceFilter();
 
         ValidationException error = assertThrows(ValidationException.class,
                 () -> attributeEngine
                         .updateObjectCustomAttributeContent(Resource.CRYPTO_ASSET, assetUuid, null, ATTRIBUTE_NAME,
-                                List.of(new TextAttributeContentV3(null, "mallory"))));
+                                List.of(new TextAttributeContentV3(null, "mallory")), attributeFilter));
 
         assertTrue(error.getMessage().contains("Not allowed to set custom attributes: " + ATTRIBUTE_NAME));
         assertEquals("alice", firstValue(
@@ -1021,12 +1026,14 @@ class CbomCryptoAssetCustomAttributesITest extends BaseSpringBootTest {
         restrictAttributeAccess(false);
         String markerSerial = "urn:uuid:" + UUID.randomUUID();
 
+        SecurityResourceFilter attributeFilter = attributeEngine.loadCustomAttributesSecurityResourceFilter();
+
         assertDoesNotThrow(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
             newCbom(markerSerial, 1);
             ValidationException error = assertThrows(ValidationException.class,
                     () -> attributeEngine
                             .updateObjectCustomAttributeContent(Resource.CRYPTO_ASSET, assetUuid, null, ATTRIBUTE_NAME,
-                                    List.of(new TextAttributeContentV3(null, "mallory"))));
+                                    List.of(new TextAttributeContentV3(null, "mallory")), attributeFilter));
             assertTrue(error.getMessage().contains("Not allowed to set custom attributes: " + ATTRIBUTE_NAME));
         }));
 

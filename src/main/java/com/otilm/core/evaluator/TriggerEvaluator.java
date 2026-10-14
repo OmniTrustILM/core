@@ -40,6 +40,7 @@ import com.otilm.core.dao.entity.workflows.TriggerHistoryRecord;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.enums.ResourceToClass;
 import com.otilm.core.messaging.model.NotificationMessage;
+import com.otilm.core.security.authz.SecurityResourceFilter;
 import com.otilm.core.service.TriggerInternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.FilterPredicatesBuilder;
@@ -630,9 +631,10 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         if (objectUuid == null) {
             throw new RuleException("Cannot set custom attributes for an object not in database.");
         }
+        SecurityResourceFilter securityFilter = attributeEngine.loadCustomAttributesSecurityResourceFilter();
         attributeEngine
                 .updateObjectCustomAttributeContent(resource, objectUuid, null,
-                        parseNameAndContentType(fieldIdentifier)[0], attributeContents);
+                        parseNameAndContentType(fieldIdentifier)[0], attributeContents, securityFilter);
     }
 
     /**
