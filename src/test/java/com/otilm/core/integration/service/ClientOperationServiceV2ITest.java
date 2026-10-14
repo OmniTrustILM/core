@@ -527,6 +527,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         Assertions
                 .assertEquals(CertificateState.FAILED,
                         certificateRepository.findByUuid(seen.getFirst()).orElseThrow().getState());
+        verify(actionProducer, never()).produceMessage(any());
     }
 
     @Test
