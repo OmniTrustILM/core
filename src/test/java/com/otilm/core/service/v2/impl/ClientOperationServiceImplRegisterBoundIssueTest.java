@@ -19,6 +19,7 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateRegistration;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.repository.CertificateLocationRepository;
 import com.otilm.core.dao.repository.CertificateRegistrationRepository;
 import com.otilm.core.dao.repository.CertificateRelationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -136,6 +137,7 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         service = new ClientOperationServiceImpl();
         service.setCertificateRepository(certificateRepository);
         service.setCertificateRegistrationRepository(certificateRegistrationRepository);
+        service.setCertificateLocationRepository(mock(CertificateLocationRepository.class));
         service.setCertificateRegistrationWriter(certificateRegistrationWriter);
         service.setAdapterFactory(adapterFactory);
         service.setCapabilityService(capabilityService);

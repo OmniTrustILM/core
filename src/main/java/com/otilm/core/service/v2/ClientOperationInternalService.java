@@ -21,6 +21,7 @@ import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.CertificateException;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 public interface ClientOperationInternalService {
 
@@ -32,6 +33,17 @@ public interface ClientOperationInternalService {
             ClientCertificateIssueRequestDto request, CertificateProtocolInfo protocolInfo)
             throws NotFoundException, CertificateException, IOException, NoSuchAlgorithmException, InvalidKeyException,
             CertificateOperationException, CertificateRequestException;
+
+    /**
+     * As
+     * {@link #issueCertificate(SecuredParentUUID, SecuredUUID, ClientCertificateIssueRequestDto, CertificateProtocolInfo)},
+     * running {@code beforeDispatch} with the new certificate's UUID once the request is stored and before the issue
+     * action is queued. If the step fails, the certificate is marked failed and the action is not queued.
+     */
+    ClientCertificateDataResponseDto issueCertificate(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
+            ClientCertificateIssueRequestDto request, CertificateProtocolInfo protocolInfo,
+            Consumer<UUID> beforeDispatch) throws NotFoundException, CertificateException, IOException,
+            NoSuchAlgorithmException, InvalidKeyException, CertificateOperationException, CertificateRequestException;
 
     void approvalCreatedAction(final UUID certificateUuid) throws NotFoundException;
 

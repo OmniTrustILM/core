@@ -41,6 +41,7 @@ import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CertificateLocation;
+import com.otilm.core.dao.entity.CertificateLocationId;
 import com.otilm.core.dao.entity.CertificateRegistrationAuthorization;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.EntityInstanceReference;
@@ -72,6 +73,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -744,7 +746,17 @@ class LocationServiceITest extends BaseSpringBootTest {
         ClientCertificateDataResponseDto responseDto = new ClientCertificateDataResponseDto();
 
         responseDto.setUuid(certificate.getUuid().toString());
-        when(clientOperationService.issueCertificate(any(), any(), any(), any())).thenReturn(responseDto);
+        when(clientOperationService.issueCertificate(any(), any(), any(), any(), any())).thenAnswer(inv -> {
+            UUID issuedUuid = UUID.fromString(responseDto.getUuid());
+            Consumer<UUID> beforeDispatch = inv.getArgument(4);
+            beforeDispatch.accept(issuedUuid);
+            // the issue action must find the link committed once it is queued
+            Assertions
+                    .assertTrue(certificateLocationRepository
+                            .findById(new CertificateLocationId(location.getUuid(), issuedUuid))
+                            .isPresent());
+            return responseDto;
+        });
         mockServer
                 .stubFor(WireMock
                         .get(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/push/attributes"))
@@ -782,6 +794,162 @@ class LocationServiceITest extends BaseSpringBootTest {
                         .filter(cl -> cl.getCertificateUuid().equals(newlyIssuedCertificate.getUuid().toString()))
                         .findFirst()
                         .orElse(null));
+    }
+
+    @Test
+    void testIssueToLocationRemovesTheLinkWhenTheIssueCannotBeQueued() throws Exception {
+        RaProfile raProfile = getRaProfile();
+        when(clientOperationService.issueCertificate(any(), any(), any(), any(), any())).thenAnswer(inv -> {
+            Consumer<UUID> beforeDispatch = inv.getArgument(4);
+            beforeDispatch.accept(certificateWithoutLocation.getUuid());
+            throw new IllegalStateException("broker down");
+        });
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/push/attributes"))
+                        .willReturn(WireMock.okJson("[]")));
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/csr/attributes"))
+                        .willReturn(WireMock.okJson("[]")));
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/csr"))
+                        .willReturn(WireMock.okJson("{}")));
+
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/remove"))
+                        .willReturn(WireMock.okJson("{}")));
+
+        Assertions
+                .assertThrows(LocationException.class,
+                        () -> locationService
+                                .issueCertificateToLocation(entityInstanceReference.getSecuredParentUuid(),
+                                        location.getSecuredUuid(), String.valueOf(raProfile.getUuid()),
+                                        new IssueToLocationRequestDto()));
+
+        Assertions
+                .assertFalse(certificateLocationRepository
+                        .existsById(
+                                new CertificateLocationId(location.getUuid(), certificateWithoutLocation.getUuid())));
+    }
+
+    @Test
+    void testIssueToLocationKeepsTheLinkWhenTheStashCannotBeRemovedAfterAQueueFailure() throws Exception {
+        RaProfile raProfile = getRaProfile();
+        when(clientOperationService.issueCertificate(any(), any(), any(), any(), any())).thenAnswer(inv -> {
+            Consumer<UUID> beforeDispatch = inv.getArgument(4);
+            beforeDispatch.accept(certificateWithoutLocation.getUuid());
+            throw new IllegalStateException("broker down");
+        });
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/push/attributes"))
+                        .willReturn(WireMock.okJson("[]")));
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/csr/attributes"))
+                        .willReturn(WireMock.okJson("[]")));
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/csr"))
+                        .willReturn(WireMock.okJson("{}")));
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/remove"))
+                        .willReturn(WireMock.serverError()));
+
+        Assertions
+                .assertThrows(Exception.class,
+                        () -> locationService
+                                .issueCertificateToLocation(entityInstanceReference.getSecuredParentUuid(),
+                                        location.getSecuredUuid(), String.valueOf(raProfile.getUuid()),
+                                        new IssueToLocationRequestDto()));
+
+        // the connector still holds the stash, so the local association it is retried from must stay
+        Assertions
+                .assertTrue(certificateLocationRepository
+                        .existsById(
+                                new CertificateLocationId(location.getUuid(), certificateWithoutLocation.getUuid())));
+    }
+
+    @Test
+    void testIssueToLocationDoesNotCleanUpAgain_whenTheQueueFailureAlreadyRemovedTheLink() throws Exception {
+        RaProfile raProfile = getRaProfile();
+        when(clientOperationService.issueCertificate(any(), any(), any(), any(), any())).thenAnswer(inv -> {
+            Consumer<UUID> beforeDispatch = inv.getArgument(4);
+            beforeDispatch.accept(certificateWithoutLocation.getUuid());
+            // failing the certificate already removed it from its locations
+            certificateLocationRepository
+                    .deleteById(new CertificateLocationId(location.getUuid(), certificateWithoutLocation.getUuid()));
+            throw new IllegalStateException("broker down");
+        });
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/push/attributes"))
+                        .willReturn(WireMock.okJson("[]")));
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/csr/attributes"))
+                        .willReturn(WireMock.okJson("[]")));
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/csr"))
+                        .willReturn(WireMock.okJson("{}")));
+
+        Assertions
+                .assertThrows(LocationException.class,
+                        () -> locationService
+                                .issueCertificateToLocation(entityInstanceReference.getSecuredParentUuid(),
+                                        location.getSecuredUuid(), String.valueOf(raProfile.getUuid()),
+                                        new IssueToLocationRequestDto()));
+
+        mockServer
+                .verify(0, WireMock
+                        .postRequestedFor(
+                                WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/remove")));
+    }
+
+    @Test
+    void testIssueToLocationKeepsTheLinkWhenTheQueuedCertificateCannotBeLoaded() throws Exception {
+        RaProfile raProfile = getRaProfile();
+        ClientCertificateDataResponseDto responseDto = new ClientCertificateDataResponseDto();
+        responseDto.setUuid(UUID.randomUUID().toString());
+        when(clientOperationService.issueCertificate(any(), any(), any(), any(), any())).thenAnswer(inv -> {
+            Consumer<UUID> beforeDispatch = inv.getArgument(4);
+            beforeDispatch.accept(certificateWithoutLocation.getUuid());
+            return responseDto;
+        });
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/push/attributes"))
+                        .willReturn(WireMock.okJson("[]")));
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/csr/attributes"))
+                        .willReturn(WireMock.okJson("[]")));
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/csr"))
+                        .willReturn(WireMock.okJson("{}")));
+
+        Assertions
+                .assertThrows(LocationException.class,
+                        () -> locationService
+                                .issueCertificateToLocation(entityInstanceReference.getSecuredParentUuid(),
+                                        location.getSecuredUuid(), String.valueOf(raProfile.getUuid()),
+                                        new IssueToLocationRequestDto()));
+
+        // the issue is already queued, so its worker still needs the link, and the stash must not be removed
+        Assertions
+                .assertTrue(certificateLocationRepository
+                        .existsById(
+                                new CertificateLocationId(location.getUuid(), certificateWithoutLocation.getUuid())));
+        mockServer
+                .verify(0, WireMock
+                        .postRequestedFor(
+                                WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/remove")));
     }
 
     @Test
