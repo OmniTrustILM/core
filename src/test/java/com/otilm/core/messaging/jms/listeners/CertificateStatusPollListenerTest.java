@@ -51,6 +51,7 @@ import org.springframework.dao.TransientDataAccessResourceException;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -259,6 +260,25 @@ class CertificateStatusPollListenerTest {
         listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
 
         verify(locationInternalService).pushRequestedCertificateToLocationAction(locationId, false);
+    }
+
+    @Test
+    void completedIssueDoesNotPushToLocations_whenAnotherActorAlreadyResolvedTheCertificate() throws Exception {
+        Certificate cert = certInState(CertificateState.PENDING_ISSUE);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.ISSUE))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, "PEMDATA", null, "OK"));
+        // under the lock the certificate is already issued, e.g. by a manual finalize that pushed it itself
+        Certificate resolved = certInState(CertificateState.ISSUED);
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID)).thenReturn(Optional.of(resolved));
+        CertificateLocation certificateLocation = mock(CertificateLocation.class);
+        lenient()
+                .when(certificateLocationRepository.findByCertificateUuid(CERT_UUID))
+                .thenReturn(List.of(certificateLocation));
+
+        listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
+
+        verify(locationInternalService, never()).pushRequestedCertificateToLocationAction(any(), anyBoolean());
     }
 
     @Test

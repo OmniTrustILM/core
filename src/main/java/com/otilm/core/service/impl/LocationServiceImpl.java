@@ -800,8 +800,8 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
             clientCertificateDataResponseDto = issueCertificateForLocation(location, generateCsrResponseDto.getCsr(),
                     request.getIssueAttributes(), raProfileUuid, request.getCertificateCustomAttributes(),
                     certificateUuid -> {
-                        linkIssuedCertificateInNewTransaction(location.getUuid(), certificateUuid,
-                                generateCsrResponseDto, request.getCsrAttributes());
+                        linkIssuedCertificateInNewTransaction(location, certificateUuid, generateCsrResponseDto,
+                                request.getCsrAttributes());
                         linkedCertificateUuid.set(certificateUuid);
                     });
         } catch (Exception e) {
@@ -1260,17 +1260,25 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
     /**
      * Commits the link before the issue action is queued, so the action cannot finish ahead of it and miss the push.
      */
-    private void linkIssuedCertificateInNewTransaction(UUID locationUuid, UUID certificateUuid,
+    private void linkIssuedCertificateInNewTransaction(Location location, UUID certificateUuid,
             GenerateCsrResponseDto generateCsrResponseDto, List<RequestAttribute> csrAttributes) {
+        // Fetched before the transaction opens, so it does not hold a connection across connector round trips.
+        final LocationAttributeDefinitions definitions;
+        try {
+            definitions = fetchAttributeDefinitions(location);
+        } catch (LocationException e) {
+            throw new IllegalStateException(e);
+        }
         transactionHandler.runInNewTransaction(() -> {
             try {
                 Location linkedLocation = locationRepository
-                        .findByUuidAndEnabledIsTrue(locationUuid)
-                        .orElseThrow(() -> new NotFoundException(Location.class, locationUuid));
+                        .findByUuidAndEnabledIsTrue(location.getUuid())
+                        .orElseThrow(() -> new NotFoundException(Location.class, location.getUuid()));
                 Certificate issued = certificateService.getCertificateEntity(SecuredUUID.fromUUID(certificateUuid));
-                addCertificateToLocation(linkedLocation, issued, generateCsrResponseDto.getPushAttributes(),
-                        csrAttributes, generateCsrResponseDto.getMetadata());
-            } catch (NotFoundException | LocationException | AttributeException e) {
+                addCertificateToLocation(linkedLocation, issued, definitions,
+                        generateCsrResponseDto.getPushAttributes(), csrAttributes,
+                        generateCsrResponseDto.getMetadata());
+            } catch (NotFoundException | AttributeException e) {
                 throw new IllegalStateException(e);
             }
         });
@@ -1303,7 +1311,15 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
     private void addCertificateToLocation(Location location, Certificate certificate,
             List<RequestAttribute> pushAttributes, List<RequestAttribute> csrAttributes,
             List<MetadataAttribute> certificateMetadata) throws LocationException, AttributeException {
-        upsertCertificateLocation(location, certificate, pushAttributes, csrAttributes);
+        addCertificateToLocation(location, certificate, fetchAttributeDefinitions(location), pushAttributes,
+                csrAttributes, certificateMetadata);
+    }
+
+    private void addCertificateToLocation(Location location, Certificate certificate,
+            LocationAttributeDefinitions definitions, List<RequestAttribute> pushAttributes,
+            List<RequestAttribute> csrAttributes, List<MetadataAttribute> certificateMetadata)
+            throws AttributeException {
+        upsertCertificateLocation(location, certificate, definitions, pushAttributes, csrAttributes);
         locationRepository.save(location);
         attributeEngine
                 .updateMetadataAttributes(certificateMetadata,
@@ -1315,22 +1331,32 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
                                 .build());
     }
 
-    private CertificateLocation upsertCertificateLocation(Location location, Certificate certificate,
-            List<RequestAttribute> pushAttributes, List<RequestAttribute> csrAttributes) throws LocationException {
-        List<BaseAttribute> fullPushAttributes;
-        List<BaseAttribute> fullCsrAttributes;
+    private record LocationAttributeDefinitions(List<BaseAttribute> push, List<BaseAttribute> csr) {
+    }
+
+    private LocationAttributeDefinitions fetchAttributeDefinitions(Location location) throws LocationException {
         try {
-            fullPushAttributes = listPushAttributes(
-                    SecuredParentUUID.fromUUID(location.getEntityInstanceReferenceUuid()),
-                    SecuredUUID.fromString(location.getUuid().toString()));
-            fullCsrAttributes = listCsrAttributes(SecuredParentUUID.fromUUID(location.getEntityInstanceReferenceUuid()),
-                    SecuredUUID.fromString(location.getUuid().toString()));
+            return new LocationAttributeDefinitions(
+                    listPushAttributes(SecuredParentUUID.fromUUID(location.getEntityInstanceReferenceUuid()),
+                            SecuredUUID.fromString(location.getUuid().toString())),
+                    listCsrAttributes(SecuredParentUUID.fromUUID(location.getEntityInstanceReferenceUuid()),
+                            SecuredUUID.fromString(location.getUuid().toString())));
         } catch (NotFoundException e) {
             logger.error("Unable to find the location with uuid: {}", location.getUuid());
             throw new LocationException(
                     "Failed to get Attributes for Location: " + location.getName() + ". Location not found");
         }
+    }
 
+    private CertificateLocation upsertCertificateLocation(Location location, Certificate certificate,
+            List<RequestAttribute> pushAttributes, List<RequestAttribute> csrAttributes) throws LocationException {
+        return upsertCertificateLocation(location, certificate, fetchAttributeDefinitions(location), pushAttributes,
+                csrAttributes);
+    }
+
+    private CertificateLocation upsertCertificateLocation(Location location, Certificate certificate,
+            LocationAttributeDefinitions definitions, List<RequestAttribute> pushAttributes,
+            List<RequestAttribute> csrAttributes) {
         CertificateLocation certificateLocation = certificateLocationRepository
                 .findById(new CertificateLocationId(location.getUuid(), certificate.getUuid()))
                 .orElse(null);
@@ -1343,9 +1369,9 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         }
 
         certificateLocation
-                .setPushAttributes(AttributeDefinitionUtils.mergeAttributes(fullPushAttributes, pushAttributes));
+                .setPushAttributes(AttributeDefinitionUtils.mergeAttributes(definitions.push(), pushAttributes));
         certificateLocation
-                .setCsrAttributes(AttributeDefinitionUtils.mergeAttributes(fullCsrAttributes, csrAttributes));
+                .setCsrAttributes(AttributeDefinitionUtils.mergeAttributes(definitions.csr(), csrAttributes));
 
         return certificateLocation;
     }

@@ -11,6 +11,7 @@ import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.repository.CertificateLocationRepository;
 import com.otilm.core.dao.repository.CertificateRegistrationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.exception.ConnectorAcceptedButLocalFailureException;
@@ -80,6 +81,7 @@ class ClientOperationServiceImplIssueDispatchTest {
         service = new ClientOperationServiceImpl();
         service.setCertificateRepository(certificateRepository);
         service.setCertificateRegistrationRepository(certificateRegistrationRepository);
+        service.setCertificateLocationRepository(mock(CertificateLocationRepository.class));
         service.setAdapterFactory(adapterFactory);
         service.setCertificateService(certificateService);
         service.setTransactionManager(transactionManager);
