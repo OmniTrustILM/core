@@ -9,6 +9,7 @@ import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.ConnectionServiceException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.SchedulerException;
+import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.api.model.core.scheduler.ScheduledJobDetailDto;
@@ -44,11 +45,13 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.InjectMocks;
@@ -621,23 +624,101 @@ class SchedulerServiceMockedTest {
     }
 
     @Test
-    void testRegisterScheduledJob_WithExplicitValues_WhenSchedulerRefuses_RemovesTheJob() throws Exception {
+    void testRegisterScheduledJob_WithExplicitValues_WhenInsertFailsForAnotherReason_DoesNotReportTheNameTaken()
+            throws Exception {
         TestTask task = new TestTask(new ScheduledTaskResult(SchedulerJobExecutionStatus.SUCCESS, "ok"));
         when(applicationContext.getBean(TestTask.class)).thenReturn(task);
         when(scheduledJobsRepository.findByJobName("CustomJob")).thenReturn(Optional.empty());
-        doThrow(new SchedulerException("Invalid format of CRON expression"))
-                .when(schedulerApiClient)
-                .schedulerCreate(any());
+        when(scheduledJobsRepository.save(any(ScheduledJob.class)))
+                .thenThrow(new DataIntegrityViolationException("null value in column \"cron_expression\""));
 
         try (MockedStatic<AuthHelper> authHelperMock = mockStatic(AuthHelper.class)) {
             authHelperMock.when(AuthHelper::getUserIdentification).thenThrow(new ValidationException("no auth"));
 
             assertThrows(SchedulerException.class, () -> schedulerService
-                    .registerScheduledJob(TestTask.class, "CustomJob", "not a cron", true, "payload"));
+                    .registerScheduledJob(TestTask.class, "CustomJob", "0 10 * * * ?", true, "payload"));
+        }
+        verify(schedulerApiClient, never()).schedulerCreate(any());
+    }
+
+    /**
+     * What the scheduler client surfaces: a 422 refusal, its declared exception, and a create whose answer was lost.
+     */
+    static Stream<Exception> schedulerCreateFailures() {
+        return Stream
+                .of(new ValidationException(ValidationError.create("Invalid format of CRON expression")),
+                        new SchedulerException("Scheduler refused the job"),
+                        new IllegalStateException("Connection reset"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("schedulerCreateFailures")
+    void testRegisterScheduledJob_WithExplicitValues_WhenSchedulerFails_RemovesTheJobFromBothSides(Exception failure)
+            throws Exception {
+        TestTask task = new TestTask(new ScheduledTaskResult(SchedulerJobExecutionStatus.SUCCESS, "ok"));
+        when(applicationContext.getBean(TestTask.class)).thenReturn(task);
+        when(scheduledJobsRepository.findByJobName("CustomJob")).thenReturn(Optional.empty());
+        doThrow(failure).when(schedulerApiClient).schedulerCreate(any());
+
+        try (MockedStatic<AuthHelper> authHelperMock = mockStatic(AuthHelper.class)) {
+            authHelperMock.when(AuthHelper::getUserIdentification).thenThrow(new ValidationException("no auth"));
+
+            Exception thrown = assertThrows(Exception.class, () -> schedulerService
+                    .registerScheduledJob(TestTask.class, "CustomJob", "0 10 * * * ?", true, "payload"));
+            assertSame(failure, thrown);
         }
         ArgumentCaptor<ScheduledJob> jobCaptor = ArgumentCaptor.forClass(ScheduledJob.class);
         verify(scheduledJobsRepository).save(jobCaptor.capture());
+        // The scheduler may have stored the job before its answer was lost.
+        verify(schedulerApiClient).deleteScheduledJob("CustomJob");
         verify(scheduledJobsRepository).delete(jobCaptor.getValue());
+    }
+
+    @Test
+    void testRegisterScheduledJob_WithExplicitValues_WhenTheSchedulerCannotDeleteEither_StillRemovesTheRow()
+            throws Exception {
+        TestTask task = new TestTask(new ScheduledTaskResult(SchedulerJobExecutionStatus.SUCCESS, "ok"));
+        when(applicationContext.getBean(TestTask.class)).thenReturn(task);
+        when(scheduledJobsRepository.findByJobName("CustomJob")).thenReturn(Optional.empty());
+        RuntimeException createFailure = new IllegalStateException("Connection reset");
+        RuntimeException deleteFailure = new IllegalStateException("Connection refused");
+        doThrow(createFailure).when(schedulerApiClient).schedulerCreate(any());
+        doThrow(deleteFailure).when(schedulerApiClient).deleteScheduledJob("CustomJob");
+
+        try (MockedStatic<AuthHelper> authHelperMock = mockStatic(AuthHelper.class)) {
+            authHelperMock.when(AuthHelper::getUserIdentification).thenThrow(new ValidationException("no auth"));
+
+            Exception thrown = assertThrows(Exception.class, () -> schedulerService
+                    .registerScheduledJob(TestTask.class, "CustomJob", "0 10 * * * ?", true, "payload"));
+            assertSame(createFailure, thrown);
+            assertEquals(List.of(deleteFailure), List.of(thrown.getSuppressed()));
+        }
+        verify(scheduledJobsRepository).delete(any(ScheduledJob.class));
+    }
+
+    @Test
+    void testRegisterScheduledJob_WithExplicitValues_WhenTheRowCannotBeRemoved_LogsTheJobName() throws Exception {
+        TestTask task = new TestTask(new ScheduledTaskResult(SchedulerJobExecutionStatus.SUCCESS, "ok"));
+        when(applicationContext.getBean(TestTask.class)).thenReturn(task);
+        when(scheduledJobsRepository.findByJobName("CustomJob")).thenReturn(Optional.empty());
+        doThrow(new ValidationException(ValidationError.create("Invalid format of CRON expression")))
+                .when(schedulerApiClient)
+                .schedulerCreate(any());
+        doThrow(new IllegalStateException("delete failed"))
+                .when(scheduledJobsRepository)
+                .delete(any(ScheduledJob.class));
+        List<ILoggingEvent> errors = new ArrayList<>();
+
+        try (MockedStatic<AuthHelper> authHelperMock = mockStatic(AuthHelper.class)) {
+            authHelperMock.when(AuthHelper::getUserIdentification).thenThrow(new ValidationException("no auth"));
+
+            capturing(Level.ERROR, errors, () -> assertThrows(ValidationException.class, () -> schedulerService
+                    .registerScheduledJob(TestTask.class, "CustomJob", "not a cron", true, "payload")));
+        }
+        // The refusal reaches the caller as a 422, whose handler logs only its message.
+        assertEquals(1, errors.size());
+        assertTrue(errors.get(0).getFormattedMessage().contains("CustomJob"), errors.get(0).getFormattedMessage());
+        assertEquals("delete failed", errors.get(0).getThrowableProxy().getMessage());
     }
 
     @Test

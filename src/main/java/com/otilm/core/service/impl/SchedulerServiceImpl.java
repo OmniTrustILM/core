@@ -310,6 +310,7 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
         try {
             scheduledJobsRepository.save(scheduledJob);
         } catch (DataIntegrityViolationException e) {
+            // Called for its throw: a refusal that is not the lost race must not be reported as a taken name.
             insertRaceWinner(jobName, e);
             throw jobNameTaken(jobName);
         }
@@ -319,17 +320,35 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
                     .schedulerCreate(new SchedulerRequestDto(
                             new SchedulerJobDto(jobName, cronExpression, scheduledJobTask.getJobClassName())));
         } catch (SchedulerException | RuntimeException e) {
-            // A job the scheduler refused would never run, and would keep the name from the caller's next attempt.
-            try {
-                scheduledJobsRepository.delete(scheduledJob);
-            } catch (RuntimeException cleanup) {
-                e.addSuppressed(cleanup);
-            }
+            discardUnscheduled(scheduledJob, e);
             throw e;
         }
 
         logger.info("Scheduled job '{}' was registered.", jobName);
         return registrationOf(scheduledJob);
+    }
+
+    /**
+     * Removes a job the scheduler did not confirm, which would otherwise never run and keep its name from the caller's
+     * next attempt. The scheduler may have stored it before its answer was lost, so it is asked to delete it too; only
+     * this row holds the name, so a scheduler job of that name is this one or a stale leftover. Cleanup failures ride
+     * along on {@code cause}.
+     */
+    private void discardUnscheduled(final ScheduledJob scheduledJob, final Exception cause) {
+        try {
+            schedulerApiClient.deleteScheduledJob(scheduledJob.getJobName());
+        } catch (SchedulerException | RuntimeException cleanup) {
+            cause.addSuppressed(cleanup);
+        }
+        try {
+            scheduledJobsRepository.delete(scheduledJob);
+        } catch (RuntimeException cleanup) {
+            // A 422 refusal is logged by its handler without the suppressed failures, so this is the only trace.
+            logger
+                    .error("Scheduled job '{}' was not scheduled and its row could not be removed; delete the job to free its name",
+                            scheduledJob.getJobName(), cleanup);
+            cause.addSuppressed(cleanup);
+        }
     }
 
     private static AlreadyExistException jobNameTaken(final String jobName) {
