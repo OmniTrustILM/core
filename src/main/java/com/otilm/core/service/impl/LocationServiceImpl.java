@@ -844,9 +844,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
                     .findById(linkId)
                     .orElseThrow(() -> new LocationException(
                             "Certificate " + linkId.getCertificateUuid() + " is not linked to the location"));
-            if (!location.getCertificates().contains(committed)) {
-                location.getCertificates().add(committed);
-            }
+            location.getCertificates().add(committed);
         } else {
             // add new Certificate to Location
             try {
