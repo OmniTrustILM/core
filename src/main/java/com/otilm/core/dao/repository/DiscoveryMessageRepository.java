@@ -72,8 +72,9 @@ public interface DiscoveryMessageRepository extends JpaRepository<DiscoveryMessa
             @Param("maxPerCode") int maxPerCode, @Param("maxPerRun") int maxPerRun);
 
     /**
-     * As {@link #appendWithinBounds}, for the two messages that must land whatever the run has already collected: the
-     * reason a run ended, and the row saying that other messages were dropped.
+     * As {@link #appendWithinBounds}, for the messages that must land whatever the run has already collected: the
+     * reason a run ended, the count of targets the connector could not read, and the row saying that other messages
+     * were dropped.
      */
     @Modifying
     @Query(value = """

@@ -21,7 +21,6 @@ import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.messaging.jms.configuration.DiscoveryWorkProperties;
 import com.otilm.core.model.discovery.DiscoveryMessageCode;
-import com.otilm.core.model.discovery.DiscoveryMessageDraft;
 import com.otilm.core.model.discovery.DiscoveryProgressSnapshot;
 import com.otilm.core.model.discovery.DiscoveryRunLifecycle;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
@@ -362,9 +361,8 @@ public class DiscoveryStatusTickWorker {
             return;
         }
         messageWriter
-                .append(run.getUuid(),
-                        new DiscoveryMessageDraft(DiscoveryMessageSeverity.WARNING, DiscoveryMessageCode.TARGETS_FAILED,
-                                "A target the Discovery Provider was asked to examine could not be read.", failed));
+                .appendTargetsFailed(run.getUuid(),
+                        "A target the Discovery Provider was asked to examine could not be read.", failed);
     }
 
     /**

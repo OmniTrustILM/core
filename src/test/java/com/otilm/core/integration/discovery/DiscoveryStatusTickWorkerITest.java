@@ -30,9 +30,11 @@ import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.DiscoveryWorkRepository;
 import com.otilm.core.messaging.jms.configuration.DiscoveryWorkProperties;
 import com.otilm.core.model.discovery.DiscoveryMessageCode;
+import com.otilm.core.model.discovery.DiscoveryMessageDraft;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
 import com.otilm.core.service.handler.discovery.DiscoveryStatusTickWorker;
 import com.otilm.core.service.handler.discovery.DiscoveryV2Client;
+import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.DiscoveryCheckpointFixture;
@@ -81,6 +83,8 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
     private DiscoveryWorkRepository workRepository;
     @Autowired
     private DiscoveryMessageRepository messageRepository;
+    @Autowired
+    private DiscoveryMessageWriter messageWriter;
     @Autowired
     private DiscoveryWorkWriter workWriter;
     @Autowired
@@ -505,6 +509,28 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
 
         assertThat(messageRepository.findByDiscoveryUuidOrderByIdAsc(run.getUuid()))
                 .as("the same failed targets are not counted a second time")
+                .singleElement()
+                .extracting(DiscoveryMessage::getOccurrences)
+                .isEqualTo(3L);
+    }
+
+    @Test
+    void completedAnswerOnARunWhoseLogIsFull_stillFilesTheTargetsWarning() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        // One kind of problem per message, one past the per-run bound, so the log is full before the run completes.
+        for (int i = 1; i <= 51; i++) {
+            messageWriter
+                    .append(run.getUuid(),
+                            new DiscoveryMessageDraft(DiscoveryMessageSeverity.INFO, "code" + i, "a problem", 1));
+        }
+        answers(completedWithTargets(10, 5, 3));
+
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(messageRepository.findByDiscoveryUuidOrderByIdAsc(run.getUuid()))
+                .as("the count of unreadable targets lands on its own row, not folded into the suppression row")
+                .filteredOn(message -> DiscoveryMessageCode.TARGETS_FAILED.code().equals(message.getCode()))
                 .singleElement()
                 .extracting(DiscoveryMessage::getOccurrences)
                 .isEqualTo(3L);

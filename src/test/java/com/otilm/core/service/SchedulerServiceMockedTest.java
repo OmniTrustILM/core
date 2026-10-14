@@ -818,7 +818,7 @@ class SchedulerServiceMockedTest {
 
         when(scheduledJobsRepository.findByJobName(JOB_NAME)).thenReturn(Optional.of(scheduledJob));
         when(historyWriter.recordStarted(scheduledJob)).thenReturn(scheduledJobHistory);
-        when(applicationContext.getBean(eq(TestTask.class))).thenReturn(testTask);
+        when(applicationContext.getBean(TestTask.class)).thenReturn(testTask);
 
         schedulerService.runScheduledJob(JOB_NAME);
 
