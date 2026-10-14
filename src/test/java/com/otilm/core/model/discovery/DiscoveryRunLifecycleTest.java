@@ -5,37 +5,40 @@ import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 
 class DiscoveryRunLifecycleTest {
 
     @Test
     void aCancelSomeoneAskedForIsRecordedAsInformationAndTheirJobRunAsCancelled() {
-        assertEquals(DiscoveryMessageSeverity.INFO, DiscoveryRunLifecycle.severityOf(DiscoveryStatus.CANCELLED, true));
-        assertEquals(SchedulerJobExecutionStatus.CANCELLED,
-                DiscoveryRunLifecycle.executionStatusOf(DiscoveryStatus.CANCELLED, true));
+        assertThat(DiscoveryRunLifecycle.severityOf(DiscoveryStatus.CANCELLED, true))
+                .isEqualTo(DiscoveryMessageSeverity.INFO);
+        assertThat(DiscoveryRunLifecycle.executionStatusOf(DiscoveryStatus.CANCELLED, true))
+                .isEqualTo(SchedulerJobExecutionStatus.CANCELLED);
     }
 
     @Test
     void aCancelNobodyAskedForLostWorkWithoutFailingAndFailsTheSchedule() {
-        assertEquals(DiscoveryMessageSeverity.WARNING,
-                DiscoveryRunLifecycle.severityOf(DiscoveryStatus.CANCELLED, false));
-        assertEquals(SchedulerJobExecutionStatus.FAILED,
-                DiscoveryRunLifecycle.executionStatusOf(DiscoveryStatus.CANCELLED, false));
+        assertThat(DiscoveryRunLifecycle.severityOf(DiscoveryStatus.CANCELLED, false))
+                .isEqualTo(DiscoveryMessageSeverity.WARNING);
+        assertThat(DiscoveryRunLifecycle.executionStatusOf(DiscoveryStatus.CANCELLED, false))
+                .isEqualTo(SchedulerJobExecutionStatus.FAILED);
     }
 
     @Test
     void theOtherEndingsKeepTheirMeaning() {
-        assertEquals(DiscoveryMessageSeverity.INFO, DiscoveryRunLifecycle.severityOf(DiscoveryStatus.COMPLETED, false));
-        assertEquals(DiscoveryMessageSeverity.WARNING,
-                DiscoveryRunLifecycle.severityOf(DiscoveryStatus.WARNING, false));
-        assertEquals(DiscoveryMessageSeverity.ERROR, DiscoveryRunLifecycle.severityOf(DiscoveryStatus.FAILED, false));
+        assertThat(DiscoveryRunLifecycle.severityOf(DiscoveryStatus.COMPLETED, false))
+                .isEqualTo(DiscoveryMessageSeverity.INFO);
+        assertThat(DiscoveryRunLifecycle.severityOf(DiscoveryStatus.WARNING, false))
+                .isEqualTo(DiscoveryMessageSeverity.WARNING);
+        assertThat(DiscoveryRunLifecycle.severityOf(DiscoveryStatus.FAILED, false))
+                .isEqualTo(DiscoveryMessageSeverity.ERROR);
 
-        assertEquals(SchedulerJobExecutionStatus.SUCCESS,
-                DiscoveryRunLifecycle.executionStatusOf(DiscoveryStatus.COMPLETED, false));
-        assertEquals(SchedulerJobExecutionStatus.SUCCESS,
-                DiscoveryRunLifecycle.executionStatusOf(DiscoveryStatus.WARNING, false));
-        assertEquals(SchedulerJobExecutionStatus.FAILED,
-                DiscoveryRunLifecycle.executionStatusOf(DiscoveryStatus.FAILED, false));
+        assertThat(DiscoveryRunLifecycle.executionStatusOf(DiscoveryStatus.COMPLETED, false))
+                .isEqualTo(SchedulerJobExecutionStatus.SUCCESS);
+        assertThat(DiscoveryRunLifecycle.executionStatusOf(DiscoveryStatus.WARNING, false))
+                .isEqualTo(SchedulerJobExecutionStatus.SUCCESS);
+        assertThat(DiscoveryRunLifecycle.executionStatusOf(DiscoveryStatus.FAILED, false))
+                .isEqualTo(SchedulerJobExecutionStatus.FAILED);
     }
 }

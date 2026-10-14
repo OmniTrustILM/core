@@ -148,11 +148,6 @@ class DiscoveryRunTerminatorITest extends BaseSpringBootTest {
         }
     }
 
-    /**
-     * A connector's force delete ends the runs bound to it and then deletes the connector, and the two stand or fall
-     * together: runs ended in transactions of their own would stay cancelled, their endings announced, under a
-     * connector that is still there.
-     */
     @Test
     void aUsersCancel_tellsTheSchedulerItWasTheirs() {
         Discovery run = v2Run();
@@ -169,6 +164,11 @@ class DiscoveryRunTerminatorITest extends BaseSpringBootTest {
                 .isEqualTo(true);
     }
 
+    /**
+     * A connector's force delete ends the runs bound to it and then deletes the connector, and the two stand or fall
+     * together: runs ended in transactions of their own would stay cancelled, their endings announced, under a
+     * connector that is still there.
+     */
     @Test
     void endingTheRunsBoundToInterfaces_standsOrFallsWithTheCaller() {
         Discovery run = v2Run();
