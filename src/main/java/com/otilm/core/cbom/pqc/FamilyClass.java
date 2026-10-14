@@ -35,7 +35,11 @@ public enum FamilyClass {
     PQC_PRESTANDARD(PqcVerdict.NOT_READY, "PQC-PRESTANDARD",
             "A post-quantum scheme with no finished standard, so it is not a migration target yet"),
 
-    /** Broken by cryptanalysis: SIKE and Rainbow (2022), GeMSS (CRYPTO 2021, dropped by NIST IR 8413). */
+    /**
+     * Broken by cryptanalysis: SIKE and Rainbow (2022), GeMSS (CRYPTO 2021, dropped by NIST IR 8413), HAWK (Straznickas
+     * and Weis, July 2026: key recovery through an automorphism of its lattice reduces to SVP in half the dimension;
+     * withdrawn by its team from NIST's additional-signature round on 29 July 2026).
+     */
     PQC_BROKEN(PqcVerdict.NOT_READY, "PQC-BROKEN", "A post-quantum candidate broken by cryptanalysis"),
 
     /** A named hybrid, reached only when the name did not yield its components. */

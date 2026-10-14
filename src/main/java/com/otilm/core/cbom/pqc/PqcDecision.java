@@ -13,11 +13,18 @@ import java.util.UUID;
 public record PqcDecision(PqcVerdict verdict, String ruleId, String reason, Map<String, Object> evaluatedFields,
         UUID referencedAssetUuid) {
 
+    private static final PqcDecision EVALUATION_FAILED = new PqcDecision(PqcVerdict.UNKNOWN, PqcRules.EVALUATION_FAILED,
+            PqcRules.EVALUATION_FAILED_REASON, Map.of());
+
     public PqcDecision {
         evaluatedFields = Map.copyOf(evaluatedFields);
     }
 
     public PqcDecision(PqcVerdict verdict, String ruleId, String reason, Map<String, Object> evaluatedFields) {
         this(verdict, ruleId, reason, evaluatedFields, null);
+    }
+
+    public static PqcDecision evaluationFailed() {
+        return EVALUATION_FAILED;
     }
 }

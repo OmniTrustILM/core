@@ -1,4 +1,4 @@
-# documents=5 parsed=5 unparseable=0 non-object=0 components=55 keyed=53 skipped=0
+# documents=5 parsed=5 unparseable=0 non-object=0 components=55 keyed=50 skipped=3
 digests-refuted.cdx.json	0	crt:dn-composite	2e56b3844092eaf951104cab54d4c98b22e9b436918b1fafd3b0194e23048e1d
 digests-refuted.cdx.json	1	crt:dn-composite	4d2e670b0832f07598cb86e57e3019c0825adb58db1514510487137be0530acc
 digests-refuted.cdx.json	2	crt:component-hash	ba80d0cf7c1e4d5cf6d30210ae9ad4b0c871dde7cd43f1d16c1c8f7f3e19fdbb
@@ -25,8 +25,6 @@ materials-and-occurrences.cdx.json	1	mat:value-hash	efb444da4268ab221e8d074e19a1
 materials-and-occurrences.cdx.json	10	alg:family	531f55dddaed2e14b84a545eb7c26d7d8f02d1aeaef970d3cee04dc7b6a39c4e
 materials-and-occurrences.cdx.json	11	alg:family	10a627f29346037dbf23f92f0342eeafae2e571ff0bf04c3f9a923d7dc7ed682
 materials-and-occurrences.cdx.json	12	alg:family	b4de1750a44053810d7d575270e3644b82926ddb499aadc8c0a2a400fc72cdda
-materials-and-occurrences.cdx.json	13	backstop:unknown-type	a2c6ac1e0c361808ca142fed47e83dbf3e9f714368b1f398e9af062d678a3dea
-materials-and-occurrences.cdx.json	14	backstop:unknown-type	3680ce0785fb3d7115983d43ae7253e7a374d3e34b2dc02b89a382952edb1c64
 materials-and-occurrences.cdx.json	2	mat:backstop	9ea6c6536b4003be519c89c282463855beb026b9e545a0b9e02516f540594cd8
 materials-and-occurrences.cdx.json	3	mat:id	04009fad52bcc090c591b41f9b20d8d4aefeeb451df863aec00f4d5c65045aba
 materials-and-occurrences.cdx.json	4	mat:occurrence	54d6283c995701b779c924d837cd27d06793bf8ea2431005fa3c72744edbce05
@@ -35,6 +33,8 @@ materials-and-occurrences.cdx.json	6	prt:type+version	846ab787234400bc95255eca95
 materials-and-occurrences.cdx.json	7	alg:family	98d1013dbd69bdfffff5d90f3334ed232467adb47cf0bb3afd0858c8773bd671
 materials-and-occurrences.cdx.json	8	alg:family	1b1a90fb2e3f798ebc8568a297f6ffb609e6472b6029049114a4ffc7eb12e423
 materials-and-occurrences.cdx.json	9	alg:family	4bf8f56b2b2d3614edea18852917d11315327b436a4dfdd9f149f23e12f9cb2f
+materials-and-occurrences.cdx.json	skip:0	THROWN	cryptoProperties.assetType is not one of the asset types CycloneDX defines
+materials-and-occurrences.cdx.json	skip:1	THROWN	cryptoProperties is absent, so the component declares no asset type
 references-ambiguous-and-nested.cdx.json	0	mat:value-hash	d39797c170ea8c94ab7644445e0dd29d5f4e9dca1101a033781798b760dcee83
 references-ambiguous-and-nested.cdx.json	1	mat:value-hash	3bd92b38ac531c014f5e151cff17577e0a21d6d74539fa4e514d32b6076076bf
 references-ambiguous-and-nested.cdx.json	10	crt:dn-composite	c41693aa4c7789cd06eb1d0eb9d5ade3a1c2847cf3793547f2761063514b5725
@@ -50,5 +50,5 @@ suites-refuted-and-barred.cdx.json	0	prt:type+version+suites	0928464acf4f5f94186
 suites-refuted-and-barred.cdx.json	1	prt:type+version+suites	7e7d1cfa38f5324062fa0bbb461c7727a0490aac0f8d8f6749655d99a31a583a
 suites-refuted-and-barred.cdx.json	2	prt:type+version+suites	f1accc5e00fceacbd771fa75174efb04c423d2eedf6b33ea6e49b169a6f54a3c
 suites-refuted-and-barred.cdx.json	3	alg:family	10a627f29346037dbf23f92f0342eeafae2e571ff0bf04c3f9a923d7dc7ed682
-suites-refuted-and-barred.cdx.json	4	backstop:unknown-type	5ca7a55c0b90547ad04a59db2c6b4ac203bc866e7b04077488ca2ec05ce7bed2
-suites-refuted-and-barred.cdx.json	5	prt:type+version+suites	558895fad32e31fccb550d343ae73f1cb99b0dc87a2f015f3df36ba3d6b41d31
+suites-refuted-and-barred.cdx.json	4	prt:type+version+suites	558895fad32e31fccb550d343ae73f1cb99b0dc87a2f015f3df36ba3d6b41d31
+suites-refuted-and-barred.cdx.json	skip:0	THROWN	cryptoProperties.assetType is missing, and CycloneDX requires it

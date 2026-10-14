@@ -432,11 +432,12 @@ class AttributeEngineITest extends BaseSpringBootTest {
 
         UUID certificateUuid = certificate.getUuid();
         UUID finalDefinitionUuid2 = definitionUuid;
+        SecurityResourceFilter attributeFilter = attributeEngine.loadCustomAttributesSecurityResourceFilter();
         Assertions
                 .assertThrows(AttributeException.class,
                         () -> attributeEngine
                                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificateUuid,
-                                        finalDefinitionUuid2, attributeName, invalidOption),
+                                        finalDefinitionUuid2, attributeName, invalidOption, attributeFilter),
                         "Content not in predefined options should not be accepted for not extensible list attribute");
 
         List<AttributeContent> validContent = List.of(new StringAttributeContentV3("data1"));
@@ -445,7 +446,8 @@ class AttributeEngineITest extends BaseSpringBootTest {
                 .assertDoesNotThrow(
                         () -> attributeEngine
                                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificateUuid,
-                                        finalDefinitionUuid, attributeName, validContent),
+                                        finalDefinitionUuid, attributeName, validContent,
+                                        attributeEngine.loadCustomAttributesSecurityResourceFilter()),
                         "Valid content should be accepted for not extensible list attribute");
 
         List<AttributeContent> validContentV2 = List.of(new StringAttributeContentV2("data1"));
@@ -454,7 +456,8 @@ class AttributeEngineITest extends BaseSpringBootTest {
                 .assertDoesNotThrow(
                         () -> attributeEngine
                                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificateUuid,
-                                        finalDefinitionUuid1, attributeName, validContentV2),
+                                        finalDefinitionUuid1, attributeName, validContentV2,
+                                        attributeEngine.loadCustomAttributesSecurityResourceFilter()),
                         "Valid content in v2 should be accepted for not extensible list attribute");
 
         extensibleListAttribute.setContentType(AttributeContentType.CODEBLOCK);
@@ -473,7 +476,8 @@ class AttributeEngineITest extends BaseSpringBootTest {
                 .assertDoesNotThrow(
                         () -> attributeEngine
                                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificateUuid,
-                                        finalDefinitionUuid3, attributeName, List.of(attributeContent)),
+                                        finalDefinitionUuid3, attributeName, List.of(attributeContent),
+                                        attributeEngine.loadCustomAttributesSecurityResourceFilter()),
                         "Valid code block content should be accepted for not extensible list attribute");
 
         customProps.setProtectionLevel(ProtectionLevel.ENCRYPTED);
@@ -482,7 +486,8 @@ class AttributeEngineITest extends BaseSpringBootTest {
                 .assertDoesNotThrow(
                         () -> attributeEngine
                                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificateUuid,
-                                        finalDefinitionUuid3, attributeName, List.of(attributeContent)),
+                                        finalDefinitionUuid3, attributeName, List.of(attributeContent),
+                                        attributeEngine.loadCustomAttributesSecurityResourceFilter()),
                         "Valid code block content should be accepted for not extensible list attribute with encrypted protection level");
 
         DataAttributeV2 dataAttributeV2 = new DataAttributeV2();

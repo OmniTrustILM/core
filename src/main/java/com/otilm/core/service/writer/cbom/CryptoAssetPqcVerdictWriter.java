@@ -1,11 +1,14 @@
 package com.otilm.core.service.writer.cbom;
 
 import com.otilm.core.cbom.asset.JsonColumnText;
+import com.otilm.core.cbom.pqc.PqcVerdictTransition;
 import com.otilm.core.cbom.pqc.PqcVerdictWrite;
 import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
+import com.otilm.core.events.handlers.CryptoAssetPqcNotReadyEventHandler;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,9 +31,12 @@ import org.springframework.transaction.annotation.Transactional;
 public class CryptoAssetPqcVerdictWriter {
 
     private final CryptoAssetRepository assetRepository;
+    private final ApplicationEventPublisher applicationEventPublisher;
 
-    public CryptoAssetPqcVerdictWriter(CryptoAssetRepository assetRepository) {
+    public CryptoAssetPqcVerdictWriter(CryptoAssetRepository assetRepository,
+            ApplicationEventPublisher applicationEventPublisher) {
         this.assetRepository = assetRepository;
+        this.applicationEventPublisher = applicationEventPublisher;
     }
 
     /**
@@ -63,10 +69,21 @@ public class CryptoAssetPqcVerdictWriter {
     }
 
     private int apply(PqcVerdictWrite write) {
-        return assetRepository
+        PqcVerdictTransition transition = PqcVerdictTransition
+                .decide(write.row().pqcVerdict(), write.row().pqcLastDecidedVerdict(), write.decision().verdict());
+        int written = assetRepository
                 .applyPqcVerdictIfStale(write.assetUuid(), write.rowVersion(), write.decision().verdict().name(),
                         write.decision().ruleId(), write.decision().reason(),
                         JsonColumnText.render(write.decision().evaluatedFields()),
-                        write.decision().referencedAssetUuid(), write.referenceBasis());
+                        write.decision().referencedAssetUuid(), write.referenceBasis(),
+                        transition.lastDecidedVerdict() == null ? null : transition.lastDecidedVerdict().name());
+        if (written == 1 && transition.shouldPublish()) {
+            applicationEventPublisher
+                    .publishEvent(CryptoAssetPqcNotReadyEventHandler
+                            .constructEventMessage(transition
+                                    .eventData(write.row(), write.decision().ruleId(), write.decision().reason()),
+                                    null));
+        }
+        return written;
     }
 }

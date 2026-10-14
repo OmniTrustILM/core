@@ -1,11 +1,16 @@
 package com.otilm.core.service.writer.cbom;
 
 import com.otilm.api.model.core.cbom.CbomAssetSyncState;
+import com.otilm.core.cbom.ingest.CbomAssetIngestService;
+import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.dao.repository.CbomRepository;
+import com.otilm.core.events.handlers.CbomSyncedEventHandler;
+import com.otilm.core.util.AuthHelper;
 import java.time.OffsetDateTime;
 import java.util.EnumSet;
 import java.util.Set;
 import java.util.UUID;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,9 +27,14 @@ import org.springframework.transaction.annotation.Transactional;
 public class CbomAssetSyncStateWriter {
 
     private final CbomRepository cbomRepository;
+    private final ClusterOperationSynchronizer clusterSynchronizer;
+    private final ApplicationEventPublisher applicationEventPublisher;
 
-    public CbomAssetSyncStateWriter(CbomRepository cbomRepository) {
+    public CbomAssetSyncStateWriter(CbomRepository cbomRepository, ClusterOperationSynchronizer clusterSynchronizer,
+            ApplicationEventPublisher applicationEventPublisher) {
         this.cbomRepository = cbomRepository;
+        this.clusterSynchronizer = clusterSynchronizer;
+        this.applicationEventPublisher = applicationEventPublisher;
     }
 
     /**
@@ -33,8 +43,8 @@ public class CbomAssetSyncStateWriter {
      * <p>
      * A run selects its work list, reads a document over HTTP, and only then writes. Another node can finish the same
      * CBOM inside that window, and a failure written unconditionally would flip a genuinely synced row to FAILED with
-     * an error that is not about it. Success is unconditional in the other direction on purpose: the run that actually
-     * ingested the assets is the one entitled to say so.
+     * an error that is not about it. A successful transition is also guarded against an already synced row or a newer
+     * version that finished first.
      */
     private static final Set<CbomAssetSyncState> NOT_YET_SYNCED = EnumSet
             .of(CbomAssetSyncState.PENDING, CbomAssetSyncState.IN_PROGRESS, CbomAssetSyncState.FAILED);
@@ -107,21 +117,35 @@ public class CbomAssetSyncStateWriter {
     public static final String DELETION_WITHDREW_THE_INVENTORY = "A deletion withdrew this CBOM's cryptographic assets and then failed; they will be ingested again.";
 
     /**
-     * Records a successful ingest -- over any state, but not over a deletion's withdrawal.
+     * Records a successful ingest and publishes only for this CBOM's first completed ingest.
      *
      * <p>
-     * Unconditional on the state on purpose: the run that actually ingested the assets is the one entitled to say so,
-     * and {@link #markInProgress}/{@link #markFailed} carry the guards that stop a stale run from overruling it. The
-     * one write it must not overrule is not a state but a fact about the inventory -- see
-     * {@link CbomRepository#updateAssetSyncStateUnlessError}.
+     * A repeated success or a later version that already synced leaves the row untouched and returns zero, so
+     * concurrent attempts cannot announce a stale CBOM sync. A deletion's withdrawal is also protected -- see
+     * {@link CbomRepository#updateAssetSyncStateUnlessError}. A recovery updates the sync timestamp but does not
+     * publish again when this CBOM already completed an ingest.
      *
-     * @return 1 if the success was recorded, 0 if a deletion had withdrawn the inventory in the meantime
+     * @return 1 if the state transitioned to SYNCED, 0 if already synced, superseded, or withdrawn
      */
     @Transactional
     public int markSynced(UUID cbomUuid, OffsetDateTime syncedAt) {
-        return cbomRepository
+        String serialNumber = cbomRepository.findSerialNumberByUuid(cbomUuid).orElse(null);
+        if (serialNumber == null) {
+            return 0;
+        }
+        // Versions share the first lock; batches and withdrawals share the second. Keep this acquisition order.
+        clusterSynchronizer.lock("cbom-asset-sync-serial:" + serialNumber);
+        clusterSynchronizer.lock(CbomAssetIngestService.assetSyncLockKey(cbomUuid));
+        boolean completedBefore = cbomRepository.hasCompletedAssetSync(cbomUuid);
+        int transitioned = cbomRepository
                 .updateAssetSyncStateUnlessError(cbomUuid, CbomAssetSyncState.SYNCED, syncedAt,
                         DELETION_WITHDREW_THE_INVENTORY);
+        if (transitioned == 1 && !completedBefore) {
+            applicationEventPublisher
+                    .publishEvent(CbomSyncedEventHandler
+                            .constructEventMessage(cbomUuid, AuthHelper.getActingUserUuidOrNull()));
+        }
+        return transitioned;
     }
 
     /**

@@ -1,6 +1,7 @@
 package com.otilm.core.model.cbom;
 
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetType;
+import com.otilm.api.model.core.cryptoasset.PqcVerdict;
 import com.otilm.core.cbom.asset.CryptoAssetIdentityFields;
 import jakarta.persistence.Tuple;
 import java.util.UUID;
@@ -17,7 +18,8 @@ import java.util.UUID;
  */
 public record PqcStaleVerdictRow(UUID uuid, CryptographicAssetType assetType, String name, String oid,
         String algorithmFamily, String primitive, String parameterSet, String curve, String mode, String padding,
-        String variant, String mergedCryptoPropertiesJson, long rowVersion) {
+        String variant, String mergedCryptoPropertiesJson, long rowVersion, PqcVerdict pqcVerdict,
+        PqcVerdict pqcLastDecidedVerdict) {
 
     /** Reads {@code CryptoAssetRepository.findStaleVerdictRows}'s columns by name; the SELECT list is its contract. */
     public static PqcStaleVerdictRow fromWorkListRow(Tuple row) {
@@ -27,7 +29,13 @@ public record PqcStaleVerdictRow(UUID uuid, CryptographicAssetType assetType, St
                 row.get("primitive", String.class), row.get("parameter_set", String.class),
                 row.get("curve", String.class), row.get("mode", String.class), row.get("padding", String.class),
                 row.get("variant", String.class), row.get("merged_crypto_properties", String.class),
-                row.get("row_version", Long.class));
+                row.get("row_version", Long.class), verdict(row, "pqc_verdict"),
+                verdict(row, "pqc_last_decided_verdict"));
+    }
+
+    private static PqcVerdict verdict(Tuple row, String column) {
+        String value = row.get(column, String.class);
+        return value == null ? null : PqcVerdict.valueOf(value);
     }
 
     public CryptoAssetIdentityFields fields() {
