@@ -793,4 +793,62 @@ class TspAuthenticationFilterTest {
             verify(authHelper, never()).authenticateAsUser(any());
         }
     }
+
+    @Test
+    void clientCertificateAuthenticatorLogsControlledParserReason() throws Throwable {
+        request.addHeader(CERT_HEADER_NAME, "private-certificate%%%");
+        var authenticator = new ClientCertificateAuthenticator(authClient, CERT_HEADER_NAME,
+                new TspSecurityContextWriter(authHelper));
+        var messages = com.otilm.core.security.authn.ForwardedCertificateFixtures
+                .captureLogs(ClientCertificateAuthenticator.class,
+                        () -> assertThat(authenticator
+                                .authenticate(request, modelWith(List.of(TspAuthenticationMethod.CLIENT_CERTIFICATE))))
+                                .isFalse());
+        assertThat(messages)
+                .anyMatch(message -> message.contains("Invalid certificate transport encoding"))
+                .noneMatch(message -> message.contains("private-certificate%%%"));
+        verifyNoInteractions(authClient);
+    }
+
+    @Test
+    void clientCertificateAuthenticatorDoesNotLogUncontrolledServiceMessage() throws Throwable {
+        request.addHeader(CERT_HEADER_NAME, CERT_HEADER);
+        when(authClient.authenticateByCertificate(any()))
+                .thenThrow(new PlatformAuthenticationException("service-private-material",
+                        new com.otilm.core.security.exception.AuthenticationServiceException(503,
+                                "service-private-material")));
+        var authenticator = new ClientCertificateAuthenticator(authClient, CERT_HEADER_NAME,
+                new TspSecurityContextWriter(authHelper));
+        var messages = com.otilm.core.security.authn.ForwardedCertificateFixtures
+                .captureLogs(ClientCertificateAuthenticator.class,
+                        () -> assertThat(authenticator
+                                .authenticate(request, modelWith(List.of(TspAuthenticationMethod.CLIENT_CERTIFICATE))))
+                                .isFalse());
+        assertThat(messages)
+                .anyMatch(message -> message.contains("Authentication service unavailable"))
+                .noneMatch(message -> message.contains("service-private-material"));
+    }
+
+    @Test
+    void clientCertificateAuthenticatorDoesNotLogUntaggedInputBearingServletException() throws Throwable {
+        request = new MockHttpServletRequest() {
+            @Override
+            public java.util.Enumeration<String> getHeaders(String name) {
+                throw new IllegalArgumentException("derived-private-certificate-material");
+            }
+        };
+        request.addHeader(CERT_HEADER_NAME, CERT_HEADER);
+        var authenticator = new ClientCertificateAuthenticator(authClient, CERT_HEADER_NAME,
+                new TspSecurityContextWriter(authHelper));
+        var messages = com.otilm.core.security.authn.ForwardedCertificateFixtures
+                .captureLogs(ClientCertificateAuthenticator.class,
+                        () -> assertThat(authenticator
+                                .authenticate(request, modelWith(List.of(TspAuthenticationMethod.CLIENT_CERTIFICATE))))
+                                .isFalse());
+        assertThat(messages)
+                .anyMatch(message -> message.endsWith("Certificate authentication failed"))
+                .noneMatch(message -> message.contains("derived-private-certificate-material"));
+        verifyNoInteractions(authClient);
+    }
+
 }

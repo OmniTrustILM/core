@@ -243,6 +243,21 @@ class PlatformAuthenticationFilterTest {
     }
 
     @Test
+    void malformedNestedCertificateReturnsUnauthorizedWithControlledReason() throws Throwable {
+        request.addHeader(CERT_HEADER_NAME, ForwardedCertificateFixtures.MALFORMED_NESTED_CERTIFICATE);
+        var messages = ForwardedCertificateFixtures
+                .captureLogs(PlatformAuthenticationFilter.class,
+                        () -> assertDoesNotThrow(() -> filter.doFilter(request, response, filterChain)));
+        org.assertj.core.api.Assertions
+                .assertThat(messages)
+                .anyMatch(message -> message.endsWith("Invalid X.509 certificate"))
+                .noneMatch(message -> message.contains(ForwardedCertificateFixtures.MALFORMED_NESTED_CERTIFICATE));
+        assertEquals(401, response.getStatus());
+        assertNull(SecurityContextHolder.getContext().getAuthentication());
+        verifyNoInteractions(authClient, filterChain);
+    }
+
+    @Test
     void nonPlatformAuthException_isRethrown() {
         // given
         when(authClient.authenticate(any(), any(), anyBoolean())).thenThrow(new BadCredentialsException("unexpected"));
@@ -320,4 +335,232 @@ class PlatformAuthenticationFilterTest {
         return new AuthenticationInfo(AuthMethod.CERTIFICATE, "uuid-1", "alice",
                 List.of(new SimpleGrantedAuthority("ROLE_USER")));
     }
+
+    @Test
+    void logsControlledParserReasonWithoutSubmittedHeader() throws Throwable {
+        String submitted = "private-certificate%%%";
+        request.addHeader(CERT_HEADER_NAME, submitted);
+        var messages = ForwardedCertificateFixtures
+                .captureLogs(PlatformAuthenticationFilter.class, () -> filter.doFilter(request, response, filterChain));
+        org.assertj.core.api.Assertions
+                .assertThat(messages)
+                .anyMatch(message -> message.contains("Invalid certificate transport encoding"))
+                .noneMatch(message -> message.contains(submitted));
+        assertEquals(401, response.getStatus());
+    }
+
+    @Test
+    void logsFixedServiceReasonWithoutUpstreamDetails() throws Throwable {
+        request.addHeader(CERT_HEADER_NAME, CERT_HEADER);
+        when(authClient.authenticateByCertificate(any()))
+                .thenThrow(new PlatformAuthenticationException("upstream-private-material",
+                        new com.otilm.core.security.exception.AuthenticationServiceException(503,
+                                "upstream-private-material")));
+        var messages = ForwardedCertificateFixtures
+                .captureLogs(PlatformAuthenticationFilter.class, () -> filter.doFilter(request, response, filterChain));
+        org.assertj.core.api.Assertions
+                .assertThat(messages)
+                .anyMatch(message -> message.contains("Authentication service unavailable"))
+                .noneMatch(message -> message.contains("upstream-private-material"));
+        assertEquals(401, response.getStatus());
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void configuredTomcatAcceptsForwardedChainBeyondEightKiBAndRejectsOversizedHeaders(boolean http2) throws Exception {
+        when(authClient.authenticateByCertificate(any())).thenReturn(authenticatedInfo());
+        var reached = new java.util.concurrent.atomic.AtomicInteger();
+        var requests = new java.util.concurrent.CopyOnWriteArrayList<HeaderRequest>();
+        var rejected = new java.util.concurrent.LinkedBlockingQueue<Throwable>();
+        var logger = java.util.logging.Logger.getLogger("org.apache.coyote.http2.Http2UpgradeHandler");
+        var priorLevel = logger.getLevel();
+        var handler = new java.util.logging.Handler() {
+            @Override
+            public void publish(java.util.logging.LogRecord event) {
+                if (event.getThrown() != null) {
+                    rejected.add(event.getThrown());
+                }
+            }
+
+            @Override
+            public void flush() {
+                // Events are captured in memory and need no flushing.
+            }
+
+            @Override
+            public void close() {
+                // The test removes the handler; it owns no resources.
+            }
+        };
+        var server = startHeaderServer(http2, reached, requests);
+        logger.addHandler(handler);
+        logger.setLevel(java.util.logging.Level.INFO);
+        try (var http = java.net.http.HttpClient
+                .newBuilder()
+                .version(http2 ? java.net.http.HttpClient.Version.HTTP_2 : java.net.http.HttpClient.Version.HTTP_1_1)
+                .build()) {
+            var endpoint = java.net.URI.create("http://127.0.0.1:" + server.getPort() + "/v1/auth/profile");
+            if (http2) {
+                var warmup = http
+                        .send(java.net.http.HttpRequest
+                                .newBuilder(endpoint)
+                                .header(CERT_HEADER_NAME, ForwardedCertificateFixtures.LEAF_DER)
+                                .GET()
+                                .build(), java.net.http.HttpResponse.BodyHandlers.discarding());
+                assertEquals(200, warmup.statusCode());
+                assertEquals(java.net.http.HttpClient.Version.HTTP_2, warmup.version());
+            }
+            String leaf = java.net.URLEncoder
+                    .encode(ForwardedCertificateFixtures.LEAF_PEM, java.nio.charset.StandardCharsets.UTF_8)
+                    .replace("+", "%20");
+            String chain = java.net.URLEncoder
+                    .encode(ForwardedCertificateFixtures.LEAF_PEM + ForwardedCertificateFixtures.read("issuer.pem"),
+                            java.nio.charset.StandardCharsets.UTF_8)
+                    .replace("+", "%20");
+            String header = "Cert=\"" + leaf + "\";Chain=\"" + chain + "\"";
+            String cookie = "session=" + "s".repeat(2048);
+            String bearer = "Bearer " + "a".repeat(3072);
+            org.assertj.core.api.Assertions
+                    .assertThat(header.length() + cookie.length() + bearer.length())
+                    .isGreaterThan(8192);
+            var accepted = http
+                    .send(java.net.http.HttpRequest
+                            .newBuilder(endpoint)
+                            .header(CERT_HEADER_NAME, header)
+                            .header("Cookie", cookie)
+                            .header("Authorization", bearer)
+                            .GET()
+                            .build(), java.net.http.HttpResponse.BodyHandlers.discarding());
+            assertEquals(200, accepted.statusCode());
+            assertEquals(http2 ? java.net.http.HttpClient.Version.HTTP_2 : java.net.http.HttpClient.Version.HTTP_1_1,
+                    accepted.version());
+            int acceptedCount = http2 ? 2 : 1;
+            assertEquals(acceptedCount, reached.get());
+            if (http2) {
+                assertEquals("HTTP/2.0", requests.get(1).protocol());
+                assertEquals(requests.get(0).remotePort(), requests.get(1).remotePort());
+            }
+            verify(authClient)
+                    .authenticateByCertificate(
+                            argThat(cert -> cert.content().equals(ForwardedCertificateFixtures.LEAF_DER)
+                                    && cert.chain().equals(List.of(ForwardedCertificateFixtures.ISSUER_DER))));
+            var oversized = java.net.http.HttpRequest
+                    .newBuilder(endpoint)
+                    .header(CERT_HEADER_NAME, header)
+                    .header("Cookie", "s".repeat(65536))
+                    .GET()
+                    .build();
+            if (http2) {
+                assertThrows(java.io.IOException.class,
+                        () -> http.send(oversized, java.net.http.HttpResponse.BodyHandlers.discarding()));
+                var rejection = rejected.poll(5, java.util.concurrent.TimeUnit.SECONDS);
+                org.assertj.core.api.Assertions.assertThat(rejection).isNotNull();
+                var messages = org.apache.tomcat.util.res.StringManager.getManager("org.apache.coyote.http2");
+                var messageFormat = new java.text.MessageFormat(messages.getString("http2Parser.headerLimitSize"),
+                        messages.getLocale());
+                org.assertj.core.api.Assertions
+                        .assertThat(rejection.getMessage())
+                        .isEqualTo(messageFormat.format(messageFormat.parse(rejection.getMessage())));
+                org.assertj.core.api.Assertions
+                        .assertThat(rejection.getClass().getName())
+                        .isEqualTo("org.apache.coyote.http2.StreamException");
+            } else {
+                assertEquals(400,
+                        http.send(oversized, java.net.http.HttpResponse.BodyHandlers.discarding()).statusCode());
+            }
+            assertEquals(acceptedCount, reached.get());
+        } finally {
+            server.stop();
+            logger.removeHandler(handler);
+            logger.setLevel(priorLevel);
+        }
+    }
+
+    @Test
+    void logsGenericReasonForUntaggedInputBearingServletException() throws Throwable {
+        request = new MockHttpServletRequest() {
+            @Override
+            public java.util.Enumeration<String> getHeaders(String name) {
+                throw new IllegalArgumentException("derived-private-certificate-material");
+            }
+        };
+        request.addHeader(CERT_HEADER_NAME, CERT_HEADER);
+        var messages = ForwardedCertificateFixtures
+                .captureLogs(PlatformAuthenticationFilter.class, () -> filter.doFilter(request, response, filterChain));
+        org.assertj.core.api.Assertions
+                .assertThat(messages)
+                .anyMatch(message -> message.endsWith("Certificate authentication failed"))
+                .noneMatch(message -> message.contains("derived-private-certificate-material"));
+        assertEquals(401, response.getStatus());
+        verifyNoInteractions(authClient);
+    }
+
+    @Test
+    void logsControlledHeaderLimitReasonWithoutMaterial() throws Throwable {
+        request.addHeader(CERT_HEADER_NAME, "A".repeat(262145));
+        var messages = ForwardedCertificateFixtures
+                .captureLogs(PlatformAuthenticationFilter.class, () -> filter.doFilter(request, response, filterChain));
+        org.assertj.core.api.Assertions
+                .assertThat(messages)
+                .anyMatch(message -> message.contains("Certificate header size limit exceeded"));
+        assertEquals(401, response.getStatus());
+        verifyNoInteractions(authClient);
+    }
+
+    private record HeaderRequest(String protocol, int remotePort) {
+    }
+
+    private org.springframework.boot.web.server.WebServer startHeaderServer(boolean http2,
+            java.util.concurrent.atomic.AtomicInteger reached, java.util.List<HeaderRequest> requests)
+            throws Exception {
+        var environment = new org.springframework.core.env.StandardEnvironment();
+        var loader = new org.springframework.boot.env.YamlPropertySourceLoader();
+        for (var source : loader
+                .load("application",
+                        new org.springframework.core.io.FileSystemResource(java.nio.file.Path
+                                .of(PlatformAuthenticationFilter.class
+                                        .getProtectionDomain()
+                                        .getCodeSource()
+                                        .getLocation()
+                                        .toURI())
+                                .resolve("application.yml")))) {
+            environment.getPropertySources().addLast(source);
+        }
+        var properties = new org.springframework.boot.web.server.autoconfigure.ServerProperties();
+        properties
+                .setMaxHttpRequestHeaderSize(org.springframework.boot.context.properties.bind.Binder
+                        .get(environment)
+                        .bind("server.max-http-request-header-size", org.springframework.util.unit.DataSize.class)
+                        .orElse(properties.getMaxHttpRequestHeaderSize()));
+        org.assertj.core.api.Assertions
+                .assertThat(properties.getMaxHttpRequestHeaderSize())
+                .isEqualTo(org.springframework.util.unit.DataSize.ofKilobytes(64));
+        var factory = new org.springframework.boot.tomcat.servlet.TomcatServletWebServerFactory();
+        factory.setPort(0);
+        factory.setAddress(java.net.InetAddress.getByName("127.0.0.1"));
+        properties.getHttp2().setEnabled(http2);
+        factory.setHttp2(properties.getHttp2());
+        new org.springframework.boot.tomcat.autoconfigure.TomcatWebServerFactoryCustomizer(environment, properties,
+                new org.springframework.boot.tomcat.autoconfigure.TomcatServerProperties(),
+                new org.springframework.boot.autoconfigure.web.WebProperties()).customize(factory);
+        var server = factory.getWebServer(servletContext -> {
+            servletContext
+                    .addFilter("platform", filter)
+                    .addMappingForUrlPatterns(java.util.EnumSet.of(jakarta.servlet.DispatcherType.REQUEST), false,
+                            "/*");
+            servletContext.addServlet("accepted", new jakarta.servlet.http.HttpServlet() {
+                @Override
+                protected void service(jakarta.servlet.http.HttpServletRequest req,
+                        jakarta.servlet.http.HttpServletResponse res) {
+                    reached.incrementAndGet();
+                    requests.add(new HeaderRequest(req.getProtocol(), req.getRemotePort()));
+                    res.setStatus(200);
+                    SecurityContextHolder.clearContext();
+                }
+            }).addMapping("/*");
+        });
+        server.start();
+        return server;
+    }
+
 }

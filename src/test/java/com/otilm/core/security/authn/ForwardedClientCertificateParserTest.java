@@ -305,4 +305,51 @@ class ForwardedClientCertificateParserTest {
             }
         }
     }
+
+    @ParameterizedTest
+    @MethodSource("com.otilm.core.security.authn.ForwardedCertificateFixtures#noncanonicalSingletonHeaders")
+    void legacySingletonPreservesCompleteNoncanonicalEncoding(String header, String content, String thumbprint)
+            throws Exception {
+        var parsed = ForwardedClientCertificateParser.parse(header);
+        assertThat(parsed.content()).isEqualTo(content);
+        assertThat(parsed.thumbprint()).isEqualTo(thumbprint);
+        assertThat(parsed.chain()).isEmpty();
+    }
+
+    @Test
+    void newAssertionsAndLegacyChainsStillRequireCanonicalDer() throws Exception {
+        var noncanonical = ForwardedCertificateFixtures
+                .noncanonicalSingletonHeaders()
+                .findFirst()
+                .orElseThrow()
+                .get()[1]
+                .toString();
+        String pem = "-----BEGIN CERTIFICATE-----\n" + noncanonical + "\n-----END CERTIFICATE-----\n";
+        for (String header : java.util.List
+                .of(noncanonical + "," + ForwardedCertificateFixtures.ISSUER_DER,
+                        ForwardedCertificateFixtures.LEAF_DER + "," + noncanonical, ":" + noncanonical + ":",
+                        "Cert=\"" + java.net.URLEncoder
+                                .encode(pem, java.nio.charset.StandardCharsets.UTF_8)
+                                .replace("+", "%20") + "\"")) {
+            assertThat(assertThrows(ForwardedClientCertificateParser.InvalidCertificateHeaderException.class,
+                    () -> ForwardedClientCertificateParser.parse(header)))
+                    .hasMessage("Invalid certificate DER encoding");
+        }
+    }
+
+    @ParameterizedTest
+    @MethodSource("com.otilm.core.security.authn.ForwardedCertificateFixtures#populatedPkcs7Headers")
+    void rejectsPopulatedPkcs7InsteadOfUsingItsFirstCertificate(String header) {
+        assertThat(assertThrows(ForwardedClientCertificateParser.InvalidCertificateHeaderException.class,
+                () -> ForwardedClientCertificateParser.parse(header))).hasMessage("Invalid X.509 certificate");
+    }
+
+    @Test
+    void rejectsMalformedNestedCertificateWithControlledReason() {
+        assertThat(assertThrows(ForwardedClientCertificateParser.InvalidCertificateHeaderException.class,
+                () -> ForwardedClientCertificateParser
+                        .parse(ForwardedCertificateFixtures.MALFORMED_NESTED_CERTIFICATE)))
+                .hasMessage("Invalid X.509 certificate");
+    }
+
 }

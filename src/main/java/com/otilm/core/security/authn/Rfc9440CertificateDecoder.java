@@ -25,20 +25,23 @@ final class Rfc9440CertificateDecoder {
                 for (var member : members) {
                     byte[] candidate = certificate(member);
                     if (Arrays.equals(leaf, candidate)) {
-                        throw new IllegalArgumentException("RFC certificate chain contains the leaf");
+                        throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException(
+                                "RFC certificate chain contains the leaf");
                     }
                     certificates.add(candidate);
                 }
             }
             return certificates;
         } catch (ParseException e) {
-            throw new IllegalArgumentException("Invalid RFC certificate field syntax");
+            throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException(
+                    "Invalid RFC certificate field syntax");
         }
     }
 
     private static byte[] certificate(Object member) {
         if (!(member instanceof ByteSequenceItem item)) {
-            throw new IllegalArgumentException("Expected RFC certificate byte item");
+            throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException(
+                    "Expected RFC certificate byte item");
         }
         ByteBuffer buffer = item.byteBufferValue();
         ForwardedCertificateLimits.derSize(buffer.remaining());
@@ -50,7 +53,8 @@ final class Rfc9440CertificateDecoder {
     private static void preflight(String leafValue, List<String> values) {
         int bytes = ForwardedCertificateLimits.headerBytes(leafValue, 0);
         if (values.size() > ForwardedCertificateLimits.COMPANION_LINES) {
-            throw new IllegalArgumentException("RFC companion occurrence limit exceeded");
+            throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException(
+                    "RFC companion occurrence limit exceeded");
         }
         int members = 0;
         int lines = 0;

@@ -210,7 +210,9 @@ class PlatformAuthenticationClientITest extends BaseSpringBootTest {
 
     private static ForwardedClientCertificateParser.ParsedCertificate parsedCertificate() {
         try {
-            return ForwardedClientCertificateParser.parse(ForwardedCertificateFixtures.LEAF_DER);
+            var request = new org.springframework.mock.web.MockHttpServletRequest();
+            request.addHeader("ssl-client-cert", ForwardedCertificateFixtures.LEAF_DER);
+            return ForwardedClientCertificateParser.parse(request, "ssl-client-cert");
         } catch (java.security.NoSuchAlgorithmException e) {
             throw new IllegalStateException(e);
         }

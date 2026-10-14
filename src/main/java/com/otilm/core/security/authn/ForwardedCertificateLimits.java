@@ -12,19 +12,22 @@ final class ForwardedCertificateLimits {
 
     static int headerBytes(String value, int previous) {
         if (value == null) {
-            throw new IllegalArgumentException("Empty certificate header");
+            throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException("Empty certificate header");
         }
         if (previous > HEADER_BYTES) {
-            throw new IllegalArgumentException("Certificate header size limit exceeded");
+            throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException(
+                    "Certificate header size limit exceeded");
         }
         int size = previous;
         for (int i = 0; i < value.length(); i++) {
             char character = value.charAt(i);
             if (character > 127) {
-                throw new IllegalArgumentException("Invalid certificate header encoding");
+                throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException(
+                        "Invalid certificate header encoding");
             }
             if (++size > HEADER_BYTES) {
-                throw new IllegalArgumentException("Certificate header size limit exceeded");
+                throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException(
+                        "Certificate header size limit exceeded");
             }
         }
         return size;
@@ -32,13 +35,15 @@ final class ForwardedCertificateLimits {
 
     static void certificateCount(int count) {
         if (count > CERTIFICATES) {
-            throw new IllegalArgumentException("Certificate count limit exceeded");
+            throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException(
+                    "Certificate count limit exceeded");
         }
     }
 
     static void derSize(int size) {
         if (size > DER_BYTES) {
-            throw new IllegalArgumentException("Certificate DER size limit exceeded");
+            throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException(
+                    "Certificate DER size limit exceeded");
         }
     }
 }

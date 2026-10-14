@@ -11,6 +11,7 @@ import org.junit.jupiter.params.provider.Arguments;
 
 public final class ForwardedCertificateFixtures {
     private static final String EMPTY_PKCS7 = "MCMGCSqGSIb3DQEHAqAWMBQCAQExADALBgkqhkiG9w0BBwExAA==";
+    public static final String MALFORMED_NESTED_CERTIFICATE = "MAswADADBgEqAwIAAA==";
     public static final String LEAF_PEM = read("leaf.pem");
     public static final String LEAF_DER = content(LEAF_PEM);
     public static final String ISSUER_DER = content(read("issuer.pem"));
@@ -35,6 +36,36 @@ public final class ForwardedCertificateFixtures {
         return Stream.concat(original, explicit);
     }
 
+    public static Stream<Arguments> noncanonicalSingletonHeaders() throws Exception {
+        byte[] original = Base64.getDecoder().decode(LEAF_DER);
+        int lengthBytes = original[1] & 0x7f;
+        byte[] nonminimal = new byte[original.length + 1];
+        nonminimal[0] = original[0];
+        nonminimal[1] = (byte) (0x80 | lengthBytes + 1);
+        System.arraycopy(original, 2, nonminimal, 3, original.length - 2);
+        String content = Base64.getEncoder().encodeToString(nonminimal);
+        String thumbprint = java.util.HexFormat
+                .of()
+                .formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(nonminimal));
+        String pem = "-----BEGIN CERTIFICATE-----\n" + content + "\n-----END CERTIFICATE-----\n";
+        return headers(pem)
+                .filter(header -> !header.contains(","))
+                .map(header -> Arguments.of(header, content, thumbprint));
+    }
+
+    public static Stream<String> populatedPkcs7Headers() throws IOException {
+        var certificate = org.bouncycastle.asn1.ASN1Primitive.fromByteArray(Base64.getDecoder().decode(LEAF_DER));
+        var signedData = new org.bouncycastle.asn1.pkcs.SignedData(new org.bouncycastle.asn1.ASN1Integer(1),
+                new org.bouncycastle.asn1.DERSet(),
+                new org.bouncycastle.asn1.pkcs.ContentInfo(org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers.data, null),
+                new org.bouncycastle.asn1.DERSet(certificate), null, new org.bouncycastle.asn1.DERSet());
+        var container = new org.bouncycastle.asn1.pkcs.ContentInfo(
+                org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers.signedData, signedData);
+        String pem = "-----BEGIN CERTIFICATE-----\n" + Base64.getEncoder().encodeToString(container.getEncoded())
+                + "\n-----END CERTIFICATE-----\n";
+        return headers(pem).filter(header -> !header.contains(","));
+    }
+
     private static Stream<String> headers(String pem) {
         String der = content(pem);
         String wrapped = wrapPem(pem);
@@ -49,10 +80,25 @@ public final class ForwardedCertificateFixtures {
 
     public static Stream<String> malformedHeaders() {
         return List
-                .of("", "%%%", "!!not-base64!!", "dGVzdA==", EMPTY_PKCS7, LEAF_DER + ",", "," + LEAF_DER,
-                        LEAF_DER + ",dGVzdA==", LEAF_DER + "," + ISSUER_DER + ",!", LEAF_DER + "AAAA", trailingBytes(),
-                        "-----BEGIN CERTIFICATE-----\n" + LEAF_DER)
+                .of("", "%%%", "!!not-base64!!", "dGVzdA==", EMPTY_PKCS7, MALFORMED_NESTED_CERTIFICATE, LEAF_DER + ",",
+                        "," + LEAF_DER, LEAF_DER + ",dGVzdA==", LEAF_DER + "," + ISSUER_DER + ",!", LEAF_DER + "AAAA",
+                        trailingBytes(), "-----BEGIN CERTIFICATE-----\n" + LEAF_DER)
                 .stream();
+    }
+
+    public static List<String> captureLogs(Class<?> source, org.junit.jupiter.api.function.Executable action)
+            throws Throwable {
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(source);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            action.execute();
+            return appender.list.stream().map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage).toList();
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     private static String trailingBytes() {

@@ -16,11 +16,12 @@ final class XfccCertificateDecoder {
         Map<String, String> fields = certificateFields(value);
         String cert = fields.get("cert");
         if (cert == null) {
-            throw new IllegalArgumentException("Missing XFCC certificate");
+            throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException("Missing XFCC certificate");
         }
         List<byte[]> leaf = CertificateHeaderValueDecoder.decodePemTransport(cert);
         if (leaf.size() != 1) {
-            throw new IllegalArgumentException("XFCC Cert must contain one certificate");
+            throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException(
+                    "XFCC Cert must contain one certificate");
         }
         return candidates(leaf.getFirst(), fields.get("chain"));
     }
@@ -31,7 +32,8 @@ final class XfccCertificateDecoder {
         int pairs = 0;
         while (position < value.length()) {
             if (++pairs > ForwardedCertificateLimits.XFCC_PAIRS) {
-                throw new IllegalArgumentException("XFCC pair count limit exceeded");
+                throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException(
+                        "XFCC pair count limit exceeded");
             }
             int end = keyEnd(value, position);
             String key = value.substring(position, end).toLowerCase(Locale.ROOT);
@@ -46,7 +48,8 @@ final class XfccCertificateDecoder {
 
     private static void addCertificateField(Map<String, String> fields, String key, String text) {
         if (text.isEmpty() || fields.putIfAbsent(key, text) != null) {
-            throw new IllegalArgumentException("Invalid XFCC certificate field occurrence");
+            throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException(
+                    "Invalid XFCC certificate field occurrence");
         }
     }
 
@@ -77,11 +80,13 @@ final class XfccCertificateDecoder {
         if (chain != null) {
             List<byte[]> bundle = CertificateHeaderValueDecoder.decodePemTransport(chain);
             if (!Arrays.equals(leaf, bundle.getFirst())) {
-                throw new IllegalArgumentException("XFCC Chain does not begin with the leaf");
+                throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException(
+                        "XFCC Chain does not begin with the leaf");
             }
             for (int i = 1; i < bundle.size(); i++) {
                 if (Arrays.equals(leaf, bundle.get(i))) {
-                    throw new IllegalArgumentException("XFCC Chain repeats the leaf");
+                    throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException(
+                            "XFCC Chain repeats the leaf");
                 }
                 certificates.add(bundle.get(i));
             }
@@ -150,7 +155,8 @@ final class XfccCertificateDecoder {
     }
 
     private static IllegalArgumentException syntaxFailure() {
-        return new IllegalArgumentException("Invalid XFCC certificate field syntax");
+        return new ForwardedClientCertificateParser.InvalidCertificateHeaderException(
+                "Invalid XFCC certificate field syntax");
     }
 
     private record Value(String text, int end) {

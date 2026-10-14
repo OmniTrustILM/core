@@ -55,6 +55,9 @@ public class PlatformAuthenticationFilter extends OncePerRequestFilter {
                 }
 
                 if (rawCertHeader != null && authInfo.isAnonymous()) {
+                    log
+                            .warn("Certificate authentication request for '{}' rejected: certificate was not authenticated.",
+                                    request.getRequestURI());
                     rejectCertificate(response);
                     return;
                 }
@@ -72,7 +75,9 @@ public class PlatformAuthenticationFilter extends OncePerRequestFilter {
             } catch (AuthenticationException e) {
                 SecurityContextHolder.clearContext();
                 if (rawCertHeader != null) {
-                    log.warn("Certificate authentication request for '{}' failed.", request.getRequestURI());
+                    log
+                            .warn("Certificate authentication request for '{}' failed: {}", request.getRequestURI(),
+                                    PlatformAuthenticationClient.certificateFailureReason(e));
                     rejectCertificate(response);
                     return;
                 }

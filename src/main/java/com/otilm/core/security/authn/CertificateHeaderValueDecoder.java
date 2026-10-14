@@ -1,6 +1,7 @@
 package com.otilm.core.security.authn;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.security.cert.CertificateException;
@@ -8,6 +9,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
+import org.bouncycastle.asn1.ASN1Primitive;
+import org.bouncycastle.asn1.x509.Certificate;
 import org.bouncycastle.jcajce.provider.asymmetric.x509.CertificateFactory;
 
 final class CertificateHeaderValueDecoder {
@@ -22,7 +25,11 @@ final class CertificateHeaderValueDecoder {
         if (formPem(decoded)) {
             decoded = transport(value, true);
         }
-        return decodeSequence(decoded, false);
+        List<byte[]> certificates = decodeSequence(decoded, false);
+        if (certificates.size() > 1) {
+            certificates.forEach(CertificateHeaderValueDecoder::canonicalDer);
+        }
+        return certificates;
     }
 
     private static boolean formPem(String decoded) {
@@ -34,7 +41,9 @@ final class CertificateHeaderValueDecoder {
     }
 
     static List<byte[]> decodePemTransport(String value) {
-        return decodeSequence(transport(value, false), true);
+        List<byte[]> certificates = decodeSequence(transport(value, false), true);
+        certificates.forEach(CertificateHeaderValueDecoder::canonicalDer);
+        return certificates;
     }
 
     private static String transport(String value, boolean formPem) {
@@ -42,7 +51,8 @@ final class CertificateHeaderValueDecoder {
         try {
             return URLDecoder.decode(formPem ? value : value.replace("+", "%2B"), StandardCharsets.UTF_8);
         } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException("Invalid certificate transport encoding");
+            throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException(
+                    "Invalid certificate transport encoding");
         }
     }
 
@@ -61,12 +71,12 @@ final class CertificateHeaderValueDecoder {
                 String wrapped = new String(decoded, StandardCharsets.US_ASCII);
                 certificates.addAll(decodeSequence(wrapped, true, precedingCertificates + certificates.size()));
             } else {
-                certificates.add(canonicalDer(decoded));
+                certificates.add(certificateBytes(decoded, false));
             }
             position = nextCertificate(value, member, pemOnly);
         }
         if (certificates.isEmpty()) {
-            throw new IllegalArgumentException("Empty certificate header");
+            throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException("Empty certificate header");
         }
         return certificates;
     }
@@ -76,13 +86,15 @@ final class CertificateHeaderValueDecoder {
             int bodyStart = position + PEM_BEGIN.length();
             int bodyEnd = value.indexOf(PEM_END, bodyStart);
             if (bodyEnd < 0) {
-                throw new IllegalArgumentException("Invalid certificate PEM armor");
+                throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException(
+                        "Invalid certificate PEM armor");
             }
             String body = value.substring(bodyStart, bodyEnd).replace(" ", "").replace("\t", "");
             return new EncodedCertificate(body, bodyEnd + PEM_END.length(), true);
         }
         if (pemOnly) {
-            throw new IllegalArgumentException("Expected certificate PEM armor");
+            throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException(
+                    "Expected certificate PEM armor");
         }
         int end = value.indexOf(',', position);
         if (end < 0) {
@@ -98,14 +110,17 @@ final class CertificateHeaderValueDecoder {
         }
         if (value.charAt(position) == ',') {
             if (pemOnly) {
-                throw new IllegalArgumentException("Invalid certificate PEM sequence");
+                throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException(
+                        "Invalid certificate PEM sequence");
             }
             position = skipWhitespace(value, position + 1);
             if (position == value.length()) {
-                throw new IllegalArgumentException("Empty certificate sequence member");
+                throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException(
+                        "Empty certificate sequence member");
             }
         } else if (!member.pem() || !value.startsWith(PEM_BEGIN, position)) {
-            throw new IllegalArgumentException("Invalid certificate sequence");
+            throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException(
+                    "Invalid certificate sequence");
         }
         return position;
     }
@@ -122,13 +137,15 @@ final class CertificateHeaderValueDecoder {
 
     private static byte[] decodeBase64(String content, boolean derOnly) {
         if (derOnly && content.length() > ((ForwardedCertificateLimits.DER_BYTES + 2) / 3) * 4) {
-            throw new IllegalArgumentException("Certificate DER size limit exceeded");
+            throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException(
+                    "Certificate DER size limit exceeded");
         }
         byte[] der;
         try {
             der = Base64.getDecoder().decode(content);
         } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException("Invalid certificate Base64 encoding");
+            throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException(
+                    "Invalid certificate Base64 encoding");
         }
         return der;
     }
@@ -150,16 +167,29 @@ final class CertificateHeaderValueDecoder {
     }
 
     static byte[] canonicalDer(byte[] der) {
+        return certificateBytes(der, true);
+    }
+
+    private static byte[] certificateBytes(byte[] der, boolean canonical) {
         ForwardedCertificateLimits.derSize(der.length);
+        if (der.length == 0 || der[0] != 0x30) {
+            throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException("Invalid X.509 certificate");
+        }
+        try {
+            Certificate.getInstance(ASN1Primitive.fromByteArray(der));
+        } catch (IOException | RuntimeException e) {
+            throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException("Invalid X.509 certificate");
+        }
         try {
             ByteArrayInputStream input = new ByteArrayInputStream(der);
             byte[] encoded = new CertificateFactory().engineGenerateCertificate(input).getEncoded();
-            if (input.available() != 0 || !Arrays.equals(der, encoded)) {
-                throw new IllegalArgumentException("Invalid certificate DER encoding");
+            if (input.available() != 0 || canonical && !Arrays.equals(der, encoded)) {
+                throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException(
+                        "Invalid certificate DER encoding");
             }
-            return encoded;
+            return der;
         } catch (CertificateException e) {
-            throw new IllegalArgumentException("Invalid X.509 certificate");
+            throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException("Invalid X.509 certificate");
         }
     }
 }

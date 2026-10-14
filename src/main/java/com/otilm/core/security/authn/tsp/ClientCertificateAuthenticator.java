@@ -41,9 +41,14 @@ public class ClientCertificateAuthenticator implements TspAuthenticator {
         try {
             var certificate = ForwardedClientCertificateParser.parse(request, certificateHeaderName);
             AuthenticationInfo authInfo = authClient.authenticateByCertificate(certificate);
+            if (authInfo.isAnonymous()) {
+                log.warn("TSP authentication: certificate was not authenticated.");
+            }
             return contextWriter.setFromAuthInfo(authInfo);
         } catch (NoSuchAlgorithmException | RuntimeException e) {
-            log.warn("TSP authentication: client-certificate authentication failed.");
+            log
+                    .warn("TSP authentication: client-certificate authentication failed: {}",
+                            PlatformAuthenticationClient.certificateFailureReason(e));
             return false;
         }
     }

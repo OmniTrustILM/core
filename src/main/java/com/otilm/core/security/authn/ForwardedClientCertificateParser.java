@@ -1,5 +1,6 @@
 package com.otilm.core.security.authn;
 
+import com.otilm.api.exception.PlatformException;
 import com.otilm.core.util.CertificateUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import java.security.NoSuchAlgorithmException;
@@ -13,7 +14,7 @@ public final class ForwardedClientCertificateParser {
     private ForwardedClientCertificateParser() {
     }
 
-    public static ParsedCertificate parse(String header) throws NoSuchAlgorithmException {
+    static ParsedCertificate parse(String header) throws NoSuchAlgorithmException {
         String selected = selectedValue(header);
         return normalize(decode(selected, envelope(selected), List.of()));
     }
@@ -40,7 +41,7 @@ public final class ForwardedClientCertificateParser {
                 assertedIdentity = true;
             }
             if (occurrences > 1 && assertedIdentity) {
-                throw new IllegalArgumentException("Repeated certificate identity field");
+                throw new InvalidCertificateHeaderException("Repeated certificate identity field");
             }
         }
     }
@@ -48,7 +49,7 @@ public final class ForwardedClientCertificateParser {
     private static String selectedValue(String header) {
         ForwardedCertificateLimits.headerBytes(header, 0);
         if (header.isBlank()) {
-            throw new IllegalArgumentException("Empty certificate header");
+            throw new InvalidCertificateHeaderException("Empty certificate header");
         }
         return header.trim();
     }
@@ -59,7 +60,7 @@ public final class ForwardedClientCertificateParser {
         int bytes = leaf.length();
         while (fields != null && fields.hasMoreElements()) {
             if (values.size() == ForwardedCertificateLimits.COMPANION_LINES) {
-                throw new IllegalArgumentException("RFC companion occurrence limit exceeded");
+                throw new InvalidCertificateHeaderException("RFC companion occurrence limit exceeded");
             }
             String value = fields.nextElement();
             bytes = ForwardedCertificateLimits.headerBytes(value, bytes + (values.isEmpty() ? 0 : 1));
@@ -167,6 +168,14 @@ public final class ForwardedClientCertificateParser {
         CERTIFICATE,
         RFC9440,
         XFCC
+    }
+
+    public static final class InvalidCertificateHeaderException extends IllegalArgumentException
+            implements
+                PlatformException {
+        InvalidCertificateHeaderException(String reason) {
+            super(reason);
+        }
     }
 
     public static final class ParsedCertificate {
