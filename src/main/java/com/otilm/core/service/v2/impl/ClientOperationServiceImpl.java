@@ -625,12 +625,17 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         }
 
         if (beforeDispatch != null) {
+            final UUID certificateUuid = UUID.fromString(certificate.getUuid());
             try {
-                beforeDispatch.accept(UUID.fromString(certificate.getUuid()));
+                beforeDispatch.accept(certificateUuid);
             } catch (RuntimeException e) {
                 logger
-                        .warn("Step before queuing the issue of certificate {} failed: {}", certificate.getUuid(),
-                                e.getMessage(), e);
+                        .warn("Step before queuing the issue of certificate {} failed; not issuing it", certificateUuid,
+                                e);
+                failClaimedCertificate(certificateUuid, e, "preparing the certificate for issuance failed");
+                throw new CertificateOperationException(
+                        "Failed to prepare certificate %s for issuance: ".formatted(certificateUuid)
+                                + safeMessage(e, INTERNAL_ERROR));
             }
         }
 

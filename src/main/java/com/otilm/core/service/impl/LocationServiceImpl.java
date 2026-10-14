@@ -106,6 +106,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import org.apache.commons.lang3.StringUtils;
@@ -792,13 +793,17 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         logger.info("Received certificate signing request from Location {}", location.getName());
 
         // issue new Certificate
+        AtomicBoolean linkedBeforeDispatch = new AtomicBoolean();
         Certificate certificate = null;
         ClientCertificateDataResponseDto clientCertificateDataResponseDto = null;
         try {
             clientCertificateDataResponseDto = issueCertificateForLocation(location, generateCsrResponseDto.getCsr(),
                     request.getIssueAttributes(), raProfileUuid, request.getCertificateCustomAttributes(),
-                    certificateUuid -> linkIssuedCertificateInNewTransaction(location.getUuid(), certificateUuid,
-                            generateCsrResponseDto, request.getCsrAttributes()));
+                    certificateUuid -> {
+                        linkIssuedCertificateInNewTransaction(location.getUuid(), certificateUuid,
+                                generateCsrResponseDto, request.getCsrAttributes());
+                        linkedBeforeDispatch.set(true);
+                    });
             certificate = certificateService
                     .getCertificateEntity(SecuredUUID.fromString(clientCertificateDataResponseDto.getUuid()));
         } catch (Exception e) {
@@ -809,14 +814,27 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
                             + e.getMessage());
         }
 
-        // add new Certificate to Location
-        try {
-            addCertificateToLocation(location, certificate, generateCsrResponseDto.getPushAttributes(),
-                    request.getCsrAttributes(), generateCsrResponseDto.getMetadata());
-        } catch (Exception e) {
-            logger.error("Failed to add new certificate to location: {}", e.getMessage());
-            removeStash(location, generateCsrResponseDto.getMetadata());
-            throw new LocationException("Failed to add new certificate to the location. Reason: " + e.getMessage());
+        if (linkedBeforeDispatch.get()) {
+            // The link is committed and the issue is queued, so the stash must stay; only this transaction's view of
+            // the Location needs to learn about it.
+            CertificateLocationId linkId = new CertificateLocationId(location.getUuid(), certificate.getUuid());
+            CertificateLocation committed = certificateLocationRepository
+                    .findById(linkId)
+                    .orElseThrow(() -> new LocationException(
+                            "Certificate " + linkId.getCertificateUuid() + " is not linked to the location"));
+            if (!location.getCertificates().contains(committed)) {
+                location.getCertificates().add(committed);
+            }
+        } else {
+            // add new Certificate to Location
+            try {
+                addCertificateToLocation(location, certificate, generateCsrResponseDto.getPushAttributes(),
+                        request.getCsrAttributes(), generateCsrResponseDto.getMetadata());
+            } catch (Exception e) {
+                logger.error("Failed to add new certificate to location: {}", e.getMessage());
+                removeStash(location, generateCsrResponseDto.getMetadata());
+                throw new LocationException("Failed to add new certificate to the location. Reason: " + e.getMessage());
+            }
         }
 
         logger
@@ -1282,8 +1300,6 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
             certificateLocation = new CertificateLocation();
             certificateLocation.setLocation(location);
             certificateLocation.setCertificate(certificate);
-        }
-        if (!location.getCertificates().contains(certificateLocation)) {
             location.getCertificates().add(certificateLocation);
         }
 

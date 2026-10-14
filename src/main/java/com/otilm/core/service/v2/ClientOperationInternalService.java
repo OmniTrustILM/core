@@ -38,7 +38,7 @@ public interface ClientOperationInternalService {
      * As
      * {@link #issueCertificate(SecuredParentUUID, SecuredUUID, ClientCertificateIssueRequestDto, CertificateProtocolInfo)},
      * running {@code beforeDispatch} with the new certificate's UUID once the request is stored and before the issue
-     * action is queued. A failing step is logged and the action is queued anyway.
+     * action is queued. If the step fails, the certificate is marked failed and the action is not queued.
      */
     ClientCertificateDataResponseDto issueCertificate(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
             ClientCertificateIssueRequestDto request, CertificateProtocolInfo protocolInfo,

@@ -505,17 +505,23 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
-    void issueCertificate_stillReturnsTheCertificate_whenTheBeforeDispatchStepFails() throws Exception {
+    void issueCertificate_failsTheCertificateAndQueuesNothing_whenTheBeforeDispatchStepFails() throws Exception {
         stubIssueEndpoints();
+        List<UUID> seen = new ArrayList<>();
 
-        ClientCertificateDataResponseDto response = clientOperationInternalService
-                .issueCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
-                        issueRequest(), null, uuid -> {
-                            throw new IllegalStateException("link failed");
-                        });
+        Assertions
+                .assertThrows(CertificateOperationException.class,
+                        () -> clientOperationInternalService
+                                .issueCertificate(authorityInstanceReference.getSecuredParentUuid(),
+                                        raProfile.getSecuredUuid(), issueRequest(), null, uuid -> {
+                                            seen.add(uuid);
+                                            throw new IllegalStateException("link failed");
+                                        }));
 
-        Assertions.assertNotNull(response.getUuid());
-        Assertions.assertTrue(certificateRepository.findByUuid(UUID.fromString(response.getUuid())).isPresent());
+        Assertions.assertEquals(1, seen.size());
+        Assertions
+                .assertEquals(CertificateState.FAILED,
+                        certificateRepository.findByUuid(seen.getFirst()).orElseThrow().getState());
     }
 
     private void stubIssueEndpoints() throws Exception {
