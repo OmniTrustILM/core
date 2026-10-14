@@ -142,11 +142,14 @@ public enum FilterField {
     ISSUER_SERIAL_NUMBER(Resource.CERTIFICATE, null, null, Certificate_.issuerSerialNumber, "Issuer Serial Number",
             SearchFieldTypeEnum.STRING),
     OCSP_VALIDATION(Resource.CERTIFICATE, null, null, Certificate_.certificateValidationResult, "OCSP Validation",
-            SearchFieldTypeEnum.LIST, CertificateValidationStatus.class),
+            SearchFieldTypeEnum.LIST, CertificateValidationStatus.class, null, false,
+            new String[]{"ocsp_verification", Constants.VALIDATION_CHECK_STATUS}),
     CRL_VALIDATION(Resource.CERTIFICATE, null, null, Certificate_.certificateValidationResult, "CRL Validation",
-            SearchFieldTypeEnum.LIST, CertificateValidationStatus.class),
+            SearchFieldTypeEnum.LIST, CertificateValidationStatus.class, null, false,
+            new String[]{"crl_verification", Constants.VALIDATION_CHECK_STATUS}),
     SIGNATURE_VALIDATION(Resource.CERTIFICATE, null, null, Certificate_.certificateValidationResult,
-            "Signature Validation", SearchFieldTypeEnum.LIST, CertificateValidationStatus.class),
+            "Signature Validation", SearchFieldTypeEnum.LIST, CertificateValidationStatus.class, null, false,
+            new String[]{"signature", Constants.VALIDATION_CHECK_STATUS}),
     PRIVATE_KEY(Resource.CERTIFICATE, Resource.CRYPTOGRAPHIC_KEY, List.of(Certificate_.key, CryptographicKey_.items),
             CryptographicKeyItem_.type, "Has private key", SearchFieldTypeEnum.BOOLEAN, null, KeyType.PRIVATE_KEY,
             false, null),
@@ -590,6 +593,7 @@ public enum FilterField {
 
     private static class Constants {
         private static final String RESOURCE_OBJECTS_ARRAY = "objects[*]";
+        private static final String VALIDATION_CHECK_STATUS = "status";
         public static final String STATE = "State";
         public static final String ENABLED = "Enabled";
         public static final String STATUS = "Status";
