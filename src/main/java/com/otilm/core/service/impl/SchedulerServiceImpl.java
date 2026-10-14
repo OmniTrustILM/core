@@ -47,6 +47,7 @@ import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
+import java.net.ConnectException;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -320,7 +321,15 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
                     .schedulerCreate(new SchedulerRequestDto(
                             new SchedulerJobDto(jobName, cronExpression, scheduledJobTask.getJobClassName())));
         } catch (SchedulerException | RuntimeException e) {
-            discardUnscheduled(scheduledJob, e);
+            if (refusedBeforeStoring(e)) {
+                removeRefused(scheduledJob, e);
+            } else {
+                // The scheduler may have stored the job and fired its trigger before its answer was lost, and a run
+                // that started keeps its history on this row, so the job stays; its schedule state shows which it is.
+                logger
+                        .warn("Scheduled job '{}' was saved, but the scheduler's answer to creating it was lost; check its schedule state, and delete it to try again",
+                                jobName);
+            }
             throw e;
         }
 
@@ -329,17 +338,27 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
     }
 
     /**
-     * Removes a job the scheduler did not confirm, which would otherwise never run and keep its name from the caller's
-     * next attempt. The scheduler may have stored it before its answer was lost, so it is asked to delete it too; only
-     * this row holds the name, so a scheduler job of that name is this one or a stale leftover. Cleanup failures ride
-     * along on {@code cause}.
+     * Whether the scheduler certainly stored nothing: it answered with a client error, such as the 422 for an invalid
+     * cron expression, or the connection to it was refused.
      */
-    private void discardUnscheduled(final ScheduledJob scheduledJob, final Exception cause) {
-        try {
-            schedulerApiClient.deleteScheduledJob(scheduledJob.getJobName());
-        } catch (SchedulerException | RuntimeException cleanup) {
-            cause.addSuppressed(cleanup);
+    private static boolean refusedBeforeStoring(final Exception failure) {
+        final Throwable cause = Exceptions.unwrap(failure);
+        if (cause instanceof ValidationException) {
+            return true;
         }
+        if (cause instanceof ConnectionServiceException answer) {
+            return answer.getHttpStatus() != null && answer.getHttpStatus().is4xxClientError();
+        }
+        for (Throwable t = cause; t != null; t = t.getCause()) {
+            if (t instanceof ConnectException) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Removes the row of a job the scheduler refused, which would otherwise never run and keep its name taken. */
+    private void removeRefused(final ScheduledJob scheduledJob, final Exception refusal) {
         try {
             scheduledJobsRepository.delete(scheduledJob);
         } catch (RuntimeException cleanup) {
@@ -347,7 +366,7 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
             logger
                     .error("Scheduled job '{}' was not scheduled and its row could not be removed; delete the job to free its name",
                             scheduledJob.getJobName(), cleanup);
-            cause.addSuppressed(cleanup);
+            refusal.addSuppressed(cleanup);
         }
     }
 

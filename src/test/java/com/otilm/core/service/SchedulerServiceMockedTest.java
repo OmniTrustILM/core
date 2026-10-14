@@ -38,6 +38,9 @@ import com.otilm.core.service.writer.scheduler.ScheduledJobWriter;
 import com.otilm.core.tasks.ScheduledJobInfo;
 import com.otilm.core.tasks.ScheduledJobTask;
 import com.otilm.core.util.AuthHelper;
+import java.io.IOException;
+import java.net.ConnectException;
+import java.net.URI;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
@@ -62,7 +65,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationContext;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
 import reactor.core.Exceptions;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -80,6 +86,7 @@ import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
@@ -127,6 +134,7 @@ class SchedulerServiceMockedTest {
     private static final String JOB_NAME = "TestScheduledJob";
     private static final UUID JOB_UUID = UUID.randomUUID();
     private static final UUID HISTORY_UUID = UUID.randomUUID();
+    private static final URI SCHEDULER_CREATE_URI = URI.create("http://scheduler/v1/scheduler/create");
 
     @BeforeEach
     void setUp() {
@@ -642,58 +650,74 @@ class SchedulerServiceMockedTest {
     }
 
     /**
-     * What the scheduler client surfaces: a 422 refusal, its declared exception, and a create whose answer was lost.
+     * Failures after which the scheduler certainly stored nothing: it answered a client error, or was never reached.
      */
-    static Stream<Exception> schedulerCreateFailures() {
+    static Stream<Exception> schedulerRefusals() {
         return Stream
                 .of(new ValidationException(ValidationError.create("Invalid format of CRON expression")),
-                        new SchedulerException("Scheduler refused the job"),
-                        new IllegalStateException("Connection reset"));
+                        Exceptions.propagate(new ConnectionServiceException("Bad request", HttpStatus.BAD_REQUEST)),
+                        new WebClientRequestException(new ConnectException("Connection refused"), HttpMethod.POST,
+                                SCHEDULER_CREATE_URI, HttpHeaders.EMPTY));
+    }
+
+    /** Failures that leave open whether the scheduler stored the job, and so whether its trigger has fired. */
+    static Stream<Exception> uncertainSchedulerCreates() {
+        return Stream
+                .of(Exceptions.propagate(new ConnectionServiceException("Bad gateway", HttpStatus.BAD_GATEWAY)),
+                        new WebClientRequestException(new IOException("Connection reset by peer"), HttpMethod.POST,
+                                SCHEDULER_CREATE_URI, HttpHeaders.EMPTY),
+                        new IllegalStateException("Timeout on blocking read"),
+                        new SchedulerException("Scheduler failed"));
     }
 
     @ParameterizedTest
-    @MethodSource("schedulerCreateFailures")
-    void testRegisterScheduledJob_WithExplicitValues_WhenSchedulerFails_RemovesTheJobFromBothSides(Exception failure)
+    @MethodSource("schedulerRefusals")
+    void testRegisterScheduledJob_WithExplicitValues_WhenSchedulerRefuses_RemovesTheJob(Exception refusal)
             throws Exception {
         TestTask task = new TestTask(new ScheduledTaskResult(SchedulerJobExecutionStatus.SUCCESS, "ok"));
         when(applicationContext.getBean(TestTask.class)).thenReturn(task);
         when(scheduledJobsRepository.findByJobName("CustomJob")).thenReturn(Optional.empty());
-        doThrow(failure).when(schedulerApiClient).schedulerCreate(any());
+        // Thrown as built: doThrow would throw a ReactiveException's cause, which its fillInStackTrace returns.
+        doAnswer(invocation -> {
+            throw refusal;
+        }).when(schedulerApiClient).schedulerCreate(any());
 
         try (MockedStatic<AuthHelper> authHelperMock = mockStatic(AuthHelper.class)) {
             authHelperMock.when(AuthHelper::getUserIdentification).thenThrow(new ValidationException("no auth"));
 
             Exception thrown = assertThrows(Exception.class, () -> schedulerService
                     .registerScheduledJob(TestTask.class, "CustomJob", "0 10 * * * ?", true, "payload"));
-            assertSame(failure, thrown);
+            assertSame(refusal, thrown);
         }
         ArgumentCaptor<ScheduledJob> jobCaptor = ArgumentCaptor.forClass(ScheduledJob.class);
         verify(scheduledJobsRepository).save(jobCaptor.capture());
-        // The scheduler may have stored the job before its answer was lost.
-        verify(schedulerApiClient).deleteScheduledJob("CustomJob");
         verify(scheduledJobsRepository).delete(jobCaptor.getValue());
     }
 
-    @Test
-    void testRegisterScheduledJob_WithExplicitValues_WhenTheSchedulerCannotDeleteEither_StillRemovesTheRow()
+    @ParameterizedTest
+    @MethodSource("uncertainSchedulerCreates")
+    void testRegisterScheduledJob_WithExplicitValues_WhenTheSchedulerAnswerIsLost_KeepsTheJob(Exception failure)
             throws Exception {
         TestTask task = new TestTask(new ScheduledTaskResult(SchedulerJobExecutionStatus.SUCCESS, "ok"));
         when(applicationContext.getBean(TestTask.class)).thenReturn(task);
         when(scheduledJobsRepository.findByJobName("CustomJob")).thenReturn(Optional.empty());
-        RuntimeException createFailure = new IllegalStateException("Connection reset");
-        RuntimeException deleteFailure = new IllegalStateException("Connection refused");
-        doThrow(createFailure).when(schedulerApiClient).schedulerCreate(any());
-        doThrow(deleteFailure).when(schedulerApiClient).deleteScheduledJob("CustomJob");
+        doAnswer(invocation -> {
+            throw failure;
+        }).when(schedulerApiClient).schedulerCreate(any());
+        List<ILoggingEvent> warnings = new ArrayList<>();
 
         try (MockedStatic<AuthHelper> authHelperMock = mockStatic(AuthHelper.class)) {
             authHelperMock.when(AuthHelper::getUserIdentification).thenThrow(new ValidationException("no auth"));
 
-            Exception thrown = assertThrows(Exception.class, () -> schedulerService
-                    .registerScheduledJob(TestTask.class, "CustomJob", "0 10 * * * ?", true, "payload"));
-            assertSame(createFailure, thrown);
-            assertEquals(List.of(deleteFailure), List.of(thrown.getSuppressed()));
+            Exception thrown = capturingWarnings(warnings, () -> assertThrows(Exception.class, () -> schedulerService
+                    .registerScheduledJob(TestTask.class, "CustomJob", "0 10 * * * ?", true, "payload")));
+            assertSame(failure, thrown);
         }
-        verify(scheduledJobsRepository).delete(any(ScheduledJob.class));
+        // Its trigger may already have started a run; removing the row would take that run's history with it.
+        verify(scheduledJobsRepository, never()).delete(any(ScheduledJob.class));
+        verify(schedulerApiClient, never()).deleteScheduledJob(any());
+        assertEquals(1, warnings.size());
+        assertTrue(warnings.get(0).getFormattedMessage().contains("CustomJob"), warnings.get(0).getFormattedMessage());
     }
 
     @Test
