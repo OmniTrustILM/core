@@ -1643,8 +1643,15 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * claim, because a certificate that is still pending can be linked to a location at any time before it is issued.
      */
     private void afterSynchronousIssue(UUID certificateUuid) {
-        for (CertificateLocation certificateLocation : certificateLocationRepository
-                .findByCertificateUuid(certificateUuid)) {
+        List<CertificateLocation> certificateLocations = List.of();
+        try {
+            certificateLocations = certificateLocationRepository.findByCertificateUuid(certificateUuid);
+        } catch (RuntimeException e) {
+            logger
+                    .error("Failed to look up the locations of issued certificate {}: {}", certificateUuid,
+                            e.getMessage());
+        }
+        for (CertificateLocation certificateLocation : certificateLocations) {
             try {
                 locationInternalService.pushRequestedCertificateToLocationAction(certificateLocation.getId(), false);
             } catch (Exception e) {

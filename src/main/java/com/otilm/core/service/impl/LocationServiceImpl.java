@@ -806,10 +806,16 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
                     });
         } catch (Exception e) {
             logger.error("Failed to issue Certificate: {}", e.getMessage());
-            if (linkedCertificateUuid.get() != null) {
-                unlinkCertificateInNewTransaction(location, linkedCertificateUuid.get());
+            // When the issue could not be queued, failing the certificate already removed it from its locations,
+            // stash included; only clean up here if the link is still there.
+            UUID linkedUuid = linkedCertificateUuid.get();
+            if (linkedUuid == null) {
+                removeStash(location, generateCsrResponseDto.getMetadata());
+            } else if (certificateLocationRepository
+                    .existsById(new CertificateLocationId(location.getUuid(), linkedUuid))) {
+                unlinkCertificateInNewTransaction(location, linkedUuid);
+                removeStash(location, generateCsrResponseDto.getMetadata());
             }
-            removeStash(location, generateCsrResponseDto.getMetadata());
             throw new LocationException(
                     "Failed to issue certificate to the location. Error Issuing certificate from Authority. "
                             + e.getMessage());

@@ -836,6 +836,43 @@ class LocationServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void testIssueToLocationDoesNotCleanUpAgain_whenTheQueueFailureAlreadyRemovedTheLink() throws Exception {
+        RaProfile raProfile = getRaProfile();
+        when(clientOperationService.issueCertificate(any(), any(), any(), any(), any())).thenAnswer(inv -> {
+            Consumer<UUID> beforeDispatch = inv.getArgument(4);
+            beforeDispatch.accept(certificateWithoutLocation.getUuid());
+            // failing the certificate already removed it from its locations
+            certificateLocationRepository
+                    .deleteById(new CertificateLocationId(location.getUuid(), certificateWithoutLocation.getUuid()));
+            throw new IllegalStateException("broker down");
+        });
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/push/attributes"))
+                        .willReturn(WireMock.okJson("[]")));
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/csr/attributes"))
+                        .willReturn(WireMock.okJson("[]")));
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/csr"))
+                        .willReturn(WireMock.okJson("{}")));
+
+        Assertions
+                .assertThrows(LocationException.class,
+                        () -> locationService
+                                .issueCertificateToLocation(entityInstanceReference.getSecuredParentUuid(),
+                                        location.getSecuredUuid(), String.valueOf(raProfile.getUuid()),
+                                        new IssueToLocationRequestDto()));
+
+        mockServer
+                .verify(0, WireMock
+                        .postRequestedFor(
+                                WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/remove")));
+    }
+
+    @Test
     void testIssueToLocationKeepsTheLinkWhenTheQueuedCertificateCannotBeLoaded() throws Exception {
         RaProfile raProfile = getRaProfile();
         ClientCertificateDataResponseDto responseDto = new ClientCertificateDataResponseDto();
