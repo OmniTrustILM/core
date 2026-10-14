@@ -813,8 +813,9 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
                 removeStash(location, generateCsrResponseDto.getMetadata());
             } else if (certificateLocationRepository
                     .existsById(new CertificateLocationId(location.getUuid(), linkedUuid))) {
-                unlinkCertificateInNewTransaction(location, linkedUuid);
+                // The link stays until the connector has confirmed the removal, so a failed removal can be retried.
                 removeStash(location, generateCsrResponseDto.getMetadata());
+                unlinkCertificateInNewTransaction(location, linkedUuid);
             }
             throw new LocationException(
                     "Failed to issue certificate to the location. Error Issuing certificate from Authority. "
