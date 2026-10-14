@@ -836,6 +836,47 @@ class LocationServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void testIssueToLocationKeepsTheLinkWhenTheQueuedCertificateCannotBeLoaded() throws Exception {
+        RaProfile raProfile = getRaProfile();
+        ClientCertificateDataResponseDto responseDto = new ClientCertificateDataResponseDto();
+        responseDto.setUuid(UUID.randomUUID().toString());
+        when(clientOperationService.issueCertificate(any(), any(), any(), any(), any())).thenAnswer(inv -> {
+            Consumer<UUID> beforeDispatch = inv.getArgument(4);
+            beforeDispatch.accept(certificateWithoutLocation.getUuid());
+            return responseDto;
+        });
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/push/attributes"))
+                        .willReturn(WireMock.okJson("[]")));
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/csr/attributes"))
+                        .willReturn(WireMock.okJson("[]")));
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/csr"))
+                        .willReturn(WireMock.okJson("{}")));
+
+        Assertions
+                .assertThrows(LocationException.class,
+                        () -> locationService
+                                .issueCertificateToLocation(entityInstanceReference.getSecuredParentUuid(),
+                                        location.getSecuredUuid(), String.valueOf(raProfile.getUuid()),
+                                        new IssueToLocationRequestDto()));
+
+        // the issue is already queued, so its worker still needs the link, and the stash must not be removed
+        Assertions
+                .assertTrue(certificateLocationRepository
+                        .existsById(
+                                new CertificateLocationId(location.getUuid(), certificateWithoutLocation.getUuid())));
+        mockServer
+                .verify(0, WireMock
+                        .postRequestedFor(
+                                WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/remove")));
+    }
+
+    @Test
     void testPushCertificateToLocation() throws NotFoundException, LocationException, AttributeException {
         Certificate certificateToPush = new Certificate();
         CertificateContent certificateContent = new CertificateContent();

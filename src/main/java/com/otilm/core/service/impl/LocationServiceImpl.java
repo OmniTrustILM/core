@@ -804,16 +804,28 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
                                 generateCsrResponseDto, request.getCsrAttributes());
                         linkedCertificateUuid.set(certificateUuid);
                     });
-            certificate = certificateService
-                    .getCertificateEntity(SecuredUUID.fromString(clientCertificateDataResponseDto.getUuid()));
         } catch (Exception e) {
             logger.error("Failed to issue Certificate: {}", e.getMessage());
             if (linkedCertificateUuid.get() != null) {
-                unlinkCertificateInNewTransaction(location.getUuid(), linkedCertificateUuid.get());
+                unlinkCertificateInNewTransaction(location, linkedCertificateUuid.get());
             }
             removeStash(location, generateCsrResponseDto.getMetadata());
             throw new LocationException(
                     "Failed to issue certificate to the location. Error Issuing certificate from Authority. "
+                            + e.getMessage());
+        }
+
+        // The issue is queued from here on, so a failure must not undo the link or the stash its worker will use.
+        try {
+            certificate = certificateService
+                    .getCertificateEntity(SecuredUUID.fromString(clientCertificateDataResponseDto.getUuid()));
+        } catch (Exception e) {
+            logger.error("Failed to load the issued Certificate: {}", e.getMessage());
+            if (linkedCertificateUuid.get() == null) {
+                removeStash(location, generateCsrResponseDto.getMetadata());
+            }
+            throw new LocationException(
+                    "Failed to issue certificate to the location. Error loading the issued certificate. "
                             + e.getMessage());
         }
 
@@ -1268,15 +1280,23 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
      * Removes the link committed before dispatch when the issue could not be queued, so no entry is left for a
      * certificate that will never be issued.
      */
-    private void unlinkCertificateInNewTransaction(UUID locationUuid, UUID certificateUuid) {
+    private void unlinkCertificateInNewTransaction(Location location, UUID certificateUuid) {
         try {
-            transactionHandler
-                    .runInNewTransaction(() -> certificateLocationRepository
-                            .deleteById(new CertificateLocationId(locationUuid, certificateUuid)));
+            transactionHandler.runInNewTransaction(() -> {
+                certificateLocationRepository
+                        .deleteById(new CertificateLocationId(location.getUuid(), certificateUuid));
+                attributeEngine
+                        .deleteObjectAttributesContent(AttributeType.META,
+                                ObjectAttributeContentInfo
+                                        .builder(Resource.CERTIFICATE, certificateUuid)
+                                        .connector(location.getEntityInstanceReference().getConnectorUuid())
+                                        .source(Resource.LOCATION, location.getUuid())
+                                        .build());
+            });
         } catch (RuntimeException e) {
             logger
                     .warn("Failed to remove the link of certificate {} to location {}: {}", certificateUuid,
-                            locationUuid, e.getMessage());
+                            location.getUuid(), e.getMessage());
         }
     }
 
