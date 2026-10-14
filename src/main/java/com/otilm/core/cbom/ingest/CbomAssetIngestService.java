@@ -281,6 +281,13 @@ public class CbomAssetIngestService {
         // list it came from rather than leaving it IN_PROGRESS for work no node is doing.
         final CbomAssetSyncState entryState = cbomRepository.findAssetSyncState(cbomUuid).orElse(null);
         if (transactionHandler.runInNewTransaction(() -> stateWriter.markInProgress(cbomUuid)) == 0) {
+            CbomAssetSyncState currentState = cbomRepository.findAssetSyncState(cbomUuid).orElse(null);
+            if (currentState == CbomAssetSyncState.SYNCED) {
+                return IngestOutcome.INGESTED;
+            }
+            if (currentState == null) {
+                return IngestOutcome.DELETED;
+            }
             return IngestOutcome.LOCKED_ELSEWHERE;
         }
 

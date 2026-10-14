@@ -126,6 +126,46 @@ class CbomAssetIngestServiceTest {
     }
 
     @Test
+    void aCbomSyncedBeforeItsClaimIsReportedAsIngested() {
+        when(cbomRepository.findAssetSyncState(CBOM))
+                .thenReturn(Optional.of(CbomAssetSyncState.PENDING), Optional.of(CbomAssetSyncState.PENDING),
+                        Optional.of(CbomAssetSyncState.SYNCED));
+        CbomAssetIngestService service = service(realExtractor());
+        when(stateWriter.markInProgress(CBOM)).thenReturn(0);
+
+        assertThat(service.ingest(CBOM, oneAlgorithm(), SEEN_AT, POLICY))
+                .isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
+        verify(stateWriter, never()).markSynced(any(), any());
+        verify(assetWriter, never()).upsertIdentity(anyString(), any(), any());
+    }
+
+    @Test
+    void aCbomDeletedBeforeItsClaimIsReportedAsDeleted() {
+        when(cbomRepository.findAssetSyncState(CBOM))
+                .thenReturn(Optional.of(CbomAssetSyncState.PENDING), Optional.of(CbomAssetSyncState.PENDING),
+                        Optional.empty());
+        CbomAssetIngestService service = service(realExtractor());
+        when(stateWriter.markInProgress(CBOM)).thenReturn(0);
+
+        assertThat(service.ingest(CBOM, oneAlgorithm(), SEEN_AT, POLICY))
+                .isEqualTo(CbomAssetIngestService.IngestOutcome.DELETED);
+        verify(stateWriter, never()).markSynced(any(), any());
+        verify(assetWriter, never()).upsertIdentity(anyString(), any(), any());
+    }
+
+    @Test
+    void anUnsettledCbomWhoseClaimWasRefusedIsReportedAsContended() {
+        when(cbomRepository.findAssetSyncState(CBOM)).thenReturn(Optional.of(CbomAssetSyncState.IN_PROGRESS));
+        CbomAssetIngestService service = service(realExtractor());
+        when(stateWriter.markInProgress(CBOM)).thenReturn(0);
+
+        assertThat(service.ingest(CBOM, oneAlgorithm(), SEEN_AT, POLICY))
+                .isEqualTo(CbomAssetIngestService.IngestOutcome.LOCKED_ELSEWHERE);
+        verify(stateWriter, never()).markSynced(any(), any());
+        verify(assetWriter, never()).upsertIdentity(anyString(), any(), any());
+    }
+
+    @Test
     void aDeletedCbomIsNotReportedAsIngestedAfterTheStateTransitionIsLost() {
         when(synchronizer.tryLock(LOCK_KEY)).thenReturn(true);
         whenUpsertReturnsAFreshUuid();
