@@ -220,8 +220,20 @@ public final class CbomAssetExtractor {
      * <p>
      * The reason names the failure class and the component's own name, never the payload. A skip that quoted what it
      * could not parse would be a disclosure channel for exactly the documents least worth trusting.
+     *
+     * <p>
+     * {@code findings} are what the pipeline had to tell the producer before the component was skipped -- a withheld
+     * digest, a refuted arc -- so a component that keys but routes to no asset type loses none of them.
      */
-    public record Skip(String componentName, String reason) {
+    public record Skip(String componentName, String reason, List<String> findings) {
+
+        public Skip {
+            findings = List.copyOf(findings);
+        }
+
+        public Skip(String componentName, String reason) {
+            this(componentName, reason, List.of());
+        }
     }
 
     /**
@@ -299,6 +311,13 @@ public final class CbomAssetExtractor {
                 // identity[_-<space>]?key, so the type name followed by such a variable reads as the fenced token
                 // across the space between them -- a rule about text, applied to text, with no idea what a type is.
                 CryptoAssetIdentity.Identity extracted = identity.of(component, scope, refuted);
+                if (extracted.asset().assetType() == null) {
+                    String reason = unroutableReason(component);
+                    skips
+                            .add(new Skip(encodable(nameOf(component)), reason,
+                                    encodableFindings(extracted.findings(), reason)));
+                    continue;
+                }
                 List<JsonNode> occurrences = occurrencesOf(component);
                 ExtractedAsset asset = new ExtractedAsset(extracted.key(), extracted.step(), extracted.asset(),
                         nameOf(component), extracted.redaction().storedPayload(),
@@ -381,6 +400,19 @@ public final class CbomAssetExtractor {
             readable.add(encodable(ref, UNENCODABLE_REF));
         }
         return List.copyOf(readable);
+    }
+
+    /**
+     * The findings a skip carries beside its reason: the reason itself once, and only those that can be stored. An
+     * asset with an unencodable finding is refused whole by {@link #requireEncodable}; a skip is already the refusal,
+     * so the finding goes and the rest are kept.
+     */
+    private static List<String> encodableFindings(List<String> findings, String reason) {
+        return findings
+                .stream()
+                .filter(finding -> !finding.equals(reason))
+                .filter(CbomAssetExtractor::hasEncoding)
+                .toList();
     }
 
     /** The skipped component's name, or a stand-in when it has none that can be stored. */
@@ -513,16 +545,22 @@ public final class CbomAssetExtractor {
      *
      * <p>
      * Either declaration is enough. A component <em>typed</em> {@code cryptographic-asset} with no
-     * {@code cryptoProperties} at all is not skipped -- it keys on the unroutable backstop tier with its name, and
-     * there is one in the validation corpus. And a component carrying {@code cryptoProperties} while typed something
-     * else is still a cryptographic asset by the only evidence that matters, since the type field is producer text like
-     * any other.
+     * {@code cryptoProperties} at all is one, and is reported as a skip rather than inventoried: there is no algorithm
+     * to assess and no type to serve, and a stored row would only ever read "unroutable". And a component carrying
+     * {@code cryptoProperties} while typed something else is still a cryptographic asset by the only evidence that
+     * matters, since the type field is producer text like any other.
      */
     private static boolean isCryptographicAsset(JsonNode component) {
         JsonNode type = component.get("type");
         boolean declaredType = type != null && type.isTextual() && "cryptographic-asset".equals(type.textValue());
         JsonNode properties = component.get("cryptoProperties");
         return declaredType || (properties != null && properties.isObject());
+    }
+
+    /** Why a component routed to no asset type is skipped: the member and the failure, never the value. */
+    private static String unroutableReason(JsonNode component) {
+        String finding = CryptoAssetIdentity.unroutedTypeFinding(component);
+        return finding != null ? finding : "cryptoProperties is absent, so the component declares no asset type";
     }
 
     private static List<String> bomRefOf(JsonNode component) {

@@ -148,30 +148,46 @@ class PqcReferenceRulesTest {
                 .isEqualTo("PROTOCOL-CIPHER-SUITE");
     }
 
-    /** A step before the decider names what actually kept it from deciding. */
+    /**
+     * A rule whose condition held is shown as matched with its own finding even when a weaker rule decided, and a rule
+     * whose condition did not hold says what kept it from holding, in terms of this asset's references.
+     */
     @Test
-    void aNotMatchedStepSaysWhyForTheReferencesTheAssetHas() {
-        assertThat(stepMessage(CryptographicAssetType.CERTIFICATE, "CERT-SUBJECT-KEY", key(PqcVerdict.READY),
-                dangling(CryptoAssetReferenceKind.SIGNATURE_ALGORITHM, "gone")))
-                .isEqualTo("The signature algorithm resolved to no evaluated inventory asset and may be weaker than "
-                        + "the certified key");
-        assertThat(stepMessage(CryptographicAssetType.CERTIFICATE, "CERT-SIGNATURE-ALGORITHM",
-                signature(PqcVerdict.READY)))
-                .isEqualTo("No certified key is recorded to weigh the signature algorithm " + "against");
-        assertThat(stepMessage(CryptographicAssetType.PROTOCOL, "PROTOCOL-CIPHER-SUITE",
-                suite(AES, PqcVerdict.READY, "aes")))
-                .isEqualTo("Every resolved algorithm is ready, but none of them establishes a key");
+    void everyStepSaysWhatItFoundForTheReferencesTheAssetHas() {
+        PqcExplanation.Step readyKey = step(CryptographicAssetType.CERTIFICATE, "CERT-SUBJECT-KEY",
+                key(PqcVerdict.READY), dangling(CryptoAssetReferenceKind.SIGNATURE_ALGORITHM, "gone"));
+        assertThat(readyKey.outcome()).isEqualTo(PqcExplanationStepOutcome.MATCHED);
+        assertThat(readyKey.verdict()).isEqualTo(PqcVerdict.READY);
+        assertThat(readyKey.referencedAssetUuid()).isEqualTo(KEY);
+
+        PqcExplanation.Step danglingKey = step(CryptographicAssetType.CERTIFICATE, "CERT-SUBJECT-KEY",
+                dangling(CryptoAssetReferenceKind.SUBJECT_PUBLIC_KEY, "gone"));
+        assertThat(danglingKey.outcome()).isEqualTo(PqcExplanationStepOutcome.NOT_MATCHED);
+        assertThat(danglingKey.message()).isEqualTo("The certified key resolved to no evaluated inventory asset");
+        assertThat(step(CryptographicAssetType.CERTIFICATE, "CERT-SUBJECT-KEY", signature(PqcVerdict.READY)).message())
+                .isEqualTo("No certified key is recorded");
+
+        PqcExplanation.Step readySuite = step(CryptographicAssetType.PROTOCOL, "PROTOCOL-CIPHER-SUITE",
+                suite(AES, PqcVerdict.READY, "aes"));
+        assertThat(readySuite.outcome())
+                .describedAs("the suite's algorithm is ready, which holds; the missing key exchange outranks it")
+                .isEqualTo(PqcExplanationStepOutcome.MATCHED);
+        assertThat(step(CryptographicAssetType.PROTOCOL, "PROTOCOL-NO-KEY-EXCHANGE", keyExchange(PqcVerdict.READY))
+                .message()).isEqualTo("A resolved algorithm establishes a key");
+        assertThat(step(CryptographicAssetType.PROTOCOL, "PROTOCOL-NO-KEY-EXCHANGE",
+                suite(AES, PqcVerdict.NOT_READY, "des")).message())
+                .isEqualTo("An algorithm the cipher suites name is not ready");
     }
 
-    private String stepMessage(CryptographicAssetType type, String ruleId, PqcReferences.Reference... references) {
+    private PqcExplanation.Step step(CryptographicAssetType type, String ruleId,
+            PqcReferences.Reference... references) {
         return evaluator
                 .explain(input(type), null, references(references))
                 .steps()
                 .stream()
                 .filter(step -> step.ruleId().equals(ruleId))
                 .findFirst()
-                .orElseThrow()
-                .message();
+                .orElseThrow();
     }
 
     /** Two keys of one certificate name nothing, whatever each resolves to, rather than letting order decide. */
@@ -232,14 +248,17 @@ class PqcReferenceRulesTest {
 
         assertThat(explanation.steps())
                 .extracting(PqcExplanation.Step::ruleId, PqcExplanation.Step::outcome)
-                .containsExactly(tuple("CERT-SUBJECT-KEY", PqcExplanationStepOutcome.NOT_MATCHED),
+                .containsExactly(tuple("CERT-SUBJECT-KEY", PqcExplanationStepOutcome.MATCHED),
                         tuple("CERT-SIGNATURE-ALGORITHM", PqcExplanationStepOutcome.RESOLVED),
-                        tuple("CERT-REFERENCE-UNRESOLVED", PqcExplanationStepOutcome.NOT_REACHED),
-                        tuple("CERT-NO-SIGNATURE-RECORDED", PqcExplanationStepOutcome.NOT_REACHED),
-                        tuple("CERT-NO-KEY-RECORDED", PqcExplanationStepOutcome.NOT_REACHED));
-        assertThat(explanation.steps().get(0).message())
-                .isEqualTo("The signature algorithm is weaker than the certified key");
+                        tuple("CERT-REFERENCE-UNRESOLVED", PqcExplanationStepOutcome.NOT_MATCHED),
+                        tuple("CERT-NO-SIGNATURE-RECORDED", PqcExplanationStepOutcome.NOT_MATCHED),
+                        tuple("CERT-NO-KEY-RECORDED", PqcExplanationStepOutcome.NOT_MATCHED));
+        assertThat(explanation.steps().get(0).verdict())
+                .describedAs("the key's own rule held and is shown with the verdict it would have given")
+                .isEqualTo(PqcVerdict.READY);
+        assertThat(explanation.steps().get(0).referencedAssetUuid()).isEqualTo(KEY);
         assertThat(explanation.steps().get(1).referencedAssetUuid()).isEqualTo(SIGNATURE);
+        assertThat(explanation.steps().get(2).message()).isEqualTo("Every recorded reference resolved");
         assertThat(PqcEvaluator.inputsOf(input, null, references))
                 .containsEntry("subjectPublicKeyRef", "key-ref")
                 .containsEntry("signatureAlgorithmRef", "sig-ref")
@@ -273,7 +292,7 @@ class PqcReferenceRulesTest {
     }
 
     private static PqcRuleInput input(CryptographicAssetType type) {
-        return new PqcRuleInput(type, null, null, null, null, null, null, "subject", List.of(), null, null);
+        return new PqcRuleInput(type, null, null, null, null, null, null, "subject", List.of(), null, null, null);
     }
 
     private static PqcReferences.Reference key(PqcVerdict verdict) {

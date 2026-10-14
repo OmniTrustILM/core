@@ -109,6 +109,7 @@ class PqcFamiliesTest {
     void theBrokenCandidatesAreSeparatedFromTheMerelySuperseded() {
         assertThat(PqcFamilies.of("SIKE")).isEqualTo(FamilyClass.PQC_BROKEN);
         assertThat(PqcFamilies.of("Rainbow")).isEqualTo(FamilyClass.PQC_BROKEN);
+        assertThat(PqcFamilies.of("HAWK")).isEqualTo(FamilyClass.PQC_BROKEN);
         assertThat(PqcFamilies.of("Kyber")).isEqualTo(FamilyClass.PQC_PRESTANDARD);
         assertThat(PqcFamilies.of("Dilithium")).isEqualTo(FamilyClass.PQC_PRESTANDARD);
         assertThat(PqcFamilies.of("SPHINCS+")).isEqualTo(FamilyClass.PQC_PRESTANDARD);
@@ -218,7 +219,7 @@ class PqcFamiliesTest {
                 .of()
                 .formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(artifact));
 
-        assertThat(digest).isEqualTo("474e3dc95c5e155f9dea80ee0f1620081f8170e20a9dc9f29e1e2ac09337e1d1");
+        assertThat(digest).isEqualTo("c6791750bfe3193b107466f5c37e6ae45572a5ac9099dd1ddadac9a2b163336e");
     }
 
     /** FN-DSA is the standardised name for Falcon and appears in no ratified table under any spelling. */

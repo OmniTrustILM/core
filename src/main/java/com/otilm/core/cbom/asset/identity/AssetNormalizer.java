@@ -14,9 +14,11 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * The whole normalization pipeline, as one pure function from a component to its typed slots.
@@ -172,9 +174,14 @@ public record AssetNormalizer(IdentityTables tables) {
 
     private static final Pattern DIGIT_RUN_2_TO_5 = Pattern.compile("\\d{2,5}");
 
+    /** The longest digit run a name may spell a size with, as {@link #DIGIT_RUN_2_TO_5} bounds the name's own parse. */
+    private static final int MAX_SPELLED_SIZE_DIGITS = 5;
+
     private static final Pattern SEPARATORS = Pattern.compile("[-_\\s]+");
 
     private static final Pattern TRUNCATION = Pattern.compile("[/-](\\d{2,5})\\s*$");
+
+    private static final Pattern ANY_TRUNCATION = Pattern.compile("[/-](\\d+)\\s*$");
 
     private static final Pattern LEVEL_MARKER = Pattern
             .compile("(?<![A-Za-z0-9])([A-Za-z]{1,3}\\d{1,4})(?![A-Za-z0-9])");
@@ -195,9 +202,14 @@ public record AssetNormalizer(IdentityTables tables) {
 
     private static final String JCA_PADDING_SUFFIX = "(?:" + JCA_PADDING_WORD + ")?";
 
-    private static final Pattern LOCAL_SIZE_RUN = Pattern.compile("[^A-Za-z0-9]*[A-Za-z]*[-_/]?(\\d{1,5})");
+    /**
+     * The digit runs {@link #sizedFamilyToken} reads a size from, in the matched text and just after it. Each refuses a
+     * following digit, as {@link #registrySizeSpelled} does: a run longer than any size spells none, and cutting it to
+     * five digits would give a hybrid's component a size its bare spelling does not have.
+     */
+    private static final Pattern LOCAL_SIZE_RUN = Pattern.compile("[^A-Za-z0-9]*[A-Za-z]*[-_/]?(\\d{1,5})(?![0-9])");
 
-    private static final Pattern ADJACENT_SIZE_RUN = Pattern.compile("[-_/]?(\\d{2,5})");
+    private static final Pattern ADJACENT_SIZE_RUN = Pattern.compile("[-_/]?(\\d{2,5})(?![0-9])");
 
     private static final Pattern ADJACENT_KEY_SIZE = Pattern.compile("[-_/]?(\\d{2,5})(?![A-Za-z0-9])");
 
@@ -296,6 +308,8 @@ public record AssetNormalizer(IdentityTables tables) {
         derivePadding(norm, algorithm);
         derivePrimitive(norm, algorithm);
         foldAuthenticatedEncryption(norm);
+        reconcileParameterSetWithRegistry(norm);
+        reportUnregisteredTruncation(norm);
 
         List<String> dropped = new ArrayList<>();
         String residue = variantResidue(norm.name(), norm.parameterSet(), norm.mode(), norm.family(),
@@ -741,7 +755,9 @@ public record AssetNormalizer(IdentityTables tables) {
      * <p>
      * Agreement and subsumption both settle; a genuine disagreement is the only case that records a conflict, and it
      * keeps the name because a refuted arc is the weaker witness -- the arc is one token a producer may have copied,
-     * while the name is the string the asset is actually called.
+     * while the name is the string the asset is actually called. Letting the arc win would not merge the two spellings,
+     * because the name's token stays in the variant, and would key an {@code ML-DSA-65} carrying a copied
+     * ecdsa-with-SHA256 arc as ECDSA. The contradiction is reported to the producer.
      *
      * <p>
      * Every null test here is its own: the callers pass whatever the arc and the grammar produced, including nothing
@@ -765,7 +781,7 @@ public record AssetNormalizer(IdentityTables tables) {
 
     /**
      * Both the arc and the name named a family: agreement and either direction of subsumption settle, the rest is a
-     * conflict.
+     * conflict the name wins.
      */
     private IdentityTables.OidEntry reconcileBothWitnesses(NormalizedAsset norm, String fromOid, String fromName,
             IdentityTables.OidEntry entry, String suffix) {
@@ -778,6 +794,9 @@ public record AssetNormalizer(IdentityTables tables) {
         if (tables.subsumes(fromName, fromOid)) {
             return settleAgreed(norm, fromOid, "oid (name subsumed)" + suffix, entry);
         }
+        norm
+                .finding("the oid names the " + fromOid + " family while the component name reads as " + fromName
+                        + "; the oid was refuted");
         norm.setFamily(fromName);
         norm.setFamilySource("name (oid refuted)" + suffix);
         norm.setOidConflict(true);
@@ -791,7 +810,8 @@ public record AssetNormalizer(IdentityTables tables) {
      * The corroboration does not depend on where the winning token came from. A real 1.7 fixture declares ML-KEM on
      * {@code ML-KEM-1024} while carrying a fabricated {@code id-aes256-wrap-pad} arc, and the arc's AES-256 size then
      * overwrote the parameter set with 256 -- a factually wrong stored value for a 1024-bit KEM, and a guaranteed split
-     * from the same asset's 1.6 rendering, which refutes the arc correctly.
+     * from the same asset's 1.6 rendering, which refutes the arc correctly. A contradiction is reported to the
+     * producer.
      */
     private IdentityTables.OidEntry settle(NormalizedAsset norm, String winner, String source, String fromOid,
             IdentityTables.OidEntry entry) {
@@ -800,6 +820,12 @@ public record AssetNormalizer(IdentityTables tables) {
         norm.setFamily(winner);
         norm.setFamilySource(source);
         norm.setOidConflict(contradicts);
+        if (contradicts) {
+            String witness = "producer".equals(source) ? "declared algorithmFamily" : "component name";
+            norm
+                    .finding("the oid names the " + fromOid + " family while the " + witness + " reads as " + winner
+                            + "; the oid was refuted");
+        }
         // A refuted OID forfeits every further contribution: if it is wrong about the family there is no reason to
         // trust its size, mode or curve.
         return contradicts ? null : entry;
@@ -815,7 +841,10 @@ public record AssetNormalizer(IdentityTables tables) {
 
     private void deriveParameterSet(NormalizedAsset norm, JsonNode algorithm, IdentityTables.OidEntry enrichment) {
         List<String> notes = new ArrayList<>();
-        norm.setParameterSet(parseParameterSet(norm.name(), algorithm.get(CbomNames.PARAMETER_SET_IDENTIFIER), notes));
+        Integer declared = parameterSetFromIdentifier(algorithm.get(CbomNames.PARAMETER_SET_IDENTIFIER),
+                CbomNames.PARAMETER_SET_IDENTIFIER, notes);
+        norm.setParameterSet(declared != null ? declared : parameterSetFromName(norm.name(), notes));
+        norm.setParameterSetFromPayload(declared != null);
         notes.forEach(norm::note);
         rejectDigestLengthAsKeySize(norm);
         if (norm.parameterSet() == null) {
@@ -830,24 +859,167 @@ public record AssetNormalizer(IdentityTables tables) {
                                 + enrichment.matchedArc() + " -> " + enrichment.parameterSet());
             }
             norm.setParameterSet(enrichment.parameterSet());
+            norm.setParameterSetFromPayload(true);
         }
     }
 
     /**
-     * Key or digest size, whitelisted, and never read out of a mode or a curve.
-     *
-     * <p>
-     * {@code parameterSetIdentifier} is polysemous in real output -- measured across one producer it carries a key
-     * size, a digest size, a cipher mode, a MAC name and a curve name -- so a numeric reading is tried first and the
-     * name is parsed only as a fallback.
+     * Holds the parameter set to what the registry enumerates for the family. There is no 64-bit AES and no ML-KEM with
+     * parameter set 800: where the family's variant spells an admissible size in the name, that size is the parameter
+     * set over a declared one the family does not define, and the declaration is reported. A declared size the family
+     * does define stands, even against a different one the name spells; that too is reported. A value read out of the
+     * name that is neither the variant's own size nor one the family defines -- the 96 of {@code AES-GCM-96} is a tag
+     * length -- is not the parameter set and is not recorded. What remains is a value nothing redeems: it stays in the
+     * slot, so the row keys apart from the real algorithm, and the verdict refuses it. The variant's own size is
+     * recorded even where the name parse read none: {@code ML-KEM-99999} is not a bare ML-KEM, and {@code MLDSA44} is
+     * {@code ML-DSA-44}.
      */
-    public Integer parseParameterSet(String name, JsonNode parameterSetIdentifier, List<String> notes) {
-        Integer declared = parameterSetFromIdentifier(parameterSetIdentifier, CbomNames.PARAMETER_SET_IDENTIFIER,
-                notes);
-        if (declared != null) {
-            return declared;
+    private void reconcileParameterSetWithRegistry(NormalizedAsset norm) {
+        Set<Integer> admissible = admissibleParameterSets(norm.name(), norm.family());
+        if (admissible == null) {
+            return;
         }
-        return parameterSetFromName(name, notes);
+        Integer spelled = registrySizeSpelled(norm.name(), norm.family());
+        Integer recorded = norm.parameterSet();
+        String admitted = new TreeSet<>(admissible).stream().map(String::valueOf).collect(Collectors.joining(", "));
+        if (recorded == null) {
+            if (spelled != null && !admissible.contains(spelled)) {
+                norm
+                        .finding("the size the name spells, " + spelled + ", is not one the " + norm.family()
+                                + " family defines; the registry admits " + admitted);
+            }
+            if (spelled != null) {
+                norm.setParameterSet(spelled);
+            }
+            return;
+        }
+        if (admissible.contains(recorded)) {
+            if (norm.parameterSetFromPayload() && spelled != null && !spelled.equals(recorded)) {
+                String spelledStanding = admissible.contains(spelled)
+                        ? ""
+                        : ", which is not one the " + norm.family() + " family defines (the registry admits " + admitted
+                                + ")";
+                norm
+                        .finding("the declared parameter set " + recorded + " contradicts the size the name spells, "
+                                + spelled + spelledStanding + "; the declaration is recorded");
+            }
+            return;
+        }
+        if (spelled != null && admissible.contains(spelled)) {
+            if (norm.parameterSetFromPayload()) {
+                norm
+                        .finding("the declared parameter set " + recorded + " is not one the " + norm.family()
+                                + " family defines (the registry admits " + admitted + "); the size the name spells, "
+                                + spelled + ", is recorded instead");
+            }
+            norm
+                    .note("parameterSet " + recorded + " overridden by " + spelled
+                            + ", the size the registry variant spells");
+            norm.setParameterSet(spelled);
+            return;
+        }
+        if (!norm.parameterSetFromPayload() && spelled == null) {
+            norm
+                    .note("size " + recorded + " from the name is not one the " + norm.family()
+                            + " family defines nor the size its variant spells, so it is not the parameter set");
+            norm.setParameterSet(null);
+            return;
+        }
+        norm
+                .finding("the recorded parameter set " + recorded + " is not one the " + norm.family()
+                        + " family defines; the registry admits " + admitted);
+    }
+
+    private void reportUnregisteredTruncation(NormalizedAsset norm) {
+        UnregisteredTruncation unregistered = unregisteredTruncation(norm.name(), norm.family());
+        if (unregistered != null) {
+            norm
+                    .finding("the name truncates " + unregistered.truncated() + " to " + unregistered.truncation()
+                            + ", which is not a truncation the " + norm.family() + " family defines; the registry "
+                            + "admits " + unregistered.admitted());
+        }
+    }
+
+    /** A truncation the name spells that the family enumerates its truncations without: the 999 of SHA-512/999. */
+    public record UnregisteredTruncation(int truncated, String truncation, String admitted) {
+    }
+
+    /**
+     * The truncation the name spells beside the size it truncates, where the family enumerates its truncations and that
+     * is not one of them; {@code null} where the family enumerates none, as BLAKE2 does, so only an enumeration refuses
+     * a truncation. The truncated size is the first the name spells, as the parameter set parse reads it. The
+     * truncation is read without the size floor the marker applies, so {@code SHA-512/32} is refused rather than read
+     * as SHA-512.
+     */
+    public UnregisteredTruncation unregisteredTruncation(String name, String family) {
+        Map<Integer, Set<Integer>> enumerated = family == null ? null : tables.admissibleTruncations().get(family);
+        if (enumerated == null || name == null || !tables.truncatableFamilies().contains(family)) {
+            return null;
+        }
+        String stripped = AsciiText.strip(name);
+        Matcher truncation = ANY_TRUNCATION.matcher(stripped);
+        if (!truncation.find()) {
+            return null;
+        }
+        List<String> sizeRuns = sizeRunsSpelled(stripped.substring(0, truncation.start()));
+        if (sizeRuns.isEmpty() || sizeRuns.get(0).length() > MAX_SPELLED_SIZE_DIGITS) {
+            return null;
+        }
+        int truncated = Integer.parseInt(sizeRuns.get(0));
+        String spelled = truncation.group(1);
+        BigInteger size = new BigInteger(spelled);
+        if (enumerated
+                .getOrDefault(truncated, Set.of())
+                .stream()
+                .anyMatch(admitted -> BigInteger.valueOf(admitted).equals(size))) {
+            return null;
+        }
+        String admitted = new TreeMap<>(enumerated)
+                .entrySet()
+                .stream()
+                .flatMap(entry -> new TreeSet<>(entry.getValue()).stream().map(t -> entry.getKey() + "/" + t))
+                .collect(Collectors.joining(", "));
+        return new UnregisteredTruncation(truncated, spelled, admitted);
+    }
+
+    /**
+     * The parameter sets the registry admits for this name of this family: the matching size variant's, else the
+     * family's enumeration as a whole, else {@code null} where the registry enumerates none.
+     */
+    public Set<Integer> admissibleParameterSets(String name, String family) {
+        if (family == null) {
+            return null;
+        }
+        IdentityTables.SizeVariant variant = sizeVariant(name, family);
+        return variant != null ? variant.sizes() : tables.admissibleParameterSets().get(family);
+    }
+
+    /**
+     * The size the family's matching registry variant spells in the name, or {@code null} when it spells none. A digit
+     * run longer than any size, as the other name parsers bound theirs, spells none rather than overflowing.
+     */
+    public Integer registrySizeSpelled(String name, String family) {
+        IdentityTables.SizeVariant variant = sizeVariant(name, family);
+        if (variant == null) {
+            return null;
+        }
+        Matcher matcher = variant.pattern().matcher(name);
+        if (!matcher.find() || matcher.group(1) == null || matcher.group(1).length() > MAX_SPELLED_SIZE_DIGITS) {
+            return null;
+        }
+        return Integer.valueOf(matcher.group(1));
+    }
+
+    private IdentityTables.SizeVariant sizeVariant(String name, String family) {
+        if (name == null || family == null) {
+            return null;
+        }
+        for (IdentityTables.SizeVariant variant : tables.sizeVariants().getOrDefault(family, List.of())) {
+            if (variant.pattern().matcher(name).find()) {
+                return variant;
+            }
+        }
+        return null;
     }
 
     /**
@@ -1278,7 +1450,9 @@ public record AssetNormalizer(IdentityTables tables) {
     }
 
     /**
-     * Declared value, else {@code cryptoFunctions}, else the family default.
+     * Declared value, else the registry variant the name spells, else {@code cryptoFunctions}, else the family default.
+     * The variant outranks the functions because it answers only where the name pins the primitive: CycloneDX 1.6 has
+     * no function an XOF can declare but {@code digest}, which would make {@code SHAKE128} a hash.
      *
      * <p>
      * The OID deliberately never supplies it: letting a correct arc contribute {@code block-cipher} where an OID-less
@@ -1313,11 +1487,31 @@ public record AssetNormalizer(IdentityTables tables) {
             }
         }
         String fromFunctions = primitiveFromFunctions(norm, algorithm.get("cryptoFunctions"));
-        if (fromFunctions != null) {
+        String fromVariant = primitiveFromRegistryVariant(norm.name(), norm.family());
+        if (fromVariant != null) {
+            norm.setPrimitive(fromVariant);
+        } else if (fromFunctions != null) {
             norm.setPrimitive(fromFunctions);
-            return;
+        } else {
+            norm.setPrimitive(norm.family() == null ? null : tables.primitiveDefaults().get(norm.family()));
         }
-        norm.setPrimitive(norm.family() == null ? null : tables.primitiveDefaults().get(norm.family()));
+    }
+
+    /**
+     * The primitive of the registry variant the name spells, where it differs from the family's default: SHAKE is an
+     * XOF where SHA-3 defaults to a hash. Read before the functions and the default, so neither can move what the name
+     * already says.
+     */
+    public String primitiveFromRegistryVariant(String name, String family) {
+        if (name == null || family == null) {
+            return null;
+        }
+        for (IdentityTables.VariantPrimitive variant : tables.variantPrimitives()) {
+            if (variant.family().equals(family) && variant.pattern().matcher(name).find()) {
+                return variant.primitive();
+            }
+        }
+        return null;
     }
 
     private String primitiveFromFunctions(NormalizedAsset norm, JsonNode functions) {
@@ -1417,29 +1611,44 @@ public record AssetNormalizer(IdentityTables tables) {
                 kept.add(runs.group());
             }
         }
-        addTruncationMarker(kept, name, family, floor);
+        addTruncationMarker(kept, name, family);
         addLevelMarkers(kept, stripped, parameterSet);
         return kept;
+    }
+
+    private void addTruncationMarker(Set<String> kept, String name, String family) {
+        String truncation = truncationSpelled(name, family, sizeRunsSpelled(name));
+        if (truncation != null) {
+            kept.add("t" + truncation);
+        }
+    }
+
+    /** The digit runs at or above the size floor, in name order, as the name spells them. */
+    private List<String> sizeRunsSpelled(String name) {
+        BigInteger floor = BigInteger.valueOf(tables.sizeMin());
+        List<String> runs = new ArrayList<>();
+        Matcher nameRuns = DIGITS.matcher(name);
+        while (nameRuns.find()) {
+            if (new BigInteger(nameRuns.group()).compareTo(floor) >= 0) {
+                runs.add(nameRuns.group());
+            }
+        }
+        return runs;
     }
 
     /**
      * A trailing separator-delimited digest length is a TRUNCATION marker, but only when the name carries a base length
      * too -- otherwise {@code SHA-256} would read its own only digit run as a truncation of itself. Both spellings must
-     * produce the same marker: NIST writes {@code SHA-512/224} and producers write {@code SHA-512-224}.
+     * produce the same marker: NIST writes {@code SHA-512/224} and producers write {@code SHA-512-224}. The digits as
+     * the name spells them, or {@code null}.
      */
-    private void addTruncationMarker(Set<String> kept, String name, String family, BigInteger floor) {
-        int runsAtOrAboveFloor = 0;
-        Matcher nameRuns = DIGITS.matcher(name);
-        while (nameRuns.find()) {
-            if (new BigInteger(nameRuns.group()).compareTo(floor) >= 0) {
-                runsAtOrAboveFloor++;
-            }
-        }
+    private String truncationSpelled(String name, String family, List<String> sizeRuns) {
         Matcher truncation = TRUNCATION.matcher(AsciiText.strip(name));
-        if (truncation.find() && family != null && tables.truncatableFamilies().contains(family)
-                && runsAtOrAboveFloor >= 2 && Integer.parseInt(truncation.group(1)) >= tables.sizeMin()) {
-            kept.add("t" + truncation.group(1));
+        if (truncation.find() && family != null && tables.truncatableFamilies().contains(family) && sizeRuns.size() >= 2
+                && Integer.parseInt(truncation.group(1)) >= tables.sizeMin()) {
+            return truncation.group(1);
         }
+        return null;
     }
 
     /**
