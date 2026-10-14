@@ -341,17 +341,18 @@ public class DiscoveryStatusTickWorker {
                 // spend it and a permanently failing drain would never end the run.
                 if (!DiscoveryRunState.COMPLETED.getCode().equals(previousConnectorState)) {
                     workWriter.schedule(run.getUuid(), DiscoveryWorkType.DRAIN, OffsetDateTime.now(ZoneOffset.UTC));
-                    recordFailedTargets(run);
                 }
+                recordFailedTargets(run);
             }
             default -> throw new IllegalStateException("Unhandled live discovery run state " + state);
         }
     }
 
     /**
-     * Filed when the connector finishes and its counters are final. A target it expected to read and could not is part
-     * of what the run was asked to examine, so the run must not end as if it had covered everything; the warning is
-     * what makes it end WARNING. A target with nothing on it is a normal outcome and files nothing. Filed once: a
+     * Filed once the connector has finished, on whichever completed answer first carries the count: progress is
+     * optional on every answer, so it can arrive after the first one. A target it expected to read and could not is
+     * part of what the run was asked to examine, so the run must not end as if it had covered everything; the warning
+     * is what makes it end WARNING. A target with nothing on it is a normal outcome and files nothing. Filed once: a
      * connector that reports the run completed again would otherwise add the same targets to the count a second time.
      */
     private void recordFailedTargets(Discovery run) {

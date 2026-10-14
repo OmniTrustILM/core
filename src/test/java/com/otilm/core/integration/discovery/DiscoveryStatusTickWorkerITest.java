@@ -515,6 +515,25 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
     }
 
     @Test
+    void failedTargetsReportedOnlyOnALaterCompletedAnswer_stillFileTheWarning() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        answers(statusResponse(DiscoveryRunState.COMPLETED));
+        worker.tick(run.getUuid(), 0);
+        answers(completedWithTargets(10, 5, 3));
+
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(messageRepository.findByDiscoveryUuidOrderByIdAsc(run.getUuid()))
+                .as("progress is optional on every answer, so the counts can arrive after the first completed one")
+                .singleElement()
+                .satisfies(message -> {
+                    assertThat(message.getCode()).isEqualTo(DiscoveryMessageCode.TARGETS_FAILED.code());
+                    assertThat(message.getOccurrences()).isEqualTo(3);
+                });
+    }
+
+    @Test
     void completedAnswerOnARunWhoseLogIsFull_stillFilesTheTargetsWarning() throws Exception {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
         armStatusRow(run, 0);
