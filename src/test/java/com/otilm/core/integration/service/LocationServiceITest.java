@@ -797,6 +797,45 @@ class LocationServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void testIssueToLocationRemovesTheLinkWhenTheIssueCannotBeQueued() throws Exception {
+        RaProfile raProfile = getRaProfile();
+        when(clientOperationService.issueCertificate(any(), any(), any(), any(), any())).thenAnswer(inv -> {
+            Consumer<UUID> beforeDispatch = inv.getArgument(4);
+            beforeDispatch.accept(certificateWithoutLocation.getUuid());
+            throw new IllegalStateException("broker down");
+        });
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/push/attributes"))
+                        .willReturn(WireMock.okJson("[]")));
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/csr/attributes"))
+                        .willReturn(WireMock.okJson("[]")));
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/csr"))
+                        .willReturn(WireMock.okJson("{}")));
+
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/remove"))
+                        .willReturn(WireMock.okJson("{}")));
+
+        Assertions
+                .assertThrows(LocationException.class,
+                        () -> locationService
+                                .issueCertificateToLocation(entityInstanceReference.getSecuredParentUuid(),
+                                        location.getSecuredUuid(), String.valueOf(raProfile.getUuid()),
+                                        new IssueToLocationRequestDto()));
+
+        Assertions
+                .assertFalse(certificateLocationRepository
+                        .existsById(
+                                new CertificateLocationId(location.getUuid(), certificateWithoutLocation.getUuid())));
+    }
+
+    @Test
     void testPushCertificateToLocation() throws NotFoundException, LocationException, AttributeException {
         Certificate certificateToPush = new Certificate();
         CertificateContent certificateContent = new CertificateContent();

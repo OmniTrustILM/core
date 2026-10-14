@@ -646,7 +646,15 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         actionMessage.setResource(Resource.CERTIFICATE);
         actionMessage.setResourceAction(ResourceAction.ISSUE);
         actionMessage.setResourceUuid(UUID.fromString(certificate.getUuid()));
-        actionProducer.produceMessage(actionMessage);
+        try {
+            actionProducer.produceMessage(actionMessage);
+        } catch (RuntimeException e) {
+            if (beforeDispatch != null) {
+                // The step before queuing may have prepared state that only the queued action would finish.
+                failClaimedCertificate(UUID.fromString(certificate.getUuid()), e, "queuing the issue failed");
+            }
+            throw e;
+        }
 
         return response;
     }

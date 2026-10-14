@@ -106,7 +106,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import org.apache.commons.lang3.StringUtils;
@@ -793,7 +793,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         logger.info("Received certificate signing request from Location {}", location.getName());
 
         // issue new Certificate
-        AtomicBoolean linkedBeforeDispatch = new AtomicBoolean();
+        AtomicReference<UUID> linkedCertificateUuid = new AtomicReference<>();
         Certificate certificate = null;
         ClientCertificateDataResponseDto clientCertificateDataResponseDto = null;
         try {
@@ -802,19 +802,22 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
                     certificateUuid -> {
                         linkIssuedCertificateInNewTransaction(location.getUuid(), certificateUuid,
                                 generateCsrResponseDto, request.getCsrAttributes());
-                        linkedBeforeDispatch.set(true);
+                        linkedCertificateUuid.set(certificateUuid);
                     });
             certificate = certificateService
                     .getCertificateEntity(SecuredUUID.fromString(clientCertificateDataResponseDto.getUuid()));
         } catch (Exception e) {
             logger.error("Failed to issue Certificate: {}", e.getMessage());
+            if (linkedCertificateUuid.get() != null) {
+                unlinkCertificateInNewTransaction(location.getUuid(), linkedCertificateUuid.get());
+            }
             removeStash(location, generateCsrResponseDto.getMetadata());
             throw new LocationException(
                     "Failed to issue certificate to the location. Error Issuing certificate from Authority. "
                             + e.getMessage());
         }
 
-        if (linkedBeforeDispatch.get()) {
+        if (linkedCertificateUuid.get() != null) {
             // The link is committed and the issue is queued, so the stash must stay; only this transaction's view of
             // the Location needs to learn about it.
             CertificateLocationId linkId = new CertificateLocationId(location.getUuid(), certificate.getUuid());
@@ -1259,6 +1262,22 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
                 throw new IllegalStateException(e);
             }
         });
+    }
+
+    /**
+     * Removes the link committed before dispatch when the issue could not be queued, so no entry is left for a
+     * certificate that will never be issued.
+     */
+    private void unlinkCertificateInNewTransaction(UUID locationUuid, UUID certificateUuid) {
+        try {
+            transactionHandler
+                    .runInNewTransaction(() -> certificateLocationRepository
+                            .deleteById(new CertificateLocationId(locationUuid, certificateUuid)));
+        } catch (RuntimeException e) {
+            logger
+                    .warn("Failed to remove the link of certificate {} to location {}: {}", certificateUuid,
+                            locationUuid, e.getMessage());
+        }
     }
 
     private void addCertificateToLocation(Location location, Certificate certificate,

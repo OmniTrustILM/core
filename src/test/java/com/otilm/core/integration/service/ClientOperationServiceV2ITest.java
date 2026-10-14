@@ -102,6 +102,7 @@ import com.otilm.core.dao.repository.LocationRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
+import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.compliance.ComplianceResultDto;
 import com.otilm.core.model.crypto.AttributesWithOwner;
@@ -236,6 +237,9 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
     @MockitoSpyBean
     private CertificateInternalService certificateService;
+
+    @MockitoSpyBean
+    private ActionProducer actionProducer;
 
     @MockitoSpyBean
     private CertificateEventHistoryInternalService certificateEventHistoryService;
@@ -517,6 +521,24 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                                             seen.add(uuid);
                                             throw new IllegalStateException("link failed");
                                         }));
+
+        Assertions.assertEquals(1, seen.size());
+        Assertions
+                .assertEquals(CertificateState.FAILED,
+                        certificateRepository.findByUuid(seen.getFirst()).orElseThrow().getState());
+    }
+
+    @Test
+    void issueCertificate_failsTheCertificate_whenTheIssueCannotBeQueuedAfterTheBeforeDispatchStep() throws Exception {
+        stubIssueEndpoints();
+        doThrow(new IllegalStateException("broker down")).when(actionProducer).produceMessage(any());
+        List<UUID> seen = new ArrayList<>();
+
+        Assertions
+                .assertThrows(IllegalStateException.class,
+                        () -> clientOperationInternalService
+                                .issueCertificate(authorityInstanceReference.getSecuredParentUuid(),
+                                        raProfile.getSecuredUuid(), issueRequest(), null, seen::add));
 
         Assertions.assertEquals(1, seen.size());
         Assertions
