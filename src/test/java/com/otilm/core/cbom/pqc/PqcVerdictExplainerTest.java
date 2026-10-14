@@ -67,7 +67,7 @@ class PqcVerdictExplainerTest {
         when(repository.verdictRowsByUuids(List.of(ASSET)))
                 .thenReturn(List
                         .of(new PqcStaleVerdictRow(ASSET, CryptographicAssetType.UNROUTABLE, "unclassified", null, null,
-                                null, null, null, null, null, null, null, 1L)));
+                                null, null, null, null, null, null, null, 1L, null, null)));
 
         assertThat(explainer.explain(ASSET)).isEmpty();
     }
