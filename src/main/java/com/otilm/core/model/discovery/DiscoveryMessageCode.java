@@ -9,7 +9,7 @@ package com.otilm.core.model.discovery;
  * (see {@link DiscoveryMessageDraft}).
  *
  * <p>
- * Each code has exactly one producer, which owns the severity and the curated text that go with it.
+ * A code's producers all write it with the same severity; each writes its own curated text.
  */
 public enum DiscoveryMessageCode {
 
@@ -49,7 +49,7 @@ public enum DiscoveryMessageCode {
     /** How the run ended; the message is the terminal reason and the severity follows the terminal status. */
     RUN_ENDED("runEnded"),
 
-    /** A run metadata statement Core did not record: over the size cap, or malformed. */
+    /** Run metadata Core did not record: a statement over the size cap or malformed, or storing it failed. */
     RUN_METADATA_NOT_RECORDED("runMetadataNotRecorded"),
     /** A discovered key the pipeline could not turn into a key record. */
     KEY_IMPORT_FAILED("keyImportFailed"),

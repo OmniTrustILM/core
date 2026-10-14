@@ -263,6 +263,9 @@ public class DiscoveryStatusTickWorker {
                     .warn("Discovery {}: run metadata could not be recorded: {}", locked.getUuid(),
                             refused.getCause().getMessage());
             notRecorded(locked, "The connector's metadata about the run was refused and was not recorded.");
+        } catch (RuntimeException e) {
+            logger.warn("Discovery {}: run metadata could not be stored", locked.getUuid(), e);
+            notRecorded(locked, "The connector's metadata about the run could not be stored.");
         }
     }
 

@@ -37,6 +37,7 @@ import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.DiscoveryCheckpointFixture;
 import com.otilm.core.util.DiscoveryInterfaceFixture;
+import com.otilm.core.util.RefusedDefinitionInserts;
 import java.net.URI;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -45,11 +46,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
@@ -89,6 +93,14 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
     private ConnectorRepository connectorRepository;
     @Autowired
     private ConnectorInterfaceRepository connectorInterfaceRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @AfterEach
+    void cleanupRefusedDefinitionInserts() {
+        RefusedDefinitionInserts.remove(jdbcTemplate);
+    }
 
     @Test
     void runningAnswer_keepsTheRunInProgressAndRefreshesTheBudget() throws Exception {
@@ -684,6 +696,23 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         worker.tick(run.getUuid(), 0);
 
         assertThat(recordedMetadata(run)).containsExactly(entry("resolver", "10.0.0.53"));
+        assertThat(messageRepository.findAll())
+                .filteredOn(message -> message.getDiscoveryUuid().equals(run.getUuid()))
+                .extracting(DiscoveryMessage::getCode)
+                .containsExactly(DiscoveryMessageCode.RUN_METADATA_NOT_RECORDED.code());
+    }
+
+    /** A database fault arrives unchecked, unlike the engine's checked refusal, and is caught all the same. */
+    @Test
+    void aStatementTheDatabaseRefuses_isDroppedWithAMessageAndTheAnswerApplies() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        RefusedDefinitionInserts.install(jdbcTemplate);
+        answers(saying(DiscoveryRunState.RUNNING, RefusedDefinitionInserts.REFUSED_NAME, "x"));
+
+        assertThatCode(() -> worker.tick(run.getUuid(), 0)).doesNotThrowAnyException();
+
+        assertThat(reload(run).getConnectorState()).isEqualTo("running");
         assertThat(messageRepository.findAll())
                 .filteredOn(message -> message.getDiscoveryUuid().equals(run.getUuid()))
                 .extracting(DiscoveryMessage::getCode)
