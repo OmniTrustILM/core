@@ -497,12 +497,17 @@ class PqcEvaluatorTest {
                     .doesNotContainKey("parameterSet");
             assertThat(decision.reason()).contains("rather than a key size");
         }
-        JsonNode declaredKdf = component("algorithm", "AES-256",
-                "{\"algorithmProperties\":{\"primitive\":\"kdf\",\"parameterSetIdentifier\":\"256\"}}");
-        assertThat(verdictOf(declaredKdf).evaluatedFields())
-                .describedAs("a declared kdf primitive is the record's, whatever family it names")
-                .containsEntry("primitive", "kdf")
-                .doesNotContainKey("parameterSet");
+        for (String[] declared : new String[][]{{"128", "SYMMETRIC-UNDERSIZED"}, {"256", "SYMMETRIC-READY"}}) {
+            JsonNode declaredKdf = component("algorithm", "AES-" + declared[0],
+                    "{\"algorithmProperties\":{\"primitive\":\"kdf\",\"parameterSetIdentifier\":\"" + declared[0]
+                            + "\"}}");
+            PqcDecision decision = verdictOf(declaredKdf);
+            assertThat(decision.ruleId())
+                    .describedAs("a declared kdf the name does not corroborate leaves AES-%s its key length",
+                            declared[0])
+                    .isEqualTo(declared[1]);
+            assertThat(decision.evaluatedFields()).containsKey("parameterSet");
+        }
         assertThat(verdictOf(algorithm("HKDF-SHA256")).ruleId()).isEqualTo("SYMMETRIC-READY");
         assertThat(verdictOf(algorithm("HKDF")).ruleId()).isEqualTo("CONSTRUCTION-UNINSTANTIATED");
         PqcRuleInput kdfRow = evaluator

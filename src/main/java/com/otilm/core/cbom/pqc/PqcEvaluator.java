@@ -356,8 +356,7 @@ public class PqcEvaluator {
             this.construction = PqcFamilies.isConstruction(family);
             this.namedPrimitiveFamily = construction ? namedPrimitiveFamily(input) : null;
             this.namedPrimitive = construction ? namedPrimitive(input) : null;
-            this.nonKeyPrimitive = input.primitive() != null
-                    && PqcRules.NON_KEY_PRIMITIVES.contains(AsciiText.fold(input.primitive()));
+            this.nonKeyPrimitive = isCorroboratedNonKeyPrimitive(input, family);
             this.admissibleParameterSets = disposition == null || construction
                     ? null
                     : normalizer.admissibleParameterSets(input.name(), family);
@@ -928,6 +927,18 @@ public class PqcEvaluator {
             return fromVariant;
         }
         return stored;
+    }
+
+    /**
+     * A non-key primitive only where the name agrees: a declared {@code kdf} on {@code AES-128} would otherwise lift
+     * AES's key length out of the floor. A family with no primitive of its own takes the declaration.
+     */
+    private boolean isCorroboratedNonKeyPrimitive(PqcRuleInput input, String family) {
+        if (input.primitive() == null || !PqcRules.NON_KEY_PRIMITIVES.contains(AsciiText.fold(input.primitive()))) {
+            return false;
+        }
+        String spelled = primitiveTheNameSpells(input.name(), family);
+        return spelled == null || PqcRules.NON_KEY_PRIMITIVES.contains(AsciiText.fold(spelled));
     }
 
     /** The primitive an undeclared algorithm of this name would derive: the registry variant's, else the family's. */
