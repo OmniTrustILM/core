@@ -810,7 +810,8 @@ public record AssetNormalizer(IdentityTables tables) {
      * The corroboration does not depend on where the winning token came from. A real 1.7 fixture declares ML-KEM on
      * {@code ML-KEM-1024} while carrying a fabricated {@code id-aes256-wrap-pad} arc, and the arc's AES-256 size then
      * overwrote the parameter set with 256 -- a factually wrong stored value for a 1024-bit KEM, and a guaranteed split
-     * from the same asset's 1.6 rendering, which refutes the arc correctly.
+     * from the same asset's 1.6 rendering, which refutes the arc correctly. A contradiction is reported to the
+     * producer.
      */
     private IdentityTables.OidEntry settle(NormalizedAsset norm, String winner, String source, String fromOid,
             IdentityTables.OidEntry entry) {
@@ -819,6 +820,12 @@ public record AssetNormalizer(IdentityTables tables) {
         norm.setFamily(winner);
         norm.setFamilySource(source);
         norm.setOidConflict(contradicts);
+        if (contradicts) {
+            String witness = "producer".equals(source) ? "declared algorithmFamily" : "component name";
+            norm
+                    .finding("the oid names the " + fromOid + " family while the " + witness + " reads as " + winner
+                            + "; the oid was refuted");
+        }
         // A refuted OID forfeits every further contribution: if it is wrong about the family there is no reason to
         // trust its size, mode or curve.
         return contradicts ? null : entry;

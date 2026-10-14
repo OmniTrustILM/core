@@ -224,6 +224,20 @@ class NormalizationRulesTest {
         assertThat(keyOf(component)).describedAs("a refuted arc contributes nothing").isEqualTo(keyOfAlgorithm(name));
     }
 
+    /** A declared family the arc contradicts refutes the arc and is reported, as a contradicting name is. */
+    @ParameterizedTest
+    @CsvSource({"ML-DSA-65, ML-DSA, ML-DSA, declared algorithmFamily", "RSAES-OAEP, RSA, RSAES-OAEP, component name"})
+    void anArcTheDeclaredFamilyContradictsIsRefutedAndReported(String name, String declared, String family,
+            String witness) {
+        JsonNode component = algorithmComponent(name, "{\"algorithmFamily\":\"" + declared + "\"}",
+                "\"oid\":\"1.2.840.10045.4.3.2\",");
+        NormalizedAsset asset = normalize(component);
+
+        assertThat(asset.family()).isEqualTo(family);
+        assertThat(asset.oidConflict()).isTrue();
+        assertThat(asset.findings()).singleElement().asString().contains(family).contains(witness).contains("refuted");
+    }
+
     /** A declared size the family defines stands even against the size the name spells; the clash is reported. */
     @Test
     void aDeclaredAdmissibleSizeOutranksTheSpelledOneAndIsReported() {
