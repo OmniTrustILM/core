@@ -14,6 +14,7 @@ import com.otilm.core.dao.repository.CbomRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.evaluator.CryptoAssetTriggerEvaluator;
+import com.otilm.core.model.cbom.CryptoAssetIdentityGuard;
 import com.otilm.core.service.writer.cbom.CryptoAssetSourceWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetWriter;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -155,11 +156,82 @@ class CryptoAssetTriggerEvaluatorITest extends BaseSpringBootTest {
                 .isFalse();
     }
 
+    @ParameterizedTest
+    @CsvSource({
+            "REFUTED_OID, EQUALS, true, true",
+            "REFUTED_OID, EQUALS, false, false",
+            "REFUTED_OID, NOT_EQUALS, true, false",
+            "REFUTED_OID, NOT_EQUALS, false, true",
+            "BARE_CN_SUBJECT, EQUALS, true, false",
+            "BARE_CN_SUBJECT, EQUALS, false, true",
+            ", EQUALS, true, false",
+            ", EQUALS, false, true",
+            ", NOT_EQUALS, true, true",
+            ", NOT_EQUALS, false, false"})
+    void oidRefutedMatchesTheInventoryFilter(CryptoAssetIdentityGuard guard, FilterConditionOperator operator,
+            boolean value, boolean expected) throws Exception {
+        CryptoAsset guarded = asset("guarded", CryptographicAssetType.ALGORITHM, guard);
+
+        assertThat(evaluator
+                .evaluateConditionItem(condition(FilterField.CBOM_ASSET_OID_REFUTED, operator, value), guarded,
+                        Resource.CRYPTO_ASSET))
+                .isEqualTo(expected);
+    }
+
+    @Test
+    void oidRefutedAcceptsATextBoolean() throws Exception {
+        CryptoAsset refuted = asset("refuted", CryptographicAssetType.ALGORITHM, CryptoAssetIdentityGuard.REFUTED_OID);
+
+        assertThat(evaluator
+                .evaluateConditionItem(
+                        condition(FilterField.CBOM_ASSET_OID_REFUTED, FilterConditionOperator.EQUALS, "TRUE"), refuted,
+                        Resource.CRYPTO_ASSET))
+                .isTrue();
+    }
+
+    @Test
+    void oidRefutedRejectsOperatorsTheInventoryFilterRefuses() {
+        assertThatThrownBy(() -> evaluator
+                .evaluateConditionItem(
+                        condition(FilterField.CBOM_ASSET_OID_REFUTED, FilterConditionOperator.NOT_EMPTY, null), asset,
+                        Resource.CRYPTO_ASSET))
+                .isInstanceOf(RuleException.class);
+    }
+
+    @Test
+    void oidRefutedRejectsAValueThatIsNotASingleBoolean() {
+        assertThatThrownBy(() -> evaluator
+                .evaluateConditionItem(
+                        condition(FilterField.CBOM_ASSET_OID_REFUTED, FilterConditionOperator.EQUALS, List.of(true)),
+                        asset, Resource.CRYPTO_ASSET))
+                .isInstanceOf(RuleException.class);
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "UNROUTABLE, EMPTY, true",
+            "UNROUTABLE, NOT_EMPTY, false",
+            "ALGORITHM, EMPTY, false",
+            "ALGORITHM, NOT_EMPTY, true"})
+    void anUnroutableAssetTypeIsEmptyAsInTheInventoryFilter(CryptographicAssetType type,
+            FilterConditionOperator operator, boolean expected) throws Exception {
+        CryptoAsset typed = asset("typed-" + type, type, null);
+
+        assertThat(evaluator
+                .evaluateConditionItem(condition(FilterField.CBOM_ASSET_TYPE, operator, null), typed,
+                        Resource.CRYPTO_ASSET))
+                .isEqualTo(expected);
+    }
+
     private CryptoAsset asset(String name) {
-        CryptoAssetIdentityFields fields = new CryptoAssetIdentityFields(CryptographicAssetType.ALGORITHM, name, null,
-                null, null, null, null, null, null, null);
+        return asset(name, CryptographicAssetType.ALGORITHM, null);
+    }
+
+    private CryptoAsset asset(String name, CryptographicAssetType type, CryptoAssetIdentityGuard guard) {
+        CryptoAssetIdentityFields fields = new CryptoAssetIdentityFields(type, name, null, null, null, null, null, null,
+                null, null);
         return assetRepository
-                .findById(assetWriter.upsertIdentity(AssetRowKeys.forFields(fields), fields, null))
+                .findById(assetWriter.upsertIdentity(AssetRowKeys.forFields(fields), fields, guard))
                 .orElseThrow();
     }
 
