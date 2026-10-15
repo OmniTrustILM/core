@@ -279,7 +279,7 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
             }
             scheduledJobsRepository.save(scheduledJob);
         } else {
-            throw new NotFoundException("There is no such scheduled job {}", uuid);
+            throw new NotFoundException(ScheduledJob.class, uuid);
         }
     }
 
