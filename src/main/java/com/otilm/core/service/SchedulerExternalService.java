@@ -1,5 +1,6 @@
 package com.otilm.core.service;
 
+import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.SchedulerException;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
@@ -29,5 +30,5 @@ public interface SchedulerExternalService {
             throws NotFoundException, SchedulerException;
 
     ScheduledJobDetailDto registerScheduledJob(Class<? extends ScheduledJobTask> scheduledJobTaskClass, String jobName,
-            String cronExpression, boolean oneTime, Object taskData) throws SchedulerException;
+            String cronExpression, boolean oneTime, Object taskData) throws SchedulerException, AlreadyExistException;
 }

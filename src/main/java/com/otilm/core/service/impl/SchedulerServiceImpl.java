@@ -1,6 +1,7 @@
 package com.otilm.core.service.impl;
 
 import com.otilm.api.clients.SchedulerApiClient;
+import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.ConnectionServiceException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.PlatformException;
@@ -46,6 +47,7 @@ import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
+import java.net.ConnectException;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -295,9 +297,81 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
     @ExternalAuthorization(resource = Resource.SCHEDULED_JOB, action = ResourceAction.CREATE)
     public ScheduledJobDetailDto registerScheduledJob(final Class<? extends ScheduledJobTask> scheduledJobTaskClass,
             final String jobName, final String cronExpression, final boolean oneTime, final Object taskData)
-            throws SchedulerException {
+            throws SchedulerException, AlreadyExistException {
         final ScheduledJobTask scheduledJobTask = applicationContext.getBean(scheduledJobTaskClass);
-        return registerScheduler(scheduledJobTask, jobName, cronExpression, oneTime, taskData);
+        // A system job registering again on boot gets the existing job back; a caller here does not, since answering
+        // with the existing job would drop the caller's schedule and data without a word.
+        if (scheduledJobsRepository.findByJobName(jobName).isPresent()) {
+            throw jobNameTaken(jobName);
+        }
+
+        // The row goes in before the scheduler is asked, so the unique job name decides between two callers racing
+        // for one name, and the loser never puts its schedule in the scheduler under the winner's job.
+        final ScheduledJob scheduledJob = newScheduledJob(scheduledJobTask, jobName, cronExpression, oneTime, taskData);
+        try {
+            scheduledJobsRepository.save(scheduledJob);
+        } catch (DataIntegrityViolationException e) {
+            // Called for its throw: a refusal that is not the lost race must not be reported as a taken name.
+            insertRaceWinner(jobName, e);
+            throw jobNameTaken(jobName);
+        }
+
+        try {
+            schedulerApiClient
+                    .schedulerCreate(new SchedulerRequestDto(
+                            new SchedulerJobDto(jobName, cronExpression, scheduledJobTask.getJobClassName())));
+        } catch (SchedulerException | RuntimeException e) {
+            if (refusedBeforeStoring(e)) {
+                removeRefused(scheduledJob, e);
+            } else {
+                // The scheduler may have stored the job and fired its trigger before its answer was lost, and a run
+                // that started keeps its history on this row, so the job stays; its schedule state shows which it is.
+                logger
+                        .warn("Scheduled job '{}' was saved, but the scheduler's answer to creating it was lost; check its schedule state, and delete it to try again",
+                                jobName);
+            }
+            throw e;
+        }
+
+        logger.info("Scheduled job '{}' was registered.", jobName);
+        return registrationOf(scheduledJob);
+    }
+
+    /**
+     * Whether the scheduler certainly stored nothing: it answered with a client error, such as the 422 for an invalid
+     * cron expression, or the connection to it was refused.
+     */
+    private static boolean refusedBeforeStoring(final Exception failure) {
+        final Throwable cause = Exceptions.unwrap(failure);
+        if (cause instanceof ValidationException) {
+            return true;
+        }
+        if (cause instanceof ConnectionServiceException answer) {
+            return answer.getHttpStatus() != null && answer.getHttpStatus().is4xxClientError();
+        }
+        for (Throwable t = cause; t != null; t = t.getCause()) {
+            if (t instanceof ConnectException) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Removes the row of a job the scheduler refused, which would otherwise never run and keep its name taken. */
+    private void removeRefused(final ScheduledJob scheduledJob, final Exception refusal) {
+        try {
+            scheduledJobsRepository.delete(scheduledJob);
+        } catch (RuntimeException cleanup) {
+            // A 422 refusal is logged by its handler without the suppressed failures, so this is the only trace.
+            logger
+                    .error("Scheduled job '{}' was not scheduled and its row could not be removed; delete the job to free its name",
+                            scheduledJob.getJobName(), cleanup);
+            refusal.addSuppressed(cleanup);
+        }
+    }
+
+    private static AlreadyExistException jobNameTaken(final String jobName) {
+        return new AlreadyExistException("Scheduled job with name '" + jobName + "' already exists");
     }
 
     /**
@@ -522,21 +596,8 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
             return registrationOf(scheduledJob.get());
         }
 
-        ScheduledJob scheduledJobEntity = new ScheduledJob();
-        scheduledJobEntity.setJobName(jobName);
-        scheduledJobEntity.setCronExpression(cronExpression);
-        scheduledJobEntity.setObjectData(taskData);
-        scheduledJobEntity.setOneTime(oneTime);
-        scheduledJobEntity.setEnabled(true);
-        scheduledJobEntity.setSystem(scheduledJobTask.isSystemJob());
-        scheduledJobEntity.setJobClassName(scheduledJobTask.getJobClassName());
-
-        try {
-            scheduledJobEntity.setUserUuid(UUID.fromString(AuthHelper.getUserIdentification().getUuid()));
-        } catch (ValidationException ignored) {
-            scheduledJobEntity.setUserUuid(null);
-        }
-
+        final ScheduledJob scheduledJobEntity = newScheduledJob(scheduledJobTask, jobName, cronExpression, oneTime,
+                taskData);
         try {
             scheduledJobsRepository.save(scheduledJobEntity);
         } catch (DataIntegrityViolationException e) {
@@ -545,15 +606,38 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
             // findByJobName throwing IncorrectResultSizeDataAccessException on every trigger, enable, disable and
             // delete of that job, silently, for as long as the estate lives. Losing the insert is the right outcome
             // -- the job is registered, which is all the caller asked for.
-            return registeredElsewhere(jobName, e);
+            final ScheduledJob winner = insertRaceWinner(jobName, e);
+            logger
+                    .info("Scheduled job '{}' was registered by another node while this one was registering it.",
+                            jobName);
+            return registrationOf(winner);
         }
 
         logger.info("Scheduled job '{}' was registered.", jobName);
         return registrationOf(scheduledJobEntity);
     }
 
-    /** The registration another node won, re-read after this node's insert lost to it. */
-    private ScheduledJobDetailDto registeredElsewhere(final String jobName, final DataIntegrityViolationException cause)
+    private static ScheduledJob newScheduledJob(final ScheduledJobTask scheduledJobTask, final String jobName,
+            final String cronExpression, final boolean oneTime, final Object taskData) {
+        final ScheduledJob scheduledJob = new ScheduledJob();
+        scheduledJob.setJobName(jobName);
+        scheduledJob.setCronExpression(cronExpression);
+        scheduledJob.setObjectData(taskData);
+        scheduledJob.setOneTime(oneTime);
+        scheduledJob.setEnabled(true);
+        scheduledJob.setSystem(scheduledJobTask.isSystemJob());
+        scheduledJob.setJobClassName(scheduledJobTask.getJobClassName());
+
+        try {
+            scheduledJob.setUserUuid(UUID.fromString(AuthHelper.getUserIdentification().getUuid()));
+        } catch (ValidationException ignored) {
+            scheduledJob.setUserUuid(null);
+        }
+        return scheduledJob;
+    }
+
+    /** The row that took the job name, re-read after this insert lost to it. */
+    private ScheduledJob insertRaceWinner(final String jobName, final DataIntegrityViolationException cause)
             throws SchedulerException {
         final Optional<ScheduledJob> winner = scheduledJobsRepository.findByJobName(jobName);
         if (winner.isEmpty()) {
@@ -562,8 +646,7 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
             logger.error("Scheduled job '{}' could not be registered", jobName, cause);
             throw new SchedulerException("Scheduled job could not be registered: " + jobName);
         }
-        logger.info("Scheduled job '{}' was registered by another node while this one was registering it.", jobName);
-        return registrationOf(winner.get());
+        return winner.get();
     }
 
     /**

@@ -435,7 +435,7 @@ class SchedulerServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void testRegisterScheduledJobAndOperations() throws SchedulerException, NotFoundException {
+    void testRegisterScheduledJobAndOperations() throws SchedulerException, NotFoundException, AlreadyExistException {
         final String jobName = "TestDiscoveryScheduled";
         final String cronExpressionUpdate = "0 0/30 * * * ? *";
 
@@ -479,6 +479,26 @@ class SchedulerServiceITest extends BaseSpringBootTest {
                 .listScheduledJobs(SecurityFilter.create(), new PaginationRequestDto());
         Assertions.assertEquals(0, listResponse.getTotalItems());
         Assertions.assertFalse(scheduledJobHistoryRepository.existsByScheduledJobUuid(jobDetailDto.getUuid()));
+    }
+
+    @Test
+    void testRegisterScheduledJobRefusesATakenJobName()
+            throws SchedulerException, NotFoundException, AlreadyExistException {
+        final String jobName = "TestDiscoveryScheduledTwice";
+        schedulerMock
+                .stubFor(WireMock.post(WireMock.urlPathMatching("/v1/scheduler/create")).willReturn(WireMock.ok()));
+
+        ScheduledJobDetailDto first = schedulerService
+                .registerScheduledJob(DiscoveryCertificateTask.class, jobName, "0 0 3 1 1 ? 2099", false, null);
+
+        Assertions
+                .assertThrows(AlreadyExistException.class, () -> schedulerService
+                        .registerScheduledJob(DiscoveryCertificateTask.class, jobName, "0 0 4 2 2 ? 2098", true, null));
+
+        ScheduledJobDetailDto kept = schedulerService.getScheduledJobDetail(first.getUuid().toString());
+        Assertions.assertEquals("0 0 3 1 1 ? 2099", kept.getCronExpression());
+        Assertions.assertFalse(kept.isOneTime());
+        schedulerMock.verify(1, WireMock.postRequestedFor(WireMock.urlPathMatching("/v1/scheduler/create")));
     }
 
     @Test
